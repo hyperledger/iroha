@@ -605,7 +605,9 @@ impl Client {
             let mut event_iterator = {
                 let event_iterator_result = tokio::time::timeout_at(
                     deadline,
-                    self.listen_for_events_async(PipelineEventFilter::new().hash(hash.into())),
+                    self.listen_for_events_async(
+                        PipelineEventFilter::new().from_entity_with_hash(hash.into()),
+                    ),
                 )
                 .await
                 .map_err(Into::into)
@@ -917,7 +919,7 @@ impl Client {
     /// - Forwards from [`events_api::AsyncEventStream::new`]
     pub async fn listen_for_events_async(
         &self,
-        event_filter: impl Into<EventFilterBox>,
+        event_filter: impl Into<EventFilterBox> + Send,
     ) -> Result<AsyncEventStream> {
         let event_filter = event_filter.into();
         iroha_logger::trace!(?event_filter, "Async listening with");

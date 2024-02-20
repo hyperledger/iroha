@@ -97,47 +97,47 @@
   "AccountEventMatcher": {
     "Enum": [
       {
-        "tag": "ByCreated",
+        "tag": "Created",
         "discriminant": 0
       },
       {
-        "tag": "ByDeleted",
+        "tag": "Deleted",
         "discriminant": 1
       },
       {
-        "tag": "ByAuthenticationAdded",
+        "tag": "AuthenticationAdded",
         "discriminant": 2
       },
       {
-        "tag": "ByAuthenticationRemoved",
+        "tag": "AuthenticationRemoved",
         "discriminant": 3
       },
       {
-        "tag": "ByPermissionAdded",
+        "tag": "PermissionAdded",
         "discriminant": 4
       },
       {
-        "tag": "ByPermissionRemoved",
+        "tag": "PermissionRemoved",
         "discriminant": 5
       },
       {
-        "tag": "ByRoleRevoked",
+        "tag": "RoleRevoked",
         "discriminant": 6
       },
       {
-        "tag": "ByRoleGranted",
+        "tag": "RoleGranted",
         "discriminant": 7
       },
       {
-        "tag": "ByMetadataInserted",
+        "tag": "MetadataInserted",
         "discriminant": 8
       },
       {
-        "tag": "ByMetadataRemoved",
+        "tag": "MetadataRemoved",
         "discriminant": 9
       },
       {
-        "tag": "ByAssetAny",
+        "tag": "AnyAsset",
         "discriminant": 10
       }
     ]
@@ -360,31 +360,31 @@
   "AssetDefinitionEventMatcher": {
     "Enum": [
       {
-        "tag": "ByCreated",
+        "tag": "Created",
         "discriminant": 0
       },
       {
-        "tag": "ByMintabilityChanged",
+        "tag": "MintabilityChanged",
         "discriminant": 1
       },
       {
-        "tag": "ByOwnerChanged",
+        "tag": "OwnerChanged",
         "discriminant": 2
       },
       {
-        "tag": "ByDeleted",
+        "tag": "Deleted",
         "discriminant": 3
       },
       {
-        "tag": "ByMetadataInserted",
+        "tag": "MetadataInserted",
         "discriminant": 4
       },
       {
-        "tag": "ByMetadataRemoved",
+        "tag": "MetadataRemoved",
         "discriminant": 5
       },
       {
-        "tag": "ByTotalQuantityChanged",
+        "tag": "TotalQuantityChanged",
         "discriminant": 6
       }
     ]
@@ -474,27 +474,27 @@
   "AssetEventMatcher": {
     "Enum": [
       {
-        "tag": "ByCreated",
+        "tag": "Created",
         "discriminant": 0
       },
       {
-        "tag": "ByDeleted",
+        "tag": "Deleted",
         "discriminant": 1
       },
       {
-        "tag": "ByAdded",
+        "tag": "Added",
         "discriminant": 2
       },
       {
-        "tag": "ByRemoved",
+        "tag": "Removed",
         "discriminant": 3
       },
       {
-        "tag": "ByMetadataInserted",
+        "tag": "MetadataInserted",
         "discriminant": 4
       },
       {
-        "tag": "ByMetadataRemoved",
+        "tag": "MetadataRemoved",
         "discriminant": 5
       }
     ]
@@ -785,41 +785,41 @@
   "DataEventFilter": {
     "Enum": [
       {
-        "tag": "ByAny",
+        "tag": "Any",
         "discriminant": 0
       },
       {
-        "tag": "ByPeer",
+        "tag": "Peer",
         "discriminant": 1,
         "type": "PeerEventFilter"
       },
       {
-        "tag": "ByDomain",
+        "tag": "Domain",
         "discriminant": 2,
         "type": "DomainEventFilter"
       },
       {
-        "tag": "ByAccount",
+        "tag": "Account",
         "discriminant": 3,
         "type": "AccountEventFilter"
       },
       {
-        "tag": "ByAsset",
+        "tag": "Asset",
         "discriminant": 4,
         "type": "AssetEventFilter"
       },
       {
-        "tag": "ByAssetDefinition",
+        "tag": "AssetDefinition",
         "discriminant": 5,
         "type": "AssetDefinitionEventFilter"
       },
       {
-        "tag": "ByTrigger",
+        "tag": "Trigger",
         "discriminant": 6,
         "type": "TriggerEventFilter"
       },
       {
-        "tag": "ByRole",
+        "tag": "Role",
         "discriminant": 7,
         "type": "RoleEventFilter"
       }
@@ -911,31 +911,31 @@
   "DomainEventMatcher": {
     "Enum": [
       {
-        "tag": "ByCreated",
+        "tag": "Created",
         "discriminant": 0
       },
       {
-        "tag": "ByDeleted",
+        "tag": "Deleted",
         "discriminant": 1
       },
       {
-        "tag": "ByMetadataInserted",
+        "tag": "MetadataInserted",
         "discriminant": 2
       },
       {
-        "tag": "ByMetadataRemoved",
+        "tag": "MetadataRemoved",
         "discriminant": 3
       },
       {
-        "tag": "ByOwnerChanged",
+        "tag": "OwnerChanged",
         "discriminant": 4
       },
       {
-        "tag": "ByAccountAny",
+        "tag": "AnyAccount",
         "discriminant": 5
       },
       {
-        "tag": "ByAssetDefinitionAny",
+        "tag": "AnyAssetDefinition",
         "discriminant": 6
       }
     ]
@@ -1064,11 +1064,11 @@
     "Struct": [
       {
         "name": "trigger_id",
-        "type": "TriggerId"
+        "type": "Option<TriggerId>"
       },
       {
         "name": "authority",
-        "type": "AccountId"
+        "type": "Option<AccountId>"
       }
     ]
   },
@@ -2521,11 +2521,11 @@
   "PeerEventMatcher": {
     "Enum": [
       {
-        "tag": "ByAdded",
+        "tag": "Added",
         "discriminant": 0
       },
       {
-        "tag": "ByRemoved",
+        "tag": "Removed",
         "discriminant": 1
       }
     ]
@@ -3325,15 +3325,15 @@
   "RoleEventMatcher": {
     "Enum": [
       {
-        "tag": "ByCreated",
+        "tag": "Created",
         "discriminant": 0
       },
       {
-        "tag": "ByDeleted",
+        "tag": "Deleted",
         "discriminant": 1
       },
       {
-        "tag": "ByPermissionRemoved",
+        "tag": "PermissionRemoved",
         "discriminant": 2
       }
     ]
@@ -4058,19 +4058,19 @@
   "TriggerEventMatcher": {
     "Enum": [
       {
-        "tag": "ByCreated",
+        "tag": "Created",
         "discriminant": 0
       },
       {
-        "tag": "ByDeleted",
+        "tag": "Deleted",
         "discriminant": 1
       },
       {
-        "tag": "ByExtended",
+        "tag": "Extended",
         "discriminant": 2
       },
       {
-        "tag": "ByShortened",
+        "tag": "Shortened",
         "discriminant": 3
       }
     ]

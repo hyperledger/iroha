@@ -138,7 +138,7 @@ fn transaction_execution_should_produce_events(
     let listener = client.clone();
     let (init_sender, init_receiver) = mpsc::channel();
     let (event_sender, event_receiver) = mpsc::channel();
-    let event_filter = DataEventFilter::ByAny;
+    let event_filter = DataEventFilter::Any;
     thread::spawn(move || -> Result<()> {
         let event_iterator = listener.listen_for_events(event_filter)?;
         init_sender.send(())?;
@@ -182,7 +182,7 @@ fn produce_multiple_events() -> Result<()> {
     let listener = client.clone();
     let (init_sender, init_receiver) = mpsc::channel();
     let (event_sender, event_receiver) = mpsc::channel();
-    let event_filter = DataEventFilter::ByAny;
+    let event_filter = DataEventFilter::Any;
     thread::spawn(move || -> Result<()> {
         let event_iterator = listener.listen_for_events(event_filter)?;
         init_sender.send(())?;

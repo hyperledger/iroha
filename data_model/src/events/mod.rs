@@ -68,7 +68,18 @@ pub mod model {
     /// Event filter.
     #[allow(variant_size_differences)]
     #[derive(
-        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
     // TODO: Temporarily made opaque
     #[ffi_type(opaque)]
@@ -88,7 +99,18 @@ pub mod model {
     /// Event filter which could be attached to trigger.
     #[allow(variant_size_differences)]
     #[derive(
-        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
     // TODO: Temporarily made opaque
     #[ffi_type(opaque)]

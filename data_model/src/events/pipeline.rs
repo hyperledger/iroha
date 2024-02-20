@@ -28,6 +28,7 @@ pub mod model {
         PartialOrd,
         Ord,
         Default,
+        Getters,
         Decode,
         Encode,
         Serialize,
@@ -154,33 +155,37 @@ pub mod model {
 }
 
 impl PipelineEventFilter {
-    /// Construct [`EventFilter`].
+    /// Creates a new [`PipelineEventFilter`] accepting all [`PipelineEvent`]s
     #[must_use]
     #[inline]
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        Self {
+            status_kind: None,
+            entity_kind: None,
+            hash: None,
+        }
     }
 
-    /// Filter by [`EntityKind`].
+    /// Modifies a [`PipelineEventFilter`] to accept only [`PipelineEvent`]s originating from a specific entity kind (block/transaction).
     #[must_use]
     #[inline]
-    pub const fn entity_kind(mut self, entity_kind: PipelineEntityKind) -> Self {
+    pub const fn from_entity_of_kind(mut self, entity_kind: PipelineEntityKind) -> Self {
         self.entity_kind = Some(entity_kind);
         self
     }
 
-    /// Filter by [`StatusKind`].
+    /// Modifies a [`PipelineEventFilter`] to accept only [`PipelineEvent`]s with a specific status.
     #[must_use]
     #[inline]
-    pub const fn status_kind(mut self, status_kind: PipelineStatusKind) -> Self {
+    pub const fn with_status(mut self, status_kind: PipelineStatusKind) -> Self {
         self.status_kind = Some(status_kind);
         self
     }
 
-    /// Filter by [`struct@Hash`].
+    /// Modifies a [`PipelineEventFilter`] to accept only [`PipelineEvent`]s originating from an entity with specified hash.
     #[must_use]
     #[inline]
-    pub const fn hash(mut self, hash: Hash) -> Self {
+    pub const fn from_entity_with_hash(mut self, hash: Hash) -> Self {
         self.hash = Some(hash);
         self
     }
@@ -277,7 +282,7 @@ mod tests {
             events
                 .iter()
                 .filter(|&event| PipelineEventFilter::new()
-                    .hash(Hash::prehashed([0_u8; Hash::LENGTH]))
+                    .from_entity_with_hash(Hash::prehashed([0_u8; Hash::LENGTH]))
                     .matches(event))
                 .cloned()
                 .collect::<Vec<PipelineEvent>>()
@@ -291,7 +296,7 @@ mod tests {
             events
                 .iter()
                 .filter(|&event| PipelineEventFilter::new()
-                    .entity_kind(PipelineEntityKind::Block)
+                    .from_entity_of_kind(PipelineEntityKind::Block)
                     .matches(event))
                 .cloned()
                 .collect::<Vec<PipelineEvent>>()
@@ -305,8 +310,8 @@ mod tests {
             events
                 .iter()
                 .filter(|&event| PipelineEventFilter::new()
-                    .entity_kind(PipelineEntityKind::Transaction)
-                    .hash(Hash::prehashed([2_u8; Hash::LENGTH]))
+                    .from_entity_of_kind(PipelineEntityKind::Transaction)
+                    .from_entity_with_hash(Hash::prehashed([2_u8; Hash::LENGTH]))
                     .matches(event))
                 .cloned()
                 .collect::<Vec<PipelineEvent>>()

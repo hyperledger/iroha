@@ -17,9 +17,9 @@
         "authority": "alice@wonderland",
         "filter": {
             "Data": {
-                "ByDomain": {
-                    "origin_filter": null,
-                    "event_filter": "ByAccount"
+                "Domain": {
+                    "id_matcher": null,
+                    "event_matcher": "AnyAccount"
                 }
             }
         },
