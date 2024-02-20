@@ -81,5 +81,3 @@ jobs:
         working-directory: client_cli/pytests
         run: |
           poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
-
-

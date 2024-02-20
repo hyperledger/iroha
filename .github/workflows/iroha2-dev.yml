@@ -10,7 +10,7 @@ env:
 
 jobs:
   registry:
-    runs-on: [self-hosted, Linux, iroha2-dev-push]
+    runs-on: [self-hosted, Linux, iroha2]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
