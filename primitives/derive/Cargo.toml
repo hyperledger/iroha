@@ -15,6 +15,7 @@ quote = { workspace = true }
 syn2 = { workspace = true }
 manyhow = { workspace = true }
 proc-macro2 = { workspace = true }
+iroha_numeric = { path = "../numeric", default-features = false }
 
 [dev-dependencies]
 # needed for doc-tests to pass
