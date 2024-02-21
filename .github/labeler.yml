@@ -1,0 +1,17 @@
+iroha2:
+  - base-branch: '^iroha2.*$'
+
+api-changes:
+  - all:
+    - base-branch: '^iroha2-dev$'
+    - changed-files:
+      - any-glob-to-any-file:
+        - 'docs/source/references/schema.json'
+        - 'torii/src/**'
+        - 'torii/const/src/**'
+
+config-changes:
+  - all:
+    - base-branch: '^iroha2-dev$'
+    - changed-files:
+      - any-glob-to-any-file: 'configs/**'
