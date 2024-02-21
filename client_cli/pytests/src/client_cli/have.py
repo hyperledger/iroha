@@ -123,7 +123,7 @@ def asset_has_quantity(expected_asset_id, expected_quantity):
         actual_quantity = None
         for asset_item in assets:
             if asset_item == expected_asset_id:
-                actual_quantity = assets.get(expected_asset_id, {})["value"]["Quantity"]
+                actual_quantity = assets.get(expected_asset_id, {})["value"]["Numeric"]
                 break
         if actual_quantity is None:
             raise ValueError(f"Asset with ID {expected_asset_id} not found.")

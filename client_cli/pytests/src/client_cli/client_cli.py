@@ -178,9 +178,7 @@ class ClientCli:
                 + "@"
                 + asset_definition.domain
             )
-            self.command.append(
-                "--" + asset_definition.value_type.lower() + "=" + value_of_value_type
-            )
+            self.command.append("--quantity=" + value_of_value_type)
             self.execute()
         return self
 

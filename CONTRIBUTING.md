@@ -43,7 +43,7 @@ When you create a new issue, there is a template for you to fill in. Here's the 
 For each bug, you should provide a [minimum working example](https://en.wikipedia.org/wiki/Minimal_working_example). For example:
 
 ```
-# Minting negative Assets with value type `Fixed`.
+# Minting negative Assets with value spec `Numeric`.
 
 I was able to mint negative values, which shouldn't be possible in Iroha. This is bad because <X>.
 

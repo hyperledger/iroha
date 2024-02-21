@@ -20,7 +20,7 @@ class Stderr(Enum):
     TOO_LONG = "Name length violation"
     FAILED_TO_FIND_DOMAIN = "Failed to find domain"
     INVALID_CHARACTER = "Invalid character"
-    INVALID_VALUE_TYPE = "Matching variant not found"
+    INVALID_VALUE_TYPE = "should be either `Store` or `Numeric`"
     RESERVED_CHARACTER = (
         "The `@` character is reserved for `account@domain` constructs,"
         " `#` — for `asset#domain` and `$` — for `trigger$domain`."
@@ -44,8 +44,5 @@ class ValueTypes(Enum):
     Enum for value types used in the application.
     """
 
-    QUANTITY = "Quantity"  # unsigned 32-bit integer
     STORE = "Store"  # storing key-values in object's metadata
-    BIG_QUANTITY = "BigQuantity"  # unsigned 128-bit integer
-    # FIXED = 'Fixed' 64-bit fixed-precision number with
-    # nine significant digits after the decimal point
+    NUMERIC = "Numeric"  # 96bit decimal value with optional decimal point
