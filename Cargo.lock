@@ -3069,6 +3069,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_numeric"
+version = "2.0.0-pre-rc.20"
+dependencies = [
+ "derive_more",
+ "displaydoc",
+ "iroha_ffi",
+ "iroha_schema",
+ "parity-scale-codec",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "thiserror",
+]
+
+[[package]]
 name = "iroha_p2p"
 version = "2.0.0-pre-rc.20"
 dependencies = [
@@ -3098,10 +3114,10 @@ dependencies = [
  "displaydoc",
  "iroha_ffi",
  "iroha_macro",
+ "iroha_numeric",
  "iroha_primitives_derive",
  "iroha_schema",
  "parity-scale-codec",
- "rust_decimal",
  "serde",
  "serde_json",
  "serde_with",
@@ -3115,6 +3131,7 @@ dependencies = [
 name = "iroha_primitives_derive"
 version = "2.0.0-pre-rc.20"
 dependencies = [
+ "iroha_numeric",
  "iroha_primitives",
  "manyhow",
  "proc-macro2",
