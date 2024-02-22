@@ -39,7 +39,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     client.submit_all([create_domain, create_account, create_asset])?;
     thread::sleep(pipeline_time * 3);
     //When
-    let quantity = Numeric::new(200, 0);
+    let quantity = numeric!(200);
     client.submit(Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),

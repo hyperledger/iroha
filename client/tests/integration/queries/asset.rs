@@ -50,10 +50,10 @@ fn find_asset_total_quantity() -> Result<()> {
         &accounts,
         "quantity#wonderland",
         AssetValueType::Numeric(NumericSpec::default()),
-        Numeric::new(1, 0),
-        Numeric::new(10, 0),
-        Numeric::new(5, 0),
-        Numeric::new(30, 0),
+        numeric!(1),
+        numeric!(10),
+        numeric!(5),
+        numeric!(30),
         Mint::asset_numeric,
         Burn::asset_numeric,
     )?;
@@ -62,10 +62,10 @@ fn find_asset_total_quantity() -> Result<()> {
         &accounts,
         "fixed#wonderland",
         AssetValueType::Numeric(NumericSpec::default()),
-        Numeric::new(10, 1),
-        Numeric::new(100, 1),
-        Numeric::new(50, 1),
-        Numeric::new(300, 1),
+        numeric!(1.0),
+        numeric!(10.0),
+        numeric!(5.0),
+        numeric!(30.0),
         Mint::asset_numeric,
         Burn::asset_numeric,
     )?;
@@ -99,7 +99,7 @@ fn find_asset_total_quantity() -> Result<()> {
     let result = test_client.request(FindTotalAssetQuantityByAssetDefinitionId::new(
         definition_id.clone(),
     ))?;
-    assert_eq!(Numeric::new(5, 0), result);
+    assert_eq!(numeric!(5), result);
 
     let unregister_assets = asset_ids
         .iter()

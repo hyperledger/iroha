@@ -1131,8 +1131,8 @@ mod tests {
         case!("false", Value::Bool(false));
 
         // Numeric values
-        case!("123", Value::Numeric(Numeric::new(123, 0)));
-        case!("123.0", Value::Numeric(Numeric::new(1230, 1)));
+        case!("123", Value::Numeric(numeric!(123)));
+        case!("123.0", Value::Numeric(numeric!(123.0)));
 
         // Public Key
         let public_key_str =

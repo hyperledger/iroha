@@ -148,7 +148,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
     use iroha_client::{
         client::Client,
         data_model::prelude::{
-            AccountId, AssetDefinition, AssetDefinitionId, AssetId, Mint, Register,
+            numeric, AccountId, AssetDefinition, AssetDefinitionId, AssetId, Mint, Register,
         },
     };
     // #endregion register_asset_crates
@@ -178,10 +178,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
 
     // #region register_asset_mint_submit
     // Create a MintBox using a previous asset and account
-    let mint = Mint::asset_numeric(
-        Numeric::new(12_34, 2),
-        AssetId::new(asset_def_id, account_id),
-    );
+    let mint = Mint::asset_numeric(numeric!(12.34), AssetId::new(asset_def_id, account_id));
 
     // Submit a minting transaction
     iroha_client.submit_all([mint])?;
@@ -197,7 +194,7 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
 
     use iroha_client::{
         client::Client,
-        data_model::prelude::{AccountId, AssetDefinitionId, AssetId, Mint},
+        data_model::prelude::{numeric, AccountId, AssetDefinitionId, AssetId, Mint},
     };
     // #endregion mint_asset_crates
 
@@ -214,7 +211,7 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
 
     // Mint the Asset instance
     // #region mint_asset_mint
-    let mint_roses = Mint::asset_numeric(Numeric::new(42, 0), AssetId::new(roses, alice));
+    let mint_roses = Mint::asset_numeric(numeric!(42), AssetId::new(roses, alice));
     // #endregion mint_asset_mint
 
     // #region mint_asset_submit_tx
@@ -229,8 +226,7 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
     // or `roses.to_string() + "#" + alice.to_string()`.
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
-    let mint_roses_alt =
-        Mint::asset_numeric(Numeric::new(10, 0), "rose##alice@wonderland".parse()?);
+    let mint_roses_alt = Mint::asset_numeric(numeric!(10), "rose##alice@wonderland".parse()?);
     // #endregion mint_asset_mint_alt
 
     // #region mint_asset_submit_tx_alt
@@ -249,7 +245,7 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
 
     use iroha_client::{
         client::Client,
-        data_model::prelude::{AccountId, AssetDefinitionId, AssetId, Burn},
+        data_model::prelude::{numeric, AccountId, AssetDefinitionId, AssetId, Burn},
     };
     // #endregion burn_asset_crates
 
@@ -266,7 +262,7 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
 
     // #region burn_asset_burn
     // Burn the Asset instance
-    let burn_roses = Burn::asset_numeric(Numeric::new(10, 0), AssetId::new(roses, alice));
+    let burn_roses = Burn::asset_numeric(numeric!(10), AssetId::new(roses, alice));
     // #endregion burn_asset_burn
 
     // #region burn_asset_submit_tx
@@ -281,8 +277,7 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
     // or `roses.to_string() + "#" + alice.to_string()`.
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
-    let burn_roses_alt =
-        Burn::asset_numeric(Numeric::new(10, 0), "rose##alice@wonderland".parse()?);
+    let burn_roses_alt = Burn::asset_numeric(numeric!(10), "rose##alice@wonderland".parse()?);
     // #endregion burn_asset_burn_alt
 
     // #region burn_asset_submit_tx_alt

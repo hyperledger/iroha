@@ -14,7 +14,7 @@ use tokio::runtime::Runtime;
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
-    let quantity = Numeric::new(200, 0);
+    let quantity = numeric!(200);
 
     let mut removed_peer = {
         let n_peers = 4;

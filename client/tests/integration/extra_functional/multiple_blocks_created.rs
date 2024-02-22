@@ -43,7 +43,7 @@ fn long_multiple_blocks_created() -> Result<()> {
     let mut account_has_quantity = Numeric::ZERO;
     //When
     for _ in 0..N_BLOCKS {
-        let quantity = Numeric::new(1, 0);
+        let quantity = numeric!(1);
         let mint_asset = Mint::asset_numeric(
             quantity,
             AssetId::new(asset_definition_id.clone(), account_id.clone()),

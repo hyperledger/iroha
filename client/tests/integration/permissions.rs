@@ -82,7 +82,7 @@ fn permissions_disallow_asset_transfer() {
         .submit_blocking(create_asset)
         .expect("Failed to prepare state.");
 
-    let quantity = Numeric::new(200, 0);
+    let quantity = numeric!(200);
     let mint_asset = Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), bob_id.clone()),
@@ -138,7 +138,7 @@ fn permissions_disallow_asset_burn() {
         .submit_blocking(create_asset)
         .expect("Failed to prepare state.");
 
-    let quantity = Numeric::new(200, 0);
+    let quantity = numeric!(200);
     let mint_asset =
         Mint::asset_numeric(quantity, AssetId::new(asset_definition_id.clone(), bob_id));
     iroha_client

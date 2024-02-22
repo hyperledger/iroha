@@ -26,7 +26,7 @@ fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
         &account_id,
         &genesis_client,
         pipeline_time,
-        Numeric::new(100, 0),
+        numeric!(100),
     )?;
     // and a new peer is registered
     let (peer, peer_client) = rt.block_on(network.add_peer());
@@ -35,7 +35,7 @@ fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
         &peer_client,
         &account_id,
         &asset_definition_id,
-        Numeric::new(100, 0),
+        numeric!(100),
     );
     // Also, when a peer is unregistered
     let remove_peer = Unregister::peer(peer.id.clone());
@@ -47,21 +47,21 @@ fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
         &account_id,
         &genesis_client,
         pipeline_time,
-        Numeric::new(200, 0),
+        numeric!(200),
     )?;
     // Assets are increased on the main network.
     check_assets(
         &genesis_client,
         &account_id,
         &asset_definition_id,
-        Numeric::new(300, 0),
+        numeric!(300),
     );
     // But not on the unregistered peer's network.
     check_assets(
         &peer_client,
         &account_id,
         &asset_definition_id,
-        Numeric::new(100, 0),
+        numeric!(100),
     );
     Ok(())
 }

@@ -31,7 +31,7 @@ fn executor_upgrade_should_work() -> Result<()> {
     // Check that admin isn't allowed to transfer alice's rose by default
     let alice_rose: AssetId = "rose##alice@wonderland".parse()?;
     let admin_rose: AccountId = "admin@admin".parse()?;
-    let transfer_alice_rose = Transfer::asset_numeric(alice_rose, Numeric::new(1, 0), admin_rose);
+    let transfer_alice_rose = Transfer::asset_numeric(alice_rose, numeric!(1), admin_rose);
     let transfer_rose_tx = TransactionBuilder::new(chain_id.clone(), admin_id.clone())
         .with_instructions([transfer_alice_rose.clone()])
         .sign(&admin_keypair);

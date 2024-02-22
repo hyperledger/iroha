@@ -28,7 +28,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     client.submit_blocking(create_asset)?;
 
     //When
-    let quantity = Numeric::new(200, 0);
+    let quantity = numeric!(200);
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let mint_existed_asset = Mint::asset_numeric(quantity, asset_id);
     let mint_not_existed_asset = Mint::asset_numeric(
