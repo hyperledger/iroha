@@ -46,7 +46,7 @@ fn multisignature_transactions_should_be_accepted_after_fully_signed() -> Result
     client.submit_all_blocking(instructions)?;
 
     //When
-    let quantity = Numeric::new(200, 0);
+    let quantity = numeric!(200);
     let asset_id = AssetId::new(asset_definition_id, alice_id.clone());
     let mint_asset = Mint::asset_numeric(quantity, asset_id.clone());
 

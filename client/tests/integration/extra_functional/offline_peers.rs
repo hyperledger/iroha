@@ -27,7 +27,7 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
     //When
     let alice_id: AccountId = "alice@wonderland".parse()?;
     let roses = "rose#wonderland".parse()?;
-    let alice_has_roses = Numeric::new(13, 0);
+    let alice_has_roses = numeric!(13);
 
     //Then
     let assets = client

@@ -27,7 +27,7 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     client.submit_all(instructions)?;
     thread::sleep(pipeline_time * 2);
     //When
-    let quantity = Numeric::new(200, 0);
+    let quantity = numeric!(200);
     let mint_asset = Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),

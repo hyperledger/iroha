@@ -17,7 +17,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
-    let instruction = Mint::asset_numeric(Numeric::new(1, 0), asset_id.clone());
+    let instruction = Mint::asset_numeric(numeric!(1), asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         "mint_rose".parse()?,
         Action::new(

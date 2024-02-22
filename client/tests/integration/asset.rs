@@ -110,7 +110,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let metadata = iroha_client::data_model::metadata::UnlimitedMetadata::default();
     //When
-    let quantity = Numeric::new(200, 0);
+    let quantity = numeric!(200);
     let mint = Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
@@ -173,7 +173,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let metadata = iroha_client::data_model::metadata::UnlimitedMetadata::default();
 
     //When
-    let quantity = Numeric::new(123_456, 3);
+    let quantity = numeric!(123.456);
     let mint = Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
@@ -191,7 +191,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     })?;
 
     // Add some fractional part
-    let quantity2 = Numeric::new(55, 2);
+    let quantity2 = numeric!(0.55);
     let mint = Mint::asset_numeric(
         quantity2,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
@@ -319,16 +319,16 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         register::asset_definition("eth", "crypto").into(),
         register::asset_definition("btc2eth_rate", "exchange").into(),
         Mint::asset_numeric(
-            Numeric::new(200, 0),
+            numeric!(200),
             asset_id_new("eth", "crypto", buyer_account_id.clone()),
         )
         .into(),
         Mint::asset_numeric(
-            Numeric::new(20, 0),
+            numeric!(20),
             asset_id_new("btc", "crypto", seller_account_id.clone()),
         )
         .into(),
-        Mint::asset_numeric(Numeric::new(20, 0), asset_id.clone()).into(),
+        Mint::asset_numeric(numeric!(20), asset_id.clone()).into(),
     ];
     test_client
         .submit_all_blocking(instructions)
@@ -355,9 +355,9 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         ])
         .expect("Failed to exchange eth for btc.");
 
-    let expected_seller_eth = Numeric::new(20, 0);
-    let expected_buyer_eth = Numeric::new(180, 0);
-    let expected_buyer_btc = Numeric::new(20, 0);
+    let expected_seller_eth = numeric!(20);
+    let expected_buyer_eth = numeric!(180);
+    let expected_buyer_btc = numeric!(20);
 
     let eth_quantity = test_client
         .request(FindAssetQuantityById::new(asset_id_new(
@@ -459,7 +459,7 @@ fn fail_if_dont_satisfy_spec() {
     };
 
     // Fail if submitting fractional value
-    let fractional_value = Numeric::new(1, 2);
+    let fractional_value = numeric!(0.01);
 
     for isi in isi(fractional_value) {
         let err = test_client
@@ -484,7 +484,7 @@ fn fail_if_dont_satisfy_spec() {
     }
 
     // Everything works fine when submitting proper integer value
-    let integer_value = Numeric::new(1, 0);
+    let integer_value = numeric!(1);
 
     for isi in isi(integer_value) {
         test_client

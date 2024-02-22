@@ -18,8 +18,8 @@ use test_network::*;
 // in test_tranfer_assets.py
 fn simulate_transfer_numeric() {
     simulate_transfer(
-        Numeric::new(200, 0),
-        &Numeric::new(20, 0),
+        numeric!(200),
+        &numeric!(20),
         AssetDefinition::numeric,
         Mint::asset_numeric,
         Transfer::asset_numeric,

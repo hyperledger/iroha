@@ -779,53 +779,55 @@ pub mod numerical {
     mod tests {
         #![allow(clippy::print_stdout, clippy::use_debug)]
 
+        use iroha_primitives::numeric::numeric;
+
         use super::*;
 
         #[test]
         fn semi_interval_semantics_numeric() {
-            let pred = SemiRange::Numeric((Numeric::new(1, 0), Numeric::new(100, 0)).into());
+            let pred = SemiRange::Numeric((numeric!(1), numeric!(100)).into());
             println!("semi_interval range predicate: {pred:?}");
 
-            assert!(pred.applies(&Value::Numeric(Numeric::new(1, 0))));
-            assert!(!pred.applies(&Value::Numeric(Numeric::new(0, 0))));
-            assert!(pred.applies(&Value::Numeric(Numeric::new(99, 0))));
-            assert!(!pred.applies(&Value::Numeric(Numeric::new(100, 0))));
-            assert!(!pred.applies(&Value::Numeric(Numeric::new(99, 2))));
-            assert!(pred.applies(&Value::Numeric(Numeric::new(999_999, 4))));
-            assert!(pred.applies(&Value::Numeric(Numeric::new(999_999_999_999, 10))));
+            assert!(pred.applies(&Value::Numeric(numeric!(1))));
+            assert!(!pred.applies(&Value::Numeric(numeric!(0))));
+            assert!(pred.applies(&Value::Numeric(numeric!(99))));
+            assert!(!pred.applies(&Value::Numeric(numeric!(100))));
+            assert!(!pred.applies(&Value::Numeric(numeric!(0.99))));
+            assert!(pred.applies(&Value::Numeric(numeric!(99.9999))));
+            assert!(pred.applies(&Value::Numeric(numeric!(99.9_999_999_999))));
         }
 
         #[test]
         fn interval_semantics_numeric() {
             {
-                let pred = Range::Numeric((Numeric::new(1, 0), Numeric::new(100, 0)).into());
+                let pred = Range::Numeric((numeric!(1), numeric!(100)).into());
                 println!("semi_interval range predicate: {pred:?}");
 
-                assert!(pred.applies(&Value::Numeric(Numeric::new(1, 0))));
-                assert!(!pred.applies(&Value::Numeric(Numeric::new(0, 0))));
-                assert!(pred.applies(&Value::Numeric(Numeric::new(100, 0))));
-                assert!(!pred.applies(&Value::Numeric(Numeric::new(101, 0))));
-                assert!(!pred.applies(&Value::Numeric(Numeric::new(99, 2))));
-                assert!(pred.applies(&Value::Numeric(Numeric::new(999_999, 4))));
-                assert!(!pred.applies(&Value::Numeric(Numeric::new(100_000_000_001, 9))));
+                assert!(pred.applies(&Value::Numeric(numeric!(1))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(0))));
+                assert!(pred.applies(&Value::Numeric(numeric!(100))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(101))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(0.99))));
+                assert!(pred.applies(&Value::Numeric(numeric!(99.9999))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(100.000000001))));
             }
 
             {
-                let pred = Range::Numeric((Numeric::new(127, 0), Numeric::new(127, 0)).into());
-                assert!(pred.applies(&Value::Numeric(Numeric::new(127, 0))));
-                assert!(!pred.applies(&Value::Numeric(Numeric::new(126, 0))));
-                assert!(!pred.applies(&Value::Numeric(Numeric::new(128, 0))));
+                let pred = Range::Numeric((numeric!(127), numeric!(127)).into());
+                assert!(pred.applies(&Value::Numeric(numeric!(127))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(126))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(128))));
             }
         }
 
         #[test]
         fn invalid_types_false() {
             {
-                let pred = SemiRange::Numeric(SemiInterval::ending(Numeric::new(100, 0)));
+                let pred = SemiRange::Numeric(SemiInterval::ending(numeric!(100)));
                 assert!(!pred.applies(&Value::Vec(Vec::new())));
             }
             {
-                let pred = Range::Numeric(Interval::ending(Numeric::new(100, 0)));
+                let pred = Range::Numeric(Interval::ending(numeric!(100)));
                 assert!(!pred.applies(&Value::Vec(Vec::new())));
             }
         }
@@ -838,10 +840,10 @@ pub mod numerical {
                 assert!(!pred.applies(&Numeric::MAX.to_value()));
             }
             {
-                let pred = SemiRange::Numeric(SemiInterval::ending(Numeric::new(100, 0)));
-                assert!(pred.applies(&Numeric::new(1, 0).to_value()));
-                assert!(pred.applies(&Numeric::new(99, 0).to_value()));
-                assert!(!pred.applies(&Numeric::new(100, 0).to_value()));
+                let pred = SemiRange::Numeric(SemiInterval::ending(numeric!(100)));
+                assert!(pred.applies(&numeric!(1).to_value()));
+                assert!(pred.applies(&numeric!(99).to_value()));
+                assert!(!pred.applies(&numeric!(100).to_value()));
             }
 
             {
@@ -850,10 +852,10 @@ pub mod numerical {
                 assert!(pred.applies(&Numeric::MAX.to_value()));
             }
             {
-                let pred = Range::Numeric(Interval::ending(Numeric::new(100, 0)));
-                assert!(pred.applies(&Numeric::new(1, 0).to_value()));
-                assert!(pred.applies(&Numeric::new(100, 0).to_value()));
-                assert!(!pred.applies(&Numeric::new(101, 0).to_value()));
+                let pred = Range::Numeric(Interval::ending(numeric!(100)));
+                assert!(pred.applies(&numeric!(1).to_value()));
+                assert!(pred.applies(&numeric!(100).to_value()));
+                assert!(!pred.applies(&numeric!(101).to_value()));
             }
         }
     }
@@ -1040,7 +1042,10 @@ pub mod value {
     #[cfg(test)]
     mod test {
         use iroha_crypto::KeyPair;
-        use iroha_primitives::{addr::socket_addr, numeric::Numeric};
+        use iroha_primitives::{
+            addr::socket_addr,
+            numeric::{numeric, Numeric},
+        };
         use peer::Peer;
         use prelude::Metadata;
 
@@ -1091,10 +1096,10 @@ pub mod value {
                 );
             }
             let pred = ValuePredicate::Numerical(numerical::SemiRange::Numeric(
-                (Numeric::new(0, 0), Numeric::new(42, 0)).into(),
+                (numeric!(0), numeric!(42)).into(),
             ));
             assert!(!pred.applies(&Value::String("alice".to_owned())));
-            assert!(pred.applies(&Numeric::new(41, 0).to_value()));
+            assert!(pred.applies(&numeric!(41).to_value()));
         }
 
         #[test]

@@ -15,7 +15,7 @@ fn must_execute_both_triggers() -> Result<()> {
 
     let prev_value = get_asset_value(&test_client, asset_id.clone())?;
 
-    let instruction = Mint::asset_numeric(Numeric::new(1, 0), asset_id.clone());
+    let instruction = Mint::asset_numeric(numeric!(1), asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         "mint_rose_1".parse()?,
         Action::new(
@@ -55,10 +55,7 @@ fn must_execute_both_triggers() -> Result<()> {
     test_client.submit_blocking(Register::domain(Domain::new("neverland".parse()?)))?;
 
     let new_value = get_asset_value(&test_client, asset_id)?;
-    assert_eq!(
-        new_value,
-        prev_value.checked_add(Numeric::new(2, 0)).unwrap()
-    );
+    assert_eq!(new_value, prev_value.checked_add(numeric!(2)).unwrap());
 
     Ok(())
 }
@@ -98,7 +95,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     let register_trigger = Register::trigger(Trigger::new(
         "mint_sakura$neverland".parse()?,
         Action::new(
-            [Mint::asset_numeric(Numeric::new(1, 0), asset_id.clone())],
+            [Mint::asset_numeric(numeric!(1), asset_id.clone())],
             Repeats::Indefinitely,
             account_id,
             // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068

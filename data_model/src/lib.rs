@@ -510,7 +510,10 @@ pub mod parameter {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::{prelude::MetadataLimits, transaction::TransactionLimits};
+        use crate::{
+            prelude::{numeric, MetadataLimits},
+            transaction::TransactionLimits,
+        };
 
         const INVALID_PARAM: [&str; 4] = [
             "",
@@ -557,7 +560,7 @@ pub mod parameter {
                 ),
                 Parameter::new(
                     ParameterId::from_str("Int").expect("Failed to parse `ParameterId`"),
-                    Value::Numeric(Numeric::new(42, 0)),
+                    Value::Numeric(numeric!(42)),
                 ),
             ];
 
@@ -1984,7 +1987,7 @@ mod ffi {
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     pub use iroha_crypto::PublicKey;
-    pub use iroha_primitives::numeric::{Numeric, NumericSpec};
+    pub use iroha_primitives::numeric::{numeric, Numeric, NumericSpec};
 
     #[cfg(feature = "std")]
     pub use super::current_time;

@@ -17,7 +17,7 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
     let wrong_asset_definition_id = AssetDefinitionId::from_str("ksor#wonderland")?;
     let create_asset = Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
-    let quantity = Numeric::new(200, 0);
+    let quantity = numeric!(200);
     let mint_asset = Mint::asset_numeric(
         quantity,
         AssetId::new(wrong_asset_definition_id.clone(), account_id.clone()),
