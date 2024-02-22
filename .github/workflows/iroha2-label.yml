@@ -12,8 +12,6 @@ jobs:
     steps:
     - id: label-the-PR
       uses: actions/labeler@v5
-      with:
-        sync-labels: true
     - uses: mshick/add-pr-comment@v2
       if: contains(steps.label-the-PR.outputs.all-labels, 'config-changes')
       with:
