@@ -19,7 +19,7 @@ env:
 
 jobs:
   consistency:
-    runs-on: [self-hosted, Linux, iroha2ci]
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
@@ -36,7 +36,7 @@ jobs:
         run: ./scripts/tests/consistency.sh docker-compose
 
   with_coverage:
-    runs-on: [self-hosted, Linux, iroha2ci]
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
@@ -72,7 +72,7 @@ jobs:
       #     fail_ci_if_error: false
 
   integration:
-    runs-on: [self-hosted, Linux, iroha2ci]
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     timeout-minutes: 30
@@ -85,7 +85,7 @@ jobs:
           integration:: --skip unstable_network
 
   unstable:
-    runs-on: [self-hosted, Linux, iroha2ci]
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     timeout-minutes: 60
@@ -99,7 +99,7 @@ jobs:
   pr-generator-build:
     # Job will only execute if the head of the pull request is a branch for PR-generator case
     if: startsWith(github.head_ref, 'iroha2-pr-deploy/')
-    runs-on: [self-hosted, Linux, iroha2-dev-push]
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
@@ -129,7 +129,7 @@ jobs:
           context: .
 
   client-cli-tests:
-    runs-on: [self-hosted, Linux, iroha2ci]
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     timeout-minutes: 60

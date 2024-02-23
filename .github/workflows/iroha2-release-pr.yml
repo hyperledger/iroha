@@ -16,7 +16,7 @@ env:
 
 jobs:
   client-cli-tests:
-    runs-on: [self-hosted, Linux, iroha2ci]
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     timeout-minutes: 60
@@ -59,7 +59,7 @@ jobs:
         run: bash -c './scripts/tests/panic_on_invalid_genesis.sh'
 
   bench:
-    runs-on: ubuntu-latest #[self-hosted, Linux]
+    runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
@@ -75,7 +75,7 @@ jobs:
   # ------------------------------ SDK tests go here ------------------------
 
   java-api:
-    runs-on: ubuntu-latest #[self-hosted, Linux]
+    runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
@@ -129,7 +129,7 @@ jobs:
           rm -f ~/.gradle/caches/modules-2/gc.properties
 
   long:
-    runs-on: ubuntu-latest #[self-hosted, Linux]
+    runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:

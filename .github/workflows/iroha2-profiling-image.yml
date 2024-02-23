@@ -26,7 +26,7 @@ on:
 
 jobs:
   registry:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
