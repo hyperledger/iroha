@@ -6,6 +6,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  DOCKER_COMPOSE_PATH: configs/swarm
 
 jobs:
   registry:
@@ -32,16 +33,16 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Test docker-compose.single.yml before pushing
         run: |
-          docker compose -f docker-compose.single.yml up --wait || exit 1
-          docker compose -f docker-compose.single.yml down
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.single.yml up --wait || exit 1
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.single.yml down
       - name: Test docker-compose.local.yml before pushing
         run: |
-          docker compose -f docker-compose.local.yml up --wait || exit 1
-          docker compose -f docker-compose.local.yml down
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml up --wait || exit 1
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml down
       - name: Test docker-compose.yml before pushing
         run: |
-          docker compose -f docker-compose.yml up --wait || exit 1
-          docker compose -f docker-compose.yml down
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml up --wait || exit 1
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml down
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
