@@ -161,7 +161,6 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn2::DeriveInput) -> To
         "fn visit_burn_trigger_repetitions(operation: &Burn<u32, Trigger<TriggeringFilterBox>>)",
         "fn visit_execute_trigger(operation: &ExecuteTrigger)",
         "fn visit_set_parameter(operation: &SetParameter)",
-        "fn visit_new_parameter(operation: &NewParameter)",
         "fn visit_upgrade(operation: &Upgrade)",
         "fn visit_log(operation: &Log)",
         "fn visit_fail(operation: &Fail)",

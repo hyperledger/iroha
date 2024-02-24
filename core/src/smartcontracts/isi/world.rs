@@ -193,27 +193,6 @@ pub mod isi {
         }
     }
 
-    impl Execute for NewParameter {
-        #[metrics(+"new_parameter")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            let parameter = self.parameter;
-            let parameter_id = parameter.id.clone();
-
-            let world = wsv.world_mut();
-            if !world.parameters.insert(parameter) {
-                return Err(RepetitionError {
-                    instruction_type: InstructionType::NewParameter,
-                    id: IdBox::ParameterId(parameter_id),
-                }
-                .into());
-            }
-
-            wsv.emit_events(Some(ConfigurationEvent::Created(parameter_id)));
-
-            Ok(())
-        }
-    }
-
     impl Execute for Upgrade {
         #[metrics(+"upgrade_executor")]
         fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {

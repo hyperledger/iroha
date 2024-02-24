@@ -195,7 +195,7 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
         .add_parameter(EXECUTOR_MAX_MEMORY, DEFAULT_WASM_MAX_MEMORY_BYTES)?
         .add_parameter(WASM_FUEL_LIMIT, DEFAULT_WASM_FUEL_LIMIT)?
         .add_parameter(WASM_MAX_MEMORY, DEFAULT_WASM_MAX_MEMORY_BYTES)?
-        .into_create_parameters();
+        .into_set_parameters();
 
     let first_tx = genesis
         .first_transaction_mut()

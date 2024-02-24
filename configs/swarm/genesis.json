@@ -127,43 +127,43 @@
         }
       },
       {
-        "NewParameter": "?MaxTransactionsInBlock=512"
+        "SetParameter": "?MaxTransactionsInBlock=512"
       },
       {
-        "NewParameter": "?BlockTime=2000"
+        "SetParameter": "?BlockTime=2000"
       },
       {
-        "NewParameter": "?CommitTimeLimit=4000"
+        "SetParameter": "?CommitTimeLimit=4000"
       },
       {
-        "NewParameter": "?TransactionLimits=4096,4194304_TL"
+        "SetParameter": "?TransactionLimits=4096,4194304_TL"
       },
       {
-        "NewParameter": "?WSVAssetMetadataLimits=1048576,4096_ML"
+        "SetParameter": "?WSVAssetMetadataLimits=1048576,4096_ML"
       },
       {
-        "NewParameter": "?WSVAssetDefinitionMetadataLimits=1048576,4096_ML"
+        "SetParameter": "?WSVAssetDefinitionMetadataLimits=1048576,4096_ML"
       },
       {
-        "NewParameter": "?WSVAccountMetadataLimits=1048576,4096_ML"
+        "SetParameter": "?WSVAccountMetadataLimits=1048576,4096_ML"
       },
       {
-        "NewParameter": "?WSVDomainMetadataLimits=1048576,4096_ML"
+        "SetParameter": "?WSVDomainMetadataLimits=1048576,4096_ML"
       },
       {
-        "NewParameter": "?WSVIdentLengthLimits=1,128_LL"
+        "SetParameter": "?WSVIdentLengthLimits=1,128_LL"
       },
       {
-        "NewParameter": "?ExecutorFuelLimit=55000000"
+        "SetParameter": "?ExecutorFuelLimit=55000000"
       },
       {
-        "NewParameter": "?ExecutorMaxMemory=524288000"
+        "SetParameter": "?ExecutorMaxMemory=524288000"
       },
       {
-        "NewParameter": "?WASMFuelLimit=55000000"
+        "SetParameter": "?WASMFuelLimit=55000000"
       },
       {
-        "NewParameter": "?WASMMaxMemory=524288000"
+        "SetParameter": "?WASMMaxMemory=524288000"
       },
       {
         "Register": {
