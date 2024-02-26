@@ -664,7 +664,9 @@ mod tests {
         let env = TestEnv::new().set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
         let error =
             RootPartial::from_env(&env).expect_err("private key is incomplete, should fail");
-        let expected = expect_test::expect!["`PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_ALGORITHM` was not"];
+        let expected = expect_test::expect![
+            "`PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_ALGORITHM` was not"
+        ];
         expected.assert_eq(&format!("{error:#}"));
     }
 
