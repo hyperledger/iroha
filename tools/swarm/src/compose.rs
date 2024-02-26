@@ -298,13 +298,13 @@ pub enum ServiceSource {
 struct FullPeerEnv {
     chain_id: ChainId,
     public_key: PublicKey,
-    private_key_digest: Algorithm,
+    private_key_algorithm: Algorithm,
     #[serde_as(as = "serde_with::hex::Hex")]
     private_key_payload: Vec<u8>,
     p2p_address: SocketAddr,
     api_address: SocketAddr,
     genesis_public_key: PublicKey,
-    genesis_private_key_digest: Option<Algorithm>,
+    genesis_private_key_algorithm: Option<Algorithm>,
     #[serde_as(as = "Option<serde_with::hex::Hex>")]
     genesis_private_key_payload: Option<Vec<u8>>,
     genesis_file: Option<String>,
@@ -325,7 +325,7 @@ struct CompactPeerEnv {
 
 impl From<CompactPeerEnv> for FullPeerEnv {
     fn from(value: CompactPeerEnv) -> Self {
-        let (genesis_private_key_digest, genesis_private_key_payload, genesis_file) = value
+        let (genesis_private_key_algorithm, genesis_private_key_payload, genesis_file) = value
             .genesis_private_key
             .map_or((None, None, None), |private_key| {
                 let (algorithm, payload) = private_key.to_raw();
@@ -336,7 +336,7 @@ impl From<CompactPeerEnv> for FullPeerEnv {
                 )
             });
 
-        let (private_key_digest, private_key_payload) = {
+        let (private_key_algorithm, private_key_payload) = {
             let (algorithm, payload) = value.key_pair.private_key().clone().to_raw();
             (algorithm, payload)
         };
@@ -344,10 +344,10 @@ impl From<CompactPeerEnv> for FullPeerEnv {
         Self {
             chain_id: value.chain_id,
             public_key: value.key_pair.public_key().clone(),
-            private_key_digest,
+            private_key_algorithm,
             private_key_payload,
             genesis_public_key: value.genesis_public_key,
-            genesis_private_key_digest,
+            genesis_private_key_algorithm,
             genesis_private_key_payload,
             genesis_file,
             p2p_address: value.p2p_addr,
@@ -687,12 +687,12 @@ mod tests {
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
-                  PRIVATE_KEY_DIGEST: ed25519
+                  PRIVATE_KEY_ALGORITHM: ed25519
                   PRIVATE_KEY_PAYLOAD: db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8
                   P2P_ADDRESS: iroha1:1339
                   API_ADDRESS: iroha1:1338
                   GENESIS_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
-                  GENESIS_PRIVATE_KEY_DIGEST: ed25519
+                  GENESIS_PRIVATE_KEY_ALGORITHM: ed25519
                   GENESIS_PRIVATE_KEY_PAYLOAD: db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8
                   GENESIS_FILE: /config/genesis.json
                 ports:
@@ -730,7 +730,7 @@ mod tests {
         let expected = expect_test::expect![[r#"
             CHAIN_ID: 00000000-0000-0000-0000-000000000000
             PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
-            PRIVATE_KEY_DIGEST: ed25519
+            PRIVATE_KEY_ALGORITHM: ed25519
             PRIVATE_KEY_PAYLOAD: 6bf163fd75192b81a78cb20c5f8cb917f591ac6635f2577e6ca305c27a456a5d415388a90fa238196737746a70565d041cfb32eaa0c89ff8cb244c7f832a6ebd
             P2P_ADDRESS: iroha0:1337
             API_ADDRESS: iroha0:1337
@@ -772,12 +772,12 @@ mod tests {
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13
-                  PRIVATE_KEY_DIGEST: ed25519
+                  PRIVATE_KEY_ALGORITHM: ed25519
                   PRIVATE_KEY_PAYLOAD: 5f8d1291bf6b762ee748a87182345d135fd167062857aa4f20ba39f25e74c4b0f0321eb4139163c35f88bf78520ff7071499d7f4e79854550028a196c7b49e13
                   P2P_ADDRESS: 0.0.0.0:1337
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  GENESIS_PRIVATE_KEY_DIGEST: ed25519
+                  GENESIS_PRIVATE_KEY_ALGORITHM: ed25519
                   GENESIS_PRIVATE_KEY_PAYLOAD: 5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9
                   GENESIS_FILE: /config/genesis.json
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"}]'
@@ -800,7 +800,7 @@ mod tests {
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C
-                  PRIVATE_KEY_DIGEST: ed25519
+                  PRIVATE_KEY_ALGORITHM: ed25519
                   PRIVATE_KEY_PAYLOAD: 8d34d2c6a699c61e7a9d5aabbbd07629029dfb4f9a0800d65aa6570113edb465a88554aa5c86d28d0eebec497235664433e807881cd31e12a1af6c4d8b0f026c
                   P2P_ADDRESS: 0.0.0.0:1338
                   API_ADDRESS: 0.0.0.0:8081
@@ -824,7 +824,7 @@ mod tests {
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4
-                  PRIVATE_KEY_DIGEST: ed25519
+                  PRIVATE_KEY_ALGORITHM: ed25519
                   PRIVATE_KEY_PAYLOAD: cf4515a82289f312868027568c0da0ee3f0fde7fef1b69deb47b19fde7cbc169312c1b7b5de23d366adcf23cd6db92ce18b2aa283c7d9f5033b969c2dc2b92f4
                   P2P_ADDRESS: 0.0.0.0:1339
                   API_ADDRESS: 0.0.0.0:8082
@@ -848,7 +848,7 @@ mod tests {
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE
-                  PRIVATE_KEY_DIGEST: ed25519
+                  PRIVATE_KEY_ALGORITHM: ed25519
                   PRIVATE_KEY_PAYLOAD: ab0e99c2b845b4ac7b3e88d25a860793c7eb600a25c66c75cba0bae91e955aa6854457b2e3d6082181da73dc01c1e6f93a72d0c45268dc8845755287e98a5dee
                   P2P_ADDRESS: 0.0.0.0:1340
                   API_ADDRESS: 0.0.0.0:8083

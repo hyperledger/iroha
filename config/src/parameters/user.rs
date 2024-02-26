@@ -245,12 +245,12 @@ pub(crate) fn private_key_from_env<E: Error>(
     env_key_base: impl AsRef<str>,
     name_base: impl AsRef<str>,
 ) -> ParseEnvResult<PrivateKey> {
-    let digest_env = format!("{}_DIGEST", env_key_base.as_ref());
-    let digest_name = format!("{}.digest_function", name_base.as_ref());
+    let alg_env = format!("{}_ALGORITHM", env_key_base.as_ref());
+    let alg_name = format!("{}.algorithm", name_base.as_ref());
     let payload_env = format!("{}_PAYLOAD", env_key_base.as_ref());
     let payload_name = format!("{}.payload", name_base.as_ref());
 
-    let digest_function = ParseEnvResult::parse_simple(emitter, env, &digest_env, &digest_name);
+    let algorithm = ParseEnvResult::parse_simple(emitter, env, &alg_env, &alg_name);
 
     // FIXME: errors handling is a mess
     let payload = match env
@@ -266,13 +266,13 @@ pub(crate) fn private_key_from_env<E: Error>(
         }
     };
 
-    match (digest_function, payload) {
-        (ParseEnvResult::Value(digest_function), ParseEnvResult::Value(payload)) => {
-            match PrivateKey::from_hex(digest_function, &payload).wrap_err_with(|| {
+    match (algorithm, payload) {
+        (ParseEnvResult::Value(algorithm), ParseEnvResult::Value(payload)) => {
+            match PrivateKey::from_hex(algorithm, &payload).wrap_err_with(|| {
                 eyre!(
                     "failed to construct `{}` from `{}` and `{}` environment variables",
                     name_base.as_ref(),
-                    &digest_env,
+                    &alg_env,
                     &payload_env
                 )
             }) {
@@ -285,14 +285,14 @@ pub(crate) fn private_key_from_env<E: Error>(
         (ParseEnvResult::None, ParseEnvResult::None) => return ParseEnvResult::None,
         (ParseEnvResult::Value(_), ParseEnvResult::None) => emitter.emit(eyre!(
             "`{}` env was provided, but `{}` was not",
-            &digest_env,
+            &alg_env,
             &payload_env
         )),
         (ParseEnvResult::None, ParseEnvResult::Value(_)) => {
             emitter.emit(eyre!(
                 "`{}` env was provided, but `{}` was not",
                 &payload_env,
-                &digest_env
+                &alg_env
             ));
         }
         (ParseEnvResult::Error, _) | (_, ParseEnvResult::Error) => {
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn parses_private_key_from_env() {
         let env = TestEnv::new()
-            .set("PRIVATE_KEY_DIGEST", "ed25519")
+            .set("PRIVATE_KEY_ALGORITHM", "ed25519")
             .set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
 
         let private_key = RootPartial::from_env(&env)
@@ -649,49 +649,47 @@ mod tests {
     }
 
     #[test]
-    fn fails_to_parse_private_key_in_env_without_digest() {
-        let env = TestEnv::new().set("PRIVATE_KEY_DIGEST", "ed25519");
+    fn fails_to_parse_private_key_in_env_without_payload() {
+        let env = TestEnv::new().set("PRIVATE_KEY_ALGORITHM", "ed25519");
         let error =
             RootPartial::from_env(&env).expect_err("private key is incomplete, should fail");
         let expected = expect_test::expect![
-            "`PRIVATE_KEY_DIGEST` env was provided, but `PRIVATE_KEY_PAYLOAD` was not"
+            "`PRIVATE_KEY_ALGORITHM` env was provided, but `PRIVATE_KEY_PAYLOAD` was not"
         ];
         expected.assert_eq(&format!("{error:#}"));
     }
 
     #[test]
-    fn fails_to_parse_private_key_in_env_without_payload() {
+    fn fails_to_parse_private_key_in_env_without_algorithm() {
         let env = TestEnv::new().set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
         let error =
             RootPartial::from_env(&env).expect_err("private key is incomplete, should fail");
-        let expected = expect_test::expect![
-            "`PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_DIGEST` was not"
-        ];
+        let expected = expect_test::expect!["`PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_ALGORITHM` was not"];
         expected.assert_eq(&format!("{error:#}"));
     }
 
     #[test]
     fn fails_to_parse_private_key_from_env_with_invalid_payload() {
         let env = TestEnv::new()
-            .set("PRIVATE_KEY_DIGEST", "ed25519")
+            .set("PRIVATE_KEY_ALGORITHM", "ed25519")
             .set("PRIVATE_KEY_PAYLOAD", "foo");
 
         let error = RootPartial::from_env(&env).expect_err("input is invalid, should fail");
 
-        let expected = expect_test::expect!["failed to construct `iroha.private_key` from `PRIVATE_KEY_DIGEST` and `PRIVATE_KEY_PAYLOAD` environment variables"];
+        let expected = expect_test::expect!["failed to construct `iroha.private_key` from `PRIVATE_KEY_ALGORITHM` and `PRIVATE_KEY_PAYLOAD` environment variables"];
         expected.assert_eq(&format!("{error:#}"));
     }
 
     #[test]
-    fn when_payload_provided_but_digest_is_invalid() {
+    fn when_payload_provided_but_alg_is_invalid() {
         let env = TestEnv::new()
-            .set("PRIVATE_KEY_DIGEST", "foo")
+            .set("PRIVATE_KEY_ALGORITHM", "foo")
             .set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
 
         let error = RootPartial::from_env(&env).expect_err("input is invalid, should fail");
 
         // TODO: print the bad value and supported ones
-        let expected = expect_test::expect!["failed to parse `iroha.private_key.digest_function` field from `PRIVATE_KEY_DIGEST` env variable"];
+        let expected = expect_test::expect!["failed to parse `iroha.private_key.algorithm` field from `PRIVATE_KEY_ALGORITHM` env variable"];
         expected.assert_eq(&format!("{error:#}"));
     }
 
