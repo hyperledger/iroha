@@ -58,7 +58,7 @@ pub mod model {
     )]
     #[serde(transparent)]
     #[repr(transparent)]
-    pub struct TimeEventFilter(pub(super) ExecutionTime);
+    pub struct TimeEventFilter(pub ExecutionTime);
 
     /// Trigger execution time
     #[derive(
@@ -144,15 +144,28 @@ impl Filter for TimeEventFilter {
         match &self.0 {
             ExecutionTime::PreCommit => 1,
             ExecutionTime::Schedule(schedule) => {
-                let current_interval = event.prev_interval.map_or(event.interval, |prev| {
+                let mut current_interval = event.prev_interval.map_or(event.interval, |prev| {
                     let estimation = event.interval.since + event.interval.length;
-                    let prev_estimation = prev.since + prev.length;
+                    let prev_estimation = if Range::from(prev).contains(&schedule.start) {
+                        schedule.start
+                    } else {
+                        prev.since + prev.length
+                    };
 
                     TimeInterval {
                         since: prev_estimation,
                         length: estimation.saturating_sub(prev_estimation),
                     }
                 });
+
+                if schedule.start > event.interval.since {
+                    current_interval.length = std::cmp::min(
+                        current_interval.length,
+                        schedule.start.checked_sub(current_interval.since).expect(
+                            "`current_interval.since` is always smaller than `schedule.start`",
+                        ),
+                    )
+                }
 
                 count_matches_in_interval(schedule, &current_interval)
             }
@@ -213,7 +226,7 @@ fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
 }
 
 impl Schedule {
-    /// Create new `Schedule` starting at `start` and without period
+    /// Create new [`Schedule`] starting at `start` and without period
     #[must_use]
     #[inline]
     pub const fn starting_at(start: Duration) -> Self {
@@ -326,10 +339,10 @@ mod tests {
             // ----|------[-----)----*----
             //     p     i1    i2
 
-            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
-                .with_period(Duration::from_secs(10));
-            let since = Duration::from_secs(TIMESTAMP + 35);
-            let length = Duration::from_secs(4);
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 5))
+                .with_period(Duration::from_secs(20));
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(5);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }

@@ -440,6 +440,7 @@ pub mod prelude {
 }
 
 #[cfg(test)]
+#[cfg(feature = "rand")]
 mod tests {
     use core::cmp::Ordering;
 
