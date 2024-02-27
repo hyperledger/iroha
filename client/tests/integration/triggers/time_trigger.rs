@@ -3,10 +3,15 @@ use std::{str::FromStr as _, time::Duration};
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
-    data_model::{prelude::*, transaction::WasmSmartContract},
+    data_model::{
+        asset::AssetId,
+        events::pipeline::{BlockEventFilter, BlockStatus},
+        prelude::*,
+        transaction::WasmSmartContract,
+        Level,
+    },
 };
 use iroha_config::parameters::defaults::chain_wide::CONSENSUS_ESTIMATION as DEFAULT_CONSENSUS_ESTIMATION;
-use iroha_data_model::events::pipeline::{BlockEventFilter, BlockStatus};
 use iroha_logger::info;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
@@ -95,25 +100,26 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
 }
 
 #[test]
-fn change_asset_metadata_after_1_sec() -> Result<()> {
-    const PERIOD: Duration = Duration::from_secs(1);
-
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_660).start_with_runtime();
+fn mint_asset_after_3_sec() -> Result<()> {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_660).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
-    let start_time = curr_time();
-
-    // Start listening BEFORE submitting any transaction not to miss any block committed event
-    let event_listener = get_block_committed_event_listener(&test_client)?;
+    // Sleep to certainly bypass time interval analyzed by genesis
+    std::thread::sleep(DEFAULT_CONSENSUS_ESTIMATION);
 
     let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
     let account_id = ALICE_ID.clone();
-    let key = Name::from_str("petal")?;
+    let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
 
-    let schedule = TimeSchedule::starting_at(start_time + PERIOD);
-    let instruction =
-        SetKeyValue::asset_definition(asset_definition_id.clone(), key.clone(), 3_u32);
+    let init_quantity = test_client.request(FindAssetQuantityById {
+        id: asset_id.clone(),
+    })?;
+
+    let start_time = curr_time();
+    // Create trigger with schedule which is in the future to the new block but within block estimation time
+    let schedule = TimeSchedule::starting_at(start_time + Duration::from_secs(3));
+    let instruction = Mint::asset_numeric(1_u32, asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
-        "change_rose_metadata".parse().expect("Valid"),
+        "mint_rose".parse().expect("Valid"),
         Action::new(
             vec![instruction],
             Repeats::from(1_u32),
@@ -121,20 +127,27 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
             TimeEventFilter::new(ExecutionTime::Schedule(schedule)),
         ),
     ));
-    test_client.submit(register_trigger)?;
-    submit_sample_isi_on_every_block_commit(
-        event_listener,
-        &mut test_client,
-        &account_id,
-        Duration::from_secs(1),
-        usize::try_from(PERIOD.as_millis() / DEFAULT_CONSENSUS_ESTIMATION.as_millis() + 1)?,
-    )?;
+    test_client.submit_blocking(register_trigger)?;
 
-    let value = test_client.request(FindAssetDefinitionKeyValueByIdAndKey {
-        id: asset_definition_id,
-        key,
+    // Schedule start is in the future so trigger isn't executed after creating a new block
+    test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
+    let after_registration_quantity = test_client.request(FindAssetQuantityById {
+        id: asset_id.clone(),
     })?;
-    assert_eq!(value, numeric!(3).into());
+    assert_eq!(init_quantity, after_registration_quantity);
+
+    // Sleep long enough that trigger start is in the past
+    std::thread::sleep(DEFAULT_CONSENSUS_ESTIMATION);
+    test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
+
+    let after_wait_quantity = test_client.request(FindAssetQuantityById {
+        id: asset_id.clone(),
+    })?;
+    // Schedule is in the past now so trigger is executed
+    assert_eq!(
+        init_quantity.checked_add(1u32.into()).unwrap(),
+        after_wait_quantity
+    );
 
     Ok(())
 }

@@ -58,7 +58,7 @@ mod model {
     )]
     #[serde(transparent)]
     #[repr(transparent)]
-    pub struct TimeEventFilter(pub(super) ExecutionTime);
+    pub struct TimeEventFilter(pub ExecutionTime);
 
     /// Trigger execution time
     #[derive(
@@ -144,14 +144,46 @@ impl EventFilter for TimeEventFilter {
         match &self.0 {
             ExecutionTime::PreCommit => 1,
             ExecutionTime::Schedule(schedule) => {
-                let current_interval = event.prev_interval.map_or(event.interval, |prev| {
-                    let estimation = event.interval.since + event.interval.length;
-                    let prev_estimation = prev.since + prev.length;
+                // Prevent matching in the future it will be handled by the next block
+                if schedule.start > event.interval.since {
+                    return 0;
+                }
 
-                    TimeInterval {
-                        since: prev_estimation,
-                        length: estimation.saturating_sub(prev_estimation),
-                    }
+                let current_interval = event.prev_interval.map_or(event.interval, |prev| {
+                    // Case 1:
+                    // ----|-----[--[--)--)-----
+                    //     s    p1 c1  p2 c2
+                    //
+                    // Schedule start was before previous block (p1).
+                    // In this case we only care about interval [p2, c2)
+                    // Because everything up to p2 (excluding) was processed in the previous blocks.
+                    //
+                    // Case 2:
+                    // ---------[-|-[--)--)-----
+                    //         p1 s c1 p2 c2
+                    //
+                    // ---------[--)--|--[--)---
+                    //          p1 p2 s  c1 c2
+                    //
+                    // Schedule start is between previous block (p1) and current block (c1).
+                    // In this case we care about either interval [s, c2) if (s) is in [p1, p2) or [p2, c2) if (s) is after (p2).
+                    // Because in the previous block [p1, p2) event won't match since (s) was in the future.
+                    //
+                    // Case 3:
+                    // ---------[--[-|-)--)-----
+                    //         p1  c1 s p2 c2
+                    //
+                    // Schedule start is after current block (c1).
+                    // In this case event won't match and it will be handled in the next block.
+                    let since = if Range::from(prev).contains(&schedule.start) {
+                        schedule.start
+                    } else {
+                        prev.since + prev.length
+                    };
+                    let estimation = event.interval.since + event.interval.length;
+                    let length = estimation - since;
+
+                    TimeInterval { since, length }
                 });
 
                 count_matches_in_interval(schedule, &current_interval)
@@ -213,7 +245,7 @@ fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
 }
 
 impl Schedule {
-    /// Create new `Schedule` starting at `start` and without period
+    /// Create new [`Schedule`] starting at `start` and without period
     #[must_use]
     #[inline]
     pub const fn starting_at(start: Duration) -> Self {
@@ -251,12 +283,12 @@ pub mod prelude {
 mod tests {
     use super::*;
 
+    /// Sample timestamp
+    const TIMESTAMP: u64 = 1_647_443_386;
+
     /// Tests for `count_matches_in_interval()`
     mod count_matches_in_interval {
         use super::*;
-
-        /// Sample timestamp
-        const TIMESTAMP: u64 = 1_647_443_386;
 
         #[test]
         fn test_no_period_before_left_border() {
@@ -427,6 +459,141 @@ mod tests {
             let length = Duration::from_secs(7);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 7);
+        }
+    }
+
+    // Tests for [`TimeEventFilter`]
+    mod time_event_filter {
+        use super::*;
+
+        #[test]
+        fn test_schedule_start_before_prev_interval() {
+            //
+            // ----|---[--*--)--*--[--*--)----
+            //     s   p1    p2   c1    c2
+
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
+                .with_period(Duration::from_secs(10));
+            let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
+
+            let since = Duration::from_secs(TIMESTAMP + 5);
+            let length = Duration::from_secs(10);
+            let prev_interval = TimeInterval { since, length };
+
+            let since = Duration::from_secs(TIMESTAMP + 25);
+            let length = Duration::from_secs(10);
+            let interval = TimeInterval { since, length };
+
+            let event = TimeEvent {
+                prev_interval: Some(prev_interval),
+                interval,
+            };
+
+            assert_eq!(filter.count_matches(&event), 2);
+        }
+
+        #[test]
+        fn test_schedule_start_inside_prev_interval() {
+            //
+            // -------[--|--)--*--[--*--)----
+            //        p1 s  p2   c1    c2
+
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 5))
+                .with_period(Duration::from_secs(10));
+            let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
+
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(10);
+            let prev_interval = TimeInterval { since, length };
+
+            let since = Duration::from_secs(TIMESTAMP + 20);
+            let length = Duration::from_secs(10);
+            let interval = TimeInterval { since, length };
+
+            let event = TimeEvent {
+                prev_interval: Some(prev_interval),
+                interval,
+            };
+
+            assert_eq!(filter.count_matches(&event), 3);
+        }
+
+        #[test]
+        fn test_schedule_start_between_intervals() {
+            //
+            // -------[----)--|--[--*--)----
+            //        p1   p2 s  c1    c2
+
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 15))
+                .with_period(Duration::from_secs(10));
+            let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
+
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(10);
+            let prev_interval = TimeInterval { since, length };
+
+            let since = Duration::from_secs(TIMESTAMP + 20);
+            let length = Duration::from_secs(10);
+            let interval = TimeInterval { since, length };
+
+            let event = TimeEvent {
+                prev_interval: Some(prev_interval),
+                interval,
+            };
+
+            assert_eq!(filter.count_matches(&event), 2);
+        }
+
+        #[test]
+        fn test_schedule_start_inside_current_interval() {
+            //
+            // -------[----)----[--|--)----
+            //        p1   p2   c1 s  c2
+
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 25))
+                .with_period(Duration::from_secs(10));
+            let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
+
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(10);
+            let prev_interval = TimeInterval { since, length };
+
+            let since = Duration::from_secs(TIMESTAMP + 20);
+            let length = Duration::from_secs(10);
+            let interval = TimeInterval { since, length };
+
+            let event = TimeEvent {
+                prev_interval: Some(prev_interval),
+                interval,
+            };
+
+            assert_eq!(filter.count_matches(&event), 0);
+        }
+
+        #[test]
+        fn test_schedule_start_after_current_interval() {
+            //
+            // -------[----)----[----)--|--
+            //        p1   p2   c1   c2 s
+
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 35))
+                .with_period(Duration::from_secs(10));
+            let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
+
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(10);
+            let prev_interval = TimeInterval { since, length };
+
+            let since = Duration::from_secs(TIMESTAMP + 20);
+            let length = Duration::from_secs(10);
+            let interval = TimeInterval { since, length };
+
+            let event = TimeEvent {
+                prev_interval: Some(prev_interval),
+                interval,
+            };
+
+            assert_eq!(filter.count_matches(&event), 0);
         }
     }
 }

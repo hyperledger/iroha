@@ -1479,6 +1479,8 @@ pub mod error {
             ///
             /// i.e. too long [`AccountId`]
             NameLength,
+            /// Attempt to register a time-trigger with `start` point in the past
+            TimeTriggerInThePast,
         }
 
         /// Repetition of of `{instruction_type}` for id `{id}`

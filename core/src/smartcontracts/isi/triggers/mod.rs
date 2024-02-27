@@ -13,6 +13,8 @@ pub mod specialized;
 /// - TODO: authorities.
 /// - TODO: authority permissions.
 pub mod isi {
+    use std::time::Duration;
+
     use iroha_data_model::{
         events::EventFilter,
         isi::error::{InvalidParameterError, RepetitionError},
@@ -39,6 +41,11 @@ pub mod isi {
                 }
             }
 
+            let last_block_estimation = state_transaction.latest_block_ref().map(|block| {
+                block.header().timestamp()
+                    + Duration::from_millis(block.header().consensus_estimation_ms)
+            });
+
             let engine = state_transaction.engine.clone(); // Cloning engine is cheap
             let triggers = &mut state_transaction.world.triggers;
             let trigger_id = new_trigger.id().clone();
@@ -55,12 +62,32 @@ pub mod isi {
                         .try_into()
                         .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                 ),
-                TriggeringEventFilterBox::Time(_) => triggers.add_time_trigger(
-                    &engine,
-                    new_trigger
-                        .try_into()
-                        .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
-                ),
+                TriggeringEventFilterBox::Time(time_filter) => {
+                    if let ExecutionTime::Schedule(schedule) = time_filter.0 {
+                        match last_block_estimation {
+                            // We're in genesis
+                            None => {
+                                return Err(Error::InvalidParameter(
+                                    InvalidParameterError::TimeTriggerInThePast,
+                                ));
+                            }
+                            Some(latest_block_estimation)
+                                if schedule.start < latest_block_estimation =>
+                            {
+                                return Err(Error::InvalidParameter(
+                                    InvalidParameterError::TimeTriggerInThePast,
+                                ));
+                            }
+                            Some(_) => (),
+                        }
+                    }
+                    triggers.add_time_trigger(
+                        &engine,
+                        new_trigger
+                            .try_into()
+                            .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
+                    )
+                }
                 TriggeringEventFilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
                     &engine,
                     new_trigger
