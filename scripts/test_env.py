@@ -107,7 +107,7 @@ class _Peer:
             logging.error("Kagami failed to generate a key pair.")
             sys.exit(3)
         str_keypair = kagami.stdout
-        # dict with `{ public_key: string, private_key: { digest_function: string, payload: string } }`
+        # dict with `{ public_key: string, private_key: { algorithm: string, payload: string } }`
         self.key_pair = json.loads(str_keypair)
 
         os.makedirs(self.peer_dir, exist_ok=True)

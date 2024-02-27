@@ -419,8 +419,8 @@ fn multiple_env_parsing_errors() {
     let error = RootPartial::from_env(&env).expect_err("the input from env is invalid");
 
     let expected = expect_test::expect![[r#"
-        `PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_DIGEST` was not
-        failed to parse `genesis.private_key.digest_function` field from `GENESIS_PRIVATE_KEY_DIGEST` env variable
+        `PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_ALGORITHM` was not
+        failed to parse `genesis.private_key.algorithm` field from `GENESIS_PRIVATE_KEY_ALGORITHM` env variable
         failed to parse `kura.debug.output_new_blocks` field from `KURA_DEBUG_OUTPUT_NEW_BLOCKS` env variable
         failed to parse `logger.format` field from `LOG_FORMAT` env variable
         failed to parse `torii.address` field from `API_ADDRESS` env variable"#]];

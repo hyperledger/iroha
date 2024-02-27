@@ -1,6 +1,6 @@
 chain_id = "0"
 public_key = "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB"
-private_key.digest_function = "ed25519"
+private_key.algorithm = "ed25519"
 private_key.payload = "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb"
 
 [network]

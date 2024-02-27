@@ -443,10 +443,10 @@ impl PublicKey {
     ///
     /// - If the given payload is not hex encoded
     /// - If the given payload is not a valid private key
-    pub fn from_hex(digest_function: Algorithm, payload: &str) -> Result<Self, ParseError> {
+    pub fn from_hex(algorithm: Algorithm, payload: &str) -> Result<Self, ParseError> {
         let payload = hex_decode(payload)?;
 
-        Self::from_raw(digest_function, &payload)
+        Self::from_raw(algorithm, &payload)
     }
 
     /// Get the digital signature algorithm of the public key
@@ -684,7 +684,7 @@ impl core::fmt::Display for PrivateKey {
 impl Serialize for PrivateKey {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("PublicKey", 2)?;
-        state.serialize_field("digest_function", &self.algorithm())?;
+        state.serialize_field("algorithm", &self.algorithm())?;
         state.serialize_field("payload", &hex::encode(self.payload()))?;
         state.end()
     }
@@ -699,13 +699,13 @@ impl<'de> Deserialize<'de> for PrivateKey {
 
         #[derive(Deserialize)]
         struct PrivateKeyCandidate {
-            digest_function: Algorithm,
+            algorithm: Algorithm,
             payload: String,
         }
 
         // NOTE: Verify that private key is valid
         let private_key = PrivateKeyCandidate::deserialize(deserializer)?;
-        Self::from_hex(private_key.digest_function, private_key.payload.as_ref())
+        Self::from_hex(private_key.algorithm, private_key.payload.as_ref())
             .map_err(D::Error::custom)
     }
 }
@@ -860,6 +860,7 @@ mod tests {
     use parity_scale_codec::{Decode, Encode};
     #[cfg(not(feature = "ffi_import"))]
     use serde::Deserialize;
+    use serde_json::json;
 
     use super::*;
 
@@ -1053,17 +1054,30 @@ mod tests {
         private_key: PrivateKey,
     }
 
+    macro_rules! assert_test_json_serde {
+        ($json:expr, $actual:expr) => {
+            assert_eq!(
+                serde_json::from_value::<TestJson>($json.clone()).expect("failed to deserialize"),
+                $actual
+            );
+            assert_eq!(
+                serde_json::to_value($actual).expect("failed to serialize"),
+                $json
+            );
+        };
+    }
+
     #[test]
     #[cfg(not(feature = "ffi_import"))]
-    fn deserialize_keys_ed25519() {
-        assert_eq!(
-            serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": \"ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4\",
-                \"private_key\": {
-                    \"digest_function\": \"ed25519\",
-                    \"payload\": \"3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4\"
+    fn serde_keys_ed25519() {
+        assert_test_json_serde!(
+            json!({
+                "public_key": "ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4",
+                "private_key": {
+                    "algorithm": "ed25519",
+                    "payload": "3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4"
                 }
-            }").expect("Failed to deserialize."),
+            }),
             TestJson {
                 public_key: PublicKey::from_hex(
                     Algorithm::Ed25519,
@@ -1071,7 +1085,7 @@ mod tests {
                 ).unwrap(),
                 private_key: PrivateKey::from_hex(
                     Algorithm::Ed25519,
-                    "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4",
+                    "3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4",
                 ).unwrap()
             }
         );
@@ -1079,39 +1093,41 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "ffi_import"))]
-    fn deserialize_keys_secp256k1() {
-        assert_eq!(
-            serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": \"e701210312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC\",
-                \"private_key\": {
-                    \"digest_function\": \"secp256k1\",
-                    \"payload\": \"4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445\"
+    fn serde_keys_secp256k1() {
+        assert_test_json_serde!(
+            json!({
+                "public_key": "e701210312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC",
+                "private_key": {
+                    "algorithm": "secp256k1",
+                    "payload": "4df4fca10762d4b529fe40a2188a60ca4469d2c50a825b5f33adc2cb78c69445"
                 }
-            }").expect("Failed to deserialize."),
+            }),
             TestJson {
                 public_key: PublicKey::from_hex(
                     Algorithm::Secp256k1,
                     "0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
-                ).unwrap(),
+                )
+                .unwrap(),
                 private_key: PrivateKey::from_hex(
                     Algorithm::Secp256k1,
                     "4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445",
-                ).unwrap()
+                )
+                .unwrap()
             }
         );
     }
 
     #[test]
     #[cfg(not(feature = "ffi_import"))]
-    fn deserialize_keys_bls() {
-        assert_eq!(
-            serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": \"ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2\",
-                \"private_key\": {
-                    \"digest_function\": \"bls_normal\",
-                    \"payload\": \"1ca347641228c3b79aa43839dedc85fa51c0e8b9b6a00f6b0d6b0423e902973f\"
+    fn serde_keys_bls() {
+        assert_test_json_serde!(
+            json!({
+                "public_key": "ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2",
+                "private_key": {
+                    "algorithm": "bls_normal",
+                    "payload": "1ca347641228c3b79aa43839dedc85fa51c0e8b9b6a00f6b0d6b0423e902973f"
                 }
-            }").expect("Failed to deserialize."),
+            }),
             TestJson {
                 public_key: PublicKey::from_hex(
                     Algorithm::BlsNormal,
@@ -1123,14 +1139,14 @@ mod tests {
                 ).unwrap()
             }
         );
-        assert_eq!(
-            serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": \"eb01609051D4A9C69402423413EBBA4C00BC82A0102AA2B783057BD7BCEE4DD17B37DE5D719EE84BE43783F2AE47A673A74B8315DD3E595ED1FBDFAC17DA1D7A36F642B423ED18275FAFD671B1D331439D22F12FB6EB436A47E8656F182A78DF29D310\",
-                \"private_key\": {
-                    \"digest_function\": \"bls_small\",
-                    \"payload\": \"8cb95072914cdd8e4cf682fdbe1189cdf4fc54d445e760b3446f896dbdbf5b2b\"
+        assert_test_json_serde!(
+            json!({
+                "public_key": "eb01609051D4A9C69402423413EBBA4C00BC82A0102AA2B783057BD7BCEE4DD17B37DE5D719EE84BE43783F2AE47A673A74B8315DD3E595ED1FBDFAC17DA1D7A36F642B423ED18275FAFD671B1D331439D22F12FB6EB436A47E8656F182A78DF29D310",
+                "private_key": {
+                    "algorithm": "bls_small",
+                    "payload": "8cb95072914cdd8e4cf682fdbe1189cdf4fc54d445e760b3446f896dbdbf5b2b"
                 }
-            }").expect("Failed to deserialize."),
+            }),
             TestJson {
                 public_key: PublicKey::from_hex(
                     Algorithm::BlsSmall,
