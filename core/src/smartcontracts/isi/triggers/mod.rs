@@ -34,6 +34,10 @@ pub mod isi {
                 }
             }
 
+            let last_block_estimation = wsv
+                .latest_block_ref()
+                .map(|block| block.header().timestamp() + block.header().consensus_estimation());
+
             let engine = wsv.engine.clone(); // Cloning engine is cheap
             let triggers = wsv.triggers_mut();
             let trigger_id = new_trigger.id().clone();
@@ -50,12 +54,32 @@ pub mod isi {
                         .try_into()
                         .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                 ),
-                TriggeringFilterBox::Time(_) => triggers.add_time_trigger(
-                    &engine,
-                    new_trigger
-                        .try_into()
-                        .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
-                ),
+                TriggeringFilterBox::Time(time_filter) => {
+                    if let ExecutionTime::Schedule(schedule) = time_filter.0 {
+                        match last_block_estimation {
+                            // We're in genesis
+                            None => {
+                                return Err(Error::InvalidParameter(
+                                    InvalidParameterError::TimeTriggerInThePast,
+                                ));
+                            }
+                            Some(latest_block_estimation)
+                                if schedule.start < latest_block_estimation =>
+                            {
+                                return Err(Error::InvalidParameter(
+                                    InvalidParameterError::TimeTriggerInThePast,
+                                ));
+                            }
+                            Some(_) => (),
+                        }
+                    }
+                    triggers.add_time_trigger(
+                        &engine,
+                        new_trigger
+                            .try_into()
+                            .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
+                    )
+                }
                 TriggeringFilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
                     &engine,
                     new_trigger

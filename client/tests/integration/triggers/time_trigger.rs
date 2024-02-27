@@ -88,6 +88,8 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_660).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    // Sleep to certainly bypass time interval analyzed by genesis
+    std::thread::sleep(DEFAULT_CONSENSUS_ESTIMATION);
     let start_time = current_time();
 
     // Start listening BEFORE submitting any transaction not to miss any block committed event
@@ -115,7 +117,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
         &mut test_client,
         &account_id,
         Duration::from_secs(1),
-        usize::try_from(PERIOD.as_millis() / DEFAULT_CONSENSUS_ESTIMATION.as_millis() + 1)?,
+        2, // One block for trigger registration and one for execution
     )?;
 
     let value = test_client
