@@ -10,15 +10,19 @@ mod query_builder;
 
 /// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
+    use eyre::Result;
+    use iroha_telemetry::metrics::Status;
     use url::Url;
 
     use crate::{
+        client::{Client, StatusResponseHandler},
         config::{
             Config, DEFAULT_TRANSACTION_NONCE, DEFAULT_TRANSACTION_STATUS_TIMEOUT,
             DEFAULT_TRANSACTION_TIME_TO_LIVE,
         },
         crypto::KeyPair,
         data_model::ChainId,
+        http_default::DefaultRequestBuilder,
     };
 
     /// Get sample client configuration.
@@ -35,6 +39,16 @@ pub mod samples {
             transaction_status_timeout: DEFAULT_TRANSACTION_STATUS_TIMEOUT,
             transaction_add_nonce: DEFAULT_TRANSACTION_NONCE,
         }
+    }
+
+    /// Gets network status seen from the peer in json format
+    ///
+    /// # Errors
+    /// Fails if sending request or decoding fails
+    pub fn get_status_json(client: &Client) -> Result<Status> {
+        let req = client.prepare_status_request::<DefaultRequestBuilder>();
+        let resp = req.build()?.send()?;
+        StatusResponseHandler::handle(&resp)
     }
 }
 
