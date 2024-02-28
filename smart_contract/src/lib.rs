@@ -12,7 +12,6 @@ use data_model::{
     isi::Instruction,
     prelude::*,
     query::{cursor::ForwardCursor, sorting::Sorting, Pagination, Query},
-    smart_contract::SmartContractQueryRequest,
     BatchedResponse,
 };
 use derive_more::Display;
@@ -112,64 +111,62 @@ pub trait ExecuteOnHost: Instruction {
     fn execute(&self) -> Result<(), ValidationFail>;
 }
 
-// TODO: Remove the Clone bound. It can be done by custom serialization to InstructionExpr
-impl<I: Instruction + Encode + Clone> ExecuteOnHost for I {
+impl<I: Instruction + Encode> ExecuteOnHost for I {
     fn execute(&self) -> Result<(), ValidationFail> {
         #[cfg(not(test))]
         use host::execute_instruction as host_execute_instruction;
         #[cfg(test)]
         use tests::_iroha_smart_contract_execute_instruction_mock as host_execute_instruction;
 
-        // TODO: Redundant conversion into `InstructionExpr`
-        let isi_box: InstructionBox = self.clone().into();
+        let bytes = self.encode_as_instruction_box();
         // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
         unsafe {
-            decode_with_length_prefix_from_raw(encode_and_execute(
-                &isi_box,
-                host_execute_instruction,
+            decode_with_length_prefix_from_raw(host_execute_instruction(
+                bytes.as_ptr(),
+                bytes.len(),
             ))
         }
     }
 }
 
+#[derive(Debug, Encode)]
+enum QueryRequest<'a, Q> {
+    Query(QueryWithParameters<'a, Q>),
+    Cursor(&'a ForwardCursor),
+}
+
 /// Generic query request containing additional parameters.
 #[derive(Debug)]
-pub struct QueryRequest<Q> {
-    query: Q,
+pub struct QueryWithParameters<'a, Q> {
+    query: &'a Q,
     sorting: Sorting,
     pagination: Pagination,
     fetch_size: FetchSize,
 }
 
-impl<Q: Query> From<QueryRequest<Q>> for SmartContractQueryRequest {
-    fn from(query_request: QueryRequest<Q>) -> Self {
-        SmartContractQueryRequest::query(
-            query_request.query.into(),
-            query_request.sorting,
-            query_request.pagination,
-            query_request.fetch_size,
-        )
+impl<Q: Query> Encode for QueryWithParameters<'_, Q> {
+    fn encode(&self) -> Vec<u8> {
+        let mut output = self.query.encode_as_query_box();
+        self.sorting.encode_to(&mut output);
+        self.pagination.encode_to(&mut output);
+        self.fetch_size.encode_to(&mut output);
+        output
     }
 }
 
 /// Implementing queries can be executed on the host
-///
-/// TODO: `&self` should be enough
 pub trait ExecuteQueryOnHost: Sized {
     /// Query output type.
     type Output;
 
-    /// Type of [`QueryRequest`].
-    type QueryRequest;
-
     /// Apply sorting to a query
-    fn sort(self, sorting: Sorting) -> Self::QueryRequest;
+    fn sort(&self, sorting: Sorting) -> QueryWithParameters<Self>;
 
     /// Apply pagination to a query
-    fn paginate(self, pagination: Pagination) -> Self::QueryRequest;
+    fn paginate(&self, pagination: Pagination) -> QueryWithParameters<Self>;
 
     /// Set fetch size for a query. Default is [`DEFAULT_FETCH_SIZE`]
-    fn fetch_size(self, fetch_size: FetchSize) -> Self::QueryRequest;
+    fn fetch_size(&self, fetch_size: FetchSize) -> QueryWithParameters<Self>;
 
     /// Execute query on the host
     ///
@@ -177,7 +174,7 @@ pub trait ExecuteQueryOnHost: Sized {
     ///
     /// - If query validation failed
     /// - If query execution failed
-    fn execute(self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail>;
+    fn execute(&self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail>;
 }
 
 impl<Q> ExecuteQueryOnHost for Q
@@ -187,10 +184,9 @@ where
     <Q::Output as TryFrom<Value>>::Error: core::fmt::Debug,
 {
     type Output = Q::Output;
-    type QueryRequest = QueryRequest<Self>;
 
-    fn sort(self, sorting: Sorting) -> Self::QueryRequest {
-        QueryRequest {
+    fn sort(&self, sorting: Sorting) -> QueryWithParameters<Self> {
+        QueryWithParameters {
             query: self,
             sorting,
             pagination: Pagination::default(),
@@ -198,8 +194,8 @@ where
         }
     }
 
-    fn paginate(self, pagination: Pagination) -> Self::QueryRequest {
-        QueryRequest {
+    fn paginate(&self, pagination: Pagination) -> QueryWithParameters<Self> {
+        QueryWithParameters {
             query: self,
             sorting: Sorting::default(),
             pagination,
@@ -207,8 +203,8 @@ where
         }
     }
 
-    fn fetch_size(self, fetch_size: FetchSize) -> Self::QueryRequest {
-        QueryRequest {
+    fn fetch_size(&self, fetch_size: FetchSize) -> QueryWithParameters<Self> {
+        QueryWithParameters {
             query: self,
             sorting: Sorting::default(),
             pagination: Pagination::default(),
@@ -216,8 +212,8 @@ where
         }
     }
 
-    fn execute(self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail> {
-        QueryRequest {
+    fn execute(&self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail> {
+        QueryWithParameters {
             query: self,
             sorting: Sorting::default(),
             pagination: Pagination::default(),
@@ -227,50 +223,56 @@ where
     }
 }
 
-impl<Q> ExecuteQueryOnHost for QueryRequest<Q>
+impl<Q> QueryWithParameters<'_, Q>
 where
     Q: Query + Encode,
     Q::Output: DecodeAll,
     <Q::Output as TryFrom<Value>>::Error: core::fmt::Debug,
 {
-    type Output = Q::Output;
-    type QueryRequest = Self;
-
-    fn sort(mut self, sorting: Sorting) -> Self {
+    /// Apply sorting to a query
+    #[must_use]
+    pub fn sort(mut self, sorting: Sorting) -> Self {
         self.sorting = sorting;
         self
     }
 
-    fn paginate(mut self, pagination: Pagination) -> Self {
+    /// Apply pagination to a query
+    #[must_use]
+    pub fn paginate(mut self, pagination: Pagination) -> Self {
         self.pagination = pagination;
         self
     }
 
-    fn fetch_size(mut self, fetch_size: FetchSize) -> Self::QueryRequest {
+    /// Set fetch size for a query. Default is [`DEFAULT_FETCH_SIZE`]
+    #[must_use]
+    pub fn fetch_size(mut self, fetch_size: FetchSize) -> Self {
         self.fetch_size = fetch_size;
         self
     }
 
-    #[allow(irrefutable_let_patterns)]
-    fn execute(self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail> {
+    /// Execute query on the host
+    ///
+    /// # Errors
+    ///
+    /// - If query validation failed
+    /// - If query execution failed
+    pub fn execute(self) -> Result<QueryOutputCursor<Q::Output>, ValidationFail> {
         #[cfg(not(test))]
         use host::execute_query as host_execute_query;
         #[cfg(test)]
         use tests::_iroha_smart_contract_execute_query_mock as host_execute_query;
 
-        let wasm_query_request = SmartContractQueryRequest::from(self);
-
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transferred into `_decode_from_raw`
         let res: Result<BatchedResponse<Value>, ValidationFail> = unsafe {
             decode_with_length_prefix_from_raw(encode_and_execute(
-                &wasm_query_request,
+                &QueryRequest::Query(self),
                 host_execute_query,
             ))
         };
 
         let (value, cursor) = res?.into();
-        let typed_value = Self::Output::try_from(value).expect("Query output has incorrect type");
+        let typed_value = Q::Output::try_from(value).expect("Query output has incorrect type");
         Ok(QueryOutputCursor {
             batch: typed_value,
             cursor,
@@ -339,30 +341,23 @@ impl<U: TryFrom<Value>> IntoIterator for QueryOutputCursor<Vec<U>> {
 ///
 /// - Failed to get next batch of results from the host
 /// - Failed to convert batch of results into the requested type
-///
-/// # Panics
-///
-/// Panics if response from host is not [`BatchedResponse::V1`].
 pub struct QueryOutputCursorIterator<T> {
     iter: <Vec<T> as IntoIterator>::IntoIter,
     cursor: ForwardCursor,
 }
 
 impl<T: TryFrom<Value>> QueryOutputCursorIterator<T> {
-    #[allow(irrefutable_let_patterns)]
     fn next_batch(&self) -> Result<Self, QueryOutputCursorError<Vec<T>>> {
         #[cfg(not(test))]
         use host::execute_query as host_execute_query;
         #[cfg(test)]
         use tests::_iroha_smart_contract_execute_query_mock as host_execute_query;
 
-        let wasm_query_request = SmartContractQueryRequest::cursor(self.cursor.clone());
-
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transferred into `_decode_from_raw`
         let res: Result<BatchedResponse<Value>, ValidationFail> = unsafe {
             decode_with_length_prefix_from_raw(encode_and_execute(
-                &wasm_query_request,
+                &QueryRequest::<QueryBox>::Cursor(&self.cursor),
                 host_execute_query,
             ))
         };
@@ -404,10 +399,6 @@ pub enum QueryOutputCursorError<T> {
     /// Host returned unexpected output type.
     Conversion(ErrorTryFromEnum<Value, T>),
 }
-
-/// World state view of the host
-#[derive(Debug, Clone, Copy)]
-pub struct Host;
 
 /// Get payload for smart contract `main()` entrypoint.
 #[cfg(not(test))]
@@ -460,9 +451,38 @@ mod tests {
 
     use data_model::{query::asset::FindAssetQuantityById, BatchedResponseV1};
     use iroha_smart_contract_utils::encode_with_length_prefix;
+    use parity_scale_codec::Decode;
     use webassembly_test::webassembly_test;
 
     use super::*;
+
+    #[derive(Decode)]
+    struct QueryWithParameters<Q> {
+        query: Q,
+        sorting: Sorting,
+        pagination: Pagination,
+        #[allow(dead_code)]
+        fetch_size: FetchSize,
+    }
+
+    #[derive(Decode)]
+    enum QueryRequest<Q> {
+        Query(QueryWithParameters<Q>),
+        Cursor(#[allow(unused_tuple_struct_fields)] ForwardCursor),
+    }
+
+    #[derive(Decode)]
+    #[repr(transparent)]
+    struct SmartContractQueryRequest(pub QueryRequest<QueryBox>);
+
+    impl SmartContractQueryRequest {
+        fn unwrap_query(self) -> (QueryBox, Sorting, Pagination) {
+            match self.0 {
+                QueryRequest::Query(query) => (query.query, query.sorting, query.pagination),
+                QueryRequest::Cursor(_) => panic!("Expected query, got cursor"),
+            }
+        }
+    }
 
     const QUERY_RESULT: Result<QueryOutputCursor<Value>, ValidationFail> = Ok(QueryOutputCursor {
         batch: Value::Numeric(NumericValue::U32(1234_u32)),

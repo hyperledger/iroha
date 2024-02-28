@@ -13,17 +13,15 @@ use iroha_data_model::{
     isi::InstructionBox,
     permission::PermissionTokenSchema,
     prelude::*,
-    query::{QueryBox, QueryId, QueryRequest, QueryWithParameters},
-    smart_contract::{
-        payloads::{self, Validate},
-        SmartContractQueryRequest,
-    },
+    query::{QueryBox, QueryRequest, QueryWithParameters},
+    smart_contract::payloads::{self, Validate},
     BatchedResponse, Level as LogLevel, ValidationFail,
 };
 use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span};
 use iroha_wasm_codec::{self as codec, WasmUsize};
+use parity_scale_codec::Decode;
 use wasmtime::{
     Caller, Config as WasmtimeConfig, Engine, Linker, Module, Store, StoreLimits,
     StoreLimitsBuilder, TypedFunc,
@@ -74,7 +72,7 @@ mod import {
 
         use super::super::*;
 
-        pub trait ExecuteOperations<S> {
+        pub(crate) trait ExecuteOperations<S> {
             /// Execute `query` on host
             #[codec::wrap_trait_fn]
             fn execute_query(
@@ -242,6 +240,11 @@ pub mod error {
 
 /// [`Result`] type for this module
 pub type Result<T, E = Error> = core::result::Result<T, E>;
+
+#[cfg_attr(test, derive(parity_scale_codec::Encode))]
+#[derive(Debug, derive_more::Display, Decode)]
+#[repr(transparent)]
+pub(crate) struct SmartContractQueryRequest(pub QueryRequest<QueryBox>);
 
 /// Create [`Module`] from bytes.
 ///
@@ -1751,12 +1754,14 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura, query_handle);
-        let query_hex = encode_hex(SmartContractQueryRequest::query(
-            QueryBox::from(FindAccountById::new(authority.clone())),
-            Sorting::default(),
-            Pagination::default(),
-            FetchSize::default(),
-        ));
+        let query_hex = encode_hex(SmartContractQueryRequest(QueryRequest::Query(
+            QueryWithParameters::new(
+                FindAccountById::new(authority.clone()).into(),
+                Sorting::default(),
+                Pagination::default(),
+                FetchSize::default(),
+            ),
+        )));
 
         let wat = format!(
             r#"

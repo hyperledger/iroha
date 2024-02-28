@@ -298,7 +298,7 @@ pub mod domain {
 
     #[allow(clippy::too_many_lines)]
     fn is_token_domain_associated(permission: &PermissionToken, domain_id: &DomainId) -> bool {
-        let Ok(permission) = AnyPermissionToken::try_from(permission.clone()) else {
+        let Ok(permission) = AnyPermissionToken::try_from(permission) else {
             return false;
         };
         match permission {
@@ -611,7 +611,7 @@ pub mod account {
     }
 
     fn is_token_account_associated(permission: &PermissionToken, account_id: &AccountId) -> bool {
-        let Ok(permission) = AnyPermissionToken::try_from(permission.clone()) else {
+        let Ok(permission) = AnyPermissionToken::try_from(permission) else {
             return false;
         };
         match permission {
@@ -844,7 +844,7 @@ pub mod asset_definition {
         permission: &PermissionToken,
         asset_definition_id: &AssetDefinitionId,
     ) -> bool {
-        let Ok(permission) = AnyPermissionToken::try_from(permission.clone()) else {
+        let Ok(permission) = AnyPermissionToken::try_from(permission) else {
             return false;
         };
         match permission {
@@ -995,7 +995,7 @@ pub mod asset {
     where
         V: Validate + ?Sized,
         Q: Into<Value>,
-        Mint<Q, Asset>: Instruction + Encode + Clone,
+        Mint<Q, Asset>: Instruction + Encode,
     {
         let asset_id = isi.destination_id();
         if is_genesis(executor) {
@@ -1053,7 +1053,7 @@ pub mod asset {
     where
         V: Validate + ?Sized,
         Q: Into<Value>,
-        Burn<Q, Asset>: Instruction + Encode + Clone,
+        Burn<Q, Asset>: Instruction + Encode,
     {
         let asset_id = isi.destination_id();
         if is_genesis(executor) {
@@ -1116,7 +1116,7 @@ pub mod asset {
     ) where
         V: Validate + ?Sized,
         Q: Into<Value>,
-        Transfer<Asset, Q, Account>: Instruction + Encode + Clone,
+        Transfer<Asset, Q, Account>: Instruction + Encode,
     {
         let asset_id = isi.source_id();
         if is_genesis(executor) {
@@ -1303,7 +1303,7 @@ pub mod role {
             let mut unknown_tokens = Vec::new();
             if !is_genesis($executor) {
                 for token in role.permissions() {
-                    if let Ok(token) = AnyPermissionToken::try_from(token.clone()) {
+                    if let Ok(token) = AnyPermissionToken::try_from(token) {
                         if let Err(error) = permission::ValidateGrantRevoke::$method(
                             &token,
                             $authority,
@@ -1340,7 +1340,7 @@ pub mod role {
         for token in role.permissions() {
             iroha_smart_contract::debug!(&format!("Checking `{token:?}`"));
 
-            if let Ok(any_token) = AnyPermissionToken::try_from(token.clone()) {
+            if let Ok(any_token) = AnyPermissionToken::try_from(token) {
                 let token = PermissionToken::from(any_token);
                 new_role = new_role.add_permission(token);
                 continue;
@@ -1527,7 +1527,7 @@ pub mod trigger {
     }
 
     fn is_token_trigger_associated(permission: &PermissionToken, trigger_id: &TriggerId) -> bool {
-        let Ok(permission) = AnyPermissionToken::try_from(permission.clone()) else {
+        let Ok(permission) = AnyPermissionToken::try_from(permission) else {
             return false;
         };
         match permission {
@@ -1588,11 +1588,10 @@ pub mod permission_token {
 
     macro_rules! impl_validate {
         ($executor:ident, $authority:ident, $isi:ident, $method:ident, $isi_type:ty) => {
-            // TODO: https://github.com/hyperledger/iroha/issues/4082
-            let token = $isi.object().clone();
             let account_id = $isi.destination_id().clone();
+            let token = $isi.object();
 
-            if let Ok(any_token) = AnyPermissionToken::try_from(token.clone()) {
+            if let Ok(any_token) = AnyPermissionToken::try_from(token) {
                 let token = PermissionToken::from(any_token.clone());
                 let isi = <$isi_type>::permission(token, account_id);
                 if is_genesis($executor) {

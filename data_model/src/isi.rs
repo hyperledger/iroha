@@ -5,7 +5,7 @@ use alloc::{format, string::String, vec::Vec};
 use core::fmt::{Debug, Display};
 
 use derive_more::{Constructor, DebugCustom, Display};
-use iroha_data_model_derive::model;
+use iroha_data_model_derive::{model, EnumRef};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -20,10 +20,16 @@ use crate::{seal, Level, Registered};
 /// Instructions allows to change the state of `Iroha`.
 /// All possible instructions are implementors of this trait, excluding
 /// [`InstructionBox`] which is just a wrapper.
-pub trait Instruction: Into<InstructionBox> + seal::Sealed {}
+pub trait Instruction: Into<InstructionBox> + seal::Sealed {
+    /// [`Encode`] [`Self`] as [`InstructionBox`].
+    ///
+    /// Used to avoid an unnecessary clone
+    fn encode_as_instruction_box(&self) -> Vec<u8>;
+}
 
 #[model]
 pub mod model {
+    use iroha_macro::FromVariant;
     pub use transparent::*;
 
     use super::*;
@@ -41,13 +47,16 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
+        EnumRef,
         EnumDiscriminants,
+        FromVariant,
         Decode,
         Encode,
         Deserialize,
         Serialize,
         IntoSchema,
     )]
+    #[enum_ref(derive(Encode, FromVariant))]
     #[strum_discriminants(
         name(InstructionType),
         derive(
@@ -64,29 +73,37 @@ pub mod model {
             any(feature = "ffi_import", feature = "ffi_export"),
             derive(iroha_ffi::FfiType)
         ),
-        allow(missing_docs),
         repr(u8)
     )]
     #[ffi_type(opaque)]
     #[allow(missing_docs)]
     pub enum InstructionBox {
         #[debug(fmt = "{_0:?}")]
+        #[enum_ref(transparent)]
         Register(RegisterBox),
         #[debug(fmt = "{_0:?}")]
+        #[enum_ref(transparent)]
         Unregister(UnregisterBox),
         #[debug(fmt = "{_0:?}")]
+        #[enum_ref(transparent)]
         Mint(MintBox),
         #[debug(fmt = "{_0:?}")]
+        #[enum_ref(transparent)]
         Burn(BurnBox),
         #[debug(fmt = "{_0:?}")]
+        #[enum_ref(transparent)]
         Transfer(TransferBox),
         #[debug(fmt = "{_0:?}")]
+        #[enum_ref(transparent)]
         SetKeyValue(SetKeyValueBox),
         #[debug(fmt = "{_0:?}")]
+        #[enum_ref(transparent)]
         RemoveKeyValue(RemoveKeyValueBox),
         #[debug(fmt = "{_0:?}")]
+        #[enum_ref(transparent)]
         Grant(GrantBox),
         #[debug(fmt = "{_0:?}")]
+        #[enum_ref(transparent)]
         Revoke(RevokeBox),
         #[debug(fmt = "{_0:?}")]
         ExecuteTrigger(ExecuteTrigger),
@@ -102,67 +119,74 @@ pub mod model {
         #[debug(fmt = "{_0:?}")]
         Fail(Fail),
     }
+}
 
-    impl Instruction for InstructionBox {}
+macro_rules! impl_instruction {
+    ($($ty:ty),+ $(,)?) => { $(
+        impl Instruction for $ty {
+            fn encode_as_instruction_box(&self) -> Vec<u8> {
+                InstructionBoxRef::from(self).encode()
+            }
+        } )+
+    }
+}
 
-    impl Instruction for SetKeyValue<Domain> {}
-    impl Instruction for SetKeyValue<Account> {}
-    impl Instruction for SetKeyValue<AssetDefinition> {}
-    impl Instruction for SetKeyValue<Asset> {}
+impl_instruction! {
+    SetKeyValue<Domain>,
+    SetKeyValue<Account>,
+    SetKeyValue<AssetDefinition>,
+    SetKeyValue<Asset>,
+    RemoveKeyValue<Domain>,
+    RemoveKeyValue<Account>,
+    RemoveKeyValue<AssetDefinition>,
+    RemoveKeyValue<Asset>,
+    Register<Peer>,
+    Register<Domain>,
+    Register<Account>,
+    Register<AssetDefinition>,
+    Register<Asset>,
+    Register<Role>,
+    Register<Trigger<TriggeringFilterBox>>,
+    Unregister<Peer>,
+    Unregister<Domain>,
+    Unregister<Account>,
+    Unregister<AssetDefinition>,
+    Unregister<Asset>,
+    Unregister<Role>,
+    Unregister<Trigger<TriggeringFilterBox>>,
+    Mint<PublicKey, Account>,
+    Mint<SignatureCheckCondition, Account>,
+    Mint<u32, Asset>,
+    Mint<u128, Asset>,
+    Mint<Fixed, Asset>,
+    Mint<u32, Trigger<TriggeringFilterBox>>,
+    Burn<PublicKey, Account>,
+    Burn<u32, Asset>,
+    Burn<u128, Asset>,
+    Burn<Fixed, Asset>,
+    Burn<u32, Trigger<TriggeringFilterBox>>,
+    Transfer<Account, DomainId, Account>,
+    Transfer<Account, AssetDefinitionId, Account>,
+    Transfer<Asset, u32, Account>,
+    Transfer<Asset, u128, Account>,
+    Transfer<Asset, Fixed, Account>,
+    Transfer<Asset, Metadata, Account>,
+    Grant<PermissionToken>,
+    Grant<RoleId>,
+    Revoke<PermissionToken>,
+    Revoke<RoleId>,
+    SetParameter,
+    NewParameter,
+    Upgrade,
+    ExecuteTrigger,
+    Log,
+    Fail,
+}
 
-    impl Instruction for RemoveKeyValue<Domain> {}
-    impl Instruction for RemoveKeyValue<Account> {}
-    impl Instruction for RemoveKeyValue<AssetDefinition> {}
-    impl Instruction for RemoveKeyValue<Asset> {}
-
-    impl Instruction for Register<Peer> {}
-    impl Instruction for Register<Domain> {}
-    impl Instruction for Register<Account> {}
-    impl Instruction for Register<AssetDefinition> {}
-    impl Instruction for Register<Asset> {}
-    impl Instruction for Register<Role> {}
-    impl Instruction for Register<Trigger<TriggeringFilterBox>> {}
-
-    impl Instruction for Unregister<Peer> {}
-    impl Instruction for Unregister<Domain> {}
-    impl Instruction for Unregister<Account> {}
-    impl Instruction for Unregister<AssetDefinition> {}
-    impl Instruction for Unregister<Asset> {}
-    impl Instruction for Unregister<Role> {}
-    impl Instruction for Unregister<Trigger<TriggeringFilterBox>> {}
-
-    impl Instruction for Mint<PublicKey, Account> {}
-    impl Instruction for Mint<SignatureCheckCondition, Account> {}
-    impl Instruction for Mint<u32, Asset> {}
-    impl Instruction for Mint<u128, Asset> {}
-    impl Instruction for Mint<Fixed, Asset> {}
-    impl Instruction for Mint<u32, Trigger<TriggeringFilterBox>> {}
-
-    impl Instruction for Burn<PublicKey, Account> {}
-    impl Instruction for Burn<u32, Asset> {}
-    impl Instruction for Burn<u128, Asset> {}
-    impl Instruction for Burn<Fixed, Asset> {}
-    impl Instruction for Burn<u32, Trigger<TriggeringFilterBox>> {}
-
-    impl Instruction for Transfer<Account, DomainId, Account> {}
-    impl Instruction for Transfer<Account, AssetDefinitionId, Account> {}
-    impl Instruction for Transfer<Asset, u32, Account> {}
-    impl Instruction for Transfer<Asset, u128, Account> {}
-    impl Instruction for Transfer<Asset, Fixed, Account> {}
-    impl Instruction for Transfer<Asset, Metadata, Account> {}
-
-    impl Instruction for Grant<PermissionToken> {}
-    impl Instruction for Grant<RoleId> {}
-
-    impl Instruction for Revoke<PermissionToken> {}
-    impl Instruction for Revoke<RoleId> {}
-
-    impl Instruction for SetParameter {}
-    impl Instruction for NewParameter {}
-    impl Instruction for Upgrade {}
-    impl Instruction for ExecuteTrigger {}
-    impl Instruction for Log {}
-    impl Instruction for Fail {}
+impl Instruction for InstructionBox {
+    fn encode_as_instruction_box(&self) -> Vec<u8> {
+        self.encode()
+    }
 }
 
 mod transparent {
@@ -207,26 +231,22 @@ mod transparent {
     }
 
     macro_rules! impl_into_box {
-        (
-            $($isi:ident $(< $($generic:ident $(< $nested_generic:ident >)?),+ >)?)|*
-            ==> $boxed:ident :: $variant:ident
+        ( $($isi:ty)|*
+          => $middle:ty => $boxed:ty[$variant:ident],
+          => $middle_ref:ty => $boxed_ref:ty[$variant_ref:ident]
         ) => {$(
-            impl From<$isi $(< $($generic $(< $nested_generic >)?),+ >)? > for $boxed {
-                fn from(instruction: $isi $(< $($generic $(< $nested_generic >)?),+ >)?) -> Self {
-                    Self::$variant(instruction)
+            impl From<$isi> for $boxed {
+                fn from(instruction: $isi) -> Self {
+                    Self::$variant(<$middle>::from(instruction))
                 }
             }
-        )*};
-        (
-            $($isi:ident $(< $($generic:ident $(< $nested_generic:ident >)?),+ >)?)|*
-            => $middle:ident ==> $boxed:ident :: $variant:ident
-        ) => {$(
-            impl From<$isi $(< $($generic $(< $nested_generic >)?),+ >)? > for $boxed {
-                fn from(instruction: $isi $(< $($generic $(< $nested_generic >)?),+ >)?) -> Self {
-                    Self::$variant($middle::from(instruction))
+
+            impl<'a> From<&'a $isi> for $boxed_ref {
+                fn from(instruction: &'a $isi) -> Self {
+                    Self::$variant(<$middle_ref>::from(instruction))
                 }
-            }
-        )*};
+            })*
+        };
     }
 
     isi! {
@@ -242,8 +262,6 @@ mod transparent {
         }
     }
 
-    impl_into_box!(SetParameter ==> InstructionBox::SetParameter);
-
     isi! {
         /// Sized structure for all possible on-chain configuration parameters when they are first created.
         /// Generic instruction for setting a chain-wide config parameter.
@@ -257,8 +275,6 @@ mod transparent {
             pub parameter: Parameter,
         }
     }
-
-    impl_into_box!(NewParameter ==> InstructionBox::NewParameter);
 
     isi! {
         /// Generic instruction to set key value at the object.
@@ -336,7 +352,9 @@ mod transparent {
         SetKeyValue<Domain> |
         SetKeyValue<Account> |
         SetKeyValue<AssetDefinition> |
-        SetKeyValue<Asset> => SetKeyValueBox ==> InstructionBox::SetKeyValue
+        SetKeyValue<Asset>
+    => SetKeyValueBox => InstructionBox[SetKeyValue],
+    => SetKeyValueBoxRef<'a> => InstructionBoxRef<'a>[SetKeyValue]
     }
 
     isi! {
@@ -405,7 +423,9 @@ mod transparent {
         RemoveKeyValue<Domain> |
         RemoveKeyValue<Account> |
         RemoveKeyValue<AssetDefinition> |
-        RemoveKeyValue<Asset> => RemoveKeyValueBox ==> InstructionBox::RemoveKeyValue
+        RemoveKeyValue<Asset>
+    => RemoveKeyValueBox => InstructionBox[RemoveKeyValue],
+    => RemoveKeyValueBoxRef<'a> => InstructionBoxRef<'a>[RemoveKeyValue]
     }
 
     isi! {
@@ -490,7 +510,9 @@ mod transparent {
         Register<AssetDefinition> |
         Register<Asset> |
         Register<Role> |
-        Register<Trigger<TriggeringFilterBox> > => RegisterBox ==> InstructionBox::Register
+        Register<Trigger<TriggeringFilterBox>>
+    => RegisterBox => InstructionBox[Register],
+    => RegisterBoxRef<'a> => InstructionBoxRef<'a>[Register]
     }
 
     isi! {
@@ -519,7 +541,9 @@ mod transparent {
         Unregister<AssetDefinition> |
         Unregister<Asset> |
         Unregister<Role> |
-        Unregister<Trigger<TriggeringFilterBox> > => UnregisterBox ==> InstructionBox::Unregister
+        Unregister<Trigger<TriggeringFilterBox>>
+    => UnregisterBox => InstructionBox[Unregister],
+    => UnregisterBoxRef<'a> => InstructionBoxRef<'a>[Unregister]
     }
 
     impl Unregister<Peer> {
@@ -669,13 +693,17 @@ mod transparent {
 
     impl_into_box! {
         Mint<PublicKey, Account> |
-        Mint<SignatureCheckCondition, Account> => AccountMintBox ==> MintBox::Account
+        Mint<SignatureCheckCondition, Account>
+    => AccountMintBox => MintBox[Account],
+    => AccountMintBoxRef<'a> => MintBoxRef<'a>[Account]
     }
 
     impl_into_box! {
         Mint<u32, Asset> |
         Mint<u128, Asset> |
-        Mint<Fixed, Asset> => AssetMintBox ==> MintBox::Asset
+        Mint<Fixed, Asset>
+    => AssetMintBox => MintBox[Asset],
+    => AssetMintBoxRef<'a> => MintBoxRef<'a>[Asset]
     }
 
     impl_into_box! {
@@ -684,7 +712,9 @@ mod transparent {
         Mint<u32, Asset> |
         Mint<u128, Asset> |
         Mint<Fixed, Asset> |
-        Mint<u32, Trigger<TriggeringFilterBox> > => MintBox ==> InstructionBox::Mint
+        Mint<u32, Trigger<TriggeringFilterBox>>
+    => MintBox => InstructionBox[Mint],
+    => MintBoxRef<'a> => InstructionBoxRef<'a>[Mint]
     }
 
     isi! {
@@ -763,7 +793,9 @@ mod transparent {
     impl_into_box! {
         Burn<u32, Asset> |
         Burn<u128, Asset> |
-        Burn<Fixed, Asset> => AssetBurnBox ==> BurnBox::Asset
+        Burn<Fixed, Asset>
+    => AssetBurnBox => BurnBox[Asset],
+    => AssetBurnBoxRef<'a> => BurnBoxRef<'a>[Asset]
     }
 
     impl_into_box! {
@@ -771,7 +803,9 @@ mod transparent {
         Burn<u32, Asset> |
         Burn<u128, Asset> |
         Burn<Fixed, Asset> |
-        Burn<u32, Trigger<TriggeringFilterBox> > => BurnBox ==> InstructionBox::Burn
+        Burn<u32, Trigger<TriggeringFilterBox>>
+    => BurnBox => InstructionBox[Burn],
+    => BurnBoxRef<'a> => InstructionBoxRef<'a>[Burn]
     }
 
     isi! {
@@ -878,7 +912,9 @@ mod transparent {
         Transfer<Asset, u32, Account> |
         Transfer<Asset, u128, Account> |
         Transfer<Asset, Metadata, Account> |
-        Transfer<Asset, Fixed, Account> => AssetTransferBox ==> TransferBox::Asset
+        Transfer<Asset, Fixed, Account>
+    => AssetTransferBox => TransferBox[Asset],
+    => AssetTransferBoxRef<'a> => TransferBoxRef<'a>[Asset]
     }
 
     impl_into_box! {
@@ -887,7 +923,9 @@ mod transparent {
         Transfer<Asset, u32, Account> |
         Transfer<Asset, u128, Account> |
         Transfer<Asset, Metadata, Account> |
-        Transfer<Asset, Fixed, Account> => TransferBox ==> InstructionBox::Transfer
+        Transfer<Asset, Fixed, Account>
+    => TransferBox => InstructionBox[Transfer],
+    => TransferBoxRef<'a> => InstructionBoxRef<'a>[Transfer]
     }
 
     isi! {
@@ -901,8 +939,6 @@ mod transparent {
             pub message: String,
         }
     }
-
-    impl_into_box!(Fail ==> InstructionBox::Fail);
 
     isi! {
         /// Generic instruction for granting permission to an entity.
@@ -946,7 +982,9 @@ mod transparent {
 
     impl_into_box! {
         Grant<PermissionToken> |
-        Grant<RoleId> => GrantBox ==> InstructionBox::Grant
+        Grant<RoleId>
+    => GrantBox => InstructionBox[Grant],
+    => GrantBoxRef<'a> => InstructionBoxRef<'a>[Grant]
     }
 
     isi! {
@@ -991,7 +1029,9 @@ mod transparent {
 
     impl_into_box! {
         Revoke<PermissionToken> |
-        Revoke<RoleId> => RevokeBox ==> InstructionBox::Revoke
+        Revoke<RoleId>
+    => RevokeBox => InstructionBox[Revoke],
+    => RevokeBoxRef<'a> => InstructionBoxRef<'a>[Revoke]
     }
 
     isi! {
@@ -1006,8 +1046,6 @@ mod transparent {
         }
     }
 
-    impl_into_box!(ExecuteTrigger ==> InstructionBox::ExecuteTrigger);
-
     isi! {
         /// Generic instruction for upgrading runtime objects.
         #[derive(Constructor, Display)]
@@ -1019,8 +1057,6 @@ mod transparent {
             pub executor: Executor,
         }
     }
-
-    impl_into_box!(Upgrade ==> InstructionBox::Upgrade);
 
     isi! {
         /// Instruction to print logs
@@ -1035,8 +1071,6 @@ mod transparent {
             pub msg: String,
         }
     }
-
-    impl_into_box!(Log ==> InstructionBox::Log);
 }
 
 macro_rules! isi_box {
@@ -1049,6 +1083,8 @@ macro_rules! isi_box {
             PartialOrd,
             Ord,
             Display,
+            EnumRef,
+            EnumDiscriminants,
             parity_scale_codec::Decode,
             parity_scale_codec::Encode,
             serde::Deserialize,
@@ -1056,12 +1092,18 @@ macro_rules! isi_box {
             iroha_schema::IntoSchema,
             derive_more::From,
         )]
+        #[enum_ref(derive(Encode, iroha_macro::FromVariant))]
         $($meta)*
         $item
     };
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(SetKeyValueType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`SetKeyValue`] instructions.
     pub enum SetKeyValueBox {
         /// Set key value for [`Domain`].
@@ -1076,6 +1118,11 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(RemoveKeyValueType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`RemoveKeyValue`] instructions.
     pub enum RemoveKeyValueBox {
         /// Remove key value from [`Domain`].
@@ -1090,6 +1137,11 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(RegisterType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Register`] instructions.
     pub enum RegisterBox {
         /// Register [`Peer`].
@@ -1110,6 +1162,11 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(UnregisterType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Unregister`] instructions.
     pub enum UnregisterBox {
         /// Unregister [`Peer`].
@@ -1130,11 +1187,18 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(MintType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Mint`] instructions.
     pub enum MintBox {
         /// Mint for [`Account`].
+        #[enum_ref(transparent)]
         Account(AccountMintBox),
         /// Mint for [`Asset`].
+        #[enum_ref(transparent)]
         Asset(AssetMintBox),
         /// Mint [`Trigger`] repetitions.
         TriggerRepetitions(Mint<u32, Trigger<TriggeringFilterBox>>),
@@ -1142,6 +1206,11 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(AccountMintType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Mint`] instructions related to [`Account`].
     pub enum AccountMintBox {
         /// Mint [`PublicKey`].
@@ -1152,6 +1221,11 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(AssetMintType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Mint`] instructions related to [`Asset`].
     pub enum AssetMintBox {
         /// Mint [`Asset`] of [`Quantity`] type.
@@ -1164,11 +1238,17 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(BurnType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Burn`] instructions.
     pub enum BurnBox {
         /// Burn [`PublicKey`] for [`Account`].
         AccountPublicKey(Burn<PublicKey, Account>),
         /// Burn [`Asset`].
+        #[enum_ref(transparent)]
         Asset(AssetBurnBox),
         /// Burn [`Trigger`] repetitions.
         TriggerRepetitions(Burn<u32, Trigger<TriggeringFilterBox>>),
@@ -1176,6 +1256,11 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(AssetBurnType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Burn`] instructions related to [`Asset`].
     pub enum AssetBurnBox {
         /// Burn [`Asset`] of [`Quantity`] type.
@@ -1188,6 +1273,11 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(TransferType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Transfer`] instructions.
     pub enum TransferBox {
         /// Transfer [`Domain`] to another [`Account`].
@@ -1195,11 +1285,17 @@ isi_box! {
         /// Transfer [`AssetDefinition`] to another [`Account`].
         AssetDefinition(Transfer<Account, AssetDefinitionId, Account>),
         /// Transfer [`Asset`] to another [`Account`].
+        #[enum_ref(transparent)]
         Asset(AssetTransferBox),
     }
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(AssetTransferType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Transfer`] instructions related to [`Asset`].
     pub enum AssetTransferBox {
         /// Transfer [`Asset`] of [`Quantity`] type.
@@ -1214,6 +1310,11 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(GrantType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Grant`] instructions.
     pub enum GrantBox {
         /// Grant [`PermissionToken`] to [`Account`].
@@ -1224,6 +1325,11 @@ isi_box! {
 }
 
 isi_box! {
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(RevokeType),
+        derive(Encode),
+    )]
     /// Enum with all supported [`Revoke`] instructions.
     pub enum RevokeBox {
         /// Revoke [`PermissionToken`] from [`Account`].
@@ -1253,7 +1359,7 @@ pub mod error {
         asset::AssetValueType,
         metadata,
         query::error::{FindError, QueryExecutionFail},
-        IdBox, Value,
+        IdBox,
     };
 
     #[model]
@@ -1261,7 +1367,7 @@ pub mod error {
         use serde::{Deserialize, Serialize};
 
         use super::*;
-        use crate::asset::AssetDefinitionId;
+        use crate::{asset::AssetDefinitionId, Value};
 
         /// Instruction execution error type
         #[derive(
@@ -1527,6 +1633,7 @@ pub mod error {
             Self::Evaluate(InstructionEvaluationError::Type(err))
         }
     }
+
     impl From<FixedPointOperationError> for MathError {
         fn from(err: FixedPointOperationError) -> Self {
             match err {

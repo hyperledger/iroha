@@ -138,20 +138,20 @@ fn minimal_config_snapshot() -> Result<()> {
                     max_wasm_size_bytes: 4194304,
                 },
                 asset_metadata_limits: Limits {
-                    max_len: 1048576,
-                    max_entry_byte_size: 4096,
+                    capacity: 1048576,
+                    max_entry_len: 4096,
                 },
                 asset_definition_metadata_limits: Limits {
-                    max_len: 1048576,
-                    max_entry_byte_size: 4096,
+                    capacity: 1048576,
+                    max_entry_len: 4096,
                 },
                 account_metadata_limits: Limits {
-                    max_len: 1048576,
-                    max_entry_byte_size: 4096,
+                    capacity: 1048576,
+                    max_entry_len: 4096,
                 },
                 domain_metadata_limits: Limits {
-                    max_len: 1048576,
-                    max_entry_byte_size: 4096,
+                    capacity: 1048576,
+                    max_entry_len: 4096,
                 },
                 ident_length_limits: LengthLimits {
                     min: 1,

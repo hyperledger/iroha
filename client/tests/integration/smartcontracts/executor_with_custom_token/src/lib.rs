@@ -97,7 +97,7 @@ impl Executor {
                 })?;
 
                 if let Ok(can_unregister_domain_token) =
-                    iroha_executor::default::tokens::domain::CanUnregisterDomain::try_from(token)
+                    iroha_executor::default::tokens::domain::CanUnregisterDomain::try_from(&token)
                 {
                     found_accounts.push((account, can_unregister_domain_token.domain_id));
                     break;

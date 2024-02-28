@@ -15,7 +15,7 @@ use core::{cmp::Ordering, num::NonZeroU32, time::Duration};
 pub use cursor::ForwardCursor;
 use derive_more::{Constructor, Display};
 use iroha_crypto::{PublicKey, SignatureOf};
-use iroha_data_model_derive::model;
+use iroha_data_model_derive::{model, EnumRef};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
@@ -32,6 +32,7 @@ use self::{
 use crate::{
     account::{Account, AccountId},
     block::SignedBlock,
+    events::TriggeringFilterBox,
     seal,
     transaction::{SignedTransaction, TransactionPayload, TransactionValue},
     Identifiable, Value,
@@ -103,12 +104,18 @@ pub type QueryId = String;
 pub trait Query: Into<QueryBox> + seal::Sealed {
     /// Output type of query
     type Output: Into<Value> + TryFrom<Value>;
+
+    /// [`Encode`] [`Self`] as [`QueryBox`].
+    ///
+    /// Used to avoid an unnecessary clone
+    fn encode_as_query_box(&self) -> Vec<u8>;
 }
 
 #[model]
 pub mod model {
     use getset::Getters;
     use iroha_crypto::HashOf;
+    use strum::EnumDiscriminants;
 
     use super::*;
     use crate::{block::SignedBlock, permission::PermissionTokenId};
@@ -123,12 +130,21 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
+        EnumRef,
+        EnumDiscriminants,
         FromVariant,
         Decode,
         Encode,
         Deserialize,
         Serialize,
         IntoSchema,
+    )]
+    #[enum_ref(derive(Encode, FromVariant))]
+    #[strum_discriminants(
+        vis(pub(crate)),
+        name(QueryType),
+        derive(Encode),
+        allow(clippy::enum_variant_names)
     )]
     #[ffi_type]
     #[allow(missing_docs)]
@@ -244,6 +260,69 @@ pub mod model {
     }
 }
 
+macro_rules! impl_query {
+    ($($ty:ty => $output:ty),+ $(,)?) => { $(
+        impl Query for $ty {
+            type Output = $output;
+
+            fn encode_as_query_box(&self) -> Vec<u8> {
+                QueryBoxRef::from(self).encode()
+            }
+        } )+
+    }
+}
+
+impl_query! {
+    FindAllRoles => Vec<crate::role::Role>,
+    FindAllRoleIds => Vec<crate::role::RoleId>,
+    FindRolesByAccountId => Vec<crate::role::RoleId>,
+    FindRoleByRoleId => crate::role::Role,
+    FindPermissionTokenSchema => crate::permission::PermissionTokenSchema,
+    FindPermissionTokensByAccountId => Vec<crate::permission::PermissionToken>,
+    FindAllAccounts => Vec<crate::account::Account>,
+    FindAccountById => crate::account::Account,
+    FindAccountKeyValueByIdAndKey => MetadataValue,
+    FindAccountsByName => Vec<crate::account::Account>,
+    FindAccountsByDomainId => Vec<crate::account::Account>,
+    FindAccountsWithAsset => Vec<crate::account::Account>,
+    FindAllAssets => Vec<crate::asset::Asset>,
+    FindAllAssetsDefinitions => Vec<crate::asset::AssetDefinition>,
+    FindAssetById => crate::asset::Asset,
+    FindAssetDefinitionById => crate::asset::AssetDefinition,
+    FindAssetsByName => Vec<crate::asset::Asset>,
+    FindAssetsByAccountId => Vec<crate::asset::Asset>,
+    FindAssetsByAssetDefinitionId => Vec<crate::asset::Asset>,
+    FindAssetsByDomainId => Vec<crate::asset::Asset>,
+    FindAssetsByDomainIdAndAssetDefinitionId => Vec<crate::asset::Asset>,
+    FindAssetQuantityById => crate::NumericValue,
+    FindTotalAssetQuantityByAssetDefinitionId => crate::NumericValue,
+    FindAssetKeyValueByIdAndKey => MetadataValue,
+    FindAssetDefinitionKeyValueByIdAndKey => MetadataValue,
+    FindAllDomains => Vec<crate::domain::Domain>,
+    FindDomainById => crate::domain::Domain,
+    FindDomainKeyValueByIdAndKey => MetadataValue,
+    FindAllPeers => Vec<crate::peer::Peer>,
+    FindAllParameters => Vec<crate::parameter::Parameter>,
+    FindAllActiveTriggerIds => Vec<crate::trigger::TriggerId>,
+    FindTriggerById => crate::trigger::Trigger<TriggeringFilterBox>,
+    FindTriggerKeyValueByIdAndKey => MetadataValue,
+    FindTriggersByDomainId => Vec<crate::trigger::Trigger<TriggeringFilterBox>>,
+    FindAllTransactions => Vec<TransactionQueryOutput>,
+    FindTransactionsByAccountId => Vec<TransactionQueryOutput>,
+    FindTransactionByHash => TransactionQueryOutput,
+    FindAllBlocks => Vec<SignedBlock>,
+    FindAllBlockHeaders => Vec<crate::block::BlockHeader>,
+    FindBlockHeaderByHash => crate::block::BlockHeader,
+}
+
+impl Query for QueryBox {
+    type Output = Value;
+
+    fn encode_as_query_box(&self) -> Vec<u8> {
+        self.encode()
+    }
+}
+
 impl From<MetadataValue> for Value {
     #[inline]
     fn from(source: MetadataValue) -> Self {
@@ -256,10 +335,6 @@ impl From<Value> for MetadataValue {
     fn from(source: Value) -> Self {
         Self(source)
     }
-}
-
-impl Query for QueryBox {
-    type Output = Value;
 }
 
 impl AsRef<SignedTransaction> for TransactionQueryOutput {
@@ -294,8 +369,9 @@ pub mod role {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
+    use parity_scale_codec::Encode;
 
-    use super::Query;
+    use super::{Query, QueryType};
     use crate::prelude::*;
 
     queries! {
@@ -336,22 +412,6 @@ pub mod role {
         }
     }
 
-    impl Query for FindAllRoles {
-        type Output = Vec<Role>;
-    }
-
-    impl Query for FindAllRoleIds {
-        type Output = Vec<RoleId>;
-    }
-
-    impl Query for FindRolesByAccountId {
-        type Output = Vec<RoleId>;
-    }
-
-    impl Query for FindRoleByRoleId {
-        type Output = Role;
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
         pub use super::{FindAllRoleIds, FindAllRoles, FindRoleByRoleId, FindRolesByAccountId};
@@ -365,8 +425,9 @@ pub mod permission {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
+    use parity_scale_codec::Encode;
 
-    use super::Query;
+    use super::{Query, QueryType};
     use crate::{
         permission::{self, PermissionTokenSchema},
         prelude::*,
@@ -391,14 +452,6 @@ pub mod permission {
         }
     }
 
-    impl Query for FindPermissionTokenSchema {
-        type Output = PermissionTokenSchema;
-    }
-
-    impl Query for FindPermissionTokensByAccountId {
-        type Output = Vec<permission::PermissionToken>;
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
         pub use super::{FindPermissionTokenSchema, FindPermissionTokensByAccountId};
@@ -412,8 +465,9 @@ pub mod account {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
+    use parity_scale_codec::Encode;
 
-    use super::{MetadataValue, Query};
+    use super::{MetadataValue, Query, QueryType};
     use crate::prelude::*;
 
     queries! {
@@ -485,30 +539,6 @@ pub mod account {
         }
     }
 
-    impl Query for FindAllAccounts {
-        type Output = Vec<Account>;
-    }
-
-    impl Query for FindAccountById {
-        type Output = Account;
-    }
-
-    impl Query for FindAccountKeyValueByIdAndKey {
-        type Output = MetadataValue;
-    }
-
-    impl Query for FindAccountsByName {
-        type Output = Vec<Account>;
-    }
-
-    impl Query for FindAccountsByDomainId {
-        type Output = Vec<Account>;
-    }
-
-    impl Query for FindAccountsWithAsset {
-        type Output = Vec<Account>;
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
@@ -527,10 +557,9 @@ pub mod asset {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use iroha_data_model_derive::model;
+    use parity_scale_codec::Encode;
 
-    pub use self::model::*;
-    use super::{MetadataValue, Query};
+    use super::{MetadataValue, Query, QueryType};
     use crate::prelude::*;
 
     queries! {
@@ -680,58 +709,6 @@ pub mod asset {
         }
 
     }
-    impl Query for FindAllAssets {
-        type Output = Vec<Asset>;
-    }
-
-    impl Query for FindAllAssetsDefinitions {
-        type Output = Vec<AssetDefinition>;
-    }
-
-    impl Query for FindAssetById {
-        type Output = Asset;
-    }
-
-    impl Query for FindAssetDefinitionById {
-        type Output = AssetDefinition;
-    }
-
-    impl Query for FindAssetsByName {
-        type Output = Vec<Asset>;
-    }
-
-    impl Query for FindAssetsByAccountId {
-        type Output = Vec<Asset>;
-    }
-
-    impl Query for FindAssetsByAssetDefinitionId {
-        type Output = Vec<Asset>;
-    }
-
-    impl Query for FindAssetsByDomainId {
-        type Output = Vec<Asset>;
-    }
-
-    impl Query for FindAssetsByDomainIdAndAssetDefinitionId {
-        type Output = Vec<Asset>;
-    }
-
-    impl Query for FindAssetQuantityById {
-        type Output = NumericValue;
-    }
-
-    impl Query for FindTotalAssetQuantityByAssetDefinitionId {
-        type Output = NumericValue;
-    }
-
-    impl Query for FindAssetKeyValueByIdAndKey {
-        type Output = MetadataValue;
-    }
-
-    impl Query for FindAssetDefinitionKeyValueByIdAndKey {
-        type Output = MetadataValue;
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
@@ -753,8 +730,9 @@ pub mod domain {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
+    use parity_scale_codec::Encode;
 
-    use super::{MetadataValue, Query};
+    use super::{MetadataValue, Query, QueryType};
     use crate::prelude::*;
 
     queries! {
@@ -788,18 +766,6 @@ pub mod domain {
         }
     }
 
-    impl Query for FindAllDomains {
-        type Output = Vec<Domain>;
-    }
-
-    impl Query for FindDomainById {
-        type Output = Domain;
-    }
-
-    impl Query for FindDomainKeyValueByIdAndKey {
-        type Output = MetadataValue;
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{FindAllDomains, FindDomainById, FindDomainKeyValueByIdAndKey};
@@ -813,9 +779,9 @@ pub mod peer {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
+    use parity_scale_codec::Encode;
 
-    use super::Query;
-    use crate::{parameter::Parameter, peer::Peer};
+    use super::{Query, QueryType};
 
     queries! {
         /// [`FindAllPeers`] Iroha Query finds all trusted [`Peer`]s presented in current Iroha [`Peer`].
@@ -832,14 +798,6 @@ pub mod peer {
         pub struct FindAllParameters;
     }
 
-    impl Query for FindAllPeers {
-        type Output = Vec<Peer>;
-    }
-
-    impl Query for FindAllParameters {
-        type Output = Vec<Parameter>;
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{FindAllParameters, FindAllPeers};
@@ -852,11 +810,11 @@ pub mod trigger {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
+    use parity_scale_codec::Encode;
 
-    use super::{MetadataValue, Query};
+    use super::{MetadataValue, Query, QueryType};
     use crate::{
         domain::prelude::*,
-        events::TriggeringFilterBox,
         prelude::InstructionBox,
         trigger::{Trigger, TriggerId},
         Executable, Identifiable, Name, Value,
@@ -906,22 +864,6 @@ pub mod trigger {
         }
     }
 
-    impl Query for FindAllActiveTriggerIds {
-        type Output = Vec<TriggerId>;
-    }
-
-    impl Query for FindTriggerById {
-        type Output = Trigger<TriggeringFilterBox>;
-    }
-
-    impl Query for FindTriggerKeyValueByIdAndKey {
-        type Output = MetadataValue;
-    }
-
-    impl Query for FindTriggersByDomainId {
-        type Output = Vec<Trigger<TriggeringFilterBox>>;
-    }
-
     pub mod prelude {
         //! Prelude Re-exports most commonly used traits, structs and macros from this crate.
         pub use super::{
@@ -941,8 +883,9 @@ pub mod transaction {
 
     use derive_more::Display;
     use iroha_crypto::HashOf;
+    use parity_scale_codec::Encode;
 
-    use super::{Query, TransactionQueryOutput};
+    use super::{Query, QueryType, TransactionQueryOutput};
     use crate::{account::AccountId, prelude::Account, transaction::SignedTransaction};
 
     queries! {
@@ -977,18 +920,6 @@ pub mod transaction {
         }
     }
 
-    impl Query for FindAllTransactions {
-        type Output = Vec<TransactionQueryOutput>;
-    }
-
-    impl Query for FindTransactionsByAccountId {
-        type Output = Vec<TransactionQueryOutput>;
-    }
-
-    impl Query for FindTransactionByHash {
-        type Output = TransactionQueryOutput;
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{FindAllTransactions, FindTransactionByHash, FindTransactionsByAccountId};
@@ -1005,9 +936,10 @@ pub mod block {
 
     use derive_more::Display;
     use iroha_crypto::HashOf;
+    use parity_scale_codec::{Decode, Encode};
 
-    use super::Query;
-    use crate::block::{BlockHeader, SignedBlock};
+    use super::{Query, QueryType};
+    use crate::block::SignedBlock;
 
     queries! {
         /// [`FindAllBlocks`] Iroha Query lists all blocks sorted by
@@ -1034,18 +966,6 @@ pub mod block {
             /// Block hash.
             pub hash: HashOf<SignedBlock>,
         }
-    }
-
-    impl Query for FindAllBlocks {
-        type Output = Vec<SignedBlock>;
-    }
-
-    impl Query for FindAllBlockHeaders {
-        type Output = Vec<BlockHeader>;
-    }
-
-    impl Query for FindBlockHeaderByHash {
-        type Output = BlockHeader;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
@@ -1201,7 +1121,7 @@ pub mod http {
 
     impl QueryBuilder {
         /// Construct a new request with the `query`.
-        pub fn new(query: impl Into<QueryBox>, authority: AccountId) -> Self {
+        pub fn new(query: impl Query, authority: AccountId) -> Self {
             Self {
                 payload: QueryPayload {
                     query: query.into(),

@@ -11,12 +11,9 @@ use crate::{data_model::prelude::*, prelude::*};
 
 /// [`Token`] trait is used to check if the token is owned by the account.
 pub trait Token:
-    Serialize
-    + DeserializeOwned
-    + IntoSchema
-    + TryFrom<PermissionToken, Error = PermissionTokenConversionError>
-    + PartialEq<Self>
-    + ValidateGrantRevoke
+    Serialize + DeserializeOwned + IntoSchema + PartialEq<Self> + ValidateGrantRevoke
+where
+    for<'a> Self: TryFrom<&'a PermissionToken, Error = PermissionTokenConversionError>,
 {
     /// Return name of this permission token
     fn name() -> Name {

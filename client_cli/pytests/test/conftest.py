@@ -347,21 +347,21 @@ def GIVEN_quantity_value():
 
 
 @pytest.fixture()
-def GIVEN_128_lenght_name():
+def GIVEN_128_length_name():
     ident = generate_random_string_without_reserved_chars(128)
     with allure.step(f'GIVEN a name with 128 length "{ident}"'):
         return ident
 
 
 @pytest.fixture()
-def GIVEN_129_lenght_name():
+def GIVEN_129_length_name():
     ident = generate_random_string_without_reserved_chars(129)
     with allure.step(f'GIVEN a name with 129 length "{ident}"'):
         return ident
 
 
 @pytest.fixture()
-def GIVEN_127_lenght_name():
+def GIVEN_127_length_name():
     ident = generate_random_string_without_reserved_chars(127)
     with allure.step(f'GIVEN a name with 127 length "{ident}"'):
         return ident

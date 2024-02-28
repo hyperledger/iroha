@@ -38,13 +38,13 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    #[display(fmt = "{max_len},{max_entry_byte_size}_ML")]
+    #[display(fmt = "{capacity},{max_entry_len}_ML")]
     #[ffi_type]
     pub struct Limits {
         /// Maximum number of entries
-        pub max_len: u32,
+        pub capacity: u32,
         /// Maximum length of entry
-        pub max_entry_byte_size: u32,
+        pub max_entry_len: u32,
     }
 
     /// Collection of parameters by their names with checked insertion.
@@ -88,12 +88,12 @@ pub mod model {
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum MetadataError {
+    /// Path specification empty
+    EmptyPath,
     /// Metadata entry is too big
     EntryTooBig(#[cfg_attr(feature = "std", source)] SizeError),
     /// Metadata exceeds overall length limit
-    OverallSize(#[cfg_attr(feature = "std", source)] SizeError),
-    /// Path specification empty
-    EmptyPath,
+    MaxCapacity(#[cfg_attr(feature = "std", source)] SizeError),
     /// `{0}`: path segment not found, i.e. nothing was found at that key
     MissingSegment(Name),
     /// `{0}`: path segment not an instance of metadata
@@ -127,10 +127,10 @@ pub struct SizeError {
 
 impl Limits {
     /// Constructor.
-    pub const fn new(max_len: u32, max_entry_byte_size: u32) -> Limits {
+    pub const fn new(capacity: u32, max_entry_len: u32) -> Limits {
         Limits {
-            max_len,
-            max_entry_byte_size,
+            capacity,
+            max_entry_len,
         }
     }
 }
@@ -207,8 +207,8 @@ impl Metadata {
         value: Value,
         limits: Limits,
     ) -> Result<Option<Value>, MetadataError> {
-        if self.0.len() >= limits.max_len as usize {
-            return Err(MetadataError::OverallSize(SizeError {
+        if self.0.len() >= limits.capacity as usize {
+            return Err(MetadataError::MaxCapacity(SizeError {
                 limits,
                 actual: self.len_u64(),
             }));
@@ -232,15 +232,15 @@ impl Metadata {
     /// if the value was already present, `None` otherwise.
     ///
     /// # Errors
-    /// Fails if `max_entry_byte_size` or `max_len` from `limits` are exceeded.
+    /// Fails if `max_entry_len` or `capacity` from `limits` are exceeded.
     pub fn insert_with_limits(
         &mut self,
         key: Name,
         value: Value,
         limits: Limits,
     ) -> Result<Option<Value>, MetadataError> {
-        if self.0.len() >= limits.max_len as usize && !self.0.contains_key(&key) {
-            return Err(MetadataError::OverallSize(SizeError {
+        if self.0.len() >= limits.capacity as usize && !self.0.contains_key(&key) {
+            return Err(MetadataError::MaxCapacity(SizeError {
                 limits,
                 actual: self.len_u64(),
             }));
@@ -283,7 +283,7 @@ impl Metadata {
 fn check_size_limits(key: &Name, value: Value, limits: Limits) -> Result<(), MetadataError> {
     let entry_bytes: Vec<u8> = (key, value).encode();
     let byte_size = entry_bytes.len();
-    if byte_size > limits.max_entry_byte_size as usize {
+    if byte_size > limits.max_entry_len as usize {
         return Err(MetadataError::EntryTooBig(SizeError {
             limits,
             actual: byte_size
