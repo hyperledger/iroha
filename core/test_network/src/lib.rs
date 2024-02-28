@@ -14,7 +14,7 @@ use iroha_client::{
 };
 use iroha_config::parameters::actual::Root as Config;
 pub use iroha_core::state::StateReadOnly;
-use iroha_crypto::prelude::*;
+use iroha_crypto::KeyPair;
 use iroha_data_model::{query::QueryOutputBox, ChainId};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockFile};
 use iroha_logger::InstrumentFutures;
@@ -54,11 +54,11 @@ pub fn get_chain_id() -> ChainId {
 /// Get a standardised key-pair from the hard-coded literals.
 pub fn get_key_pair() -> KeyPair {
     KeyPair::new(
-        PublicKey::from_str(
+        iroha_crypto::PublicKey::from_str(
             "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
         ).unwrap(),
-        PrivateKey::from_hex(
-            Algorithm::Ed25519,
+        iroha_crypto::PrivateKey::from_hex(
+            iroha_crypto::Algorithm::Ed25519,
             "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
         ).unwrap()
     ).unwrap()
@@ -689,7 +689,7 @@ pub trait TestClient: Sized {
     fn test_with_account(api_url: &SocketAddr, keys: KeyPair, account_id: &AccountId) -> Self;
 
     /// Loop for events with filter and handler function
-    fn for_each_event(self, event_filter: impl Into<EventFilterBox>, f: impl Fn(Result<Event>));
+    fn for_each_event(self, event_filter: impl Into<EventFilterBox>, f: impl Fn(Result<EventBox>));
 
     /// Submit instruction with polling
     ///
@@ -828,9 +828,9 @@ impl TestClient for Client {
         Client::new(config)
     }
 
-    fn for_each_event(self, event_filter: impl Into<EventFilterBox>, f: impl Fn(Result<Event>)) {
+    fn for_each_event(self, event_filter: impl Into<EventFilterBox>, f: impl Fn(Result<EventBox>)) {
         for event_result in self
-            .listen_for_events(event_filter)
+            .listen_for_events([event_filter])
             .expect("Failed to create event iterator.")
         {
             f(event_result)

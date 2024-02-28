@@ -58,11 +58,9 @@ fn execute_trigger_should_produce_event() -> Result<()> {
     let thread_client = test_client.clone();
     let (sender, receiver) = mpsc::channel();
     let _handle = thread::spawn(move || -> Result<()> {
-        let mut event_it = thread_client.listen_for_events(
-            ExecuteTriggerEventFilter::new()
-                .for_trigger(trigger_id)
-                .under_authority(account_id),
-        )?;
+        let mut event_it = thread_client.listen_for_events([ExecuteTriggerEventFilter::new()
+            .for_trigger(trigger_id)
+            .under_authority(account_id)])?;
         if event_it.next().is_some() {
             sender.send(())?;
             return Ok(());

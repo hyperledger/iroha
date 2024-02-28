@@ -18,7 +18,7 @@ use core::time::Duration;
 
 use gossiper::TransactionGossip;
 use indexmap::IndexSet;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{events::EventBox, prelude::*};
 use iroha_primitives::unique_vec::UniqueVec;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
@@ -41,8 +41,8 @@ pub type PeersIds = UniqueVec<PeerId>;
 /// Parameters set.
 pub type Parameters = IndexSet<Parameter>;
 
-/// Type of `Sender<Event>` which should be used for channels of `Event` messages.
-pub type EventsSender = broadcast::Sender<Event>;
+/// Type of `Sender<EventBox>` which should be used for channels of `Event` messages.
+pub type EventsSender = broadcast::Sender<EventBox>;
 
 /// The network message
 #[derive(Clone, Debug, Encode, Decode)]

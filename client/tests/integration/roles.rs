@@ -6,6 +6,7 @@ use iroha_client::{
     crypto::KeyPair,
     data_model::prelude::*,
 };
+use iroha_data_model::transaction::error::TransactionRejectionReason;
 use serde_json::json;
 use test_network::*;
 
@@ -164,14 +165,12 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
         .expect_err("Submitting role with invalid permission token should fail");
 
     let rejection_reason = err
-        .downcast_ref::<PipelineRejectionReason>()
-        .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReason"));
+        .downcast_ref::<TransactionRejectionReason>()
+        .unwrap_or_else(|| panic!("Error {err} is not TransactionRejectionReason"));
 
     assert!(matches!(
         rejection_reason,
-        &PipelineRejectionReason::Transaction(TransactionRejectionReason::Validation(
-            ValidationFail::NotPermitted(_)
-        ))
+        &TransactionRejectionReason::Validation(ValidationFail::NotPermitted(_))
     ));
 
     Ok(())

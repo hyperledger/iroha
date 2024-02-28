@@ -139,7 +139,7 @@ pub mod asset_definition {
     ) -> Result<bool> {
         let asset_definition = FindAssetDefinitionById::new(asset_definition_id.clone())
             .execute()
-            .map(QueryOutputCursor::into_raw_parts)
+            .map(QueryOutputCursor::into_parts)
             .map(|(batch, _cursor)| batch)?;
         if asset_definition.owned_by() == authority {
             Ok(true)
@@ -226,7 +226,7 @@ pub mod trigger {
     pub fn is_trigger_owner(trigger_id: &TriggerId, authority: &AccountId) -> Result<bool> {
         let trigger = FindTriggerById::new(trigger_id.clone())
             .execute()
-            .map(QueryOutputCursor::into_raw_parts)
+            .map(QueryOutputCursor::into_parts)
             .map(|(batch, _cursor)| batch)?;
         if trigger.action().authority() == authority {
             Ok(true)
@@ -271,7 +271,7 @@ pub mod domain {
     pub fn is_domain_owner(domain_id: &DomainId, authority: &AccountId) -> Result<bool> {
         FindDomainById::new(domain_id.clone())
             .execute()
-            .map(QueryOutputCursor::into_raw_parts)
+            .map(QueryOutputCursor::into_parts)
             .map(|(batch, _cursor)| batch)
             .map(|domain| domain.owned_by() == authority)
     }

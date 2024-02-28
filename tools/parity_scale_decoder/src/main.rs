@@ -21,6 +21,7 @@ use iroha_data_model::{
         BlockHeader, BlockPayload, SignedBlock, SignedBlockV1,
     },
     domain::NewDomain,
+    events::pipeline::{BlockEventFilter, TransactionEventFilter},
     executor::Executor,
     ipfs::IpfsPath,
     isi::{
@@ -44,7 +45,9 @@ use iroha_data_model::{
         },
         ForwardCursor, QueryOutputBox,
     },
-    transaction::{error::TransactionLimitError, SignedTransactionV1, TransactionLimits},
+    transaction::{
+        error::TransactionLimitError, SignedTransactionV1, TransactionLimits, TransactionPayload,
+    },
     BatchedResponse, BatchedResponseV1, Level,
 };
 use iroha_primitives::{

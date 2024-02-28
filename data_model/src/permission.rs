@@ -21,7 +21,7 @@ use super::*;
 pub type PermissionTokenId = Name;
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Stored proof of the account having a permission for a certain action.

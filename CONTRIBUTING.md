@@ -272,7 +272,7 @@ tokio-console http://127.0.0.1:5555
 
 To optimize performance it's useful to profile iroha.
 
-To do that you should compile iroha with `profiling` profile and with `profiling` feature: 
+To do that you should compile iroha with `profiling` profile and with `profiling` feature:
 
 ```bash
 RUSTFLAGS="-C force-frame-pointers=on" cargo +nightly -Z build-std build --target your-desired-target --profile profiling --features profiling

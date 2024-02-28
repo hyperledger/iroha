@@ -15,7 +15,7 @@ pub use self::model::*;
 use crate::{isi::error::InvalidParameterError, ParseError};
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// `Name` struct represents the type of Iroha Entities names, such as

@@ -594,14 +594,38 @@
       }
     ]
   },
+  "BlockEvent": {
+    "Struct": [
+      {
+        "name": "header",
+        "type": "BlockHeader"
+      },
+      {
+        "name": "hash",
+        "type": "HashOf<SignedBlock>"
+      },
+      {
+        "name": "status",
+        "type": "BlockStatus"
+      }
+    ]
+  },
+  "BlockEventFilter": {
+    "Struct": [
+      {
+        "name": "height",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "status",
+        "type": "Option<BlockStatus>"
+      }
+    ]
+  },
   "BlockHeader": {
     "Struct": [
       {
         "name": "height",
-        "type": "u64"
-      },
-      {
-        "name": "timestamp_ms",
         "type": "u64"
       },
       {
@@ -611,6 +635,10 @@
       {
         "name": "transactions_hash",
         "type": "Option<HashOf<MerkleTree<SignedTransaction>>>"
+      },
+      {
+        "name": "timestamp_ms",
+        "type": "u64"
       },
       {
         "name": "view_change_index",
@@ -639,7 +667,7 @@
       },
       {
         "name": "event_recommendations",
-        "type": "Vec<Event>"
+        "type": "Vec<EventBox>"
       }
     ]
   },
@@ -648,6 +676,27 @@
       {
         "tag": "ConsensusBlockRejection",
         "discriminant": 0
+      }
+    ]
+  },
+  "BlockStatus": {
+    "Enum": [
+      {
+        "tag": "Approved",
+        "discriminant": 0
+      },
+      {
+        "tag": "Rejected",
+        "discriminant": 1,
+        "type": "BlockRejectionReason"
+      },
+      {
+        "tag": "Committed",
+        "discriminant": 2
+      },
+      {
+        "tag": "Applied",
+        "discriminant": 3
       }
     ]
   },
@@ -1023,12 +1072,12 @@
       "u32"
     ]
   },
-  "Event": {
+  "EventBox": {
     "Enum": [
       {
         "tag": "Pipeline",
         "discriminant": 0,
-        "type": "PipelineEvent"
+        "type": "PipelineEventBox"
       },
       {
         "tag": "Data",
@@ -1057,7 +1106,7 @@
       {
         "tag": "Pipeline",
         "discriminant": 0,
-        "type": "PipelineEventFilter"
+        "type": "PipelineEventFilterBox"
       },
       {
         "tag": "Data",
@@ -1081,8 +1130,8 @@
       }
     ]
   },
-  "EventMessage": "Event",
-  "EventSubscriptionRequest": "EventFilterBox",
+  "EventMessage": "EventBox",
+  "EventSubscriptionRequest": "Vec<EventFilterBox>",
   "Executable": {
     "Enum": [
       {
@@ -2405,20 +2454,23 @@
   "Option<AssetId>": {
     "Option": "AssetId"
   },
+  "Option<BlockStatus>": {
+    "Option": "BlockStatus"
+  },
   "Option<DomainId>": {
     "Option": "DomainId"
   },
   "Option<Duration>": {
     "Option": "Duration"
   },
-  "Option<Hash>": {
-    "Option": "Hash"
-  },
   "Option<HashOf<MerkleTree<SignedTransaction>>>": {
     "Option": "HashOf<MerkleTree<SignedTransaction>>"
   },
   "Option<HashOf<SignedBlock>>": {
     "Option": "HashOf<SignedBlock>"
+  },
+  "Option<HashOf<SignedTransaction>>": {
+    "Option": "HashOf<SignedTransaction>"
   },
   "Option<IpfsPath>": {
     "Option": "IpfsPath"
@@ -2429,17 +2481,14 @@
   "Option<NonZero<u64>>": {
     "Option": "NonZero<u64>"
   },
+  "Option<Option<u64>>": {
+    "Option": "Option<u64>"
+  },
   "Option<ParameterId>": {
     "Option": "ParameterId"
   },
   "Option<PeerId>": {
     "Option": "PeerId"
-  },
-  "Option<PipelineEntityKind>": {
-    "Option": "PipelineEntityKind"
-  },
-  "Option<PipelineStatusKind>": {
-    "Option": "PipelineStatusKind"
   },
   "Option<RoleId>": {
     "Option": "RoleId"
@@ -2453,6 +2502,9 @@
   "Option<TransactionRejectionReason>": {
     "Option": "TransactionRejectionReason"
   },
+  "Option<TransactionStatus>": {
+    "Option": "TransactionStatus"
+  },
   "Option<TriggerCompletedOutcomeType>": {
     "Option": "TriggerCompletedOutcomeType"
   },
@@ -2461,6 +2513,9 @@
   },
   "Option<u32>": {
     "Option": "u32"
+  },
+  "Option<u64>": {
+    "Option": "u64"
   },
   "Parameter": {
     "Struct": [
@@ -2603,94 +2658,31 @@
       }
     ]
   },
-  "PipelineEntityKind": {
+  "PipelineEventBox": {
     "Enum": [
-      {
-        "tag": "Block",
-        "discriminant": 0
-      },
       {
         "tag": "Transaction",
-        "discriminant": 1
-      }
-    ]
-  },
-  "PipelineEvent": {
-    "Struct": [
-      {
-        "name": "entity_kind",
-        "type": "PipelineEntityKind"
-      },
-      {
-        "name": "status",
-        "type": "PipelineStatus"
-      },
-      {
-        "name": "hash",
-        "type": "Hash"
-      }
-    ]
-  },
-  "PipelineEventFilter": {
-    "Struct": [
-      {
-        "name": "entity_kind",
-        "type": "Option<PipelineEntityKind>"
-      },
-      {
-        "name": "status_kind",
-        "type": "Option<PipelineStatusKind>"
-      },
-      {
-        "name": "hash",
-        "type": "Option<Hash>"
-      }
-    ]
-  },
-  "PipelineRejectionReason": {
-    "Enum": [
-      {
-        "tag": "Block",
         "discriminant": 0,
-        "type": "BlockRejectionReason"
+        "type": "TransactionEvent"
       },
+      {
+        "tag": "Block",
+        "discriminant": 1,
+        "type": "BlockEvent"
+      }
+    ]
+  },
+  "PipelineEventFilterBox": {
+    "Enum": [
       {
         "tag": "Transaction",
+        "discriminant": 0,
+        "type": "TransactionEventFilter"
+      },
+      {
+        "tag": "Block",
         "discriminant": 1,
-        "type": "TransactionRejectionReason"
-      }
-    ]
-  },
-  "PipelineStatus": {
-    "Enum": [
-      {
-        "tag": "Validating",
-        "discriminant": 0
-      },
-      {
-        "tag": "Rejected",
-        "discriminant": 1,
-        "type": "PipelineRejectionReason"
-      },
-      {
-        "tag": "Committed",
-        "discriminant": 2
-      }
-    ]
-  },
-  "PipelineStatusKind": {
-    "Enum": [
-      {
-        "tag": "Validating",
-        "discriminant": 0
-      },
-      {
-        "tag": "Rejected",
-        "discriminant": 1
-      },
-      {
-        "tag": "Committed",
-        "discriminant": 2
+        "type": "BlockEventFilter"
       }
     ]
   },
@@ -3786,6 +3778,38 @@
       }
     ]
   },
+  "TransactionEvent": {
+    "Struct": [
+      {
+        "name": "hash",
+        "type": "HashOf<SignedTransaction>"
+      },
+      {
+        "name": "block_height",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "status",
+        "type": "TransactionStatus"
+      }
+    ]
+  },
+  "TransactionEventFilter": {
+    "Struct": [
+      {
+        "name": "hash",
+        "type": "Option<HashOf<SignedTransaction>>"
+      },
+      {
+        "name": "block_height",
+        "type": "Option<Option<u64>>"
+      },
+      {
+        "name": "status",
+        "type": "Option<TransactionStatus>"
+      }
+    ]
+  },
   "TransactionLimitError": {
     "Struct": [
       {
@@ -3813,12 +3837,12 @@
         "type": "ChainId"
       },
       {
-        "name": "creation_time_ms",
-        "type": "u64"
-      },
-      {
         "name": "authority",
         "type": "AccountId"
+      },
+      {
+        "name": "creation_time_ms",
+        "type": "u64"
       },
       {
         "name": "instructions",
@@ -3876,10 +3900,27 @@
         "tag": "WasmExecution",
         "discriminant": 4,
         "type": "WasmExecutionFail"
+      }
+    ]
+  },
+  "TransactionStatus": {
+    "Enum": [
+      {
+        "tag": "Queued",
+        "discriminant": 0
       },
       {
         "tag": "Expired",
-        "discriminant": 5
+        "discriminant": 1
+      },
+      {
+        "tag": "Approved",
+        "discriminant": 2
+      },
+      {
+        "tag": "Rejected",
+        "discriminant": 3,
+        "type": "TransactionRejectionReason"
       }
     ]
   },
@@ -4127,7 +4168,7 @@
       {
         "tag": "Pipeline",
         "discriminant": 0,
-        "type": "PipelineEventFilter"
+        "type": "PipelineEventFilterBox"
       },
       {
         "tag": "Data",
@@ -4295,8 +4336,11 @@
       }
     ]
   },
-  "Vec<Event>": {
-    "Vec": "Event"
+  "Vec<EventBox>": {
+    "Vec": "EventBox"
+  },
+  "Vec<EventFilterBox>": {
+    "Vec": "EventFilterBox"
   },
   "Vec<GenericPredicateBox<QueryOutputPredicate>>": {
     "Vec": "GenericPredicateBox<QueryOutputPredicate>"

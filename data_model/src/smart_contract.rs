@@ -20,7 +20,7 @@ pub mod payloads {
         /// Trigger owner who registered the trigger
         pub owner: AccountId,
         /// Event which triggered the execution
-        pub event: Event,
+        pub event: EventBox,
     }
 
     /// Payload for migrate entrypoint

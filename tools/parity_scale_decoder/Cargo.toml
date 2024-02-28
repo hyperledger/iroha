@@ -13,7 +13,7 @@ workspace = true
 [features]
 # Disable colour for all program output.
 # Useful for Docker-based deployment and terminals without colour support.
-no-color = ["colored/no-color"]
+no_color = ["colored/no-color"]
 
 [dependencies]
 iroha_data_model = { workspace = true, features = ["http"] }

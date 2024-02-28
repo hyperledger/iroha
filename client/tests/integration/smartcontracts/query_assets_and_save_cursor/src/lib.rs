@@ -26,7 +26,7 @@ fn main(owner: AccountId) {
         .execute()
         .dbg_unwrap();
 
-    let (_batch, cursor) = asset_cursor.into_raw_parts();
+    let (_batch, cursor) = asset_cursor.into_parts();
 
     SetKeyValue::account(
         owner,

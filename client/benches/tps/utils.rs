@@ -18,6 +18,7 @@ use iroha_client::{
         prelude::*,
     },
 };
+use iroha_data_model::events::pipeline::{BlockEventFilter, BlockStatus};
 use serde::Deserialize;
 use test_network::*;
 
@@ -172,13 +173,11 @@ impl MeasurerUnit {
     fn spawn_event_counter(&self) -> thread::JoinHandle<Result<()>> {
         let listener = self.client.clone();
         let (init_sender, init_receiver) = mpsc::channel();
-        let event_filter = PipelineEventFilter::new()
-            .for_entity(PipelineEntityKind::Block)
-            .for_status(PipelineStatusKind::Committed);
+        let event_filter = BlockEventFilter::default().for_status(BlockStatus::Applied);
         let blocks_expected = self.config.blocks as usize;
         let name = self.name;
         let handle = thread::spawn(move || -> Result<()> {
-            let mut event_iterator = listener.listen_for_events(event_filter)?;
+            let mut event_iterator = listener.listen_for_events([event_filter])?;
             init_sender.send(())?;
             for i in 1..=blocks_expected {
                 let _event = event_iterator.next().expect("Event stream closed")?;

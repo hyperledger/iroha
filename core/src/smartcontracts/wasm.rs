@@ -465,7 +465,7 @@ pub mod state {
         #[derive(Constructor)]
         pub struct Trigger {
             /// Event which activated this trigger
-            pub(in super::super) triggering_event: Event,
+            pub(in super::super) triggering_event: EventBox,
         }
 
         pub mod executor {
@@ -977,7 +977,7 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::Trigger<'wrld, 'block,
         id: &TriggerId,
         authority: AccountId,
         module: &wasmtime::Module,
-        event: Event,
+        event: EventBox,
     ) -> Result<()> {
         let span = wasm_log_span!("Trigger execution", %id, %authority);
         let state = state::Trigger::new(

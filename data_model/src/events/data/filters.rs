@@ -13,7 +13,7 @@ pub use self::model::*;
 use super::*;
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     #[derive(
@@ -705,8 +705,8 @@ impl EventFilter for DataEventFilter {
             (DataEvent::Peer(event), Peer(filter)) => filter.matches(event),
             (DataEvent::Trigger(event), Trigger(filter)) => filter.matches(event),
             (DataEvent::Role(event), Role(filter)) => filter.matches(event),
-            (DataEvent::PermissionToken(_), PermissionTokenSchemaUpdate) => true,
             (DataEvent::Configuration(event), Configuration(filter)) => filter.matches(event),
+            (DataEvent::PermissionToken(_), PermissionTokenSchemaUpdate) => true,
             (DataEvent::Executor(event), Executor(filter)) => filter.matches(event),
 
             (

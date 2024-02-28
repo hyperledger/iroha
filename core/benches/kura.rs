@@ -56,6 +56,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
         BlockBuilder::new(vec![tx], topology, Vec::new())
             .chain(0, &mut state_block)
             .sign(&KeyPair::random())
+            .unpack(|_| {})
     };
 
     for _ in 1..n_executors {

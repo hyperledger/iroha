@@ -316,20 +316,24 @@ mod tests {
             let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                 .chain(0, &mut state_block)
                 .sign(&ALICE_KEYS)
+                .unpack(|_| {})
                 .commit(&topology)
+                .unpack(|_| {})
                 .expect("Block is valid");
 
-            state_block.apply(&first_block)?;
+            let _events = state_block.apply(&first_block)?;
             kura.store_block(first_block);
 
             for _ in 1u64..blocks {
                 let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                     .chain(0, &mut state_block)
                     .sign(&ALICE_KEYS)
+                    .unpack(|_| {})
                     .commit(&topology)
+                    .unpack(|_| {})
                     .expect("Block is valid");
 
-                state_block.apply(&block)?;
+                let _events = state_block.apply(&block)?;
                 kura.store_block(block);
             }
             state_block.commit();
@@ -466,10 +470,12 @@ mod tests {
         let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
             .chain(0, &mut state_block)
             .sign(&ALICE_KEYS)
+            .unpack(|_| {})
             .commit(&topology)
+            .unpack(|_| {})
             .expect("Block is valid");
 
-        state_block.apply(&vcb)?;
+        let _events = state_block.apply(&vcb)?;
         kura.store_block(vcb);
         state_block.commit();
 

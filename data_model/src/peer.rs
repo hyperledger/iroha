@@ -19,7 +19,7 @@ pub use self::model::*;
 use crate::{Identifiable, PublicKey, Registered};
 
 #[model]
-pub mod model {
+mod model {
     use getset::Getters;
 
     use super::*;

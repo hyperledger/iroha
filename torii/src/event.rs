@@ -44,7 +44,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Debug)]
 pub struct Consumer {
     stream: WebSocket,
-    filter: EventFilterBox,
+    filters: Vec<EventFilterBox>,
 }
 
 impl Consumer {
@@ -54,8 +54,8 @@ impl Consumer {
     /// Can fail due to timeout or without message at websocket or during decoding request
     #[iroha_futures::telemetry_future]
     pub async fn new(mut stream: WebSocket) -> Result<Self> {
-        let EventSubscriptionRequest(filter) = stream.recv().await?;
-        Ok(Consumer { stream, filter })
+        let EventSubscriptionRequest(filters) = stream.recv().await?;
+        Ok(Consumer { stream, filters })
     }
 
     /// Forwards the `event` over the `stream` if it matches the `filter`.
@@ -63,8 +63,8 @@ impl Consumer {
     /// # Errors
     /// Can fail due to timeout or sending event. Also receiving might fail
     #[iroha_futures::telemetry_future]
-    pub async fn consume(&mut self, event: Event) -> Result<()> {
-        if !self.filter.matches(&event) {
+    pub async fn consume(&mut self, event: EventBox) -> Result<()> {
+        if !self.filters.iter().any(|filter| filter.matches(&event)) {
             return Ok(());
         }
 

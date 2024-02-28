@@ -15,7 +15,7 @@ pub use self::model::*;
 use crate::ParseError;
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Represents path in IPFS. Performs checks to ensure path validity.

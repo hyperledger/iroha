@@ -3,6 +3,7 @@ use iroha_client::{
     crypto::KeyPair,
     data_model::{account::SignatureCheckCondition, prelude::*},
 };
+use iroha_data_model::transaction::error::TransactionRejectionReason;
 use serde_json::json;
 use test_network::*;
 
@@ -37,14 +38,12 @@ fn domain_owner_domain_permissions() -> Result<()> {
         .expect_err("Tx should fail due to permissions");
 
     let rejection_reason = err
-        .downcast_ref::<PipelineRejectionReason>()
-        .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReason"));
+        .downcast_ref::<TransactionRejectionReason>()
+        .unwrap_or_else(|| panic!("Error {err} is not TransactionRejectionReason"));
 
     assert!(matches!(
         rejection_reason,
-        &PipelineRejectionReason::Transaction(TransactionRejectionReason::Validation(
-            ValidationFail::NotPermitted(_)
-        ))
+        &TransactionRejectionReason::Validation(ValidationFail::NotPermitted(_))
     ));
 
     // "alice@wonderland" owns the domain and can register AssetDefinitions by default as domain owner

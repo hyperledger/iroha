@@ -243,7 +243,7 @@ pub mod parameter {
     }
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         #[derive(
@@ -616,8 +616,7 @@ pub mod parameter {
 }
 
 #[model]
-#[allow(irrefutable_let_patterns)] // Triggered from derives macros
-pub mod model {
+mod model {
     use super::*;
 
     /// Unique id of blockchain
@@ -1022,16 +1021,6 @@ impl From<LengthLimits> for RangeInclusive<u32> {
     }
 }
 
-/// Get the current system time as `Duration` since the unix epoch.
-#[cfg(feature = "std")]
-pub fn current_time() -> core::time::Duration {
-    use std::time::SystemTime;
-
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("Failed to get the current system time")
-}
-
 declare_versioned_with_scale!(BatchedResponse<T> 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 impl<T> From<BatchedResponse<T>> for (T, crate::query::cursor::ForwardCursor) {
@@ -1086,8 +1075,6 @@ pub mod prelude {
     pub use iroha_crypto::PublicKey;
     pub use iroha_primitives::numeric::{numeric, Numeric, NumericSpec};
 
-    #[cfg(feature = "std")]
-    pub use super::current_time;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, events::prelude::*,
         executor::prelude::*, isi::prelude::*, metadata::prelude::*, name::prelude::*,

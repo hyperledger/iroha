@@ -57,7 +57,7 @@ min_retry_period = 5_000
 max_retry_delay_exponent = 4
 
 [dev_telemetry]
-out_file = "./dev-telemetry.json"
+out_file = "./dev_telemetry.json"
 
 [chain_wide]
 max_transactions_in_block = 512

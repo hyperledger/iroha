@@ -6,10 +6,19 @@ use iroha_client::{
     data_model::{prelude::*, transaction::WasmSmartContract},
 };
 use iroha_config::parameters::defaults::chain_wide::DEFAULT_CONSENSUS_ESTIMATION;
+use iroha_data_model::events::pipeline::{BlockEventFilter, BlockStatus};
 use iroha_logger::info;
 use test_network::*;
 
 use crate::integration::new_account_with_random_public_key;
+
+fn curr_time() -> core::time::Duration {
+    use std::time::SystemTime;
+
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("Failed to get the current system time")
+}
 
 /// Macro to abort compilation, if `e` isn't `true`
 macro_rules! const_assert {
@@ -33,7 +42,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_775).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
-    let start_time = current_time();
+    let start_time = curr_time();
 
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
@@ -66,7 +75,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     )?;
     std::thread::sleep(DEFAULT_CONSENSUS_ESTIMATION);
 
-    let finish_time = current_time();
+    let finish_time = curr_time();
     let average_count = finish_time.saturating_sub(start_time).as_millis() / PERIOD.as_millis();
 
     let actual_value = get_asset_value(&mut test_client, asset_id);
@@ -92,7 +101,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_660).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
-    let start_time = current_time();
+    let start_time = curr_time();
 
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
@@ -220,7 +229,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let event_listener = get_block_committed_event_listener(&test_client)?;
 
     // Registering trigger
-    let start_time = current_time();
+    let start_time = curr_time();
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(TRIGGER_PERIOD_MS));
     let register_trigger = Register::trigger(Trigger::new(
@@ -272,11 +281,9 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
 /// Get block committed event listener
 fn get_block_committed_event_listener(
     client: &Client,
-) -> Result<impl Iterator<Item = Result<Event>>> {
-    let block_filter = PipelineEventFilter::new()
-        .for_entity(PipelineEntityKind::Block)
-        .for_status(PipelineStatusKind::Committed);
-    client.listen_for_events(block_filter)
+) -> Result<impl Iterator<Item = Result<EventBox>>> {
+    let block_filter = BlockEventFilter::default().for_status(BlockStatus::Committed);
+    client.listen_for_events([block_filter])
 }
 
 /// Get asset numeric value
@@ -292,7 +299,7 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
 
 /// Submit some sample ISIs to create new blocks
 fn submit_sample_isi_on_every_block_commit(
-    block_committed_event_listener: impl Iterator<Item = Result<Event>>,
+    block_committed_event_listener: impl Iterator<Item = Result<EventBox>>,
     test_client: &mut Client,
     account_id: &AccountId,
     timeout: Duration,

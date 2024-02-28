@@ -27,8 +27,6 @@ use alloc::{
 };
 use core::{borrow::Borrow, fmt, str::FromStr};
 
-#[cfg(feature = "base64")]
-pub use base64;
 #[cfg(not(feature = "ffi_import"))]
 pub use blake2;
 use derive_more::Display;
@@ -855,11 +853,6 @@ mod ffi {
     }
 
     pub(crate) use ffi_item;
-}
-
-/// The prelude re-exports most commonly used items from this crate.
-pub mod prelude {
-    pub use super::{Algorithm, Hash, KeyPair, PrivateKey, PublicKey, Signature};
 }
 
 #[cfg(test)]

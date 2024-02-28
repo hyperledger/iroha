@@ -252,7 +252,7 @@ impl Iroha {
         });
         let state = Arc::new(state);
 
-        let queue = Arc::new(Queue::from_config(config.queue));
+        let queue = Arc::new(Queue::from_config(config.queue, events_sender.clone()));
 
         #[cfg(feature = "telemetry")]
         Self::start_telemetry(&logger, &config).await?;

@@ -55,7 +55,7 @@ ffi::ffi_item! {
         public_key: PublicKey,
         /// Signature payload
         #[serde_as(as = "serde_with::hex::Hex<serde_with::formats::Uppercase>")]
-        payload:  ConstVec<u8>,
+        payload: ConstVec<u8>,
     }
 }
 

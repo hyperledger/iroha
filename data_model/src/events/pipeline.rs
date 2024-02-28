@@ -1,28 +1,169 @@
 //! Pipeline events.
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
-use getset::Getters;
-use iroha_crypto::Hash;
+use iroha_crypto::HashOf;
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use strum::EnumDiscriminants;
 
 pub use self::model::*;
+use crate::{
+    block::{BlockHeader, SignedBlock},
+    transaction::SignedTransaction,
+};
 
 #[model]
-pub mod model {
+mod model {
+    use getset::Getters;
+
     use super::*;
 
-    /// [`Event`] filter.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type(opaque)]
+    pub enum PipelineEventBox {
+        Transaction(TransactionEvent),
+        Block(BlockEvent),
+    }
+
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    #[getset(get = "pub")]
+    pub struct BlockEvent {
+        pub header: BlockHeader,
+        pub hash: HashOf<SignedBlock>,
+        pub status: BlockStatus,
+    }
+
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    pub struct TransactionEvent {
+        #[getset(get = "pub")]
+        pub hash: HashOf<SignedTransaction>,
+        #[getset(get_copy = "pub")]
+        pub block_height: Option<u64>,
+        #[getset(get = "pub")]
+        pub status: TransactionStatus,
+    }
+
+    /// Report of block's status in the pipeline
     #[derive(
         Debug,
         Clone,
         Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type(opaque)]
+    pub enum BlockStatus {
+        /// Block was approved to participate in consensus
+        Approved,
+        /// Block was rejected by consensus
+        Rejected(crate::block::error::BlockRejectionReason),
+        /// Block has passed consensus successfully
+        Committed,
+        /// Changes have been reflected in the WSV
+        Applied,
+    }
+
+    /// Report of transaction's status in the pipeline
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type(opaque)]
+    pub enum TransactionStatus {
+        /// Transaction was received and enqueued
+        Queued,
+        /// Transaction was dropped(not stored in a block)
+        Expired,
+        /// Transaction was stored in the block as valid
+        Approved,
+        /// Transaction was stored in the block as invalid
+        Rejected(Box<crate::transaction::error::TransactionRejectionReason>),
+    }
+
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    pub enum PipelineEventFilterBox {
+        Transaction(TransactionEventFilter),
+        Block(BlockEventFilter),
+    }
+
+    #[derive(
+        Debug,
+        Clone,
         PartialEq,
         Eq,
         PartialOrd,
@@ -31,45 +172,18 @@ pub mod model {
         Getters,
         Decode,
         Encode,
-        Serialize,
-        Deserialize,
-        IntoSchema,
-    )]
-    pub struct PipelineEventFilter {
-        /// If `Some::<EntityKind>`, filter by the [`EntityKind`]. If `None`, accept all the [`EntityKind`].
-        pub(super) entity_kind: Option<PipelineEntityKind>,
-        /// If `Some::<StatusKind>`, filter by the [`StatusKind`]. If `None`, accept all the [`StatusKind`].
-        pub(super) status_kind: Option<PipelineStatusKind>,
-        /// If `Some::<Hash>`, filter by the [`struct@Hash`]. If `None`, accept all the [`struct@Hash`].
-        // TODO: Can we make hash typed like HashOf<SignedTranasaction>?
-        pub(super) hash: Option<Hash>,
-    }
-
-    /// The kind of the pipeline entity.
-    #[derive(
-        Debug,
-        Clone,
-        Copy,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Decode,
-        Encode,
         Deserialize,
         Serialize,
         IntoSchema,
     )]
     #[ffi_type]
-    #[repr(u8)]
-    pub enum PipelineEntityKind {
-        /// Block
-        Block,
-        /// Transaction
-        Transaction,
+    pub struct BlockEventFilter {
+        #[getset(get_copy = "pub")]
+        pub height: Option<u64>,
+        #[getset(get = "pub")]
+        pub status: Option<BlockStatus>,
     }
 
-    /// Strongly-typed [`Event`] that tells the receiver the kind and the hash of the changed entity as well as its [`Status`].
     #[derive(
         Debug,
         Clone,
@@ -77,6 +191,7 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
+        Default,
         Getters,
         Decode,
         Encode,
@@ -84,148 +199,135 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    #[getset(get = "pub")]
     #[ffi_type]
-    pub struct PipelineEvent {
-        /// [`EntityKind`] of the entity that caused this [`Event`].
-        pub entity_kind: PipelineEntityKind,
-        /// [`Status`] of the entity that caused this [`Event`].
-        pub status: PipelineStatus,
-        /// [`struct@Hash`] of the entity that caused this [`Event`].
-        pub hash: Hash,
-    }
-
-    /// [`Status`] of the entity.
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        FromVariant,
-        EnumDiscriminants,
-        Decode,
-        Encode,
-        Serialize,
-        Deserialize,
-        IntoSchema,
-    )]
-    #[strum_discriminants(
-        name(PipelineStatusKind),
-        derive(PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,)
-    )]
-    #[ffi_type]
-    pub enum PipelineStatus {
-        /// Entity has been seen in the blockchain but has not passed validation.
-        Validating,
-        /// Entity was rejected during validation.
-        Rejected(PipelineRejectionReason),
-        /// Entity has passed validation.
-        Committed,
-    }
-
-    /// The reason for rejecting pipeline entity such as transaction or block.
-    #[derive(
-        Debug,
-        displaydoc::Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[cfg_attr(feature = "std", derive(thiserror::Error))]
-    #[ffi_type]
-    pub enum PipelineRejectionReason {
-        /// Block was rejected
-        Block(#[cfg_attr(feature = "std", source)] crate::block::error::BlockRejectionReason),
-        /// Transaction was rejected
-        Transaction(
-            #[cfg_attr(feature = "std", source)]
-            crate::transaction::error::TransactionRejectionReason,
-        ),
+    pub struct TransactionEventFilter {
+        #[getset(get = "pub")]
+        pub hash: Option<HashOf<SignedTransaction>>,
+        #[getset(get_copy = "pub")]
+        pub block_height: Option<Option<u64>>,
+        #[getset(get = "pub")]
+        pub status: Option<TransactionStatus>,
     }
 }
 
-impl PipelineEventFilter {
-    /// Creates a new [`PipelineEventFilter`] accepting all [`PipelineEvent`]s
+impl BlockEventFilter {
+    /// Construct new instance
     #[must_use]
-    #[inline]
     pub const fn new() -> Self {
         Self {
-            status_kind: None,
-            entity_kind: None,
-            hash: None,
+            height: None,
+            status: None,
         }
     }
 
-    /// Modifies a [`PipelineEventFilter`] to accept only [`PipelineEvent`]s originating from a specific entity kind (block/transaction).
+    /// Match only block with the given height
     #[must_use]
-    #[inline]
-    pub const fn for_entity(mut self, entity_kind: PipelineEntityKind) -> Self {
-        self.entity_kind = Some(entity_kind);
+    pub fn for_height(mut self, height: u64) -> Self {
+        self.height = Some(height);
         self
     }
 
-    /// Modifies a [`PipelineEventFilter`] to accept only [`PipelineEvent`]s with a specific status.
+    /// Match only block with the given status
     #[must_use]
-    #[inline]
-    pub const fn for_status(mut self, status_kind: PipelineStatusKind) -> Self {
-        self.status_kind = Some(status_kind);
+    pub fn for_status(mut self, status: BlockStatus) -> Self {
+        self.status = Some(status);
+        self
+    }
+}
+
+impl TransactionEventFilter {
+    /// Construct new instance
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            hash: None,
+            block_height: None,
+            status: None,
+        }
+    }
+
+    /// Match only transactions with the given block height
+    #[must_use]
+    pub fn for_block_height(mut self, block_height: Option<u64>) -> Self {
+        self.block_height = Some(block_height);
         self
     }
 
-    /// Modifies a [`PipelineEventFilter`] to accept only [`PipelineEvent`]s originating from an entity with specified hash.
+    /// Match only transactions with the given hash
     #[must_use]
-    #[inline]
-    pub const fn for_hash(mut self, hash: Hash) -> Self {
+    pub fn for_hash(mut self, hash: HashOf<SignedTransaction>) -> Self {
         self.hash = Some(hash);
         self
     }
 
-    #[inline]
-    #[cfg(feature = "transparent_api")]
+    /// Match only transactions with the given status
+    #[must_use]
+    pub fn for_status(mut self, status: TransactionStatus) -> Self {
+        self.status = Some(status);
+        self
+    }
+}
+
+#[cfg(feature = "transparent_api")]
+impl TransactionEventFilter {
     fn field_matches<T: Eq>(filter: Option<&T>, event: &T) -> bool {
         filter.map_or(true, |field| field == event)
     }
 }
 
 #[cfg(feature = "transparent_api")]
-impl super::EventFilter for PipelineEventFilter {
-    type Event = PipelineEvent;
-
-    /// Check if `self` accepts the `event`.
-    #[inline]
-    fn matches(&self, event: &PipelineEvent) -> bool {
-        [
-            Self::field_matches(self.entity_kind.as_ref(), &event.entity_kind),
-            Self::field_matches(self.status_kind.as_ref(), &event.status.kind()),
-            Self::field_matches(self.hash.as_ref(), &event.hash),
-        ]
-        .into_iter()
-        .all(core::convert::identity)
+impl BlockEventFilter {
+    fn field_matches<T: Eq>(filter: Option<&T>, event: &T) -> bool {
+        filter.map_or(true, |field| field == event)
     }
 }
 
 #[cfg(feature = "transparent_api")]
-impl PipelineStatus {
-    fn kind(&self) -> PipelineStatusKind {
-        PipelineStatusKind::from(self)
+impl super::EventFilter for PipelineEventFilterBox {
+    type Event = PipelineEventBox;
+
+    /// Check if `self` accepts the `event`.
+    #[inline]
+    fn matches(&self, event: &PipelineEventBox) -> bool {
+        match (self, event) {
+            (Self::Block(block_filter), PipelineEventBox::Block(block_event)) => [
+                BlockEventFilter::field_matches(
+                    block_filter.height.as_ref(),
+                    &block_event.header.height,
+                ),
+                BlockEventFilter::field_matches(block_filter.status.as_ref(), &block_event.status),
+            ]
+            .into_iter()
+            .all(core::convert::identity),
+            (
+                Self::Transaction(transaction_filter),
+                PipelineEventBox::Transaction(transaction_event),
+            ) => [
+                TransactionEventFilter::field_matches(
+                    transaction_filter.hash.as_ref(),
+                    &transaction_event.hash,
+                ),
+                TransactionEventFilter::field_matches(
+                    transaction_filter.block_height.as_ref(),
+                    &transaction_event.block_height,
+                ),
+                TransactionEventFilter::field_matches(
+                    transaction_filter.status.as_ref(),
+                    &transaction_event.status,
+                ),
+            ]
+            .into_iter()
+            .all(core::convert::identity),
+            _ => false,
+        }
     }
 }
 
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
-        PipelineEntityKind, PipelineEvent, PipelineEventFilter, PipelineRejectionReason,
-        PipelineStatus, PipelineStatusKind,
+        BlockEvent, BlockStatus, PipelineEventBox, PipelineEventFilterBox, TransactionEvent,
+        TransactionStatus,
     };
 }
 
@@ -235,94 +337,123 @@ mod tests {
     #[cfg(not(feature = "std"))]
     use alloc::{string::ToString as _, vec, vec::Vec};
 
-    use super::{super::EventFilter, PipelineRejectionReason::*, *};
+    use iroha_crypto::Hash;
+
+    use super::{super::EventFilter, *};
     use crate::{transaction::error::TransactionRejectionReason::*, ValidationFail};
+
+    impl BlockHeader {
+        fn dummy(height: u64) -> Self {
+            Self {
+                height,
+                previous_block_hash: None,
+                transactions_hash: None,
+                timestamp_ms: 0,
+                view_change_index: 0,
+                consensus_estimation_ms: 0,
+            }
+        }
+    }
 
     #[test]
     fn events_are_correctly_filtered() {
         let events = vec![
-            PipelineEvent {
-                entity_kind: PipelineEntityKind::Transaction,
-                status: PipelineStatus::Validating,
-                hash: Hash::prehashed([0_u8; Hash::LENGTH]),
-            },
-            PipelineEvent {
-                entity_kind: PipelineEntityKind::Transaction,
-                status: PipelineStatus::Rejected(Transaction(Validation(
+            TransactionEvent {
+                hash: HashOf::from_untyped_unchecked(Hash::prehashed([0_u8; Hash::LENGTH])),
+                block_height: None,
+                status: TransactionStatus::Queued,
+            }
+            .into(),
+            TransactionEvent {
+                hash: HashOf::from_untyped_unchecked(Hash::prehashed([0_u8; Hash::LENGTH])),
+                block_height: Some(3),
+                status: TransactionStatus::Rejected(Box::new(Validation(
                     ValidationFail::TooComplex,
                 ))),
-                hash: Hash::prehashed([0_u8; Hash::LENGTH]),
-            },
-            PipelineEvent {
-                entity_kind: PipelineEntityKind::Transaction,
-                status: PipelineStatus::Committed,
-                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
-            },
-            PipelineEvent {
-                entity_kind: PipelineEntityKind::Block,
-                status: PipelineStatus::Committed,
-                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
-            },
+            }
+            .into(),
+            TransactionEvent {
+                hash: HashOf::from_untyped_unchecked(Hash::prehashed([2_u8; Hash::LENGTH])),
+                block_height: None,
+                status: TransactionStatus::Approved,
+            }
+            .into(),
+            BlockEvent {
+                header: BlockHeader::dummy(7),
+                hash: HashOf::from_untyped_unchecked(Hash::prehashed([7_u8; Hash::LENGTH])),
+                status: BlockStatus::Committed,
+            }
+            .into(),
         ];
+
         assert_eq!(
+            events
+                .iter()
+                .filter(|&event| {
+                    let filter: PipelineEventFilterBox = TransactionEventFilter::default()
+                        .for_hash(HashOf::from_untyped_unchecked(Hash::prehashed(
+                            [0_u8; Hash::LENGTH],
+                        )))
+                        .into();
+
+                    filter.matches(event)
+                })
+                .cloned()
+                .collect::<Vec<PipelineEventBox>>(),
             vec![
-                PipelineEvent {
-                    entity_kind: PipelineEntityKind::Transaction,
-                    status: PipelineStatus::Validating,
-                    hash: Hash::prehashed([0_u8; Hash::LENGTH]),
-                },
-                PipelineEvent {
-                    entity_kind: PipelineEntityKind::Transaction,
-                    status: PipelineStatus::Rejected(Transaction(Validation(
+                TransactionEvent {
+                    hash: HashOf::from_untyped_unchecked(Hash::prehashed([0_u8; Hash::LENGTH])),
+                    block_height: None,
+                    status: TransactionStatus::Queued,
+                }
+                .into(),
+                TransactionEvent {
+                    hash: HashOf::from_untyped_unchecked(Hash::prehashed([0_u8; Hash::LENGTH])),
+                    block_height: Some(3),
+                    status: TransactionStatus::Rejected(Box::new(Validation(
                         ValidationFail::TooComplex,
                     ))),
-                    hash: Hash::prehashed([0_u8; Hash::LENGTH]),
-                },
+                }
+                .into(),
             ],
+        );
+
+        assert_eq!(
             events
                 .iter()
-                .filter(|&event| PipelineEventFilter::new()
-                    .for_hash(Hash::prehashed([0_u8; Hash::LENGTH]))
-                    .matches(event))
+                .filter(|&event| {
+                    let filter: PipelineEventFilterBox = BlockEventFilter::default().into();
+                    filter.matches(event)
+                })
                 .cloned()
-                .collect::<Vec<PipelineEvent>>()
+                .collect::<Vec<_>>(),
+            vec![BlockEvent {
+                status: BlockStatus::Committed,
+                hash: HashOf::from_untyped_unchecked(Hash::prehashed([7_u8; Hash::LENGTH])),
+                header: BlockHeader::dummy(7),
+            }
+            .into()],
         );
         assert_eq!(
-            vec![PipelineEvent {
-                entity_kind: PipelineEntityKind::Block,
-                status: PipelineStatus::Committed,
-                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
-            }],
             events
                 .iter()
-                .filter(|&event| PipelineEventFilter::new()
-                    .for_entity(PipelineEntityKind::Block)
-                    .matches(event))
+                .filter(|&event| {
+                    let filter: PipelineEventFilterBox = TransactionEventFilter::default()
+                        .for_hash(HashOf::from_untyped_unchecked(Hash::prehashed(
+                            [2_u8; Hash::LENGTH],
+                        )))
+                        .into();
+
+                    filter.matches(event)
+                })
                 .cloned()
-                .collect::<Vec<PipelineEvent>>()
+                .collect::<Vec<PipelineEventBox>>(),
+            vec![TransactionEvent {
+                hash: HashOf::from_untyped_unchecked(Hash::prehashed([2_u8; Hash::LENGTH])),
+                block_height: None,
+                status: TransactionStatus::Approved,
+            }
+            .into()],
         );
-        assert_eq!(
-            vec![PipelineEvent {
-                entity_kind: PipelineEntityKind::Transaction,
-                status: PipelineStatus::Committed,
-                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
-            }],
-            events
-                .iter()
-                .filter(|&event| PipelineEventFilter::new()
-                    .for_entity(PipelineEntityKind::Transaction)
-                    .for_hash(Hash::prehashed([2_u8; Hash::LENGTH]))
-                    .matches(event))
-                .cloned()
-                .collect::<Vec<PipelineEvent>>()
-        );
-        assert_eq!(
-            events,
-            events
-                .iter()
-                .filter(|&event| PipelineEventFilter::new().matches(event))
-                .cloned()
-                .collect::<Vec<PipelineEvent>>()
-        )
     }
 }

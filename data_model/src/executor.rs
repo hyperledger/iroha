@@ -14,7 +14,7 @@ pub use self::model::*;
 use crate::transaction::WasmSmartContract;
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// executor that checks if an operation satisfies some conditions.

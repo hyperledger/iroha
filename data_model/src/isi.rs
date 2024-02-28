@@ -29,7 +29,7 @@ pub trait Instruction: Into<InstructionBox> + seal::Sealed {
 }
 
 #[model]
-pub mod model {
+mod model {
     use iroha_macro::FromVariant;
     pub use transparent::*;
 
@@ -1271,7 +1271,7 @@ pub mod error {
     };
 
     #[model]
-    pub mod model {
+    mod model {
         use serde::{Deserialize, Serialize};
 
         use super::*;

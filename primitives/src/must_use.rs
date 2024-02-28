@@ -4,7 +4,7 @@ use core::borrow::{Borrow, BorrowMut};
 
 use derive_more::{AsMut, AsRef, Constructor, Deref, Display};
 
-/// Wrapper type to annotate types with `must_use` attribute
+/// Wrapper type to annotate types with `must_use` attribute. Only to be used with [`Result`]
 ///
 /// # Example
 /// ```
@@ -30,19 +30,7 @@ use derive_more::{AsMut, AsRef, Constructor, Deref, Display};
 /// // is_odd(3).unwrap();
 /// ```
 #[derive(
-    Constructor,
-    Debug,
-    Display,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    AsRef,
-    AsMut,
-    Deref,
+    Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Constructor, AsRef, AsMut, Deref,
 )]
 #[repr(transparent)]
 #[must_use]
@@ -53,6 +41,12 @@ impl<T> MustUse<T> {
     #[inline]
     pub fn into_inner(self) -> T {
         self.0
+    }
+}
+
+impl<T> From<T> for MustUse<T> {
+    fn from(source: T) -> Self {
+        MustUse(source)
     }
 }
 

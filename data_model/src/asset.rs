@@ -33,7 +33,7 @@ pub type AssetDefinitionsMap = btree_map::BTreeMap<AssetDefinitionId, AssetDefin
 pub type AssetTotalQuantityMap = btree_map::BTreeMap<AssetDefinitionId, Numeric>;
 
 #[model]
-pub mod model {
+mod model {
     use iroha_macro::FromVariant;
 
     use super::*;
