@@ -674,12 +674,6 @@ mod transparent {
     }
 
     impl_into_box! {
-        Mint<Numeric, Asset>
-    => AssetMintBox => MintBox[Asset],
-    => AssetMintBoxRef<'a> => MintBoxRef<'a>[Asset]
-    }
-
-    impl_into_box! {
         Mint<PublicKey, Account> |
         Mint<SignatureCheckCondition, Account> |
         Mint<Numeric, Asset> |
@@ -739,12 +733,6 @@ mod transparent {
         "BURN `{}` FROM `{}`",
         object,
         destination_id,
-    }
-
-    impl_into_box! {
-        Burn<Numeric, Asset>
-    => AssetBurnBox => BurnBox[Asset],
-    => AssetBurnBoxRef<'a> => BurnBoxRef<'a>[Asset]
     }
 
     impl_into_box! {
@@ -1117,8 +1105,7 @@ isi_box! {
         #[enum_ref(transparent)]
         Account(AccountMintBox),
         /// Mint for [`Asset`].
-        #[enum_ref(transparent)]
-        Asset(AssetMintBox),
+        Asset(Mint<Numeric, Asset>),
         /// Mint [`Trigger`] repetitions.
         TriggerRepetitions(Mint<u32, Trigger<TriggeringFilterBox>>),
     }
@@ -1142,19 +1129,6 @@ isi_box! {
 isi_box! {
     #[strum_discriminants(
         vis(pub(crate)),
-        name(AssetMintType),
-        derive(Encode),
-    )]
-    /// Enum with all supported [`Mint`] instructions related to [`Asset`].
-    pub enum AssetMintBox {
-        /// Mint [`Asset`] of [`Numeric`] type.
-        Numeric(Mint<Numeric, Asset>),
-    }
-}
-
-isi_box! {
-    #[strum_discriminants(
-        vis(pub(crate)),
         name(BurnType),
         derive(Encode),
     )]
@@ -1163,23 +1137,9 @@ isi_box! {
         /// Burn [`PublicKey`] for [`Account`].
         AccountPublicKey(Burn<PublicKey, Account>),
         /// Burn [`Asset`].
-        #[enum_ref(transparent)]
-        Asset(AssetBurnBox),
+        Asset(Burn<Numeric, Asset>),
         /// Burn [`Trigger`] repetitions.
         TriggerRepetitions(Burn<u32, Trigger<TriggeringFilterBox>>),
-    }
-}
-
-isi_box! {
-    #[strum_discriminants(
-        vis(pub(crate)),
-        name(AssetBurnType),
-        derive(Encode),
-    )]
-    /// Enum with all supported [`Burn`] instructions related to [`Asset`].
-    pub enum AssetBurnBox {
-        /// Burn [`Asset`] of [`Numeric`] type.
-        Numeric(Burn<Numeric, Asset>),
     }
 }
 
@@ -1556,9 +1516,9 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        AccountMintBox, AssetBurnBox, AssetMintBox, AssetTransferBox, Burn, BurnBox,
-        ExecuteTrigger, Fail, Grant, GrantBox, InstructionBox, Log, Mint, MintBox, NewParameter,
-        Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SetKeyValue,
-        SetKeyValueBox, SetParameter, Transfer, TransferBox, Unregister, UnregisterBox, Upgrade,
+        AccountMintBox, AssetTransferBox, Burn, BurnBox, ExecuteTrigger, Fail, Grant, GrantBox,
+        InstructionBox, Log, Mint, MintBox, NewParameter, Register, RegisterBox, RemoveKeyValue,
+        RemoveKeyValueBox, Revoke, RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer,
+        TransferBox, Unregister, UnregisterBox, Upgrade,
     };
 }

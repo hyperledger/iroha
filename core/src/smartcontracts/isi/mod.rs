@@ -107,17 +107,6 @@ impl Execute for AccountMintBox {
     }
 }
 
-impl Execute for AssetMintBox {
-    fn execute(
-        self,
-        authority: &AccountId,
-        wsv: &mut WorldStateView,
-    ) -> std::prelude::v1::Result<(), Error> {
-        let Self::Numeric(isi) = self;
-        isi.execute(authority, wsv)
-    }
-}
-
 impl Execute for BurnBox {
     #[iroha_logger::log(name = "burn", skip_all, fields(destination))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
@@ -126,17 +115,6 @@ impl Execute for BurnBox {
             Self::Asset(isi) => isi.execute(authority, wsv),
             Self::TriggerRepetitions(isi) => isi.execute(authority, wsv),
         }
-    }
-}
-
-impl Execute for AssetBurnBox {
-    fn execute(
-        self,
-        authority: &AccountId,
-        wsv: &mut WorldStateView,
-    ) -> std::prelude::v1::Result<(), Error> {
-        let Self::Numeric(isi) = self;
-        isi.execute(authority, wsv)
     }
 }
 
