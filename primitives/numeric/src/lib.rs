@@ -193,12 +193,10 @@ impl Numeric {
     pub const fn is_zero(&self) -> bool {
         self.inner.is_zero()
     }
-}
 
-/// Convert [`Numeric`] to `f64` with possible loss in precision
-impl From<Numeric> for f64 {
-    fn from(value: Numeric) -> Self {
-        value.inner.to_f64().expect("never fails")
+    /// Convert [`Numeric`] to [`f64`] with possible loss in precision
+    pub fn to_f64(self) -> f64 {
+        self.inner.to_f64().expect("never fails")
     }
 }
 

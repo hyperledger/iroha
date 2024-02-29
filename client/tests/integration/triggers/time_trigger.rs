@@ -73,13 +73,11 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     let expected_value = prev_value
         .checked_add(Numeric::new(average_count, 0))
         .unwrap();
-    let acceptable_error =
-        f64::from(expected_value) * (f64::from(ACCEPTABLE_ERROR_PERCENT) / 100.0);
-    let error = f64::from(
-        core::cmp::max(actual_value, expected_value)
-            .checked_sub(core::cmp::min(actual_value, expected_value))
-            .unwrap(),
-    );
+    let acceptable_error = expected_value.to_f64() * (f64::from(ACCEPTABLE_ERROR_PERCENT) / 100.0);
+    let error = core::cmp::max(actual_value, expected_value)
+        .checked_sub(core::cmp::min(actual_value, expected_value))
+        .unwrap()
+        .to_f64();
     assert!(
         error < acceptable_error,
         "error = {error}, but acceptable error = {acceptable_error}"
