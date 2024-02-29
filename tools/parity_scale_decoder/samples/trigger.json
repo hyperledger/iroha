@@ -19,7 +19,7 @@
             "Data": {
                 "Domain": {
                     "id_matcher": null,
-                    "event_matcher": "AnyAccount"
+                    "event_set": ["AnyAccount"]
                 }
             }
         },
