@@ -9,7 +9,6 @@ use std::collections::btree_map;
 use derive_more::{Constructor, DebugCustom, Display};
 use getset::{CopyGetters, Getters};
 use iroha_data_model_derive::{model, IdEqOrdHash};
-use iroha_macro::FromVariant;
 use iroha_primitives::numeric::{Numeric, NumericSpec, NumericSpecParseError};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -217,7 +216,6 @@ pub mod model {
         Encode,
         Deserialize,
         Serialize,
-        FromVariant,
         IntoSchema,
     )]
     #[ffi_type]
@@ -365,6 +363,18 @@ impl AssetValue {
             Self::Numeric(q) => q.is_zero(),
             Self::Store(_) => false,
         }
+    }
+}
+
+impl From<Metadata> for AssetValue {
+    fn from(value: Metadata) -> Self {
+        AssetValue::Store(value)
+    }
+}
+
+impl<T: Into<Numeric>> From<T> for AssetValue {
+    fn from(value: T) -> Self {
+        AssetValue::Numeric(value.into())
     }
 }
 

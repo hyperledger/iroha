@@ -22,7 +22,7 @@ fn main(owner: AccountId, _event: Event) {
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
     let rose_id = AssetId::new(rose_definition_id, owner);
 
-    Mint::asset_numeric(numeric!(1), rose_id)
+    Mint::asset_numeric(1u32, rose_id)
         .execute()
         .dbg_expect("Failed to mint rose");
 }

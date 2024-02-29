@@ -45,7 +45,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     let schedule = TimeSchedule::starting_at(start_time).with_period(PERIOD);
-    let instruction = Mint::asset_numeric(numeric!(1), asset_id.clone());
+    let instruction = Mint::asset_numeric(1u32, asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
@@ -149,7 +149,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
 
-    let instruction = Mint::asset_numeric(numeric!(1), asset_id.clone());
+    let instruction = Mint::asset_numeric(1u32, asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         "mint_rose".parse()?,
         Action::new(

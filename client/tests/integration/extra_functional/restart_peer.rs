@@ -31,7 +31,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             .unwrap()
             .submit_blocking(create_asset)?;
 
-        let mint_asset: Mint<Numeric, _> = Mint::asset_numeric(
+        let mint_asset = Mint::asset_numeric(
             quantity,
             AssetId::new(asset_definition_id.clone(), account_id.clone()),
         );

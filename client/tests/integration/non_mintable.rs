@@ -23,7 +23,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     let metadata = UnlimitedMetadata::default();
 
     let mint = Mint::asset_numeric(
-        numeric!(200),
+        200_u32,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
 
@@ -71,7 +71,7 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
 
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
     let register_asset: InstructionBox =
-        Register::asset(Asset::new(asset_id.clone(), numeric!(1))).into();
+        Register::asset(Asset::new(asset_id.clone(), 1_u32)).into();
 
     // We can register the non-mintable token
     test_client.submit_all([create_asset, register_asset.clone()])?;
@@ -87,7 +87,7 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
     assert!(test_client.submit_blocking(register_asset).is_err());
 
     // And can't be minted
-    let mint = Mint::asset_numeric(numeric!(1), asset_id);
+    let mint = Mint::asset_numeric(1u32, asset_id);
     assert!(test_client.submit_blocking(mint).is_err());
 
     Ok(())
@@ -106,8 +106,8 @@ fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()
     );
 
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
-    let register_asset = Register::asset(Asset::new(asset_id.clone(), Numeric::ZERO));
-    let mint = Mint::asset_numeric(numeric!(1), asset_id);
+    let register_asset = Register::asset(Asset::new(asset_id.clone(), 0_u32));
+    let mint = Mint::asset_numeric(1u32, asset_id);
 
     // We can register the non-mintable token wih zero value and then mint it
     let instructions: [InstructionBox; 3] =

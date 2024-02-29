@@ -636,9 +636,9 @@ mod transparent {
 
     impl Mint<Numeric, Asset> {
         /// Constructs a new [`Mint`] for an [`Asset`] of [`Numeric`] type.
-        pub fn asset_numeric(numeric: Numeric, asset_id: AssetId) -> Self {
+        pub fn asset_numeric(object: impl Into<Numeric>, asset_id: AssetId) -> Self {
             Self {
-                object: numeric,
+                object: object.into(),
                 destination_id: asset_id,
             }
         }
@@ -705,9 +705,9 @@ mod transparent {
 
     impl Burn<Numeric, Asset> {
         /// Constructs a new [`Burn`] for an [`Asset`] of [`Numeric`] type.
-        pub fn asset_numeric(numeric: Numeric, asset_id: AssetId) -> Self {
+        pub fn asset_numeric(object: impl Into<Numeric>, asset_id: AssetId) -> Self {
             Self {
-                object: numeric,
+                object: object.into(),
                 destination_id: asset_id,
             }
         }
@@ -786,10 +786,14 @@ mod transparent {
 
     impl Transfer<Asset, Numeric, Account> {
         /// Constructs a new [`Transfer`] for an [`Asset`] of [`Quantity`] type.
-        pub fn asset_numeric(asset_id: AssetId, quantity: Numeric, to: AccountId) -> Self {
+        pub fn asset_numeric(
+            asset_id: AssetId,
+            quantity: impl Into<Numeric>,
+            to: AccountId,
+        ) -> Self {
             Self {
                 source_id: asset_id,
-                object: quantity,
+                object: quantity.into(),
                 destination_id: to,
             }
         }

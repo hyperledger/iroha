@@ -200,6 +200,18 @@ impl Numeric {
     }
 }
 
+impl From<u32> for Numeric {
+    fn from(value: u32) -> Self {
+        Self::new(value.into(), 0)
+    }
+}
+
+impl From<u64> for Numeric {
+    fn from(value: u64) -> Self {
+        Self::new(value.into(), 0)
+    }
+}
+
 impl NumericSpec {
     /// Check if given numeric satisfy constrains
     ///

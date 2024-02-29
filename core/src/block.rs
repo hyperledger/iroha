@@ -763,18 +763,13 @@ mod tests {
             .sign(&alice_keys);
         let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
 
-        let quantity = numeric!(200);
-        let fail_quantity = numeric!(20);
-
         let fail_mint = Mint::asset_numeric(
-            fail_quantity,
+            20u32,
             AssetId::new(asset_definition_id.clone(), alice_id.clone()),
         );
 
-        let succeed_mint = Mint::asset_numeric(
-            quantity,
-            AssetId::new(asset_definition_id, alice_id.clone()),
-        );
+        let succeed_mint =
+            Mint::asset_numeric(200u32, AssetId::new(asset_definition_id, alice_id.clone()));
 
         let tx0 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_mint])

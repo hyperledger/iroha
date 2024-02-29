@@ -50,7 +50,7 @@ fn find_accounts_with_asset() -> Result<()> {
         .iter()
         .cloned()
         .map(|account_id| AssetId::new(definition_id.clone(), account_id))
-        .map(|asset_id| Mint::asset_numeric(numeric!(1), asset_id))
+        .map(|asset_id| Mint::asset_numeric(1u32, asset_id))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(mint_asset)?;
 

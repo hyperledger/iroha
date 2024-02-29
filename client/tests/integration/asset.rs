@@ -29,7 +29,7 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();
     let register_asset: InstructionBox = Register::asset(Asset::new(
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
-        AssetValue::Numeric(Numeric::ZERO),
+        0_u32,
     ))
     .into();
 
@@ -64,11 +64,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
     let create_asset: InstructionBox =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();
-    let register_asset = Register::asset(Asset::new(
-        asset_id.clone(),
-        AssetValue::Numeric(Numeric::ZERO),
-    ))
-    .into();
+    let register_asset = Register::asset(Asset::new(asset_id.clone(), 0_u32)).into();
     let unregister_asset = Unregister::asset(asset_id);
 
     test_client.submit_all([create_asset, register_asset])?;
@@ -319,16 +315,16 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         register::asset_definition("eth", "crypto").into(),
         register::asset_definition("btc2eth_rate", "exchange").into(),
         Mint::asset_numeric(
-            numeric!(200),
+            200u32,
             asset_id_new("eth", "crypto", buyer_account_id.clone()),
         )
         .into(),
         Mint::asset_numeric(
-            numeric!(20),
+            20u32,
             asset_id_new("btc", "crypto", seller_account_id.clone()),
         )
         .into(),
-        Mint::asset_numeric(numeric!(20), asset_id.clone()).into(),
+        Mint::asset_numeric(20u32, asset_id.clone()).into(),
     ];
     test_client
         .submit_all_blocking(instructions)

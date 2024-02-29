@@ -25,7 +25,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let bob_id = AccountId::from_str("bob@test").expect("tested");
     let xor_id = AssetDefinitionId::from_str("xor#test").expect("tested");
     let alice_xor_id = AssetId::new(xor_id, alice_id);
-    let transfer = Transfer::asset_numeric(alice_xor_id, numeric!(10), bob_id);
+    let transfer = Transfer::asset_numeric(alice_xor_id, 10u32, bob_id);
     let keypair = KeyPair::generate();
     let tx = TransactionBuilder::new(
         chain_id.clone(),
