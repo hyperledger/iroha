@@ -279,15 +279,6 @@
       }
     ]
   },
-  "AssetBurnBox": {
-    "Enum": [
-      {
-        "tag": "Numeric",
-        "discriminant": 0,
-        "type": "Burn<Numeric, Asset>"
-      }
-    ]
-  },
   "AssetChanged": {
     "Struct": [
       {
@@ -533,15 +524,6 @@
       }
     ]
   },
-  "AssetMintBox": {
-    "Enum": [
-      {
-        "tag": "Numeric",
-        "discriminant": 0,
-        "type": "Mint<Numeric, Asset>"
-      }
-    ]
-  },
   "AssetTransferBox": {
     "Enum": [
       {
@@ -741,7 +723,7 @@
       {
         "tag": "Asset",
         "discriminant": 1,
-        "type": "AssetBurnBox"
+        "type": "Burn<Numeric, Asset>"
       },
       {
         "tag": "TriggerRepetitions",
@@ -751,6 +733,12 @@
     ]
   },
   "ChainId": "String",
+  "Compact<u128>": {
+    "Int": "Compact"
+  },
+  "Compact<u32>": {
+    "Int": "Compact"
+  },
   "ConfigurationEvent": {
     "Enum": [
       {
@@ -2516,7 +2504,7 @@
       {
         "tag": "Asset",
         "discriminant": 1,
-        "type": "AssetMintBox"
+        "type": "Mint<Numeric, Asset>"
       },
       {
         "tag": "TriggerRepetitions",
@@ -2691,11 +2679,11 @@
     "Struct": [
       {
         "name": "mantissa",
-        "type": "u128"
+        "type": "Compact<u128>"
       },
       {
         "name": "scale",
-        "type": "u32"
+        "type": "Compact<u32>"
       }
     ]
   },

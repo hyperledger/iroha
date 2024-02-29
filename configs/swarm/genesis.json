@@ -89,20 +89,16 @@
       {
         "Mint": {
           "Asset": {
-            "Numeric": {
-              "object": "13",
-              "destination_id": "rose##alice@wonderland"
-            }
+            "object": "13",
+            "destination_id": "rose##alice@wonderland"
           }
         }
       },
       {
         "Mint": {
           "Asset": {
-            "Numeric": {
-              "object": "44",
-              "destination_id": "cabbage#garden_of_live_flowers#alice@wonderland"
-            }
+            "object": "44",
+            "destination_id": "cabbage#garden_of_live_flowers#alice@wonderland"
           }
         }
       },

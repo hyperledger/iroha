@@ -306,9 +306,7 @@ pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
                 visitor.visit_mint_account_signature_check_condition(authority, obj)
             }
         },
-        MintBox::Asset(mint_asset) => match mint_asset {
-            AssetMintBox::Numeric(obj) => visitor.visit_mint_asset_numeric(authority, obj),
-        },
+        MintBox::Asset(obj) => visitor.visit_mint_asset_numeric(authority, obj),
         MintBox::TriggerRepetitions(obj) => visitor.visit_mint_trigger_repetitions(authority, obj),
     }
 }
@@ -316,9 +314,7 @@ pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
 pub fn visit_burn<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &BurnBox) {
     match isi {
         BurnBox::AccountPublicKey(obj) => visitor.visit_burn_account_public_key(authority, obj),
-        BurnBox::Asset(burn_asset) => match burn_asset {
-            AssetBurnBox::Numeric(obj) => visitor.visit_burn_asset_numeric(authority, obj),
-        },
+        BurnBox::Asset(obj) => visitor.visit_burn_asset_numeric(authority, obj),
         BurnBox::TriggerRepetitions(obj) => visitor.visit_burn_trigger_repetitions(authority, obj),
     }
 }
