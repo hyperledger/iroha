@@ -26,7 +26,7 @@ fn call_execute_trigger() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id);
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
-    let instruction = Mint::asset_numeric(numeric!(1), asset_id.clone());
+    let instruction = Mint::asset_numeric(1u32, asset_id.clone());
     let register_trigger = build_register_trigger_isi(asset_id.clone(), vec![instruction.into()]);
     test_client.submit_blocking(register_trigger)?;
 
@@ -49,7 +49,7 @@ fn execute_trigger_should_produce_event() -> Result<()> {
     let account_id: AccountId = "alice@wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let instruction = Mint::asset_numeric(numeric!(1), asset_id.clone());
+    let instruction = Mint::asset_numeric(1u32, asset_id.clone());
     let register_trigger = build_register_trigger_isi(asset_id, vec![instruction.into()]);
     test_client.submit_blocking(register_trigger)?;
 
@@ -88,7 +88,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     let instructions = vec![
-        Mint::asset_numeric(numeric!(1), asset_id.clone()).into(),
+        Mint::asset_numeric(1u32, asset_id.clone()).into(),
         call_trigger.clone().into(),
     ];
     let register_trigger = build_register_trigger_isi(asset_id.clone(), instructions);
@@ -131,7 +131,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
 
     // Registering normal trigger
     let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
-    let trigger_instructions = vec![Mint::asset_numeric(numeric!(1), asset_id.clone())];
+    let trigger_instructions = vec![Mint::asset_numeric(1u32, asset_id.clone())];
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id,
         Action::new(
@@ -169,7 +169,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let trigger_id = TriggerId::from_str("self_modifying_trigger")?;
 
-    let trigger_instructions = vec![Mint::asset_numeric(numeric!(1), asset_id.clone())];
+    let trigger_instructions = vec![Mint::asset_numeric(1u32, asset_id.clone())];
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id.clone(),
         Action::new(
@@ -232,7 +232,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
 
     let trigger_instructions = vec![
         InstructionBox::from(Mint::trigger_repetitions(1_u32, trigger_id.clone())),
-        InstructionBox::from(Mint::asset_numeric(numeric!(1), asset_id.clone())),
+        InstructionBox::from(Mint::asset_numeric(1u32, asset_id.clone())),
     ];
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id.clone(),
@@ -419,7 +419,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     test_client.submit_blocking(register_trigger)?;
 
     let trigger_should_be_unregistered_instructions =
-        vec![Mint::asset_numeric(numeric!(1), asset_id.clone())];
+        vec![Mint::asset_numeric(1u32, asset_id.clone())];
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id_to_be_unregistered.clone(),
         Action::new(
@@ -463,7 +463,7 @@ fn trigger_burn_repetitions() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let trigger_id = TriggerId::from_str("trigger")?;
 
-    let trigger_instructions = vec![Mint::asset_numeric(numeric!(1), asset_id)];
+    let trigger_instructions = vec![Mint::asset_numeric(1u32, asset_id)];
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id.clone(),
         Action::new(

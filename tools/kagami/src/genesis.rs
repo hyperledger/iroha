@@ -154,11 +154,11 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
 
     let alice_id = AccountId::from_str("alice@wonderland")?;
     let mint = Mint::asset_numeric(
-        numeric!(13),
+        13u32,
         AssetId::new("rose#wonderland".parse()?, alice_id.clone()),
     );
     let mint_cabbage = Mint::asset_numeric(
-        numeric!(44),
+        44u32,
         AssetId::new("cabbage#garden_of_live_flowers".parse()?, alice_id.clone()),
     );
     let grant_permission_to_set_parameters = Grant::permission(
@@ -262,7 +262,7 @@ fn generate_synthetic(
             //        https://github.com/hyperledger/iroha/issues/3508
             for asset in 0..assets_per_domain {
                 let mint = Mint::asset_numeric(
-                    numeric!(13),
+                    13u32,
                     AssetId::new(
                         format!("asset_{asset}#domain_{domain}").parse()?,
                         format!("account_{account}@domain_{domain}").parse()?,
