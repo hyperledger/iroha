@@ -2,7 +2,7 @@
 #![allow(missing_docs)]
 
 use getset::Getters;
-use iroha_data_model_derive::{model, HasOrigin};
+use iroha_data_model_derive::{model, EventSet, HasOrigin};
 use iroha_primitives::numeric::Numeric;
 
 pub use self::model::*;
@@ -19,6 +19,7 @@ macro_rules! data_event {
                 PartialOrd,
                 Ord,
                 HasOrigin,
+                EventSet,
                 parity_scale_codec::Decode,
                 parity_scale_codec::Encode,
                 serde::Deserialize,
@@ -648,18 +649,19 @@ impl DataEvent {
 
 pub mod prelude {
     pub use super::{
-        account::{AccountEvent, AccountPermissionChanged, AccountRoleChanged},
+        account::{AccountEvent, AccountEventSet, AccountPermissionChanged, AccountRoleChanged},
         asset::{
-            AssetChanged, AssetDefinitionEvent, AssetDefinitionOwnerChanged,
-            AssetDefinitionTotalQuantityChanged, AssetEvent,
+            AssetChanged, AssetDefinitionEvent, AssetDefinitionEventSet,
+            AssetDefinitionOwnerChanged, AssetDefinitionTotalQuantityChanged, AssetEvent,
+            AssetEventSet,
         },
-        config::ConfigurationEvent,
-        domain::{DomainEvent, DomainOwnerChanged},
+        config::{ConfigurationEvent, ConfigurationEventSet},
+        domain::{DomainEvent, DomainEventSet, DomainOwnerChanged},
         executor::{ExecutorEvent, ExecutorFilter},
-        peer::PeerEvent,
+        peer::{PeerEvent, PeerEventSet},
         permission::PermissionTokenSchemaUpdateEvent,
-        role::{RoleEvent, RolePermissionChanged},
-        trigger::{TriggerEvent, TriggerNumberOfExecutionsChanged},
+        role::{RoleEvent, RoleEventSet, RolePermissionChanged},
+        trigger::{TriggerEvent, TriggerEventSet, TriggerNumberOfExecutionsChanged},
         DataEvent, HasOrigin, MetadataChanged,
     };
 }
