@@ -550,7 +550,7 @@ pub fn has_origin_derive(input: TokenStream) -> TokenStream {
 pub fn event_set_derive(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 

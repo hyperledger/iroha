@@ -4,7 +4,7 @@ use darling::{FromDeriveInput, FromVariant};
 use iroha_macro_utils::Emitter;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn2::{DeriveInput, Variant};
+use syn::{DeriveInput, Variant};
 
 enum FieldsStyle {
     Unit,
@@ -24,14 +24,14 @@ impl ToTokens for FieldsStyle {
 }
 
 struct EventSetVariant {
-    event_ident: syn2::Ident,
-    flag_ident: syn2::Ident,
+    event_ident: syn::Ident,
+    flag_ident: syn::Ident,
     fields_style: FieldsStyle,
 }
 
 impl FromVariant for EventSetVariant {
     fn from_variant(variant: &Variant) -> darling::Result<Self> {
-        let syn2::Variant {
+        let syn::Variant {
             attrs: _,
             ident: event_ident,
             fields,
@@ -41,27 +41,27 @@ impl FromVariant for EventSetVariant {
         // a nested event is an event within an event (like `AccountEvent::Asset`, which bears an `AssetEvent`)
         // we detect those by checking whether the payload type (if any) ends with `Event`
         let is_nested = match fields {
-            syn2::Fields::Unnamed(fields) => {
+            syn::Fields::Unnamed(fields) => {
                 fields.unnamed.len() == 1
-                    && matches!(&fields.unnamed[0].ty, syn2::Type::Path(p) if p.path.segments.last().unwrap().ident.to_string().ends_with("Event"))
+                    && matches!(&fields.unnamed[0].ty, syn::Type::Path(p) if p.path.segments.last().unwrap().ident.to_string().ends_with("Event"))
             }
-            syn2::Fields::Unit |
+            syn::Fields::Unit |
             // just a fail-safe, we don't use named fields in events
-            syn2::Fields::Named(_) => false,
+            syn::Fields::Named(_) => false,
         };
 
         // we have a different naming convention for nested events
         // to signify that there are actually multiple types of events inside
         let flag_ident = if is_nested {
-            syn2::Ident::new(&format!("Any{event_ident}"), event_ident.span())
+            syn::Ident::new(&format!("Any{event_ident}"), event_ident.span())
         } else {
             event_ident.clone()
         };
 
         let fields_style = match fields {
-            syn2::Fields::Unnamed(_) => FieldsStyle::Unnamed,
-            syn2::Fields::Named(_) => FieldsStyle::Named,
-            syn2::Fields::Unit => FieldsStyle::Unit,
+            syn::Fields::Unnamed(_) => FieldsStyle::Unnamed,
+            syn::Fields::Named(_) => FieldsStyle::Named,
+            syn::Fields::Unit => FieldsStyle::Unit,
         };
 
         Ok(Self {
@@ -73,15 +73,15 @@ impl FromVariant for EventSetVariant {
 }
 
 struct EventSetEnum {
-    vis: syn2::Visibility,
-    event_enum_ident: syn2::Ident,
-    set_ident: syn2::Ident,
+    vis: syn::Visibility,
+    event_enum_ident: syn::Ident,
+    set_ident: syn::Ident,
     variants: Vec<EventSetVariant>,
 }
 
 impl FromDeriveInput for EventSetEnum {
     fn from_derive_input(input: &DeriveInput) -> darling::Result<Self> {
-        let syn2::DeriveInput {
+        let syn::DeriveInput {
             attrs: _,
             vis,
             ident: event_ident,
@@ -115,7 +115,7 @@ impl FromDeriveInput for EventSetEnum {
         accumulator.finish_with(Self {
             vis: vis.clone(),
             event_enum_ident: event_ident.clone(),
-            set_ident: syn2::Ident::new(&format!("{event_ident}Set"), event_ident.span()),
+            set_ident: syn::Ident::new(&format!("{event_ident}Set"), event_ident.span()),
             variants,
         })
     }
@@ -384,7 +384,7 @@ impl ToTokens for EventSetEnum {
     }
 }
 
-pub fn impl_event_set_derive(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream {
+pub fn impl_event_set_derive(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream {
     let Some(enum_) = emitter.handle(EventSetEnum::from_derive_input(input)) else {
         return quote! {};
     };

@@ -24,7 +24,7 @@ fn must_execute_both_triggers() -> Result<()> {
             Repeats::Indefinitely,
             account_id.clone(),
             TriggeringEventFilterBox::Data(DataEventFilter::Account(
-                AccountEventFilter::new().only_events(AccountEventMatcher::Created),
+                AccountEventFilter::new().only_events(AccountEventSet::Created),
             )),
         ),
     ));
@@ -37,7 +37,7 @@ fn must_execute_both_triggers() -> Result<()> {
             Repeats::Indefinitely,
             account_id,
             TriggeringEventFilterBox::Data(DataEventFilter::Domain(
-                DomainEventFilter::new().only_events(DomainEventMatcher::Created),
+                DomainEventFilter::new().only_events(DomainEventSet::Created),
             )),
         ),
     ));
@@ -89,7 +89,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
             Repeats::Indefinitely,
             account_id,
             TriggeringEventFilterBox::Data(DataEventFilter::Account(
-                AccountEventFilter::new().only_events(AccountEventMatcher::Created),
+                AccountEventFilter::new().only_events(AccountEventSet::Created),
             )),
         ),
     ));

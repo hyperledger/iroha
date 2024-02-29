@@ -89,59 +89,12 @@
         "type": "Option<AccountId>"
       },
       {
-        "name": "event_matcher",
-        "type": "Option<AccountEventMatcher>"
+        "name": "event_set",
+        "type": "AccountEventSet"
       }
     ]
   },
-  "AccountEventMatcher": {
-    "Enum": [
-      {
-        "tag": "Created",
-        "discriminant": 0
-      },
-      {
-        "tag": "Deleted",
-        "discriminant": 1
-      },
-      {
-        "tag": "AuthenticationAdded",
-        "discriminant": 2
-      },
-      {
-        "tag": "AuthenticationRemoved",
-        "discriminant": 3
-      },
-      {
-        "tag": "PermissionAdded",
-        "discriminant": 4
-      },
-      {
-        "tag": "PermissionRemoved",
-        "discriminant": 5
-      },
-      {
-        "tag": "RoleRevoked",
-        "discriminant": 6
-      },
-      {
-        "tag": "RoleGranted",
-        "discriminant": 7
-      },
-      {
-        "tag": "MetadataInserted",
-        "discriminant": 8
-      },
-      {
-        "tag": "MetadataRemoved",
-        "discriminant": 9
-      },
-      {
-        "tag": "AnyAsset",
-        "discriminant": 10
-      }
-    ]
-  },
+  "AccountEventSet": "u32",
   "AccountId": {
     "Struct": [
       {
@@ -352,43 +305,12 @@
         "type": "Option<AssetDefinitionId>"
       },
       {
-        "name": "event_matcher",
-        "type": "Option<AssetDefinitionEventMatcher>"
+        "name": "event_set",
+        "type": "AssetDefinitionEventSet"
       }
     ]
   },
-  "AssetDefinitionEventMatcher": {
-    "Enum": [
-      {
-        "tag": "Created",
-        "discriminant": 0
-      },
-      {
-        "tag": "MintabilityChanged",
-        "discriminant": 1
-      },
-      {
-        "tag": "OwnerChanged",
-        "discriminant": 2
-      },
-      {
-        "tag": "Deleted",
-        "discriminant": 3
-      },
-      {
-        "tag": "MetadataInserted",
-        "discriminant": 4
-      },
-      {
-        "tag": "MetadataRemoved",
-        "discriminant": 5
-      },
-      {
-        "tag": "TotalQuantityChanged",
-        "discriminant": 6
-      }
-    ]
-  },
+  "AssetDefinitionEventSet": "u32",
   "AssetDefinitionId": {
     "Struct": [
       {
@@ -466,39 +388,12 @@
         "type": "Option<AssetId>"
       },
       {
-        "name": "event_matcher",
-        "type": "Option<AssetEventMatcher>"
+        "name": "event_set",
+        "type": "AssetEventSet"
       }
     ]
   },
-  "AssetEventMatcher": {
-    "Enum": [
-      {
-        "tag": "Created",
-        "discriminant": 0
-      },
-      {
-        "tag": "Deleted",
-        "discriminant": 1
-      },
-      {
-        "tag": "Added",
-        "discriminant": 2
-      },
-      {
-        "tag": "Removed",
-        "discriminant": 3
-      },
-      {
-        "tag": "MetadataInserted",
-        "discriminant": 4
-      },
-      {
-        "tag": "MetadataRemoved",
-        "discriminant": 5
-      }
-    ]
-  },
+  "AssetEventSet": "u32",
   "AssetId": {
     "Struct": [
       {
@@ -903,43 +798,12 @@
         "type": "Option<DomainId>"
       },
       {
-        "name": "event_matcher",
-        "type": "Option<DomainEventMatcher>"
+        "name": "event_set",
+        "type": "DomainEventSet"
       }
     ]
   },
-  "DomainEventMatcher": {
-    "Enum": [
-      {
-        "tag": "Created",
-        "discriminant": 0
-      },
-      {
-        "tag": "Deleted",
-        "discriminant": 1
-      },
-      {
-        "tag": "MetadataInserted",
-        "discriminant": 2
-      },
-      {
-        "tag": "MetadataRemoved",
-        "discriminant": 3
-      },
-      {
-        "tag": "OwnerChanged",
-        "discriminant": 4
-      },
-      {
-        "tag": "AnyAccount",
-        "discriminant": 5
-      },
-      {
-        "tag": "AnyAssetDefinition",
-        "discriminant": 6
-      }
-    ]
-  },
+  "DomainEventSet": "u32",
   "DomainId": {
     "Struct": [
       {
@@ -2356,26 +2220,14 @@
       }
     ]
   },
-  "Option<AccountEventMatcher>": {
-    "Option": "AccountEventMatcher"
-  },
   "Option<AccountId>": {
     "Option": "AccountId"
-  },
-  "Option<AssetDefinitionEventMatcher>": {
-    "Option": "AssetDefinitionEventMatcher"
   },
   "Option<AssetDefinitionId>": {
     "Option": "AssetDefinitionId"
   },
-  "Option<AssetEventMatcher>": {
-    "Option": "AssetEventMatcher"
-  },
   "Option<AssetId>": {
     "Option": "AssetId"
-  },
-  "Option<DomainEventMatcher>": {
-    "Option": "DomainEventMatcher"
   },
   "Option<DomainId>": {
     "Option": "DomainId"
@@ -2401,9 +2253,6 @@
   "Option<NonZero<u64>>": {
     "Option": "NonZero<u64>"
   },
-  "Option<PeerEventMatcher>": {
-    "Option": "PeerEventMatcher"
-  },
   "Option<PeerId>": {
     "Option": "PeerId"
   },
@@ -2412,9 +2261,6 @@
   },
   "Option<PipelineStatusKind>": {
     "Option": "PipelineStatusKind"
-  },
-  "Option<RoleEventMatcher>": {
-    "Option": "RoleEventMatcher"
   },
   "Option<RoleId>": {
     "Option": "RoleId"
@@ -2430,9 +2276,6 @@
   },
   "Option<TriggerCompletedOutcomeType>": {
     "Option": "TriggerCompletedOutcomeType"
-  },
-  "Option<TriggerEventMatcher>": {
-    "Option": "TriggerEventMatcher"
   },
   "Option<TriggerId>": {
     "Option": "TriggerId"
@@ -2513,23 +2356,12 @@
         "type": "Option<PeerId>"
       },
       {
-        "name": "event_matcher",
-        "type": "Option<PeerEventMatcher>"
+        "name": "event_set",
+        "type": "PeerEventSet"
       }
     ]
   },
-  "PeerEventMatcher": {
-    "Enum": [
-      {
-        "tag": "Added",
-        "discriminant": 0
-      },
-      {
-        "tag": "Removed",
-        "discriminant": 1
-      }
-    ]
-  },
+  "PeerEventSet": "u32",
   "PeerId": {
     "Struct": [
       {
@@ -3317,27 +3149,12 @@
         "type": "Option<RoleId>"
       },
       {
-        "name": "event_matcher",
-        "type": "Option<RoleEventMatcher>"
+        "name": "event_set",
+        "type": "RoleEventSet"
       }
     ]
   },
-  "RoleEventMatcher": {
-    "Enum": [
-      {
-        "tag": "Created",
-        "discriminant": 0
-      },
-      {
-        "tag": "Deleted",
-        "discriminant": 1
-      },
-      {
-        "tag": "PermissionRemoved",
-        "discriminant": 2
-      }
-    ]
-  },
+  "RoleEventSet": "u32",
   "RoleId": {
     "Struct": [
       {
@@ -4050,31 +3867,12 @@
         "type": "Option<TriggerId>"
       },
       {
-        "name": "event_matcher",
-        "type": "Option<TriggerEventMatcher>"
+        "name": "event_set",
+        "type": "TriggerEventSet"
       }
     ]
   },
-  "TriggerEventMatcher": {
-    "Enum": [
-      {
-        "tag": "Created",
-        "discriminant": 0
-      },
-      {
-        "tag": "Deleted",
-        "discriminant": 1
-      },
-      {
-        "tag": "Extended",
-        "discriminant": 2
-      },
-      {
-        "tag": "Shortened",
-        "discriminant": 3
-      }
-    ]
-  },
+  "TriggerEventSet": "u32",
   "TriggerId": {
     "Struct": [
       {
