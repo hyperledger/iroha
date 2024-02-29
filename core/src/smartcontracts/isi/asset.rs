@@ -168,7 +168,7 @@ pub mod isi {
 
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.new_tx_amounts.lock().push(self.object.into());
+                wsv.new_tx_amounts.lock().push(self.object.to_f64());
                 wsv.increase_asset_total_amount(&asset_id.definition_id, self.object)?;
             }
 
@@ -211,7 +211,7 @@ pub mod isi {
 
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.new_tx_amounts.lock().push(self.object.into());
+                wsv.new_tx_amounts.lock().push(self.object.to_f64());
                 wsv.decrease_asset_total_amount(&asset_id.definition_id, self.object)?;
             }
 
@@ -268,7 +268,7 @@ pub mod isi {
 
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.new_tx_amounts.lock().push(self.object.into());
+                wsv.new_tx_amounts.lock().push(self.object.to_f64());
             }
 
             wsv.emit_events([
