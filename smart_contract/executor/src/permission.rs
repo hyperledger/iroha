@@ -3,6 +3,7 @@
 use alloc::borrow::ToOwned as _;
 
 use iroha_schema::IntoSchema;
+use iroha_smart_contract::data_model::permission::PermissionToken;
 use iroha_smart_contract_utils::debug::DebugExpectExt as _;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -329,4 +330,19 @@ impl<T: Token> From<&T> for OnlyGenesis {
     fn from(_: &T) -> Self {
         Self
     }
+}
+
+/// Iterator over all accounts and theirs permission tokens
+pub(crate) fn accounts_permission_tokens() -> impl Iterator<Item = (AccountId, PermissionToken)> {
+    FindAllAccounts
+        .execute()
+        .dbg_expect("failed to query all accounts")
+        .into_iter()
+        .flat_map(|account| {
+            FindPermissionTokensByAccountId::new(account.id().clone())
+                .execute()
+                .dbg_expect("failed to query permssion token for account")
+                .into_iter()
+                .map(move |token| (account.id().clone(), token))
+        })
 }

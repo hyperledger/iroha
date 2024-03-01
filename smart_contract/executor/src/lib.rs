@@ -194,38 +194,6 @@ macro_rules! parse {
     };
 }
 
-/// Declare token types of current module. Use it with a full path to the token.
-///
-/// Used to iterate over token types to validate `Grant` and `Revoke` instructions.
-///
-///
-/// TODO: Replace with procedural macro. Example:
-/// ```
-/// mod tokens {
-///     use std::borrow::ToOwned;
-///
-///     use iroha_schema::IntoSchema;
-///     use iroha_executor_derive::{Token, ValidateGrantRevoke};
-///     use serde::{Deserialize, Serialize};
-///
-///     #[derive(Clone, PartialEq, Deserialize, Serialize, IntoSchema, Token, ValidateGrantRevoke)]
-///     #[validate(iroha_executor::permission::OnlyGenesis)]
-///     pub struct MyToken;
-/// }
-/// ```
-#[macro_export]
-macro_rules! declare_tokens {
-    ($($token_ty:ty),+ $(,)?) => {
-        macro_rules! map_tokens {
-            ($callback:ident) => {$(
-                $callback!($token_ty)
-            );+}
-        }
-
-        pub(crate) use map_tokens;
-    }
-}
-
 /// Collection of all permission tokens defined by the executor
 #[derive(Debug, Clone, Default)]
 pub struct PermissionTokenSchema(Vec<PermissionTokenId>, MetaMap);
@@ -288,6 +256,6 @@ pub mod prelude {
             visit::Visit,
             ValidationFail,
         },
-        declare_tokens, deny, pass, PermissionTokenSchema, Validate,
+        deny, pass, PermissionTokenSchema, Validate,
     };
 }
