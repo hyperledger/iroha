@@ -602,7 +602,6 @@ struct PrivateKeySerialized {
     payload: Vec<u8>,
 }
 
-// TODO: add a serde-only struct, impl with `serde_with`
 ffi::ffi_item! {
     /// Private Key used in signatures.
     #[derive(Clone)]
