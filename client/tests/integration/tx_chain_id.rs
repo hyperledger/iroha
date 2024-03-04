@@ -50,10 +50,12 @@ fn send_tx_with_different_chain_id() {
     );
     let asset_transfer_tx_0 = TransactionBuilder::new(chain_id_0, sender_account_id.clone())
         .with_instructions([transfer_instruction.clone()])
-        .sign(&sender_keypair.clone());
+        .sign(sender_keypair.clone())
+        .expect("Failed to sign sender transaction, chainId = 0");
     let asset_transfer_tx_1 = TransactionBuilder::new(chain_id_1, sender_account_id.clone())
         .with_instructions([transfer_instruction])
-        .sign(&sender_keypair);
+        .sign(sender_keypair)
+        .expect("Failed to sign sender transaction, chainId = 1");
     test_client
         .submit_transaction_blocking(&asset_transfer_tx_0)
         .unwrap();
