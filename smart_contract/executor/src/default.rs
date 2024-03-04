@@ -1331,7 +1331,7 @@ pub mod role {
     pub fn visit_grant_account_role<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Grant<RoleId>,
+        isi: &Grant<RoleId, Account>,
     ) {
         impl_validate!(executor, isi, authority, validate_grant);
     }
@@ -1339,7 +1339,7 @@ pub mod role {
     pub fn visit_revoke_account_role<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Revoke<RoleId>,
+        isi: &Revoke<RoleId, Account>,
     ) {
         impl_validate!(executor, isi, authority, validate_revoke);
     }
@@ -1568,28 +1568,28 @@ pub mod permission_token {
     pub fn visit_grant_account_permission<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Grant<PermissionToken>,
+        isi: &Grant<PermissionToken, Account>,
     ) {
         impl_validate!(
             executor,
             authority,
             isi,
             validate_grant,
-            Grant<PermissionToken>
+            Grant<PermissionToken, Account>
         );
     }
 
     pub fn visit_revoke_account_permission<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Revoke<PermissionToken>,
+        isi: &Revoke<PermissionToken, Account>,
     ) {
         impl_validate!(
             executor,
             authority,
             isi,
             validate_revoke,
-            Revoke<PermissionToken>
+            Revoke<PermissionToken, Account>
         );
     }
 }
