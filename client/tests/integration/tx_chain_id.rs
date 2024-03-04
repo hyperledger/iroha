@@ -16,29 +16,27 @@ fn send_tx_with_different_chain_id() {
     let receiver_account_id = AccountId::from_str("receiver@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").unwrap();
     let to_transfer = 1;
-    let create_sender_account = Register::account(Account::new(
+    let create_sender_account: InstructionBox = Register::account(Account::new(
         sender_account_id.clone(),
         [sender_keypair.public_key().clone()],
-    ));
-    let create_receiver_account = Register::account(Account::new(receiver_account_id.clone(), []));
-    let register_asset_definition =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+    ))
+    .into();
+    let create_receiver_account: InstructionBox =
+        Register::account(Account::new(receiver_account_id.clone(), [])).into();
+    let register_asset_definition: InstructionBox =
+        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone())).into();
     let register_asset: InstructionBox = Register::asset(Asset::new(
         AssetId::new(asset_definition_id.clone(), sender_account_id.clone()),
         AssetValue::Quantity(10),
     ))
     .into();
     test_client
-        .submit_blocking(create_sender_account)
-        .unwrap();
-    test_client
-        .submit_blocking(create_receiver_account)
-        .unwrap();
-    test_client
-        .submit_blocking(register_asset_definition)
-        .unwrap();
-    test_client
-        .submit_blocking(register_asset.clone())
+        .submit_all_blocking([
+            create_sender_account,
+            create_receiver_account,
+            register_asset_definition,
+            register_asset,
+        ])
         .unwrap();
     let chain_id_0 = ChainId::new("0"); // Value configured by default
     let chain_id_1 = ChainId::new("1");
@@ -50,7 +48,7 @@ fn send_tx_with_different_chain_id() {
     );
     let asset_transfer_tx_0 = TransactionBuilder::new(chain_id_0, sender_account_id.clone())
         .with_instructions([transfer_instruction.clone()])
-        .sign(&sender_keypair.clone());
+        .sign(&sender_keypair);
     let asset_transfer_tx_1 = TransactionBuilder::new(chain_id_1, sender_account_id.clone())
         .with_instructions([transfer_instruction])
         .sign(&sender_keypair);
