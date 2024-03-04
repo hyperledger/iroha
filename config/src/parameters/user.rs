@@ -268,7 +268,7 @@ pub(crate) fn private_key_from_env<E: Error>(
 
     match (algorithm, payload) {
         (ParseEnvResult::Value(algorithm), ParseEnvResult::Value(payload)) => {
-            match PrivateKey::from_hex(algorithm, &payload).wrap_err_with(|| {
+            match PrivateKey::from_hex(algorithm, payload).wrap_err_with(|| {
                 eyre!(
                     "failed to construct `{}` from `{}` and `{}` environment variables",
                     name_base.as_ref(),

@@ -82,7 +82,7 @@ impl Args {
         let configuration = match (self.seed, self.private_key) {
             (None, None) => KeyGenConfiguration::from_random(),
             (None, Some(private_key_hex)) => {
-                let private_key = PrivateKey::from_hex(algorithm, private_key_hex.as_ref())
+                let private_key = PrivateKey::from_hex(algorithm, private_key_hex)
                     .wrap_err("Failed to decode private key")?;
                 KeyGenConfiguration::from_private_key(private_key)
             }

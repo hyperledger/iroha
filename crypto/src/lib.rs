@@ -32,7 +32,8 @@ pub use base64;
 #[cfg(not(feature = "ffi_import"))]
 pub use blake2;
 use derive_more::Display;
-use error::{Error, NoSuchAlgorithm, ParseError};
+pub use error::Error;
+use error::{NoSuchAlgorithm, ParseError};
 use getset::Getters;
 pub use hash::*;
 use iroha_macro::ffi_impl_opaque;
@@ -41,7 +42,7 @@ use iroha_schema::{Declaration, IntoSchema, MetaMap, Metadata, NamedFieldsMeta, 
 pub use merkle::MerkleTree;
 #[cfg(not(feature = "ffi_import"))]
 use parity_scale_codec::{Decode, Encode};
-use serde::{ser::SerializeStruct, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use w3f_bls::SerializableToBytes;
 
@@ -396,7 +397,26 @@ impl PublicKeyInner {
 }
 
 ffi::ffi_item! {
-    /// Public Key used in signatures.
+    /// Public key used in signatures.
+    ///
+    /// Its serialized form ([`Serialize`], [`Deserialize`], [`Display`], [`FromStr`]) is
+    /// represented as a [multihash](https://www.multiformats.io/multihash/) string.
+    /// For example:
+    ///
+    /// ```
+    /// use iroha_crypto::{PublicKey, Algorithm};
+    ///
+    /// let key = PublicKey::from_hex(
+    ///     Algorithm::Ed25519,
+    ///     "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4",
+    /// )
+    /// .unwrap();
+    ///
+    /// assert_eq!(
+    ///     format!("{key}"),
+    ///     "ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
+    /// );
+    /// ```
     #[derive(Debug, Clone, PartialEq, Eq, TypeId)]
     #[cfg_attr(not(feature="ffi_import"), derive(Deserialize, Serialize, derive_more::Display))]
     #[cfg_attr(not(feature="ffi_import"), display(fmt = "{_0}"))]
@@ -430,7 +450,7 @@ impl PublicKey {
         .map(PublicKey)
     }
 
-    /// Extracts the raw bytes from public key, copying the payload.
+    /// Extracts raw bytes from the public key, copying the payload.
     ///
     /// `into_raw()` without copying is not provided because underlying crypto
     /// libraries do not provide move functionality.
@@ -438,13 +458,14 @@ impl PublicKey {
         self.0.to_raw()
     }
 
-    /// Construct [`PublicKey`] from hex encoded string
+    /// Construct from hex encoded string. A shorthand over [`Self::from_raw`].
+    ///
     /// # Errors
     ///
     /// - If the given payload is not hex encoded
     /// - If the given payload is not a valid private key
-    pub fn from_hex(algorithm: Algorithm, payload: &str) -> Result<Self, ParseError> {
-        let payload = hex_decode(payload)?;
+    pub fn from_hex(algorithm: Algorithm, payload: impl AsRef<str>) -> Result<Self, ParseError> {
+        let payload = hex_decode(payload.as_ref())?;
 
         Self::from_raw(algorithm, &payload)
     }
@@ -573,6 +594,15 @@ enum PrivateKeyInner {
     BlsSmall(bls::BlsSmallPrivateKey),
 }
 
+#[serde_with::serde_as]
+#[derive(Serialize, Deserialize)]
+struct PrivateKeySerialized {
+    algorithm: Algorithm,
+    #[serde_as(as = "serde_with::hex::Hex")]
+    payload: Vec<u8>,
+}
+
+// TODO: add a serde-only struct, impl with `serde_with`
 ffi::ffi_item! {
     /// Private Key used in signatures.
     #[derive(Clone)]
@@ -623,14 +653,15 @@ impl PrivateKey {
         .map(PrivateKey)
     }
 
-    /// Construct [`PrivateKey`] from hex encoded string
+    /// Construct [`PrivateKey`] from hex encoded string.
+    /// A shorthand over [`PrivateKey::from_raw`]
     ///
     /// # Errors
     ///
     /// - If the given payload is not hex encoded
     /// - If the given payload is not a valid private key
-    pub fn from_hex(algorithm: Algorithm, payload: &str) -> Result<Self, ParseError> {
-        let payload = hex_decode(payload)?;
+    pub fn from_hex(algorithm: Algorithm, payload: impl AsRef<str>) -> Result<Self, ParseError> {
+        let payload = hex_decode(payload.as_ref())?;
 
         Self::from_raw(algorithm, &payload)
     }
@@ -683,10 +714,11 @@ impl core::fmt::Display for PrivateKey {
 #[cfg(not(feature = "ffi_import"))]
 impl Serialize for PrivateKey {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut state = serializer.serialize_struct("PublicKey", 2)?;
-        state.serialize_field("algorithm", &self.algorithm())?;
-        state.serialize_field("payload", &hex::encode(self.payload()))?;
-        state.end()
+        let repr = PrivateKeySerialized {
+            algorithm: self.algorithm(),
+            payload: self.payload(),
+        };
+        repr.serialize(serializer)
     }
 }
 
@@ -697,16 +729,9 @@ impl<'de> Deserialize<'de> for PrivateKey {
     {
         use serde::de::Error as _;
 
-        #[derive(Deserialize)]
-        struct PrivateKeyCandidate {
-            algorithm: Algorithm,
-            payload: String,
-        }
-
-        // NOTE: Verify that private key is valid
-        let private_key = PrivateKeyCandidate::deserialize(deserializer)?;
-        Self::from_hex(private_key.algorithm, private_key.payload.as_ref())
-            .map_err(D::Error::custom)
+        let PrivateKeySerialized { algorithm, payload } =
+            PrivateKeySerialized::deserialize(deserializer)?;
+        Self::from_raw(algorithm, &payload).map_err(D::Error::custom)
     }
 }
 
@@ -850,7 +875,7 @@ mod ffi {
     pub(crate) use ffi_item;
 }
 
-/// The prelude re-exports most commonly used traits, structs and macros from this crate.
+/// The prelude re-exports most commonly used items from this crate.
 pub mod prelude {
     pub use super::{Algorithm, Hash, KeyPair, PrivateKey, PublicKey, Signature};
 }
