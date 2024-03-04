@@ -1794,7 +1794,7 @@
       }
     ]
   },
-  "Grant<PermissionToken>": {
+  "Grant<PermissionToken, Account>": {
     "Struct": [
       {
         "name": "object",
@@ -1806,7 +1806,7 @@
       }
     ]
   },
-  "Grant<RoleId>": {
+  "Grant<RoleId, Account>": {
     "Struct": [
       {
         "name": "object",
@@ -1823,12 +1823,12 @@
       {
         "tag": "PermissionToken",
         "discriminant": 0,
-        "type": "Grant<PermissionToken>"
+        "type": "Grant<PermissionToken, Account>"
       },
       {
         "tag": "Role",
         "discriminant": 1,
-        "type": "Grant<RoleId>"
+        "type": "Grant<RoleId, Account>"
       }
     ]
   },
@@ -3469,7 +3469,7 @@
       }
     ]
   },
-  "Revoke<PermissionToken>": {
+  "Revoke<PermissionToken, Account>": {
     "Struct": [
       {
         "name": "object",
@@ -3481,7 +3481,7 @@
       }
     ]
   },
-  "Revoke<RoleId>": {
+  "Revoke<RoleId, Account>": {
     "Struct": [
       {
         "name": "object",
@@ -3498,12 +3498,12 @@
       {
         "tag": "PermissionToken",
         "discriminant": 0,
-        "type": "Revoke<PermissionToken>"
+        "type": "Revoke<PermissionToken, Account>"
       },
       {
         "tag": "Role",
         "discriminant": 1,
-        "type": "Revoke<RoleId>"
+        "type": "Revoke<RoleId, Account>"
       }
     ]
   },

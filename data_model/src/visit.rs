@@ -136,12 +136,12 @@ pub trait Visit {
         visit_remove_asset_key_value(&RemoveKeyValue<Asset>),
 
         // Visit GrantBox
-        visit_grant_account_permission(&Grant<PermissionToken>),
-        visit_grant_account_role(&Grant<RoleId>),
+        visit_grant_account_permission(&Grant<PermissionToken, Account>),
+        visit_grant_account_role(&Grant<RoleId, Account>),
 
         // Visit RevokeBox
-        visit_revoke_account_permission(&Revoke<PermissionToken>),
-        visit_revoke_account_role(&Revoke<RoleId>),
+        visit_revoke_account_permission(&Revoke<PermissionToken, Account>),
+        visit_revoke_account_role(&Revoke<RoleId, Account>),
     }
 }
 
@@ -417,12 +417,12 @@ leaf_visitors! {
     visit_remove_domain_key_value(&RemoveKeyValue<Domain>),
     visit_register_peer(&Register<Peer>),
     visit_unregister_peer(&Unregister<Peer>),
-    visit_grant_account_permission(&Grant<PermissionToken>),
-    visit_revoke_account_permission(&Revoke<PermissionToken>),
+    visit_grant_account_permission(&Grant<PermissionToken, Account>),
+    visit_revoke_account_permission(&Revoke<PermissionToken, Account>),
     visit_register_role(&Register<Role>),
     visit_unregister_role(&Unregister<Role>),
-    visit_grant_account_role(&Grant<RoleId>),
-    visit_revoke_account_role(&Revoke<RoleId>),
+    visit_grant_account_role(&Grant<RoleId, Account>),
+    visit_revoke_account_role(&Revoke<RoleId, Account>),
     visit_register_trigger(&Register<Trigger<TriggeringFilterBox>>),
     visit_unregister_trigger(&Unregister<Trigger<TriggeringFilterBox>>),
     visit_mint_trigger_repetitions(&Mint<u32, Trigger<TriggeringFilterBox>>),

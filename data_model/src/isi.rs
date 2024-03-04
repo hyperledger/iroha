@@ -166,10 +166,10 @@ impl_instruction! {
     Transfer<Account, AssetDefinitionId, Account>,
     Transfer<Asset, Numeric, Account>,
     Transfer<Asset, Metadata, Account>,
-    Grant<PermissionToken>,
-    Grant<RoleId>,
-    Revoke<PermissionToken>,
-    Revoke<RoleId>,
+    Grant<PermissionToken, Account>,
+    Grant<RoleId, Account>,
+    Revoke<PermissionToken, Account>,
+    Revoke<RoleId, Account>,
     SetParameter,
     NewParameter,
     Upgrade,
@@ -853,15 +853,16 @@ mod transparent {
 
     isi! {
         /// Generic instruction for granting permission to an entity.
-        pub struct Grant<O: Into<Value>> {
+        #[schema(bounds = "O: Into<Value> + IntoSchema, D: Identifiable, D::Id: IntoSchema")]
+        pub struct Grant<O: Into<Value>, D: Identifiable> {
             /// Object to grant.
             pub object: O,
             /// Entity to which to grant this token.
-            pub destination_id: AccountId,
+            pub destination_id: D::Id,
         }
     }
 
-    impl Grant<PermissionToken> {
+    impl Grant<PermissionToken, Account> {
         /// Constructs a new [`Grant`] for a [`PermissionToken`].
         pub fn permission(permission_token: PermissionToken, to: AccountId) -> Self {
             Self {
@@ -871,7 +872,7 @@ mod transparent {
         }
     }
 
-    impl Grant<RoleId> {
+    impl Grant<RoleId, Account> {
         /// Constructs a new [`Grant`] for a [`Role`].
         pub fn role(role_id: RoleId, to: AccountId) -> Self {
             Self {
@@ -882,9 +883,11 @@ mod transparent {
     }
 
     impl_display! {
-        Grant<O>
+        Grant<O, D>
         where
             O: Into<Value> + Display,
+            D: Identifiable,
+            D::Id: Display,
         =>
         "GRANT `{}` TO `{}`",
         object,
@@ -892,23 +895,24 @@ mod transparent {
     }
 
     impl_into_box! {
-        Grant<PermissionToken> |
-        Grant<RoleId>
+        Grant<PermissionToken, Account> |
+        Grant<RoleId, Account>
     => GrantBox => InstructionBox[Grant],
     => GrantBoxRef<'a> => InstructionBoxRef<'a>[Grant]
     }
 
     isi! {
         /// Generic instruction for revoking permission from an entity.
-        pub struct Revoke<O: Into<Value>> {
+        #[schema(bounds = "O: Into<Value> + IntoSchema, D: Identifiable, D::Id: IntoSchema")]
+        pub struct Revoke<O: Into<Value>, D: Identifiable> {
             /// Object to revoke.
             pub object: O,
             /// Entity which is being revoked this token from.
-            pub destination_id: AccountId,
+            pub destination_id: D::Id,
         }
     }
 
-    impl Revoke<PermissionToken> {
+    impl Revoke<PermissionToken, Account> {
         /// Constructs a new [`Revoke`] for a [`PermissionToken`].
         pub fn permission(permission_token: PermissionToken, from: AccountId) -> Self {
             Self {
@@ -918,7 +922,7 @@ mod transparent {
         }
     }
 
-    impl Revoke<RoleId> {
+    impl Revoke<RoleId, Account> {
         /// Constructs a new [`Revoke`] for a [`Role`].
         pub fn role(role_id: RoleId, from: AccountId) -> Self {
             Self {
@@ -929,9 +933,11 @@ mod transparent {
     }
 
     impl_display! {
-        Revoke<O>
+        Revoke<O, D>
         where
             O: Into<Value> + Display,
+            D: Identifiable,
+            D::Id: Display,
         =>
         "REVOKE `{}` FROM `{}`",
         object,
@@ -939,8 +945,8 @@ mod transparent {
     }
 
     impl_into_box! {
-        Revoke<PermissionToken> |
-        Revoke<RoleId>
+        Revoke<PermissionToken, Account> |
+        Revoke<RoleId, Account>
     => RevokeBox => InstructionBox[Revoke],
     => RevokeBoxRef<'a> => InstructionBoxRef<'a>[Revoke]
     }
@@ -1189,9 +1195,9 @@ isi_box! {
     /// Enum with all supported [`Grant`] instructions.
     pub enum GrantBox {
         /// Grant [`PermissionToken`] to [`Account`].
-        PermissionToken(Grant<PermissionToken>),
+        PermissionToken(Grant<PermissionToken, Account>),
         /// Grant [`Role`] to [`Account`].
-        Role(Grant<RoleId>),
+        Role(Grant<RoleId, Account>),
     }
 }
 
@@ -1204,9 +1210,9 @@ isi_box! {
     /// Enum with all supported [`Revoke`] instructions.
     pub enum RevokeBox {
         /// Revoke [`PermissionToken`] from [`Account`].
-        PermissionToken(Revoke<PermissionToken>),
+        PermissionToken(Revoke<PermissionToken, Account>),
         /// Revoke [`Role`] from [`Account`].
-        Role(Revoke<RoleId>),
+        Role(Revoke<RoleId, Account>),
     }
 }
 
