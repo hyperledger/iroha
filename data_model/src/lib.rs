@@ -131,9 +131,11 @@ mod seal {
 
         Grant<PermissionToken, Account>,
         Grant<RoleId, Account>,
+        Grant<PermissionToken, Role>,
 
         Revoke<PermissionToken, Account>,
         Revoke<RoleId, Account>,
+        Revoke<PermissionToken, Role>,
 
         SetParameter,
         NewParameter,

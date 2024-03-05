@@ -168,8 +168,10 @@ impl_instruction! {
     Transfer<Asset, Metadata, Account>,
     Grant<PermissionToken, Account>,
     Grant<RoleId, Account>,
+    Grant<PermissionToken, Role>,
     Revoke<PermissionToken, Account>,
     Revoke<RoleId, Account>,
+    Revoke<PermissionToken, Role>,
     SetParameter,
     NewParameter,
     Upgrade,
@@ -882,6 +884,16 @@ mod transparent {
         }
     }
 
+    impl Grant<PermissionToken, Role> {
+        /// Constructs a new [`Grant`] for giving a [`PermissionToken`] to [`Role`].
+        pub fn role_permission(permission_token: PermissionToken, to: RoleId) -> Self {
+            Self {
+                object: permission_token,
+                destination_id: to,
+            }
+        }
+    }
+
     impl_display! {
         Grant<O, D>
         where
@@ -896,7 +908,8 @@ mod transparent {
 
     impl_into_box! {
         Grant<PermissionToken, Account> |
-        Grant<RoleId, Account>
+        Grant<RoleId, Account> |
+        Grant<PermissionToken, Role>
     => GrantBox => InstructionBox[Grant],
     => GrantBoxRef<'a> => InstructionBoxRef<'a>[Grant]
     }
@@ -932,6 +945,16 @@ mod transparent {
         }
     }
 
+    impl Revoke<PermissionToken, Role> {
+        /// Constructs a new [`Revoke`] for removing a [`PermissionToken`] from [`Role`].
+        pub fn role_permission(permission_token: PermissionToken, from: RoleId) -> Self {
+            Self {
+                object: permission_token,
+                destination_id: from,
+            }
+        }
+    }
+
     impl_display! {
         Revoke<O, D>
         where
@@ -946,7 +969,8 @@ mod transparent {
 
     impl_into_box! {
         Revoke<PermissionToken, Account> |
-        Revoke<RoleId, Account>
+        Revoke<RoleId, Account> |
+        Revoke<PermissionToken, Role>
     => RevokeBox => InstructionBox[Revoke],
     => RevokeBoxRef<'a> => InstructionBoxRef<'a>[Revoke]
     }
@@ -1198,6 +1222,8 @@ isi_box! {
         PermissionToken(Grant<PermissionToken, Account>),
         /// Grant [`Role`] to [`Account`].
         Role(Grant<RoleId, Account>),
+        /// Grant [`PermissionToken`] to [`Role`].
+        RolePermissionToken(Grant<PermissionToken, Role>),
     }
 }
 
@@ -1213,6 +1239,8 @@ isi_box! {
         PermissionToken(Revoke<PermissionToken, Account>),
         /// Revoke [`Role`] from [`Account`].
         Role(Revoke<RoleId, Account>),
+        /// Revoke [`PermissionToken`] from [`Account`].
+        RolePermissionToken(Revoke<PermissionToken, Role>),
     }
 }
 

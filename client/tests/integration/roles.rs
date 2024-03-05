@@ -215,3 +215,87 @@ fn role_permissions_unified() {
         "permission tokens for role aren't deduplicated"
     );
 }
+
+#[test]
+fn grant_revoke_role_permissions() -> Result<()> {
+    let chain_id = ChainId::from("0");
+
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_245).start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let alice_id = AccountId::from_str("alice@wonderland")?;
+    let mouse_id = AccountId::from_str("mouse@wonderland")?;
+
+    // Registering Mouse
+    let mouse_key_pair = KeyPair::generate();
+    let register_mouse = Register::account(Account::new(
+        mouse_id.clone(),
+        mouse_key_pair.public_key().clone(),
+    ));
+    test_client.submit_blocking(register_mouse)?;
+
+    // Registering role
+    let role_id = RoleId::from_str("ACCESS_TO_MOUSE_METADATA")?;
+    let role = Role::new(role_id.clone());
+    let register_role = Register::role(role);
+    test_client.submit_blocking(register_role)?;
+
+    // Transfer domain ownership to Mouse
+    let domain_id = DomainId::from_str("wonderland")?;
+    let transfer_domain = Transfer::domain(alice_id.clone(), domain_id, mouse_id.clone());
+    test_client.submit_blocking(transfer_domain)?;
+
+    // Mouse grants role to Alice
+    let grant_role = Grant::role(role_id.clone(), alice_id.clone());
+    let grant_role_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
+        .with_instructions([grant_role])
+        .sign(&mouse_key_pair);
+    test_client.submit_transaction_blocking(&grant_role_tx)?;
+
+    let set_key_value = SetKeyValue::account(
+        mouse_id.clone(),
+        Name::from_str("key").expect("Valid"),
+        Value::String("value".to_owned()),
+    );
+    let permission = PermissionToken::new(
+        "CanSetKeyValueInUserAccount".parse()?,
+        &json!({ "account_id": mouse_id }),
+    );
+    let grant_role_permission = Grant::role_permission(permission.clone(), role_id.clone());
+    let revoke_role_permission = Revoke::role_permission(permission.clone(), role_id.clone());
+
+    // Alice can't modify Mouse's metadata without proper permission token
+    let found_permissions = test_client
+        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .collect::<QueryResult<Vec<_>>>()?;
+    assert!(!found_permissions.contains(&permission));
+    let _ = test_client
+        .submit_blocking(set_key_value.clone())
+        .expect_err("shouldn't be able to modify metadata");
+
+    // Alice can modify Mouse's metadata after permission token is granted to role
+    let grant_role_permission_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
+        .with_instructions([grant_role_permission])
+        .sign(&mouse_key_pair);
+    test_client.submit_transaction_blocking(&grant_role_permission_tx)?;
+    let found_permissions = test_client
+        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .collect::<QueryResult<Vec<_>>>()?;
+    assert!(found_permissions.contains(&permission));
+    test_client.submit_blocking(set_key_value.clone())?;
+
+    // Alice can't modify Mouse's metadata after permission token is removed from role
+    let revoke_role_permission_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
+        .with_instructions([revoke_role_permission])
+        .sign(&mouse_key_pair);
+    test_client.submit_transaction_blocking(&revoke_role_permission_tx)?;
+    let found_permissions = test_client
+        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .collect::<QueryResult<Vec<_>>>()?;
+    assert!(!found_permissions.contains(&permission));
+    let _ = test_client
+        .submit_blocking(set_key_value.clone())
+        .expect_err("shouldn't be able to modify metadata");
+
+    Ok(())
+}

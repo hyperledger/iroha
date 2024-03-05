@@ -257,7 +257,7 @@ types!(
     PeerEventFilter,
     PeerFilter,
     PeerId,
-    PermissionRemoved,
+    RolePermissionChanged,
     PermissionToken,
     PermissionTokenSchema,
     PermissionTokenSchemaUpdateEvent,

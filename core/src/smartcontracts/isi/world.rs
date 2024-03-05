@@ -174,6 +174,66 @@ pub mod isi {
         }
     }
 
+    impl Execute for Grant<PermissionToken, Role> {
+        #[metrics(+"grant_role_permission")]
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+            let role_id = self.destination_id;
+            let permission_token = self.object;
+            let permission_token_id = permission_token.definition_id.clone();
+
+            if !wsv
+                .permission_token_schema()
+                .token_ids
+                .contains(&permission_token_id)
+            {
+                return Err(FindError::PermissionToken(permission_token_id).into());
+            }
+
+            let Some(role) = wsv.world.roles.get_mut(&role_id) else {
+                return Err(FindError::Role(role_id).into());
+            };
+
+            if !role.permissions.insert(permission_token.clone()) {
+                return Err(RepetitionError {
+                    instruction_type: InstructionType::Grant,
+                    id: permission_token.definition_id.into(),
+                }
+                .into());
+            }
+
+            wsv.emit_events(Some(RoleEvent::PermissionAdded(RolePermissionChanged {
+                role_id,
+                permission_token_id,
+            })));
+
+            Ok(())
+        }
+    }
+
+    impl Execute for Revoke<PermissionToken, Role> {
+        #[metrics(+"grant_role_permission")]
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+            let role_id = self.destination_id;
+            let permission_token = self.object;
+            let permission_token_id = permission_token.definition_id.clone();
+
+            let Some(role) = wsv.world.roles.get_mut(&role_id) else {
+                return Err(FindError::Role(role_id).into());
+            };
+
+            if !role.permissions.remove(&permission_token) {
+                return Err(FindError::PermissionToken(permission_token_id).into());
+            }
+
+            wsv.emit_events(Some(RoleEvent::PermissionRemoved(RolePermissionChanged {
+                role_id,
+                permission_token_id,
+            })));
+
+            Ok(())
+        }
+    }
+
     impl Execute for SetParameter {
         #[metrics(+"set_parameter")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
