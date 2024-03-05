@@ -178,6 +178,7 @@ impl Execute for GrantBox {
         match self {
             Self::PermissionToken(sub_isi) => sub_isi.execute(authority, wsv),
             Self::Role(sub_isi) => sub_isi.execute(authority, wsv),
+            Self::RolePermissionToken(sub_isi) => sub_isi.execute(authority, wsv),
         }
     }
 }
@@ -188,6 +189,7 @@ impl Execute for RevokeBox {
         match self {
             Self::PermissionToken(sub_isi) => sub_isi.execute(authority, wsv),
             Self::Role(sub_isi) => sub_isi.execute(authority, wsv),
+            Self::RolePermissionToken(sub_isi) => sub_isi.execute(authority, wsv),
         }
     }
 }

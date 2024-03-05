@@ -1806,6 +1806,18 @@
       }
     ]
   },
+  "Grant<PermissionToken, Role>": {
+    "Struct": [
+      {
+        "name": "object",
+        "type": "PermissionToken"
+      },
+      {
+        "name": "destination_id",
+        "type": "RoleId"
+      }
+    ]
+  },
   "Grant<RoleId, Account>": {
     "Struct": [
       {
@@ -1829,6 +1841,11 @@
         "tag": "Role",
         "discriminant": 1,
         "type": "Grant<RoleId, Account>"
+      },
+      {
+        "tag": "RolePermissionToken",
+        "discriminant": 2,
+        "type": "Grant<PermissionToken, Role>"
       }
     ]
   },
@@ -2828,18 +2845,6 @@
       }
     ]
   },
-  "PermissionRemoved": {
-    "Struct": [
-      {
-        "name": "role_id",
-        "type": "RoleId"
-      },
-      {
-        "name": "permission_token_id",
-        "type": "Name"
-      }
-    ]
-  },
   "PermissionToken": {
     "Struct": [
       {
@@ -3481,6 +3486,18 @@
       }
     ]
   },
+  "Revoke<PermissionToken, Role>": {
+    "Struct": [
+      {
+        "name": "object",
+        "type": "PermissionToken"
+      },
+      {
+        "name": "destination_id",
+        "type": "RoleId"
+      }
+    ]
+  },
   "Revoke<RoleId, Account>": {
     "Struct": [
       {
@@ -3504,6 +3521,11 @@
         "tag": "Role",
         "discriminant": 1,
         "type": "Revoke<RoleId, Account>"
+      },
+      {
+        "tag": "RolePermissionToken",
+        "discriminant": 2,
+        "type": "Revoke<PermissionToken, Role>"
       }
     ]
   },
@@ -3534,7 +3556,12 @@
       {
         "tag": "PermissionRemoved",
         "discriminant": 2,
-        "type": "PermissionRemoved"
+        "type": "RolePermissionChanged"
+      },
+      {
+        "tag": "PermissionAdded",
+        "discriminant": 3,
+        "type": "RolePermissionChanged"
       }
     ]
   },
@@ -3551,6 +3578,10 @@
       {
         "tag": "ByPermissionRemoved",
         "discriminant": 2
+      },
+      {
+        "tag": "ByPermissionAdded",
+        "discriminant": 3
       }
     ]
   },
@@ -3570,6 +3601,18 @@
     "Struct": [
       {
         "name": "name",
+        "type": "Name"
+      }
+    ]
+  },
+  "RolePermissionChanged": {
+    "Struct": [
+      {
+        "name": "role_id",
+        "type": "RoleId"
+      },
+      {
+        "name": "permission_token_id",
         "type": "Name"
       }
     ]

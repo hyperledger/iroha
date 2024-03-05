@@ -149,6 +149,8 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn2::DeriveInput) -> To
         "fn visit_unregister_role(operation: &Unregister<Role>)",
         "fn visit_grant_account_role(operation: &Grant<RoleId, Account>)",
         "fn visit_revoke_account_role(operation: &Revoke<RoleId, Account>)",
+        "fn visit_grant_role_permission(operation: &Grant<PermissionToken, Role>)",
+        "fn visit_revoke_role_permission(operation: &Revoke<PermissionToken, Role>)",
         "fn visit_register_trigger(operation: &Register<Trigger<TriggeringFilterBox>>)",
         "fn visit_unregister_trigger(operation: &Unregister<Trigger<TriggeringFilterBox>>)",
         "fn visit_mint_trigger_repetitions(operation: &Mint<u32, Trigger<TriggeringFilterBox>>)",

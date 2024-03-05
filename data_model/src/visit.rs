@@ -138,10 +138,12 @@ pub trait Visit {
         // Visit GrantBox
         visit_grant_account_permission(&Grant<PermissionToken, Account>),
         visit_grant_account_role(&Grant<RoleId, Account>),
+        visit_grant_role_permission(&Grant<PermissionToken, Role>),
 
         // Visit RevokeBox
         visit_revoke_account_permission(&Revoke<PermissionToken, Account>),
         visit_revoke_account_role(&Revoke<RoleId, Account>),
+        visit_revoke_role_permission(&Revoke<PermissionToken, Role>),
     }
 }
 
@@ -370,6 +372,7 @@ pub fn visit_grant<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, is
     match isi {
         GrantBox::PermissionToken(obj) => visitor.visit_grant_account_permission(authority, obj),
         GrantBox::Role(obj) => visitor.visit_grant_account_role(authority, obj),
+        GrantBox::RolePermissionToken(obj) => visitor.visit_grant_role_permission(authority, obj),
     }
 }
 
@@ -377,6 +380,7 @@ pub fn visit_revoke<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, i
     match isi {
         RevokeBox::PermissionToken(obj) => visitor.visit_revoke_account_permission(authority, obj),
         RevokeBox::Role(obj) => visitor.visit_revoke_account_role(authority, obj),
+        RevokeBox::RolePermissionToken(obj) => visitor.visit_revoke_role_permission(authority, obj),
     }
 }
 
@@ -423,6 +427,8 @@ leaf_visitors! {
     visit_unregister_role(&Unregister<Role>),
     visit_grant_account_role(&Grant<RoleId, Account>),
     visit_revoke_account_role(&Revoke<RoleId, Account>),
+    visit_grant_role_permission(&Grant<PermissionToken, Role>),
+    visit_revoke_role_permission(&Revoke<PermissionToken, Role>),
     visit_register_trigger(&Register<Trigger<TriggeringFilterBox>>),
     visit_unregister_trigger(&Unregister<Trigger<TriggeringFilterBox>>),
     visit_mint_trigger_repetitions(&Mint<u32, Trigger<TriggeringFilterBox>>),

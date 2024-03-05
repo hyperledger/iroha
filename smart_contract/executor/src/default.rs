@@ -32,7 +32,8 @@ pub use parameter::{visit_new_parameter, visit_set_parameter};
 pub use peer::{visit_register_peer, visit_unregister_peer};
 pub use permission_token::{visit_grant_account_permission, visit_revoke_account_permission};
 pub use role::{
-    visit_grant_account_role, visit_register_role, visit_revoke_account_role, visit_unregister_role,
+    visit_grant_account_role, visit_grant_role_permission, visit_register_role,
+    visit_revoke_account_role, visit_revoke_role_permission, visit_unregister_role,
 };
 pub use trigger::{
     visit_burn_trigger_repetitions, visit_execute_trigger, visit_mint_trigger_repetitions,
@@ -1238,7 +1239,7 @@ pub mod role {
 
     use super::*;
 
-    macro_rules! impl_validate {
+    macro_rules! impl_validate_grant_revoke_account_role {
         ($executor:ident, $isi:ident, $authority:ident, $method:ident) => {
             let role_id = $isi.object();
 
@@ -1273,6 +1274,35 @@ pub mod role {
                 "Role contains unknown permission tokens: {unknown_tokens:?}"
             );
             execute!($executor, $isi)
+        };
+    }
+
+    macro_rules! impl_validate_grant_revoke_role_permission {
+        ($executor:ident, $isi:ident, $authority:ident, $method:ident, $isi_type:ty) => {
+            let role_id = $isi.destination_id().clone();
+            let token = $isi.object();
+
+            if let Ok(any_token) = AnyPermissionToken::try_from(token) {
+                let token = PermissionToken::from(any_token.clone());
+                let isi = <$isi_type>::role_permission(token, role_id);
+                if is_genesis($executor) {
+                    execute!($executor, isi);
+                }
+                if let Err(error) = permission::ValidateGrantRevoke::$method(
+                    &any_token,
+                    $authority,
+                    $executor.block_height(),
+                ) {
+                    deny!($executor, error);
+                }
+
+                execute!($executor, isi);
+            }
+
+            deny!(
+                $executor,
+                ValidationFail::NotPermitted(format!("{token:?}: Unknown permission token"))
+            );
         };
     }
 
@@ -1333,7 +1363,7 @@ pub mod role {
         authority: &AccountId,
         isi: &Grant<RoleId, Account>,
     ) {
-        impl_validate!(executor, isi, authority, validate_grant);
+        impl_validate_grant_revoke_account_role!(executor, isi, authority, validate_grant);
     }
 
     pub fn visit_revoke_account_role<V: Validate + ?Sized>(
@@ -1341,7 +1371,23 @@ pub mod role {
         authority: &AccountId,
         isi: &Revoke<RoleId, Account>,
     ) {
-        impl_validate!(executor, isi, authority, validate_revoke);
+        impl_validate_grant_revoke_account_role!(executor, isi, authority, validate_revoke);
+    }
+
+    pub fn visit_grant_role_permission<V: Validate + ?Sized>(
+        executor: &mut V,
+        authority: &AccountId,
+        isi: &Grant<PermissionToken, Role>,
+    ) {
+        impl_validate_grant_revoke_role_permission!(executor, isi, authority, validate_grant, Grant<PermissionToken, Role>);
+    }
+
+    pub fn visit_revoke_role_permission<V: Validate + ?Sized>(
+        executor: &mut V,
+        authority: &AccountId,
+        isi: &Revoke<PermissionToken, Role>,
+    ) {
+        impl_validate_grant_revoke_role_permission!(executor, isi, authority, validate_revoke, Revoke<PermissionToken, Role>);
     }
 }
 

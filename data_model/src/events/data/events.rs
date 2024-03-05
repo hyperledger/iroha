@@ -247,7 +247,11 @@ mod role {
             /// [`PermissionToken`]s with particular [`Id`](crate::permission::token::PermissionTokenId)
             /// were removed from the role.
             #[has_origin(permission_removed => &permission_removed.role_id)]
-            PermissionRemoved(PermissionRemoved),
+            PermissionRemoved(RolePermissionChanged),
+            /// [`PermissionToken`]s with particular [`Id`](crate::permission::token::PermissionTokenId)
+            /// were removed added to the role.
+            #[has_origin(permission_added => &permission_added.role_id)]
+            PermissionAdded(RolePermissionChanged),
         }
     }
 
@@ -255,7 +259,7 @@ mod role {
     pub mod model {
         use super::*;
 
-        /// Information about permissions removed from [`Role`]
+        /// Depending on the wrapping event, [`RolePermissionChanged`] role represents the added or removed role's permission
         #[derive(
             Debug,
             Clone,
@@ -272,7 +276,7 @@ mod role {
         )]
         #[getset(get = "pub")]
         #[ffi_type]
-        pub struct PermissionRemoved {
+        pub struct RolePermissionChanged {
             pub role_id: RoleId,
             // TODO: Skipped temporarily because of FFI
             #[getset(skip)]
@@ -656,7 +660,7 @@ pub mod prelude {
         executor::{ExecutorEvent, ExecutorFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
         permission::PermissionTokenSchemaUpdateEvent,
-        role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
+        role::{RoleEvent, RoleEventFilter, RoleFilter, RolePermissionChanged},
         trigger::{
             TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChanged,
         },
