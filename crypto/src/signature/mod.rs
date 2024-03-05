@@ -54,7 +54,7 @@ ffi::ffi_item! {
         #[getset(get = "pub")]
         public_key: PublicKey,
         /// Signature payload
-        #[serde_as(as = "serde_with::hex::Hex")]
+        #[serde_as(as = "serde_with::hex::Hex<serde_with::formats::Uppercase>")]
         payload:  ConstVec<u8>,
     }
 }
@@ -663,7 +663,7 @@ mod tests {
     fn signature_serialized_representation() {
         let input = json!({
             "public_key": "e701210312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC",
-            "payload": "3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4"
+            "payload": "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
         });
 
         let signature: Signature = serde_json::from_value(input.clone()).unwrap();
