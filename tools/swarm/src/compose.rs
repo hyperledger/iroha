@@ -328,7 +328,7 @@ impl From<CompactPeerEnv> for FullPeerEnv {
         let (genesis_private_key_algorithm, genesis_private_key_payload, genesis_file) = value
             .genesis_private_key
             .map_or((None, None, None), |private_key| {
-                let (algorithm, payload) = private_key.to_raw();
+                let (algorithm, payload) = private_key.to_bytes();
                 (
                     Some(algorithm),
                     Some(payload),
@@ -337,7 +337,7 @@ impl From<CompactPeerEnv> for FullPeerEnv {
             });
 
         let (private_key_algorithm, private_key_payload) = {
-            let (algorithm, payload) = value.key_pair.private_key().clone().to_raw();
+            let (algorithm, payload) = value.key_pair.private_key().clone().to_bytes();
             (algorithm, payload)
         };
 

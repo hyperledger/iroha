@@ -120,31 +120,54 @@ pub enum KeyGenOption<K = PrivateKey> {
     Random,
     /// Use seed
     UseSeed(Vec<u8>),
-    /// Derive from private key
+    /// Derive from a private key
     FromPrivateKey(K),
+}
+
+mod config_algorithm_state {
+    use crate::Algorithm;
+
+    #[derive(Copy, Clone, Debug)]
+    pub struct Default;
+
+    impl From<Default> for Algorithm {
+        fn from(_: Default) -> Self {
+            use std::default::Default;
+            Self::default()
+        }
+    }
+
+    #[derive(Copy, Clone, Debug)]
+    pub struct Set(pub Algorithm);
+
+    impl From<Set> for Algorithm {
+        fn from(Set(value): Set) -> Self {
+            value
+        }
+    }
 }
 
 ffi::ffi_item! {
     /// Configuration of key generation
     #[derive(Clone)]
     #[cfg_attr(not(feature="ffi_import"), derive(Debug))]
-    pub struct KeyGenConfiguration {
+    pub struct KeyGenConfiguration<A> {
         /// Options
         key_gen_option: KeyGenOption,
         /// Algorithm
-        algorithm: Algorithm,
+        algorithm: A,
     }
 }
 
 #[ffi_impl_opaque]
-impl KeyGenConfiguration {
+impl KeyGenConfiguration<config_algorithm_state::Default> {
     /// Construct using random number generation with [`Ed25519`](Algorithm::Ed25519) algorithm
     #[cfg(feature = "rand")]
     #[must_use]
     pub fn from_random() -> Self {
         Self {
             key_gen_option: KeyGenOption::Random,
-            algorithm: Algorithm::default(),
+            algorithm: config_algorithm_state::Default,
         }
     }
 
@@ -153,24 +176,33 @@ impl KeyGenConfiguration {
     pub fn from_seed(seed: Vec<u8>) -> Self {
         Self {
             key_gen_option: KeyGenOption::UseSeed(seed),
-            algorithm: Algorithm::default(),
-        }
-    }
-
-    /// Construct using private key with [`Ed25519`](Algorithm::Ed25519) algorithm
-    #[must_use]
-    pub fn from_private_key(private_key: impl Into<PrivateKey>) -> Self {
-        Self {
-            key_gen_option: KeyGenOption::FromPrivateKey(private_key.into()),
-            algorithm: Algorithm::default(),
+            algorithm: config_algorithm_state::Default,
         }
     }
 
     /// With algorithm
     #[must_use]
-    pub fn with_algorithm(mut self, algorithm: Algorithm) -> Self {
-        self.algorithm = algorithm;
-        self
+    pub fn with_algorithm(
+        self,
+        algorithm: Algorithm,
+    ) -> KeyGenConfiguration<config_algorithm_state::Set> {
+        KeyGenConfiguration {
+            key_gen_option: self.key_gen_option,
+            algorithm: config_algorithm_state::Set(algorithm),
+        }
+    }
+}
+
+impl KeyGenConfiguration<config_algorithm_state::Set> {
+    /// Construct using private key with [`Ed25519`](Algorithm::Ed25519) algorithm
+    #[must_use]
+    pub fn from_private_key(private_key: impl Into<PrivateKey>) -> Self {
+        let key = private_key.into();
+        let algorithm = key.algorithm();
+        Self {
+            key_gen_option: KeyGenOption::FromPrivateKey(key),
+            algorithm: config_algorithm_state::Set(algorithm),
+        }
     }
 }
 
@@ -226,12 +258,13 @@ impl KeyPair {
     }
 
     /// Generates a pair of Public and Private key with the corresponding [`KeyGenConfiguration`].
-    pub fn generate_with_configuration(
+    pub fn generate_with_configuration<A: Into<Algorithm>>(
         KeyGenConfiguration {
             key_gen_option,
             algorithm,
-        }: KeyGenConfiguration,
+        }: KeyGenConfiguration<A>,
     ) -> Self {
+        let algorithm: Algorithm = algorithm.into();
         match algorithm {
             Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512::keypair(key_gen_option).into(),
             Algorithm::Secp256k1 => {
@@ -432,7 +465,7 @@ impl PublicKey {
     /// # Errors
     ///
     /// Fails if public key parsing fails
-    pub fn from_raw(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
+    pub fn from_bytes(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
         match algorithm {
             Algorithm::Ed25519 => {
                 ed25519::Ed25519Sha512::parse_public_key(payload).map(PublicKeyInner::Ed25519)
@@ -452,13 +485,13 @@ impl PublicKey {
 
     /// Extracts raw bytes from the public key, copying the payload.
     ///
-    /// `into_raw()` without copying is not provided because underlying crypto
+    /// `into_bytes()` without copying is not provided because underlying crypto
     /// libraries do not provide move functionality.
-    pub fn to_raw(&self) -> (Algorithm, Vec<u8>) {
+    pub fn to_bytes(&self) -> (Algorithm, Vec<u8>) {
         self.0.to_raw()
     }
 
-    /// Construct from hex encoded string. A shorthand over [`Self::from_raw`].
+    /// Construct from hex encoded string. A shorthand over [`Self::from_bytes`].
     ///
     /// # Errors
     ///
@@ -467,7 +500,7 @@ impl PublicKey {
     pub fn from_hex(algorithm: Algorithm, payload: impl AsRef<str>) -> Result<Self, ParseError> {
         let payload = hex_decode(payload.as_ref())?;
 
-        Self::from_raw(algorithm, &payload)
+        Self::from_bytes(algorithm, &payload)
     }
 
     /// Get the digital signature algorithm of the public key
@@ -479,7 +512,7 @@ impl PublicKey {
 #[cfg(not(feature = "ffi_import"))]
 impl core::hash::Hash for PublicKey {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        (self.to_raw()).hash(state)
+        (self.to_bytes()).hash(state)
     }
 }
 
@@ -491,18 +524,18 @@ impl PartialOrd for PublicKey {
 
 impl Ord for PublicKey {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.to_raw().cmp(&other.to_raw())
+        self.to_bytes().cmp(&other.to_bytes())
     }
 }
 
 #[cfg(not(feature = "ffi_import"))]
 impl Encode for PublicKey {
     fn size_hint(&self) -> usize {
-        self.to_raw().size_hint()
+        self.to_bytes().size_hint()
     }
 
     fn encode_to<W: parity_scale_codec::Output + ?Sized>(&self, dest: &mut W) {
-        self.to_raw().encode_to(dest);
+        self.to_bytes().encode_to(dest);
     }
 }
 
@@ -513,7 +546,7 @@ impl Decode for PublicKey {
     ) -> Result<Self, parity_scale_codec::Error> {
         let algorithm = Algorithm::decode(input)?;
         let payload = Vec::decode(input)?;
-        Self::from_raw(algorithm, &payload).map_err(|_| {
+        Self::from_bytes(algorithm, &payload).map_err(|_| {
             parity_scale_codec::Error::from(
                 "Failed to construct public key from digest function and payload",
             )
@@ -634,7 +667,7 @@ impl PrivateKey {
     /// # Errors
     ///
     /// - If the given payload is not a valid private key for the given digest function
-    pub fn from_raw(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
+    pub fn from_bytes(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
         match algorithm {
             Algorithm::Ed25519 => {
                 ed25519::Ed25519Sha512::parse_private_key(payload).map(PrivateKeyInner::Ed25519)
@@ -653,7 +686,7 @@ impl PrivateKey {
     }
 
     /// Construct [`PrivateKey`] from hex encoded string.
-    /// A shorthand over [`PrivateKey::from_raw`]
+    /// A shorthand over [`PrivateKey::from_bytes`]
     ///
     /// # Errors
     ///
@@ -662,7 +695,7 @@ impl PrivateKey {
     pub fn from_hex(algorithm: Algorithm, payload: impl AsRef<str>) -> Result<Self, ParseError> {
         let payload = hex_decode(payload.as_ref())?;
 
-        Self::from_raw(algorithm, &payload)
+        Self::from_bytes(algorithm, &payload)
     }
 
     /// Get the digital signature algorithm of the private key
@@ -687,9 +720,9 @@ impl PrivateKey {
 
     /// Extracts the raw bytes from the private key, copying the payload.
     ///
-    /// `into_raw()` without copying is not provided because underlying crypto
+    /// `into_bytes()` without copying is not provided because underlying crypto
     /// libraries do not provide move functionality.
-    pub fn to_raw(&self) -> (Algorithm, Vec<u8>) {
+    pub fn to_bytes(&self) -> (Algorithm, Vec<u8>) {
         (self.algorithm(), self.payload())
     }
 }
@@ -730,7 +763,7 @@ impl<'de> Deserialize<'de> for PrivateKey {
 
         let PrivateKeySerialized { algorithm, payload } =
             PrivateKeySerialized::deserialize(deserializer)?;
-        Self::from_raw(algorithm, &payload).map_err(D::Error::custom)
+        Self::from_bytes(algorithm, &payload).map_err(D::Error::custom)
     }
 }
 

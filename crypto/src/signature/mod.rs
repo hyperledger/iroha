@@ -87,20 +87,20 @@ impl Signature {
     ///
     /// This method exists to allow reproducing the signature in a more efficient way than through
     /// deserialization.
-    pub fn from_raw(public_key: PublicKey, payload: &[u8]) -> Self {
+    pub fn from_bytes(public_key: PublicKey, payload: &[u8]) -> Self {
         Self {
             public_key,
             payload: ConstVec::new(payload),
         }
     }
 
-    /// A shorthand for [`Self::from_raw`] accepting payload as hex.
+    /// A shorthand for [`Self::from_bytes`] accepting payload as hex.
     ///
     /// # Errors
     /// If passed string is not a valid hex.
     pub fn from_hex(public_key: PublicKey, payload: impl AsRef<str>) -> Result<Self, ParseError> {
         let payload: Vec<u8> = hex_decode(payload.as_ref())?;
-        Ok(Self::from_raw(public_key, &payload))
+        Ok(Self::from_bytes(public_key, &payload))
     }
 
     /// Verify `payload` using signed data and [`KeyPair::public_key`].
