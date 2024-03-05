@@ -740,7 +740,7 @@ impl core::fmt::Display for PrivateKey {
 #[derive(Serialize, Deserialize)]
 struct PrivateKeySerialized {
     algorithm: Algorithm,
-    #[serde_as(as = "serde_with::hex::Hex")]
+    #[serde_as(as = "serde_with::hex::Hex<serde_with::formats::Uppercase>")]
     payload: Vec<u8>,
 }
 
@@ -1126,7 +1126,7 @@ mod tests {
                 "public_key": "ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4",
                 "private_key": {
                     "algorithm": "ed25519",
-                    "payload": "3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4"
+                    "payload": "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
                 }
             }),
             TestJson {
@@ -1150,7 +1150,7 @@ mod tests {
                 "public_key": "e701210312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC",
                 "private_key": {
                     "algorithm": "secp256k1",
-                    "payload": "4df4fca10762d4b529fe40a2188a60ca4469d2c50a825b5f33adc2cb78c69445"
+                    "payload": "4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445"
                 }
             }),
             TestJson {
@@ -1176,7 +1176,7 @@ mod tests {
                 "public_key": "ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2",
                 "private_key": {
                     "algorithm": "bls_normal",
-                    "payload": "1ca347641228c3b79aa43839dedc85fa51c0e8b9b6a00f6b0d6b0423e902973f"
+                    "payload": "1CA347641228C3B79AA43839DEDC85FA51C0E8B9B6A00F6B0D6B0423E902973F"
                 }
             }),
             TestJson {
@@ -1195,7 +1195,7 @@ mod tests {
                 "public_key": "eb01609051D4A9C69402423413EBBA4C00BC82A0102AA2B783057BD7BCEE4DD17B37DE5D719EE84BE43783F2AE47A673A74B8315DD3E595ED1FBDFAC17DA1D7A36F642B423ED18275FAFD671B1D331439D22F12FB6EB436A47E8656F182A78DF29D310",
                 "private_key": {
                     "algorithm": "bls_small",
-                    "payload": "8cb95072914cdd8e4cf682fdbe1189cdf4fc54d445e760b3446f896dbdbf5b2b"
+                    "payload": "8CB95072914CDD8E4CF682FDBE1189CDF4FC54D445E760B3446F896DBDBF5B2B"
                 }
             }),
             TestJson {
