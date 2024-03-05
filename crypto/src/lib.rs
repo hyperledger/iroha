@@ -627,19 +627,12 @@ enum PrivateKeyInner {
     BlsSmall(bls::BlsSmallPrivateKey),
 }
 
-#[serde_with::serde_as]
-#[derive(Serialize, Deserialize)]
-struct PrivateKeySerialized {
-    algorithm: Algorithm,
-    #[serde_as(as = "serde_with::hex::Hex")]
-    payload: Vec<u8>,
-}
-
 ffi::ffi_item! {
     /// Private Key used in signatures.
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
     #[allow(missing_docs, variant_size_differences)]
+    #[serde(into = "PrivateKeySerialized", try_from = "PrivateKeySerialized")]
     pub struct PrivateKey(Box<PrivateKeyInner>);
 }
 
@@ -743,27 +736,28 @@ impl core::fmt::Display for PrivateKey {
     }
 }
 
-#[cfg(not(feature = "ffi_import"))]
-impl Serialize for PrivateKey {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let repr = PrivateKeySerialized {
-            algorithm: self.algorithm(),
-            payload: self.payload(),
-        };
-        repr.serialize(serializer)
+#[serde_with::serde_as]
+#[derive(Serialize, Deserialize)]
+struct PrivateKeySerialized {
+    algorithm: Algorithm,
+    #[serde_as(as = "serde_with::hex::Hex")]
+    payload: Vec<u8>,
+}
+
+impl TryFrom<PrivateKeySerialized> for PrivateKey {
+    type Error = ParseError;
+
+    fn try_from(value: PrivateKeySerialized) -> Result<Self, Self::Error> {
+        Self::from_bytes(value.algorithm, &value.payload)
     }
 }
 
-impl<'de> Deserialize<'de> for PrivateKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::Error as _;
-
-        let PrivateKeySerialized { algorithm, payload } =
-            PrivateKeySerialized::deserialize(deserializer)?;
-        Self::from_bytes(algorithm, &payload).map_err(D::Error::custom)
+impl From<PrivateKey> for PrivateKeySerialized {
+    fn from(value: PrivateKey) -> Self {
+        Self {
+            algorithm: value.algorithm(),
+            payload: value.payload(),
+        }
     }
 }
 
