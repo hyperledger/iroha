@@ -1,6 +1,6 @@
 use clap::{builder::PossibleValue, ArgGroup, ValueEnum};
 use color_eyre::eyre::WrapErr as _;
-use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
+use iroha_crypto::{Algorithm, KeyPair, KeyPairGenConfig, PrivateKey};
 
 use super::*;
 
@@ -9,10 +9,15 @@ use super::*;
 #[command(group = ArgGroup::new("generate_from").required(false))]
 #[command(group = ArgGroup::new("format").required(false))]
 pub struct Args {
-    /// The algorithm to use for the key-pair generation
+    /// An algorithm to use for the key-pair generation
+    ///
+    /// If specified with `--private-key`,
     #[clap(default_value_t, long, short)]
     algorithm: AlgorithmArg,
-    /// The `private_key` to generate the key-pair from
+    /// A private key to generate the key-pair from
+    ///
+    /// `--private-key` specifies the payload of the private key, while `--algorithm`
+    /// specifies its algorithm.
     #[clap(long, short, group = "generate_from")]
     private_key: Option<String>,
     /// The Unicode `seed` string to generate the key-pair from
@@ -79,23 +84,21 @@ impl Args {
     fn key_pair(self) -> color_eyre::Result<KeyPair> {
         let algorithm = self.algorithm.0;
 
-        let configuration = match (self.seed, self.private_key) {
-            (None, None) => KeyGenConfiguration::from_random(),
+        let config = match (self.seed, self.private_key) {
+            (None, None) => KeyPairGenConfig::from_random(algorithm),
             (None, Some(private_key_hex)) => {
                 let private_key = PrivateKey::from_hex(algorithm, private_key_hex)
                     .wrap_err("Failed to decode private key")?;
-                KeyGenConfiguration::from_private_key(private_key)
+                KeyPairGenConfig::from_private_key(private_key)
             }
             (Some(seed), None) => {
                 let seed: Vec<u8> = seed.as_bytes().into();
-                KeyGenConfiguration::from_seed(seed)
+                KeyPairGenConfig::from_seed(seed, algorithm)
             }
             _ => unreachable!("Clap group invariant"),
         };
 
-        Ok(KeyPair::generate_with_configuration(
-            configuration.with_algorithm(algorithm),
-        ))
+        Ok(config.generate())
     }
 }
 

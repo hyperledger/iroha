@@ -12,13 +12,11 @@ use zeroize::Zeroize as _;
 
 pub(super) const MESSAGE_CONTEXT: &[u8; 20] = b"for signing messages";
 
-use crate::{Algorithm, Error, KeyGenOption, ParseError};
+use crate::{Algorithm, Error, KeyPairGenOption, ParseError};
 
 pub trait BlsConfiguration {
     const ALGORITHM: Algorithm;
     type Engine: w3f_bls::EngineBLS;
-
-    fn extract_private_key(private_key: &crate::PrivateKey) -> Option<&SecretKey<Self::Engine>>;
 }
 
 pub struct BlsImpl<C: BlsConfiguration + ?Sized>(PhantomData<C>);
@@ -26,12 +24,14 @@ pub struct BlsImpl<C: BlsConfiguration + ?Sized>(PhantomData<C>);
 impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
     // the names are from an RFC, not a good idea to change them
     #[allow(clippy::similar_names)]
-    pub fn keypair(mut option: KeyGenOption) -> (PublicKey<C::Engine>, SecretKey<C::Engine>) {
+    pub fn keypair(
+        mut option: KeyPairGenOption<SecretKey<C::Engine>>,
+    ) -> (PublicKey<C::Engine>, SecretKey<C::Engine>) {
         let private_key = match option {
             #[cfg(feature = "rand")]
-            KeyGenOption::Random => SecretKey::generate(OsRng),
+            KeyPairGenOption::Random => SecretKey::generate(OsRng),
             // Follows https://datatracker.ietf.org/doc/draft-irtf-cfrg-bls-signature/?include_text=1
-            KeyGenOption::UseSeed(ref mut seed) => {
+            KeyPairGenOption::UseSeed(ref mut seed) => {
                 let salt = b"BLS-SIG-KEYGEN-SALT-";
                 let info = [0u8, C::Engine::SECRET_KEY_SIZE.try_into().unwrap()]; // key_info || I2OSP(L, 2)
                 let mut ikm = vec![0u8; seed.len() + 1];
@@ -44,14 +44,7 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
 
                 SecretKey::<C::Engine>::from_seed(&okm)
             }
-            KeyGenOption::FromPrivateKey(ref key) => C::extract_private_key(key)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Wrong private key type for {} algorithm, got {key:?}",
-                        C::ALGORITHM,
-                    )
-                })
-                .clone(),
+            KeyPairGenOption::FromPrivateKey(ref key) => key.clone(),
         };
         (private_key.into_public(), private_key)
     }

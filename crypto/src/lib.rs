@@ -111,10 +111,24 @@ impl FromStr for Algorithm {
     }
 }
 
-/// Options for key generation
-#[cfg(not(feature = "ffi_import"))]
-#[derive(Debug, Clone)]
-pub enum KeyGenOption<K = PrivateKey> {
+/// Needed since it couldn't be represented in FFI
+#[derive(Clone)]
+#[cfg_attr(not(feature = "ffi_import"), derive(Debug))]
+enum KeyPairGenConfigInner {
+    /// Use random number generator
+    #[cfg(feature = "rand")]
+    Random { algorithm: Algorithm },
+    /// Use seed
+    UseSeed { seed: Vec<u8>, algorithm: Algorithm },
+    /// Derive from a private key
+    FromPrivateKey(PrivateKey),
+}
+
+/// While [`KeyPairGenConfig`] is for external users, this structure is for internal use
+/// to pass it to a specific algorithm.
+/// Parameter `K` is intended to be set as a `PrivateKey` type of that specific algorithm.
+#[derive(Debug)]
+pub enum KeyPairGenOption<K> {
     /// Use random number generator
     #[cfg(feature = "rand")]
     Random,
@@ -124,85 +138,46 @@ pub enum KeyGenOption<K = PrivateKey> {
     FromPrivateKey(K),
 }
 
-mod config_algorithm_state {
-    use crate::Algorithm;
-
-    #[derive(Copy, Clone, Debug)]
-    pub struct Default;
-
-    impl From<Default> for Algorithm {
-        fn from(_: Default) -> Self {
-            use std::default::Default;
-            Self::default()
-        }
-    }
-
-    #[derive(Copy, Clone, Debug)]
-    pub struct Set(pub Algorithm);
-
-    impl From<Set> for Algorithm {
-        fn from(Set(value): Set) -> Self {
-            value
-        }
-    }
-}
-
 ffi::ffi_item! {
-    /// Configuration of key generation
+    /// Configuration for key generation
     #[derive(Clone)]
-    #[cfg_attr(not(feature="ffi_import"), derive(Debug))]
-    pub struct KeyGenConfiguration<A> {
-        /// Options
-        key_gen_option: KeyGenOption,
-        /// Algorithm
-        algorithm: A,
+    #[cfg_attr(not(feature = "ffi_import"), derive(Debug))]
+    pub struct KeyPairGenConfig{
+        inner: KeyPairGenConfigInner
     }
 }
 
 #[ffi_impl_opaque]
-impl KeyGenConfiguration<config_algorithm_state::Default> {
-    /// Construct using random number generation with [`Ed25519`](Algorithm::Ed25519) algorithm
+impl KeyPairGenConfig {
+    /// Generate using random number generation with a specified algorithm
     #[cfg(feature = "rand")]
     #[must_use]
-    pub fn from_random() -> Self {
+    pub fn from_random(algorithm: Algorithm) -> Self {
         Self {
-            key_gen_option: KeyGenOption::Random,
-            algorithm: config_algorithm_state::Default,
+            inner: KeyPairGenConfigInner::Random { algorithm },
         }
     }
 
-    /// Construct using seed with [`Ed25519`](Algorithm::Ed25519) algorithm
+    /// Construct using a seed with a specified algorithm
     #[must_use]
-    pub fn from_seed(seed: Vec<u8>) -> Self {
+    pub fn from_seed(seed: Vec<u8>, algorithm: Algorithm) -> Self {
         Self {
-            key_gen_option: KeyGenOption::UseSeed(seed),
-            algorithm: config_algorithm_state::Default,
+            inner: KeyPairGenConfigInner::UseSeed { seed, algorithm },
         }
     }
 
-    /// With algorithm
+    /// Construct the pair from a private key. Infers the algorithm from the key's one.
     #[must_use]
-    pub fn with_algorithm(
-        self,
-        algorithm: Algorithm,
-    ) -> KeyGenConfiguration<config_algorithm_state::Set> {
-        KeyGenConfiguration {
-            key_gen_option: self.key_gen_option,
-            algorithm: config_algorithm_state::Set(algorithm),
+    pub fn from_private_key(key: PrivateKey) -> Self {
+        Self {
+            inner: KeyPairGenConfigInner::FromPrivateKey(key),
         }
     }
-}
 
-impl KeyGenConfiguration<config_algorithm_state::Set> {
-    /// Construct using private key with [`Ed25519`](Algorithm::Ed25519) algorithm
+    /// Generates a key pair
     #[must_use]
-    pub fn from_private_key(private_key: impl Into<PrivateKey>) -> Self {
-        let key = private_key.into();
-        let algorithm = key.algorithm();
-        Self {
-            key_gen_option: KeyGenOption::FromPrivateKey(key),
-            algorithm: config_algorithm_state::Set(algorithm),
-        }
+    pub fn generate(self) -> KeyPair {
+        KeyPair::generate_with_config(self)
     }
 }
 
@@ -220,12 +195,10 @@ ffi::ffi_item! {
 }
 
 impl KeyPair {
-    /// Generates a pair of Public and Private key with [`Algorithm::default()`] selected as generation algorithm.
+    /// Generates a random key pair using [`Algorithm::default()`]
     #[cfg(feature = "rand")]
     pub fn generate() -> Self {
-        Self::generate_with_configuration(
-            KeyGenConfiguration::from_random().with_algorithm(Algorithm::Ed25519),
-        )
+        Self::generate_with_config(KeyPairGenConfig::from_random(Algorithm::default()))
     }
 }
 
@@ -239,7 +212,7 @@ impl KeyPair {
     /// Construct a [`KeyPair`]
     ///
     /// # Errors
-    /// If public and private key don't match, i.e. if they don't make a pair
+    /// If public and private keys don't match, i.e. if they don't make a pair
     pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Result<Self, Error> {
         let algorithm = private_key.algorithm();
 
@@ -257,22 +230,42 @@ impl KeyPair {
         })
     }
 
-    /// Generates a pair of Public and Private key with the corresponding [`KeyGenConfiguration`].
-    pub fn generate_with_configuration<A: Into<Algorithm>>(
-        KeyGenConfiguration {
-            key_gen_option,
-            algorithm,
-        }: KeyGenConfiguration<A>,
-    ) -> Self {
-        let algorithm: Algorithm = algorithm.into();
-        match algorithm {
-            Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512::keypair(key_gen_option).into(),
-            Algorithm::Secp256k1 => {
-                signature::secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option).into()
-            }
-            Algorithm::BlsNormal => signature::bls::BlsNormal::keypair(key_gen_option).into(),
-            Algorithm::BlsSmall => signature::bls::BlsSmall::keypair(key_gen_option).into(),
+    /// Generates a pair of Public and Private key with the corresponding [`KeyPairGenOption`].
+    pub fn generate_with_config(config: KeyPairGenConfig) -> Self {
+        use KeyPairGenConfigInner;
+        use KeyPairGenOption;
+
+        macro_rules! with_algorithm_variations {
+            ($(($alg:ident, $alg_mod:path)),+) => {
+                match config.inner {
+                    #[cfg(feature = "rand")]
+                    KeyPairGenConfigInner::Random { algorithm } => {
+                        match algorithm {
+                            $(Algorithm::$alg => <$alg_mod>::keypair(KeyPairGenOption::Random).into()),*
+                        }
+                    },
+                    KeyPairGenConfigInner::UseSeed { seed, algorithm } => {
+                        match algorithm {
+                            $(Algorithm::$alg => <$alg_mod>::keypair(KeyPairGenOption::UseSeed(seed)).into()),*
+                        }
+                    }
+                    KeyPairGenConfigInner::FromPrivateKey(key) => {
+                        match *key.0 {
+                            $(
+                                PrivateKeyInner::$alg(secret) => <$alg_mod>::keypair(KeyPairGenOption::FromPrivateKey(secret)).into(),
+                            )*
+                        }
+                    }
+                }
+            };
         }
+
+        with_algorithm_variations!(
+            (Ed25519, ed25519::Ed25519Sha512),
+            (Secp256k1, secp256k1::EcdsaSecp256k1Sha256),
+            (BlsNormal, bls::BlsNormal),
+            (BlsSmall, bls::BlsSmall)
+        )
     }
 
     /// Get [`PublicKey`] and [`PrivateKey`] contained in the [`KeyPair`].
@@ -597,24 +590,27 @@ impl FromStr for PublicKey {
 #[cfg(not(feature = "ffi_import"))]
 impl From<PrivateKey> for PublicKey {
     fn from(private_key: PrivateKey) -> Self {
-        let algorithm = private_key.algorithm();
-        let key_gen_option = KeyGenOption::FromPrivateKey(private_key);
+        macro_rules! with_algorithm_variations {
+            ($private_inner:expr, $(($alg:ident, $alg_mod:path)),+) => {
+                match $private_inner {
+                    $(
+                        PrivateKeyInner::$alg(secret) => {
+                            PublicKeyInner::$alg(<$alg_mod>::keypair(KeyPairGenOption::FromPrivateKey(secret)).0)
+                        }
+                    )*
+                }
+            }
+        }
 
-        let inner = match algorithm {
-            Algorithm::Ed25519 => {
-                PublicKeyInner::Ed25519(ed25519::Ed25519Sha512::keypair(key_gen_option).0)
-            }
-            Algorithm::Secp256k1 => PublicKeyInner::Secp256k1(
-                secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option).0,
-            ),
-            Algorithm::BlsNormal => {
-                PublicKeyInner::BlsNormal(bls::BlsNormal::keypair(key_gen_option).0)
-            }
-            Algorithm::BlsSmall => {
-                PublicKeyInner::BlsSmall(bls::BlsSmall::keypair(key_gen_option).0)
-            }
-        };
-        PublicKey(Box::new(inner))
+        let inner = with_algorithm_variations!(
+            *private_key.0,
+            (Ed25519, ed25519::Ed25519Sha512),
+            (Secp256k1, secp256k1::EcdsaSecp256k1Sha256),
+            (BlsNormal, bls::BlsNormal),
+            (BlsSmall, bls::BlsSmall)
+        );
+
+        Self(Box::new(inner))
     }
 }
 
@@ -869,7 +865,7 @@ mod ffi {
 
     #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
     iroha_ffi::handles! {
-        KeyGenConfiguration,
+        KeyPairGenConfig,
         PublicKey,
         PrivateKey,
         KeyPair,
@@ -880,8 +876,8 @@ mod ffi {
     iroha_ffi::decl_ffi_fns! { link_prefix="iroha_crypto" Drop, Clone, Eq, Ord, Default }
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     iroha_ffi::def_ffi_fns! { link_prefix="iroha_crypto"
-        Drop: { KeyGenConfiguration, PublicKey, PrivateKey, KeyPair, Signature },
-        Clone: { KeyGenConfiguration, PublicKey, PrivateKey, KeyPair, Signature },
+        Drop: { KeyPairGenConfig, PublicKey, PrivateKey, KeyPair, Signature },
+        Clone: { KeyPairGenConfig, PublicKey, PrivateKey, KeyPair, Signature },
         Eq: { PublicKey, PrivateKey, KeyPair, Signature },
         Ord: { PublicKey, Signature },
     }
@@ -941,9 +937,7 @@ mod tests {
             Algorithm::BlsNormal,
             Algorithm::BlsSmall,
         ] {
-            let key_pair = KeyPair::generate_with_configuration(
-                KeyGenConfiguration::from_random().with_algorithm(algorithm),
-            );
+            let key_pair = KeyPairGenConfig::from_random(algorithm).generate();
 
             assert_eq!(
                 key_pair,
@@ -1002,9 +996,7 @@ mod tests {
             Algorithm::BlsNormal,
             Algorithm::BlsSmall,
         ] {
-            let key_pair = KeyPair::generate_with_configuration(
-                KeyGenConfiguration::from_random().with_algorithm(algorithm),
-            );
+            let key_pair = KeyPairGenConfig::from_random(algorithm).generate();
             let (public_key, _) = key_pair.into();
 
             let encoded_public_key = public_key.encode();

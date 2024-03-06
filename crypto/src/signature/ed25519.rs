@@ -1,11 +1,11 @@
-use core::{borrow::Borrow as _, convert::TryFrom};
+use core::convert::TryFrom;
 
 use ed25519_dalek::Signature;
 #[cfg(feature = "rand")]
 use rand::rngs::OsRng;
 use signature::{Signer as _, Verifier as _};
 
-use crate::{Error, KeyGenOption, ParseError};
+use crate::{Error, KeyPairGenOption, ParseError};
 
 pub type PublicKey = ed25519_dalek::VerifyingKey;
 pub type PrivateKey = ed25519_dalek::SigningKey;
@@ -17,17 +17,14 @@ use alloc::{string::ToString as _, vec::Vec};
 pub struct Ed25519Sha512;
 
 impl Ed25519Sha512 {
-    pub fn keypair(option: KeyGenOption) -> (PublicKey, PrivateKey) {
+    pub fn keypair(option: KeyPairGenOption<PrivateKey>) -> (PublicKey, PrivateKey) {
         let signing_key = match option {
             #[cfg(feature = "rand")]
-            KeyGenOption::Random => PrivateKey::generate(&mut OsRng),
-            KeyGenOption::UseSeed(seed) => PrivateKey::generate(&mut super::rng_from_seed(seed)),
-            KeyGenOption::FromPrivateKey(ref s) => {
-                let crate::PrivateKeyInner::Ed25519(s) = s.0.borrow() else {
-                    panic!("Wrong private key type, expected `Ed25519`, got {s:?}")
-                };
-                PrivateKey::clone(s)
+            KeyPairGenOption::Random => PrivateKey::generate(&mut OsRng),
+            KeyPairGenOption::UseSeed(seed) => {
+                PrivateKey::generate(&mut super::rng_from_seed(seed))
             }
+            KeyPairGenOption::FromPrivateKey(ref s) => PrivateKey::clone(s),
         };
         (signing_key.verifying_key(), signing_key)
     }
@@ -64,17 +61,23 @@ mod test {
 
     use self::Ed25519Sha512;
     use super::*;
-    use crate::{Algorithm, KeyGenOption, PrivateKey, PublicKey};
+    use crate::{signature::ed25519, Algorithm, KeyPairGenOption, PrivateKey, PublicKey};
 
     const MESSAGE_1: &[u8] = b"This is a dummy message for use with tests";
     const SIGNATURE_1: &str = "451b5b8e8725321541954997781de51f4142e4a56bab68d24f6a6b92615de5eefb74134138315859a32c7cf5fe5a488bc545e2e08e5eedfd1fb10188d532d808";
     const PRIVATE_KEY: &str = "1c1179a560d092b90458fe6ab8291215a427fcd6b3927cb240701778ef55201927c96646f2d4632d4fc241f84cbc427fbc3ecaa95becba55088d6c7b81fc5bbf";
     const PUBLIC_KEY: &str = "27c96646f2d4632d4fc241f84cbc427fbc3ecaa95becba55088d6c7b81fc5bbf";
 
+    fn key_pair_factory() -> (ed25519::PublicKey, ed25519::PrivateKey) {
+        Ed25519Sha512::keypair(KeyPairGenOption::FromPrivateKey(
+            Ed25519Sha512::parse_private_key(&hex::decode(PRIVATE_KEY).unwrap()).unwrap(),
+        ))
+    }
+
     #[test]
     #[ignore]
     fn create_new_keys() {
-        let (p, s) = Ed25519Sha512::keypair(KeyGenOption::Random);
+        let (p, s) = Ed25519Sha512::keypair(KeyPairGenOption::Random);
 
         println!("{s:?}");
         println!("{p:?}");
@@ -82,8 +85,7 @@ mod test {
 
     #[test]
     fn ed25519_load_keys() {
-        let secret = PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap();
-        let (p1, s1) = Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(secret));
+        let (p1, s1) = key_pair_factory();
 
         assert_eq!(
             PrivateKey(Box::new(crate::PrivateKeyInner::Ed25519(s1))),
@@ -97,8 +99,7 @@ mod test {
 
     #[test]
     fn ed25519_verify() {
-        let secret = PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap();
-        let (p, _) = Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(secret));
+        let (p, _) = key_pair_factory();
 
         Ed25519Sha512::verify(MESSAGE_1, hex::decode(SIGNATURE_1).unwrap().as_slice(), &p).unwrap();
 
@@ -118,8 +119,7 @@ mod test {
 
     #[test]
     fn ed25519_sign() {
-        let secret = PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap();
-        let (p, s) = Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(secret));
+        let (p, s) = key_pair_factory();
 
         let sig = Ed25519Sha512::sign(MESSAGE_1, &s);
         Ed25519Sha512::verify(MESSAGE_1, &sig, &p).unwrap();

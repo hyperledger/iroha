@@ -12,7 +12,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroize;
 
 use super::KeyExchangeScheme;
-use crate::{error::ParseError, KeyGenOption, SessionKey};
+use crate::{error::ParseError, KeyPairGenOption, SessionKey};
 
 /// Implements the [`KeyExchangeScheme`] using X25519 key exchange and SHA256 hash function.
 #[derive(Copy, Clone)]
@@ -28,17 +28,17 @@ impl KeyExchangeScheme for X25519Sha256 {
 
     fn keypair(
         &self,
-        mut option: KeyGenOption<Self::PrivateKey>,
+        mut option: KeyPairGenOption<Self::PrivateKey>,
     ) -> (Self::PublicKey, Self::PrivateKey) {
         match option {
             #[cfg(feature = "rand")]
-            KeyGenOption::Random => {
+            KeyPairGenOption::Random => {
                 let rng = OsRng;
                 let sk = StaticSecret::random_from_rng(rng);
                 let pk = PublicKey::from(&sk);
                 (pk, sk)
             }
-            KeyGenOption::UseSeed(ref mut s) => {
+            KeyPairGenOption::UseSeed(ref mut s) => {
                 let hash = sha2::Sha256::digest(s.as_slice());
                 s.zeroize();
                 let rng = ChaChaRng::from_seed(*array_ref!(hash.as_slice(), 0, 32));
@@ -46,7 +46,7 @@ impl KeyExchangeScheme for X25519Sha256 {
                 let pk = PublicKey::from(&sk);
                 (pk, sk)
             }
-            KeyGenOption::FromPrivateKey(ref sk) => {
+            KeyPairGenOption::FromPrivateKey(ref sk) => {
                 let pk = PublicKey::from(sk);
                 (pk, sk.clone())
             }
@@ -91,14 +91,15 @@ mod tests {
     #[test]
     fn key_exchange() {
         let scheme = X25519Sha256::new();
-        let (public_key1, secret_key1) = scheme.keypair(KeyGenOption::Random);
+        let (public_key1, secret_key1) = scheme.keypair(KeyPairGenOption::Random);
 
-        let (public_key2, secret_key2) = scheme.keypair(KeyGenOption::Random);
+        let (public_key2, secret_key2) = scheme.keypair(KeyPairGenOption::Random);
         let shared_secret1 = scheme.compute_shared_secret(&secret_key2, &public_key1);
         let shared_secret2 = scheme.compute_shared_secret(&secret_key1, &public_key2);
         assert_eq!(shared_secret1.payload(), shared_secret2.payload());
 
-        let (public_key2, _secret_key1) = scheme.keypair(KeyGenOption::FromPrivateKey(secret_key1));
+        let (public_key2, _secret_key1) =
+            scheme.keypair(KeyPairGenOption::FromPrivateKey(secret_key1));
         assert_eq!(public_key2, public_key1);
     }
 }

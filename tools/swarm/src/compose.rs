@@ -8,7 +8,7 @@ use std::{
 };
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
-use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey, PublicKey};
+use iroha_crypto::{Algorithm, KeyPair, KeyPairGenConfig, PrivateKey, PublicKey};
 use iroha_data_model::{prelude::PeerId, ChainId};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use peer_generator::Peer;
@@ -465,12 +465,15 @@ impl DockerComposeBuilder<'_> {
 }
 
 fn generate_key_pair(base_seed: Option<&[u8]>, additional_seed: &[u8]) -> KeyPair {
-    let cfg = base_seed.map_or_else(KeyGenConfiguration::from_random, |base| {
-        let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
-        KeyGenConfiguration::from_seed(seed)
-    });
+    let cfg = base_seed.map_or_else(
+        || KeyPairGenConfig::from_random(Algorithm::default()),
+        |base| {
+            let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
+            KeyPairGenConfig::from_seed(seed, Algorithm::default())
+        },
+    );
 
-    KeyPair::generate_with_configuration(cfg)
+    KeyPair::generate_with_config(cfg)
 }
 
 mod peer_generator {
@@ -564,7 +567,7 @@ mod tests {
         base::{FromEnv, TestEnv, UnwrapPartial},
         parameters::user::{CliContext, RootPartial},
     };
-    use iroha_crypto::{KeyGenConfiguration, KeyPair};
+    use iroha_crypto::KeyPair;
     use iroha_primitives::addr::{socket_addr, SocketAddr};
     use path_absolutize::Absolutize;
 
@@ -637,10 +640,11 @@ mod tests {
                 let mut map = BTreeMap::new();
 
                 let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-                let key_pair =
-                    KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![
-                        1, 5, 1, 2, 2, 3, 4, 1, 2, 3,
-                    ]));
+                let key_pair = KeyPairGenConfig::from_seed(
+                    vec![1, 5, 1, 2, 2, 3, 4, 1, 2, 3],
+                    Algorithm::default(),
+                )
+                .generate();
 
                 map.insert(
                     "iroha0".to_owned(),
@@ -711,8 +715,7 @@ mod tests {
     fn empty_genesis_private_key_is_skipped_in_env() {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-        let key_pair =
-            KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![0, 1, 2]));
+        let key_pair = KeyPairGenConfig::from_seed(vec![0, 1, 2], Algorithm::default()).generate();
 
         let env: FullPeerEnv = CompactPeerEnv {
             chain_id,

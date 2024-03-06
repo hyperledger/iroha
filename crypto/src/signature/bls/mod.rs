@@ -14,8 +14,6 @@ mod implementation;
 /// with the public key group in G1 and signature group in G2.
 /// 192 byte signatures and 97 byte public keys
 mod normal {
-    use core::borrow::Borrow as _;
-
     use super::{implementation, implementation::BlsConfiguration};
     use crate::Algorithm;
 
@@ -26,14 +24,6 @@ mod normal {
         const ALGORITHM: Algorithm = Algorithm::BlsNormal;
 
         type Engine = w3f_bls::ZBLS;
-
-        fn extract_private_key(private_key: &crate::PrivateKey) -> Option<&NormalPrivateKey> {
-            if let crate::PrivateKeyInner::BlsNormal(key) = private_key.0.borrow() {
-                Some(key)
-            } else {
-                None
-            }
-        }
     }
 
     pub type NormalBls = implementation::BlsImpl<NormalConfiguration>;
@@ -48,8 +38,6 @@ mod normal {
 ///
 /// This is good for situations where space is a consideration and verification is infrequent.
 mod small {
-    use core::borrow::Borrow as _;
-
     use super::implementation::{self, BlsConfiguration};
     use crate::Algorithm;
 
@@ -59,14 +47,6 @@ mod small {
         const ALGORITHM: Algorithm = Algorithm::BlsSmall;
 
         type Engine = w3f_bls::TinyBLS381;
-
-        fn extract_private_key(private_key: &crate::PrivateKey) -> Option<&SmallPrivateKey> {
-            if let crate::PrivateKeyInner::BlsSmall(key) = private_key.0.borrow() {
-                Some(key)
-            } else {
-                None
-            }
-        }
     }
 
     pub type SmallBls = implementation::BlsImpl<SmallConfiguration>;
