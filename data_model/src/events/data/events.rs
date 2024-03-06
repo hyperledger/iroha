@@ -549,6 +549,8 @@ mod executor {
         #[cfg(not(feature = "std"))]
         use alloc::{format, string::String, vec::Vec};
 
+        use iroha_data_model_derive::EventSet;
+
         #[derive(
             Debug,
             Copy,
@@ -562,6 +564,7 @@ mod executor {
             serde::Deserialize,
             serde::Serialize,
             iroha_schema::IntoSchema,
+            EventSet,
         )]
         #[non_exhaustive]
         #[ffi_type]
@@ -569,39 +572,6 @@ mod executor {
         #[repr(transparent)]
         pub enum ExecutorEvent {
             Upgraded,
-        }
-
-        /// Filter for [`ExecutorEvent`].
-        #[derive(
-            Debug,
-            Copy,
-            Clone,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            parity_scale_codec::Decode,
-            parity_scale_codec::Encode,
-            serde::Deserialize,
-            serde::Serialize,
-            iroha_schema::IntoSchema,
-        )]
-        #[non_exhaustive]
-        #[serde(untagged)] // Unaffected by #3330, as single unit variant
-        #[repr(transparent)]
-        pub enum ExecutorFilter {
-            Upgraded,
-        }
-    }
-
-    #[cfg(feature = "transparent_api")]
-    impl super::EventFilter for ExecutorFilter {
-        type Event = ExecutorEvent;
-
-        fn matches(&self, event: &Self::Event) -> bool {
-            match (self, event) {
-                (Self::Upgraded, Self::Event::Upgraded) => true,
-            }
         }
     }
 }
@@ -657,7 +627,7 @@ pub mod prelude {
         },
         config::{ConfigurationEvent, ConfigurationEventSet},
         domain::{DomainEvent, DomainEventSet, DomainOwnerChanged},
-        executor::{ExecutorEvent, ExecutorFilter},
+        executor::{ExecutorEvent, ExecutorEventSet},
         peer::{PeerEvent, PeerEventSet},
         permission::PermissionTokenSchemaUpdateEvent,
         role::{RoleEvent, RoleEventSet, RolePermissionChanged},
