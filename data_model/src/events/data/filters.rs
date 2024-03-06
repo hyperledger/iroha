@@ -557,23 +557,43 @@ impl EventFilter for DataEventFilter {
     fn matches(&self, event: &DataEvent) -> bool {
         use DataEventFilter::*;
 
-        match (self, event) {
-            (Any, _) => true,
-            (Peer(filter), DataEvent::Peer(event)) => filter.matches(event),
-            (Domain(filter), DataEvent::Domain(event)) => filter.matches(event),
-            (Account(filter), DataEvent::Domain(DomainEvent::Account(event))) => {
-                filter.matches(event)
-            }
+        match (event, self) {
             (
-                Asset(filter),
                 DataEvent::Domain(DomainEvent::Account(AccountEvent::Asset(event))),
+                Asset(filter),
             ) => filter.matches(event),
-            (AssetDefinition(filter), DataEvent::Domain(DomainEvent::AssetDefinition(event))) => {
+            (DataEvent::Domain(DomainEvent::Account(event)), Account(filter)) => {
                 filter.matches(event)
             }
-            (Trigger(filter), DataEvent::Trigger(event)) => filter.matches(event),
-            (Role(filter), DataEvent::Role(event)) => filter.matches(event),
-            _ => false,
+            (DataEvent::Domain(DomainEvent::AssetDefinition(event)), AssetDefinition(filter)) => {
+                filter.matches(event)
+            }
+            (DataEvent::Domain(event), Domain(filter)) => filter.matches(event),
+
+            (DataEvent::Peer(event), Peer(filter)) => filter.matches(event),
+            (DataEvent::Trigger(event), Trigger(filter)) => filter.matches(event),
+            (DataEvent::Role(event), Role(filter)) => filter.matches(event),
+
+            (
+                DataEvent::Peer(_)
+                | DataEvent::Domain(_)
+                | DataEvent::Trigger(_)
+                | DataEvent::Role(_)
+                | DataEvent::PermissionToken(_)
+                | DataEvent::Configuration(_)
+                | DataEvent::Executor(_),
+                Any,
+            ) => true,
+            (
+                DataEvent::Peer(_)
+                | DataEvent::Domain(_)
+                | DataEvent::Trigger(_)
+                | DataEvent::Role(_)
+                | DataEvent::PermissionToken(_)
+                | DataEvent::Configuration(_)
+                | DataEvent::Executor(_),
+                _,
+            ) => false,
         }
     }
 }
