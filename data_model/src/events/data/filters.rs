@@ -47,9 +47,13 @@ pub mod model {
         Trigger(TriggerEventFilter),
         /// Matches [`RoleEvent`]s
         Role(RoleEventFilter),
-        // We didn't have filters for these events before the refactor. Should we?
-        // Configuration(ConfigurationEventFilter),
-        // Executor(ExecutorEventFilter),
+        /// Matches [`PermissionTokenSchemaUpdateEvent`]s
+        // nothing to filter for, really
+        PermissionTokenSchemaUpdate,
+        /// Matches [`ConfigurationEvent`]s
+        Configuration(ConfigurationEventFilter),
+        /// Matches [`ExecutorEvent`]s
+        Executor(ExecutorEventFilter),
     }
 
     /// An event filter for [`PeerEvent`]s
@@ -204,6 +208,49 @@ pub mod model {
         pub(super) id_matcher: Option<super::RoleId>,
         /// Matches only event from this set
         pub(super) event_set: RoleEventSet,
+    }
+
+    /// An event filter for [`ConfigurationEvent`]s
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct ConfigurationEventFilter {
+        /// If specified matches only events originating from this configuration
+        pub(super) id_matcher: Option<super::ParameterId>,
+        /// Matches only event from this set
+        pub(super) event_set: ConfigurationEventSet,
+    }
+
+    /// An event filter for [`ExecutorEvent`].
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct ExecutorEventFilter {
+        // executor is a global entity, so no id here
+        /// Matches only event from this set
+        pub(super) event_set: ExecutorEventSet,
     }
 }
 
@@ -550,6 +597,90 @@ impl super::EventFilter for RoleEventFilter {
     }
 }
 
+impl ConfigurationEventFilter {
+    /// Creates a new [`ConfigurationEventFilter`] accepting all [`ConfigurationEvent`]s.
+    pub const fn new() -> Self {
+        Self {
+            id_matcher: None,
+            event_set: ConfigurationEventSet::all(),
+        }
+    }
+
+    /// Modifies a [`ConfigurationEventFilter`] to accept only [`ConfigurationEvent`]s originating from ids matching `id_matcher`.
+    #[must_use]
+    pub fn only_from(mut self, id_matcher: ParameterId) -> Self {
+        self.id_matcher = Some(id_matcher);
+        self
+    }
+
+    /// Modifies a [`ConfigurationEventFilter`] to accept only [`ConfigurationEvent`]s of types matching `event_set`.
+    #[must_use]
+    pub const fn only_events(mut self, event_set: ConfigurationEventSet) -> Self {
+        self.event_set = event_set;
+        self
+    }
+}
+
+impl Default for ConfigurationEventFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "transparent_api")]
+impl super::EventFilter for ConfigurationEventFilter {
+    type Event = super::ConfigurationEvent;
+
+    fn matches(&self, event: &Self::Event) -> bool {
+        if let Some(id_matcher) = &self.id_matcher {
+            if id_matcher != event.origin_id() {
+                return false;
+            }
+        }
+
+        if !self.event_set.matches(event) {
+            return false;
+        }
+
+        true
+    }
+}
+
+impl ExecutorEventFilter {
+    /// Creates a new [`ExecutorEventFilter`] accepting all [`ExecutorEvent`]s.
+    pub const fn new() -> Self {
+        Self {
+            event_set: ExecutorEventSet::all(),
+        }
+    }
+
+    /// Modifies a [`ExecutorEventFilter`] to accept only [`ExecutorEvent`]s of types matching `event_set`.
+    #[must_use]
+    pub const fn only_events(mut self, event_set: ExecutorEventSet) -> Self {
+        self.event_set = event_set;
+        self
+    }
+}
+
+impl Default for ExecutorEventFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "transparent_api")]
+impl super::EventFilter for ExecutorEventFilter {
+    type Event = super::ExecutorEvent;
+
+    fn matches(&self, event: &Self::Event) -> bool {
+        if !self.event_set.matches(event) {
+            return false;
+        }
+
+        true
+    }
+}
+
 #[cfg(feature = "transparent_api")]
 impl EventFilter for DataEventFilter {
     type Event = DataEvent;
@@ -573,6 +704,9 @@ impl EventFilter for DataEventFilter {
             (DataEvent::Peer(event), Peer(filter)) => filter.matches(event),
             (DataEvent::Trigger(event), Trigger(filter)) => filter.matches(event),
             (DataEvent::Role(event), Role(filter)) => filter.matches(event),
+            (DataEvent::PermissionToken(_), PermissionTokenSchemaUpdate) => true,
+            (DataEvent::Configuration(event), Configuration(filter)) => filter.matches(event),
+            (DataEvent::Executor(event), Executor(filter)) => filter.matches(event),
 
             (
                 DataEvent::Peer(_)
@@ -600,8 +734,9 @@ impl EventFilter for DataEventFilter {
 
 pub mod prelude {
     pub use super::{
-        AccountEventFilter, AssetDefinitionEventFilter, AssetEventFilter, DataEventFilter,
-        DomainEventFilter, PeerEventFilter, RoleEventFilter, TriggerEventFilter,
+        AccountEventFilter, AssetDefinitionEventFilter, AssetEventFilter, ConfigurationEventFilter,
+        DataEventFilter, DomainEventFilter, ExecutorEventFilter, PeerEventFilter, RoleEventFilter,
+        TriggerEventFilter,
     };
 }
 

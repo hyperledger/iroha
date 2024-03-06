@@ -619,6 +619,19 @@
       }
     ]
   },
+  "ConfigurationEventFilter": {
+    "Struct": [
+      {
+        "name": "id_matcher",
+        "type": "Option<ParameterId>"
+      },
+      {
+        "name": "event_set",
+        "type": "ConfigurationEventSet"
+      }
+    ]
+  },
+  "ConfigurationEventSet": "u32",
   "Container": {
     "Enum": [
       {
@@ -717,6 +730,20 @@
         "tag": "Role",
         "discriminant": 7,
         "type": "RoleEventFilter"
+      },
+      {
+        "tag": "PermissionTokenSchemaUpdate",
+        "discriminant": 8
+      },
+      {
+        "tag": "Configuration",
+        "discriminant": 9,
+        "type": "ConfigurationEventFilter"
+      },
+      {
+        "tag": "Executor",
+        "discriminant": 10,
+        "type": "ExecutorEventFilter"
       }
     ]
   },
@@ -965,6 +992,15 @@
       }
     ]
   },
+  "ExecutorEventFilter": {
+    "Struct": [
+      {
+        "name": "event_set",
+        "type": "ExecutorEventSet"
+      }
+    ]
+  },
+  "ExecutorEventSet": "u32",
   "ExecutorMode": {
     "Enum": [
       {
@@ -2252,6 +2288,9 @@
   },
   "Option<NonZero<u64>>": {
     "Option": "NonZero<u64>"
+  },
+  "Option<ParameterId>": {
+    "Option": "ParameterId"
   },
   "Option<PeerId>": {
     "Option": "PeerId"
