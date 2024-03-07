@@ -12,7 +12,7 @@ use zeroize::Zeroize as _;
 
 pub(super) const MESSAGE_CONTEXT: &[u8; 20] = b"for signing messages";
 
-use crate::{Algorithm, Error, KeyPairGenOption, ParseError};
+use crate::{Algorithm, Error, KeyGenOption, ParseError};
 
 pub trait BlsConfiguration {
     const ALGORITHM: Algorithm;
@@ -25,13 +25,13 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
     // the names are from an RFC, not a good idea to change them
     #[allow(clippy::similar_names)]
     pub fn keypair(
-        mut option: KeyPairGenOption<SecretKey<C::Engine>>,
+        mut option: KeyGenOption<SecretKey<C::Engine>>,
     ) -> (PublicKey<C::Engine>, SecretKey<C::Engine>) {
         let private_key = match option {
             #[cfg(feature = "rand")]
-            KeyPairGenOption::Random => SecretKey::generate(OsRng),
+            KeyGenOption::Random => SecretKey::generate(OsRng),
             // Follows https://datatracker.ietf.org/doc/draft-irtf-cfrg-bls-signature/?include_text=1
-            KeyPairGenOption::UseSeed(ref mut seed) => {
+            KeyGenOption::UseSeed(ref mut seed) => {
                 let salt = b"BLS-SIG-KEYGEN-SALT-";
                 let info = [0u8, C::Engine::SECRET_KEY_SIZE.try_into().unwrap()]; // key_info || I2OSP(L, 2)
                 let mut ikm = vec![0u8; seed.len() + 1];
@@ -44,7 +44,7 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
 
                 SecretKey::<C::Engine>::from_seed(&okm)
             }
-            KeyPairGenOption::FromPrivateKey(ref key) => key.clone(),
+            KeyGenOption::FromPrivateKey(ref key) => key.clone(),
         };
         (private_key.into_public(), private_key)
     }

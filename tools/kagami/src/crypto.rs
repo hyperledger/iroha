@@ -1,6 +1,6 @@
 use clap::{builder::PossibleValue, ArgGroup, ValueEnum};
 use color_eyre::eyre::WrapErr as _;
-use iroha_crypto::{Algorithm, KeyPair, KeyPairGenConfig, PrivateKey};
+use iroha_crypto::{Algorithm, KeyGenConfig, KeyPair, PrivateKey};
 
 use super::*;
 
@@ -85,15 +85,15 @@ impl Args {
         let algorithm = self.algorithm.0;
 
         let config = match (self.seed, self.private_key) {
-            (None, None) => KeyPairGenConfig::from_random(algorithm),
+            (None, None) => KeyGenConfig::from_random(algorithm),
             (None, Some(private_key_hex)) => {
                 let private_key = PrivateKey::from_hex(algorithm, private_key_hex)
                     .wrap_err("Failed to decode private key")?;
-                KeyPairGenConfig::from_private_key(private_key)
+                KeyGenConfig::from_private_key(private_key)
             }
             (Some(seed), None) => {
                 let seed: Vec<u8> = seed.as_bytes().into();
-                KeyPairGenConfig::from_seed(seed, algorithm)
+                KeyGenConfig::from_seed(seed, algorithm)
             }
             _ => unreachable!("Clap group invariant"),
         };

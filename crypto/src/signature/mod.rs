@@ -563,12 +563,12 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::KeyPairGenConfig;
+    use crate::KeyGenConfig;
 
     #[test]
     #[cfg(feature = "rand")]
     fn create_signature_ed25519() {
-        let key_pair = KeyPairGenConfig::from_random(crate::Algorithm::Ed25519).generate();
+        let key_pair = KeyGenConfig::from_random(crate::Algorithm::Ed25519).generate();
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert_eq!(*signature.public_key(), *key_pair.public_key());
@@ -578,7 +578,7 @@ mod tests {
     #[test]
     #[cfg(feature = "rand")]
     fn create_signature_secp256k1() {
-        let key_pair = KeyPairGenConfig::from_random(crate::Algorithm::Secp256k1).generate();
+        let key_pair = KeyGenConfig::from_random(crate::Algorithm::Secp256k1).generate();
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert_eq!(*signature.public_key(), *key_pair.public_key());
@@ -588,7 +588,7 @@ mod tests {
     #[test]
     #[cfg(feature = "rand")]
     fn create_signature_bls_normal() {
-        let key_pair = KeyPairGenConfig::from_random(crate::Algorithm::BlsNormal).generate();
+        let key_pair = KeyGenConfig::from_random(crate::Algorithm::BlsNormal).generate();
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert_eq!(*signature.public_key(), *key_pair.public_key());
@@ -598,7 +598,7 @@ mod tests {
     #[test]
     #[cfg(all(feature = "rand", any(feature = "std", feature = "ffi_import")))]
     fn create_signature_bls_small() {
-        let key_pair = KeyPairGenConfig::from_random(crate::Algorithm::BlsSmall).generate();
+        let key_pair = KeyGenConfig::from_random(crate::Algorithm::BlsSmall).generate();
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert_eq!(*signature.public_key(), *key_pair.public_key());

@@ -370,7 +370,7 @@ mod run {
 mod state {
     //! Module for peer stages.
 
-    use iroha_crypto::{KeyPair, KeyPairGenOption, Signature};
+    use iroha_crypto::{KeyGenOption, KeyPair, Signature};
     use iroha_primitives::addr::SocketAddr;
 
     use super::{cryptographer::Cryptographer, *};
@@ -418,7 +418,7 @@ mod state {
             }: Self,
         ) -> Result<SendKey<K, E>, crate::Error> {
             let key_exchange = K::new();
-            let (kx_local_pk, kx_local_sk) = key_exchange.keypair(KeyPairGenOption::Random);
+            let (kx_local_pk, kx_local_sk) = key_exchange.keypair(KeyGenOption::Random);
             let write_half = &mut connection.write;
             garbage::write(write_half).await?;
             write_half
@@ -464,7 +464,7 @@ mod state {
             }: Self,
         ) -> Result<SendKey<K, E>, crate::Error> {
             let key_exchange = K::new();
-            let (kx_local_pk, kx_local_sk) = key_exchange.keypair(KeyPairGenOption::Random);
+            let (kx_local_pk, kx_local_sk) = key_exchange.keypair(KeyGenOption::Random);
             let kx_local_pk_raw = K::encode_public_key(&kx_local_pk);
             let read_half = &mut connection.read;
             let kx_remote_pk = {

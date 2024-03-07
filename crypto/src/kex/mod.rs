@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 
 pub use x25519::X25519Sha256;
 
-use crate::{error::ParseError, KeyPairGenOption, SessionKey};
+use crate::{error::ParseError, KeyGenOption, SessionKey};
 
 /// A Generic trait for key exchange schemes. Each scheme provides a way to generate keys and
 /// do a diffie-hellman computation
@@ -24,14 +24,14 @@ pub trait KeyExchangeScheme {
     fn new() -> Self;
 
     /// Create new keypairs. If
-    /// - `options` is [`Random`](KeyPairGenOption::Random), the keys are generated ephemerally from the [`OsRng`](rand::rngs::OsRng)
-    /// - `options` is [`UseSeed`](KeyPairGenOption::UseSeed), the keys are generated ephemerally from the sha256 hash of the seed which is
+    /// - `options` is [`Random`](KeyGenOption::Random), the keys are generated ephemerally from the [`OsRng`](rand::rngs::OsRng)
+    /// - `options` is [`UseSeed`](KeyGenOption::UseSeed), the keys are generated ephemerally from the sha256 hash of the seed which is
     ///     then used to seed the [`ChaChaRng`](rand_chacha::ChaChaRng)
-    /// - `options` is [`FromPrivateKey`](KeyPairGenOption::FromPrivateKey), the corresponding public key is returned. This should be used for
+    /// - `options` is [`FromPrivateKey`](KeyGenOption::FromPrivateKey), the corresponding public key is returned. This should be used for
     ///     static Diffie-Hellman and loading a long-term key.
     fn keypair(
         &self,
-        options: KeyPairGenOption<Self::PrivateKey>,
+        options: KeyGenOption<Self::PrivateKey>,
     ) -> (Self::PublicKey, Self::PrivateKey);
 
     /// Compute the diffie-hellman shared secret.

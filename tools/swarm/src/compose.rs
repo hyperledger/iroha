@@ -8,7 +8,7 @@ use std::{
 };
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
-use iroha_crypto::{Algorithm, KeyPair, KeyPairGenConfig, PrivateKey, PublicKey};
+use iroha_crypto::{Algorithm, KeyGenConfig, KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{prelude::PeerId, ChainId};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use peer_generator::Peer;
@@ -466,10 +466,10 @@ impl DockerComposeBuilder<'_> {
 
 fn generate_key_pair(base_seed: Option<&[u8]>, additional_seed: &[u8]) -> KeyPair {
     let cfg = base_seed.map_or_else(
-        || KeyPairGenConfig::from_random(Algorithm::default()),
+        || KeyGenConfig::from_random(Algorithm::default()),
         |base| {
             let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
-            KeyPairGenConfig::from_seed(seed, Algorithm::default())
+            KeyGenConfig::from_seed(seed, Algorithm::default())
         },
     );
 
@@ -640,7 +640,7 @@ mod tests {
                 let mut map = BTreeMap::new();
 
                 let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-                let key_pair = KeyPairGenConfig::from_seed(
+                let key_pair = KeyGenConfig::from_seed(
                     vec![1, 5, 1, 2, 2, 3, 4, 1, 2, 3],
                     Algorithm::default(),
                 )
@@ -715,7 +715,7 @@ mod tests {
     fn empty_genesis_private_key_is_skipped_in_env() {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-        let key_pair = KeyPairGenConfig::from_seed(vec![0, 1, 2], Algorithm::default()).generate();
+        let key_pair = KeyGenConfig::from_seed(vec![0, 1, 2], Algorithm::default()).generate();
 
         let env: FullPeerEnv = CompactPeerEnv {
             chain_id,

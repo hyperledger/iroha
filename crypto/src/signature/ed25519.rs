@@ -5,7 +5,7 @@ use ed25519_dalek::Signature;
 use rand::rngs::OsRng;
 use signature::{Signer as _, Verifier as _};
 
-use crate::{Error, KeyPairGenOption, ParseError};
+use crate::{Error, KeyGenOption, ParseError};
 
 pub type PublicKey = ed25519_dalek::VerifyingKey;
 pub type PrivateKey = ed25519_dalek::SigningKey;
@@ -17,14 +17,12 @@ use alloc::{string::ToString as _, vec::Vec};
 pub struct Ed25519Sha512;
 
 impl Ed25519Sha512 {
-    pub fn keypair(option: KeyPairGenOption<PrivateKey>) -> (PublicKey, PrivateKey) {
+    pub fn keypair(option: KeyGenOption<PrivateKey>) -> (PublicKey, PrivateKey) {
         let signing_key = match option {
             #[cfg(feature = "rand")]
-            KeyPairGenOption::Random => PrivateKey::generate(&mut OsRng),
-            KeyPairGenOption::UseSeed(seed) => {
-                PrivateKey::generate(&mut super::rng_from_seed(seed))
-            }
-            KeyPairGenOption::FromPrivateKey(ref s) => PrivateKey::clone(s),
+            KeyGenOption::Random => PrivateKey::generate(&mut OsRng),
+            KeyGenOption::UseSeed(seed) => PrivateKey::generate(&mut super::rng_from_seed(seed)),
+            KeyGenOption::FromPrivateKey(ref s) => PrivateKey::clone(s),
         };
         (signing_key.verifying_key(), signing_key)
     }
@@ -61,7 +59,7 @@ mod test {
 
     use self::Ed25519Sha512;
     use super::*;
-    use crate::{signature::ed25519, Algorithm, KeyPairGenOption, PrivateKey, PublicKey};
+    use crate::{signature::ed25519, Algorithm, KeyGenOption, PrivateKey, PublicKey};
 
     const MESSAGE_1: &[u8] = b"This is a dummy message for use with tests";
     const SIGNATURE_1: &str = "451b5b8e8725321541954997781de51f4142e4a56bab68d24f6a6b92615de5eefb74134138315859a32c7cf5fe5a488bc545e2e08e5eedfd1fb10188d532d808";
@@ -69,7 +67,7 @@ mod test {
     const PUBLIC_KEY: &str = "27c96646f2d4632d4fc241f84cbc427fbc3ecaa95becba55088d6c7b81fc5bbf";
 
     fn key_pair_factory() -> (ed25519::PublicKey, ed25519::PrivateKey) {
-        Ed25519Sha512::keypair(KeyPairGenOption::FromPrivateKey(
+        Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(
             Ed25519Sha512::parse_private_key(&hex::decode(PRIVATE_KEY).unwrap()).unwrap(),
         ))
     }
@@ -77,7 +75,7 @@ mod test {
     #[test]
     #[ignore]
     fn create_new_keys() {
-        let (p, s) = Ed25519Sha512::keypair(KeyPairGenOption::Random);
+        let (p, s) = Ed25519Sha512::keypair(KeyGenOption::Random);
 
         println!("{s:?}");
         println!("{p:?}");
