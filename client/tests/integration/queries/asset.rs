@@ -30,7 +30,7 @@ fn find_asset_total_quantity() -> Result<()> {
         "white_rabbit@looking_glass".parse()?,
     ];
 
-    let keys = core::iter::repeat_with(KeyPair::generate)
+    let keys = core::iter::repeat_with(KeyPair::random)
         .take(accounts.len() - 1)
         .collect::<Vec<_>>();
 

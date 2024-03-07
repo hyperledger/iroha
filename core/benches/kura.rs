@@ -26,7 +26,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let xor_id = AssetDefinitionId::from_str("xor#test").expect("tested");
     let alice_xor_id = AssetId::new(xor_id, alice_id);
     let transfer = Transfer::asset_numeric(alice_xor_id, 10u32, bob_id);
-    let keypair = KeyPair::generate();
+    let keypair = KeyPair::random();
     let tx = TransactionBuilder::new(
         chain_id.clone(),
         AccountId::from_str("alice@wonderland").expect("checked"),
@@ -53,10 +53,10 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let topology = Topology::new(UniqueVec::new());
     let mut block = BlockBuilder::new(vec![tx], topology, Vec::new())
         .chain(0, &mut wsv)
-        .sign(&KeyPair::generate());
+        .sign(&KeyPair::random());
 
     for _ in 1..n_executors {
-        block = block.sign(&KeyPair::generate());
+        block = block.sign(&KeyPair::random());
     }
     let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
     block_store.create_files_if_they_do_not_exist().unwrap();

@@ -8,7 +8,7 @@ use std::{
 };
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
-use iroha_crypto::{Algorithm, KeyGenConfig, KeyPair, PrivateKey, PublicKey};
+use iroha_crypto::{Algorithm, KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{prelude::PeerId, ChainId};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use peer_generator::Peer;
@@ -465,15 +465,10 @@ impl DockerComposeBuilder<'_> {
 }
 
 fn generate_key_pair(base_seed: Option<&[u8]>, additional_seed: &[u8]) -> KeyPair {
-    let cfg = base_seed.map_or_else(
-        || KeyGenConfig::from_random(Algorithm::default()),
-        |base| {
-            let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
-            KeyGenConfig::from_seed(seed, Algorithm::default())
-        },
-    );
-
-    KeyPair::generate_with_config(cfg)
+    base_seed.map_or_else(KeyPair::random, |base| {
+        let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
+        KeyPair::from_seed(seed, Algorithm::default())
+    })
 }
 
 mod peer_generator {
@@ -601,7 +596,7 @@ mod tests {
 
     #[test]
     fn default_config_with_swarm_env_is_exhaustive() {
-        let keypair = KeyPair::generate();
+        let keypair = KeyPair::random();
         let env: TestEnv = CompactPeerEnv {
             chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
@@ -640,11 +635,8 @@ mod tests {
                 let mut map = BTreeMap::new();
 
                 let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-                let key_pair = KeyGenConfig::from_seed(
-                    vec![1, 5, 1, 2, 2, 3, 4, 1, 2, 3],
-                    Algorithm::default(),
-                )
-                .generate();
+                let key_pair =
+                    KeyPair::from_seed(vec![1, 5, 1, 2, 2, 3, 4, 1, 2, 3], Algorithm::default());
 
                 map.insert(
                     "iroha0".to_owned(),
@@ -715,7 +707,7 @@ mod tests {
     fn empty_genesis_private_key_is_skipped_in_env() {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-        let key_pair = KeyGenConfig::from_seed(vec![0, 1, 2], Algorithm::default()).generate();
+        let key_pair = KeyPair::from_seed(vec![0, 1, 2], Algorithm::default());
 
         let env: FullPeerEnv = CompactPeerEnv {
             chain_id,

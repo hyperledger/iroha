@@ -1,6 +1,6 @@
 use clap::{builder::PossibleValue, ArgGroup, ValueEnum};
 use color_eyre::eyre::WrapErr as _;
-use iroha_crypto::{Algorithm, KeyGenConfig, KeyPair, PrivateKey};
+use iroha_crypto::{Algorithm, KeyPair, PrivateKey};
 
 use super::*;
 
@@ -10,8 +10,6 @@ use super::*;
 #[command(group = ArgGroup::new("format").required(false))]
 pub struct Args {
     /// An algorithm to use for the key-pair generation
-    ///
-    /// If specified with `--private-key`,
     #[clap(default_value_t, long, short)]
     algorithm: AlgorithmArg,
     /// A private key to generate the key-pair from
@@ -84,21 +82,21 @@ impl Args {
     fn key_pair(self) -> color_eyre::Result<KeyPair> {
         let algorithm = self.algorithm.0;
 
-        let config = match (self.seed, self.private_key) {
-            (None, None) => KeyGenConfig::from_random(algorithm),
+        let key_pair = match (self.seed, self.private_key) {
+            (None, None) => KeyPair::random_with_algorithm(algorithm),
             (None, Some(private_key_hex)) => {
                 let private_key = PrivateKey::from_hex(algorithm, private_key_hex)
                     .wrap_err("Failed to decode private key")?;
-                KeyGenConfig::from_private_key(private_key)
+                KeyPair::from(private_key)
             }
             (Some(seed), None) => {
                 let seed: Vec<u8> = seed.as_bytes().into();
-                KeyGenConfig::from_seed(seed, algorithm)
+                KeyPair::from_seed(seed, algorithm)
             }
             _ => unreachable!("Clap group invariant"),
         };
 
-        Ok(config.generate())
+        Ok(key_pair)
     }
 }
 

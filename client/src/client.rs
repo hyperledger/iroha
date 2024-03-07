@@ -1552,7 +1552,7 @@ mod tests {
     fn config_factory() -> Config {
         Config {
             chain_id: ChainId::from("0"),
-            key_pair: KeyPair::generate(),
+            key_pair: KeyPair::random(),
             account_id: "alice@wonderland"
                 .parse()
                 .expect("This account ID should be valid"),

@@ -1651,7 +1651,7 @@ mod tests {
 
     fn world_with_test_account(authority: &AccountId) -> World {
         let domain_id = authority.domain_id.clone();
-        let (public_key, _) = KeyPair::generate().into();
+        let (public_key, _) = KeyPair::random().into();
         let account = Account::new(authority.clone(), public_key).build(authority);
         let mut domain = Domain::new(domain_id).build(authority);
         assert!(domain.add_account(account).is_none());
@@ -1714,7 +1714,7 @@ mod tests {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = Register::account(Account::new(
                 new_authority,
-                KeyPair::generate().into_raw_parts().0,
+                KeyPair::random().into_raw_parts().0,
             ));
             encode_hex(InstructionBox::from(register_isi))
         };
@@ -1805,7 +1805,7 @@ mod tests {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = Register::account(Account::new(
                 new_authority,
-                KeyPair::generate().into_raw_parts().0,
+                KeyPair::random().into_raw_parts().0,
             ));
             encode_hex(InstructionBox::from(register_isi))
         };
@@ -1857,7 +1857,7 @@ mod tests {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = Register::account(Account::new(
                 new_authority,
-                KeyPair::generate().into_raw_parts().0,
+                KeyPair::random().into_raw_parts().0,
             ));
             encode_hex(InstructionBox::from(register_isi))
         };

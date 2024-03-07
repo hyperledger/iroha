@@ -93,7 +93,7 @@ impl Root {
             ))
         }
 
-        let key_pair = KeyPair::new(public_key, private_key)
+        let key_pair = KeyPair::from_raw_parts(public_key, private_key)
             .wrap_err("failed to construct a key pair")
             .map_or_else(
                 |err| {

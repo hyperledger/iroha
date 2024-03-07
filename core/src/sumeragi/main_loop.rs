@@ -1196,7 +1196,7 @@ mod tests {
     ) -> (WorldStateView, Arc<Kura>, SignedBlock) {
         // Predefined world state
         let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
-        let alice_keys = KeyPair::generate();
+        let alice_keys = KeyPair::random();
         let account =
             Account::new(alice_id.clone(), alice_keys.public_key().clone()).build(&alice_id);
         let domain_id = "wonderland".parse().expect("Valid");
@@ -1273,7 +1273,7 @@ mod tests {
     async fn block_sync_invalid_block() {
         let chain_id = ChainId::from("0");
 
-        let leader_key_pair = KeyPair::generate();
+        let leader_key_pair = KeyPair::random();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
@@ -1293,7 +1293,7 @@ mod tests {
     async fn block_sync_invalid_soft_fork_block() {
         let chain_id = ChainId::from("0");
 
-        let leader_key_pair = KeyPair::generate();
+        let leader_key_pair = KeyPair::random();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
@@ -1325,7 +1325,7 @@ mod tests {
         let chain_id = ChainId::from("0");
 
         let topology = Topology::new(UniqueVec::new());
-        let leader_key_pair = KeyPair::generate();
+        let leader_key_pair = KeyPair::random();
         let (finalized_wsv, _, mut block) =
             create_data_for_test(&chain_id, &topology, &leader_key_pair);
         let wsv = finalized_wsv.clone();
@@ -1351,7 +1351,7 @@ mod tests {
     async fn block_sync_commit_block() {
         let chain_id = ChainId::from("0");
 
-        let leader_key_pair = KeyPair::generate();
+        let leader_key_pair = KeyPair::random();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
@@ -1367,7 +1367,7 @@ mod tests {
     async fn block_sync_replace_top_block() {
         let chain_id = ChainId::from("0");
 
-        let leader_key_pair = KeyPair::generate();
+        let leader_key_pair = KeyPair::random();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
@@ -1395,7 +1395,7 @@ mod tests {
     async fn block_sync_small_view_change_index() {
         let chain_id = ChainId::from("0");
 
-        let leader_key_pair = KeyPair::generate();
+        let leader_key_pair = KeyPair::random();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
@@ -1437,7 +1437,7 @@ mod tests {
         let chain_id = ChainId::from("0");
 
         let topology = Topology::new(UniqueVec::new());
-        let leader_key_pair = KeyPair::generate();
+        let leader_key_pair = KeyPair::random();
         let (finalized_wsv, _, mut block) =
             create_data_for_test(&chain_id, &topology, &leader_key_pair);
         let wsv = finalized_wsv.clone();

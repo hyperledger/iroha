@@ -453,7 +453,7 @@ mod valid {
                 commit_topology: UniqueVec::new(),
                 event_recommendations: Vec::new(),
             }))
-            .sign(&KeyPair::generate())
+            .sign(&KeyPair::random())
         }
 
         /// Check if block's signatures meet requirements for given topology.
@@ -525,7 +525,7 @@ mod valid {
 
         #[test]
         fn signature_verification_ok() {
-            let key_pairs = core::iter::repeat_with(KeyPair::generate)
+            let key_pairs = core::iter::repeat_with(KeyPair::random)
                 .take(7)
                 .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
@@ -545,7 +545,7 @@ mod valid {
 
         #[test]
         fn signature_verification_consensus_not_required_ok() {
-            let key_pairs = core::iter::repeat_with(KeyPair::generate)
+            let key_pairs = core::iter::repeat_with(KeyPair::random)
                 .take(1)
                 .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
@@ -567,7 +567,7 @@ mod valid {
         /// Check requirement of having at least $2f + 1$ signatures in $3f + 1$ network
         #[test]
         fn signature_verification_not_enough_signatures() {
-            let key_pairs = core::iter::repeat_with(KeyPair::generate)
+            let key_pairs = core::iter::repeat_with(KeyPair::random)
                 .take(7)
                 .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
@@ -593,7 +593,7 @@ mod valid {
         /// Check requirement of having leader signature
         #[test]
         fn signature_verification_miss_proxy_tail_signature() {
-            let key_pairs = core::iter::repeat_with(KeyPair::generate)
+            let key_pairs = core::iter::repeat_with(KeyPair::random)
                 .take(7)
                 .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
@@ -697,7 +697,7 @@ mod tests {
 
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let alice_keys = KeyPair::generate();
+        let alice_keys = KeyPair::random();
         let account =
             Account::new(alice_id.clone(), alice_keys.public_key().clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
@@ -740,7 +740,7 @@ mod tests {
 
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let alice_keys = KeyPair::generate();
+        let alice_keys = KeyPair::random();
         let account =
             Account::new(alice_id.clone(), alice_keys.public_key().clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
@@ -801,7 +801,7 @@ mod tests {
 
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let alice_keys = KeyPair::generate();
+        let alice_keys = KeyPair::random();
         let account =
             Account::new(alice_id.clone(), alice_keys.public_key().clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");

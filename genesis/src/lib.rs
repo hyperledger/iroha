@@ -310,7 +310,7 @@ impl<S> RawGenesisDomainBuilder<S> {
         self.transaction.isi.push(
             Register::account(Account::new(
                 account_id,
-                KeyPair::generate().into_raw_parts().0,
+                KeyPair::random().into_raw_parts().0,
             ))
             .into(),
         );
@@ -362,8 +362,8 @@ mod tests {
     fn load_new_genesis_block() -> Result<()> {
         let chain_id = ChainId::from("0");
 
-        let genesis_key_pair = KeyPair::generate();
-        let (alice_public_key, _) = KeyPair::generate().into();
+        let genesis_key_pair = KeyPair::random();
+        let (alice_public_key, _) = KeyPair::random().into();
 
         let _genesis_block = GenesisNetwork::new(
             RawGenesisBlockBuilder::default()
@@ -411,7 +411,7 @@ mod tests {
                 finished_genesis_block.transactions[0].isi[1],
                 Register::account(Account::new(
                     AccountId::new(domain_id.clone(), "alice".parse().unwrap()),
-                    KeyPair::generate().into_raw_parts().0,
+                    KeyPair::random().into_raw_parts().0,
                 ))
                 .into()
             );
@@ -419,7 +419,7 @@ mod tests {
                 finished_genesis_block.transactions[0].isi[2],
                 Register::account(Account::new(
                     AccountId::new(domain_id, "bob".parse().unwrap()),
-                    KeyPair::generate().into_raw_parts().0,
+                    KeyPair::random().into_raw_parts().0,
                 ))
                 .into()
             );
@@ -434,7 +434,7 @@ mod tests {
                 finished_genesis_block.transactions[0].isi[4],
                 Register::account(Account::new(
                     AccountId::new(domain_id, "Cheshire_Cat".parse().unwrap()),
-                    KeyPair::generate().into_raw_parts().0,
+                    KeyPair::random().into_raw_parts().0,
                 ))
                 .into()
             );

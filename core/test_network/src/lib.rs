@@ -52,7 +52,7 @@ pub fn get_chain_id() -> ChainId {
 
 /// Get a standardised key-pair from the hard-coded literals.
 pub fn get_key_pair() -> KeyPair {
-    KeyPair::new(
+    KeyPair::from_raw_parts(
         PublicKey::from_str(
             "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
         ).unwrap(),
@@ -468,7 +468,7 @@ impl Peer {
     /// - `api_address`
     /// * If keypair generation fails
     pub fn new() -> Result<Self> {
-        let key_pair = KeyPair::generate();
+        let key_pair = KeyPair::random();
         let p2p_address = local_unique_port()?;
         let api_address = local_unique_port()?;
         let id = PeerId::new(p2p_address.clone(), key_pair.public_key().clone());
@@ -759,7 +759,7 @@ impl TestConfig for Config {
         )
         .merge(RootPartial::from_env(&StdEnv).expect("test env variables should parse properly"));
 
-        let (public_key, private_key) = KeyPair::generate().into();
+        let (public_key, private_key) = KeyPair::random().into();
         layer.public_key.set(public_key);
         layer.private_key.set(private_key);
 

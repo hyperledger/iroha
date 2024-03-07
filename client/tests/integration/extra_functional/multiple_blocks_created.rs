@@ -30,7 +30,7 @@ fn long_multiple_blocks_created() -> Result<()> {
 
     let create_domain: InstructionBox = Register::domain(Domain::new("domain".parse()?)).into();
     let account_id: AccountId = "account@domain".parse()?;
-    let (public_key, _) = KeyPair::generate().into();
+    let (public_key, _) = KeyPair::random().into();
     let create_account = Register::account(Account::new(account_id.clone(), public_key)).into();
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =

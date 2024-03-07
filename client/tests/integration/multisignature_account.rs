@@ -20,7 +20,7 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let key_pair = KeyPair::generate();
+    let key_pair = KeyPair::random();
     let add_signatory = Mint::account_public_key(key_pair.public_key().clone(), account_id.clone());
 
     let instructions: [InstructionBox; 2] = [create_asset.into(), add_signatory.into()];

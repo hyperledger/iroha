@@ -80,7 +80,7 @@ fn create_million_accounts_directly() {
         let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
         let create_account = Register::account(Account::new(
             normal_account_id.clone(),
-            KeyPair::generate().into_raw_parts().0,
+            KeyPair::random().into_raw_parts().0,
         ))
         .into();
         if test_client

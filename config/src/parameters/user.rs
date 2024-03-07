@@ -138,7 +138,7 @@ impl Root {
         let mut emitter = Emitter::new();
 
         let key_pair =
-            KeyPair::new(self.public_key, self.private_key)
+            KeyPair::from_raw_parts(self.public_key, self.private_key)
                 .wrap_err("failed to construct a key pair from `iroha.public_key` and `iroha.private_key` configuration parameters")
             .map_or_else(|err| {
             emitter.emit(err);
@@ -318,7 +318,7 @@ impl Genesis {
                 public_key: self.public_key,
             }),
             (Some(private_key), Some(file), true) => Ok(actual::Genesis::Full {
-                key_pair: KeyPair::new(self.public_key, private_key)
+                key_pair: KeyPair::from_raw_parts(self.public_key, private_key)
                     .map_err(GenesisConfigError::from)?,
                 file,
             }),

@@ -563,12 +563,12 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::KeyGenConfig;
+    use crate::Algorithm;
 
     #[test]
     #[cfg(feature = "rand")]
     fn create_signature_ed25519() {
-        let key_pair = KeyGenConfig::from_random(crate::Algorithm::Ed25519).generate();
+        let key_pair = KeyPair::random_with_algorithm(crate::Algorithm::Ed25519);
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert_eq!(*signature.public_key(), *key_pair.public_key());
@@ -578,7 +578,7 @@ mod tests {
     #[test]
     #[cfg(feature = "rand")]
     fn create_signature_secp256k1() {
-        let key_pair = KeyGenConfig::from_random(crate::Algorithm::Secp256k1).generate();
+        let key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert_eq!(*signature.public_key(), *key_pair.public_key());
@@ -588,7 +588,7 @@ mod tests {
     #[test]
     #[cfg(feature = "rand")]
     fn create_signature_bls_normal() {
-        let key_pair = KeyGenConfig::from_random(crate::Algorithm::BlsNormal).generate();
+        let key_pair = KeyPair::random_with_algorithm(Algorithm::BlsNormal);
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert_eq!(*signature.public_key(), *key_pair.public_key());
@@ -598,7 +598,7 @@ mod tests {
     #[test]
     #[cfg(all(feature = "rand", any(feature = "std", feature = "ffi_import")))]
     fn create_signature_bls_small() {
-        let key_pair = KeyGenConfig::from_random(crate::Algorithm::BlsSmall).generate();
+        let key_pair = KeyPair::random_with_algorithm(Algorithm::BlsSmall);
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert_eq!(*signature.public_key(), *key_pair.public_key());
@@ -608,7 +608,7 @@ mod tests {
     #[test]
     #[cfg(all(feature = "rand", not(feature = "ffi_import")))]
     fn signatures_of_deduplication_by_public_key() {
-        let key_pair = KeyPair::generate();
+        let key_pair = KeyPair::random();
         let signatures = [
             SignatureOf::new(&key_pair, &1),
             SignatureOf::new(&key_pair, &2),
@@ -627,7 +627,7 @@ mod tests {
 
         let keys = 5;
         let signatures_per_key = 10;
-        let signatures = core::iter::repeat_with(KeyPair::generate)
+        let signatures = core::iter::repeat_with(KeyPair::random)
             .take(keys)
             .flat_map(|key| {
                 core::iter::repeat_with(move || key.clone())

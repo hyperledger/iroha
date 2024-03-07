@@ -280,7 +280,7 @@ pub enum Role {
 #[cfg(test)]
 macro_rules! test_peers {
     ($($id:literal),+$(,)?) => {{
-        let mut iter = ::core::iter::repeat_with(|| KeyPair::generate());
+        let mut iter = ::core::iter::repeat_with(|| KeyPair::random());
         test_peers![$($id),*: iter]
     }};
     ($($id:literal),+$(,)?: $key_pair_iter:expr) => {
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn filter_by_role() {
-        let key_pairs = core::iter::repeat_with(KeyPair::generate)
+        let key_pairs = core::iter::repeat_with(KeyPair::random)
             .take(7)
             .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn filter_by_role_empty() {
-        let key_pairs = core::iter::repeat_with(KeyPair::generate)
+        let key_pairs = core::iter::repeat_with(KeyPair::random)
             .take(7)
             .collect::<Vec<_>>();
         let peers = UniqueVec::new();
@@ -426,7 +426,7 @@ mod tests {
 
     #[test]
     fn filter_by_role_1() {
-        let key_pairs = core::iter::repeat_with(KeyPair::generate)
+        let key_pairs = core::iter::repeat_with(KeyPair::random)
             .take(7)
             .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn filter_by_role_2() {
-        let key_pairs = core::iter::repeat_with(KeyPair::generate)
+        let key_pairs = core::iter::repeat_with(KeyPair::random)
             .take(7)
             .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn filter_by_role_3() {
-        let key_pairs = core::iter::repeat_with(KeyPair::generate)
+        let key_pairs = core::iter::repeat_with(KeyPair::random)
             .take(7)
             .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();

@@ -117,7 +117,7 @@ fn account_registration_test(config: Config) -> Result<(), Error> {
 
     // TODO: consider getting a key from white_rabbit
     // Generate a new public key for a new account
-    let (public_key, _) = KeyPair::generate().into();
+    let (public_key, _) = KeyPair::random().into();
 
     // #region register_account_generate
     // Generate a new account
