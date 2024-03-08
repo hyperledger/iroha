@@ -560,7 +560,7 @@ pub mod numerical {
     //! Numerical predicates.
     use core::cmp::{max, min};
 
-    use iroha_primitives::fixed::Fixed;
+    use iroha_primitives::numeric::Numeric;
 
     use super::*;
 
@@ -622,8 +622,7 @@ pub mod numerical {
     impl Copy for Interval<u32> {}
     impl Copy for Interval<u64> {}
 
-    /// General purpose predicate for working with Iroha numerical
-    /// types.
+    /// General purpose predicate for working with Iroha numerical type.
     ///
     /// # Type checking
     ///
@@ -632,16 +631,12 @@ pub mod numerical {
     /// variant don't match defaults to `false`.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum SemiRange {
-        /// 32-bit
-        U32(SemiInterval<u32>),
-        /// 128-bit
-        U128(SemiInterval<u128>),
-        /// Fixed-precision
-        Fixed(SemiInterval<Fixed>),
+        /// Numeric
+        Numeric(SemiInterval<Numeric>),
     }
 
     /// General-purpose predicate for working with Iroha numerical
-    /// types, both-ends inclusive variant.
+    /// type, both-ends inclusive variant.
     ///
     /// # Type checking
     ///
@@ -650,12 +645,8 @@ pub mod numerical {
     /// variant don't match defaults to `false`.
     #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum Range {
-        /// 32-bit
-        U32(Interval<u32>),
-        /// 128-bit
-        U128(Interval<u128>),
-        /// Fixed-precision
-        Fixed(Interval<Fixed>),
+        /// Numeric
+        Numeric(Interval<Numeric>),
     }
 
     /// A trait to mark objects which should be treated as bounded unsigned values.
@@ -685,9 +676,9 @@ pub mod numerical {
         const ZERO: Self = 0_u128;
     }
 
-    impl UnsignedMarker for Fixed {
-        const MAX: Self = Fixed::MAX; // Inherent impl
-        const ZERO: Self = Fixed::ZERO; // Inherent impl
+    impl UnsignedMarker for Numeric {
+        const MAX: Self = Numeric::MAX;
+        const ZERO: Self = Numeric::ZERO;
     }
 
     impl<T: Copy + Ord + UnsignedMarker> SemiInterval<T> {
@@ -762,17 +753,8 @@ pub mod numerical {
         #[inline]
         fn applies(&self, input: &Value) -> Self::EvaluatesTo {
             match input {
-                Value::Numeric(NumericValue::U32(quantity)) => match self {
-                    SemiRange::U32(predicate) => predicate.applies(*quantity),
-                    _ => false,
-                },
-                Value::Numeric(NumericValue::U128(big_quantity)) => match self {
-                    SemiRange::U128(predicate) => predicate.applies(*big_quantity),
-                    _ => false,
-                },
-                Value::Numeric(NumericValue::Fixed(fixd)) => match self {
-                    SemiRange::Fixed(predicate) => predicate.applies(*fixd),
-                    _ => false,
+                Value::Numeric(quantity) => match self {
+                    SemiRange::Numeric(predicate) => predicate.applies(*quantity),
                 },
                 _ => false,
             }
@@ -785,17 +767,8 @@ pub mod numerical {
         #[inline]
         fn applies(&self, input: &Value) -> Self::EvaluatesTo {
             match input {
-                Value::Numeric(NumericValue::U32(quantity)) => match self {
-                    Range::U32(predicate) => predicate.applies(*quantity),
-                    _ => false,
-                },
-                Value::Numeric(NumericValue::U128(big_quantity)) => match self {
-                    Range::U128(predicate) => predicate.applies(*big_quantity),
-                    _ => false,
-                },
-                Value::Numeric(NumericValue::Fixed(fixd)) => match self {
-                    Range::Fixed(predicate) => predicate.applies(*fixd),
-                    _ => false,
+                Value::Numeric(quantity) => match self {
+                    Range::Numeric(predicate) => predicate.applies(*quantity),
                 },
                 _ => false,
             }
@@ -806,165 +779,83 @@ pub mod numerical {
     mod tests {
         #![allow(clippy::print_stdout, clippy::use_debug)]
 
-        use iroha_primitives::fixed::Fixed;
+        use iroha_primitives::numeric::numeric;
 
         use super::*;
 
         #[test]
-        fn semi_interval_semantics_u32() {
-            use NumericValue::U32;
-            use Value::Numeric;
-            let pred = SemiRange::U32((1_u32, 100_u32).into());
+        fn semi_interval_semantics_numeric() {
+            let pred = SemiRange::Numeric((numeric!(1), numeric!(100)).into());
             println!("semi_interval range predicate: {pred:?}");
 
-            assert!(pred.applies(&Numeric(U32(1_u32))));
-            assert!(!pred.applies(&Numeric(U32(0_u32))));
-            assert!(pred.applies(&Numeric(U32(99_u32))));
-            assert!(!pred.applies(&Numeric(U32(100_u32))));
+            assert!(pred.applies(&Value::Numeric(numeric!(1))));
+            assert!(!pred.applies(&Value::Numeric(numeric!(0))));
+            assert!(pred.applies(&Value::Numeric(numeric!(99))));
+            assert!(!pred.applies(&Value::Numeric(numeric!(100))));
+            assert!(!pred.applies(&Value::Numeric(numeric!(0.99))));
+            assert!(pred.applies(&Value::Numeric(numeric!(99.9999))));
+            assert!(pred.applies(&Value::Numeric(numeric!(99.9_999_999_999))));
         }
 
         #[test]
-        fn semi_interval_semantics_u128() {
-            use NumericValue::U128;
-            use Value::Numeric;
-            let pred = SemiRange::U128((1_u128, 100_u128).into());
-
-            assert!(pred.applies(&Numeric(U128(1_u128))));
-            assert!(!pred.applies(&Numeric(U128(0_u128))));
-            assert!(pred.applies(&Numeric(U128(99_u128))));
-            assert!(!pred.applies(&Numeric(U128(100_u128))));
-        }
-
-        #[test]
-        fn semi_interval_semantics_fixed() -> Result<(), fixed::FixedPointOperationError> {
-            let pred =
-                SemiRange::Fixed((Fixed::try_from(1_f64)?, Fixed::try_from(100_f64)?).into());
-
-            assert!(
-                pred.applies(&Value::Numeric(NumericValue::Fixed(Fixed::try_from(
-                    1_f64
-                )?)))
-            );
-            assert!(
-                !pred.applies(&Value::Numeric(NumericValue::Fixed(Fixed::try_from(
-                    0.99_f64
-                )?)))
-            );
-            assert!(
-                pred.applies(&Value::Numeric(NumericValue::Fixed(Fixed::try_from(
-                    99.9999_f64
-                )?)))
-            );
-            assert!(
-                !pred.applies(&Value::Numeric(NumericValue::Fixed(Fixed::try_from(
-                    99.999_999_999_9_f64
-                )?)))
-            ); // Rounding is still a problem.
-            Ok(())
-        }
-
-        #[test]
-        fn interval_semantics_u32() {
-            use NumericValue::U32;
-            use Value::Numeric;
+        fn interval_semantics_numeric() {
             {
-                let pred = Range::U32((1_u32, 100_u32).into());
+                let pred = Range::Numeric((numeric!(1), numeric!(100)).into());
                 println!("semi_interval range predicate: {pred:?}");
 
-                assert!(pred.applies(&Numeric(U32(1_u32))));
-                assert!(!pred.applies(&Numeric(U32(0_u32))));
-                assert!(pred.applies(&Numeric(U32(100_u32))));
-                assert!(!pred.applies(&Numeric(U32(101_u32))));
+                assert!(pred.applies(&Value::Numeric(numeric!(1))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(0))));
+                assert!(pred.applies(&Value::Numeric(numeric!(100))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(101))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(0.99))));
+                assert!(pred.applies(&Value::Numeric(numeric!(99.9999))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(100.000000001))));
             }
+
             {
-                let pred = Range::U32((127_u32, 127_u32).into());
-                assert!(pred.applies(&Numeric(U32(127_u32))));
-                assert!(!pred.applies(&Numeric(U32(126_u32))));
-                assert!(!pred.applies(&Numeric(U32(128_u32))));
+                let pred = Range::Numeric((numeric!(127), numeric!(127)).into());
+                assert!(pred.applies(&Value::Numeric(numeric!(127))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(126))));
+                assert!(!pred.applies(&Value::Numeric(numeric!(128))));
             }
-        }
-
-        #[test]
-        fn interval_semantics_u128() {
-            use NumericValue::U128;
-            use Value::Numeric;
-            let pred = Range::U128((1_u128, 100_u128).into());
-
-            assert!(pred.applies(&Numeric(U128(1_u128))));
-            assert!(!pred.applies(&Numeric(U128(0_u128))));
-            assert!(pred.applies(&Numeric(U128(100_u128))));
-            assert!(!pred.applies(&Numeric(U128(101_u128))));
-        }
-
-        #[test]
-        fn interval_semantics_fixed() -> Result<(), fixed::FixedPointOperationError> {
-            let pred = Range::Fixed((Fixed::try_from(1_f64)?, Fixed::try_from(100_f64)?).into());
-
-            assert!(
-                pred.applies(&Value::Numeric(NumericValue::Fixed(Fixed::try_from(
-                    1_f64
-                )?)))
-            );
-            assert!(
-                !pred.applies(&Value::Numeric(NumericValue::Fixed(Fixed::try_from(
-                    0.99_f64
-                )?)))
-            );
-            assert!(
-                pred.applies(&Value::Numeric(NumericValue::Fixed(Fixed::try_from(
-                    99.9999_f64
-                )?)))
-            );
-            assert!(
-                !pred.applies(&Value::Numeric(NumericValue::Fixed(Fixed::try_from(
-                    100.000_000_001_f64
-                )?)))
-            ); // Rounding is still a problem.
-            Ok(())
         }
 
         #[test]
         fn invalid_types_false() {
             {
-                let pred = SemiRange::U32(SemiInterval::ending(100_u32));
-                assert!(!pred.applies(&0_u128.to_value()));
-                assert!(!pred.applies(&Fixed::ZERO.to_value()));
+                let pred = SemiRange::Numeric(SemiInterval::ending(numeric!(100)));
                 assert!(!pred.applies(&Value::Vec(Vec::new())));
             }
             {
-                let pred = Range::U32(Interval::ending(100_u32));
-                assert!(!pred.applies(&0_u128.to_value()));
-                assert!(!pred.applies(&Fixed::ZERO.to_value()));
+                let pred = Range::Numeric(Interval::ending(numeric!(100)));
                 assert!(!pred.applies(&Value::Vec(Vec::new())));
             }
-            let pred = SemiRange::U128(SemiInterval::starting(0_u128));
-            assert!(!pred.applies(&0_u32.to_value()));
         }
 
         #[test]
         fn upper_bounds() {
             {
-                let pred = SemiRange::Fixed(SemiInterval::starting(Fixed::ZERO));
-                // Technically the maximum itself is never included in the range.
-                assert!(!pred.applies(&Fixed::MAX.to_value()));
+                let pred = SemiRange::Numeric(SemiInterval::starting(Numeric::ZERO));
+                // Technically the maximum itself is never included in the semi range.
+                assert!(!pred.applies(&Numeric::MAX.to_value()));
             }
             {
-                let pred = SemiRange::U32(SemiInterval::ending(100_u32));
-                assert!(pred.applies(&0_u32.to_value()));
-                assert!(pred.applies(&99_u32.to_value()));
-                assert!(!pred.applies(&100_u32.to_value()));
+                let pred = SemiRange::Numeric(SemiInterval::ending(numeric!(100)));
+                assert!(pred.applies(&numeric!(1).to_value()));
+                assert!(pred.applies(&numeric!(99).to_value()));
+                assert!(!pred.applies(&numeric!(100).to_value()));
             }
 
             {
-                let pred = Range::Fixed(Interval::starting(Fixed::ZERO));
-                // Technically the maximum itself is never included in the range.
-                assert!(pred.applies(&Fixed::MAX.to_value()));
+                let pred = Range::Numeric(Interval::starting(Numeric::ZERO));
+                // Technically the maximum itself is included in the range.
+                assert!(pred.applies(&Numeric::MAX.to_value()));
             }
             {
-                let pred = Range::U32(Interval::ending(100_u32));
-                assert!(pred.applies(&0_u32.to_value()));
-                assert!(pred.applies(&100_u32.to_value()));
-                assert!(!pred.applies(&101_u32.to_value()));
+                let pred = Range::Numeric(Interval::ending(numeric!(100)));
+                assert!(pred.applies(&numeric!(1).to_value()));
+                assert!(pred.applies(&numeric!(100).to_value()));
+                assert!(!pred.applies(&numeric!(101).to_value()));
             }
         }
     }
@@ -1151,7 +1042,10 @@ pub mod value {
     #[cfg(test)]
     mod test {
         use iroha_crypto::KeyPair;
-        use iroha_primitives::addr::socket_addr;
+        use iroha_primitives::{
+            addr::socket_addr,
+            numeric::{numeric, Numeric},
+        };
         use peer::Peer;
         use prelude::Metadata;
 
@@ -1201,9 +1095,11 @@ pub mod value {
                     })))
                 );
             }
-            let pred = ValuePredicate::Numerical(numerical::SemiRange::U32((0_u32, 42_u32).into()));
+            let pred = ValuePredicate::Numerical(numerical::SemiRange::Numeric(
+                (numeric!(0), numeric!(42)).into(),
+            ));
             assert!(!pred.applies(&Value::String("alice".to_owned())));
-            assert!(pred.applies(&41_u32.to_value()));
+            assert!(pred.applies(&numeric!(41).to_value()));
         }
 
         #[test]

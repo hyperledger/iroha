@@ -67,10 +67,9 @@ fn query_requests(criterion: &mut Criterion) {
     let create_account = Register::account(Account::new(account_id.clone(), public_key));
     let asset_definition_id = AssetDefinitionId::new(domain_id, "xor".parse().expect("Valid"));
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
-    let quantity: u32 = 200;
-    let mint_asset = Mint::asset_quantity(
-        quantity,
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+    let mint_asset = Mint::asset_numeric(
+        200u32,
         AssetId::new(asset_definition_id, account_id.clone()),
     );
     let client_config = iroha_client::samples::get_client_config(
@@ -181,9 +180,8 @@ fn instruction_submits(criterion: &mut Criterion) {
     let mut failures_count = 0;
     let _dropable = group.bench_function("instructions", |b| {
         b.iter(|| {
-            let quantity: u32 = 200;
-            let mint_asset = Mint::asset_quantity(
-                quantity,
+            let mint_asset = Mint::asset_numeric(
+                200u32,
                 AssetId::new(asset_definition_id.clone(), account_id.clone()),
             );
             match iroha_client.submit(mint_asset) {

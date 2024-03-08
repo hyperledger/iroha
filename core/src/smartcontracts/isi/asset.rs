@@ -6,7 +6,6 @@ use iroha_data_model::{
     prelude::*,
     query::error::{FindError, QueryExecutionFail},
 };
-use iroha_primitives::{fixed::Fixed, CheckedOp, IntoMetric};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;
@@ -33,7 +32,7 @@ impl Registrable for NewAssetDefinition {
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
-    use iroha_data_model::{asset::AssetValue, isi::error::MintabilityError, metadata::Metadata};
+    use iroha_data_model::{asset::AssetValueType, isi::error::MintabilityError};
 
     use super::*;
     use crate::smartcontracts::account::isi::forbid_minting;
@@ -43,11 +42,15 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_id = self.object_id;
 
-            assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
+            assert_asset_type(
+                &asset_id.definition_id,
+                wsv,
+                expected_asset_value_type_store,
+            )?;
 
             // Increase `Store` asset total quantity by 1 if asset was not present earlier
             if matches!(wsv.asset(&asset_id), Err(QueryExecutionFail::Find(_))) {
-                wsv.increase_asset_total_amount(&asset_id.definition_id, 1_u32)?;
+                wsv.increase_asset_total_amount(&asset_id.definition_id, Numeric::ONE)?;
             }
 
             let asset_metadata_limits = wsv.config.asset_metadata_limits;
@@ -80,7 +83,11 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_id = self.object_id;
 
-            assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
+            assert_asset_type(
+                &asset_id.definition_id,
+                wsv,
+                expected_asset_value_type_store,
+            )?;
 
             let value = {
                 let asset = wsv.asset_mut(&asset_id)?;
@@ -107,7 +114,11 @@ pub mod isi {
         #[metrics(+"transfer_store")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_id = self.source_id;
-            assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
+            assert_asset_type(
+                &asset_id.definition_id,
+                wsv,
+                expected_asset_value_type_store,
+            )?;
             let account_id = asset_id.account_id.clone();
 
             let asset = wsv.account_mut(&account_id).and_then(|account| {
@@ -134,200 +145,97 @@ pub mod isi {
         }
     }
 
-    macro_rules! impl_mint {
-        ($ty:ty, $metrics:literal) => {
-            impl InnerMint for $ty {}
+    impl Execute for Mint<Numeric, Asset> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+            let asset_id = self.destination_id;
 
-            impl Execute for Mint<$ty, Asset> {
-                #[metrics(+$metrics)]
-                fn execute(
-                    self,
-                    authority: &AccountId,
-                    wsv: &mut WorldStateView,
-                ) -> Result<(), Error> {
-                    <$ty as InnerMint>::execute(self, authority, wsv)
-                }
-            }
-        };
-    }
-
-    macro_rules! impl_burn {
-        ($ty:ty, $metrics:literal) => {
-            impl InnerBurn for $ty {}
-
-            impl Execute for Burn<$ty, Asset> {
-                #[metrics(+$metrics)]
-                fn execute(
-                    self,
-                    authority: &AccountId,
-                    wsv: &mut WorldStateView,
-                ) -> Result<(), Error> {
-                    <$ty as InnerBurn>::execute(self, authority, wsv)
-                }
-            }
-        };
-    }
-
-    macro_rules! impl_transfer {
-        ($ty:ty, $metrics:literal) => {
-            impl InnerTransfer for $ty {}
-
-            impl Execute for Transfer<Asset, $ty, Account> {
-                #[metrics(+$metrics)]
-                fn execute(
-                    self,
-                    authority: &AccountId,
-                    wsv: &mut WorldStateView,
-                ) -> Result<(), Error> {
-                    <$ty as InnerTransfer>::execute(self, authority, wsv)
-                }
-            }
-        };
-    }
-
-    impl_mint!(u32, "mint_qty");
-    impl_mint!(u128, "mint_big_qty");
-    impl_mint!(Fixed, "mint_fixed");
-
-    impl_burn!(u32, "burn_qty");
-    impl_burn!(u128, "burn_big_qty");
-    impl_burn!(Fixed, "burn_fixed");
-
-    impl_transfer!(u32, "transfer_qty");
-    impl_transfer!(u128, "transfer_big_qty");
-    impl_transfer!(Fixed, "transfer_fixed");
-
-    /// Trait for blanket mint implementation.
-    trait InnerMint {
-        fn execute(
-            mint: Mint<Self, Asset>,
-            _authority: &AccountId,
-            wsv: &mut WorldStateView,
-        ) -> Result<(), Error>
-        where
-            Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
-            AssetValue: From<Self> + TryAsMut<Self>,
-            NumericValue: From<Self> + TryAsMut<Self>,
-            eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>
-                + From<<NumericValue as TryAsMut<Self>>::Error>,
-            Value: From<Self>,
-        {
-            let asset_id = mint.destination_id;
-
-            assert_asset_type(
+            let asset_definition = assert_asset_type(
                 &asset_id.definition_id,
                 wsv,
-                <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
+                expected_asset_value_type_numeric,
             )?;
-            assert_can_mint(
-                &asset_id.definition_id,
-                wsv,
-                <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
-            )?;
-            let asset = wsv.asset_or_insert(
-                asset_id.clone(),
-                <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
-            )?;
-            let new_quantity = {
-                let quantity: &mut Self = asset
-                    .try_as_mut()
-                    .map_err(eyre::Error::from)
-                    .map_err(|e| Error::Conversion(e.to_string()))?;
-                *quantity = quantity
-                    .checked_add(mint.object)
-                    .ok_or(MathError::Overflow)?;
-                mint.object
-            };
+            assert_numeric_spec(&self.object, &asset_definition)?;
+
+            assert_can_mint(&asset_definition, wsv)?;
+            let asset = wsv.asset_or_insert(asset_id.clone(), Numeric::ZERO)?;
+            let quantity: &mut Numeric = asset
+                .try_as_mut()
+                .map_err(eyre::Error::from)
+                .map_err(|e| Error::Conversion(e.to_string()))?;
+            *quantity = quantity
+                .checked_add(self.object)
+                .ok_or(MathError::Overflow)?;
 
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.new_tx_amounts.lock().push(new_quantity.into_metric());
-                wsv.increase_asset_total_amount(&asset_id.definition_id, mint.object)?;
+                wsv.new_tx_amounts.lock().push(self.object.to_f64());
+                wsv.increase_asset_total_amount(&asset_id.definition_id, self.object)?;
             }
 
             wsv.emit_events(Some(AssetEvent::Added(AssetChanged {
                 asset_id,
-                amount: mint.object.into(),
+                amount: self.object.into(),
             })));
 
             Ok(())
         }
     }
 
-    /// Trait for blanket burn implementation.
-    trait InnerBurn {
-        fn execute(
-            burn: Burn<Self, Asset>,
-            _authority: &AccountId,
-            wsv: &mut WorldStateView,
-        ) -> Result<(), Error>
-        where
-            Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
-            AssetValue: From<Self> + TryAsMut<Self>,
-            NumericValue: From<Self> + TryAsMut<Self>,
-            eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>
-                + From<<NumericValue as TryAsMut<Self>>::Error>,
-            Value: From<Self>,
-        {
-            let asset_id = burn.destination_id;
+    impl Execute for Burn<Numeric, Asset> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+            let asset_id = self.destination_id;
 
-            assert_asset_type(
+            let asset_definition = assert_asset_type(
                 &asset_id.definition_id,
                 wsv,
-                <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
+                expected_asset_value_type_numeric,
             )?;
-            let burn_quantity = {
-                let account = wsv.account_mut(&asset_id.account_id)?;
-                let asset = account
-                    .assets
-                    .get_mut(&asset_id)
-                    .ok_or_else(|| FindError::Asset(asset_id.clone()))?;
-                let quantity: &mut Self = asset
-                    .try_as_mut()
-                    .map_err(eyre::Error::from)
-                    .map_err(|e| Error::Conversion(e.to_string()))?;
-                *quantity = quantity
-                    .checked_sub(burn.object)
-                    .ok_or(MathError::NotEnoughQuantity)?;
-                if asset.value.is_zero_value() {
-                    assert!(account.remove_asset(&asset_id).is_some());
-                }
-                burn.object
-            };
+            assert_numeric_spec(&self.object, &asset_definition)?;
+
+            let account = wsv.account_mut(&asset_id.account_id)?;
+            let asset = account
+                .assets
+                .get_mut(&asset_id)
+                .ok_or_else(|| FindError::Asset(asset_id.clone()))?;
+            let quantity: &mut Numeric = asset
+                .try_as_mut()
+                .map_err(eyre::Error::from)
+                .map_err(|e| Error::Conversion(e.to_string()))?;
+            *quantity = quantity
+                .checked_sub(self.object)
+                .ok_or(MathError::NotEnoughQuantity)?;
+
+            if asset.value.is_zero_value() {
+                assert!(account.remove_asset(&asset_id).is_some());
+            }
 
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.new_tx_amounts.lock().push(burn_quantity.into_metric());
-                wsv.decrease_asset_total_amount(&asset_id.definition_id, burn.object)?;
+                wsv.new_tx_amounts.lock().push(self.object.to_f64());
+                wsv.decrease_asset_total_amount(&asset_id.definition_id, self.object)?;
             }
 
             wsv.emit_events(Some(AssetEvent::Removed(AssetChanged {
                 asset_id: asset_id.clone(),
-                amount: burn.object.into(),
+                amount: self.object.into(),
             })));
 
             Ok(())
         }
     }
 
-    /// Trait for blanket transfer implementation.
-    trait InnerTransfer {
-        fn execute(
-            transfer: Transfer<Asset, Self, Account>,
-            _authority: &AccountId,
-            wsv: &mut WorldStateView,
-        ) -> Result<(), Error>
-        where
-            Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
-            AssetValue: From<Self> + TryAsMut<Self>,
-            eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>,
-            Value: From<Self>,
-        {
-            let source_id = transfer.source_id;
-            let destination_id = AssetId::new(
-                source_id.definition_id.clone(),
-                transfer.destination_id.clone(),
-            );
+    impl Execute for Transfer<Asset, Numeric, Account> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+            let source_id = self.source_id;
+            let destination_id =
+                AssetId::new(source_id.definition_id.clone(), self.destination_id.clone());
+
+            let asset_definition = assert_asset_type(
+                &source_id.definition_id,
+                wsv,
+                expected_asset_value_type_numeric,
+            )?;
+            assert_numeric_spec(&self.object, &asset_definition)?;
 
             {
                 let account = wsv.account_mut(&source_id.account_id)?;
@@ -335,48 +243,42 @@ pub mod isi {
                     .assets
                     .get_mut(&source_id)
                     .ok_or_else(|| FindError::Asset(source_id.clone()))?;
-                let quantity: &mut Self = asset
+                let quantity: &mut Numeric = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
-                    .checked_sub(transfer.object)
+                    .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
                 if asset.value.is_zero_value() {
                     assert!(account.remove_asset(&source_id).is_some());
                 }
             }
 
-            let destination_asset = wsv.asset_or_insert(
-                destination_id.clone(),
-                <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
-            )?;
-            let transfer_quantity = {
-                let quantity: &mut Self = destination_asset
+            let destination_asset = wsv.asset_or_insert(destination_id.clone(), Numeric::ZERO)?;
+            {
+                let quantity: &mut Numeric = destination_asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
-                    .checked_add(transfer.object)
+                    .checked_add(self.object)
                     .ok_or(MathError::Overflow)?;
-                transfer.object
-            };
+            }
 
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.new_tx_amounts
-                    .lock()
-                    .push(transfer_quantity.into_metric());
+                wsv.new_tx_amounts.lock().push(self.object.to_f64());
             }
 
             wsv.emit_events([
                 AssetEvent::Removed(AssetChanged {
                     asset_id: source_id,
-                    amount: transfer.object.into(),
+                    amount: self.object.into(),
                 }),
                 AssetEvent::Added(AssetChanged {
                     asset_id: destination_id,
-                    amount: transfer.object.into(),
+                    amount: self.object.into(),
                 }),
             ]);
 
@@ -384,63 +286,79 @@ pub mod isi {
         }
     }
 
-    /// Trait for collecting fields associated with Iroha Special Instructions for assets:
-    /// - asset value type
-    /// - default asset value
-    trait AssetInstructionInfo {
-        const EXPECTED_VALUE_TYPE: AssetValueType;
-        const DEFAULT_ASSET_VALUE: Self;
-    }
-
-    macro_rules! impl_asset_instruction_info {
-        ($ty:ty, $expected_value_type:expr, $default_value:expr) => {
-            impl AssetInstructionInfo for $ty {
-                const EXPECTED_VALUE_TYPE: AssetValueType = $expected_value_type;
-                const DEFAULT_ASSET_VALUE: Self = $default_value;
+    /// Assert that asset type is Numeric and that it satisfy asset definition spec
+    pub(crate) fn assert_numeric_spec(
+        object: &Numeric,
+        asset_definition: &AssetDefinition,
+    ) -> Result<NumericSpec, Error> {
+        let object_spec = NumericSpec::fractional(object.scale());
+        let object_asset_value_type = AssetValueType::Numeric(object_spec);
+        let asset_definition_spec = match asset_definition.value_type {
+            AssetValueType::Numeric(spec) => spec,
+            other => {
+                return Err(TypeError::from(Mismatch {
+                    expected: other,
+                    actual: object_asset_value_type,
+                })
+                .into())
             }
         };
+        asset_definition_spec.check(object).map_err(|_| {
+            TypeError::from(Mismatch {
+                expected: AssetValueType::Numeric(asset_definition_spec),
+                actual: object_asset_value_type,
+            })
+        })?;
+        Ok(asset_definition_spec)
     }
-
-    impl_asset_instruction_info!(u32, AssetValueType::Quantity, 0_u32);
-    impl_asset_instruction_info!(u128, AssetValueType::BigQuantity, 0_u128);
-    impl_asset_instruction_info!(Fixed, AssetValueType::Fixed, Fixed::ZERO);
 
     /// Asserts that asset definition with [`definition_id`] has asset type [`expected_value_type`].
     pub(crate) fn assert_asset_type(
         definition_id: &AssetDefinitionId,
         wsv: &WorldStateView,
-        expected_value_type: AssetValueType,
+        expected_value_type: impl Fn(&AssetValueType) -> Result<(), TypeError>,
     ) -> Result<AssetDefinition, Error> {
         let asset_definition = wsv.asset_definition(definition_id)?;
-        if asset_definition.value_type == expected_value_type {
-            Ok(asset_definition)
-        } else {
-            Err(TypeError::from(Mismatch {
-                expected: expected_value_type,
-                actual: asset_definition.value_type,
-            })
-            .into())
-        }
+        expected_value_type(&asset_definition.value_type)
+            .map(|()| asset_definition)
+            .map_err(Into::into)
     }
 
     /// Assert that this asset is `mintable`.
     fn assert_can_mint(
-        definition_id: &AssetDefinitionId,
+        asset_definition: &AssetDefinition,
         wsv: &mut WorldStateView,
-        expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
-        let asset_definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
         match asset_definition.mintable {
             Mintable::Infinitely => Ok(()),
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
             Mintable::Once => {
-                let asset_definition = wsv.asset_definition_mut(definition_id)?;
+                let asset_definition_id = asset_definition.id.clone();
+                let asset_definition = wsv.asset_definition_mut(&asset_definition_id)?;
                 forbid_minting(asset_definition)?;
                 wsv.emit_events(Some(AssetDefinitionEvent::MintabilityChanged(
-                    definition_id.clone(),
+                    asset_definition_id,
                 )));
                 Ok(())
             }
+        }
+    }
+
+    pub(crate) fn expected_asset_value_type_numeric(
+        asset_value_type: &AssetValueType,
+    ) -> Result<(), TypeError> {
+        match asset_value_type {
+            AssetValueType::Numeric(_) => Ok(()),
+            other => Err(TypeError::NumericAssetValueTypeExpected(*other)),
+        }
+    }
+
+    pub(crate) fn expected_asset_value_type_store(
+        asset_value_type: &AssetValueType,
+    ) -> Result<(), TypeError> {
+        match asset_value_type {
+            AssetValueType::Store => Ok(()),
+            other => Err(TypeError::NumericAssetValueTypeExpected(*other)),
         }
     }
 }
@@ -449,7 +367,7 @@ pub mod isi {
 pub mod query {
     use eyre::Result;
     use iroha_data_model::{
-        asset::{Asset, AssetDefinition},
+        asset::{Asset, AssetDefinition, AssetValue},
         query::{
             asset::FindAssetDefinitionById, error::QueryExecutionFail as Error, MetadataValue,
         },
@@ -638,7 +556,7 @@ pub mod query {
 
     impl ValidQuery for FindAssetQuantityById {
         #[metrics(+"find_asset_quantity_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<NumericValue, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Numeric, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
             let value = wsv
@@ -651,15 +569,19 @@ pub mod query {
                     }
                 })?
                 .value;
-            let value =
-                NumericValue::try_from(value).map_err(|err| Error::Conversion(err.to_string()))?;
-            Ok(value)
+
+            match value {
+                AssetValue::Store(_) => Err(Error::Conversion(
+                    "Can't get quantity for strore asset".to_string(),
+                )),
+                AssetValue::Numeric(numeric) => Ok(numeric),
+            }
         }
     }
 
     impl ValidQuery for FindTotalAssetQuantityByAssetDefinitionId {
         #[metrics(+"find_total_asset_quantity_by_asset_definition_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<NumericValue, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Numeric, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
             let asset_value = wsv.asset_total_amount(id)?;

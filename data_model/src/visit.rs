@@ -2,6 +2,7 @@
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
 use iroha_crypto::PublicKey;
+use iroha_primitives::numeric::Numeric;
 
 use crate::{isi::Log, prelude::*};
 
@@ -106,25 +107,19 @@ pub trait Visit {
         visit_unregister_trigger(&Unregister<Trigger<TriggeringFilterBox>>),
 
         // Visit MintBox
-        visit_mint_asset_quantity(&Mint<u32, Asset>),
-        visit_mint_asset_big_quantity(&Mint<u128, Asset>),
-        visit_mint_asset_fixed(&Mint<Fixed, Asset>),
+        visit_mint_asset_numeric(&Mint<Numeric, Asset>),
         visit_mint_account_public_key(&Mint<PublicKey, Account>),
         visit_mint_account_signature_check_condition(&Mint<SignatureCheckCondition, Account>),
         visit_mint_trigger_repetitions(&Mint<u32, Trigger<TriggeringFilterBox>>),
 
         // Visit BurnBox
         visit_burn_account_public_key(&Burn<PublicKey, Account>),
-        visit_burn_asset_quantity(&Burn<u32, Asset>),
-        visit_burn_asset_big_quantity(&Burn<u128, Asset>),
-        visit_burn_asset_fixed(&Burn<Fixed, Asset>),
+        visit_burn_asset_numeric(&Burn<Numeric, Asset>),
         visit_burn_trigger_repetitions(&Burn<u32, Trigger<TriggeringFilterBox>>),
 
         // Visit TransferBox
         visit_transfer_asset_definition(&Transfer<Account, AssetDefinitionId, Account>),
-        visit_transfer_asset_quantity(&Transfer<Asset, u32, Account>),
-        visit_transfer_asset_big_quantity(&Transfer<Asset, u128, Account>),
-        visit_transfer_asset_fixed(&Transfer<Asset, Fixed, Account>),
+        visit_transfer_asset_numeric(&Transfer<Asset, Numeric, Account>),
         visit_transfer_asset_store(&Transfer<Asset, Metadata, Account>),
         visit_transfer_domain(&Transfer<Account, DomainId, Account>),
 
@@ -311,11 +306,7 @@ pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
                 visitor.visit_mint_account_signature_check_condition(authority, obj)
             }
         },
-        MintBox::Asset(mint_asset) => match mint_asset {
-            AssetMintBox::Quantity(obj) => visitor.visit_mint_asset_quantity(authority, obj),
-            AssetMintBox::BigQuantity(obj) => visitor.visit_mint_asset_big_quantity(authority, obj),
-            AssetMintBox::Fixed(obj) => visitor.visit_mint_asset_fixed(authority, obj),
-        },
+        MintBox::Asset(obj) => visitor.visit_mint_asset_numeric(authority, obj),
         MintBox::TriggerRepetitions(obj) => visitor.visit_mint_trigger_repetitions(authority, obj),
     }
 }
@@ -323,11 +314,7 @@ pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
 pub fn visit_burn<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &BurnBox) {
     match isi {
         BurnBox::AccountPublicKey(obj) => visitor.visit_burn_account_public_key(authority, obj),
-        BurnBox::Asset(burn_asset) => match burn_asset {
-            AssetBurnBox::Quantity(obj) => visitor.visit_burn_asset_quantity(authority, obj),
-            AssetBurnBox::BigQuantity(obj) => visitor.visit_burn_asset_big_quantity(authority, obj),
-            AssetBurnBox::Fixed(obj) => visitor.visit_burn_asset_fixed(authority, obj),
-        },
+        BurnBox::Asset(obj) => visitor.visit_burn_asset_numeric(authority, obj),
         BurnBox::TriggerRepetitions(obj) => visitor.visit_burn_trigger_repetitions(authority, obj),
     }
 }
@@ -343,13 +330,7 @@ pub fn visit_transfer<V: Visit + ?Sized>(
             visitor.visit_transfer_asset_definition(authority, obj)
         }
         TransferBox::Asset(transfer_asset) => match transfer_asset {
-            AssetTransferBox::Quantity(obj) => {
-                visitor.visit_transfer_asset_quantity(authority, obj)
-            }
-            AssetTransferBox::BigQuantity(obj) => {
-                visitor.visit_transfer_asset_big_quantity(authority, obj)
-            }
-            AssetTransferBox::Fixed(obj) => visitor.visit_transfer_asset_fixed(authority, obj),
+            AssetTransferBox::Numeric(obj) => visitor.visit_transfer_asset_numeric(authority, obj),
             AssetTransferBox::Store(obj) => visitor.visit_transfer_asset_store(authority, obj),
         },
     }
@@ -418,15 +399,9 @@ leaf_visitors! {
     visit_remove_account_key_value(&RemoveKeyValue<Account>),
     visit_register_asset(&Register<Asset>),
     visit_unregister_asset(&Unregister<Asset>),
-    visit_mint_asset_quantity(&Mint<u32, Asset>),
-    visit_burn_asset_quantity(&Burn<u32, Asset>),
-    visit_mint_asset_big_quantity(&Mint<u128, Asset>),
-    visit_burn_asset_big_quantity(&Burn<u128, Asset>),
-    visit_mint_asset_fixed(&Mint<Fixed, Asset>),
-    visit_burn_asset_fixed(&Burn<Fixed, Asset>),
-    visit_transfer_asset_quantity(&Transfer<Asset, u32, Account>),
-    visit_transfer_asset_big_quantity(&Transfer<Asset, u128, Account>),
-    visit_transfer_asset_fixed(&Transfer<Asset, Fixed, Account>),
+    visit_mint_asset_numeric(&Mint<Numeric, Asset>),
+    visit_burn_asset_numeric(&Burn<Numeric, Asset>),
+    visit_transfer_asset_numeric(&Transfer<Asset, Numeric, Account>),
     visit_transfer_asset_store(&Transfer<Asset, Metadata, Account>),
     visit_set_asset_key_value(&SetKeyValue<Asset>),
     visit_remove_asset_key_value(&RemoveKeyValue<Asset>),

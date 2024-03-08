@@ -14,7 +14,7 @@ use tokio::runtime::Runtime;
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
-    let quantity: u32 = 200;
+    let quantity = numeric!(200);
 
     let mut removed_peer = {
         let n_peers = 4;
@@ -25,13 +25,13 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         let peer_clients = Network::clients(&network);
 
         let create_asset =
-            Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+            Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
         peer_clients
             .choose(&mut thread_rng())
             .unwrap()
             .submit_blocking(create_asset)?;
 
-        let mint_asset = Mint::asset_quantity(
+        let mint_asset = Mint::asset_numeric(
             quantity,
             AssetId::new(asset_definition_id.clone(), account_id.clone()),
         );
@@ -52,7 +52,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             .into_iter()
             .find(|asset| asset.id().definition_id == asset_definition_id)
             .expect("Asset not found");
-        assert_eq!(AssetValue::Quantity(quantity), *asset.value());
+        assert_eq!(AssetValue::Numeric(quantity), *asset.value());
 
         let mut all_peers: Vec<_> = core::iter::once(network.genesis)
             .chain(network.peers.into_values())
@@ -84,7 +84,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
                 .find(|asset| asset.id().definition_id == asset_definition_id)
                 .expect("Asset not found");
 
-            AssetValue::Quantity(quantity) == *account_asset.value()
+            AssetValue::Numeric(quantity) == *account_asset.value()
         })?
     }
     Ok(())

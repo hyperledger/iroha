@@ -6,10 +6,8 @@
                 {
                     "Mint": {
                         "Asset": {
-                            "Quantity": {
-                                "object": 1,
-                                "destination_id": "rose##alice@wonderland"
-                            }
+                            "object": "1",
+                            "destination_id": "rose##alice@wonderland"
                         }
                     }
                 }

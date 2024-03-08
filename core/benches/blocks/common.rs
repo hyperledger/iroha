@@ -87,10 +87,7 @@ pub fn populate_wsv(
         }
         for k in 0..assets_per_domain {
             let asset_definition_id = construct_asset_definition_id(k, domain_id.clone());
-            let asset_definition = AssetDefinition::new(
-                asset_definition_id.clone(),
-                iroha_data_model::asset::AssetValueType::Quantity,
-            );
+            let asset_definition = AssetDefinition::numeric(asset_definition_id.clone());
             instructions.push(Register::asset_definition(asset_definition).into());
             let can_unregister_asset_definition = Grant::permission(
                 PermissionToken::new(
@@ -158,10 +155,7 @@ pub fn restore_every_nth(
         for k in 0..assets_per_domain {
             if k % nth == 0 || i % nth == 0 {
                 let asset_definition_id = construct_asset_definition_id(k, domain_id.clone());
-                let asset_definition = AssetDefinition::new(
-                    asset_definition_id,
-                    iroha_data_model::asset::AssetValueType::Quantity,
-                );
+                let asset_definition = AssetDefinition::numeric(asset_definition_id);
                 instructions.push(Register::asset_definition(asset_definition).into());
             }
         }

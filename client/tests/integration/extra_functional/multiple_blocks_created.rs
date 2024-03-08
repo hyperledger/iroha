@@ -34,22 +34,22 @@ fn long_multiple_blocks_created() -> Result<()> {
     let create_account = Register::account(Account::new(account_id.clone(), public_key)).into();
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone())).into();
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();
 
     client.submit_all([create_domain, create_account, create_asset])?;
 
     thread::sleep(pipeline_time);
 
-    let mut account_has_quantity = 0;
+    let mut account_has_quantity = Numeric::ZERO;
+    let quantity = numeric!(1);
     //When
     for _ in 0..N_BLOCKS {
-        let quantity: u32 = 1;
-        let mint_asset = Mint::asset_quantity(
+        let mint_asset = Mint::asset_numeric(
             quantity,
             AssetId::new(asset_definition_id.clone(), account_id.clone()),
         );
         client.submit(mint_asset)?;
-        account_has_quantity += quantity;
+        account_has_quantity = account_has_quantity.checked_add(quantity).unwrap();
         thread::sleep(pipeline_time / 4);
     }
 
@@ -64,7 +64,7 @@ fn long_multiple_blocks_created() -> Result<()> {
 
             assets.iter().any(|asset| {
                 asset.id().definition_id == asset_definition_id
-                    && *asset.value() == AssetValue::Quantity(account_has_quantity)
+                    && *asset.value() == AssetValue::Numeric(account_has_quantity)
             })
         },
     )?;

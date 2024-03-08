@@ -227,7 +227,7 @@ mod tests {
             AssetDefinitionId::new(domain_id.clone(), asset_name),
             account_id.clone(),
         );
-        let asset = Asset::new(asset_id.clone(), 0u32);
+        let asset = Asset::new(asset_id.clone(), 0_u32);
 
         // Create three events with three levels of nesting
         // the first one is just a domain event

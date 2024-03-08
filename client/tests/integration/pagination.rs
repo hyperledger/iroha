@@ -50,7 +50,7 @@ fn register_assets(client: &Client) -> Result<()> {
         .map(|c| c.to_string())
         .map(|name| (name + "#wonderland").parse().expect("Valid"))
         .map(|asset_definition_id| {
-            Register::asset_definition(AssetDefinition::quantity(asset_definition_id)).into()
+            Register::asset_definition(AssetDefinition::numeric(asset_definition_id)).into()
         })
         .collect();
     let _ = client.submit_all_blocking(register)?;

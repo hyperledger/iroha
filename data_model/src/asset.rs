@@ -9,18 +9,16 @@ use std::collections::btree_map;
 use derive_more::{Constructor, DebugCustom, Display};
 use getset::{CopyGetters, Getters};
 use iroha_data_model_derive::{model, IdEqOrdHash};
-use iroha_macro::FromVariant;
-use iroha_primitives::{fixed, fixed::Fixed};
+use iroha_primitives::numeric::{Numeric, NumericSpec, NumericSpecParseError};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use strum::EnumString;
 
 pub use self::model::*;
 use crate::{
     account::prelude::*, domain::prelude::*, ipfs::IpfsPath, metadata::Metadata, HasMetadata,
-    Identifiable, Name, NumericValue, ParseError, Registered, TryAsMut, TryAsRef, Value,
+    Identifiable, Name, ParseError, Registered, TryAsMut, TryAsRef, Value,
 };
 
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
@@ -32,10 +30,11 @@ pub type AssetDefinitionsMap = btree_map::BTreeMap<AssetDefinitionId, AssetDefin
 
 /// [`AssetTotalQuantityMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetValue`])
 /// pairs.
-pub type AssetTotalQuantityMap = btree_map::BTreeMap<AssetDefinitionId, NumericValue>;
+pub type AssetTotalQuantityMap = btree_map::BTreeMap<AssetDefinitionId, Numeric>;
 
 #[model]
 pub mod model {
+
     use super::*;
 
     /// Identification of an Asset Definition. Consists of Asset name and Domais name.
@@ -187,27 +186,20 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        EnumString,
         Decode,
         Encode,
-        Deserialize,
-        Serialize,
+        DeserializeFromStr,
+        SerializeDisplay,
         IntoSchema,
     )]
     #[ffi_type]
     #[repr(u8)]
     pub enum AssetValueType {
-        /// Asset's Quantity.
-        #[display(fmt = "q")]
-        Quantity,
-        /// Asset's Big Quantity.
-        #[display(fmt = "Q")]
-        BigQuantity,
-        /// Decimal quantity with fixed precision
-        #[display(fmt = "f")]
-        Fixed,
+        /// Asset's qualitative value.
+        #[display(fmt = "{_0}")]
+        Numeric(NumericSpec),
         /// Asset's key-value structured data.
-        #[display(fmt = "s")]
+        #[display(fmt = "Store")]
         Store,
     }
 
@@ -224,20 +216,13 @@ pub mod model {
         Encode,
         Deserialize,
         Serialize,
-        FromVariant,
         IntoSchema,
     )]
     #[ffi_type]
     pub enum AssetValue {
-        /// Asset's Quantity.
-        #[display(fmt = "{_0}q")]
-        Quantity(u32),
-        /// Asset's Big Quantity
-        #[display(fmt = "{_0}Q")]
-        BigQuantity(u128),
-        /// Asset's Decimal Quantity.
-        #[display(fmt = "{_0}f")]
-        Fixed(fixed::Fixed),
+        /// Asset's qualitative value.
+        #[display(fmt = "{_0}")]
+        Numeric(Numeric),
         /// Asset's key-value structured data.
         Store(Metadata),
     }
@@ -276,6 +261,17 @@ pub mod model {
     }
 }
 
+/// Error occurred while parsing `AssetValueType`
+#[derive(Debug, displaydoc::Display, Clone)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
+#[repr(u8)]
+pub enum AssetValueTypeParseError {
+    /// `AssetValueType` should be either `Store` or `Numeric`
+    WrongVariant,
+    /// Error occurred while parsing `Numeric` variant: {_0}
+    Numeric(#[cfg_attr(feature = "std", source)] NumericSpecParseError),
+}
+
 impl AssetDefinition {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
@@ -287,22 +283,8 @@ impl AssetDefinition {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn quantity(id: AssetDefinitionId) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, AssetValueType::Quantity)
-    }
-
-    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
-    #[must_use]
-    #[inline]
-    pub fn big_quantity(id: AssetDefinitionId) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, AssetValueType::BigQuantity)
-    }
-
-    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
-    #[must_use]
-    #[inline]
-    pub fn fixed(id: AssetDefinitionId) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, AssetValueType::Fixed)
+    pub fn numeric(id: AssetDefinitionId) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id, AssetValueType::Numeric(NumericSpec::default()))
     }
 
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
@@ -369,20 +351,30 @@ impl AssetValue {
     /// Returns the asset type as a string.
     pub const fn value_type(&self) -> AssetValueType {
         match *self {
-            Self::Quantity(_) => AssetValueType::Quantity,
-            Self::BigQuantity(_) => AssetValueType::BigQuantity,
-            Self::Fixed(_) => AssetValueType::Fixed,
+            Self::Numeric(numeric) => {
+                AssetValueType::Numeric(NumericSpec::fractional(numeric.scale()))
+            }
             Self::Store(_) => AssetValueType::Store,
         }
     }
     /// Returns true if this value is zero, false if it contains [`Metadata`] or positive value
     pub const fn is_zero_value(&self) -> bool {
         match *self {
-            Self::Quantity(q) => q == 0_u32,
-            Self::BigQuantity(q) => q == 0_u128,
-            Self::Fixed(ref q) => q.is_zero(),
+            Self::Numeric(q) => q.is_zero(),
             Self::Store(_) => false,
         }
+    }
+}
+
+impl From<Metadata> for AssetValue {
+    fn from(value: Metadata) -> Self {
+        AssetValue::Store(value)
+    }
+}
+
+impl<T: Into<Numeric>> From<T> for AssetValue {
+    fn from(value: T) -> Self {
+        AssetValue::Numeric(value.into())
     }
 }
 
@@ -415,23 +407,8 @@ macro_rules! impl_try_as_for_asset_value {
 }
 
 impl_try_as_for_asset_value! {
-    Quantity(u32),
-    BigQuantity(u128),
-    Fixed(Fixed),
+    Numeric(Numeric),
     Store(Metadata),
-}
-
-impl TryFrom<AssetValue> for NumericValue {
-    type Error = crate::ErrorTryFromEnum<Self, AssetValue>;
-
-    fn try_from(value: AssetValue) -> Result<Self, Self::Error> {
-        match value {
-            AssetValue::Quantity(value) => Ok(NumericValue::U32(value)),
-            AssetValue::BigQuantity(value) => Ok(NumericValue::U128(value)),
-            AssetValue::Fixed(value) => Ok(NumericValue::Fixed(value)),
-            _ => Err(crate::ErrorTryFromEnum::default()),
-        }
-    }
 }
 
 /// Asset Definition Identification is represented by `name#domain_name` string.
@@ -506,6 +483,21 @@ impl FromStr for AssetId {
             Err(ParseError {
                 reason: "The `AssetId` did not contain the `#` character. ",
             })
+        }
+    }
+}
+
+impl FromStr for AssetValueType {
+    type Err = AssetValueTypeParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Store" => Ok(Self::Store),
+            s if s.starts_with("Numeric") => s
+                .parse::<NumericSpec>()
+                .map(Self::Numeric)
+                .map_err(AssetValueTypeParseError::Numeric),
+            _ => Err(AssetValueTypeParseError::WrongVariant),
         }
     }
 }

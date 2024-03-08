@@ -449,7 +449,7 @@ pub mod prelude {
 mod tests {
     use core::{mem::ManuallyDrop, slice};
 
-    use data_model::{query::asset::FindAssetQuantityById, BatchedResponseV1};
+    use data_model::{prelude::numeric, query::asset::FindAssetQuantityById, BatchedResponseV1};
     use iroha_smart_contract_utils::encode_with_length_prefix;
     use parity_scale_codec::Decode;
     use webassembly_test::webassembly_test;
@@ -485,7 +485,7 @@ mod tests {
     }
 
     const QUERY_RESULT: Result<QueryOutputCursor<Value>, ValidationFail> = Ok(QueryOutputCursor {
-        batch: Value::Numeric(NumericValue::U32(1234_u32)),
+        batch: Value::Numeric(numeric!(1234)),
         cursor: ForwardCursor::new(None, None),
     });
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());

@@ -24,14 +24,14 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     let account_id = AccountId::from_str("alice@wonderland")?;
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     client.submit_blocking(create_asset)?;
 
     //When
-    let quantity: u32 = 200;
+    let quantity = numeric!(200);
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-    let mint_existed_asset = Mint::asset_quantity(quantity, asset_id);
-    let mint_not_existed_asset = Mint::asset_quantity(
+    let mint_existed_asset = Mint::asset_numeric(quantity, asset_id);
+    let mint_not_existed_asset = Mint::asset_numeric(
         quantity,
         AssetId::new(
             AssetDefinitionId::from_str("foo#wonderland")?,

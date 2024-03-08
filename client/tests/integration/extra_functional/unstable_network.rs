@@ -78,12 +78,12 @@ fn unstable_network(
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
     let register_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     iroha_client
         .submit_blocking(register_asset)
         .expect("Failed to register asset");
     // Initially there are 0 camomile
-    let mut account_has_quantity = 0;
+    let mut account_has_quantity = Numeric::ZERO;
 
     let mut rng = rand::thread_rng();
     let freezers = {
@@ -99,15 +99,15 @@ fn unstable_network(
             f.store(true, Ordering::SeqCst);
         }
 
-        let quantity = 1;
-        let mint_asset = Mint::asset_quantity(
+        let quantity = Numeric::ONE;
+        let mint_asset = Mint::asset_numeric(
             quantity,
             AssetId::new(asset_definition_id.clone(), account_id.clone()),
         );
         iroha_client
             .submit(mint_asset)
             .expect("Failed to create asset.");
-        account_has_quantity += quantity;
+        account_has_quantity = account_has_quantity.checked_add(quantity).unwrap();
         thread::sleep(pipeline_time);
 
         iroha_client
@@ -120,7 +120,7 @@ fn unstable_network(
 
                     assets.iter().any(|asset| {
                         asset.id().definition_id == asset_definition_id
-                            && *asset.value() == AssetValue::Quantity(account_has_quantity)
+                            && *asset.value() == AssetValue::Numeric(account_has_quantity)
                     })
                 },
             )

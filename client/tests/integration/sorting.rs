@@ -152,7 +152,7 @@ fn correct_sorting_of_entities() {
                 MetadataLimits::new(10, 28),
             )
             .expect("Valid");
-        let asset_definition = AssetDefinition::quantity(asset_definition_id.clone())
+        let asset_definition = AssetDefinition::numeric(asset_definition_id.clone())
             .with_metadata(asset_metadata.clone());
 
         metadata_of_assets.push(asset_metadata);

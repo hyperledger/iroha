@@ -6,6 +6,7 @@ use core::fmt::{Debug, Display};
 
 use derive_more::{Constructor, DebugCustom, Display};
 use iroha_data_model_derive::{model, EnumRef};
+use iroha_primitives::numeric::Numeric;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -156,20 +157,14 @@ impl_instruction! {
     Unregister<Trigger<TriggeringFilterBox>>,
     Mint<PublicKey, Account>,
     Mint<SignatureCheckCondition, Account>,
-    Mint<u32, Asset>,
-    Mint<u128, Asset>,
-    Mint<Fixed, Asset>,
+    Mint<Numeric, Asset>,
     Mint<u32, Trigger<TriggeringFilterBox>>,
     Burn<PublicKey, Account>,
-    Burn<u32, Asset>,
-    Burn<u128, Asset>,
-    Burn<Fixed, Asset>,
+    Burn<Numeric, Asset>,
     Burn<u32, Trigger<TriggeringFilterBox>>,
     Transfer<Account, DomainId, Account>,
     Transfer<Account, AssetDefinitionId, Account>,
-    Transfer<Asset, u32, Account>,
-    Transfer<Asset, u128, Account>,
-    Transfer<Asset, Fixed, Account>,
+    Transfer<Asset, Numeric, Account>,
     Transfer<Asset, Metadata, Account>,
     Grant<PermissionToken>,
     Grant<RoleId>,
@@ -607,8 +602,8 @@ mod transparent {
 
     isi! {
         /// Generic instruction for a mint of an object to the identifiable destination.
-        #[schema(bounds = "O: Into<Value> + IntoSchema, D: Identifiable, D::Id: IntoSchema")]
-        pub struct Mint<O: Into<Value>, D: Identifiable> {
+        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
+        pub struct Mint<O, D: Identifiable> {
             /// Object which should be minted.
             pub object: O,
             /// Destination object [`Identifiable::Id`].
@@ -639,31 +634,11 @@ mod transparent {
         }
     }
 
-    impl Mint<u32, Asset> {
-        /// Constructs a new [`Mint`] for an [`Asset`] of [`Quantity`] type.
-        pub fn asset_quantity(quantity: u32, asset_id: AssetId) -> Self {
+    impl Mint<Numeric, Asset> {
+        /// Constructs a new [`Mint`] for an [`Asset`] of [`Numeric`] type.
+        pub fn asset_numeric(object: impl Into<Numeric>, asset_id: AssetId) -> Self {
             Self {
-                object: quantity,
-                destination_id: asset_id,
-            }
-        }
-    }
-
-    impl Mint<u128, Asset> {
-        /// Constructs a new [`Mint`] for an [`Asset`] of [`BigQuantity`] type.
-        pub fn asset_big_quantity(big_quantity: u128, asset_id: AssetId) -> Self {
-            Self {
-                object: big_quantity,
-                destination_id: asset_id,
-            }
-        }
-    }
-
-    impl Mint<Fixed, Asset> {
-        /// Constructs a new [`Mint`] for an [`Asset`] of [`Fixed`] type.
-        pub fn asset_fixed(fixed: Fixed, asset_id: AssetId) -> Self {
-            Self {
-                object: fixed,
+                object: object.into(),
                 destination_id: asset_id,
             }
         }
@@ -682,7 +657,7 @@ mod transparent {
     impl_display! {
         Mint<O, D>
         where
-            O: Into<Value> + Display,
+            O: Display,
             D: Identifiable,
             D::Id: Display,
         =>
@@ -699,19 +674,9 @@ mod transparent {
     }
 
     impl_into_box! {
-        Mint<u32, Asset> |
-        Mint<u128, Asset> |
-        Mint<Fixed, Asset>
-    => AssetMintBox => MintBox[Asset],
-    => AssetMintBoxRef<'a> => MintBoxRef<'a>[Asset]
-    }
-
-    impl_into_box! {
         Mint<PublicKey, Account> |
         Mint<SignatureCheckCondition, Account> |
-        Mint<u32, Asset> |
-        Mint<u128, Asset> |
-        Mint<Fixed, Asset> |
+        Mint<Numeric, Asset> |
         Mint<u32, Trigger<TriggeringFilterBox>>
     => MintBox => InstructionBox[Mint],
     => MintBoxRef<'a> => InstructionBoxRef<'a>[Mint]
@@ -719,8 +684,8 @@ mod transparent {
 
     isi! {
         /// Generic instruction for a burn of an object to the identifiable destination.
-        #[schema(bounds = "O: Into<Value> + IntoSchema, D: Identifiable, D::Id: IntoSchema")]
-        pub struct Burn<O: Into<Value>, D: Identifiable> {
+        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
+        pub struct Burn<O, D: Identifiable> {
             /// Object which should be burned.
             pub object: O,
             /// Destination object [`Identifiable::Id`].
@@ -738,31 +703,11 @@ mod transparent {
         }
     }
 
-    impl Burn<u32, Asset> {
-        /// Constructs a new [`Burn`] for an [`Asset`] of [`Quantity`] type.
-        pub fn asset_quantity(quantity: u32, asset_id: AssetId) -> Self {
+    impl Burn<Numeric, Asset> {
+        /// Constructs a new [`Burn`] for an [`Asset`] of [`Numeric`] type.
+        pub fn asset_numeric(object: impl Into<Numeric>, asset_id: AssetId) -> Self {
             Self {
-                object: quantity,
-                destination_id: asset_id,
-            }
-        }
-    }
-
-    impl Burn<u128, Asset> {
-        /// Constructs a new [`Burn`] for an [`Asset`] of [`BigQuantity`] type.
-        pub fn asset_big_quantity(big_quantity: u128, asset_id: AssetId) -> Self {
-            Self {
-                object: big_quantity,
-                destination_id: asset_id,
-            }
-        }
-    }
-
-    impl Burn<Fixed, Asset> {
-        /// Constructs a new [`Burn`] for an [`Asset`] of [`Fixed`] type.
-        pub fn asset_fixed(fixed: Fixed, asset_id: AssetId) -> Self {
-            Self {
-                object: fixed,
+                object: object.into(),
                 destination_id: asset_id,
             }
         }
@@ -781,7 +726,7 @@ mod transparent {
     impl_display! {
         Burn<O, D>
         where
-            O: Into<Value> + Display,
+            O: Display,
             D: Identifiable,
             D::Id: Display,
         =>
@@ -791,18 +736,8 @@ mod transparent {
     }
 
     impl_into_box! {
-        Burn<u32, Asset> |
-        Burn<u128, Asset> |
-        Burn<Fixed, Asset>
-    => AssetBurnBox => BurnBox[Asset],
-    => AssetBurnBoxRef<'a> => BurnBoxRef<'a>[Asset]
-    }
-
-    impl_into_box! {
         Burn<PublicKey, Account> |
-        Burn<u32, Asset> |
-        Burn<u128, Asset> |
-        Burn<Fixed, Asset> |
+        Burn<Numeric, Asset> |
         Burn<u32, Trigger<TriggeringFilterBox>>
     => BurnBox => InstructionBox[Burn],
     => BurnBoxRef<'a> => InstructionBoxRef<'a>[Burn]
@@ -811,9 +746,9 @@ mod transparent {
     isi! {
         /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
         #[schema(bounds = "S: Identifiable, S::Id: IntoSchema, \
-                           O: Into<Value> + IntoSchema, \
+                           O: IntoSchema, \
                            D: Identifiable, D::Id: IntoSchema")]
-        pub struct Transfer<S: Identifiable, O: Into<Value>, D: Identifiable> {
+        pub struct Transfer<S: Identifiable, O, D: Identifiable> {
             /// Source object `Id`.
             pub source_id: S::Id,
             /// Object which should be transferred.
@@ -849,34 +784,16 @@ mod transparent {
         }
     }
 
-    impl Transfer<Asset, u32, Account> {
+    impl Transfer<Asset, Numeric, Account> {
         /// Constructs a new [`Transfer`] for an [`Asset`] of [`Quantity`] type.
-        pub fn asset_quantity(asset_id: AssetId, quantity: u32, to: AccountId) -> Self {
+        pub fn asset_numeric(
+            asset_id: AssetId,
+            quantity: impl Into<Numeric>,
+            to: AccountId,
+        ) -> Self {
             Self {
                 source_id: asset_id,
-                object: quantity,
-                destination_id: to,
-            }
-        }
-    }
-
-    impl Transfer<Asset, u128, Account> {
-        /// Constructs a new [`Transfer`] for an [`Asset`] of [`BigQuantity`] type.
-        pub fn asset_big_quantity(asset_id: AssetId, big_quantity: u128, to: AccountId) -> Self {
-            Self {
-                source_id: asset_id,
-                object: big_quantity,
-                destination_id: to,
-            }
-        }
-    }
-
-    impl Transfer<Asset, Fixed, Account> {
-        /// Constructs a new [`Transfer`] for an [`Asset`] of [`Fixed`] type.
-        pub fn asset_fixed(asset_id: AssetId, fixed: Fixed, to: AccountId) -> Self {
-            Self {
-                source_id: asset_id,
-                object: fixed,
+                object: quantity.into(),
                 destination_id: to,
             }
         }
@@ -898,7 +815,7 @@ mod transparent {
         where
             S: Identifiable,
             S::Id: Display,
-            O: Into<Value> + Display,
+            O: Display,
             D: Identifiable,
             D::Id: Display,
         =>
@@ -909,10 +826,7 @@ mod transparent {
     }
 
     impl_into_box! {
-        Transfer<Asset, u32, Account> |
-        Transfer<Asset, u128, Account> |
-        Transfer<Asset, Metadata, Account> |
-        Transfer<Asset, Fixed, Account>
+        Transfer<Asset, Numeric, Account> | Transfer<Asset, Metadata, Account>
     => AssetTransferBox => TransferBox[Asset],
     => AssetTransferBoxRef<'a> => TransferBoxRef<'a>[Asset]
     }
@@ -920,10 +834,7 @@ mod transparent {
     impl_into_box! {
         Transfer<Account, DomainId, Account> |
         Transfer<Account, AssetDefinitionId, Account> |
-        Transfer<Asset, u32, Account> |
-        Transfer<Asset, u128, Account> |
-        Transfer<Asset, Metadata, Account> |
-        Transfer<Asset, Fixed, Account>
+        Transfer<Asset, Numeric, Account> | Transfer<Asset, Metadata, Account>
     => TransferBox => InstructionBox[Transfer],
     => TransferBoxRef<'a> => InstructionBoxRef<'a>[Transfer]
     }
@@ -1198,8 +1109,7 @@ isi_box! {
         #[enum_ref(transparent)]
         Account(AccountMintBox),
         /// Mint for [`Asset`].
-        #[enum_ref(transparent)]
-        Asset(AssetMintBox),
+        Asset(Mint<Numeric, Asset>),
         /// Mint [`Trigger`] repetitions.
         TriggerRepetitions(Mint<u32, Trigger<TriggeringFilterBox>>),
     }
@@ -1223,23 +1133,6 @@ isi_box! {
 isi_box! {
     #[strum_discriminants(
         vis(pub(crate)),
-        name(AssetMintType),
-        derive(Encode),
-    )]
-    /// Enum with all supported [`Mint`] instructions related to [`Asset`].
-    pub enum AssetMintBox {
-        /// Mint [`Asset`] of [`Quantity`] type.
-        Quantity(Mint<u32, Asset>),
-        /// Mint [`Asset`] of [`BigQuantity`] type.
-        BigQuantity(Mint<u128, Asset>),
-        /// Mint [`Asset`] of [`Fixed`] type.
-        Fixed(Mint<Fixed, Asset>),
-    }
-}
-
-isi_box! {
-    #[strum_discriminants(
-        vis(pub(crate)),
         name(BurnType),
         derive(Encode),
     )]
@@ -1248,27 +1141,9 @@ isi_box! {
         /// Burn [`PublicKey`] for [`Account`].
         AccountPublicKey(Burn<PublicKey, Account>),
         /// Burn [`Asset`].
-        #[enum_ref(transparent)]
-        Asset(AssetBurnBox),
+        Asset(Burn<Numeric, Asset>),
         /// Burn [`Trigger`] repetitions.
         TriggerRepetitions(Burn<u32, Trigger<TriggeringFilterBox>>),
-    }
-}
-
-isi_box! {
-    #[strum_discriminants(
-        vis(pub(crate)),
-        name(AssetBurnType),
-        derive(Encode),
-    )]
-    /// Enum with all supported [`Burn`] instructions related to [`Asset`].
-    pub enum AssetBurnBox {
-        /// Burn [`Asset`] of [`Quantity`] type.
-        Quantity(Burn<u32, Asset>),
-        /// Burn [`Asset`] of [`BigQuantity`] type.
-        BigQuantity(Burn<u128, Asset>),
-        /// Burn [`Asset`] of [`Fixed`] type.
-        Fixed(Burn<Fixed, Asset>),
     }
 }
 
@@ -1298,12 +1173,8 @@ isi_box! {
     )]
     /// Enum with all supported [`Transfer`] instructions related to [`Asset`].
     pub enum AssetTransferBox {
-        /// Transfer [`Asset`] of [`Quantity`] type.
-        Quantity(Transfer<Asset, u32, Account>),
-        /// Transfer [`Asset`] of [`BigQuantity`] type.
-        BigQuantity(Transfer<Asset, u128, Account>),
-        /// Transfer [`Asset`] of [`Fixed`] type.
-        Fixed(Transfer<Asset, Fixed, Account>),
+        /// Transfer [`Asset`] of [`Numeric`] type.
+        Numeric(Transfer<Asset, Numeric, Account>),
         /// Transfer [`Asset`] of [`Store`] type.
         Store(Transfer<Asset, Metadata, Account>),
     }
@@ -1349,7 +1220,6 @@ pub mod error {
     use derive_more::Display;
     use iroha_data_model_derive::model;
     use iroha_macro::FromVariant;
-    use iroha_primitives::fixed::FixedPointOperationError;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
 
@@ -1508,6 +1378,18 @@ pub mod error {
             AssetDefinitionId(
                 #[cfg_attr(feature = "std", source)] Box<Mismatch<AssetDefinitionId>>,
             ),
+            /// Numeric asset value type was expected, received: {0}
+            NumericAssetValueTypeExpected(
+                #[skip_from]
+                #[skip_try_from]
+                AssetValueType,
+            ),
+            /// Store asset value type was expected, received: {0}
+            StoreAssetValueTypeExpected(
+                #[skip_from]
+                #[skip_try_from]
+                AssetValueType,
+            ),
         }
 
         /// Math error, which occurs during instruction execution
@@ -1633,32 +1515,14 @@ pub mod error {
             Self::Evaluate(InstructionEvaluationError::Type(err))
         }
     }
-
-    impl From<FixedPointOperationError> for MathError {
-        fn from(err: FixedPointOperationError) -> Self {
-            match err {
-                FixedPointOperationError::NegativeValue(_) => Self::NegativeValue,
-                FixedPointOperationError::Conversion(e) => {
-                    #[cfg(not(feature = "std"))]
-                    use alloc::string::ToString as _;
-
-                    Self::FixedPointConversion(e.to_string())
-                }
-                FixedPointOperationError::Overflow => Self::Overflow,
-                FixedPointOperationError::DivideByZero => Self::DivideByZero,
-                FixedPointOperationError::DomainViolation => Self::DomainViolation,
-                FixedPointOperationError::Arithmetic => Self::Unknown,
-            }
-        }
-    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        AccountMintBox, AssetBurnBox, AssetMintBox, AssetTransferBox, Burn, BurnBox,
-        ExecuteTrigger, Fail, Grant, GrantBox, InstructionBox, Log, Mint, MintBox, NewParameter,
-        Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SetKeyValue,
-        SetKeyValueBox, SetParameter, Transfer, TransferBox, Unregister, UnregisterBox, Upgrade,
+        AccountMintBox, AssetTransferBox, Burn, BurnBox, ExecuteTrigger, Fail, Grant, GrantBox,
+        InstructionBox, Log, Mint, MintBox, NewParameter, Register, RegisterBox, RemoveKeyValue,
+        RemoveKeyValueBox, Revoke, RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer,
+        TransferBox, Unregister, UnregisterBox, Upgrade,
     };
 }

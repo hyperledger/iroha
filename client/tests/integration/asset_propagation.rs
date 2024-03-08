@@ -35,12 +35,12 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     let create_account = Register::account(Account::new(account_id.clone(), public_key)).into();
     let asset_definition_id = AssetDefinitionId::from_str("xor#domain")?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone())).into();
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();
     client.submit_all([create_domain, create_account, create_asset])?;
     thread::sleep(pipeline_time * 3);
     //When
-    let quantity: u32 = 200;
-    client.submit(Mint::asset_quantity(
+    let quantity = numeric!(200);
+    client.submit(Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     ))?;
@@ -55,7 +55,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
 
             assets.iter().any(|asset| {
                 asset.id().definition_id == asset_definition_id
-                    && *asset.value() == AssetValue::Quantity(quantity)
+                    && *asset.value() == AssetValue::Numeric(quantity)
             })
         },
     )?;

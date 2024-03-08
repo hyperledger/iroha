@@ -16,7 +16,7 @@ def test_burn_asset_for_account_in_same_domain(
     GIVEN_currently_account_quantity_with_two_quantity_of_asset,
 ):
     with allure.step(
-        f"WHEN {GIVEN_currently_authorized_account.name} burns 1 Quantity"
+        f"WHEN {GIVEN_currently_authorized_account.name} burns 1"
         f"of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}"
     ):
         client_cli.burn(
@@ -26,7 +26,7 @@ def test_burn_asset_for_account_in_same_domain(
         )
     with allure.step(
         f"THEN {GIVEN_currently_authorized_account.name} "
-        f"has 1 Quantity of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}"
+        f"has 1 of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}"
     ):
         iroha.should(
             have.asset_has_quantity(
@@ -41,9 +41,9 @@ def test_burn_asset_for_account_in_same_domain(
 @allure.label("permission", "can_burn_assets_with_definition")
 @pytest.mark.xfail(reason="TO DO")
 def test_burn_other_user_asset(
-    GIVEN_registered_asset_definition_with_quantity_value_type,
+    GIVEN_registered_asset_definition_with_numeric_value_type,
     GIVEN_registered_account,
-    GIVEN_quantity_value,
+    GIVEN_numeric_value,
 ):
     assert 0
 

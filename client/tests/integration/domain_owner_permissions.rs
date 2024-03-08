@@ -18,7 +18,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
     let kingdom_id: DomainId = "kingdom".parse()?;
     let bob_id: AccountId = "bob@kingdom".parse()?;
     let coin_id: AssetDefinitionId = "coin#kingdom".parse()?;
-    let coin = AssetDefinition::quantity(coin_id.clone());
+    let coin = AssetDefinition::numeric(coin_id.clone());
 
     // "alice@wonderland" is owner of "kingdom" domain
     let kingdom = Domain::new(kingdom_id.clone());
@@ -174,7 +174,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     test_client.submit_blocking(Grant::permission(token, bob_id.clone()))?;
 
     // register asset definitions by "bob@kingdom" so he is owner of it
-    let coin = AssetDefinition::quantity(coin_id.clone());
+    let coin = AssetDefinition::numeric(coin_id.clone());
     let transaction = TransactionBuilder::new(chain_id, bob_id.clone())
         .with_instructions([Register::asset_definition(coin)])
         .sign(&bob_keypair);
@@ -241,7 +241,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
     test_client.submit_blocking(Grant::permission(token, bob_id.clone()))?;
 
     // register asset definitions by "bob@kingdom" so he is owner of it
-    let coin = AssetDefinition::quantity(coin_id.clone());
+    let coin = AssetDefinition::numeric(coin_id.clone());
     let store = AssetDefinition::store(store_id.clone());
     let transaction = TransactionBuilder::new(chain_id, bob_id.clone())
         .with_instructions([
@@ -253,14 +253,14 @@ fn domain_owner_asset_permissions() -> Result<()> {
 
     // check that "alice@wonderland" as owner of domain can register and unregister assets in her domain
     let bob_coin_id = AssetId::new(coin_id, bob_id.clone());
-    let bob_coin = Asset::new(bob_coin_id.clone(), 30u32);
+    let bob_coin = Asset::new(bob_coin_id.clone(), 30_u32);
     test_client.submit_blocking(Register::asset(bob_coin))?;
     test_client.submit_blocking(Unregister::asset(bob_coin_id.clone()))?;
 
     // check that "alice@wonderland" as owner of domain can burn, mint and transfer assets in her domain
-    test_client.submit_blocking(Mint::asset_quantity(10u32, bob_coin_id.clone()))?;
-    test_client.submit_blocking(Burn::asset_quantity(5u32, bob_coin_id.clone()))?;
-    test_client.submit_blocking(Transfer::asset_quantity(bob_coin_id, 5u32, alice_id))?;
+    test_client.submit_blocking(Mint::asset_numeric(10u32, bob_coin_id.clone()))?;
+    test_client.submit_blocking(Burn::asset_numeric(5u32, bob_coin_id.clone()))?;
+    test_client.submit_blocking(Transfer::asset_numeric(bob_coin_id, 5u32, alice_id))?;
 
     // check that "alice@wonderland" as owner of domain can edit metadata of store asset in her domain
     let key: Name = "key".parse()?;
@@ -302,7 +302,7 @@ fn domain_owner_trigger_permissions() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, alice_id.clone());
     let trigger_id: TriggerId = "trigger$kingdom".parse()?;
 
-    let trigger_instructions = vec![Mint::asset_quantity(1_u32, asset_id)];
+    let trigger_instructions = vec![Mint::asset_numeric(1u32, asset_id)];
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id.clone(),
         Action::new(

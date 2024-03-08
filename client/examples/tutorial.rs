@@ -3,6 +3,7 @@
 
 use eyre::{Error, WrapErr};
 use iroha_client::config::Config;
+use iroha_primitives::numeric::Numeric;
 // #region rust_config_crates
 // #endregion rust_config_crates
 
@@ -147,7 +148,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
     use iroha_client::{
         client::Client,
         data_model::prelude::{
-            AccountId, AssetDefinition, AssetDefinitionId, AssetId, Mint, Register,
+            numeric, AccountId, AssetDefinition, AssetDefinitionId, AssetId, Mint, Register,
         },
     };
     // #endregion register_asset_crates
@@ -164,7 +165,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
     // #region register_asset_init_submit
     // Initialise the registration time
     let register_time =
-        Register::asset_definition(AssetDefinition::fixed(asset_def_id.clone()).mintable_once());
+        Register::asset_definition(AssetDefinition::numeric(asset_def_id.clone()).mintable_once());
 
     // Submit a registration time
     iroha_client.submit(register_time)?;
@@ -177,10 +178,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
 
     // #region register_asset_mint_submit
     // Create a MintBox using a previous asset and account
-    let mint = Mint::asset_fixed(
-        12.34_f64.try_into()?,
-        AssetId::new(asset_def_id, account_id),
-    );
+    let mint = Mint::asset_numeric(numeric!(12.34), AssetId::new(asset_def_id, account_id));
 
     // Submit a minting transaction
     iroha_client.submit_all([mint])?;
@@ -213,7 +211,7 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
 
     // Mint the Asset instance
     // #region mint_asset_mint
-    let mint_roses = Mint::asset_quantity(42_u32, AssetId::new(roses, alice));
+    let mint_roses = Mint::asset_numeric(42u32, AssetId::new(roses, alice));
     // #endregion mint_asset_mint
 
     // #region mint_asset_submit_tx
@@ -228,7 +226,7 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
     // or `roses.to_string() + "#" + alice.to_string()`.
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
-    let mint_roses_alt = Mint::asset_quantity(10_u32, "rose##alice@wonderland".parse()?);
+    let mint_roses_alt = Mint::asset_numeric(10u32, "rose##alice@wonderland".parse()?);
     // #endregion mint_asset_mint_alt
 
     // #region mint_asset_submit_tx_alt
@@ -264,7 +262,7 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
 
     // #region burn_asset_burn
     // Burn the Asset instance
-    let burn_roses = Burn::asset_quantity(10_u32, AssetId::new(roses, alice));
+    let burn_roses = Burn::asset_numeric(10u32, AssetId::new(roses, alice));
     // #endregion burn_asset_burn
 
     // #region burn_asset_submit_tx
@@ -279,7 +277,7 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
     // or `roses.to_string() + "#" + alice.to_string()`.
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
-    let burn_roses_alt = Burn::asset_quantity(10_u32, "rose##alice@wonderland".parse()?);
+    let burn_roses_alt = Burn::asset_numeric(10u32, "rose##alice@wonderland".parse()?);
     // #endregion burn_asset_burn_alt
 
     // #region burn_asset_submit_tx_alt

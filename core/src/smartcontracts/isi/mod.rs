@@ -107,20 +107,6 @@ impl Execute for AccountMintBox {
     }
 }
 
-impl Execute for AssetMintBox {
-    fn execute(
-        self,
-        authority: &AccountId,
-        wsv: &mut WorldStateView,
-    ) -> std::prelude::v1::Result<(), Error> {
-        match self {
-            Self::Quantity(isi) => isi.execute(authority, wsv),
-            Self::BigQuantity(isi) => isi.execute(authority, wsv),
-            Self::Fixed(isi) => isi.execute(authority, wsv),
-        }
-    }
-}
-
 impl Execute for BurnBox {
     #[iroha_logger::log(name = "burn", skip_all, fields(destination))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
@@ -128,20 +114,6 @@ impl Execute for BurnBox {
             Self::AccountPublicKey(isi) => isi.execute(authority, wsv),
             Self::Asset(isi) => isi.execute(authority, wsv),
             Self::TriggerRepetitions(isi) => isi.execute(authority, wsv),
-        }
-    }
-}
-
-impl Execute for AssetBurnBox {
-    fn execute(
-        self,
-        authority: &AccountId,
-        wsv: &mut WorldStateView,
-    ) -> std::prelude::v1::Result<(), Error> {
-        match self {
-            Self::Quantity(isi) => isi.execute(authority, wsv),
-            Self::BigQuantity(isi) => isi.execute(authority, wsv),
-            Self::Fixed(isi) => isi.execute(authority, wsv),
         }
     }
 }
@@ -164,9 +136,7 @@ impl Execute for AssetTransferBox {
         wsv: &mut WorldStateView,
     ) -> std::prelude::v1::Result<(), Error> {
         match self {
-            Self::Quantity(isi) => isi.execute(authority, wsv),
-            Self::BigQuantity(isi) => isi.execute(authority, wsv),
-            Self::Fixed(isi) => isi.execute(authority, wsv),
+            Self::Numeric(isi) => isi.execute(authority, wsv),
             Self::Store(isi) => isi.execute(authority, wsv),
         }
     }

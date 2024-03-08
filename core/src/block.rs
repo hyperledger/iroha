@@ -711,7 +711,7 @@ mod tests {
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
         let create_asset_definition =
-            Register::asset_definition(AssetDefinition::quantity(asset_definition_id));
+            Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
 
         // Making two transactions that have the same instruction
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
@@ -754,7 +754,7 @@ mod tests {
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
         let create_asset_definition =
-            Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+            Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
 
         // Making two transactions that have the same instruction
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
@@ -763,18 +763,13 @@ mod tests {
             .sign(&alice_keys);
         let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
 
-        let quantity: u32 = 200;
-        let fail_quantity: u32 = 20;
-
-        let fail_mint = Mint::asset_quantity(
-            fail_quantity,
+        let fail_mint = Mint::asset_numeric(
+            20u32,
             AssetId::new(asset_definition_id.clone(), alice_id.clone()),
         );
 
-        let succeed_mint = Mint::asset_quantity(
-            quantity,
-            AssetId::new(asset_definition_id, alice_id.clone()),
-        );
+        let succeed_mint =
+            Mint::asset_numeric(200u32, AssetId::new(asset_definition_id, alice_id.clone()));
 
         let tx0 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_mint])
@@ -825,7 +820,7 @@ mod tests {
         let create_domain = Register::domain(Domain::new(domain_id));
         let asset_definition_id = AssetDefinitionId::from_str("coin#domain").expect("Valid");
         let create_asset =
-            Register::asset_definition(AssetDefinition::quantity(asset_definition_id));
+            Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
         let instructions_fail: [InstructionBox; 2] = [
             create_domain.clone().into(),
             Fail::new("Always fail".to_owned()).into(),

@@ -279,25 +279,6 @@
       }
     ]
   },
-  "AssetBurnBox": {
-    "Enum": [
-      {
-        "tag": "Quantity",
-        "discriminant": 0,
-        "type": "Burn<u32, Asset>"
-      },
-      {
-        "tag": "BigQuantity",
-        "discriminant": 1,
-        "type": "Burn<u128, Asset>"
-      },
-      {
-        "tag": "Fixed",
-        "discriminant": 2,
-        "type": "Burn<Fixed, Asset>"
-      }
-    ]
-  },
   "AssetChanged": {
     "Struct": [
       {
@@ -453,7 +434,7 @@
       },
       {
         "name": "total_amount",
-        "type": "NumericValue"
+        "type": "Numeric"
       }
     ]
   },
@@ -543,45 +524,16 @@
       }
     ]
   },
-  "AssetMintBox": {
-    "Enum": [
-      {
-        "tag": "Quantity",
-        "discriminant": 0,
-        "type": "Mint<u32, Asset>"
-      },
-      {
-        "tag": "BigQuantity",
-        "discriminant": 1,
-        "type": "Mint<u128, Asset>"
-      },
-      {
-        "tag": "Fixed",
-        "discriminant": 2,
-        "type": "Mint<Fixed, Asset>"
-      }
-    ]
-  },
   "AssetTransferBox": {
     "Enum": [
       {
-        "tag": "Quantity",
+        "tag": "Numeric",
         "discriminant": 0,
-        "type": "Transfer<Asset, u32, Account>"
-      },
-      {
-        "tag": "BigQuantity",
-        "discriminant": 1,
-        "type": "Transfer<Asset, u128, Account>"
-      },
-      {
-        "tag": "Fixed",
-        "discriminant": 2,
-        "type": "Transfer<Asset, Fixed, Account>"
+        "type": "Transfer<Asset, Numeric, Account>"
       },
       {
         "tag": "Store",
-        "discriminant": 3,
+        "discriminant": 1,
         "type": "Transfer<Asset, Metadata, Account>"
       }
     ]
@@ -589,23 +541,13 @@
   "AssetValue": {
     "Enum": [
       {
-        "tag": "Quantity",
+        "tag": "Numeric",
         "discriminant": 0,
-        "type": "u32"
-      },
-      {
-        "tag": "BigQuantity",
-        "discriminant": 1,
-        "type": "u128"
-      },
-      {
-        "tag": "Fixed",
-        "discriminant": 2,
-        "type": "Fixed"
+        "type": "Numeric"
       },
       {
         "tag": "Store",
-        "discriminant": 3,
+        "discriminant": 1,
         "type": "Metadata"
       }
     ]
@@ -613,20 +555,13 @@
   "AssetValueType": {
     "Enum": [
       {
-        "tag": "Quantity",
-        "discriminant": 0
-      },
-      {
-        "tag": "BigQuantity",
-        "discriminant": 1
-      },
-      {
-        "tag": "Fixed",
-        "discriminant": 2
+        "tag": "Numeric",
+        "discriminant": 0,
+        "type": "NumericSpec"
       },
       {
         "tag": "Store",
-        "discriminant": 3
+        "discriminant": 1
       }
     ]
   },
@@ -742,11 +677,11 @@
     ]
   },
   "BlockSubscriptionRequest": "NonZero<u64>",
-  "Burn<Fixed, Asset>": {
+  "Burn<Numeric, Asset>": {
     "Struct": [
       {
         "name": "object",
-        "type": "Fixed"
+        "type": "Numeric"
       },
       {
         "name": "destination_id",
@@ -763,30 +698,6 @@
       {
         "name": "destination_id",
         "type": "AccountId"
-      }
-    ]
-  },
-  "Burn<u128, Asset>": {
-    "Struct": [
-      {
-        "name": "object",
-        "type": "u128"
-      },
-      {
-        "name": "destination_id",
-        "type": "AssetId"
-      }
-    ]
-  },
-  "Burn<u32, Asset>": {
-    "Struct": [
-      {
-        "name": "object",
-        "type": "u32"
-      },
-      {
-        "name": "destination_id",
-        "type": "AssetId"
       }
     ]
   },
@@ -812,7 +723,7 @@
       {
         "tag": "Asset",
         "discriminant": 1,
-        "type": "AssetBurnBox"
+        "type": "Burn<Numeric, Asset>"
       },
       {
         "tag": "TriggerRepetitions",
@@ -822,6 +733,12 @@
     ]
   },
   "ChainId": "String",
+  "Compact<u128>": {
+    "Int": "Compact"
+  },
+  "Compact<u32>": {
+    "Int": "Compact"
+  },
   "ConfigurationEvent": {
     "Enum": [
       {
@@ -949,7 +866,7 @@
       },
       {
         "name": "asset_total_quantities",
-        "type": "SortedMap<AssetDefinitionId, NumericValue>"
+        "type": "SortedMap<AssetDefinitionId, Numeric>"
       },
       {
         "name": "logo",
@@ -1841,13 +1758,6 @@
       }
     ]
   },
-  "Fixed": "FixedPoint<i64>",
-  "FixedPoint<i64>": {
-    "FixedPoint": {
-      "base": "i64",
-      "decimal_places": 9
-    }
-  },
   "ForwardCursor": {
     "Struct": [
       {
@@ -2286,6 +2196,25 @@
       }
     ]
   },
+  "Integer": {
+    "Enum": [
+      {
+        "tag": "U32",
+        "discriminant": 0,
+        "type": "u32"
+      },
+      {
+        "tag": "U64",
+        "discriminant": 1,
+        "type": "u64"
+      },
+      {
+        "tag": "U128",
+        "discriminant": 2,
+        "type": "u128"
+      }
+    ]
+  },
   "Interval<u16>": {
     "Struct": [
       {
@@ -2517,11 +2446,11 @@
       }
     ]
   },
-  "Mint<Fixed, Asset>": {
+  "Mint<Numeric, Asset>": {
     "Struct": [
       {
         "name": "object",
-        "type": "Fixed"
+        "type": "Numeric"
       },
       {
         "name": "destination_id",
@@ -2553,30 +2482,6 @@
       }
     ]
   },
-  "Mint<u128, Asset>": {
-    "Struct": [
-      {
-        "name": "object",
-        "type": "u128"
-      },
-      {
-        "name": "destination_id",
-        "type": "AssetId"
-      }
-    ]
-  },
-  "Mint<u32, Asset>": {
-    "Struct": [
-      {
-        "name": "object",
-        "type": "u32"
-      },
-      {
-        "name": "destination_id",
-        "type": "AssetId"
-      }
-    ]
-  },
   "Mint<u32, Trigger<TriggeringFilterBox>>": {
     "Struct": [
       {
@@ -2599,7 +2504,7 @@
       {
         "tag": "Asset",
         "discriminant": 1,
-        "type": "AssetMintBox"
+        "type": "Mint<Numeric, Asset>"
       },
       {
         "tag": "TriggerRepetitions",
@@ -2770,27 +2675,23 @@
       }
     ]
   },
-  "NumericValue": {
-    "Enum": [
+  "Numeric": {
+    "Struct": [
       {
-        "tag": "U32",
-        "discriminant": 0,
-        "type": "u32"
+        "name": "mantissa",
+        "type": "Compact<u128>"
       },
       {
-        "tag": "U64",
-        "discriminant": 1,
-        "type": "u64"
-      },
+        "name": "scale",
+        "type": "Compact<u32>"
+      }
+    ]
+  },
+  "NumericSpec": {
+    "Struct": [
       {
-        "tag": "U128",
-        "discriminant": 2,
-        "type": "u128"
-      },
-      {
-        "tag": "Fixed",
-        "discriminant": 3,
-        "type": "Fixed"
+        "name": "scale",
+        "type": "Option<u32>"
       }
     ]
   },
@@ -2838,6 +2739,9 @@
   },
   "Option<TriggerId>": {
     "Option": "TriggerId"
+  },
+  "Option<u32>": {
+    "Option": "u32"
   },
   "OriginFilter<AccountEvent>": "AccountId",
   "OriginFilter<AssetDefinitionEvent>": "AssetDefinitionId",
@@ -3682,15 +3586,15 @@
       }
     ]
   },
-  "SemiInterval<Fixed>": {
+  "SemiInterval<Numeric>": {
     "Struct": [
       {
         "name": "start",
-        "type": "Fixed"
+        "type": "Numeric"
       },
       {
         "name": "limit",
-        "type": "Fixed"
+        "type": "Numeric"
       }
     ]
   },
@@ -3706,34 +3610,12 @@
       }
     ]
   },
-  "SemiInterval<u32>": {
-    "Struct": [
-      {
-        "name": "start",
-        "type": "u32"
-      },
-      {
-        "name": "limit",
-        "type": "u32"
-      }
-    ]
-  },
   "SemiRange": {
     "Enum": [
       {
-        "tag": "U32",
+        "tag": "Numeric",
         "discriminant": 0,
-        "type": "SemiInterval<u32>"
-      },
-      {
-        "tag": "U128",
-        "discriminant": 1,
-        "type": "SemiInterval<u128>"
-      },
-      {
-        "tag": "Fixed",
-        "discriminant": 2,
-        "type": "SemiInterval<Fixed>"
+        "type": "SemiInterval<Numeric>"
       }
     ]
   },
@@ -4020,10 +3902,10 @@
       "value": "AssetDefinition"
     }
   },
-  "SortedMap<AssetDefinitionId, NumericValue>": {
+  "SortedMap<AssetDefinitionId, Numeric>": {
     "Map": {
       "key": "AssetDefinitionId",
-      "value": "NumericValue"
+      "value": "Numeric"
     }
   },
   "SortedMap<AssetId, Asset>": {
@@ -4242,22 +4124,6 @@
       }
     ]
   },
-  "Transfer<Asset, Fixed, Account>": {
-    "Struct": [
-      {
-        "name": "source_id",
-        "type": "AssetId"
-      },
-      {
-        "name": "object",
-        "type": "Fixed"
-      },
-      {
-        "name": "destination_id",
-        "type": "AccountId"
-      }
-    ]
-  },
   "Transfer<Asset, Metadata, Account>": {
     "Struct": [
       {
@@ -4274,7 +4140,7 @@
       }
     ]
   },
-  "Transfer<Asset, u128, Account>": {
+  "Transfer<Asset, Numeric, Account>": {
     "Struct": [
       {
         "name": "source_id",
@@ -4282,23 +4148,7 @@
       },
       {
         "name": "object",
-        "type": "u128"
-      },
-      {
-        "name": "destination_id",
-        "type": "AccountId"
-      }
-    ]
-  },
-  "Transfer<Asset, u32, Account>": {
-    "Struct": [
-      {
-        "name": "source_id",
-        "type": "AssetId"
-      },
-      {
-        "name": "object",
-        "type": "u32"
+        "type": "Numeric"
       },
       {
         "name": "destination_id",
@@ -4506,6 +4356,16 @@
         "tag": "AssetDefinitionId",
         "discriminant": 2,
         "type": "Mismatch<AssetDefinitionId>"
+      },
+      {
+        "tag": "NumericAssetValueTypeExpected",
+        "discriminant": 3,
+        "type": "AssetValueType"
+      },
+      {
+        "tag": "StoreAssetValueTypeExpected",
+        "discriminant": 4,
+        "type": "AssetValueType"
       }
     ]
   },
@@ -4754,16 +4614,21 @@
       {
         "tag": "Numeric",
         "discriminant": 20,
-        "type": "NumericValue"
+        "type": "Numeric"
+      },
+      {
+        "tag": "Integer",
+        "discriminant": 21,
+        "type": "Integer"
       },
       {
         "tag": "Executor",
-        "discriminant": 21,
+        "discriminant": 22,
         "type": "Executor"
       },
       {
         "tag": "LogLevel",
-        "discriminant": 22,
+        "discriminant": 23,
         "type": "Level"
       }
     ]
@@ -4866,9 +4731,6 @@
   },
   "WasmSmartContract": "Vec<u8>",
   "bool": "bool",
-  "i64": {
-    "Int": "FixedWidth"
-  },
   "u128": {
     "Int": "FixedWidth"
   },

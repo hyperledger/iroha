@@ -26,12 +26,17 @@ fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
         &account_id,
         &genesis_client,
         pipeline_time,
-        100,
+        numeric!(100),
     )?;
     // and a new peer is registered
     let (peer, peer_client) = rt.block_on(network.add_peer());
     // Then the new peer should already have the mint result.
-    check_assets(&peer_client, &account_id, &asset_definition_id, 100);
+    check_assets(
+        &peer_client,
+        &account_id,
+        &asset_definition_id,
+        numeric!(100),
+    );
     // Also, when a peer is unregistered
     let remove_peer = Unregister::peer(peer.id.clone());
     genesis_client.submit(remove_peer)?;
@@ -42,12 +47,22 @@ fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
         &account_id,
         &genesis_client,
         pipeline_time,
-        200,
+        numeric!(200),
     )?;
     // Assets are increased on the main network.
-    check_assets(&genesis_client, &account_id, &asset_definition_id, 300);
+    check_assets(
+        &genesis_client,
+        &account_id,
+        &asset_definition_id,
+        numeric!(300),
+    );
     // But not on the unregistered peer's network.
-    check_assets(&peer_client, &account_id, &asset_definition_id, 100);
+    check_assets(
+        &peer_client,
+        &account_id,
+        &asset_definition_id,
+        numeric!(100),
+    );
     Ok(())
 }
 
@@ -55,7 +70,7 @@ fn check_assets(
     iroha_client: &client::Client,
     account_id: &AccountId,
     asset_definition_id: &AssetDefinitionId,
-    quantity: u32,
+    quantity: Numeric,
 ) {
     iroha_client
         .poll_request_with_period(
@@ -67,7 +82,7 @@ fn check_assets(
 
                 assets.iter().any(|asset| {
                     asset.id().definition_id == *asset_definition_id
-                        && *asset.value() == AssetValue::Quantity(quantity)
+                        && *asset.value() == AssetValue::Numeric(quantity)
                 })
             },
         )
@@ -79,9 +94,9 @@ fn mint(
     account_id: &AccountId,
     client: &client::Client,
     pipeline_time: std::time::Duration,
-    quantity: u32,
-) -> Result<u32, color_eyre::Report> {
-    let mint_asset = Mint::asset_quantity(
+    quantity: Numeric,
+) -> Result<Numeric, color_eyre::Report> {
+    let mint_asset = Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
@@ -111,7 +126,7 @@ fn init() -> Result<(
     let create_account = Register::account(Account::new(account_id.clone(), public_key));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let instructions = parameters.into_iter().chain([
         create_domain.into(),
         create_account.into(),

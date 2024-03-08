@@ -27,7 +27,7 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
     //When
     let alice_id: AccountId = "alice@wonderland".parse()?;
     let roses = "rose#wonderland".parse()?;
-    let alice_has_roses = 13;
+    let alice_has_roses = numeric!(13);
 
     //Then
     let assets = client
@@ -37,7 +37,7 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
         .iter()
         .find(|asset| asset.id().definition_id == roses)
         .unwrap();
-    assert_eq!(AssetValue::Quantity(alice_has_roses), *asset.value());
+    assert_eq!(AssetValue::Numeric(alice_has_roses), *asset.value());
     Ok(())
 }
 

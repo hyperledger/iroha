@@ -48,7 +48,7 @@
         "Register": {
           "AssetDefinition": {
             "id": "rose#wonderland",
-            "value_type": "Quantity",
+            "value_type": "Numeric",
             "mintable": "Infinitely",
             "logo": null,
             "metadata": {}
@@ -79,7 +79,7 @@
         "Register": {
           "AssetDefinition": {
             "id": "cabbage#garden_of_live_flowers",
-            "value_type": "Quantity",
+            "value_type": "Numeric",
             "mintable": "Infinitely",
             "logo": null,
             "metadata": {}
@@ -89,20 +89,16 @@
       {
         "Mint": {
           "Asset": {
-            "Quantity": {
-              "object": 13,
-              "destination_id": "rose##alice@wonderland"
-            }
+            "object": "13",
+            "destination_id": "rose##alice@wonderland"
           }
         }
       },
       {
         "Mint": {
           "Asset": {
-            "Quantity": {
-              "object": 44,
-              "destination_id": "cabbage#garden_of_live_flowers#alice@wonderland"
-            }
+            "object": "44",
+            "destination_id": "cabbage#garden_of_live_flowers#alice@wonderland"
           }
         }
       },

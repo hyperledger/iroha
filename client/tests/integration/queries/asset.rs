@@ -9,7 +9,6 @@ use iroha_client::{
         query::{asset::FindTotalAssetQuantityByAssetDefinitionId, error::QueryExecutionFail},
     },
 };
-use iroha_primitives::fixed::Fixed;
 use test_network::*;
 
 #[test]
@@ -50,37 +49,25 @@ fn find_asset_total_quantity() -> Result<()> {
         &test_client,
         &accounts,
         "quantity#wonderland",
-        AssetValueType::Quantity,
-        1_u32,
-        10_u32,
-        5_u32,
-        NumericValue::U32(30_u32),
-        Mint::asset_quantity,
-        Burn::asset_quantity,
-    )?;
-    test_total_quantity(
-        &test_client,
-        &accounts,
-        "big-quantity#wonderland",
-        AssetValueType::BigQuantity,
-        1_u128,
-        10_u128,
-        5_u128,
-        NumericValue::U128(30_u128),
-        Mint::asset_big_quantity,
-        Burn::asset_big_quantity,
+        AssetValueType::Numeric(NumericSpec::default()),
+        numeric!(1),
+        numeric!(10),
+        numeric!(5),
+        numeric!(30),
+        Mint::asset_numeric,
+        Burn::asset_numeric,
     )?;
     test_total_quantity(
         &test_client,
         &accounts,
         "fixed#wonderland",
-        AssetValueType::Fixed,
-        Fixed::try_from(1.0)?,
-        Fixed::try_from(10.0)?,
-        Fixed::try_from(5.0)?,
-        NumericValue::Fixed(Fixed::try_from(30.0)?),
-        Mint::asset_fixed,
-        Burn::asset_fixed,
+        AssetValueType::Numeric(NumericSpec::default()),
+        numeric!(1.0),
+        numeric!(10.0),
+        numeric!(5.0),
+        numeric!(30.0),
+        Mint::asset_numeric,
+        Burn::asset_numeric,
     )?;
 
     // Test for `Store` asset value type
@@ -98,7 +85,7 @@ fn find_asset_total_quantity() -> Result<()> {
     let initial_total_asset_quantity = test_client.request(
         FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
     )?;
-    assert!(initial_total_asset_quantity.is_zero_value());
+    assert!(initial_total_asset_quantity.is_zero());
 
     let register_assets = asset_ids
         .iter()
@@ -112,7 +99,7 @@ fn find_asset_total_quantity() -> Result<()> {
     let result = test_client.request(FindTotalAssetQuantityByAssetDefinitionId::new(
         definition_id.clone(),
     ))?;
-    assert_eq!(NumericValue::U32(5), result);
+    assert_eq!(numeric!(5), result);
 
     let unregister_assets = asset_ids
         .iter()
@@ -125,7 +112,7 @@ fn find_asset_total_quantity() -> Result<()> {
     let total_asset_quantity = test_client.request(
         FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
     )?;
-    assert!(total_asset_quantity.is_zero_value());
+    assert!(total_asset_quantity.is_zero());
 
     // Unregister asset definition
     test_client.submit_blocking(Unregister::asset_definition(definition_id.clone()))?;
@@ -153,7 +140,7 @@ fn test_total_quantity<T>(
     initial_value: T,
     to_mint: T,
     to_burn: T,
-    expected_total_asset_quantity: NumericValue,
+    expected_total_asset_quantity: Numeric,
     mint_ctr: impl Fn(T, AssetId) -> Mint<T, Asset>,
     burn_ctr: impl Fn(T, AssetId) -> Burn<T, Asset>,
 ) -> Result<()>
@@ -179,7 +166,7 @@ where
     let initial_total_asset_quantity = test_client.request(
         FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
     )?;
-    assert!(initial_total_asset_quantity.is_zero_value());
+    assert!(initial_total_asset_quantity.is_zero());
 
     let register_assets = asset_ids
         .iter()
@@ -219,7 +206,7 @@ where
     let total_asset_quantity = test_client.request(
         FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
     )?;
-    assert!(total_asset_quantity.is_zero_value());
+    assert!(total_asset_quantity.is_zero());
 
     // Unregister asset definition
     test_client.submit_blocking(Unregister::asset_definition(definition_id.clone()))?;

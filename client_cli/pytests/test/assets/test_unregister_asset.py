@@ -12,27 +12,27 @@ def story_account_unregisters_asset():
 
 @allure.label("sdk_test_id", "unregister_asset")
 @pytest.mark.parametrize(
-    "GIVEN_quantity_asset_for_account", ["alice@wonderland"], indirect=True
+    "GIVEN_numeric_asset_for_account", ["alice@wonderland"], indirect=True
 )
 @pytest.mark.xfail(reason="wait for #4039")
 def test_unregister_asset(
-    GIVEN_quantity_asset_for_account,
+    GIVEN_numeric_asset_for_account,
 ):
     with allure.step(
-        f'WHEN client_cli unregisters the asset "{GIVEN_quantity_asset_for_account.definition.name}"'
+        f'WHEN client_cli unregisters the asset "{GIVEN_numeric_asset_for_account.definition.name}"'
     ):
         client_cli.unregister_asset(
-            asset_id=f"{GIVEN_quantity_asset_for_account.definition.name}#"
-            f"{GIVEN_quantity_asset_for_account.account}@"
-            f"{GIVEN_quantity_asset_for_account.definition.domain}"
+            asset_id=f"{GIVEN_numeric_asset_for_account.definition.name}#"
+            f"{GIVEN_numeric_asset_for_account.account}@"
+            f"{GIVEN_numeric_asset_for_account.definition.domain}"
         )
     with allure.step(
-        f'THEN Iroha should not have the asset "{GIVEN_quantity_asset_for_account.definition.name}"'
+        f'THEN Iroha should not have the asset "{GIVEN_numeric_asset_for_account.definition.name}"'
     ):
         iroha.should(
             have.asset(
-                f"{GIVEN_quantity_asset_for_account.definition.name}##"
-                f"{GIVEN_quantity_asset_for_account.account}@"
-                f"{GIVEN_quantity_asset_for_account.definition.domain}"
+                f"{GIVEN_numeric_asset_for_account.definition.name}##"
+                f"{GIVEN_numeric_asset_for_account.account}@"
+                f"{GIVEN_numeric_asset_for_account.definition.domain}"
             )
         )

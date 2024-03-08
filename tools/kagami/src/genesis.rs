@@ -7,7 +7,6 @@ use iroha_config::parameters::defaults::chain_wide::{
     DEFAULT_WASM_MAX_MEMORY_BYTES,
 };
 use iroha_data_model::{
-    asset::AssetValueType,
     metadata::Limits,
     parameter::{default::*, ParametersBuilder},
     prelude::AssetId,
@@ -138,22 +137,28 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
             meta.clone(),
         )
         .account_with_metadata("bob".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?, meta)
-        .asset("rose".parse()?, AssetValueType::Quantity)
+        .asset(
+            "rose".parse()?,
+            AssetValueType::Numeric(NumericSpec::default()),
+        )
         .finish_domain()
         .domain("garden_of_live_flowers".parse()?)
         .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
-        .asset("cabbage".parse()?, AssetValueType::Quantity)
+        .asset(
+            "cabbage".parse()?,
+            AssetValueType::Numeric(NumericSpec::default()),
+        )
         .finish_domain()
         .executor(executor)
         .build();
 
     let alice_id = AccountId::from_str("alice@wonderland")?;
-    let mint = Mint::asset_quantity(
-        13_u32,
+    let mint = Mint::asset_numeric(
+        13u32,
         AssetId::new("rose#wonderland".parse()?, alice_id.clone()),
     );
-    let mint_cabbage = Mint::asset_quantity(
-        44_u32,
+    let mint_cabbage = Mint::asset_numeric(
+        44u32,
         AssetId::new("cabbage#garden_of_live_flowers".parse()?, alice_id.clone()),
     );
     let grant_permission_to_set_parameters = Grant::permission(
@@ -238,8 +243,10 @@ fn generate_synthetic(
         }
 
         for asset in 0..assets_per_domain {
-            domain_builder =
-                domain_builder.asset(format!("asset_{asset}").parse()?, AssetValueType::Quantity);
+            domain_builder = domain_builder.asset(
+                format!("asset_{asset}").parse()?,
+                AssetValueType::Numeric(NumericSpec::default()),
+            );
         }
 
         builder = domain_builder.finish_domain();
@@ -254,8 +261,8 @@ fn generate_synthetic(
             // FIXME: it actually generates (assets_per_domain * accounts_per_domain) assets per domain
             //        https://github.com/hyperledger/iroha/issues/3508
             for asset in 0..assets_per_domain {
-                let mint = Mint::asset_quantity(
-                    13_u32,
+                let mint = Mint::asset_numeric(
+                    13u32,
                     AssetId::new(
                         format!("asset_{asset}#domain_{domain}").parse()?,
                         format!("account_{account}@domain_{domain}").parse()?,

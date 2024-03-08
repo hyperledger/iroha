@@ -11,10 +11,8 @@ pub use account::{
     visit_remove_account_key_value, visit_set_account_key_value, visit_unregister_account,
 };
 pub use asset::{
-    visit_burn_asset_big_quantity, visit_burn_asset_fixed, visit_burn_asset_quantity,
-    visit_mint_asset_big_quantity, visit_mint_asset_fixed, visit_mint_asset_quantity,
-    visit_register_asset, visit_remove_asset_key_value, visit_set_asset_key_value,
-    visit_transfer_asset_big_quantity, visit_transfer_asset_fixed, visit_transfer_asset_quantity,
+    visit_burn_asset_numeric, visit_mint_asset_numeric, visit_register_asset,
+    visit_remove_asset_key_value, visit_set_asset_key_value, visit_transfer_asset_numeric,
     visit_transfer_asset_store, visit_unregister_asset,
 };
 pub use asset_definition::{
@@ -1025,26 +1023,10 @@ pub mod asset {
         );
     }
 
-    pub fn visit_mint_asset_quantity<V: Validate + ?Sized>(
+    pub fn visit_mint_asset_numeric<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Mint<u32, Asset>,
-    ) {
-        validate_mint_asset(executor, authority, isi);
-    }
-
-    pub fn visit_mint_asset_big_quantity<V: Validate + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Mint<u128, Asset>,
-    ) {
-        validate_mint_asset(executor, authority, isi);
-    }
-
-    pub fn visit_mint_asset_fixed<V: Validate + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Mint<Fixed, Asset>,
+        isi: &Mint<Numeric, Asset>,
     ) {
         validate_mint_asset(executor, authority, isi);
     }
@@ -1085,26 +1067,10 @@ pub mod asset {
         deny!(executor, "Can't burn assets from another account");
     }
 
-    pub fn visit_burn_asset_quantity<V: Validate + ?Sized>(
+    pub fn visit_burn_asset_numeric<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Burn<u32, Asset>,
-    ) {
-        validate_burn_asset(executor, authority, isi);
-    }
-
-    pub fn visit_burn_asset_big_quantity<V: Validate + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Burn<u128, Asset>,
-    ) {
-        validate_burn_asset(executor, authority, isi);
-    }
-
-    pub fn visit_burn_asset_fixed<V: Validate + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Burn<Fixed, Asset>,
+        isi: &Burn<Numeric, Asset>,
     ) {
         validate_burn_asset(executor, authority, isi);
     }
@@ -1149,26 +1115,10 @@ pub mod asset {
         deny!(executor, "Can't transfer assets of another account");
     }
 
-    pub fn visit_transfer_asset_quantity<V: Validate + ?Sized>(
+    pub fn visit_transfer_asset_numeric<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Transfer<Asset, u32, Account>,
-    ) {
-        validate_transfer_asset(executor, authority, isi);
-    }
-
-    pub fn visit_transfer_asset_big_quantity<V: Validate + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Transfer<Asset, u128, Account>,
-    ) {
-        validate_transfer_asset(executor, authority, isi);
-    }
-
-    pub fn visit_transfer_asset_fixed<V: Validate + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Transfer<Asset, Fixed, Account>,
+        isi: &Transfer<Asset, Numeric, Account>,
     ) {
         validate_transfer_asset(executor, authority, isi);
     }

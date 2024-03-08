@@ -15,7 +15,7 @@ fn must_execute_both_triggers() -> Result<()> {
 
     let prev_value = get_asset_value(&test_client, asset_id.clone())?;
 
-    let instruction = Mint::asset_quantity(1_u32, asset_id.clone());
+    let instruction = Mint::asset_numeric(1u32, asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         "mint_rose_1".parse()?,
         Action::new(
@@ -55,7 +55,7 @@ fn must_execute_both_triggers() -> Result<()> {
     test_client.submit_blocking(Register::domain(Domain::new("neverland".parse()?)))?;
 
     let new_value = get_asset_value(&test_client, asset_id)?;
-    assert_eq!(new_value, prev_value + 2);
+    assert_eq!(new_value, prev_value.checked_add(numeric!(2)).unwrap());
 
     Ok(())
 }
@@ -74,11 +74,10 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
 
     let asset_definition_id: AssetDefinitionId = "sakura#neverland".parse()?;
     let create_sakura_asset_definition =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone())).into();
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();
 
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-    let create_sakura_asset =
-        Register::asset(Asset::new(asset_id.clone(), AssetValue::Quantity(0))).into();
+    let create_sakura_asset = Register::asset(Asset::new(asset_id.clone(), 0_u32)).into();
 
     test_client.submit_all_blocking([
         create_neverland_domain,
@@ -92,7 +91,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     let register_trigger = Register::trigger(Trigger::new(
         "mint_sakura$neverland".parse()?,
         Action::new(
-            [Mint::asset_quantity(1_u32, asset_id.clone())],
+            [Mint::asset_numeric(1u32, asset_id.clone())],
             Repeats::Indefinitely,
             account_id,
             // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
@@ -118,12 +117,12 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     )))?;
 
     let new_value = get_asset_value(&test_client, asset_id)?;
-    assert_eq!(new_value, prev_value + 1);
+    assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
 }
 
-fn get_asset_value(client: &client::Client, asset_id: AssetId) -> Result<u32> {
+fn get_asset_value(client: &client::Client, asset_id: AssetId) -> Result<Numeric> {
     let asset = client.request(client::asset::by_id(asset_id))?;
-    Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
+    Ok(*TryAsRef::<Numeric>::try_as_ref(asset.value())?)
 }
