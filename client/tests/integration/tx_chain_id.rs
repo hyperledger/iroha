@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
+use iroha_primitives::numeric::numeric;
 use test_network::*;
 
 use crate::integration::asset::asset_id_new;
@@ -16,7 +17,7 @@ fn send_tx_with_different_chain_id() {
     let receiver_account_id = AccountId::from_str("receiver@wonderland").unwrap();
     let receiver_keypair = KeyPair::generate();
     let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").unwrap();
-    let to_transfer = 1;
+    let to_transfer = numeric!(1);
 
     let create_sender_account: InstructionBox = Register::account(Account::new(
         sender_account_id.clone(),
@@ -29,10 +30,10 @@ fn send_tx_with_different_chain_id() {
     ))
     .into();
     let register_asset_definition: InstructionBox =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone())).into();
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();
     let register_asset: InstructionBox = Register::asset(Asset::new(
         AssetId::new(asset_definition_id.clone(), sender_account_id.clone()),
-        AssetValue::Quantity(10),
+        numeric!(10),
     ))
     .into();
     test_client
@@ -46,7 +47,7 @@ fn send_tx_with_different_chain_id() {
     let chain_id_0 = ChainId::from("0"); // Value configured by default
     let chain_id_1 = ChainId::from("1");
 
-    let transfer_instruction = Transfer::asset_quantity(
+    let transfer_instruction = Transfer::asset_numeric(
         asset_id_new("test_asset", "wonderland", sender_account_id.clone()),
         to_transfer,
         receiver_account_id.clone(),
