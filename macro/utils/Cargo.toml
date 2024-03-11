@@ -13,7 +13,6 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-syn = { workspace = true, features = ["default", "parsing", "printing"] }
 syn2 = { workspace = true, features = ["default", "parsing", "printing"] }
 darling = { workspace = true }
 quote = { workspace = true }

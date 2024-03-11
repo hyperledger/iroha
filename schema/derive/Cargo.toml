@@ -17,7 +17,7 @@ proc-macro = true
 syn2 = { workspace = true, features = ["default", "full"] }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
-manyhow = { workspace = true, features = ["syn1", "darling"] }
+manyhow = { workspace = true, features = ["darling"] }
 darling = { workspace = true }
 
 [dev-dependencies]
