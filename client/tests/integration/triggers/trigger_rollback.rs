@@ -9,7 +9,7 @@ use test_network::*;
 
 #[test]
 fn failed_trigger_revert() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_110).start_with_runtime();
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_150).start_with_runtime();
     wait_for_genesis_committed(&[client.clone()], 0);
 
     //When
