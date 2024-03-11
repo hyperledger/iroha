@@ -6,7 +6,7 @@ use manyhow::emit;
 use proc_macro2::TokenStream;
 use quote::quote;
 use rustc_hash::FxHashMap;
-use syn2::{parse_quote, visit::Visit, Ident};
+use syn::{parse_quote, visit::Visit, Ident};
 
 use crate::{
     attr_parse::{
@@ -141,7 +141,7 @@ fn gen_derived_method<'ast>(
     }
 }
 
-fn gen_derived_method_sig(field: &FfiTypeField, mode: GetSetGenMode) -> syn2::Signature {
+fn gen_derived_method_sig(field: &FfiTypeField, mode: GetSetGenMode) -> syn::Signature {
     let field_name = field.ident.as_ref().expect("BUG: Field name not defined");
     let field_ty = &field.ty;
 
@@ -176,7 +176,7 @@ pub fn gen_store_name(arg_name: &Ident) -> Ident {
 
 struct FfiTypeResolver<'itm>(&'itm Ident, TokenStream);
 impl<'itm> Visit<'itm> for FfiTypeResolver<'itm> {
-    fn visit_trait_bound(&mut self, i: &'itm syn2::TraitBound) {
+    fn visit_trait_bound(&mut self, i: &'itm syn::TraitBound) {
         let trait_ = i.path.segments.last().expect("Defined");
 
         let arg_name = self.0;

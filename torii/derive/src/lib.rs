@@ -3,7 +3,7 @@
 use manyhow::{manyhow, Result};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn2::{
+use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     Ident, LitInt, Token,
@@ -51,7 +51,7 @@ use syn2::{
 #[manyhow]
 #[proc_macro]
 pub fn generate_endpoints(input: TokenStream) -> Result<TokenStream> {
-    let EndpointList(list) = syn2::parse2(input)?;
+    let EndpointList(list) = syn::parse2(input)?;
     let lazy_arg_names = (1_u8..).map(|count| {
         Ident::new(
             format!("__endpoint_arg_{count}").as_str(),
@@ -121,7 +121,7 @@ enum EndpointItem {
 }
 
 impl Parse for EndpointList {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let items = Punctuated::<EndpointItem, Token![,]>::parse_terminated(input)?;
         let mut seen_arg_counts = Vec::new();
         for item in &items {
@@ -130,7 +130,7 @@ impl Parse for EndpointList {
                 | EndpointItem::ArgCount(arg_count) => {
                     let curr_count = arg_count.base10_parse::<u8>()?;
                     if seen_arg_counts.contains(&curr_count) {
-                        return Err(syn2::Error::new_spanned(
+                        return Err(syn::Error::new_spanned(
                             arg_count.token(),
                             "argument counts for all endpoints should be distinct",
                         ));
@@ -145,7 +145,7 @@ impl Parse for EndpointList {
 }
 
 impl Parse for EndpointItem {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(LitInt) {
             input.parse().map(EndpointItem::ArgCount)

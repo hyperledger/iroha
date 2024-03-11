@@ -5,7 +5,7 @@ use iroha_macro_utils::Emitter;
 use manyhow::{emit, manyhow, Result};
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn2::{parse::Parse, punctuated::Punctuated, token::Comma, FnArg, LitStr, Path, Type};
+use syn::{parse::Parse, punctuated::Punctuated, token::Comma, FnArg, LitStr, Path, Type};
 
 // TODO: export these as soon as proc-macro crates are able to export
 // anything other than proc-macros.
@@ -39,19 +39,19 @@ fn type_has_metrics_field(ty: &Type) -> bool {
 ///
 /// # Errors
 /// If no argument is of type `WorldStateView`.
-fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn2::Ident, &Punctuated<FnArg, Comma>> {
+fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn::Ident, &Punctuated<FnArg, Comma>> {
     input
         .iter()
         .find(|arg| match arg {
             FnArg::Typed(typ) => match &*typ.ty {
-                syn2::Type::Reference(typ) => type_has_metrics_field(&typ.elem),
+                syn::Type::Reference(typ) => type_has_metrics_field(&typ.elem),
                 _ => false,
             },
             _ => false,
         })
         .and_then(|arg| match arg {
             FnArg::Typed(typ) => match *typ.pat.clone() {
-                syn2::Pat::Ident(ident) => Some(ident.ident),
+                syn::Pat::Ident(ident) => Some(ident.ident),
                 _ => None,
             },
             _ => None,
@@ -62,7 +62,7 @@ fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn2::Ident, &Punctua
 struct MetricSpecs(#[allow(dead_code)] Vec<MetricSpec>); // `HashSet` — idiomatic; slow
 
 impl Parse for MetricSpecs {
-    fn parse(input: syn2::parse::ParseStream) -> syn2::Result<Self> {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let vars = Punctuated::<MetricSpec, Comma>::parse_terminated(input)?;
         Ok(Self(vars.into_iter().collect()))
     }
@@ -75,14 +75,14 @@ struct MetricSpec {
 }
 
 impl Parse for MetricSpec {
-    fn parse(input: syn2::parse::ParseStream) -> syn2::Result<Self> {
-        let _timing = <syn2::Token![+]>::parse(input).is_ok();
-        let metric_name_lit = syn2::Lit::parse(input)?;
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let _timing = <syn::Token![+]>::parse(input).is_ok();
+        let metric_name_lit = syn::Lit::parse(input)?;
 
         let metric_name = match metric_name_lit {
-            syn2::Lit::Str(lit_str) => {
+            syn::Lit::Str(lit_str) => {
                 if lit_str.value().contains(' ') {
-                    return Err(syn2::Error::new(
+                    return Err(syn::Error::new(
                         proc_macro2::Span::call_site(),
                         "Spaces are not allowed. Use underscores '_'",
                     ));
@@ -90,7 +90,7 @@ impl Parse for MetricSpec {
                 lit_str
             }
             _ => {
-                return Err(syn2::Error::new(
+                return Err(syn::Error::new(
                     proc_macro2::Span::call_site(),
                     "Must be a string literal. Format `[+]\"name_of_metric\"`.",
                 ))
@@ -145,7 +145,7 @@ impl ToTokens for MetricSpec {
 pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(func): Option<syn2::ItemFn> = emitter.handle(syn2::parse2(item)) else {
+    let Some(func): Option<syn::ItemFn> = emitter.handle(syn::parse2(item)) else {
         return emitter.finish_token_stream();
     };
 
@@ -167,7 +167,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
         return emitter.finish_token_stream();
     }
 
-    let Some(metric_specs): Option<MetricSpecs> = emitter.handle(syn2::parse2(attr)) else {
+    let Some(metric_specs): Option<MetricSpecs> = emitter.handle(syn::parse2(attr)) else {
         return emitter.finish_token_stream();
     };
 
@@ -176,8 +176,8 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
     emitter.finish_token_stream_with(result)
 }
 
-fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn2::ItemFn) -> TokenStream {
-    let syn2::ItemFn {
+fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn::ItemFn) -> TokenStream {
+    let syn::ItemFn {
         attrs,
         vis,
         sig,
@@ -185,13 +185,13 @@ fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn2::ItemFn
     } = func;
 
     match sig.output.clone() {
-        syn2::ReturnType::Default => emit!(
+        syn::ReturnType::Default => emit!(
             emitter,
             sig.output,
             "`Fn` must return `Result`. Returns nothing instead. "
         ),
         #[allow(clippy::string_to_string)]
-        syn2::ReturnType::Type(_, typ) => match *typ {
+        syn::ReturnType::Type(_, typ) => match *typ {
             Type::Path(pth) => {
                 let Path { segments, .. } = pth.path;
                 let type_name = &segments.last().expect("non-empty path").ident;

@@ -4,10 +4,10 @@ use darling::FromAttributes;
 use manyhow::Result;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn2::{Attribute, Ident, Type};
+use syn::{Attribute, Ident, Type};
 
 /// [`derive_validate`](crate::derive_validate()) macro implementation
-pub fn impl_derive_validate_grant_revoke(input: &syn2::DeriveInput) -> Result<TokenStream> {
+pub fn impl_derive_validate_grant_revoke(input: &syn::DeriveInput) -> Result<TokenStream> {
     let ident = &input.ident;
 
     let (validate_grant_impl, validate_revoke_impl) = gen_validate_impls(&input.attrs)?;
@@ -80,7 +80,7 @@ impl FromAttributes for ValidateAttribute {
 
                 general_condition = general_condition
                     .or(accumulator
-                        .handle(syn2::parse2(tokens.clone()).map_err(darling::Error::from)));
+                        .handle(syn::parse2(tokens.clone()).map_err(darling::Error::from)));
             } else if path.is_ident("grant") {
                 if general_condition.is_some() {
                     accumulator.push(
@@ -101,7 +101,7 @@ impl FromAttributes for ValidateAttribute {
 
                 grant_condition = grant_condition
                     .or(accumulator
-                        .handle(syn2::parse2(tokens.clone()).map_err(darling::Error::from)));
+                        .handle(syn::parse2(tokens.clone()).map_err(darling::Error::from)));
             } else if path.is_ident("revoke") {
                 if general_condition.is_some() {
                     accumulator.push(
@@ -122,7 +122,7 @@ impl FromAttributes for ValidateAttribute {
 
                 revoke_condition = revoke_condition
                     .or(accumulator
-                        .handle(syn2::parse2(tokens.clone()).map_err(darling::Error::from)));
+                        .handle(syn::parse2(tokens.clone()).map_err(darling::Error::from)));
             } else {
                 unreachable!()
             }

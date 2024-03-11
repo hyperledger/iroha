@@ -2,7 +2,7 @@
 
 use darling::FromAttributes;
 use quote::ToTokens;
-use syn2::{punctuated::Punctuated, Attribute, Token};
+use syn::{punctuated::Punctuated, Attribute, Token};
 
 use super::getset::GetSetDerive;
 
@@ -20,7 +20,7 @@ pub enum RustcDerive {
 }
 
 impl RustcDerive {
-    fn try_from_path(path: &syn2::Path) -> Option<Self> {
+    fn try_from_path(path: &syn::Path) -> Option<Self> {
         let ident = path.get_ident()?;
 
         match ident.to_string().as_str() {
@@ -73,7 +73,7 @@ impl FromAttributes for DeriveAttrs {
                     continue;
                 };
                 let Some(paths) = accumulator.handle(
-                    list.parse_args_with(Punctuated::<syn2::Path, Token![,]>::parse_terminated)
+                    list.parse_args_with(Punctuated::<syn::Path, Token![,]>::parse_terminated)
                         .map_err(Into::into),
                 ) else {
                     continue;

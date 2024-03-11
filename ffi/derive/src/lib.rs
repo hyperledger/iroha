@@ -5,7 +5,7 @@ use iroha_macro_utils::Emitter;
 use manyhow::{emit, manyhow};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn2::Item;
+use syn::Item;
 use wrapper::wrap_method;
 
 use crate::{
@@ -22,12 +22,12 @@ mod wrapper;
 
 struct FfiItems(Vec<FfiTypeInput>);
 
-impl syn2::parse::Parse for FfiItems {
-    fn parse(input: syn2::parse::ParseStream) -> syn2::Result<Self> {
+impl syn::parse::Parse for FfiItems {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let mut items = Vec::new();
 
         while !input.is_empty() {
-            let input = input.parse::<syn2::DeriveInput>()?;
+            let input = input.parse::<syn::DeriveInput>()?;
             let input = FfiTypeInput::from_derive_input(&input)?;
 
             items.push(input);
@@ -39,15 +39,15 @@ impl syn2::parse::Parse for FfiItems {
 
 /// A test utility function that parses multiple attributes
 #[cfg(test)]
-fn parse_attributes(ts: TokenStream) -> Vec<syn2::Attribute> {
-    struct Attributes(Vec<syn2::Attribute>);
-    impl syn2::parse::Parse for Attributes {
-        fn parse(input: syn2::parse::ParseStream) -> syn2::Result<Self> {
-            syn2::Attribute::parse_outer(input).map(Attributes)
+fn parse_attributes(ts: TokenStream) -> Vec<syn::Attribute> {
+    struct Attributes(Vec<syn::Attribute>);
+    impl syn::parse::Parse for Attributes {
+        fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+            syn::Attribute::parse_outer(input).map(Attributes)
         }
     }
 
-    syn2::parse2::<Attributes>(ts)
+    syn::parse2::<Attributes>(ts)
         .expect("Failed to parse attributes")
         .0
 }
@@ -76,7 +76,7 @@ fn parse_attributes(ts: TokenStream) -> Vec<syn2::Attribute> {
 #[manyhow]
 #[proc_macro]
 pub fn ffi(input: TokenStream) -> TokenStream {
-    let items = match syn2::parse2::<FfiItems>(input) {
+    let items = match syn::parse2::<FfiItems>(input) {
         Ok(items) => items.0,
         Err(err) => return err.to_compile_error(),
     };
@@ -86,7 +86,7 @@ pub fn ffi(input: TokenStream) -> TokenStream {
     let items = items
         .into_iter()
         .map(|item| {
-            if !matches!(item.vis, syn2::Visibility::Public(_)) {
+            if !matches!(item.vis, syn::Visibility::Public(_)) {
                 emit!(emitter, item.span, "Only public types are allowed in FFI");
             }
 
@@ -206,11 +206,11 @@ pub fn ffi(input: TokenStream) -> TokenStream {
 pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(item) = emitter.handle(syn2::parse2::<syn2::DeriveInput>(input)) else {
+    let Some(item) = emitter.handle(syn::parse2::<syn::DeriveInput>(input)) else {
         return emitter.finish_token_stream();
     };
 
-    if !matches!(item.vis, syn2::Visibility::Public(_)) {
+    if !matches!(item.vis, syn::Visibility::Public(_)) {
         emit!(emitter, item, "Only public types are allowed in FFI");
     }
 
@@ -288,7 +288,7 @@ pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
 #[manyhow]
 #[proc_macro_attribute]
 pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let item = match syn2::parse2::<Item>(item) {
+    let item = match syn::parse2::<Item>(item) {
         Ok(item) => item,
         Err(err) => return err.to_compile_error(),
     };
@@ -329,7 +329,7 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
         Item::Struct(item) => {
             // re-parse as a DeriveInput to utilize darling
-            let input = syn2::parse2(quote!(#item)).unwrap();
+            let input = syn::parse2(quote!(#item)).unwrap();
             let Some(input) = emitter.handle(FfiTypeInput::from_derive_input(&input)) else {
                 return emitter.finish_token_stream();
             };
@@ -429,7 +429,7 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[manyhow]
 #[proc_macro_attribute]
 pub fn ffi_import(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let item = match syn2::parse2::<Item>(item) {
+    let item = match syn::parse2::<Item>(item) {
         Ok(item) => item,
         Err(err) => return err.to_compile_error(),
     };

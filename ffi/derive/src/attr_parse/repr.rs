@@ -7,7 +7,7 @@ use std::str::FromStr;
 use darling::{error::Accumulator, util::SpannedValue, FromAttributes};
 use parse_display::{Display, FromStr};
 use proc_macro2::{Delimiter, Span};
-use syn2::{
+use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     spanned::Spanned as _,
@@ -57,7 +57,7 @@ struct SpannedReprToken {
 }
 
 impl Parse for SpannedReprToken {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let (span, token) = input.step(|cursor| {
             let Some((ident, after_token)) = cursor.ident() else {
                 return Err(cursor.error("Expected repr kind"));
@@ -80,7 +80,7 @@ impl Parse for SpannedReprToken {
                     };
 
                     span = span.join(group_span.span()).unwrap_or(span);
-                    let alignment = syn2::parse2::<syn2::LitInt>(inside_of_group.token_stream())?;
+                    let alignment = syn::parse2::<syn::LitInt>(inside_of_group.token_stream())?;
                     let alignment = alignment.base10_parse::<u32>()?;
 
                     Ok((
@@ -100,7 +100,7 @@ impl Parse for SpannedReprToken {
 struct ReprTokens(Vec<SpannedReprToken>);
 
 impl Parse for ReprTokens {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         Ok(Self(
             Punctuated::<_, Token![,]>::parse_terminated(input)?
                 .into_iter()
@@ -137,7 +137,7 @@ impl FromAttributes for Repr {
                     ),
                     Meta::List(list) => {
                         let Some(tokens) = accumulator.handle(
-                            syn2::parse2::<ReprTokens>(list.tokens.clone()).map_err(Into::into),
+                            syn::parse2::<ReprTokens>(list.tokens.clone()).map_err(Into::into),
                         ) else {
                             continue;
                         };

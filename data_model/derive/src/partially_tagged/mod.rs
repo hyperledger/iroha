@@ -8,7 +8,7 @@ use darling::{FromDeriveInput, FromVariant};
 use manyhow::Result;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn2::{parse_quote, Attribute, Generics, Ident, Type};
+use syn::{parse_quote, Attribute, Generics, Ident, Type};
 
 #[derive(FromDeriveInput)]
 #[darling(forward_attrs(serde), supports(enum_newtype))]
@@ -23,7 +23,7 @@ pub struct PartiallyTaggedEnum {
 #[darling(forward_attrs(serde), attributes(serde_partially_tagged))]
 pub struct PartiallyTaggedVariant {
     ident: Ident,
-    fields: darling::ast::Fields<syn2::Type>,
+    fields: darling::ast::Fields<syn::Type>,
     attrs: Vec<Attribute>,
     #[darling(default)]
     untagged: bool,
@@ -44,7 +44,7 @@ impl PartiallyTaggedEnum {
     }
 
     /// Returns a type that corresponds to `Self`, handling the generics as necessary
-    fn self_ty(&self) -> syn2::Type {
+    fn self_ty(&self) -> syn::Type {
         let ident = &self.ident;
         let (_, type_generics, _) = self.generics.split_for_impl();
 
@@ -53,7 +53,7 @@ impl PartiallyTaggedEnum {
 }
 
 impl PartiallyTaggedVariant {
-    fn ty(&self, self_ty: &syn2::Type) -> syn2::Type {
+    fn ty(&self, self_ty: &syn::Type) -> syn::Type {
         let ty = self.fields.fields.first().expect(
             "BUG: Only newtype enums are supported. Enforced by `darling(supports(enum_newtype))`",
         ).clone();
@@ -64,7 +64,7 @@ impl PartiallyTaggedVariant {
 
 /// Convert from vector of variants to tuple of vectors consisting of variant's fields
 fn variants_to_tuple<'lt, I: Iterator<Item = &'lt PartiallyTaggedVariant>>(
-    self_ty: &syn2::Type,
+    self_ty: &syn::Type,
     variants: I,
 ) -> (Vec<&'lt Ident>, Vec<Type>, Vec<&'lt [Attribute]>) {
     variants.fold(
@@ -78,7 +78,7 @@ fn variants_to_tuple<'lt, I: Iterator<Item = &'lt PartiallyTaggedVariant>>(
     )
 }
 
-pub fn impl_partially_tagged_serialize(input: &syn2::DeriveInput) -> Result<TokenStream> {
+pub fn impl_partially_tagged_serialize(input: &syn::DeriveInput) -> Result<TokenStream> {
     let enum_ = PartiallyTaggedEnum::from_derive_input(input)?;
 
     let enum_ident = &enum_.ident;
@@ -90,7 +90,7 @@ pub fn impl_partially_tagged_serialize(input: &syn2::DeriveInput) -> Result<Toke
         variants_to_tuple(&self_ty, enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
         variants_to_tuple(&self_ty, enum_.untagged_variants());
-    let serialize_trait_bound: syn2::TypeParamBound = parse_quote!(::serde::Serialize);
+    let serialize_trait_bound: syn::TypeParamBound = parse_quote!(::serde::Serialize);
     let mut generics = enum_.generics.clone();
     generics
         .type_params_mut()
@@ -152,7 +152,7 @@ pub fn impl_partially_tagged_serialize(input: &syn2::DeriveInput) -> Result<Toke
     })
 }
 
-pub fn impl_partially_tagged_deserialize(input: &syn2::DeriveInput) -> Result<TokenStream> {
+pub fn impl_partially_tagged_deserialize(input: &syn::DeriveInput) -> Result<TokenStream> {
     let enum_ = PartiallyTaggedEnum::from_derive_input(input)?;
 
     let enum_ident = &enum_.ident;
@@ -166,7 +166,7 @@ pub fn impl_partially_tagged_deserialize(input: &syn2::DeriveInput) -> Result<To
         variants_to_tuple(&self_ty, enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
         variants_to_tuple(&self_ty, enum_.untagged_variants());
-    let deserialize_trait_bound: syn2::TypeParamBound = parse_quote!(::serde::de::DeserializeOwned);
+    let deserialize_trait_bound: syn::TypeParamBound = parse_quote!(::serde::de::DeserializeOwned);
     let variants_ty_deserialize_bound = variants_ty
         .iter()
         .map(|ty| quote!(#ty: #deserialize_trait_bound).to_string())

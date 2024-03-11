@@ -51,7 +51,7 @@ use proc_macro2::TokenStream;
 #[manyhow]
 #[proc_macro_derive(EnumRef, attributes(enum_ref))]
 pub fn enum_ref(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+    let input = syn::parse2(input)?;
     enum_ref::impl_enum_ref(&input)
 }
 
@@ -134,7 +134,7 @@ pub fn model(attr: TokenStream, input: TokenStream) -> TokenStream {
         emit!(emitter, attr, "This attribute does not take any arguments");
     }
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 
@@ -151,7 +151,7 @@ pub fn model(attr: TokenStream, input: TokenStream) -> TokenStream {
 pub fn model_single(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 
@@ -277,7 +277,7 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 
@@ -452,7 +452,7 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 pub fn filter_derive(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 
@@ -489,7 +489,7 @@ pub fn filter_derive(input: TokenStream) -> TokenStream {
 #[manyhow]
 #[proc_macro_derive(PartiallyTaggedSerialize, attributes(serde_partially_tagged, serde))]
 pub fn partially_tagged_serialize_derive(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+    let input = syn::parse2(input)?;
 
     partially_tagged::impl_partially_tagged_serialize(&input)
 }
@@ -552,7 +552,7 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> Result<TokenStre
 #[manyhow]
 #[proc_macro_derive(PartiallyTaggedDeserialize, attributes(serde_partially_tagged, serde))]
 pub fn partially_tagged_deserialize_derive(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+    let input = syn::parse2(input)?;
 
     partially_tagged::impl_partially_tagged_deserialize(&input)
 }
@@ -645,7 +645,7 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> Result<TokenSt
 pub fn has_origin_derive(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 

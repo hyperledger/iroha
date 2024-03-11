@@ -3,10 +3,10 @@ use iroha_macro_utils::{find_single_attr_opt, Emitter};
 use manyhow::emit;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn2::parse_quote;
+use syn::parse_quote;
 
 mod kw {
-    syn2::custom_keyword!(transparent);
+    syn::custom_keyword!(transparent);
 }
 
 enum IdAttr {
@@ -16,15 +16,15 @@ enum IdAttr {
 }
 
 impl FromAttributes for IdAttr {
-    fn from_attributes(attrs: &[syn2::Attribute]) -> darling::Result<Self> {
+    fn from_attributes(attrs: &[syn::Attribute]) -> darling::Result<Self> {
         let mut accumulator = darling::error::Accumulator::default();
         let Some(attr) = find_single_attr_opt(&mut accumulator, "id", attrs) else {
             return accumulator.finish_with(IdAttr::Missing);
         };
 
         let result = match &attr.meta {
-            syn2::Meta::Path(_) => IdAttr::Normal,
-            syn2::Meta::List(list) if list.parse_args::<kw::transparent>().is_ok() => {
+            syn::Meta::Path(_) => IdAttr::Normal,
+            syn::Meta::List(list) if list.parse_args::<kw::transparent>().is_ok() => {
                 IdAttr::Transparent
             }
             _ => {
@@ -43,19 +43,19 @@ impl FromAttributes for IdAttr {
 #[derive(FromDeriveInput)]
 #[darling(supports(struct_any))]
 struct IdDeriveInput {
-    ident: syn2::Ident,
-    generics: syn2::Generics,
+    ident: syn::Ident,
+    generics: syn::Generics,
     data: darling::ast::Data<darling::util::Ignored, IdField>,
 }
 
 struct IdField {
-    ident: Option<syn2::Ident>,
-    ty: syn2::Type,
+    ident: Option<syn::Ident>,
+    ty: syn::Type,
     id_attr: IdAttr,
 }
 
 impl FromField for IdField {
-    fn from_field(field: &syn2::Field) -> darling::Result<Self> {
+    fn from_field(field: &syn::Field) -> darling::Result<Self> {
         let ident = field.ident.clone();
         let ty = field.ty.clone();
         let id_attr = IdAttr::from_attributes(&field.attrs)?;
@@ -73,7 +73,7 @@ impl IdDeriveInput {
     }
 }
 
-pub fn impl_id_eq_ord_hash(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream {
+pub fn impl_id_eq_ord_hash(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream {
     let Some(input) = emitter.handle(IdDeriveInput::from_derive_input(input)) else {
         return quote!();
     };
@@ -130,10 +130,10 @@ fn derive_identifiable(emitter: &mut Emitter, input: &IdDeriveInput) -> TokenStr
     }
 }
 
-fn get_id_type(emitter: &mut Emitter, input: &IdDeriveInput) -> (syn2::Type, syn2::Expr) {
+fn get_id_type(emitter: &mut Emitter, input: &IdDeriveInput) -> (syn::Type, syn::Expr) {
     for (field_index, IdField { ty, ident, id_attr }) in input.fields().iter().enumerate() {
         let field_name = ident.as_ref().map_or_else(
-            || syn2::Index::from(field_index).to_token_stream(),
+            || syn::Index::from(field_index).to_token_stream(),
             ToTokens::to_token_stream,
         );
         match id_attr {

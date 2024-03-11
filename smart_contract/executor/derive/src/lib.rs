@@ -55,7 +55,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         );
     }
 
-    let Some(item) = emitter.handle(syn2::parse2(item)) else {
+    let Some(item) = emitter.handle(syn::parse2(item)) else {
         return emitter.finish_token_stream();
     };
 
@@ -95,7 +95,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[manyhow]
 #[proc_macro_derive(Token)]
 pub fn derive_token(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+    let input = syn::parse2(input)?;
 
     Ok(token::impl_derive_token(&input))
 }
@@ -167,7 +167,7 @@ pub fn derive_token(input: TokenStream) -> Result<TokenStream> {
     attributes(validate, validate_grant, validate_revoke)
 )]
 pub fn derive_validate_grant_revoke(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+    let input = syn::parse2(input)?;
     validate::impl_derive_validate_grant_revoke(&input)
 }
 
@@ -181,7 +181,7 @@ pub fn derive_validate_grant_revoke(input: TokenStream) -> Result<TokenStream> {
 #[manyhow]
 #[proc_macro_derive(RefIntoAssetDefinitionOwner)]
 pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+    let input = syn::parse2(input)?;
 
     Ok(conversion::impl_derive_ref_into_asset_definition_owner(
         &input,
@@ -198,7 +198,7 @@ pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> Result<Toke
 #[manyhow]
 #[proc_macro_derive(RefIntoAssetOwner)]
 pub fn derive_ref_into_asset_owner(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+    let input = syn::parse2(input)?;
 
     Ok(conversion::impl_derive_ref_into_asset_owner(&input))
 }
@@ -213,7 +213,7 @@ pub fn derive_ref_into_asset_owner(input: TokenStream) -> Result<TokenStream> {
 #[manyhow]
 #[proc_macro_derive(RefIntoAccountOwner)]
 pub fn derive_ref_into_account_owner(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+    let input = syn::parse2(input)?;
 
     Ok(conversion::impl_derive_ref_into_account_owner(&input))
 }
@@ -228,7 +228,7 @@ pub fn derive_ref_into_account_owner(input: TokenStream) -> Result<TokenStream> 
 #[manyhow]
 #[proc_macro_derive(RefIntoDomainOwner)]
 pub fn derive_ref_into_domain_owner(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+    let input = syn::parse2(input)?;
 
     Ok(conversion::impl_derive_ref_into_domain_owner(&input))
 }
@@ -245,7 +245,7 @@ pub fn derive_ref_into_domain_owner(input: TokenStream) -> Result<TokenStream> {
 pub fn derive_validate(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 
@@ -290,7 +290,7 @@ pub fn derive_validate(input: TokenStream) -> TokenStream {
 pub fn derive_visit(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 
@@ -331,7 +331,7 @@ pub fn derive_visit(input: TokenStream) -> TokenStream {
 pub fn derive_entrypoints(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 
@@ -353,7 +353,7 @@ pub fn derive_entrypoints(input: TokenStream) -> TokenStream {
 pub fn derive_constructor(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 

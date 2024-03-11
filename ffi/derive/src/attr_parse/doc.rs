@@ -1,5 +1,5 @@
 use darling::FromAttributes;
-use syn2::Attribute;
+use syn::Attribute;
 
 pub struct DocAttrs {
     pub attrs: Vec<Attribute>,
