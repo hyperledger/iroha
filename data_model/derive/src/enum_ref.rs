@@ -2,7 +2,7 @@ use darling::{FromAttributes, FromDeriveInput, FromMeta, FromVariant};
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 
-pub fn impl_enum_ref(input: &syn2::DeriveInput) -> manyhow::Result<TokenStream> {
+pub fn impl_enum_ref(input: &syn::DeriveInput) -> manyhow::Result<TokenStream> {
     let input = EnumRef::from_derive_input(input)?;
     Ok(quote! { #input })
 }
@@ -32,20 +32,20 @@ struct EnumRefVariantAttrs {
 
 #[derive(Clone)]
 struct EnumRefField {
-    ty: syn2::Type,
+    ty: syn::Type,
 }
 
 #[derive(Clone)]
 struct EnumRefVariant {
-    ident: syn2::Ident,
+    ident: syn::Ident,
     field: EnumRefField,
 }
 
 #[derive(Clone)]
 struct EnumRef {
     attrs: EnumRefAttrs,
-    ident: syn2::Ident,
-    generics: syn2::Generics,
+    ident: syn::Ident,
+    generics: syn::Generics,
     data: darling::ast::Data<EnumRefVariant, darling::util::Ignored>,
 }
 
@@ -66,7 +66,7 @@ impl FromMeta for EnumRefDeriveAttrs {
 }
 
 impl FromVariant for EnumRefVariant {
-    fn from_variant(variant: &syn2::Variant) -> darling::Result<Self> {
+    fn from_variant(variant: &syn::Variant) -> darling::Result<Self> {
         let transparent = EnumRefVariantAttrs::from_attributes(&variant.attrs)?;
 
         let mut fields: Vec<_> = variant
@@ -96,7 +96,7 @@ impl FromVariant for EnumRefVariant {
 }
 
 impl FromDeriveInput for EnumRef {
-    fn from_derive_input(input: &syn2::DeriveInput) -> darling::Result<Self> {
+    fn from_derive_input(input: &syn::DeriveInput) -> darling::Result<Self> {
         Ok(Self {
             attrs: EnumRefAttrs::from_attributes(&input.attrs)?,
             ident: gen_enum_ref_ident(&input.ident),
@@ -159,19 +159,19 @@ impl ToTokens for EnumRef {
     }
 }
 
-fn gen_enum_ref_ident(ident: &syn2::Ident) -> syn2::Ident {
-    syn2::Ident::new(&format!("{ident}Ref"), proc_macro2::Span::call_site())
+fn gen_enum_ref_ident(ident: &syn::Ident) -> syn::Ident {
+    syn::Ident::new(&format!("{ident}Ref"), proc_macro2::Span::call_site())
 }
 
-fn gen_field_ty(transparent: Transparent, field_ty: &syn2::Type) -> syn2::Type {
+fn gen_field_ty(transparent: Transparent, field_ty: &syn::Type) -> syn::Type {
     if matches!(transparent, Transparent::Transparent) {
-        if let syn2::Type::Path(ty) = field_ty {
+        if let syn::Type::Path(ty) = field_ty {
             if let Some(ident) = ty.path.get_ident() {
                 let ident = gen_enum_ref_ident(ident);
-                return syn2::parse_quote! { #ident<'a> };
+                return syn::parse_quote! { #ident<'a> };
             }
         }
     }
 
-    syn2::parse_quote!(&'a #field_ty)
+    syn::parse_quote!(&'a #field_ty)
 }

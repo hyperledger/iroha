@@ -3,7 +3,7 @@ use std::net;
 use manyhow::Result;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::quote;
-use syn2::{bracketed, parse::ParseStream, Token};
+use syn::{bracketed, parse::ParseStream, Token};
 
 /// Stringify [`TokenStream`], without inserting any spaces in between
 fn stringify_tokens(tokens: TokenStream) -> String {
@@ -39,13 +39,13 @@ enum IpAddress {
     // so we parse them separately on the `syn` level
     IPv6 {
         #[allow(unused)]
-        bracket_token: syn2::token::Bracket,
+        bracket_token: syn::token::Bracket,
         ip_tokens: TokenStream,
     },
 }
 
 impl IpAddress {
-    fn parse_v4(input: ParseStream) -> syn2::Result<Self> {
+    fn parse_v4(input: ParseStream) -> syn::Result<Self> {
         input.step(|cursor| {
             let mut rest = *cursor;
 
@@ -67,7 +67,7 @@ impl IpAddress {
         })
     }
 
-    fn parse_v6(input: ParseStream) -> syn2::Result<Self> {
+    fn parse_v6(input: ParseStream) -> syn::Result<Self> {
         let ip_tokens;
         Ok(IpAddress::IPv6 {
             bracket_token: bracketed!(ip_tokens in input),
@@ -75,7 +75,7 @@ impl IpAddress {
         })
     }
 
-    fn parse_tokens(&self) -> syn2::Result<net::IpAddr> {
+    fn parse_tokens(&self) -> syn::Result<net::IpAddr> {
         match self {
             IpAddress::IPv4 { ip_tokens } => {
                 let ip_string = stringify_tokens(ip_tokens.clone());
@@ -83,7 +83,7 @@ impl IpAddress {
                     .parse::<net::Ipv4Addr>()
                     .map(net::IpAddr::V4)
                     .map_err(|e| {
-                        syn2::Error::new_spanned(
+                        syn::Error::new_spanned(
                             ip_tokens,
                             format!("Failed to parse `{}` as an IPv4 address: {}", ip_string, e),
                         )
@@ -95,7 +95,7 @@ impl IpAddress {
                     .parse::<net::Ipv6Addr>()
                     .map(net::IpAddr::V6)
                     .map_err(|e| {
-                        syn2::Error::new_spanned(
+                        syn::Error::new_spanned(
                             ip_tokens,
                             format!("Failed to parse `{}` as an IPv6 address: {}", ip_string, e),
                         )
@@ -105,11 +105,11 @@ impl IpAddress {
     }
 }
 
-impl syn2::parse::Parse for IpAddress {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
+impl syn::parse::Parse for IpAddress {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let lookahead = input.lookahead1();
 
-        if lookahead.peek(syn2::token::Bracket) {
+        if lookahead.peek(syn::token::Bracket) {
             Self::parse_v6(input)
         } else {
             Self::parse_v4(input)
@@ -121,14 +121,14 @@ struct SocketAddress {
     ip: IpAddress,
     #[allow(unused)]
     colon: Token![:],
-    port: syn2::Expr,
+    port: syn::Expr,
 }
 
-impl syn2::parse::Parse for SocketAddress {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
+impl syn::parse::Parse for SocketAddress {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let ip = input.parse::<IpAddress>()?;
         let colon = input.parse::<Token![:]>()?;
-        let port = input.parse::<syn2::Expr>()?;
+        let port = input.parse::<syn::Expr>()?;
 
         Ok(SocketAddress { ip, colon, port })
     }
@@ -137,7 +137,7 @@ impl syn2::parse::Parse for SocketAddress {
 // it's fine, these are just segments of IPv6 addresses
 #[allow(clippy::many_single_char_names)]
 pub fn socket_addr_impl(input: TokenStream) -> Result<TokenStream> {
-    let socket_address = syn2::parse2::<SocketAddress>(input)?;
+    let socket_address = syn::parse2::<SocketAddress>(input)?;
 
     let ip_address = socket_address.ip.parse_tokens()?;
     let port = socket_address.port;

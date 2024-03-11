@@ -6,22 +6,22 @@ use iroha_macro_utils::Emitter;
 use manyhow::emit;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn2::parse_quote;
+use syn::parse_quote;
 
 mod export {
     pub const SMART_CONTRACT_MAIN: &str = "_iroha_smart_contract_main";
 }
 
 #[allow(clippy::needless_pass_by_value)]
-pub fn impl_entrypoint(emitter: &mut Emitter, item: syn2::ItemFn) -> TokenStream {
-    let syn2::ItemFn {
+pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream {
+    let syn::ItemFn {
         attrs,
         vis,
         sig,
         mut block,
     } = item;
 
-    if sig.output != syn2::ReturnType::Default {
+    if sig.output != syn::ReturnType::Default {
         emit!(
             emitter,
             "Smart contract entrypoint must not have a return type"
@@ -39,8 +39,7 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn2::ItemFn) -> TokenStream
         ),
     );
 
-    let main_fn_name =
-        syn2::Ident::new(export::SMART_CONTRACT_MAIN, proc_macro2::Span::call_site());
+    let main_fn_name = syn::Ident::new(export::SMART_CONTRACT_MAIN, proc_macro2::Span::call_site());
 
     quote! {
         /// Smart contract entrypoint

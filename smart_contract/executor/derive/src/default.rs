@@ -3,9 +3,9 @@ use iroha_macro_utils::Emitter;
 use manyhow::emit;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
-use syn2::{parse_quote, Ident};
+use syn::{parse_quote, Ident};
 
-type ExecutorData = darling::ast::Data<darling::util::Ignored, syn2::Field>;
+type ExecutorData = darling::ast::Data<darling::util::Ignored, syn::Field>;
 
 #[derive(Debug)]
 struct Custom(Vec<Ident>);
@@ -14,7 +14,7 @@ impl FromMeta for Custom {
     fn from_list(items: &[NestedMeta]) -> darling::Result<Self> {
         let mut res = Vec::new();
         for item in items {
-            if let NestedMeta::Meta(syn2::Meta::Path(p)) = item {
+            if let NestedMeta::Meta(syn::Meta::Path(p)) = item {
                 let fn_name = p.get_ident().expect("Path should be ident");
                 res.push(fn_name.clone());
             } else {
@@ -35,7 +35,7 @@ struct ExecutorDeriveInput {
     custom: Option<Custom>,
 }
 
-pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream2 {
+pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream2 {
     let Some(input) = emitter.handle(ExecutorDeriveInput::from_derive_input(input)) else {
         return quote!();
     };
@@ -49,7 +49,7 @@ pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn2::DeriveInput)
 
     let (custom_idents, custom_args) = custom_field_idents_and_fn_args(data);
 
-    let mut entrypoint_fns: Vec<syn2::ItemFn> = vec![
+    let mut entrypoint_fns: Vec<syn::ItemFn> = vec![
         parse_quote! {
             #[::iroha_executor::prelude::entrypoint]
             pub fn validate_instruction(
@@ -108,12 +108,12 @@ pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn2::DeriveInput)
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream2 {
+pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream2 {
     let Some(input) = emitter.handle(ExecutorDeriveInput::from_derive_input(input)) else {
         return quote!();
     };
     let ExecutorDeriveInput { ident, custom, .. } = &input;
-    let default_visit_sigs: Vec<syn2::Signature> = [
+    let default_visit_sigs: Vec<syn::Signature> = [
         "fn visit_transaction(operation: &SignedTransaction)",
         "fn visit_instruction(operation: &InstructionBox)",
         "fn visit_register_peer(operation: &Register<Peer>)",
@@ -164,10 +164,10 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn2::DeriveInput) -> To
     ]
     .into_iter()
     .map(|item| {
-        let mut sig: syn2::Signature =
-            syn2::parse_str(item).expect("Function names and operation signatures should be valid");
-        let recv_arg: syn2::Receiver = parse_quote!(&mut self);
-        let auth_arg: syn2::FnArg = parse_quote!(authority: &AccountId);
+        let mut sig: syn::Signature =
+            syn::parse_str(item).expect("Function names and operation signatures should be valid");
+        let recv_arg: syn::Receiver = parse_quote!(&mut self);
+        let auth_arg: syn::FnArg = parse_quote!(authority: &AccountId);
         sig.inputs.insert(0, recv_arg.into());
         sig.inputs.insert(1, auth_arg);
         sig
@@ -211,7 +211,7 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn2::DeriveInput) -> To
     }
 }
 
-pub fn impl_derive_validate(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream2 {
+pub fn impl_derive_validate(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream2 {
     let Some(input) = emitter.handle(ExecutorDeriveInput::from_derive_input(input)) else {
         return quote!();
     };
@@ -234,7 +234,7 @@ pub fn impl_derive_validate(emitter: &mut Emitter, input: &syn2::DeriveInput) ->
     }
 }
 
-pub fn impl_derive_constructor(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream2 {
+pub fn impl_derive_constructor(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream2 {
     let Some(input) = emitter.handle(ExecutorDeriveInput::from_derive_input(input)) else {
         return quote!();
     };
@@ -260,7 +260,7 @@ pub fn impl_derive_constructor(emitter: &mut Emitter, input: &syn2::DeriveInput)
 }
 
 fn check_required_fields(ast: &ExecutorData, emitter: &mut Emitter) {
-    let required_fields: syn2::FieldsNamed =
+    let required_fields: syn::FieldsNamed =
         parse_quote!({ verdict: ::iroha_executor::prelude::Result, block_height: u64 });
     let struct_fields = ast
         .as_ref()
@@ -289,9 +289,9 @@ fn check_required_fields(ast: &ExecutorData, emitter: &mut Emitter) {
 /// Check that the required fields of an `Executor` are of the correct types. As
 /// the types can be completely or partially unqualified, we need to go through the type path segments to
 /// determine equivalence. We can't account for any aliases though
-fn check_type_equivalence(full_ty: &syn2::Type, given_ty: &syn2::Type) -> bool {
+fn check_type_equivalence(full_ty: &syn::Type, given_ty: &syn::Type) -> bool {
     match (full_ty, given_ty) {
-        (syn2::Type::Path(full_ty_path), syn2::Type::Path(given_ty_path)) => {
+        (syn::Type::Path(full_ty_path), syn::Type::Path(given_ty_path)) => {
             if full_ty_path.path.segments.len() == given_ty_path.path.segments.len() {
                 full_ty_path == given_ty_path
             } else {
@@ -310,7 +310,7 @@ fn check_type_equivalence(full_ty: &syn2::Type, given_ty: &syn2::Type) -> bool {
 
 /// Processes an `Executor` by draining it of default fields and returning the idents of the
 /// custom fields and the corresponding function arguments for use in the constructor
-fn custom_field_idents_and_fn_args(ast: &ExecutorData) -> (Vec<&Ident>, Vec<syn2::FnArg>) {
+fn custom_field_idents_and_fn_args(ast: &ExecutorData) -> (Vec<&Ident>, Vec<syn::FnArg>) {
     let required_idents: Vec<Ident> = ["verdict", "block_height"]
         .iter()
         .map(|s| Ident::new(s, Span::call_site()))
@@ -341,7 +341,7 @@ fn custom_field_idents_and_fn_args(ast: &ExecutorData) -> (Vec<&Ident>, Vec<syn2
         .map(|field| {
             let ident = &field.ident;
             let ty = &field.ty;
-            let field_arg: syn2::FnArg = parse_quote!(#ident: #ty);
+            let field_arg: syn::FnArg = parse_quote!(#ident: #ty);
             field_arg
         })
         .collect::<Vec<_>>();

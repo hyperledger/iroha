@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 /// [`derive_token`](crate::derive_token()) macro implementation
-pub fn impl_derive_token(input: &syn2::DeriveInput) -> TokenStream {
+pub fn impl_derive_token(input: &syn::DeriveInput) -> TokenStream {
     let generics = &input.generics;
     let ident = &input.ident;
 
@@ -17,7 +17,7 @@ pub fn impl_derive_token(input: &syn2::DeriveInput) -> TokenStream {
     }
 }
 
-fn impl_token(ident: &syn2::Ident, generics: &syn2::Generics) -> proc_macro2::TokenStream {
+fn impl_token(ident: &syn::Ident, generics: &syn::Generics) -> proc_macro2::TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
@@ -45,7 +45,7 @@ fn impl_token(ident: &syn2::Ident, generics: &syn2::Generics) -> proc_macro2::To
     }
 }
 
-fn impl_try_from_permission_token(ident: &syn2::Ident, generics: &syn2::Generics) -> TokenStream {
+fn impl_try_from_permission_token(ident: &syn::Ident, generics: &syn::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let token_id = quote! { <#ident #ty_generics as ::iroha_executor::permission::Token>::name() };
 

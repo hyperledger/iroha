@@ -1,18 +1,18 @@
-use syn2::visit_mut::VisitMut;
+use syn::visit_mut::VisitMut;
 
 struct Visitor<'a> {
-    self_ty: &'a syn2::Type,
+    self_ty: &'a syn::Type,
 }
 
 impl VisitMut for Visitor<'_> {
-    fn visit_type_mut(&mut self, ty: &mut syn2::Type) {
+    fn visit_type_mut(&mut self, ty: &mut syn::Type) {
         match ty {
-            syn2::Type::Path(path_ty)
+            syn::Type::Path(path_ty)
                 if path_ty.qself.is_none() && path_ty.path.is_ident("Self") =>
             {
                 *ty = self.self_ty.clone();
             }
-            _ => syn2::visit_mut::visit_type_mut(self, ty),
+            _ => syn::visit_mut::visit_type_mut(self, ty),
         }
     }
 }
@@ -21,7 +21,7 @@ impl VisitMut for Visitor<'_> {
 ///
 /// This is required to be able to use `Self` in `PartiallyTaggedSerialize` and `PartiallyTaggedDeserialize`,
 ///     as they define an additional intermediate type during serialization/deserialization. Using `Self` there would refer to an incorrect type.
-pub fn resolve_self(self_ty: &syn2::Type, mut resolving_ty: syn2::Type) -> syn2::Type {
+pub fn resolve_self(self_ty: &syn::Type, mut resolving_ty: syn::Type) -> syn::Type {
     Visitor { self_ty }.visit_type_mut(&mut resolving_ty);
     resolving_ty
 }
@@ -29,7 +29,7 @@ pub fn resolve_self(self_ty: &syn2::Type, mut resolving_ty: syn2::Type) -> syn2:
 #[cfg(test)]
 mod tests {
     use quote::ToTokens;
-    use syn2::{parse_quote, Type};
+    use syn::{parse_quote, Type};
 
     #[test]
     fn test_resolve_self() {

@@ -37,7 +37,7 @@ pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
         );
     }
 
-    let Some(item) = emitter.handle(syn2::parse2(item)) else {
+    let Some(item) = emitter.handle(syn::parse2(item)) else {
         return emitter.finish_token_stream();
     };
 

@@ -5,7 +5,7 @@
 use iroha_macro_utils::Emitter;
 use manyhow::emit;
 use proc_macro2::Span;
-use syn2::{
+use syn::{
     parse_quote,
     visit::{visit_signature, Visit},
     visit_mut::VisitMut,
@@ -33,7 +33,7 @@ impl Arg {
         &self.type_
     }
     pub fn src_type_is_empty_tuple(&self) -> bool {
-        matches!(self.src_type_resolved(), Type::Tuple(syn2::TypeTuple { ref elems, .. }) if elems.is_empty())
+        matches!(self.src_type_resolved(), Type::Tuple(syn::TypeTuple { ref elems, .. }) if elems.is_empty())
     }
     pub fn src_type_resolved(&self) -> Type {
         resolve_type(self.self_ty.as_ref(), self.type_.clone())
@@ -93,7 +93,7 @@ pub struct FnDescriptor<'ast> {
     // TODO: Could just be a part of all attrs?
     pub doc: Vec<&'ast Attribute>,
     /// Original signature of the method
-    pub sig: syn2::Signature,
+    pub sig: syn::Signature,
 
     /// Receiver argument, i.e. `self`
     pub receiver: Option<Arg>,
@@ -124,7 +124,7 @@ struct FnVisitor<'ast, 'emitter> {
     self_ty: Option<&'ast Path>,
 
     /// Original signature of the method
-    sig: Option<&'ast syn2::Signature>,
+    sig: Option<&'ast syn::Signature>,
 
     /// Receiver argument, i.e. `self`
     receiver: Option<Arg>,
@@ -138,7 +138,7 @@ struct FnVisitor<'ast, 'emitter> {
 }
 
 impl<'ast> ImplDescriptor<'ast> {
-    pub fn from_impl(emitter: &mut Emitter, node: &'ast syn2::ItemImpl) -> Option<Self> {
+    pub fn from_impl(emitter: &mut Emitter, node: &'ast syn::ItemImpl) -> Option<Self> {
         let mut visitor = ImplVisitor::new(emitter);
         visitor.visit_item_impl(node);
 
@@ -167,7 +167,7 @@ impl<'ast> FnDescriptor<'ast> {
         emitter: &mut Emitter,
         self_ty: &'ast Path,
         trait_name: Option<&'ast Path>,
-        node: &'ast syn2::ImplItemFn,
+        node: &'ast syn::ImplItemFn,
     ) -> Option<Self> {
         let mut visitor = FnVisitor::new(emitter, Some(self_ty), trait_name);
 
@@ -175,7 +175,7 @@ impl<'ast> FnDescriptor<'ast> {
         FnDescriptor::from_visitor(visitor)
     }
 
-    pub fn from_fn(emitter: &mut Emitter, node: &'ast syn2::ItemFn) -> Option<Self> {
+    pub fn from_fn(emitter: &mut Emitter, node: &'ast syn::ItemFn) -> Option<Self> {
         let mut visitor = FnVisitor::new(emitter, None, None);
 
         visitor.visit_item_fn(node);
@@ -289,14 +289,14 @@ impl<'ast, 'emitter> FnVisitor<'ast, 'emitter> {
 }
 
 impl<'ast> Visit<'ast> for ImplVisitor<'ast, '_> {
-    fn visit_attribute(&mut self, node: &'ast syn2::Attribute) {
+    fn visit_attribute(&mut self, node: &'ast syn::Attribute) {
         self.attrs.push(node);
     }
-    fn visit_generic_param(&mut self, node: &'ast syn2::GenericParam) {
+    fn visit_generic_param(&mut self, node: &'ast syn::GenericParam) {
         emit!(self.emitter, node, "Generics are not supported");
         self.fatal = true;
     }
-    fn visit_item_impl(&mut self, node: &'ast syn2::ItemImpl) {
+    fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
         if node.unsafety.is_some() {
             emit!(self.emitter, node.unsafety, "Unsafe impl not supported");
         }
@@ -315,14 +315,14 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast, '_> {
         let self_ty = self.self_ty.expect("Defined");
         self.associated_types
             .extend(node.items.iter().filter_map(|item| match item {
-                syn2::ImplItem::Type(associated_type) => {
+                syn::ImplItem::Type(associated_type) => {
                     Some((&associated_type.ident, &associated_type.ty))
                 }
                 _ => None,
             }));
 
         for item in &node.items {
-            if let syn2::ImplItem::Fn(method) = item {
+            if let syn::ImplItem::Fn(method) = item {
                 // NOTE: private methods in inherent impl are skipped
                 if self.trait_name.is_none() && !matches!(method.vis, Visibility::Public(_)) {
                     continue;
@@ -338,7 +338,7 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast, '_> {
 }
 
 impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
-    fn visit_attribute(&mut self, node: &'ast syn2::Attribute) {
+    fn visit_attribute(&mut self, node: &'ast syn::Attribute) {
         if is_doc_attr(node) {
             self.doc.push(node);
         } else {
@@ -346,14 +346,14 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
         }
     }
 
-    fn visit_abi(&mut self, node: &'ast syn2::Abi) {
+    fn visit_abi(&mut self, node: &'ast syn::Abi) {
         emit!(self.emitter, node, "You shouldn't specify function ABI");
     }
-    fn visit_generic_param(&mut self, node: &'ast syn2::GenericParam) {
+    fn visit_generic_param(&mut self, node: &'ast syn::GenericParam) {
         emit!(self.emitter, node, "Generics are not supported");
         self.fatal = true;
     }
-    fn visit_impl_item_fn(&mut self, node: &'ast syn2::ImplItemFn) {
+    fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
         for attr in &node.attrs {
             self.visit_attribute(attr);
         }
@@ -362,7 +362,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
         self.visit_visibility(&node.vis);
         self.visit_signature(&node.sig);
     }
-    fn visit_item_fn(&mut self, node: &'ast syn2::ItemFn) {
+    fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
         for attr in &node.attrs {
             self.visit_attribute(attr);
         }
@@ -376,7 +376,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
             emit!(self.emitter, node, "Private methods should not be exported");
         }
     }
-    fn visit_signature(&mut self, node: &'ast syn2::Signature) {
+    fn visit_signature(&mut self, node: &'ast syn::Signature) {
         if node.constness.is_some() {
             emit!(
                 self.emitter,
@@ -416,7 +416,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
         visit_signature(self, node);
     }
 
-    fn visit_receiver(&mut self, node: &'ast syn2::Receiver) {
+    fn visit_receiver(&mut self, node: &'ast syn::Receiver) {
         for it in &node.attrs {
             self.visit_attribute(it);
         }
@@ -445,12 +445,12 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
         self.receiver = Some(Arg::new(self.self_ty.cloned(), handle_name, src_type));
     }
 
-    fn visit_pat_type(&mut self, node: &'ast syn2::PatType) {
+    fn visit_pat_type(&mut self, node: &'ast syn::PatType) {
         for it in &node.attrs {
             self.visit_attribute(it);
         }
 
-        if let syn2::Pat::Ident(ident) = &*node.pat {
+        if let syn::Pat::Ident(ident) = &*node.pat {
             self.visit_pat_ident(ident);
         } else {
             // if we don't have an identifier (when pattern matching is used), we generate a synthetic argument name
@@ -460,7 +460,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
         self.add_input_arg(&node.ty);
     }
 
-    fn visit_pat_ident(&mut self, node: &'ast syn2::PatIdent) {
+    fn visit_pat_ident(&mut self, node: &'ast syn::PatIdent) {
         for it in &node.attrs {
             self.visit_attribute(it);
         }
@@ -485,17 +485,17 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
         self.curr_arg_name = Some(&node.ident);
     }
 
-    fn visit_return_type(&mut self, node: &'ast syn2::ReturnType) {
+    fn visit_return_type(&mut self, node: &'ast syn::ReturnType) {
         match node {
-            syn2::ReturnType::Default => {}
-            syn2::ReturnType::Type(_, src_type) => {
+            syn::ReturnType::Default => {}
+            syn::ReturnType::Type(_, src_type) => {
                 self.add_output_arg(src_type);
             }
         }
     }
 }
 
-fn is_doc_attr(attr: &syn2::Attribute) -> bool {
+fn is_doc_attr(attr: &syn::Attribute) -> bool {
     attr.path().is_ident("doc")
 }
 
@@ -538,14 +538,14 @@ impl VisitMut for TypeImplTraitResolver {
 
         if let Type::ImplTrait(impl_trait) = node {
             for bound in &impl_trait.bounds {
-                if let syn2::TypeParamBound::Trait(trait_) = bound {
+                if let syn::TypeParamBound::Trait(trait_) = bound {
                     let trait_ = trait_.path.segments.last().expect("Defined");
 
                     match trait_.ident.to_string().as_str() {
                         "IntoIterator" | "ExactSizeIterator" => {
-                            if let syn2::PathArguments::AngleBracketed(args) = &trait_.arguments {
+                            if let syn::PathArguments::AngleBracketed(args) = &trait_.arguments {
                                 for arg in &args.args {
-                                    if let syn2::GenericArgument::AssocType(binding) = arg {
+                                    if let syn::GenericArgument::AssocType(binding) = arg {
                                         if binding.ident == "Item" {
                                             let mut ty = binding.ty.clone();
                                             TypeImplTraitResolver.visit_type_mut(&mut ty);
@@ -556,19 +556,19 @@ impl VisitMut for TypeImplTraitResolver {
                             }
                         }
                         "Into" => {
-                            if let syn2::PathArguments::AngleBracketed(args) = &trait_.arguments {
+                            if let syn::PathArguments::AngleBracketed(args) = &trait_.arguments {
                                 for arg in &args.args {
-                                    if let syn2::GenericArgument::Type(type_) = arg {
+                                    if let syn::GenericArgument::Type(type_) = arg {
                                         new_node = Some(type_.clone());
                                     }
                                 }
                             }
                         }
                         "AsRef" => {
-                            if let syn2::PathArguments::AngleBracketed(args) = &trait_.arguments {
+                            if let syn::PathArguments::AngleBracketed(args) = &trait_.arguments {
                                 for arg in &args.args {
-                                    if let syn2::GenericArgument::Type(type_) = arg {
-                                        new_node = Some(syn2::parse_quote!(&#type_));
+                                    if let syn::GenericArgument::Type(type_) = arg {
+                                        new_node = Some(syn::parse_quote!(&#type_));
                                     }
                                 }
                             }
@@ -585,7 +585,7 @@ impl VisitMut for TypeImplTraitResolver {
     }
 }
 
-fn last_seg_ident(path: &syn2::Path) -> &Ident {
+fn last_seg_ident(path: &syn::Path) -> &Ident {
     &path.segments.last().expect("Defined").ident
 }
 
@@ -594,8 +594,8 @@ pub fn unwrap_result_type(node: &Type) -> Option<(&Type, &Type)> {
         let last_seg = type_.path.segments.last().expect("Defined");
 
         if last_seg.ident == "Result" {
-            if let syn2::PathArguments::AngleBracketed(args) = &last_seg.arguments {
-                if let (syn2::GenericArgument::Type(ok), syn2::GenericArgument::Type(err)) =
+            if let syn::PathArguments::AngleBracketed(args) = &last_seg.arguments {
+                if let (syn::GenericArgument::Type(ok), syn::GenericArgument::Type(err)) =
                     (&args.args[0], &args.args[1])
                 {
                     return Some((ok, err));

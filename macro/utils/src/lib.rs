@@ -46,8 +46,8 @@ impl DarlingErrorExt for darling::Error {
 pub fn find_single_attr_opt<'a>(
     accumulator: &mut darling::error::Accumulator,
     attr_name: &str,
-    attrs: &'a [syn2::Attribute],
-) -> Option<&'a syn2::Attribute> {
+    attrs: &'a [syn::Attribute],
+) -> Option<&'a syn::Attribute> {
     let matching_attrs = attrs
         .iter()
         .filter(|a| a.path().is_ident(attr_name))
@@ -61,7 +61,7 @@ pub fn find_single_attr_opt<'a>(
             // allow parsing to proceed further to collect more errors
             accumulator.push(
                 darling::Error::custom(format!("Only one #[{}] attribute is allowed!", attr_name))
-                    .with_spans(tail.iter().map(syn2::spanned::Spanned::span)),
+                    .with_spans(tail.iter().map(syn::spanned::Spanned::span)),
             );
             attr
         }
@@ -78,9 +78,9 @@ pub fn find_single_attr_opt<'a>(
 ///
 /// - If multiple attributes with specified name are found
 /// - If attribute is not a list
-pub fn parse_single_list_attr_opt<Body: syn2::parse::Parse>(
+pub fn parse_single_list_attr_opt<Body: syn::parse::Parse>(
     attr_name: &str,
-    attrs: &[syn2::Attribute],
+    attrs: &[syn::Attribute],
 ) -> darling::Result<Option<Body>> {
     let mut accumulator = darling::error::Accumulator::default();
 
@@ -91,11 +91,11 @@ pub fn parse_single_list_attr_opt<Body: syn2::parse::Parse>(
     let mut kind = None;
 
     match &attr.meta {
-        syn2::Meta::Path(_) | syn2::Meta::NameValue(_) => accumulator.push(darling::Error::custom(
+        syn::Meta::Path(_) | syn::Meta::NameValue(_) => accumulator.push(darling::Error::custom(
             format!("Expected #[{}(...)] attribute to be a list", attr_name),
         )),
-        syn2::Meta::List(list) => {
-            kind = accumulator.handle(syn2::parse2(list.tokens.clone()).map_err(Into::into));
+        syn::Meta::List(list) => {
+            kind = accumulator.handle(syn::parse2(list.tokens.clone()).map_err(Into::into));
         }
     }
 
@@ -111,9 +111,9 @@ pub fn parse_single_list_attr_opt<Body: syn2::parse::Parse>(
 /// - If multiple attributes with specified name are found
 /// - If attribute is not a list
 /// - If attribute is not found
-pub fn parse_single_list_attr<Body: syn2::parse::Parse>(
+pub fn parse_single_list_attr<Body: syn::parse::Parse>(
     attr_name: &str,
-    attrs: &[syn2::Attribute],
+    attrs: &[syn::Attribute],
 ) -> darling::Result<Body> {
     parse_single_list_attr_opt(attr_name, attrs)?
         .ok_or_else(|| darling::Error::custom(format!("Missing `#[{}(...)]` attribute", attr_name)))
@@ -122,7 +122,7 @@ pub fn parse_single_list_attr<Body: syn2::parse::Parse>(
 /// Macro for automatic [`syn::parse::Parse`] impl generation for keyword
 /// attribute structs in derive macros.
 #[macro_export]
-macro_rules! attr_struct2 {
+macro_rules! attr_struct {
     // Matching struct with named fields
     (
         $( #[$meta:meta] )*
@@ -144,8 +144,8 @@ macro_rules! attr_struct2 {
             ),*
         }
 
-        impl syn2::parse::Parse for $name {
-            fn parse(input: syn2::parse::ParseStream) -> syn2::Result<Self> {
+        impl syn::parse::Parse for $name {
+            fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
                 Ok(Self {
                     $(
                         $field_name: input.parse()?,

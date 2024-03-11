@@ -8,7 +8,7 @@ use iroha_macro_utils::{parse_single_list_attr_opt, Emitter};
 use manyhow::{emit, error_message};
 use proc_macro2::{Delimiter, Span, TokenStream};
 use quote::quote;
-use syn2::{parse::ParseStream, spanned::Spanned as _, visit::Visit as _, Attribute, Field, Ident};
+use syn::{parse::ParseStream, spanned::Spanned as _, visit::Visit as _, Attribute, Field, Ident};
 
 use crate::attr_parse::{
     derive::DeriveAttrs,
@@ -43,8 +43,8 @@ struct SpannedFfiTypeToken {
     token: FfiTypeToken,
 }
 
-impl syn2::parse::Parse for SpannedFfiTypeToken {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
+impl syn::parse::Parse for SpannedFfiTypeToken {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let (span, token) = input.step(|cursor| {
             let Some((token, after_token)) = cursor.ident() else {
                 return Err(cursor.error("expected ffi type kind"));
@@ -75,13 +75,13 @@ impl syn2::parse::Parse for SpannedFfiTypeToken {
                     match token.as_str() {
                         "robust" => Ok(((span, FfiTypeToken::UnsafeRobust), after_group)),
                         "non_owning" => Ok(((span, FfiTypeToken::UnsafeNonOwning), after_group)),
-                        other => Err(syn2::Error::new(
+                        other => Err(syn::Error::new(
                             token.span(),
                             format!("unknown unsafe ffi type kind: {other}"),
                         )),
                     }
                 }
-                other => Err(syn2::Error::new(
+                other => Err(syn::Error::new(
                     span,
                     format!("unknown unsafe ffi type kind: {other}"),
                 )),
@@ -100,15 +100,15 @@ pub enum FfiTypeKindAttribute {
     Local,
 }
 
-impl syn2::parse::Parse for FfiTypeKindAttribute {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
+impl syn::parse::Parse for FfiTypeKindAttribute {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         input.call(SpannedFfiTypeToken::parse).and_then(|token| {
             Ok(match token.token {
                 FfiTypeToken::Opaque => FfiTypeKindAttribute::Opaque,
                 FfiTypeToken::UnsafeRobust => FfiTypeKindAttribute::UnsafeRobust,
                 FfiTypeToken::Local => FfiTypeKindAttribute::Local,
                 other => {
-                    return Err(syn2::Error::new(
+                    return Err(syn::Error::new(
                         token.span,
                         format!("`{other}` cannot be used on a type"),
                     ))
@@ -124,13 +124,13 @@ pub enum FfiTypeKindFieldAttribute {
     UnsafeNonOwning,
 }
 
-impl syn2::parse::Parse for FfiTypeKindFieldAttribute {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
+impl syn::parse::Parse for FfiTypeKindFieldAttribute {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         input.call(SpannedFfiTypeToken::parse).and_then(|token| {
             Ok(match token.token {
                 FfiTypeToken::UnsafeNonOwning => FfiTypeKindFieldAttribute::UnsafeNonOwning,
                 other => {
-                    return Err(syn2::Error::new(
+                    return Err(syn::Error::new(
                         token.span,
                         format!("`{other}` cannot be used on a field"),
                     ))
@@ -166,9 +166,9 @@ pub type FfiTypeData = darling::ast::Data<SpannedValue<FfiTypeVariant>, FfiTypeF
 pub type FfiTypeFields = darling::ast::Fields<FfiTypeField>;
 
 pub struct FfiTypeInput {
-    pub vis: syn2::Visibility,
-    pub ident: syn2::Ident,
-    pub generics: syn2::Generics,
+    pub vis: syn::Visibility,
+    pub ident: syn::Ident,
+    pub generics: syn::Generics,
     pub data: FfiTypeData,
     pub doc_attrs: DocAttrs,
     pub derive_attr: DeriveAttrs,
@@ -177,7 +177,7 @@ pub struct FfiTypeInput {
     pub getset_attr: GetSetStructAttrs,
     pub span: Span,
     /// The original DeriveInput this structure was parsed from
-    pub ast: syn2::DeriveInput,
+    pub ast: syn::DeriveInput,
 }
 
 impl FfiTypeInput {
@@ -188,7 +188,7 @@ impl FfiTypeInput {
 }
 
 impl darling::FromDeriveInput for FfiTypeInput {
-    fn from_derive_input(input: &syn2::DeriveInput) -> darling::Result<Self> {
+    fn from_derive_input(input: &syn::DeriveInput) -> darling::Result<Self> {
         let vis = input.vis.clone();
         let ident = input.ident.clone();
         let generics = input.generics.clone();
@@ -218,14 +218,14 @@ impl darling::FromDeriveInput for FfiTypeInput {
 
 #[derive(FromVariant)]
 pub struct FfiTypeVariant {
-    pub ident: syn2::Ident,
-    pub discriminant: Option<syn2::Expr>,
+    pub ident: syn::Ident,
+    pub discriminant: Option<syn::Expr>,
     pub fields: darling::ast::Fields<FfiTypeField>,
 }
 
 pub struct FfiTypeField {
-    pub ident: Option<syn2::Ident>,
-    pub ty: syn2::Type,
+    pub ident: Option<syn::Ident>,
+    pub ty: syn::Type,
     pub doc_attrs: DocAttrs,
     pub ffi_type_attr: FfiTypeFieldAttr,
     pub getset_attr: GetSetFieldAttrs,
@@ -248,7 +248,7 @@ impl FromField for FfiTypeField {
     }
 }
 
-pub fn derive_ffi_type(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream {
+pub fn derive_ffi_type(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream {
     let Some(mut input) = emitter.handle(FfiTypeInput::from_derive_input(input)) else {
         return quote!();
     };
@@ -312,7 +312,7 @@ pub fn derive_ffi_type(emitter: &mut Emitter, input: &syn2::DeriveInput) -> Toke
 
             let repr_c_impl = {
                 let predicates = &mut input.generics.make_where_clause().predicates;
-                let add_bound = |ty| predicates.push(syn2::parse_quote! {#ty: iroha_ffi::ReprC});
+                let add_bound = |ty| predicates.push(syn::parse_quote! {#ty: iroha_ffi::ReprC});
 
                 if item.style == Style::Unit {
                     emit!(
@@ -339,7 +339,7 @@ pub fn derive_ffi_type(emitter: &mut Emitter, input: &syn2::DeriveInput) -> Toke
 }
 
 /// Before deriving this trait make sure that all invariants are upheld
-fn derive_unsafe_repr_c(name: &Ident, generics: &syn2::Generics) -> TokenStream {
+fn derive_unsafe_repr_c(name: &Ident, generics: &syn::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
@@ -348,7 +348,7 @@ fn derive_unsafe_repr_c(name: &Ident, generics: &syn2::Generics) -> TokenStream 
     }
 }
 
-fn derive_ffi_type_for_opaque_item(name: &Ident, generics: &syn2::Generics) -> TokenStream {
+fn derive_ffi_type_for_opaque_item(name: &Ident, generics: &syn::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
@@ -468,7 +468,7 @@ fn derive_ffi_type_for_fieldless_enum(
 fn derive_ffi_type_for_data_carrying_enum(
     emitter: &mut Emitter,
     enum_name: &Ident,
-    mut generics: syn2::Generics,
+    mut generics: syn::Generics,
     variants: &[SpannedValue<FfiTypeVariant>],
     local: bool,
 ) -> TokenStream {
@@ -596,7 +596,7 @@ fn derive_ffi_type_for_data_carrying_enum(
             };
 
             non_local_where_clause.predicates.push(
-                syn2::parse_quote! {#ty: iroha_ffi::repr_c::NonLocal<<#ty as iroha_ffi::ir::Ir>::Type>},
+                syn::parse_quote! {#ty: iroha_ffi::repr_c::NonLocal<<#ty as iroha_ffi::ir::Ir>::Type>},
             );
         }
 
@@ -687,7 +687,7 @@ fn derive_ffi_type_for_repr_c(emitter: &mut Emitter, input: &FfiTypeInput) -> To
 fn gen_data_carrying_repr_c_enum(
     emitter: &mut Emitter,
     enum_name: &Ident,
-    generics: &syn2::Generics,
+    generics: &syn::Generics,
     variants: &[SpannedValue<FfiTypeVariant>],
 ) -> (Ident, TokenStream) {
     let (payload_name, payload) =
@@ -718,7 +718,7 @@ fn gen_data_carrying_repr_c_enum(
 fn gen_data_carrying_enum_payload(
     emitter: &mut Emitter,
     enum_name: &Ident,
-    generics: &syn2::Generics,
+    generics: &syn::Generics,
     variants: &[SpannedValue<FfiTypeVariant>],
 ) -> (Ident, TokenStream) {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -760,7 +760,7 @@ fn gen_data_carrying_enum_payload(
 fn gen_discriminants(
     enum_name: &Ident,
     variants: &[SpannedValue<FfiTypeVariant>],
-    tag_type: &syn2::Type,
+    tag_type: &syn::Type,
 ) -> (Vec<Ident>, Vec<TokenStream>) {
     let variant_names: Vec<_> = variants.iter().map(|v| &v.ident).collect();
     let discriminant_values = variant_discriminants(variants);
@@ -837,8 +837,8 @@ fn verify_is_non_owning(emitter: &mut Emitter, data: &FfiTypeData) {
     struct PtrVisitor<'a> {
         emitter: &'a mut Emitter,
     }
-    impl syn2::visit::Visit<'_> for PtrVisitor<'_> {
-        fn visit_type_ptr(&mut self, node: &syn2::TypePtr) {
+    impl syn::visit::Visit<'_> for PtrVisitor<'_> {
+        fn visit_type_ptr(&mut self, node: &syn::TypePtr) {
             emit!(self.emitter, node, "Raw pointer found. If the pointer doesn't own the data, attach `#[ffi_type(unsafe {{non_owning}})` to the field. Otherwise, mark the entire type as opaque with `#[ffi_type(opaque)]`");
         }
     }
@@ -872,7 +872,7 @@ fn get_enum_repr_type(
     enum_name: &Ident,
     repr: &Repr,
     is_empty: bool,
-) -> syn2::Type {
+) -> syn::Type {
     let Some(kind) = repr.kind else {
         // empty enums are not allowed to have a `#[repr]` attribute
         // it's an error to use an `#[derive(FfiType)]` on them
@@ -884,7 +884,7 @@ fn get_enum_repr_type(
                 "Enum representation is not specified. Try adding `#[repr(u32)]` or similar"
             );
         }
-        return syn2::parse_quote! {u32};
+        return syn::parse_quote! {u32};
     };
 
     let ReprKind::Primitive(primitive) = &*kind else {
@@ -893,17 +893,17 @@ fn get_enum_repr_type(
             &kind.span(),
             "Enum should have a primitive representation (like `#[repr(u32)]`)"
         );
-        return syn2::parse_quote! {u32};
+        return syn::parse_quote! {u32};
     };
 
     match primitive {
-        ReprPrimitive::U8 => syn2::parse_quote! {u8},
-        ReprPrimitive::U16 => syn2::parse_quote! {u16},
-        ReprPrimitive::U32 => syn2::parse_quote! {u32},
-        ReprPrimitive::U64 => syn2::parse_quote! {u64},
-        ReprPrimitive::I8 => syn2::parse_quote! {i8},
-        ReprPrimitive::I16 => syn2::parse_quote! {i16},
-        ReprPrimitive::I32 => syn2::parse_quote! {i32},
+        ReprPrimitive::U8 => syn::parse_quote! {u8},
+        ReprPrimitive::U16 => syn::parse_quote! {u16},
+        ReprPrimitive::U32 => syn::parse_quote! {u32},
+        ReprPrimitive::U64 => syn::parse_quote! {u64},
+        ReprPrimitive::I8 => syn::parse_quote! {i8},
+        ReprPrimitive::I16 => syn::parse_quote! {i16},
+        ReprPrimitive::I32 => syn::parse_quote! {i32},
 
         _ => {
             emit!(
@@ -911,7 +911,7 @@ fn get_enum_repr_type(
                 &kind.span(),
                 "Enum representation is not supported"
             );
-            syn2::parse_quote! {u32}
+            syn::parse_quote! {u32}
         }
     }
 }
@@ -935,11 +935,11 @@ fn gen_enum_tag_type(variants: &[SpannedValue<FfiTypeVariant>]) -> TokenStream {
 }
 
 fn split_for_impl(
-    generics: &syn2::Generics,
+    generics: &syn::Generics,
 ) -> (
-    syn2::punctuated::Punctuated<syn2::GenericParam, syn2::Token![,]>,
-    syn2::TypeGenerics<'_>,
-    Option<&syn2::WhereClause>,
+    syn::punctuated::Punctuated<syn::GenericParam, syn::Token![,]>,
+    syn::TypeGenerics<'_>,
+    Option<&syn::WhereClause>,
 ) {
     let impl_generics = generics.params.clone();
     let (_, ty_generics, where_clause) = generics.split_for_impl();

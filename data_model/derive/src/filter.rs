@@ -3,7 +3,7 @@ use iroha_macro_utils::Emitter;
 use manyhow::emit;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn2::{Generics, Ident, Variant, Visibility};
+use syn::{Generics, Ident, Variant, Visibility};
 
 #[derive(FromDeriveInput)]
 #[darling(supports(enum_tuple))]
@@ -29,7 +29,7 @@ enum EventVariant {
 
 impl FromVariant for EventVariant {
     fn from_variant(variant: &Variant) -> darling::Result<Self> {
-        let syn2::Fields::Unnamed(fields) = &variant.fields else {
+        let syn::Fields::Unnamed(fields) = &variant.fields else {
             return Err(
                 darling::Error::custom("Expected an enum with unnamed fields")
                     .with_span(&variant.fields),
@@ -40,7 +40,7 @@ impl FromVariant for EventVariant {
         let Some(first_field_ty) = fields.unnamed.first().map(|v| &v.ty) else {
             return Err(darling::Error::custom("Expected at least one field").with_span(&fields));
         };
-        let syn2::Type::Path(path) = first_field_ty else {
+        let syn::Type::Path(path) = first_field_ty else {
             return Err(
                 darling::Error::custom("Only identifiers supported as event types")
                     .with_span(first_field_ty),
@@ -209,7 +209,7 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
 
 /// Generates the filter for the event. E.g. for `AccountEvent`, `AccountFilter`
 /// and its `impl Filter` are generated.
-pub fn impl_filter(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream {
+pub fn impl_filter(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream {
     let Some(event) = emitter.handle(EventEnum::from_derive_input(input)) else {
         return quote!();
     };

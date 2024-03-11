@@ -4,7 +4,7 @@ use iroha_macro_utils::Emitter;
 use manyhow::emit;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn2::parse_quote;
+use syn::parse_quote;
 
 mod export {
     pub const TRIGGER_MAIN: &str = "_iroha_trigger_main";
@@ -12,15 +12,15 @@ mod export {
 
 /// [`main`](super::main()) macro implementation
 #[allow(clippy::needless_pass_by_value)]
-pub fn impl_entrypoint(emitter: &mut Emitter, item: syn2::ItemFn) -> TokenStream {
-    let syn2::ItemFn {
+pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream {
+    let syn::ItemFn {
         attrs,
         vis,
         sig,
         mut block,
     } = item;
 
-    if sig.output != syn2::ReturnType::Default {
+    if sig.output != syn::ReturnType::Default {
         emit!(
             emitter,
             sig.output,
@@ -39,7 +39,7 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn2::ItemFn) -> TokenStream
         ),
     );
 
-    let main_fn_name = syn2::Ident::new(export::TRIGGER_MAIN, proc_macro2::Span::call_site());
+    let main_fn_name = syn::Ident::new(export::TRIGGER_MAIN, proc_macro2::Span::call_site());
 
     quote! {
         /// Smart contract entrypoint

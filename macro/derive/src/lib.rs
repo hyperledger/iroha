@@ -4,7 +4,7 @@ use darling::{util::SpannedValue, FromDeriveInput};
 use manyhow::{manyhow, Result};
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
-use syn2::{spanned::Spanned, Token};
+use syn::{spanned::Spanned, Token};
 
 /// Attribute for skipping from attribute
 const SKIP_FROM_ATTR: &str = "skip_from";
@@ -16,7 +16,7 @@ const SKIP_CONTAINER: &str = "skip_container";
 #[manyhow]
 #[proc_macro_attribute]
 pub fn ffi_impl_opaque(_: TokenStream, item: TokenStream) -> Result<TokenStream> {
-    let item: syn2::ItemImpl = syn2::parse2(item)?;
+    let item: syn::ItemImpl = syn::parse2(item)?;
 
     Ok(quote! {
         #[cfg_attr(
@@ -31,15 +31,15 @@ pub fn ffi_impl_opaque(_: TokenStream, item: TokenStream) -> Result<TokenStream>
 #[derive(darling::FromDeriveInput, Debug)]
 #[darling(supports(enum_any))]
 struct FromVariantInput {
-    ident: syn2::Ident,
-    generics: syn2::Generics,
+    ident: syn::Ident,
+    generics: syn::Generics,
     data: darling::ast::Data<SpannedValue<FromVariantVariant>, darling::util::Ignored>,
 }
 
 // FromVariant manually implemented for additional validation
 #[derive(Debug)]
 struct FromVariantVariant {
-    ident: syn2::Ident,
+    ident: syn::Ident,
     fields: darling::ast::Fields<SpannedValue<FromVariantField>>,
 }
 
@@ -52,7 +52,7 @@ impl FromVariantVariant {
 }
 
 impl darling::FromVariant for FromVariantVariant {
-    fn from_variant(variant: &syn2::Variant) -> darling::Result<Self> {
+    fn from_variant(variant: &syn::Variant) -> darling::Result<Self> {
         let ident = variant.ident.clone();
         let fields = darling::ast::Fields::try_from(&variant.fields)?;
         let mut accumulator = darling::error::Accumulator::default();
@@ -91,7 +91,7 @@ impl darling::FromVariant for FromVariantVariant {
 // FromField manually implemented for non-standard attributes
 #[derive(Debug)]
 struct FromVariantField {
-    ty: syn2::Type,
+    ty: syn::Type,
     skip_from: bool,
     skip_try_from: bool,
     skip_container: bool,
@@ -104,7 +104,7 @@ struct FromVariantField {
 // Arguably, this is also more convenient for the user (?)
 // Hence, we fall back to manual parsing
 impl darling::FromField for FromVariantField {
-    fn from_field(field: &syn2::Field) -> darling::Result<Self> {
+    fn from_field(field: &syn::Field) -> darling::Result<Self> {
         let mut skip_from = false;
         let mut skip_try_from = false;
         let mut skip_container = false;
@@ -158,21 +158,21 @@ impl darling::FromField for FromVariantField {
 #[manyhow]
 #[proc_macro_derive(FromVariant, attributes(skip_from, skip_try_from, skip_container))]
 pub fn from_variant_derive(input: TokenStream) -> Result<TokenStream> {
-    let ast = syn2::parse2(input)?;
+    let ast = syn::parse2(input)?;
     let ast = FromVariantInput::from_derive_input(&ast)?;
     Ok(impl_from_variant(&ast))
 }
 
 const CONTAINERS: &[&str] = &["Box", "RefCell", "Cell", "Rc", "Arc", "Mutex", "RwLock"];
 
-fn get_type_argument<'b>(s: &str, ty: &'b syn2::TypePath) -> Option<&'b syn2::GenericArgument> {
-    // NOTE: this is NOT syn2::Path::is_ident because it allows for generic parameters
+fn get_type_argument<'b>(s: &str, ty: &'b syn::TypePath) -> Option<&'b syn::GenericArgument> {
+    // NOTE: this is NOT syn::Path::is_ident because it allows for generic parameters
     let segments = &ty.path.segments;
     if segments.len() != 1 || segments[0].ident != s {
         return None;
     }
 
-    if let syn2::PathArguments::AngleBracketed(ref bracketed_arguments) = segments[0].arguments {
+    if let syn::PathArguments::AngleBracketed(ref bracketed_arguments) = segments[0].arguments {
         assert_eq!(bracketed_arguments.args.len(), 1);
         Some(&bracketed_arguments.args[0])
     } else {
@@ -181,11 +181,11 @@ fn get_type_argument<'b>(s: &str, ty: &'b syn2::TypePath) -> Option<&'b syn2::Ge
 }
 
 fn from_container_variant_internal(
-    into_ty: &syn2::Ident,
-    into_variant: &syn2::Ident,
-    from_ty: &syn2::GenericArgument,
-    container_ty: &syn2::TypePath,
-    generics: &syn2::Generics,
+    into_ty: &syn::Ident,
+    into_variant: &syn::Ident,
+    from_ty: &syn::GenericArgument,
+    container_ty: &syn::TypePath,
+    generics: &syn::Generics,
 ) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -200,10 +200,10 @@ fn from_container_variant_internal(
 
 fn from_variant_internal(
     span: Span,
-    into_ty: &syn2::Ident,
-    into_variant: &syn2::Ident,
-    from_ty: &syn2::Type,
-    generics: &syn2::Generics,
+    into_ty: &syn::Ident,
+    into_variant: &syn::Ident,
+    from_ty: &syn::Type,
+    generics: &syn::Generics,
 ) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -218,15 +218,15 @@ fn from_variant_internal(
 
 fn from_variant(
     span: Span,
-    into_ty: &syn2::Ident,
-    into_variant: &syn2::Ident,
-    from_ty: &syn2::Type,
-    generics: &syn2::Generics,
+    into_ty: &syn::Ident,
+    into_variant: &syn::Ident,
+    from_ty: &syn::Type,
+    generics: &syn::Generics,
     skip_container: bool,
 ) -> TokenStream {
     let from_orig = from_variant_internal(span, into_ty, into_variant, from_ty, generics);
 
-    if let syn2::Type::Path(path) = from_ty {
+    if let syn::Type::Path(path) = from_ty {
         let mut code = from_orig;
 
         if skip_container {
@@ -241,15 +241,15 @@ fn from_variant(
                     .iter()
                     .map(|segment| {
                         let mut segment = segment.clone();
-                        segment.arguments = syn2::PathArguments::default();
+                        segment.arguments = syn::PathArguments::default();
                         segment
                     })
-                    .collect::<syn2::punctuated::Punctuated<_, Token![::]>>();
-                let path = syn2::Path {
+                    .collect::<syn::punctuated::Punctuated<_, Token![::]>>();
+                let path = syn::Path {
                     segments,
                     leading_colon: None,
                 };
-                let path = &syn2::TypePath { path, qself: None };
+                let path = &syn::TypePath { path, qself: None };
 
                 let from_inner =
                     from_container_variant_internal(into_ty, into_variant, inner, path, generics);
@@ -268,10 +268,10 @@ fn from_variant(
 
 fn try_into_variant_single(
     span: Span,
-    enum_ty: &syn2::Ident,
-    variant: &syn2::Ident,
-    variant_ty: &syn2::Type,
-    generics: &syn2::Generics,
+    enum_ty: &syn::Ident,
+    variant: &syn::Ident,
+    variant_ty: &syn::Type,
+    generics: &syn::Generics,
 ) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -289,10 +289,10 @@ fn try_into_variant_single(
 
 fn try_into_variant(
     span: Span,
-    enum_ty: &syn2::Ident,
-    variant: &syn2::Ident,
-    variant_ty: &syn2::Type,
-    generics: &syn2::Generics,
+    enum_ty: &syn::Ident,
+    variant: &syn::Ident,
+    variant_ty: &syn::Type,
+    generics: &syn::Generics,
 ) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 

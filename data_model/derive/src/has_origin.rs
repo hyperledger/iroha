@@ -1,13 +1,11 @@
 use darling::{FromDeriveInput, FromVariant};
-use iroha_macro_utils::{
-    attr_struct2, parse_single_list_attr, parse_single_list_attr_opt, Emitter,
-};
+use iroha_macro_utils::{attr_struct, parse_single_list_attr, parse_single_list_attr_opt, Emitter};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn2::{parse_quote, Ident, Token, Type};
+use syn::{parse_quote, Ident, Token, Type};
 
 mod kw {
-    syn2::custom_keyword!(origin);
+    syn::custom_keyword!(origin);
 }
 
 const HAS_ORIGIN_ATTR: &str = "has_origin";
@@ -15,13 +13,13 @@ const HAS_ORIGIN_ATTR: &str = "has_origin";
 pub struct HasOriginEnum {
     ident: Ident,
     #[allow(unused)]
-    generics: syn2::Generics,
+    generics: syn::Generics,
     variants: Vec<HasOriginVariant>,
     origin: Type,
 }
 
 impl FromDeriveInput for HasOriginEnum {
-    fn from_derive_input(input: &syn2::DeriveInput) -> darling::Result<Self> {
+    fn from_derive_input(input: &syn::DeriveInput) -> darling::Result<Self> {
         let ident = input.ident.clone();
         let generics = input.generics.clone();
 
@@ -48,7 +46,7 @@ pub struct HasOriginVariant {
 }
 
 impl FromVariant for HasOriginVariant {
-    fn from_variant(variant: &syn2::Variant) -> darling::Result<Self> {
+    fn from_variant(variant: &syn::Variant) -> darling::Result<Self> {
         let ident = variant.ident.clone();
         let extractor = parse_single_list_attr_opt(HAS_ORIGIN_ATTR, &variant.attrs)?;
 
@@ -56,7 +54,7 @@ impl FromVariant for HasOriginVariant {
     }
 }
 
-attr_struct2! {
+attr_struct! {
     pub struct OriginAttr {
         _kw: kw::origin,
         _eq: Token![=],
@@ -64,15 +62,15 @@ attr_struct2! {
     }
 }
 
-attr_struct2! {
+attr_struct! {
     pub struct OriginExtractorAttr {
         ident: Ident,
         _eq: Token![=>],
-        extractor: syn2::Expr,
+        extractor: syn::Expr,
     }
 }
 
-pub fn impl_has_origin(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream {
+pub fn impl_has_origin(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream {
     let Some(enum_) = emitter.handle(HasOriginEnum::from_derive_input(input)) else {
         return quote!();
     };
@@ -97,7 +95,7 @@ pub fn impl_has_origin(emitter: &mut Emitter, input: &syn2::DeriveInput) -> Toke
                 },
             )
         })
-        .collect::<Vec<syn2::Arm>>();
+        .collect::<Vec<syn::Arm>>();
 
     let (impl_generics, ty_generics, where_clause) = enum_.generics.split_for_impl();
 

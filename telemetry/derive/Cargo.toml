@@ -19,7 +19,7 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-syn2 = { workspace = true }
+syn = { workspace = true }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
 manyhow = { workspace = true }

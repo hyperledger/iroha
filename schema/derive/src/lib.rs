@@ -7,7 +7,7 @@ use darling::{ast::Style, FromAttributes, FromDeriveInput, FromField, FromMeta, 
 use manyhow::{bail, emit, error_message, manyhow, Emitter, Result};
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
-use syn2::parse_quote;
+use syn::parse_quote;
 
 /// Derive [`iroha_schema::TypeId`]
 ///
@@ -15,17 +15,17 @@ use syn2::parse_quote;
 #[manyhow]
 #[proc_macro_derive(TypeId, attributes(type_id))]
 pub fn type_id_derive(input: TokenStream) -> Result<TokenStream> {
-    let mut input = syn2::parse2(input)?;
+    let mut input = syn::parse2(input)?;
     Ok(impl_type_id(&mut input))
 }
 
-fn impl_type_id(input: &mut syn2::DeriveInput) -> TokenStream {
+fn impl_type_id(input: &mut syn::DeriveInput) -> TokenStream {
     let name = &input.ident;
 
     input.generics.type_params_mut().for_each(|ty_param| {
         ty_param
             .bounds
-            .push(syn2::parse_quote! {iroha_schema::TypeId});
+            .push(syn::parse_quote! {iroha_schema::TypeId});
     });
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -43,7 +43,7 @@ fn impl_type_id(input: &mut syn2::DeriveInput) -> TokenStream {
 #[derive(Debug, Clone)]
 enum Transparent {
     NotTransparent,
-    Transparent(Option<syn2::Type>),
+    Transparent(Option<syn::Type>),
 }
 
 impl FromMeta for Transparent {
@@ -56,7 +56,7 @@ impl FromMeta for Transparent {
     }
 
     fn from_string(value: &str) -> darling::Result<Self> {
-        let ty = syn2::parse_str(value)?;
+        let ty = syn::parse_str(value)?;
         Ok(Self::Transparent(Some(ty)))
     }
 }
@@ -83,14 +83,14 @@ type IntoSchemaData = darling::ast::Data<IntoSchemaVariant, IntoSchemaField>;
 
 #[derive(Debug, Clone)]
 struct IntoSchemaInput {
-    ident: syn2::Ident,
-    generics: syn2::Generics,
+    ident: syn::Ident,
+    generics: syn::Generics,
     data: IntoSchemaData,
     schema_attrs: SchemaAttributes,
 }
 
 impl FromDeriveInput for IntoSchemaInput {
-    fn from_derive_input(input: &syn2::DeriveInput) -> darling::Result<Self> {
+    fn from_derive_input(input: &syn::DeriveInput) -> darling::Result<Self> {
         let ident = input.ident.clone();
         let generics = input.generics.clone();
         let data = darling::ast::Data::try_from(&input.data)?;
@@ -107,14 +107,14 @@ impl FromDeriveInput for IntoSchemaInput {
 
 #[derive(Debug, Clone)]
 struct IntoSchemaVariant {
-    ident: syn2::Ident,
-    discriminant: Option<syn2::Expr>,
+    ident: syn::Ident,
+    discriminant: Option<syn::Expr>,
     fields: IntoSchemaFields,
     codec_attrs: CodecAttributes,
 }
 
 impl FromVariant for IntoSchemaVariant {
-    fn from_variant(variant: &syn2::Variant) -> darling::Result<Self> {
+    fn from_variant(variant: &syn::Variant) -> darling::Result<Self> {
         let ident = variant.ident.clone();
         let discriminant = variant.discriminant.clone().map(|(_, expr)| expr);
         let fields = IntoSchemaFields::try_from(&variant.fields)?;
@@ -133,13 +133,13 @@ type IntoSchemaFields = darling::ast::Fields<IntoSchemaField>;
 
 #[derive(Debug, Clone)]
 struct IntoSchemaField {
-    ident: Option<syn2::Ident>,
-    ty: syn2::Type,
+    ident: Option<syn::Ident>,
+    ty: syn::Type,
     codec_attrs: CodecAttributes,
 }
 
 impl FromField for IntoSchemaField {
-    fn from_field(field: &syn2::Field) -> darling::Result<Self> {
+    fn from_field(field: &syn::Field) -> darling::Result<Self> {
         let ident = field.ident.clone();
         let ty = field.ty.clone();
         let codec_attrs = CodecAttributes::from_attributes(&field.attrs)?;
@@ -154,8 +154,8 @@ impl FromField for IntoSchemaField {
 
 #[derive(Debug, Clone)]
 struct CodegenField {
-    ident: Option<syn2::Ident>,
-    ty: syn2::Type,
+    ident: Option<syn::Ident>,
+    ty: syn::Type,
 }
 
 /// Derive [`iroha_schema::IntoSchema`] and [`iroha_schema::TypeId`]
@@ -171,7 +171,7 @@ struct CodegenField {
 pub fn schema_derive(input: TokenStream) -> Result<TokenStream> {
     let original_input = input.clone();
 
-    let input: syn2::DeriveInput = syn2::parse2(input)?;
+    let input: syn::DeriveInput = syn::parse2(input)?;
     let mut input = IntoSchemaInput::from_derive_input(&input)?;
 
     input.generics.type_params_mut().for_each(|ty_param| {
@@ -182,7 +182,7 @@ pub fn schema_derive(input: TokenStream) -> Result<TokenStream> {
 
     let mut emitter = Emitter::new();
 
-    let impl_type_id = impl_type_id(&mut syn2::parse2(original_input).unwrap());
+    let impl_type_id = impl_type_id(&mut syn::parse2(original_input).unwrap());
 
     let impl_schema = match &input.schema_attrs.transparent {
         Transparent::NotTransparent => impl_into_schema(&input, input.schema_attrs.bounds.as_ref()),
@@ -215,13 +215,13 @@ pub fn schema_derive(input: TokenStream) -> Result<TokenStream> {
 
 fn impl_transparent_into_schema(
     input: &IntoSchemaInput,
-    transparent_type: &syn2::Type,
+    transparent_type: &syn::Type,
     bounds: Option<&String>,
 ) -> Result<TokenStream> {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let name = &input.ident;
-    let where_clause: Option<syn2::WhereClause> = match bounds {
-        Some(bounds) => Some(syn2::parse_str(&format!("where {bounds}"))?),
+    let where_clause: Option<syn::WhereClause> = match bounds {
+        Some(bounds) => Some(syn::parse_str(&format!("where {bounds}"))?),
         None => where_clause.cloned(),
     };
 
@@ -251,8 +251,8 @@ fn impl_into_schema(input: &IntoSchemaInput, bounds: Option<&String>) -> Result<
     let type_name_body = trait_body(name, &input.generics, false);
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let metadata = metadata(&input.data)?;
-    let where_clause: Option<syn2::WhereClause> = match bounds {
-        Some(bounds) => Some(syn2::parse_str(&format!("where {bounds}"))?),
+    let where_clause: Option<syn::WhereClause> = match bounds {
+        Some(bounds) => Some(syn::parse_str(&format!("where {bounds}"))?),
         None => where_clause.cloned(),
     };
 
@@ -269,7 +269,7 @@ fn impl_into_schema(input: &IntoSchemaInput, bounds: Option<&String>) -> Result<
     })
 }
 
-fn infer_transparent_type(input: &IntoSchemaData, emitter: &mut Emitter) -> syn2::Type {
+fn infer_transparent_type(input: &IntoSchemaData, emitter: &mut Emitter) -> syn::Type {
     const TRY_MESSAGE: &str =
         "try to specify it explicitly using #[schema(transparent = \"Type\")]";
 
@@ -354,20 +354,16 @@ fn infer_transparent_type(input: &IntoSchemaData, emitter: &mut Emitter) -> syn2
 }
 
 /// Body of [`IntoSchema::type_name`] method
-fn trait_body(
-    name: &syn2::Ident,
-    generics: &syn2::Generics,
-    is_type_id_trait: bool,
-) -> TokenStream {
+fn trait_body(name: &syn::Ident, generics: &syn::Generics, is_type_id_trait: bool) -> TokenStream {
     let generics = &generics
         .params
         .iter()
         .filter_map(|param| match param {
-            syn2::GenericParam::Type(ty) => Some(&ty.ident),
+            syn::GenericParam::Type(ty) => Some(&ty.ident),
             _ => None,
         })
         .collect::<Vec<_>>();
-    let name = syn2::LitStr::new(&name.to_string(), Span::call_site());
+    let name = syn::LitStr::new(&name.to_string(), Span::call_site());
 
     if generics.is_empty() {
         return quote! { format!("{}", #name) };
@@ -382,7 +378,7 @@ fn trait_body(
             .join(", "),
     );
     format_str.push('>');
-    let format_str = syn2::LitStr::new(&format_str, Span::mixed_site());
+    let format_str = syn::LitStr::new(&format_str, Span::mixed_site());
 
     let generics = if is_type_id_trait {
         quote!(#(<#generics as iroha_schema::TypeId>::id()),*)
@@ -416,7 +412,7 @@ fn metadata(data: &IntoSchemaData) -> Result<TokenStream> {
         IntoSchemaData::Struct(IntoSchemaFields {
             style: Style::Unit, ..
         }) => {
-            let expr: syn2::Expr = parse_quote! {
+            let expr: syn::Expr = parse_quote! {
                 iroha_schema::Metadata::Tuple(
                     iroha_schema::UnnamedFieldsMeta {
                         types: Vec::new()
@@ -437,7 +433,7 @@ fn metadata(data: &IntoSchemaData) -> Result<TokenStream> {
 }
 
 /// Returns types for which schema should be called and metadata for tuplestruct
-fn metadata_for_tuplestructs(fields: &[IntoSchemaField]) -> (Vec<syn2::Type>, syn2::Expr) {
+fn metadata_for_tuplestructs(fields: &[IntoSchemaField]) -> (Vec<syn::Type>, syn::Expr) {
     let fields = fields.iter().filter_map(convert_field_to_codegen);
     let fields_ty = fields.clone().map(|field| field.ty).collect();
     let types = fields
@@ -458,7 +454,7 @@ fn metadata_for_tuplestructs(fields: &[IntoSchemaField]) -> (Vec<syn2::Type>, sy
 }
 
 /// Returns types for which schema should be called and metadata for struct
-fn metadata_for_structs(fields: &[IntoSchemaField]) -> (Vec<syn2::Type>, syn2::Expr) {
+fn metadata_for_structs(fields: &[IntoSchemaField]) -> (Vec<syn::Type>, syn::Expr) {
     let fields = fields.iter().filter_map(convert_field_to_codegen);
     let declarations = fields.clone().map(|field| field_to_declaration(&field));
     let fields_ty = fields.map(|field| field.ty).collect();
@@ -477,7 +473,7 @@ fn metadata_for_structs(fields: &[IntoSchemaField]) -> (Vec<syn2::Type>, syn2::E
 }
 
 /// Takes variant fields and gets its type
-fn variant_field(fields: &IntoSchemaFields) -> Result<Option<syn2::Type>> {
+fn variant_field(fields: &IntoSchemaFields) -> Result<Option<syn::Type>> {
     let field = match fields.style {
         Style::Unit => return Ok(None),
         Style::Tuple if fields.len() == 1 => fields.iter().next().unwrap(),
@@ -492,7 +488,7 @@ fn variant_field(fields: &IntoSchemaFields) -> Result<Option<syn2::Type>> {
 }
 
 /// Returns types for which schema should be called and metadata for struct
-fn metadata_for_enums(variants: &[IntoSchemaVariant]) -> Result<(Vec<syn2::Type>, syn2::Expr)> {
+fn metadata_for_enums(variants: &[IntoSchemaVariant]) -> Result<(Vec<syn::Type>, syn::Expr)> {
     let variant_exprs: Vec<_> = variants
         .iter()
         .enumerate()

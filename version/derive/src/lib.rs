@@ -6,7 +6,7 @@ use darling::{ast::NestedMeta, FromMeta};
 use manyhow::{bail, manyhow, Result};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn2::{
+use syn::{
     parse::{Parse, ParseStream},
     parse_quote,
     punctuated::Punctuated,
@@ -85,7 +85,7 @@ pub fn version_with_json(args: TokenStream, item: TokenStream) -> Result<TokenSt
 #[manyhow]
 #[proc_macro]
 pub fn declare_versioned(input: TokenStream) -> Result<TokenStream> {
-    let args = syn2::parse2(input)?;
+    let args = syn::parse2(input)?;
     Ok(impl_declare_versioned(&args, true, true))
 }
 
@@ -93,7 +93,7 @@ pub fn declare_versioned(input: TokenStream) -> Result<TokenStream> {
 #[manyhow]
 #[proc_macro]
 pub fn declare_versioned_with_scale(input: TokenStream) -> Result<TokenStream> {
-    let args = syn2::parse2(input)?;
+    let args = syn::parse2(input)?;
     Ok(impl_declare_versioned(&args, true, false))
 }
 
@@ -101,14 +101,14 @@ pub fn declare_versioned_with_scale(input: TokenStream) -> Result<TokenStream> {
 #[manyhow]
 #[proc_macro]
 pub fn declare_versioned_with_json(input: TokenStream) -> Result<TokenStream> {
-    let args = syn2::parse2(input)?;
+    let args = syn::parse2(input)?;
     Ok(impl_declare_versioned(&args, false, true))
 }
 
 #[derive(FromMeta)]
 struct VersionArgs {
     version: u32,
-    versioned_alias: syn2::Ident,
+    versioned_alias: syn::Ident,
 }
 
 fn impl_version(args: TokenStream, item: &TokenStream) -> Result<TokenStream> {
@@ -119,7 +119,7 @@ fn impl_version(args: TokenStream, item: &TokenStream) -> Result<TokenStream> {
     } = VersionArgs::from_list(&args)?;
 
     let (struct_name, generics) = {
-        let item = syn2::parse2::<DeriveInput>(item.clone())?;
+        let item = syn::parse2::<DeriveInput>(item.clone())?;
         match &item.data {
             Data::Struct(_) | Data::Enum(_) => {}
             _ => bail!("The attribute should be attached to either struct or enum."),
@@ -141,7 +141,7 @@ fn impl_version(args: TokenStream, item: &TokenStream) -> Result<TokenStream> {
 
 struct DeclareVersionedArgs {
     pub enum_name: Ident,
-    pub generics: syn2::Generics,
+    pub generics: syn::Generics,
     pub range: Range<u8>,
     pub _comma: Option<Token![,]>,
     pub derive: Punctuated<Path, Token![,]>,
@@ -170,7 +170,7 @@ impl DeclareVersionedArgs {
 impl Parse for DeclareVersionedArgs {
     fn parse(input: ParseStream) -> SynResult<Self> {
         let enum_name: Ident = input.parse()?;
-        let generics: syn2::Generics = input.parse()?;
+        let generics: syn::Generics = input.parse()?;
         let start_version: LitInt = input.parse()?;
         let start_version: u8 = start_version.base10_parse()?;
         let _: Token![..] = input.parse::<Token![..]>()?;
@@ -192,7 +192,7 @@ impl Parse for DeclareVersionedArgs {
     }
 }
 
-fn impl_decode_versioned(enum_name: &Ident, generics: &syn2::Generics) -> proc_macro2::TokenStream {
+fn impl_decode_versioned(enum_name: &Ident, generics: &syn::Generics) -> proc_macro2::TokenStream {
     let mut decode_where_clause = generics
         .where_clause
         .clone()
@@ -243,7 +243,7 @@ fn impl_decode_versioned(enum_name: &Ident, generics: &syn2::Generics) -> proc_m
 
 fn impl_json(
     enum_name: &Ident,
-    generics: &syn2::Generics,
+    generics: &syn::Generics,
     version_field_name: &str,
 ) -> proc_macro2::TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();

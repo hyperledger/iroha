@@ -60,7 +60,7 @@ test_network = { version = "=2.0.0-pre-rc.20", path = "core/test_network" }
 
 proc-macro-error = "1.0.4"
 proc-macro2 = "1.0.69"
-syn2 = { package = "syn", version = "2.0.38", default-features = false }
+syn = { version = "2.0.38", default-features = false }
 quote = "1.0.33"
 manyhow = { version = "0.8.1", features = ["darling"] }
 darling = "0.20.3"

@@ -3,7 +3,7 @@ use iroha_macro_utils::Emitter;
 use manyhow::{emit, manyhow};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn2::{Generics, ItemFn, ReturnType, Signature};
+use syn::{Generics, ItemFn, ReturnType, Signature};
 
 fn impl_telemetry_future(
     emitter: &mut Emitter,
@@ -61,7 +61,7 @@ pub fn telemetry_future(args: TokenStream, input: TokenStream) -> TokenStream {
         emit!(emitter, args, "Unexpected arguments");
     }
 
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+    let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
     let result = if cfg!(feature = "telemetry") {

@@ -5,7 +5,7 @@ use std::{collections::hash_map::Entry, str::FromStr};
 use parse_display::{Display, FromStr};
 use proc_macro2::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
-use syn2::{parse::ParseStream, punctuated::Punctuated, Attribute, Token};
+use syn::{parse::ParseStream, punctuated::Punctuated, Attribute, Token};
 
 use crate::attr_parse::derive::{Derive, DeriveAttrs};
 
@@ -19,7 +19,7 @@ pub enum GetSetDerive {
 }
 
 impl GetSetDerive {
-    pub fn try_from_path(path: &syn2::Path) -> Option<Self> {
+    pub fn try_from_path(path: &syn::Path) -> Option<Self> {
         // try to be smart and handle two cases:
         // - bare attribute name (like `Getters`, when it's imported)
         // - fully qualified path (like `getset::Getters`, when it's not imported)
@@ -51,7 +51,7 @@ impl GetSetDerive {
 
 #[derive(Default, Debug, Eq, PartialEq, Clone)]
 pub struct GetSetOptions {
-    pub visibility: Option<syn2::Visibility>,
+    pub visibility: Option<syn::Visibility>,
     pub with_prefix: bool,
 }
 
@@ -60,29 +60,29 @@ struct SpannedGetSetOptions {
     options: GetSetOptions,
 }
 
-impl syn2::parse::Parse for SpannedGetSetOptions {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
+impl syn::parse::Parse for SpannedGetSetOptions {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut result = GetSetOptions::default();
         // an accumulator for syn errors?
         // this is getting out of hand...
         // we need an accumulator to rule them all!
         let mut errors = Vec::new();
 
-        let lit = input.parse::<syn2::LitStr>()?;
+        let lit = input.parse::<syn::LitStr>()?;
         for part in lit.value().split(' ') {
             if part == "with_prefix" {
                 result.with_prefix = true;
-            } else if let Ok(vis) = syn2::parse_str::<syn2::Visibility>(part) {
+            } else if let Ok(vis) = syn::parse_str::<syn::Visibility>(part) {
                 if result.visibility.is_none() {
                     result.visibility = Some(vis);
                 } else {
-                    errors.push(syn2::Error::new(
+                    errors.push(syn::Error::new(
                         lit.span(),
                         format!("Failed to parse getset options at {part}: duplicate visibility",),
                     ));
                 }
             } else {
-                errors.push(syn2::Error::new(lit.span(), format!("Failed to parse getset options at `{part}`: expected visibility or `with_prefix`")));
+                errors.push(syn::Error::new(lit.span(), format!("Failed to parse getset options at `{part}`: expected visibility or `with_prefix`")));
             }
         }
 
@@ -123,9 +123,9 @@ struct SpannedGetSetAttrToken {
     token: GetSetAttrToken,
 }
 
-impl syn2::parse::Parse for SpannedGetSetAttrToken {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
-        let ident = input.parse::<syn2::Ident>()?;
+impl syn::parse::Parse for SpannedGetSetAttrToken {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ident = input.parse::<syn::Ident>()?;
 
         match ident.to_string().as_str() {
             "skip" => Ok(SpannedGetSetAttrToken {
@@ -154,7 +154,7 @@ impl syn2::parse::Parse for SpannedGetSetAttrToken {
                     })
                 }
             }
-            _ => Err(syn2::Error::new(
+            _ => Err(syn::Error::new(
                 ident.span(),
                 "expected one of `get`, `get_copy`, `get_mut`, `set`, `skip`",
             )),
@@ -346,7 +346,7 @@ mod test {
         use darling::FromAttributes;
         use quote::quote;
         use rustc_hash::FxHashMap;
-        use syn2::parse_quote;
+        use syn::parse_quote;
 
         use super::{GetSetFieldAttrs, GetSetGenMode, GetSetOptions, GetSetStructAttrs};
         use crate::parse_attributes;
@@ -637,7 +637,7 @@ mod test {
         use darling::FromAttributes;
         use proc_macro2::TokenStream;
         use quote::quote;
-        use syn2::parse_quote;
+        use syn::parse_quote;
 
         use super::{
             GetSetFieldAttrs, GetSetGenMode, GetSetOptions, GetSetStructAttrs, RequestedAccessors,
