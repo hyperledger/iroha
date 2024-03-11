@@ -3064,7 +3064,6 @@ dependencies = [
  "manyhow",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
  "syn 2.0.41",
 ]
 
@@ -3675,7 +3674,6 @@ dependencies = [
  "manyhow-macros",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
  "syn 2.0.41",
 ]
 
