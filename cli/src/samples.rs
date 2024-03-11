@@ -65,7 +65,7 @@ pub fn get_user_config(
 ) -> UserConfig {
     let chain_id = chain_id.unwrap_or_else(|| ChainId::from("0"));
 
-    let (public_key, private_key) = key_pair.unwrap_or_else(KeyPair::random).into();
+    let (public_key, private_key) = key_pair.unwrap_or_else(KeyPair::random).into_parts();
     iroha_logger::info!(%public_key);
 
     let mut config = UserConfig::new();

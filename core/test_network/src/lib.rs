@@ -52,7 +52,7 @@ pub fn get_chain_id() -> ChainId {
 
 /// Get a standardised key-pair from the hard-coded literals.
 pub fn get_key_pair() -> KeyPair {
-    KeyPair::from_raw_parts(
+    KeyPair::new(
         PublicKey::from_str(
             "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
         ).unwrap(),
@@ -759,7 +759,7 @@ impl TestConfig for Config {
         )
         .merge(RootPartial::from_env(&StdEnv).expect("test env variables should parse properly"));
 
-        let (public_key, private_key) = KeyPair::random().into();
+        let (public_key, private_key) = KeyPair::random().into_parts();
         layer.public_key.set(public_key);
         layer.private_key.set(private_key);
 

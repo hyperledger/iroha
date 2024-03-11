@@ -28,7 +28,7 @@ fn build_test_transaction(keys: &KeyPair, chain_id: ChainId) -> SignedTransactio
     let domain_id = DomainId::from_str(domain_name).expect("does not panic");
     let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
     let account_name = "account";
-    let (public_key, _) = KeyPair::random().into();
+    let (public_key, _) = KeyPair::random().into_parts();
     let create_account = Register::account(Account::new(
         AccountId::new(
             domain_name.parse().expect("Valid"),
@@ -59,7 +59,7 @@ fn build_test_transaction(keys: &KeyPair, chain_id: ChainId) -> SignedTransactio
 fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::test().start();
-    let (public_key, _) = keys.into();
+    let (public_key, _) = keys.into_parts();
 
     let mut wsv = WorldStateView::new(
         {

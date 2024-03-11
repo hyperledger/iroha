@@ -227,7 +227,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
     let mouse_id = AccountId::from_str("mouse@wonderland")?;
 
     // Registering Mouse
-    let mouse_key_pair = KeyPair::generate();
+    let mouse_key_pair = KeyPair::random();
     let register_mouse = Register::account(Account::new(
         mouse_id.clone(),
         mouse_key_pair.public_key().clone(),

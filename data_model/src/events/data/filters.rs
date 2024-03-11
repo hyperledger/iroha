@@ -220,7 +220,7 @@ mod tests {
         let account_id = AccountId::new(domain_id.clone(), account_name);
         let account = Account::new(
             account_id.clone(),
-            iroha_crypto::KeyPair::random().into_raw_parts().0,
+            iroha_crypto::KeyPair::random().into_parts().0,
         )
         .into_account();
         let asset_id = AssetId::new(

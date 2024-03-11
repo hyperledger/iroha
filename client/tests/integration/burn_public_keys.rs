@@ -60,7 +60,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
     assert_eq!(keys_count, 1);
 
     let mint_keys = (0..KEYS_COUNT - 1).map(|_| {
-        let (public_key, _) = KeyPair::random().into();
+        let (public_key, _) = KeyPair::random().into_parts();
         Mint::account_public_key(public_key, charlie_id.clone())
     });
 

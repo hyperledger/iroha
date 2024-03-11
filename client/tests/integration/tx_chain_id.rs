@@ -13,9 +13,9 @@ fn send_tx_with_different_chain_id() {
     wait_for_genesis_committed(&[test_client.clone()], 0);
     // Given
     let sender_account_id = AccountId::from_str("sender@wonderland").unwrap();
-    let sender_keypair = KeyPair::generate();
+    let sender_keypair = KeyPair::random();
     let receiver_account_id = AccountId::from_str("receiver@wonderland").unwrap();
-    let receiver_keypair = KeyPair::generate();
+    let receiver_keypair = KeyPair::random();
     let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").unwrap();
     let to_transfer = numeric!(1);
 

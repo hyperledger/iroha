@@ -189,11 +189,11 @@ impl KeyPair {
 
     /// Construct a [`KeyPair`].
     ///
-    /// See [`Self::into_raw_parts`] for an opposite conversion.
+    /// See [`Self::into_parts`] for an opposite conversion.
     ///
     /// # Errors
     /// If public and private keys don't match, i.e. if they don't make a pair
-    pub fn from_raw_parts(public_key: PublicKey, private_key: PrivateKey) -> Result<Self, Error> {
+    pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Result<Self, Error> {
         let algorithm = private_key.algorithm();
 
         if algorithm != public_key.algorithm() {
@@ -213,7 +213,7 @@ impl KeyPair {
     /// Get [`PublicKey`] and [`PrivateKey`] contained in the [`KeyPair`].
     ///
     /// See [`Self::from_raw_parts`] for an opposite conversion.
-    pub fn into_raw_parts(self) -> (PublicKey, PrivateKey) {
+    pub fn into_parts(self) -> (PublicKey, PrivateKey) {
         (self.public_key, self.private_key)
     }
 }
@@ -297,15 +297,7 @@ impl<'de> Deserialize<'de> for KeyPair {
 
         // NOTE: Verify that key pair is valid
         let key_pair = KeyPairCandidate::deserialize(deserializer)?;
-        Self::from_raw_parts(key_pair.public_key, key_pair.private_key).map_err(D::Error::custom)
-    }
-}
-
-// TODO: enable in ffi_import?
-#[cfg(not(feature = "ffi_import"))]
-impl From<KeyPair> for (PublicKey, PrivateKey) {
-    fn from(key_pair: KeyPair) -> Self {
-        key_pair.into_raw_parts()
+        Self::new(key_pair.public_key, key_pair.private_key).map_err(D::Error::custom)
     }
 }
 
@@ -938,7 +930,7 @@ mod tests {
 
     #[test]
     fn key_pair_match() {
-        KeyPair::from_raw_parts("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+        KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             .parse()
             .expect("Public key not in mulithash format"),
                                 PrivateKey::from_hex(
@@ -946,7 +938,7 @@ mod tests {
             "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
         ).expect("Private key not hex encoded")).unwrap();
 
-        KeyPair::from_raw_parts("ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
+        KeyPair::new("ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
             .parse()
             .expect("Public key not in multihash format"),
                                 PrivateKey::from_hex(
@@ -965,7 +957,7 @@ mod tests {
             Algorithm::BlsSmall,
         ] {
             let key_pair = KeyPair::random_with_algorithm(algorithm);
-            let (public_key, _) = key_pair.into();
+            let (public_key, _) = key_pair.into_parts();
 
             let encoded_public_key = public_key.encode();
 
@@ -995,7 +987,7 @@ mod tests {
 
     #[test]
     fn key_pair_mismatch() {
-        KeyPair::from_raw_parts("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+        KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             .parse()
             .expect("Public key not in mulithash format"),
                                 PrivateKey::from_hex(
@@ -1003,7 +995,7 @@ mod tests {
             "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
         ).expect("Private key not valid")).unwrap_err();
 
-        KeyPair::from_raw_parts("ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
+        KeyPair::new("ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
             .parse()
             .expect("Public key not in mulithash format"),
                                 PrivateKey::from_hex(
