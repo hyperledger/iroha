@@ -63,13 +63,6 @@ jobs:
           compare-ref: ${{ github.base_ref }}
           compare-sha: ${{ github.event.pull_request.base.sha}}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      # (Temporally) Add the parallel coverage upload to Codecov to compare the results with Coveralls
-      # - name: Upload coverage to codecov.io
-      #   uses: codecov/codecov-action@v3.1.4
-      #   with:
-      #     files: lcov.info
-      #     commit_parent: ${{ github.event.pull_request.base.sha }}
-      #     fail_ci_if_error: false
 
   integration:
     runs-on: [self-hosted, Linux, iroha2]
