@@ -4,7 +4,7 @@
 use iroha_crypto::MerkleTree;
 use iroha_data_model::{
     block::stream::{BlockMessage, BlockSubscriptionRequest},
-    query::error::QueryExecutionFail,
+    query::QueryOutputBox,
     BatchedResponse,
 };
 use iroha_genesis::RawGenesisBlock;
@@ -17,9 +17,6 @@ macro_rules! types {
         macro_rules! map_all_schema_types {
             ($callback:ident) => {{
                 $( $callback!($t); )+
-
-                #[cfg(target_arch = "aarch64")]
-                $callback!(Box<SignedBlock>);
             }}
         }
     }
@@ -41,22 +38,26 @@ pub fn build_schemas() -> MetaMap {
     }
 
     schemas! {
-        QueryExecutionFail,
-        BlockMessage,
-        BlockSubscriptionRequest,
+        // Transaction
+        SignedTransaction,
+
+        // Query + response
+        SignedQuery,
+        BatchedResponse<QueryOutputBox>,
+
+        // Event stream
         EventMessage,
         EventSubscriptionRequest,
-        BatchedResponse<Value>,
-        BatchedResponse<Vec<SignedTransaction>>,
-        SignedQuery,
 
-        // Never referenced, but present in type signature. Like `PhantomData<X>`
-        MerkleTree<SignedTransaction>,
-        RegistrableBox,
-        UpgradableBox,
+        // Block stream
+        BlockMessage,
+        BlockSubscriptionRequest,
 
         // SDK devs want to know how to read serialized genesis block
         RawGenesisBlock,
+
+        // Never referenced, but present in type signature. Like `PhantomData<X>`
+        MerkleTree<SignedTransaction>,
     }
 }
 
@@ -92,23 +93,29 @@ types!(
     BTreeMap<AssetDefinitionId, AssetDefinition>,
     BTreeMap<AssetDefinitionId, Numeric>,
     BTreeMap<AssetId, Asset>,
-    BTreeMap<Name, Value>,
+    BTreeMap<Name, MetadataValueBox>,
     BTreeSet<PermissionToken>,
     BTreeSet<PublicKey>,
-    BatchedResponse<Value>,
-    BatchedResponse<Vec<SignedTransaction>>,
-    BatchedResponseV1<Value>,
-    BatchedResponseV1<Vec<SignedTransaction>>,
+    BTreeSet<SignatureWrapperOf<BlockPayload>>,
+    BTreeSet<SignatureWrapperOf<TransactionPayload>>,
+    BatchedResponse<QueryOutputBox>,
+    BatchedResponseV1<QueryOutputBox>,
     BlockHeader,
     BlockMessage,
+    BlockPayload,
     BlockRejectionReason,
     BlockSubscriptionRequest,
-    Box<GenericPredicateBox<ValuePredicate>>,
-    Box<Value>,
-    Box<ValuePredicate>,
+    Box<GenericPredicateBox<QueryOutputPredicate>>,
+    Box<QueryOutputPredicate>,
+    Burn<u32, Trigger<TriggeringFilterBox>>,
+    Burn<Numeric, Asset>,
+    Burn<PublicKey, Account>,
     BurnBox,
+    ChainId,
     ConfigurationEvent,
     ConstString,
+    ConstVec<PublicKey>,
+    ConstVec<u8>,
     Container,
     DataEntityFilter,
     DataEvent,
@@ -118,6 +125,7 @@ types!(
     DomainEventFilter,
     DomainFilter,
     DomainId,
+    DomainOwnerChanged,
     Duration,
     Event,
     EventMessage,
@@ -194,6 +202,9 @@ types!(
     FindTriggerKeyValueByIdAndKey,
     FindTriggersByDomainId,
     ForwardCursor,
+    Grant<PermissionToken, Account>,
+    Grant<PermissionToken, Role>,
+    Grant<RoleId, Account>,
     GrantBox,
     Hash,
     HashOf<MerkleTree<SignedTransaction>>,
@@ -202,24 +213,35 @@ types!(
     IdBox,
     IdentifiableBox,
     InstructionBox,
+    InstructionEvaluationError,
+    InstructionExecutionError,
     InstructionExecutionFail,
-    Interval<u16>,
-    Interval<u8>,
+    InstructionType,
+    InvalidParameterError,
     IpfsPath,
     Ipv4Addr,
-    Ipv4Predicate,
     Ipv6Addr,
-    Ipv6Predicate,
     LengthLimits,
+    Level,
+    Log,
+    MathError,
     MerkleTree<SignedTransaction>,
     Metadata,
     MetadataChanged<AccountId>,
     MetadataChanged<AssetDefinitionId>,
     MetadataChanged<AssetId>,
     MetadataChanged<DomainId>,
+    MetadataError,
     MetadataLimits,
+    MetadataValueBox,
+    Mint<u32, Trigger<TriggeringFilterBox>>,
+    Mint<Numeric, Asset>,
+    Mint<PublicKey, Account>,
+    Mint<SignatureCheckCondition, Account>,
     MintBox,
+    MintabilityError,
     Mintable,
+    Mismatch<AssetValueType>,
     Name,
     NewAccount,
     NewAssetDefinition,
@@ -227,20 +249,26 @@ types!(
     NewParameter,
     NewRole,
     NonTrivial<PredicateBox>,
+    NonZeroU32,
     NonZeroU64,
+    NotificationEvent,
     NotificationEventFilter,
-    Integer,
     Numeric,
+    NumericSpec,
+    Option<u32>,
     Option<DomainId>,
     Option<Duration>,
     Option<Hash>,
     Option<HashOf<MerkleTree<SignedTransaction>>>,
     Option<HashOf<SignedBlock>>,
     Option<IpfsPath>,
+    Option<NonZeroU32>,
+    Option<NonZeroU64>,
     Option<PipelineEntityKind>,
     Option<PipelineStatusKind>,
     Option<String>,
     Option<TimeInterval>,
+    Option<TransactionRejectionReason>,
     Option<TriggerCompletedOutcomeType>,
     Option<TriggerId>,
     OriginFilter<AccountEvent>,
@@ -252,6 +280,7 @@ types!(
     OriginFilter<TriggerEvent>,
     Parameter,
     ParameterId,
+    ParameterValueBox,
     Peer,
     PeerEvent,
     PeerEventFilter,
@@ -271,11 +300,27 @@ types!(
     PublicKey,
     QueryBox,
     QueryExecutionFail,
+    QueryOutputBox,
+    QueryOutputPredicate,
     QueryPayload,
+    Register<Account>,
+    Register<Asset>,
+    Register<AssetDefinition>,
+    Register<Domain>,
+    Register<Peer>,
+    Register<Role>,
+    Register<Trigger<TriggeringFilterBox>>,
     RegisterBox,
-    RegistrableBox,
+    RemoveKeyValue<Account>,
+    RemoveKeyValue<Asset>,
+    RemoveKeyValue<AssetDefinition>,
+    RemoveKeyValue<Domain>,
     RemoveKeyValueBox,
     Repeats,
+    RepetitionError,
+    Revoke<PermissionToken, Account>,
+    Revoke<PermissionToken, Role>,
+    Revoke<RoleId, Account>,
     RevokeBox,
     Role,
     RoleEvent,
@@ -285,23 +330,35 @@ types!(
     SemiInterval<Numeric>,
     SemiInterval<u128>,
     SemiRange,
+    SetKeyValue<Account>,
+    SetKeyValue<Asset>,
+    SetKeyValue<AssetDefinition>,
+    SetKeyValue<Domain>,
     SetKeyValueBox,
     SetParameter,
     Signature,
     SignatureCheckCondition,
+    SignatureOf<BlockPayload>,
     SignatureOf<QueryPayload>,
     SignatureOf<TransactionPayload>,
+    SignatureWrapperOf<BlockPayload>,
     SignatureWrapperOf<TransactionPayload>,
+    SignaturesOf<BlockPayload>,
     SignaturesOf<TransactionPayload>,
     SignedBlock,
     SignedBlockV1,
-    SignedBlockWrapper,
     SignedQuery,
     SignedQueryV1,
     SignedTransaction,
     SignedTransactionV1,
+    SizeError,
+    SocketAddr,
+    SocketAddrHost,
+    SocketAddrV4,
+    SocketAddrV6,
     String,
     StringPredicate,
+    JsonString,
     TimeEvent,
     TimeEventFilter,
     TimeInterval,
@@ -312,9 +369,15 @@ types!(
     TransactionQueryOutput,
     TransactionRejectionReason,
     TransactionValue,
+    Transfer<Account, AssetDefinitionId, Account>,
+    Transfer<Account, DomainId, Account>,
+    Transfer<Asset, Metadata, Account>,
+    Transfer<Asset, Numeric, Account>,
     TransferBox,
     Trigger<TriggeringFilterBox>,
+    TriggerCompletedEvent,
     TriggerCompletedEventFilter,
+    TriggerCompletedOutcome,
     TriggerCompletedOutcomeType,
     TriggerEvent,
     TriggerEventFilter,
@@ -322,23 +385,29 @@ types!(
     TriggerId,
     TriggerNumberOfExecutionsChanged,
     TriggeringFilterBox,
+    TypeError,
+    UniqueVec<PeerId>,
+    Unregister<Account>,
+    Unregister<Asset>,
+    Unregister<AssetDefinition>,
+    Unregister<Domain>,
+    Unregister<Peer>,
+    Unregister<Role>,
+    Unregister<Trigger<TriggeringFilterBox>>,
     UnregisterBox,
-    UpgradableBox,
+    Upgrade,
     ValidationFail,
-    Value,
-    ValueOfKey,
-    ValuePredicate,
     Vec<Event>,
     Vec<InstructionBox>,
+    Vec<MetadataValueBox>,
+    Vec<Name>,
     Vec<PeerId>,
     Vec<PredicateBox>,
-    Vec<SignedTransaction>,
-    Vec<Value>,
+    Vec<QueryOutputBox>,
+    Vec<TransactionValue>,
     Vec<u8>,
     WasmExecutionFail,
     WasmSmartContract,
-    [Interval<u16>; 8],
-    [Interval<u8>; 4],
     [u16; 8],
     [u8; 32],
     [u8; 4],
@@ -352,7 +421,7 @@ types!(
 
 #[cfg(test)]
 mod tests {
-    use core::num::NonZeroU64;
+    use core::num::{NonZeroU32, NonZeroU64};
     use std::{
         collections::{BTreeMap, BTreeSet, HashMap, HashSet},
         time::Duration,
@@ -365,31 +434,42 @@ mod tests {
         block::{
             error::BlockRejectionReason,
             stream::{BlockMessage, BlockSubscriptionRequest},
-            BlockHeader, SignedBlock, SignedBlockV1,
+            BlockHeader, BlockPayload, SignedBlock, SignedBlockV1,
         },
         domain::NewDomain,
         executor::Executor,
         ipfs::IpfsPath,
-        predicate::{
-            ip_addr::{Ipv4Predicate, Ipv6Predicate},
-            numerical::{Interval, SemiInterval, SemiRange},
-            string::StringPredicate,
-            value::{AtIndex, Container, ValueOfKey, ValuePredicate},
-            GenericPredicateBox, NonTrivial, PredicateBox,
+        isi::{
+            error::{
+                InstructionEvaluationError, InstructionExecutionError, InvalidParameterError,
+                MathError, MintabilityError, Mismatch, RepetitionError, TypeError,
+            },
+            InstructionType,
         },
+        metadata::{MetadataError, MetadataValueBox, SizeError},
+        parameter::ParameterValueBox,
+        permission::JsonString,
         prelude::*,
         query::{
             error::{FindError, QueryExecutionFail},
-            ForwardCursor,
+            predicate::{
+                numerical::{SemiInterval, SemiRange},
+                string::StringPredicate,
+                value::{AtIndex, Container, QueryOutputPredicate},
+                GenericPredicateBox, NonTrivial, PredicateBox,
+            },
+            ForwardCursor, QueryOutputBox,
         },
         transaction::{error::TransactionLimitError, SignedTransactionV1, TransactionLimits},
-        BatchedResponse, BatchedResponseV1, SignedBlockWrapper,
+        BatchedResponse, BatchedResponseV1, Level,
     };
-    use iroha_genesis::RawGenesisBlock;
     use iroha_primitives::{
-        addr::{Ipv4Addr, Ipv6Addr},
+        addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
+        const_vec::ConstVec,
         conststr::ConstString,
+        unique_vec::UniqueVec,
     };
+    use iroha_schema::Compact;
 
     use super::IntoSchema;
 
@@ -412,7 +492,19 @@ mod tests {
                 }
             }};
         }
+
         map_all_schema_types!(insert_into_test_map);
+
+        insert_into_test_map!(Compact<u128>);
+        insert_into_test_map!(Compact<u32>);
+
+        // NOTE: Coming from genesis
+        insert_into_test_map!(Vec<iroha_genesis::GenesisTransactionBuilder>);
+        insert_into_test_map!(iroha_genesis::GenesisTransactionBuilder);
+        insert_into_test_map!(iroha_genesis::RawGenesisBlock);
+        insert_into_test_map!(iroha_genesis::ExecutorMode);
+        insert_into_test_map!(iroha_genesis::ExecutorPath);
+
         map
     }
 
@@ -447,10 +539,8 @@ mod tests {
 
     #[test]
     fn no_extra_or_missing_schemas() {
-        let exceptions: HashSet<_> = RawGenesisBlock::schema()
-            .into_iter()
-            .map(|(type_id, _)| type_id)
-            .collect();
+        // NOTE: Skipping Box<str> until [this PR](https://github.com/paritytech/parity-scale-codec/pull/565) is merged
+        let exceptions: [core::any::TypeId; 1] = [core::any::TypeId::of::<Box<str>>()];
 
         let schemas_types = super::build_schemas()
             .into_iter()

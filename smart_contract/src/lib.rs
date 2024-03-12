@@ -11,12 +11,11 @@ use data_model::smart_contract::payloads;
 use data_model::{
     isi::Instruction,
     prelude::*,
-    query::{cursor::ForwardCursor, sorting::Sorting, Pagination, Query},
+    query::{cursor::ForwardCursor, sorting::Sorting, Pagination, Query, QueryOutputBox},
     BatchedResponse,
 };
 use derive_more::Display;
 pub use iroha_data_model as data_model;
-use iroha_macro::error::ErrorTryFromEnum;
 pub use iroha_smart_contract_derive::main;
 pub use iroha_smart_contract_utils::{debug, error, info, log, warn};
 use iroha_smart_contract_utils::{
@@ -181,7 +180,7 @@ impl<Q> ExecuteQueryOnHost for Q
 where
     Q: Query + Encode,
     Q::Output: DecodeAll,
-    <Q::Output as TryFrom<Value>>::Error: core::fmt::Debug,
+    <Q::Output as TryFrom<QueryOutputBox>>::Error: core::fmt::Debug,
 {
     type Output = Q::Output;
 
@@ -227,7 +226,7 @@ impl<Q> QueryWithParameters<'_, Q>
 where
     Q: Query + Encode,
     Q::Output: DecodeAll,
-    <Q::Output as TryFrom<Value>>::Error: core::fmt::Debug,
+    <Q::Output as TryFrom<QueryOutputBox>>::Error: core::fmt::Debug,
 {
     /// Apply sorting to a query
     #[must_use]
@@ -264,7 +263,7 @@ where
 
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transferred into `_decode_from_raw`
-        let res: Result<BatchedResponse<Value>, ValidationFail> = unsafe {
+        let res: Result<BatchedResponse<QueryOutputBox>, ValidationFail> = unsafe {
             decode_with_length_prefix_from_raw(encode_and_execute(
                 &QueryRequest::Query(self),
                 host_execute_query,
@@ -297,15 +296,15 @@ impl<T> QueryOutputCursor<T> {
     }
 }
 
-impl QueryOutputCursor<Value> {
-    /// Same as [`into_inner()`](Self::into_inner) but collects all values of [`Value::Vec`]
+impl QueryOutputCursor<QueryOutputBox> {
+    /// Same as [`into_inner()`](Self::into_inner) but collects all values of [`QueryOutputBox::Vec`]
     /// in case if there are some cached results left on the host side.
     ///
     /// # Errors
     ///
     /// May fail due to the same reasons [`QueryOutputCursorIterator`] can fail to iterate.
-    pub fn collect(self) -> Result<Value, QueryOutputCursorError<Vec<Value>>> {
-        let Value::Vec(v) = self.batch else {
+    pub fn collect(self) -> Result<QueryOutputBox, QueryOutputCursorError> {
+        let QueryOutputBox::Vec(v) = self.batch else {
             return Ok(self.batch);
         };
 
@@ -317,12 +316,12 @@ impl QueryOutputCursor<Value> {
         cursor
             .into_iter()
             .collect::<Result<Vec<_>, _>>()
-            .map(Value::Vec)
+            .map(QueryOutputBox::Vec)
     }
 }
 
-impl<U: TryFrom<Value>> IntoIterator for QueryOutputCursor<Vec<U>> {
-    type Item = Result<U, QueryOutputCursorError<Vec<U>>>;
+impl<U: TryFrom<QueryOutputBox>> IntoIterator for QueryOutputCursor<Vec<U>> {
+    type Item = Result<U, QueryOutputCursorError>;
     type IntoIter = QueryOutputCursorIterator<U>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -346,8 +345,8 @@ pub struct QueryOutputCursorIterator<T> {
     cursor: ForwardCursor,
 }
 
-impl<T: TryFrom<Value>> QueryOutputCursorIterator<T> {
-    fn next_batch(&self) -> Result<Self, QueryOutputCursorError<Vec<T>>> {
+impl<T: TryFrom<QueryOutputBox>> QueryOutputCursorIterator<T> {
+    fn next_batch(&self) -> Result<Self, QueryOutputCursorError> {
         #[cfg(not(test))]
         use host::execute_query as host_execute_query;
         #[cfg(test)]
@@ -355,14 +354,14 @@ impl<T: TryFrom<Value>> QueryOutputCursorIterator<T> {
 
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transferred into `_decode_from_raw`
-        let res: Result<BatchedResponse<Value>, ValidationFail> = unsafe {
+        let res: Result<BatchedResponse<QueryOutputBox>, ValidationFail> = unsafe {
             decode_with_length_prefix_from_raw(encode_and_execute(
                 &QueryRequest::<QueryBox>::Cursor(&self.cursor),
                 host_execute_query,
             ))
         };
         let (value, cursor) = res?.into();
-        let vec = Vec::<T>::try_from(value)?;
+        let vec = Vec::<T>::try_from(value).expect("Host returned unexpected output type");
         Ok(Self {
             iter: vec.into_iter(),
             cursor,
@@ -370,8 +369,8 @@ impl<T: TryFrom<Value>> QueryOutputCursorIterator<T> {
     }
 }
 
-impl<T: TryFrom<Value>> Iterator for QueryOutputCursorIterator<T> {
-    type Item = Result<T, QueryOutputCursorError<Vec<T>>>;
+impl<T: TryFrom<QueryOutputBox>> Iterator for QueryOutputCursorIterator<T> {
+    type Item = Result<T, QueryOutputCursorError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(item) = self.iter.next() {
@@ -393,11 +392,9 @@ impl<T: TryFrom<Value>> Iterator for QueryOutputCursorIterator<T> {
 
 /// Error iterating other query results.
 #[derive(Debug, Display, iroha_macro::FromVariant)]
-pub enum QueryOutputCursorError<T> {
+pub enum QueryOutputCursorError {
     /// Validation error on the host side during next batch retrieval.
     Validation(ValidationFail),
-    /// Host returned unexpected output type.
-    Conversion(ErrorTryFromEnum<Value, T>),
 }
 
 /// Get payload for smart contract `main()` entrypoint.
@@ -484,10 +481,11 @@ mod tests {
         }
     }
 
-    const QUERY_RESULT: Result<QueryOutputCursor<Value>, ValidationFail> = Ok(QueryOutputCursor {
-        batch: Value::Numeric(numeric!(1234)),
-        cursor: ForwardCursor::new(None, None),
-    });
+    const QUERY_RESULT: Result<QueryOutputCursor<QueryOutputBox>, ValidationFail> =
+        Ok(QueryOutputCursor {
+            batch: QueryOutputBox::Numeric(numeric!(1234)),
+            cursor: ForwardCursor::new(None, None),
+        });
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());
 
     fn get_test_instruction() -> InstructionBox {
@@ -524,11 +522,12 @@ mod tests {
         let query = query_request.unwrap_query().0;
         assert_eq!(query, get_test_query());
 
-        let response: Result<BatchedResponse<Value>, ValidationFail> = Ok(BatchedResponseV1::new(
-            QUERY_RESULT.unwrap().into_raw_parts().0,
-            ForwardCursor::new(None, None),
-        )
-        .into());
+        let response: Result<BatchedResponse<QueryOutputBox>, ValidationFail> =
+            Ok(BatchedResponseV1::new(
+                QUERY_RESULT.unwrap().into_raw_parts().0,
+                ForwardCursor::new(None, None),
+            )
+            .into());
         ManuallyDrop::new(encode_with_length_prefix(&response)).as_ptr()
     }
 

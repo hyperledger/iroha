@@ -15,7 +15,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = AccountId::from_str("alice@wonderland")?;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
     let instruction = Mint::asset_numeric(1u32, asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
@@ -45,13 +45,18 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
         Register::asset_definition(AssetDefinition::numeric(tea_definition_id));
     test_client.submit_blocking(register_tea_definition)?;
 
-    let new_value = get_asset_value(&mut test_client, asset_id)?;
+    let new_value = get_asset_value(&mut test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
 }
 
-fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<Numeric> {
-    let asset = client.request(client::asset::by_id(asset_id))?;
-    Ok(*TryAsRef::<Numeric>::try_as_ref(asset.value())?)
+fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
+    let asset = client.request(client::asset::by_id(asset_id)).unwrap();
+
+    let AssetValue::Numeric(val) = *asset.value() else {
+        panic!("Unexpected asset value");
+    };
+
+    val
 }

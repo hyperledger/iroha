@@ -237,18 +237,6 @@
       }
     ]
   },
-  "Array<Interval<u16>, 8>": {
-    "Array": {
-      "type": "Interval<u16>",
-      "len": 8
-    }
-  },
-  "Array<Interval<u8>, 4>": {
-    "Array": {
-      "type": "Interval<u8>",
-      "len": 4
-    }
-  },
   "Array<u16, 8>": {
     "Array": {
       "type": "u16",
@@ -573,45 +561,24 @@
       },
       {
         "name": "predicate",
-        "type": "ValuePredicate"
+        "type": "QueryOutputPredicate"
       }
     ]
   },
-  "BatchedResponse<Value>": {
+  "BatchedResponse<QueryOutputBox>": {
     "Enum": [
       {
         "tag": "V1",
         "discriminant": 1,
-        "type": "BatchedResponseV1<Value>"
+        "type": "BatchedResponseV1<QueryOutputBox>"
       }
     ]
   },
-  "BatchedResponse<Vec<SignedTransaction>>": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "BatchedResponseV1<Vec<SignedTransaction>>"
-      }
-    ]
-  },
-  "BatchedResponseV1<Value>": {
+  "BatchedResponseV1<QueryOutputBox>": {
     "Struct": [
       {
         "name": "batch",
-        "type": "Value"
-      },
-      {
-        "name": "cursor",
-        "type": "ForwardCursor"
-      }
-    ]
-  },
-  "BatchedResponseV1<Vec<SignedTransaction>>": {
-    "Struct": [
-      {
-        "name": "batch",
-        "type": "Vec<SignedTransaction>"
+        "type": "QueryOutputBox"
       },
       {
         "name": "cursor",
@@ -656,7 +623,7 @@
       },
       {
         "name": "commit_topology",
-        "type": "UniqueVec<PeerId>"
+        "type": "Vec<PeerId>"
       },
       {
         "name": "transactions",
@@ -763,27 +730,17 @@
       {
         "tag": "Any",
         "discriminant": 0,
-        "type": "ValuePredicate"
+        "type": "QueryOutputPredicate"
       },
       {
         "tag": "All",
         "discriminant": 1,
-        "type": "ValuePredicate"
+        "type": "QueryOutputPredicate"
       },
       {
         "tag": "AtIndex",
         "discriminant": 2,
         "type": "AtIndex"
-      },
-      {
-        "tag": "ValueOfKey",
-        "discriminant": 3,
-        "type": "ValueOfKey"
-      },
-      {
-        "tag": "HasKey",
-        "discriminant": 4,
-        "type": "Name"
       }
     ]
   },
@@ -1770,27 +1727,27 @@
       }
     ]
   },
-  "GenericPredicateBox<ValuePredicate>": {
+  "GenericPredicateBox<QueryOutputPredicate>": {
     "Enum": [
       {
         "tag": "And",
         "discriminant": 0,
-        "type": "NonTrivial<GenericPredicateBox<ValuePredicate>>"
+        "type": "NonTrivial<GenericPredicateBox<QueryOutputPredicate>>"
       },
       {
         "tag": "Or",
         "discriminant": 1,
-        "type": "NonTrivial<GenericPredicateBox<ValuePredicate>>"
+        "type": "NonTrivial<GenericPredicateBox<QueryOutputPredicate>>"
       },
       {
         "tag": "Not",
         "discriminant": 2,
-        "type": "GenericPredicateBox<ValuePredicate>"
+        "type": "GenericPredicateBox<QueryOutputPredicate>"
       },
       {
         "tag": "Raw",
         "discriminant": 3,
-        "type": "ValuePredicate"
+        "type": "QueryOutputPredicate"
       }
     ]
   },
@@ -1853,20 +1810,6 @@
   "HashOf<MerkleTree<SignedTransaction>>": "Hash",
   "HashOf<SignedBlock>": "Hash",
   "HashOf<SignedTransaction>": "Hash",
-  "HashValue": {
-    "Enum": [
-      {
-        "tag": "Transaction",
-        "discriminant": 0,
-        "type": "HashOf<SignedTransaction>"
-      },
-      {
-        "tag": "Block",
-        "discriminant": 1,
-        "type": "HashOf<SignedBlock>"
-      }
-    ]
-  },
   "IdBox": {
     "Enum": [
       {
@@ -2213,49 +2156,6 @@
       }
     ]
   },
-  "Integer": {
-    "Enum": [
-      {
-        "tag": "U32",
-        "discriminant": 0,
-        "type": "u32"
-      },
-      {
-        "tag": "U64",
-        "discriminant": 1,
-        "type": "u64"
-      },
-      {
-        "tag": "U128",
-        "discriminant": 2,
-        "type": "u128"
-      }
-    ]
-  },
-  "Interval<u16>": {
-    "Struct": [
-      {
-        "name": "start",
-        "type": "u16"
-      },
-      {
-        "name": "limit",
-        "type": "u16"
-      }
-    ]
-  },
-  "Interval<u8>": {
-    "Struct": [
-      {
-        "name": "start",
-        "type": "u8"
-      },
-      {
-        "name": "limit",
-        "type": "u8"
-      }
-    ]
-  },
   "InvalidParameterError": {
     "Enum": [
       {
@@ -2271,9 +2171,8 @@
   },
   "IpfsPath": "String",
   "Ipv4Addr": "Array<u8, 4>",
-  "Ipv4Predicate": "Array<Interval<u8>, 4>",
   "Ipv6Addr": "Array<u16, 8>",
-  "Ipv6Predicate": "Array<Interval<u16>, 8>",
+  "JsonString": "String",
   "LengthLimits": {
     "Struct": [
       {
@@ -2370,7 +2269,7 @@
   "MerkleTree<SignedTransaction>": {
     "Vec": "HashOf<SignedTransaction>"
   },
-  "Metadata": "SortedMap<Name, Value>",
+  "Metadata": "SortedMap<Name, MetadataValueBox>",
   "MetadataChanged<AccountId>": {
     "Struct": [
       {
@@ -2383,7 +2282,7 @@
       },
       {
         "name": "value",
-        "type": "Value"
+        "type": "MetadataValueBox"
       }
     ]
   },
@@ -2399,7 +2298,7 @@
       },
       {
         "name": "value",
-        "type": "Value"
+        "type": "MetadataValueBox"
       }
     ]
   },
@@ -2415,7 +2314,7 @@
       },
       {
         "name": "value",
-        "type": "Value"
+        "type": "MetadataValueBox"
       }
     ]
   },
@@ -2431,7 +2330,7 @@
       },
       {
         "name": "value",
-        "type": "Value"
+        "type": "MetadataValueBox"
       }
     ]
   },
@@ -2460,6 +2359,45 @@
         "tag": "InvalidSegment",
         "discriminant": 4,
         "type": "Name"
+      }
+    ]
+  },
+  "MetadataValueBox": {
+    "Enum": [
+      {
+        "tag": "Bool",
+        "discriminant": 0,
+        "type": "bool"
+      },
+      {
+        "tag": "String",
+        "discriminant": 1,
+        "type": "String"
+      },
+      {
+        "tag": "Name",
+        "discriminant": 2,
+        "type": "Name"
+      },
+      {
+        "tag": "Bytes",
+        "discriminant": 3,
+        "type": "Vec<u8>"
+      },
+      {
+        "tag": "Numeric",
+        "discriminant": 4,
+        "type": "Numeric"
+      },
+      {
+        "tag": "LimitedMetadata",
+        "discriminant": 5,
+        "type": "Metadata"
+      },
+      {
+        "tag": "Vec",
+        "discriminant": 6,
+        "type": "Vec<MetadataValueBox>"
       }
     ]
   },
@@ -2558,18 +2496,6 @@
       }
     ]
   },
-  "Mismatch<AssetDefinitionId>": {
-    "Struct": [
-      {
-        "name": "expected",
-        "type": "AssetDefinitionId"
-      },
-      {
-        "name": "actual",
-        "type": "AssetDefinitionId"
-      }
-    ]
-  },
   "Mismatch<AssetValueType>": {
     "Struct": [
       {
@@ -2579,18 +2505,6 @@
       {
         "name": "actual",
         "type": "AssetValueType"
-      }
-    ]
-  },
-  "Mismatch<Value>": {
-    "Struct": [
-      {
-        "name": "expected",
-        "type": "Value"
-      },
-      {
-        "name": "actual",
-        "type": "Value"
       }
     ]
   },
@@ -2667,7 +2581,7 @@
       }
     ]
   },
-  "NonTrivial<GenericPredicateBox<ValuePredicate>>": "Vec<GenericPredicateBox<ValuePredicate>>",
+  "NonTrivial<GenericPredicateBox<QueryOutputPredicate>>": "Vec<GenericPredicateBox<QueryOutputPredicate>>",
   "NonZero<u32>": "u32",
   "NonZero<u64>": "u64",
   "NotificationEvent": {
@@ -2775,7 +2689,7 @@
       },
       {
         "name": "val",
-        "type": "Value"
+        "type": "ParameterValueBox"
       }
     ]
   },
@@ -2784,6 +2698,30 @@
       {
         "name": "name",
         "type": "Name"
+      }
+    ]
+  },
+  "ParameterValueBox": {
+    "Enum": [
+      {
+        "tag": "TransactionLimits",
+        "discriminant": 0,
+        "type": "TransactionLimits"
+      },
+      {
+        "tag": "MetadataLimits",
+        "discriminant": 1,
+        "type": "Limits"
+      },
+      {
+        "tag": "LengthLimits",
+        "discriminant": 2,
+        "type": "LengthLimits"
+      },
+      {
+        "tag": "Numeric",
+        "discriminant": 3,
+        "type": "Numeric"
       }
     ]
   },
@@ -2853,7 +2791,7 @@
       },
       {
         "name": "payload",
-        "type": "StringWithJson"
+        "type": "JsonString"
       }
     ]
   },
@@ -3215,6 +3153,93 @@
       }
     ]
   },
+  "QueryOutputBox": {
+    "Enum": [
+      {
+        "tag": "Id",
+        "discriminant": 0,
+        "type": "IdBox"
+      },
+      {
+        "tag": "Identifiable",
+        "discriminant": 1,
+        "type": "IdentifiableBox"
+      },
+      {
+        "tag": "Transaction",
+        "discriminant": 2,
+        "type": "TransactionQueryOutput"
+      },
+      {
+        "tag": "PermissionToken",
+        "discriminant": 3,
+        "type": "PermissionToken"
+      },
+      {
+        "tag": "PermissionTokenSchema",
+        "discriminant": 4,
+        "type": "PermissionTokenSchema"
+      },
+      {
+        "tag": "LimitedMetadata",
+        "discriminant": 5,
+        "type": "MetadataValueBox"
+      },
+      {
+        "tag": "Numeric",
+        "discriminant": 6,
+        "type": "Numeric"
+      },
+      {
+        "tag": "BlockHeader",
+        "discriminant": 7,
+        "type": "BlockHeader"
+      },
+      {
+        "tag": "Block",
+        "discriminant": 8,
+        "type": "SignedBlock"
+      },
+      {
+        "tag": "Vec",
+        "discriminant": 9,
+        "type": "Vec<QueryOutputBox>"
+      }
+    ]
+  },
+  "QueryOutputPredicate": {
+    "Enum": [
+      {
+        "tag": "Identifiable",
+        "discriminant": 0,
+        "type": "StringPredicate"
+      },
+      {
+        "tag": "Container",
+        "discriminant": 1,
+        "type": "Container"
+      },
+      {
+        "tag": "Display",
+        "discriminant": 2,
+        "type": "StringPredicate"
+      },
+      {
+        "tag": "Numerical",
+        "discriminant": 3,
+        "type": "SemiRange"
+      },
+      {
+        "tag": "TimeStamp",
+        "discriminant": 4,
+        "type": "SemiInterval<u128>"
+      },
+      {
+        "tag": "Pass",
+        "discriminant": 5
+      }
+    ]
+  },
   "QueryPayload": {
     "Struct": [
       {
@@ -3227,7 +3252,7 @@
       },
       {
         "name": "filter",
-        "type": "GenericPredicateBox<ValuePredicate>"
+        "type": "GenericPredicateBox<QueryOutputPredicate>"
       }
     ]
   },
@@ -3335,45 +3360,6 @@
         "tag": "Trigger",
         "discriminant": 6,
         "type": "Register<Trigger<TriggeringFilterBox>>"
-      }
-    ]
-  },
-  "RegistrableBox": {
-    "Enum": [
-      {
-        "tag": "Peer",
-        "discriminant": 0,
-        "type": "Peer"
-      },
-      {
-        "tag": "Domain",
-        "discriminant": 1,
-        "type": "NewDomain"
-      },
-      {
-        "tag": "Account",
-        "discriminant": 2,
-        "type": "NewAccount"
-      },
-      {
-        "tag": "AssetDefinition",
-        "discriminant": 3,
-        "type": "NewAssetDefinition"
-      },
-      {
-        "tag": "Asset",
-        "discriminant": 4,
-        "type": "Asset"
-      },
-      {
-        "tag": "Trigger",
-        "discriminant": 5,
-        "type": "Trigger<TriggeringFilterBox>"
-      },
-      {
-        "tag": "Role",
-        "discriminant": 6,
-        "type": "NewRole"
       }
     ]
   },
@@ -3674,7 +3660,7 @@
       },
       {
         "name": "value",
-        "type": "Value"
+        "type": "MetadataValueBox"
       }
     ]
   },
@@ -3690,7 +3676,7 @@
       },
       {
         "name": "value",
-        "type": "Value"
+        "type": "MetadataValueBox"
       }
     ]
   },
@@ -3706,7 +3692,7 @@
       },
       {
         "name": "value",
-        "type": "Value"
+        "type": "MetadataValueBox"
       }
     ]
   },
@@ -3722,7 +3708,7 @@
       },
       {
         "name": "value",
-        "type": "Value"
+        "type": "MetadataValueBox"
       }
     ]
   },
@@ -3957,10 +3943,10 @@
       "value": "Asset"
     }
   },
-  "SortedMap<Name, Value>": {
+  "SortedMap<Name, MetadataValueBox>": {
     "Map": {
       "key": "Name",
-      "value": "Value"
+      "value": "MetadataValueBox"
     }
   },
   "SortedVec<PermissionToken>": {
@@ -4000,7 +3986,6 @@
       }
     ]
   },
-  "StringWithJson": "String",
   "TimeEvent": {
     "Struct": [
       {
@@ -4074,7 +4059,7 @@
       },
       {
         "name": "metadata",
-        "type": "SortedMap<Name, Value>"
+        "type": "SortedMap<Name, MetadataValueBox>"
       }
     ]
   },
@@ -4391,28 +4376,17 @@
         "type": "Mismatch<AssetValueType>"
       },
       {
-        "tag": "ParameterValueType",
-        "discriminant": 1,
-        "type": "Mismatch<Value>"
-      },
-      {
-        "tag": "AssetDefinitionId",
-        "discriminant": 2,
-        "type": "Mismatch<AssetDefinitionId>"
-      },
-      {
         "tag": "NumericAssetValueTypeExpected",
-        "discriminant": 3,
+        "discriminant": 1,
         "type": "AssetValueType"
       },
       {
         "tag": "StoreAssetValueTypeExpected",
-        "discriminant": 4,
+        "discriminant": 2,
         "type": "AssetValueType"
       }
     ]
   },
-  "UniqueVec<PeerId>": "Vec<PeerId>",
   "Unregister<Account>": {
     "Struct": [
       {
@@ -4508,15 +4482,6 @@
       }
     ]
   },
-  "UpgradableBox": {
-    "Enum": [
-      {
-        "tag": "Executor",
-        "discriminant": 0,
-        "type": "Executor"
-      }
-    ]
-  },
   "Upgrade": {
     "Struct": [
       {
@@ -4552,193 +4517,17 @@
       }
     ]
   },
-  "Value": {
-    "Enum": [
-      {
-        "tag": "Bool",
-        "discriminant": 0,
-        "type": "bool"
-      },
-      {
-        "tag": "String",
-        "discriminant": 1,
-        "type": "String"
-      },
-      {
-        "tag": "Name",
-        "discriminant": 2,
-        "type": "Name"
-      },
-      {
-        "tag": "Vec",
-        "discriminant": 3,
-        "type": "Vec<Value>"
-      },
-      {
-        "tag": "LimitedMetadata",
-        "discriminant": 4,
-        "type": "Metadata"
-      },
-      {
-        "tag": "MetadataLimits",
-        "discriminant": 5,
-        "type": "Limits"
-      },
-      {
-        "tag": "TransactionLimits",
-        "discriminant": 6,
-        "type": "TransactionLimits"
-      },
-      {
-        "tag": "LengthLimits",
-        "discriminant": 7,
-        "type": "LengthLimits"
-      },
-      {
-        "tag": "Id",
-        "discriminant": 8,
-        "type": "IdBox"
-      },
-      {
-        "tag": "Identifiable",
-        "discriminant": 9,
-        "type": "IdentifiableBox"
-      },
-      {
-        "tag": "PublicKey",
-        "discriminant": 10,
-        "type": "PublicKey"
-      },
-      {
-        "tag": "SignatureCheckCondition",
-        "discriminant": 11,
-        "type": "SignatureCheckCondition"
-      },
-      {
-        "tag": "TransactionQueryOutput",
-        "discriminant": 12,
-        "type": "TransactionQueryOutput"
-      },
-      {
-        "tag": "PermissionToken",
-        "discriminant": 13,
-        "type": "PermissionToken"
-      },
-      {
-        "tag": "PermissionTokenSchema",
-        "discriminant": 14,
-        "type": "PermissionTokenSchema"
-      },
-      {
-        "tag": "Hash",
-        "discriminant": 15,
-        "type": "HashValue"
-      },
-      {
-        "tag": "Block",
-        "discriminant": 16,
-        "type": "SignedBlock"
-      },
-      {
-        "tag": "BlockHeader",
-        "discriminant": 17,
-        "type": "BlockHeader"
-      },
-      {
-        "tag": "Ipv4Addr",
-        "discriminant": 18,
-        "type": "Ipv4Addr"
-      },
-      {
-        "tag": "Ipv6Addr",
-        "discriminant": 19,
-        "type": "Ipv6Addr"
-      },
-      {
-        "tag": "Numeric",
-        "discriminant": 20,
-        "type": "Numeric"
-      },
-      {
-        "tag": "Integer",
-        "discriminant": 21,
-        "type": "Integer"
-      },
-      {
-        "tag": "Executor",
-        "discriminant": 22,
-        "type": "Executor"
-      },
-      {
-        "tag": "LogLevel",
-        "discriminant": 23,
-        "type": "Level"
-      }
-    ]
-  },
-  "ValueOfKey": {
-    "Struct": [
-      {
-        "name": "key",
-        "type": "Name"
-      },
-      {
-        "name": "predicate",
-        "type": "ValuePredicate"
-      }
-    ]
-  },
-  "ValuePredicate": {
-    "Enum": [
-      {
-        "tag": "Identifiable",
-        "discriminant": 0,
-        "type": "StringPredicate"
-      },
-      {
-        "tag": "Container",
-        "discriminant": 1,
-        "type": "Container"
-      },
-      {
-        "tag": "Display",
-        "discriminant": 2,
-        "type": "StringPredicate"
-      },
-      {
-        "tag": "Numerical",
-        "discriminant": 3,
-        "type": "SemiRange"
-      },
-      {
-        "tag": "TimeStamp",
-        "discriminant": 4,
-        "type": "SemiInterval<u128>"
-      },
-      {
-        "tag": "Ipv4Addr",
-        "discriminant": 5,
-        "type": "Ipv4Predicate"
-      },
-      {
-        "tag": "Ipv6Addr",
-        "discriminant": 6,
-        "type": "Ipv6Predicate"
-      },
-      {
-        "tag": "Pass",
-        "discriminant": 7
-      }
-    ]
-  },
   "Vec<Event>": {
     "Vec": "Event"
   },
-  "Vec<GenericPredicateBox<ValuePredicate>>": {
-    "Vec": "GenericPredicateBox<ValuePredicate>"
+  "Vec<GenericPredicateBox<QueryOutputPredicate>>": {
+    "Vec": "GenericPredicateBox<QueryOutputPredicate>"
   },
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
+  },
+  "Vec<MetadataValueBox>": {
+    "Vec": "MetadataValueBox"
   },
   "Vec<Name>": {
     "Vec": "Name"
@@ -4749,14 +4538,11 @@
   "Vec<PublicKey>": {
     "Vec": "PublicKey"
   },
-  "Vec<SignedTransaction>": {
-    "Vec": "SignedTransaction"
+  "Vec<QueryOutputBox>": {
+    "Vec": "QueryOutputBox"
   },
   "Vec<TransactionValue>": {
     "Vec": "TransactionValue"
-  },
-  "Vec<Value>": {
-    "Vec": "Value"
   },
   "Vec<Vec<InstructionBox>>": {
     "Vec": "Vec<InstructionBox>"

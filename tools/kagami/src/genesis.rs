@@ -123,11 +123,7 @@ impl TryFrom<ParsedExecutorArgs> for ExecutorMode {
 #[allow(clippy::too_many_lines)]
 pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesisBlock> {
     let mut meta = Metadata::new();
-    meta.insert_with_limits(
-        "key".parse()?,
-        "value".to_owned().into(),
-        Limits::new(1024, 1024),
-    )?;
+    meta.insert_with_limits("key".parse()?, "value".to_owned(), Limits::new(1024, 1024))?;
 
     let mut genesis = RawGenesisBlockBuilder::default()
         .domain_with_metadata("wonderland".parse()?, meta.clone())
@@ -184,22 +180,40 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
     .into();
 
     let parameter_defaults = ParametersBuilder::new()
-        .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, DEFAULT_MAX_TXS.get())?
-        .add_parameter(BLOCK_TIME, DEFAULT_BLOCK_TIME.as_millis())?
-        .add_parameter(COMMIT_TIME_LIMIT, DEFAULT_COMMIT_TIME.as_millis())?
+        .add_parameter(
+            MAX_TRANSACTIONS_IN_BLOCK,
+            Numeric::new(DEFAULT_MAX_TXS.get().into(), 0),
+        )?
+        .add_parameter(BLOCK_TIME, Numeric::new(DEFAULT_BLOCK_TIME.as_millis(), 0))?
+        .add_parameter(
+            COMMIT_TIME_LIMIT,
+            Numeric::new(DEFAULT_COMMIT_TIME.as_millis(), 0),
+        )?
         .add_parameter(TRANSACTION_LIMITS, DEFAULT_TRANSACTION_LIMITS)?
         .add_parameter(WSV_ASSET_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
         .add_parameter(
             WSV_ASSET_DEFINITION_METADATA_LIMITS,
-            DEFAULT_METADATA_LIMITS.to_value(),
+            DEFAULT_METADATA_LIMITS,
         )?
         .add_parameter(WSV_ACCOUNT_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
         .add_parameter(WSV_DOMAIN_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
         .add_parameter(WSV_IDENT_LENGTH_LIMITS, DEFAULT_IDENT_LENGTH_LIMITS)?
-        .add_parameter(EXECUTOR_FUEL_LIMIT, DEFAULT_WASM_FUEL_LIMIT)?
-        .add_parameter(EXECUTOR_MAX_MEMORY, DEFAULT_WASM_MAX_MEMORY_BYTES)?
-        .add_parameter(WASM_FUEL_LIMIT, DEFAULT_WASM_FUEL_LIMIT)?
-        .add_parameter(WASM_MAX_MEMORY, DEFAULT_WASM_MAX_MEMORY_BYTES)?
+        .add_parameter(
+            EXECUTOR_FUEL_LIMIT,
+            Numeric::new(DEFAULT_WASM_FUEL_LIMIT.into(), 0),
+        )?
+        .add_parameter(
+            EXECUTOR_MAX_MEMORY,
+            Numeric::new(DEFAULT_WASM_MAX_MEMORY_BYTES.into(), 0),
+        )?
+        .add_parameter(
+            WASM_FUEL_LIMIT,
+            Numeric::new(DEFAULT_WASM_FUEL_LIMIT.into(), 0),
+        )?
+        .add_parameter(
+            WASM_MAX_MEMORY,
+            Numeric::new(DEFAULT_WASM_MAX_MEMORY_BYTES.into(), 0),
+        )?
         .into_create_parameters();
 
     let first_tx = genesis

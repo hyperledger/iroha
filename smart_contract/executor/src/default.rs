@@ -918,7 +918,9 @@ pub mod asset_definition {
 }
 
 pub mod asset {
-    use iroha_smart_contract::data_model::{isi::Instruction, metadata::Metadata};
+    use iroha_smart_contract::data_model::{
+        asset::AssetValue, isi::Instruction, metadata::Metadata,
+    };
     use iroha_smart_contract_utils::Encode;
     use permission::{asset::is_asset_owner, asset_definition::is_asset_definition_owner};
 
@@ -993,7 +995,7 @@ pub mod asset {
     fn validate_mint_asset<V, Q>(executor: &mut V, authority: &AccountId, isi: &Mint<Q, Asset>)
     where
         V: Validate + ?Sized,
-        Q: Into<Value>,
+        Q: Into<AssetValue>,
         Mint<Q, Asset>: Instruction + Encode,
     {
         let asset_id = isi.destination_id();
@@ -1035,7 +1037,7 @@ pub mod asset {
     fn validate_burn_asset<V, Q>(executor: &mut V, authority: &AccountId, isi: &Burn<Q, Asset>)
     where
         V: Validate + ?Sized,
-        Q: Into<Value>,
+        Q: Into<AssetValue>,
         Burn<Q, Asset>: Instruction + Encode,
     {
         let asset_id = isi.destination_id();
@@ -1082,7 +1084,7 @@ pub mod asset {
         isi: &Transfer<Asset, Q, Account>,
     ) where
         V: Validate + ?Sized,
-        Q: Into<Value>,
+        Q: Into<AssetValue>,
         Transfer<Asset, Q, Account>: Instruction + Encode,
     {
         let asset_id = isi.source_id();

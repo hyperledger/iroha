@@ -36,6 +36,7 @@ macro_rules! data_event {
 #[model]
 pub mod model {
     use super::*;
+    use crate::metadata::MetadataValueBox;
 
     /// Generic [`MetadataChanged`] struct.
     /// Contains the changed metadata (`(key, value)` pair), either inserted or removed, which is determined by the wrapping event.
@@ -58,7 +59,7 @@ pub mod model {
     pub struct MetadataChanged<ID> {
         pub target_id: ID,
         pub key: Name,
-        pub value: Box<Value>,
+        pub value: MetadataValueBox,
     }
 
     /// Event

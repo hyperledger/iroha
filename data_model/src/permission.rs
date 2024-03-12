@@ -50,7 +50,7 @@ pub mod model {
         /// Token identifier
         pub definition_id: PermissionTokenId,
         /// JSON encoded token payload
-        pub payload: StringWithJson,
+        pub payload: JsonString,
     }
 
     /// Description of tokens defined in the executor
@@ -85,7 +85,7 @@ pub mod model {
     /// String containing serialized valid JSON.
     /// This string is guaranteed to parse as JSON
     #[derive(Debug, Clone, Eq, Encode, Decode)]
-    pub struct StringWithJson(pub(super) String);
+    pub struct JsonString(pub(super) String);
 }
 
 // TODO: Use getset to derive this
@@ -112,7 +112,7 @@ impl PermissionToken {
     pub fn from_str_unchecked(definition_id: PermissionTokenId, payload: &str) -> Self {
         Self {
             definition_id,
-            payload: StringWithJson(payload.to_owned()),
+            payload: JsonString(payload.to_owned()),
         }
     }
 
@@ -120,7 +120,7 @@ impl PermissionToken {
     pub fn new(definition_id: PermissionTokenId, payload: &serde_json::Value) -> Self {
         Self {
             definition_id,
-            payload: StringWithJson::new(payload),
+            payload: JsonString::new(payload),
         }
     }
 
@@ -143,20 +143,20 @@ impl core::fmt::Display for PermissionToken {
     }
 }
 
-impl StringWithJson {
-    /// Construct [`StringWithJson`]
+impl JsonString {
+    /// Construct [`JsonString`]
     pub fn new(payload: &serde_json::Value) -> Self {
         Self(payload.to_string())
     }
 }
-impl PartialEq for StringWithJson {
+impl PartialEq for JsonString {
     fn eq(&self, other: &Self) -> bool {
         serde_json::from_str::<serde_json::Value>(&self.0).unwrap()
             == serde_json::from_str::<serde_json::Value>(&other.0).unwrap()
     }
 }
 
-impl<'de> serde::de::Deserialize<'de> for StringWithJson {
+impl<'de> serde::de::Deserialize<'de> for JsonString {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -166,7 +166,7 @@ impl<'de> serde::de::Deserialize<'de> for StringWithJson {
     }
 }
 
-impl serde::ser::Serialize for StringWithJson {
+impl serde::ser::Serialize for JsonString {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -176,13 +176,13 @@ impl serde::ser::Serialize for StringWithJson {
     }
 }
 
-impl iroha_schema::TypeId for StringWithJson {
+impl iroha_schema::TypeId for JsonString {
     fn id() -> iroha_schema::Ident {
-        "StringWithJson".to_owned()
+        "JsonString".to_owned()
     }
 }
 
-impl IntoSchema for StringWithJson {
+impl IntoSchema for JsonString {
     fn type_name() -> iroha_schema::Ident {
         <Self as iroha_schema::TypeId>::id()
     }
@@ -194,13 +194,13 @@ impl IntoSchema for StringWithJson {
     }
 }
 
-impl PartialOrd for StringWithJson {
+impl PartialOrd for JsonString {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for StringWithJson {
+impl Ord for JsonString {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.0.cmp(&other.0)
     }

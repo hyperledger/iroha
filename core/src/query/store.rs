@@ -12,9 +12,9 @@ use iroha_data_model::{
     asset::AssetValue,
     query::{
         cursor::ForwardCursor, error::QueryExecutionFail, pagination::Pagination, sorting::Sorting,
-        FetchSize, QueryId, DEFAULT_FETCH_SIZE, MAX_FETCH_SIZE,
+        FetchSize, QueryId, QueryOutputBox, DEFAULT_FETCH_SIZE, MAX_FETCH_SIZE,
     },
-    BatchedResponse, BatchedResponseV1, HasMetadata, IdentifiableBox, ValidationFail, Value,
+    BatchedResponse, BatchedResponseV1, HasMetadata, IdentifiableBox, ValidationFail,
 };
 use iroha_logger::trace;
 use parity_scale_codec::{Decode, Encode};
@@ -25,7 +25,7 @@ use super::{
     cursor::{Batch as _, Batched, UnknownCursor},
     pagination::Paginate as _,
 };
-use crate::smartcontracts::query::LazyValue;
+use crate::smartcontracts::query::LazyQueryOutput;
 
 /// Query service error.
 #[derive(Debug, thiserror::Error, Copy, Clone, Serialize, Deserialize, Encode, Decode)]
@@ -61,7 +61,7 @@ impl From<Error> for ValidationFail {
 /// Result type for [`LiveQueryStore`] methods.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-type LiveQuery = Batched<Vec<Value>>;
+type LiveQuery = Batched<Vec<QueryOutputBox>>;
 
 /// Service which stores queries which might be non fully consumed by a client.
 ///
@@ -143,8 +143,11 @@ impl LiveQueryStore {
 }
 
 enum Message {
-    Insert(QueryId, Batched<Vec<Value>>),
-    Remove(QueryId, oneshot::Sender<Option<Batched<Vec<Value>>>>),
+    Insert(QueryId, Batched<Vec<QueryOutputBox>>),
+    Remove(
+        QueryId,
+        oneshot::Sender<Option<Batched<Vec<QueryOutputBox>>>>,
+    ),
 }
 
 /// Handle to interact with [`LiveQueryStore`].
@@ -162,18 +165,18 @@ impl LiveQueryStoreHandle {
     /// - Otherwise throws up query output handling errors.
     pub fn handle_query_output(
         &self,
-        query_output: LazyValue<'_>,
+        query_output: LazyQueryOutput<'_>,
         sorting: &Sorting,
         pagination: Pagination,
         fetch_size: FetchSize,
-    ) -> Result<BatchedResponse<Value>> {
+    ) -> Result<BatchedResponse<QueryOutputBox>> {
         match query_output {
-            LazyValue::Value(batch) => {
+            LazyQueryOutput::QueryOutput(batch) => {
                 let cursor = ForwardCursor::default();
                 let result = BatchedResponseV1 { batch, cursor };
                 Ok(result.into())
             }
-            LazyValue::Iter(iter) => {
+            LazyQueryOutput::Iter(iter) => {
                 let fetch_size = fetch_size.fetch_size.unwrap_or(DEFAULT_FETCH_SIZE);
                 if fetch_size > MAX_FETCH_SIZE {
                     return Err(Error::FetchSizeTooBig);
@@ -195,7 +198,10 @@ impl LiveQueryStoreHandle {
     ///
     /// - Returns [`Error::ConnectionClosed`] if [`LiveQueryStore`] is dropped,
     /// - Otherwise throws up query output handling errors.
-    pub fn handle_query_cursor(&self, cursor: ForwardCursor) -> Result<BatchedResponse<Value>> {
+    pub fn handle_query_cursor(
+        &self,
+        cursor: ForwardCursor,
+    ) -> Result<BatchedResponse<QueryOutputBox>> {
         let query_id = cursor.query_id.ok_or(UnknownCursor)?;
         let live_query = self.remove(query_id.clone())?.ok_or(UnknownCursor)?;
 
@@ -236,8 +242,8 @@ impl LiveQueryStoreHandle {
         &self,
         query_id: QueryId,
         curr_cursor: Option<u64>,
-        mut live_query: Batched<Vec<Value>>,
-    ) -> Result<BatchedResponse<Value>> {
+        mut live_query: Batched<Vec<QueryOutputBox>>,
+    ) -> Result<BatchedResponse<QueryOutputBox>> {
         let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
 
         if !live_query.is_depleted() {
@@ -245,7 +251,7 @@ impl LiveQueryStoreHandle {
         }
 
         let query_response = BatchedResponseV1 {
-            batch: Value::Vec(batch),
+            batch: QueryOutputBox::Vec(batch),
             cursor: ForwardCursor {
                 query_id: Some(query_id),
                 cursor: next_cursor,
@@ -256,22 +262,25 @@ impl LiveQueryStoreHandle {
     }
 
     fn apply_sorting_and_pagination(
-        iter: impl Iterator<Item = Value>,
+        iter: impl Iterator<Item = QueryOutputBox>,
         sorting: &Sorting,
         pagination: Pagination,
-    ) -> Vec<Value> {
+    ) -> Vec<QueryOutputBox> {
         if let Some(key) = &sorting.sort_by_metadata_key {
-            let mut pairs: Vec<(Option<Value>, Value)> = iter
+            let mut pairs: Vec<(Option<QueryOutputBox>, QueryOutputBox)> = iter
                 .map(|value| {
                     let key = match &value {
-                        Value::Identifiable(IdentifiableBox::Asset(asset)) => match asset.value() {
-                            AssetValue::Store(store) => store.get(key).cloned(),
-                            _ => None,
-                        },
-                        Value::Identifiable(v) => TryInto::<&dyn HasMetadata>::try_into(v)
+                        QueryOutputBox::Identifiable(IdentifiableBox::Asset(asset)) => {
+                            match asset.value() {
+                                AssetValue::Store(store) => store.get(key).cloned().map(Into::into),
+                                _ => None,
+                            }
+                        }
+                        QueryOutputBox::Identifiable(v) => TryInto::<&dyn HasMetadata>::try_into(v)
                             .ok()
                             .and_then(|has_metadata| has_metadata.metadata().get(key))
-                            .cloned(),
+                            .cloned()
+                            .map(Into::into),
                         _ => None,
                     };
                     (key, value)
@@ -300,6 +309,8 @@ impl LiveQueryStoreHandle {
 mod tests {
     use std::num::NonZeroU32;
 
+    use iroha_data_model::metadata::MetadataValueBox;
+
     use super::*;
 
     #[test]
@@ -315,7 +326,9 @@ mod tests {
             };
             let sorting = Sorting::default();
 
-            let query_output = LazyValue::Iter(Box::new((0..100).map(|_| Value::Bool(false))));
+            let query_output = LazyQueryOutput::Iter(Box::new(
+                (0..100).map(|_| MetadataValueBox::from(false).into()),
+            ));
 
             let mut counter = 0;
 
@@ -323,7 +336,7 @@ mod tests {
                 .handle_query_output(query_output, &sorting, pagination, fetch_size)
                 .unwrap()
                 .into();
-            let Value::Vec(v) = batch else {
+            let QueryOutputBox::Vec(v) = batch else {
                 panic!("not expected result")
             };
             counter += v.len();
@@ -333,7 +346,7 @@ mod tests {
                     break;
                 };
                 let (batch, new_cursor) = batched.into();
-                let Value::Vec(v) = batch else {
+                let QueryOutputBox::Vec(v) = batch else {
                     panic!("not expected result")
                 };
                 counter += v.len();

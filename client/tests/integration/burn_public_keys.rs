@@ -3,6 +3,7 @@ use iroha_client::{
     crypto::{HashOf, KeyPair, PublicKey},
     data_model::{isi::Instruction, prelude::*},
 };
+use iroha_data_model::query::TransactionQueryOutput;
 use test_network::*;
 
 fn submit(
@@ -27,11 +28,8 @@ fn submit(
     (tx.hash(), client.submit_transaction_blocking(&tx))
 }
 
-fn get(client: &Client, hash: HashOf<SignedTransaction>) -> TransactionValue {
-    *client
-        .request(transaction::by_hash(hash))
-        .unwrap()
-        .transaction
+fn get(client: &Client, hash: HashOf<SignedTransaction>) -> TransactionQueryOutput {
+    client.request(transaction::by_hash(hash)).unwrap()
 }
 
 fn account_keys_count(client: &Client, account_id: AccountId) -> usize {
@@ -95,7 +93,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
     let committed_txn = get(&client, tx_hash);
     keys_count = charlie_keys_count(&client);
     assert_eq!(keys_count, 1);
-    assert!(committed_txn.error.is_none());
+    assert!(committed_txn.as_ref().error.is_none());
 
     let burn_the_last_key = burn(charlie_initial_keypair.public_key().clone());
 
@@ -108,5 +106,5 @@ fn public_keys_cannot_be_burned_to_nothing() {
     let committed_txn = get(&client, tx_hash);
     keys_count = charlie_keys_count(&client);
     assert_eq!(keys_count, 1);
-    assert!(committed_txn.error.is_some());
+    assert!(committed_txn.as_ref().error.is_some());
 }

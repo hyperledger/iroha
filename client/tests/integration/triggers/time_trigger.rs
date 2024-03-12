@@ -42,7 +42,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     let asset_definition_id = "rose#wonderland".parse().expect("Valid");
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
     let schedule = TimeSchedule::starting_at(start_time).with_period(PERIOD);
     let instruction = Mint::asset_numeric(1u32, asset_id.clone());
@@ -69,7 +69,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     let finish_time = current_time();
     let average_count = finish_time.saturating_sub(start_time).as_millis() / PERIOD.as_millis();
 
-    let actual_value = get_asset_value(&mut test_client, asset_id)?;
+    let actual_value = get_asset_value(&mut test_client, asset_id);
     let expected_value = prev_value
         .checked_add(Numeric::new(average_count, 0))
         .unwrap();
@@ -103,7 +103,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
 
     let schedule = TimeSchedule::starting_at(start_time + PERIOD);
     let instruction =
-        SetKeyValue::asset_definition(asset_definition_id.clone(), key.clone(), 3_u32.to_value());
+        SetKeyValue::asset_definition(asset_definition_id.clone(), key.clone(), 3_u32);
     let register_trigger = Register::trigger(Trigger::new(
         "change_rose_metadata".parse().expect("Valid"),
         Action::new(
@@ -122,13 +122,11 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
         usize::try_from(PERIOD.as_millis() / DEFAULT_CONSENSUS_ESTIMATION.as_millis() + 1)?,
     )?;
 
-    let value: Value = test_client
-        .request(FindAssetDefinitionKeyValueByIdAndKey {
-            id: asset_definition_id,
-            key,
-        })?
-        .into();
-    assert_eq!(value, 3u32.to_value());
+    let value = test_client.request(FindAssetDefinitionKeyValueByIdAndKey {
+        id: asset_definition_id,
+        key,
+    })?;
+    assert_eq!(value, numeric!(3).into());
 
     Ok(())
 }
@@ -144,7 +142,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let mut prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let mut prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
@@ -162,7 +160,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     test_client.submit(register_trigger)?;
 
     for _ in event_listener.take(CHECKS_COUNT) {
-        let new_value = get_asset_value(&mut test_client, asset_id.clone())?;
+        let new_value = get_asset_value(&mut test_client, asset_id.clone());
         assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
         prev_value = new_value;
 
@@ -284,9 +282,14 @@ fn get_block_committed_event_listener(
 }
 
 /// Get asset numeric value
-fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<Numeric> {
-    let asset = client.request(client::asset::by_id(asset_id))?;
-    Ok(*TryAsRef::<Numeric>::try_as_ref(asset.value())?)
+fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
+    let asset = client.request(client::asset::by_id(asset_id)).unwrap();
+
+    let AssetValue::Numeric(val) = *asset.value() else {
+        panic!("Unexpected asset value");
+    };
+
+    val
 }
 
 /// Submit some sample ISIs to create new blocks

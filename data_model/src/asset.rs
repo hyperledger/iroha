@@ -18,7 +18,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 pub use self::model::*;
 use crate::{
     account::prelude::*, domain::prelude::*, ipfs::IpfsPath, metadata::Metadata, HasMetadata,
-    Identifiable, Name, ParseError, Registered, TryAsMut, TryAsRef, Value,
+    Identifiable, Name, ParseError, Registered,
 };
 
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
@@ -34,6 +34,7 @@ pub type AssetTotalQuantityMap = btree_map::BTreeMap<AssetDefinitionId, Numeric>
 
 #[model]
 pub mod model {
+    use iroha_macro::FromVariant;
 
     use super::*;
 
@@ -212,6 +213,7 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
+        FromVariant,
         Decode,
         Encode,
         Deserialize,
@@ -222,7 +224,11 @@ pub mod model {
     pub enum AssetValue {
         /// Asset's qualitative value.
         #[display(fmt = "{_0}")]
-        Numeric(Numeric),
+        Numeric(
+            #[skip_from]
+            #[skip_try_from]
+            Numeric,
+        ),
         /// Asset's key-value structured data.
         Store(Metadata),
     }
@@ -366,49 +372,10 @@ impl AssetValue {
     }
 }
 
-impl From<Metadata> for AssetValue {
-    fn from(value: Metadata) -> Self {
-        AssetValue::Store(value)
-    }
-}
-
 impl<T: Into<Numeric>> From<T> for AssetValue {
     fn from(value: T) -> Self {
-        AssetValue::Numeric(value.into())
+        Self::Numeric(value.into())
     }
-}
-
-macro_rules! impl_try_as_for_asset_value {
-    ( $($variant:ident( $ty:ty ),)* ) => {$(
-        impl TryAsMut<$ty> for AssetValue {
-            type Error = crate::EnumTryAsError<$ty, AssetValueType>;
-
-            fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
-                if let AssetValue:: $variant (value) = self {
-                    Ok(value)
-                } else {
-                    Err(crate::EnumTryAsError::got(self.value_type()))
-                }
-            }
-        }
-
-        impl TryAsRef<$ty> for AssetValue {
-            type Error = crate::EnumTryAsError<$ty, AssetValueType>;
-
-            fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
-                if let AssetValue:: $variant (value) = self {
-                    Ok(value)
-                } else {
-                    Err(crate::EnumTryAsError::got(self.value_type()))
-                }
-            }
-        }
-    )*}
-}
-
-impl_try_as_for_asset_value! {
-    Numeric(Numeric),
-    Store(Metadata),
 }
 
 /// Asset Definition Identification is represented by `name#domain_name` string.
@@ -508,54 +475,12 @@ impl HasMetadata for NewAssetDefinition {
     }
 }
 
-impl<T> TryAsMut<T> for Asset
-where
-    AssetValue: TryAsMut<T>,
-{
-    type Error = <AssetValue as TryAsMut<T>>::Error;
-
-    #[inline]
-    fn try_as_mut(&mut self) -> Result<&mut T, Self::Error> {
-        self.value.try_as_mut()
-    }
-}
-
-impl<T> TryAsRef<T> for Asset
-where
-    AssetValue: TryAsRef<T>,
-{
-    type Error = <AssetValue as TryAsRef<T>>::Error;
-
-    #[inline]
-    fn try_as_ref(&self) -> Result<&T, Self::Error> {
-        self.value.try_as_ref()
-    }
-}
-
 impl Registered for Asset {
     type With = Self;
 }
 
 impl Registered for AssetDefinition {
     type With = NewAssetDefinition;
-}
-
-impl FromIterator<Asset> for Value {
-    fn from_iter<T: IntoIterator<Item = Asset>>(iter: T) -> Self {
-        iter.into_iter()
-            .map(Into::into)
-            .collect::<Vec<Self>>()
-            .into()
-    }
-}
-
-impl FromIterator<AssetDefinition> for Value {
-    fn from_iter<T: IntoIterator<Item = AssetDefinition>>(iter: T) -> Self {
-        iter.into_iter()
-            .map(Into::into)
-            .collect::<Vec<Self>>()
-            .into()
-    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.

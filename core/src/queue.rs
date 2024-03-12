@@ -246,20 +246,17 @@ impl Queue {
             };
 
             let tx = entry.get();
-            match self.check_tx(tx, wsv) {
-                Err(e) => {
-                    let (_, tx) = entry.remove_entry();
-                    self.decrease_per_user_tx_count(tx.as_ref().authority());
-                    if let Error::Expired = e {
-                        expired_transactions.push(tx);
-                    }
-                    continue;
+            if let Err(e) = self.check_tx(tx, wsv) {
+                let (_, tx) = entry.remove_entry();
+                self.decrease_per_user_tx_count(tx.as_ref().authority());
+                if let Error::Expired = e {
+                    expired_transactions.push(tx);
                 }
-                Ok(()) => {
-                    seen.push(hash);
-                    return Some(tx.clone());
-                }
+                continue;
             }
+
+            seen.push(hash);
+            return Some(tx.clone());
         }
     }
 

@@ -359,16 +359,6 @@ impl Registered for Account {
     type With = NewAccount;
 }
 
-#[cfg(feature = "transparent_api")]
-impl FromIterator<Account> for crate::Value {
-    fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
-        iter.into_iter()
-            .map(Into::into)
-            .collect::<Vec<Self>>()
-            .into()
-    }
-}
-
 /// Account Identification is represented by `name@domain_name` string.
 impl FromStr for AccountId {
     type Err = ParseError;

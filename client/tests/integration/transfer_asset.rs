@@ -83,7 +83,6 @@ fn simulate_transfer<T>(
     port_number: u16,
 ) where
     T: std::fmt::Debug + Clone + Into<AssetValue>,
-    Value: From<T>,
     Mint<T, Asset>: Instruction,
     Transfer<Asset, T, Account>: Instruction,
 {

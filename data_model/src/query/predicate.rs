@@ -2,10 +2,254 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::vec;
-use core::{fmt::Display, ops::Not};
+use core::{
+    fmt::Display,
+    ops::{ControlFlow, Not},
+};
+
+use iroha_data_model_derive::{PartiallyTaggedDeserialize, PartiallyTaggedSerialize};
 
 use super::*;
-use crate::{IdBox, Name, Value};
+use crate::{IdBox, Name};
+
+/// Trait for boolean-like values
+///
+/// [`or`](`Self::or`) and [`and`](`Self::and`) must satisfy De Morgan's laws, commutativity and associativity
+/// [`Not`](`core::ops::Not`) implementation should satisfy double negation elimintation.
+///
+/// Short-circuiting behaviour for `and` and `or` can be controlled by returning
+/// `ControlFlow::Break` when subsequent application of the same operation
+/// won't change the end result, no matter what operands.
+///
+/// When implementing, it's recommended to generate exhaustive tests with
+/// [`test_conformity`](`Self::test_conformity`).
+pub trait PredicateSymbol
+where
+    Self: Sized + core::ops::Not<Output = Self>,
+{
+    /// Conjunction (e.g. boolean and)
+    #[must_use]
+    fn and(self, other: Self) -> ControlFlow<Self, Self>;
+    /// Disjunction (e.g. boolean or)
+    #[must_use]
+    fn or(self, other: Self) -> ControlFlow<Self, Self>;
+
+    #[doc(hidden)]
+    #[must_use]
+    fn unwrapped_and(self, other: Self) -> Self {
+        match self.and(other) {
+            ControlFlow::Continue(val) | ControlFlow::Break(val) => val,
+        }
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    fn unwrapped_or(self, other: Self) -> Self {
+        match self.or(other) {
+            ControlFlow::Continue(val) | ControlFlow::Break(val) => val,
+        }
+    }
+
+    /// Given a list of all possible values of a type implementing [`PredicateSymbol`]
+    /// which are different in predicate context, exhaustively tests for:
+    /// - commutativity of `and` and `or`
+    /// - associativity of `and` and `or`
+    /// - De Mornan duality of `and` and `or`
+    /// - double negation elimination
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use iroha_data_model::query::predicate::PredicateSymbol;
+    ///
+    /// fn test() {
+    ///     PredicateSymbol::test_conformity(vec![true, false]);
+    /// }
+    /// ```
+    ///
+    fn test_conformity(values: Vec<Self>)
+    where
+        Self: PartialEq + Clone,
+    {
+        Self::test_conformity_with_eq(values, <Self as PartialEq>::eq);
+    }
+
+    /// Same as [`test_conformity`](`PredicateSymbol::test_conformity`), but
+    /// if type implementing [`PredicateSymbol`] carries some internal state
+    /// that isn't associative, one can provide custom `shallow_eq` function
+    /// that will be called instead of [`PartialEq::eq`]
+    ///
+    /// # Examples
+    ///
+    ///
+    /// ```
+    /// use std::ops::ControlFlow;
+    ///
+    /// use iroha_data_model::query::predicate::PredicateSymbol;
+    ///
+    /// #[derive(Clone, PartialEq)]
+    /// enum Check {
+    ///    Good,
+    ///    // Encapsulates reason for badness which
+    ///    // doesn't behave associatively
+    ///    // (but if we ignore it, Check as a whole does)
+    ///    Bad(String),
+    /// }
+    ///
+    /// impl core::ops::Not for Check {
+    ///   type Output = Self;
+    ///   fn not(self) -> Self {
+    ///     // ...
+    ///     todo!()
+    ///   }
+    /// }
+    ///
+    /// impl PredicateSymbol for Check {
+    ///   fn and(self, other: Self) -> ControlFlow<Self, Self> {
+    ///     // ...
+    ///     todo!()
+    ///   }
+    ///
+    ///   fn or(self, other: Self) -> ControlFlow<Self, Self> {
+    ///     // ...
+    ///     todo!()
+    ///   }
+    /// }
+    ///
+    /// fn shallow_eq(left: &Check, right: &Check) -> bool {
+    ///    match (left, right) {
+    ///      (Check::Good, Check::Good) | (Check::Bad(_), Check::Bad(_)) => true,
+    ///      _ => false
+    ///    }
+    /// }
+    ///
+    /// fn test() {
+    ///    let good = Check::Good;
+    ///    let bad = Check::Bad("example".to_owned());
+    ///    // Would fail some assertions, since derived PartialEq is "deep"
+    ///    // PredicateSymbol::test_conformity(vec![good, bad]);
+    ///
+    ///    // Works as expected
+    ///    PredicateSymbol::test_conformity_with_eq(vec![good, bad], shallow_eq);
+    /// }
+    /// ```
+    fn test_conformity_with_eq(values: Vec<Self>, shallow_eq: impl FnMut(&Self, &Self) -> bool)
+    where
+        Self: Clone,
+    {
+        let mut eq = shallow_eq;
+        let values = values
+            .into_iter()
+            .map(|val| move || val.clone())
+            .collect::<Vec<_>>();
+
+        let typ = core::any::type_name::<Self>();
+
+        for a in &values {
+            assert!(
+                eq(&a().not().not(), &a()),
+                "Double negation elimination doesn't hold for {typ}",
+            );
+        }
+
+        for a in &values {
+            for b in &values {
+                assert!(
+                eq(
+                    &PredicateSymbol::unwrapped_and(a(), b()),
+                    &PredicateSymbol::unwrapped_and(b(), a())
+                ),
+                "Commutativity doesn't hold for `PredicateSymbol::and` implementation for {typ}"
+            );
+
+                assert!(
+                    eq(
+                        &PredicateSymbol::unwrapped_or(a(), b()),
+                        &PredicateSymbol::unwrapped_or(b(), a())
+                    ),
+                    "Commutativity doesn't hold for `PredicateSymbol::or` implementation for {typ}"
+                );
+
+                assert!(
+                    eq(
+                        &PredicateSymbol::unwrapped_or(!a(), !b()),
+                        &!PredicateSymbol::unwrapped_and(a(), b())
+                    ),
+                    "De Morgan's law doesn't hold for {typ}",
+                );
+
+                assert!(
+                    eq(
+                        &PredicateSymbol::unwrapped_and(!a(), !b()),
+                        &!PredicateSymbol::unwrapped_or(a(), b())
+                    ),
+                    "De Morgan's law doesn't hold for {typ}",
+                );
+            }
+        }
+
+        for a in &values {
+            for b in &values {
+                for c in &values {
+                    assert!(
+                    eq(
+                        &PredicateSymbol::unwrapped_and(
+                            PredicateSymbol::unwrapped_and(a(), b()),
+                            c()
+                        ),
+                        &PredicateSymbol::unwrapped_and(
+                            a(),
+                            PredicateSymbol::unwrapped_and(b(), c()),
+                        ),
+                    ),
+                    "Associativity doesn't hold for `PredicateSymbol::or` implementation for {typ}",
+                );
+
+                    assert!(
+                    eq(
+                        &PredicateSymbol::unwrapped_or(
+                            PredicateSymbol::unwrapped_or(a(), b()),
+                            c()
+                        ),
+                        &PredicateSymbol::unwrapped_or(
+                            a(),
+                            PredicateSymbol::unwrapped_or(b(), c()),
+                        ),
+                    ),
+                    "Associativity doesn't hold for `PredicateSymbol::and` implementation for {typ}",
+                );
+                }
+            }
+        }
+    }
+}
+
+impl PredicateSymbol for bool {
+    fn and(self, other: Self) -> ControlFlow<Self, Self> {
+        if self && other {
+            ControlFlow::Continue(true)
+        } else {
+            ControlFlow::Break(false)
+        }
+    }
+
+    fn or(self, other: Self) -> ControlFlow<Self, Self> {
+        if self || other {
+            ControlFlow::Break(true)
+        } else {
+            ControlFlow::Continue(false)
+        }
+    }
+}
+
+/// Trait for generic predicates.
+pub trait PredicateTrait<T: ?Sized + Copy> {
+    /// Type the predicate evaluates to.
+    type EvaluatesTo: PredicateSymbol;
+
+    /// The result of applying the predicate to a value.
+    fn applies(&self, input: T) -> Self::EvaluatesTo;
+}
 
 mod nontrivial {
     use super::*;
@@ -88,7 +332,7 @@ macro_rules! nontrivial {
 // couldn't find a way to do it without polluting everything
 // downstream with explicit lifetimes, since we would need to
 // store PhantomData<Input> here, and `Input`s are most often
-// references (e.g. &Value).
+// references (e.g. &QueryOutputBox).
 pub enum GenericPredicateBox<P> {
     /// Logically `&&` the results of applying the predicates.
     And(NonTrivial<Self>),
@@ -105,7 +349,7 @@ impl<P> Display for GenericPredicateBox<P>
 where
     P: Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             GenericPredicateBox::And(predicates) => {
                 write!(f, "AND(")?;
@@ -219,19 +463,19 @@ where
     }
 }
 
-/// Predicate combinator for predicates operating on `Value`
-pub type PredicateBox = GenericPredicateBox<value::ValuePredicate>;
+/// Predicate combinator for predicates operating on `QueryOutputBox`
+pub type PredicateBox = GenericPredicateBox<value::QueryOutputPredicate>;
 
 impl Default for PredicateBox {
     fn default() -> Self {
-        PredicateBox::Raw(value::ValuePredicate::Pass)
+        PredicateBox::Raw(value::QueryOutputPredicate::Pass)
     }
 }
 
 #[cfg(test)]
 pub mod test {
-    use super::{value, PredicateBox};
-    use crate::{PredicateSymbol, PredicateTrait as _, ToValue};
+    use super::{value, PredicateBox, PredicateSymbol, PredicateTrait as _};
+    use crate::metadata::MetadataValueBox;
 
     #[test]
     fn boolean_predicate_symbol_conformity() {
@@ -240,10 +484,10 @@ pub mod test {
 
     #[test]
     fn pass() {
-        let t = PredicateBox::new(value::ValuePredicate::Pass);
+        let t = PredicateBox::new(value::QueryOutputPredicate::Pass);
         let f = t.clone().negate();
-        let v_t = true.to_value();
-        let v_f = false.to_value();
+        let v_t = MetadataValueBox::from(true).into();
+        let v_f = MetadataValueBox::from(false).into();
         println!("t: {t:?}, f: {f:?}");
 
         assert!(t.applies(&v_t));
@@ -254,9 +498,9 @@ pub mod test {
 
     #[test]
     fn truth_table() {
-        let t = PredicateBox::new(value::ValuePredicate::Pass);
+        let t = PredicateBox::new(value::QueryOutputPredicate::Pass);
         let f = t.clone().negate();
-        let v = true.to_value();
+        let v = MetadataValueBox::from(true).into();
 
         assert!(!PredicateBox::and(t.clone(), f.clone()).applies(&v));
         assert!(PredicateBox::and(t.clone(), t.clone()).applies(&v));
@@ -372,6 +616,7 @@ pub mod string {
 
         mod id_box {
             use super::*;
+            use crate::peer::PeerId;
 
             #[test]
             fn simple_name_wrappers() {
@@ -496,7 +741,7 @@ pub mod string {
             #[test]
             fn peer_id() {
                 let (public_key, _) = iroha_crypto::KeyPair::generate().into();
-                let id = IdBox::PeerId(peer::PeerId::new(socket_addr!(127.0.0.1:123), public_key));
+                let id = IdBox::PeerId(PeerId::new(socket_addr!(127.0.0.1:123), public_key));
                 assert!(StringPredicate::contains("123").applies(&id));
             }
         }
@@ -563,6 +808,7 @@ pub mod numerical {
     use iroha_primitives::numeric::Numeric;
 
     use super::*;
+    use crate::query::QueryOutputBox;
 
     /// A lower-inclusive range predicate.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -747,13 +993,13 @@ pub mod numerical {
         }
     }
 
-    impl PredicateTrait<&Value> for SemiRange {
+    impl PredicateTrait<&QueryOutputBox> for SemiRange {
         type EvaluatesTo = bool;
 
         #[inline]
-        fn applies(&self, input: &Value) -> Self::EvaluatesTo {
+        fn applies(&self, input: &QueryOutputBox) -> Self::EvaluatesTo {
             match input {
-                Value::Numeric(quantity) => match self {
+                QueryOutputBox::Numeric(quantity) => match self {
                     SemiRange::Numeric(predicate) => predicate.applies(*quantity),
                 },
                 _ => false,
@@ -761,13 +1007,13 @@ pub mod numerical {
         }
     }
 
-    impl PredicateTrait<&Value> for Range {
+    impl PredicateTrait<&QueryOutputBox> for Range {
         type EvaluatesTo = bool;
 
         #[inline]
-        fn applies(&self, input: &Value) -> Self::EvaluatesTo {
+        fn applies(&self, input: &QueryOutputBox) -> Self::EvaluatesTo {
             match input {
-                Value::Numeric(quantity) => match self {
+                QueryOutputBox::Numeric(quantity) => match self {
                     Range::Numeric(predicate) => predicate.applies(*quantity),
                 },
                 _ => false,
@@ -788,13 +1034,13 @@ pub mod numerical {
             let pred = SemiRange::Numeric((numeric!(1), numeric!(100)).into());
             println!("semi_interval range predicate: {pred:?}");
 
-            assert!(pred.applies(&Value::Numeric(numeric!(1))));
-            assert!(!pred.applies(&Value::Numeric(numeric!(0))));
-            assert!(pred.applies(&Value::Numeric(numeric!(99))));
-            assert!(!pred.applies(&Value::Numeric(numeric!(100))));
-            assert!(!pred.applies(&Value::Numeric(numeric!(0.99))));
-            assert!(pred.applies(&Value::Numeric(numeric!(99.9999))));
-            assert!(pred.applies(&Value::Numeric(numeric!(99.9_999_999_999))));
+            assert!(pred.applies(&QueryOutputBox::Numeric(numeric!(1))));
+            assert!(!pred.applies(&QueryOutputBox::Numeric(numeric!(0))));
+            assert!(pred.applies(&QueryOutputBox::Numeric(numeric!(99))));
+            assert!(!pred.applies(&QueryOutputBox::Numeric(numeric!(100))));
+            assert!(!pred.applies(&QueryOutputBox::Numeric(numeric!(0.99))));
+            assert!(pred.applies(&QueryOutputBox::Numeric(numeric!(99.9999))));
+            assert!(pred.applies(&QueryOutputBox::Numeric(numeric!(99.9_999_999_999))));
         }
 
         #[test]
@@ -803,20 +1049,20 @@ pub mod numerical {
                 let pred = Range::Numeric((numeric!(1), numeric!(100)).into());
                 println!("semi_interval range predicate: {pred:?}");
 
-                assert!(pred.applies(&Value::Numeric(numeric!(1))));
-                assert!(!pred.applies(&Value::Numeric(numeric!(0))));
-                assert!(pred.applies(&Value::Numeric(numeric!(100))));
-                assert!(!pred.applies(&Value::Numeric(numeric!(101))));
-                assert!(!pred.applies(&Value::Numeric(numeric!(0.99))));
-                assert!(pred.applies(&Value::Numeric(numeric!(99.9999))));
-                assert!(!pred.applies(&Value::Numeric(numeric!(100.000000001))));
+                assert!(pred.applies(&QueryOutputBox::Numeric(numeric!(1))));
+                assert!(!pred.applies(&QueryOutputBox::Numeric(numeric!(0))));
+                assert!(pred.applies(&QueryOutputBox::Numeric(numeric!(100))));
+                assert!(!pred.applies(&QueryOutputBox::Numeric(numeric!(101))));
+                assert!(!pred.applies(&QueryOutputBox::Numeric(numeric!(0.99))));
+                assert!(pred.applies(&QueryOutputBox::Numeric(numeric!(99.9999))));
+                assert!(!pred.applies(&QueryOutputBox::Numeric(numeric!(100.000000001))));
             }
 
             {
                 let pred = Range::Numeric((numeric!(127), numeric!(127)).into());
-                assert!(pred.applies(&Value::Numeric(numeric!(127))));
-                assert!(!pred.applies(&Value::Numeric(numeric!(126))));
-                assert!(!pred.applies(&Value::Numeric(numeric!(128))));
+                assert!(pred.applies(&QueryOutputBox::Numeric(numeric!(127))));
+                assert!(!pred.applies(&QueryOutputBox::Numeric(numeric!(126))));
+                assert!(!pred.applies(&QueryOutputBox::Numeric(numeric!(128))));
             }
         }
 
@@ -824,11 +1070,11 @@ pub mod numerical {
         fn invalid_types_false() {
             {
                 let pred = SemiRange::Numeric(SemiInterval::ending(numeric!(100)));
-                assert!(!pred.applies(&Value::Vec(Vec::new())));
+                assert!(!pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
             {
                 let pred = Range::Numeric(Interval::ending(numeric!(100)));
-                assert!(!pred.applies(&Value::Vec(Vec::new())));
+                assert!(!pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
         }
 
@@ -837,163 +1083,114 @@ pub mod numerical {
             {
                 let pred = SemiRange::Numeric(SemiInterval::starting(Numeric::ZERO));
                 // Technically the maximum itself is never included in the semi range.
-                assert!(!pred.applies(&Numeric::MAX.to_value()));
+                assert!(!pred.applies(&Numeric::MAX.into()));
             }
             {
                 let pred = SemiRange::Numeric(SemiInterval::ending(numeric!(100)));
-                assert!(pred.applies(&numeric!(1).to_value()));
-                assert!(pred.applies(&numeric!(99).to_value()));
-                assert!(!pred.applies(&numeric!(100).to_value()));
+                assert!(pred.applies(&numeric!(1).into()));
+                assert!(pred.applies(&numeric!(99).into()));
+                assert!(!pred.applies(&numeric!(100).into()));
             }
 
             {
                 let pred = Range::Numeric(Interval::starting(Numeric::ZERO));
                 // Technically the maximum itself is included in the range.
-                assert!(pred.applies(&Numeric::MAX.to_value()));
+                assert!(pred.applies(&Numeric::MAX.into()));
             }
             {
                 let pred = Range::Numeric(Interval::ending(numeric!(100)));
-                assert!(pred.applies(&numeric!(1).to_value()));
-                assert!(pred.applies(&numeric!(100).to_value()));
-                assert!(!pred.applies(&numeric!(101).to_value()));
+                assert!(pred.applies(&numeric!(1).into()));
+                assert!(pred.applies(&numeric!(100).into()));
+                assert!(!pred.applies(&numeric!(101).into()));
             }
         }
     }
 }
 
 pub mod value {
-    //!  raw predicates applied to `Value`.
+    //!  raw predicates applied to `QueryOutputBox`.
     use super::*;
+    use crate::query::QueryOutputBox;
 
-    /// A predicate designed for general processing of `Value`.
+    /// A predicate designed for general processing of `QueryOutputBox`.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub enum ValuePredicate {
+    pub enum QueryOutputPredicate {
         /// Apply predicate to the [`Identifiable::Id`] and/or [`IdBox`].
         Identifiable(string::StringPredicate),
         /// Apply predicate to the container.
         Container(Container),
-        /// Apply predicate to the [`<Value as Display>::to_string`](ToString::to_string()) representation.
+        /// Apply predicate to the [`<QueryOutputBox as Display>::to_string`](ToString::to_string()) representation.
         Display(string::StringPredicate),
         /// Apply predicate to the numerical value.
         Numerical(numerical::SemiRange),
         /// Timestamp (currently for [`SignedBlock`] only).
         TimeStamp(numerical::SemiInterval<u128>),
-        /// IpAddress enumerable by `u32`
-        Ipv4Addr(ip_addr::Ipv4Predicate),
-        /// IpAddress extended to use wide range `u128` enumerable addresses.
-        Ipv6Addr(ip_addr::Ipv6Predicate),
         /// Always return true.
         Pass,
     }
 
-    impl PredicateTrait<&Value> for ValuePredicate {
+    impl PredicateTrait<&QueryOutputBox> for QueryOutputPredicate {
         type EvaluatesTo = bool;
 
-        fn applies(&self, input: &Value) -> Self::EvaluatesTo {
+        fn applies(&self, input: &QueryOutputBox) -> Self::EvaluatesTo {
             // Large jump table. Do not inline.
             match self {
-                ValuePredicate::Identifiable(pred) => match input {
-                    Value::String(s) => pred.applies(s),
-                    Value::Name(n) => pred.applies(n),
-                    Value::Id(id_box) => pred.applies(id_box),
-                    Value::Identifiable(identifiable_box) => {
+                QueryOutputPredicate::Identifiable(pred) => match input {
+                    QueryOutputBox::Id(id_box) => pred.applies(id_box),
+                    QueryOutputBox::Identifiable(identifiable_box) => {
                         pred.applies(&identifiable_box.id_box())
                     }
                     _ => false,
                 },
-                ValuePredicate::Container(Container::Any(pred)) => match input {
-                    Value::Vec(vec) => vec.iter().any(|val| pred.applies(val)),
-                    Value::LimitedMetadata(map) => {
-                        map.iter().map(|(_, val)| val).any(|val| pred.applies(val))
-                    }
+                QueryOutputPredicate::Container(Container::Any(pred)) => match input {
+                    QueryOutputBox::Vec(vec) => vec.iter().any(|val| pred.applies(val)),
                     _ => false,
                 },
-                ValuePredicate::Container(Container::All(pred)) => match input {
-                    Value::Vec(vec) => vec.iter().all(|val| pred.applies(val)),
-                    Value::LimitedMetadata(map) => {
-                        map.iter().map(|(_, val)| val).all(|val| pred.applies(val))
-                    }
+                QueryOutputPredicate::Container(Container::All(pred)) => match input {
+                    QueryOutputBox::Vec(vec) => vec.iter().all(|val| pred.applies(val)),
                     _ => false,
                 },
-                ValuePredicate::Container(Container::AtIndex(AtIndex {
+                QueryOutputPredicate::Container(Container::AtIndex(AtIndex {
                     index: idx,
                     predicate: pred,
                 })) => match input {
-                    Value::Vec(vec) => vec
+                    QueryOutputBox::Vec(vec) => vec
                         .get(*idx as usize) // Safe, since this is only executed server-side and servers are 100% going to be 64-bit.
                         .map_or(false, |val| pred.applies(val)),
                     _ => false,
                 },
-                ValuePredicate::Container(Container::ValueOfKey(ValueOfKey {
-                    key,
-                    predicate: pred,
-                })) => {
-                    match input {
-                        Value::LimitedMetadata(map) => {
-                            map.get(key).map_or(false, |val| pred.applies(val))
-                        }
-                        _ => false, // TODO: Do we need more?
+                QueryOutputPredicate::Numerical(pred) => pred.applies(input),
+                QueryOutputPredicate::Display(pred) => pred.applies(&input.to_string()),
+                QueryOutputPredicate::TimeStamp(pred) => match input {
+                    QueryOutputBox::Block(block) => {
+                        pred.applies(block.header().timestamp().as_millis())
                     }
-                }
-                ValuePredicate::Container(Container::HasKey(key)) => match input {
-                    Value::LimitedMetadata(map) => map.contains(key),
                     _ => false,
                 },
-                ValuePredicate::Numerical(pred) => pred.applies(input),
-                ValuePredicate::Display(pred) => pred.applies(&input.to_string()),
-                ValuePredicate::TimeStamp(pred) => match input {
-                    Value::Block(block) => pred.applies(block.header().timestamp().as_millis()),
-                    _ => false,
-                },
-                ValuePredicate::Ipv4Addr(pred) => match input {
-                    Value::Ipv4Addr(addr) => pred.applies(*addr),
-                    _ => false,
-                },
-                ValuePredicate::Ipv6Addr(pred) => match input {
-                    Value::Ipv6Addr(addr) => pred.applies(*addr),
-                    _ => false,
-                },
-                ValuePredicate::Pass => true,
+                QueryOutputPredicate::Pass => true,
             }
         }
     }
 
-    impl ValuePredicate {
+    impl QueryOutputPredicate {
         /// Construct [`Predicate::Container`] variant.
         #[inline]
         #[must_use]
-        pub fn any(pred: impl Into<ValuePredicate>) -> Self {
+        pub fn any(pred: impl Into<QueryOutputPredicate>) -> Self {
             Self::Container(Container::Any(Box::new(pred.into())))
         }
 
         /// Construct [`Predicate::Container`] variant.
         #[inline]
         #[must_use]
-        pub fn all(pred: impl Into<ValuePredicate>) -> Self {
+        pub fn all(pred: impl Into<QueryOutputPredicate>) -> Self {
             Self::Container(Container::All(Box::new(pred.into())))
         }
 
         /// Construct [`Predicate::Container`] variant.
         #[inline]
         #[must_use]
-        pub fn has_key(key: Name) -> Self {
-            Self::Container(Container::HasKey(key))
-        }
-
-        /// Construct [`Predicate::Container`] variant.
-        #[inline]
-        #[must_use]
-        pub fn value_of(key: Name, pred: impl Into<ValuePredicate>) -> Self {
-            Self::Container(Container::ValueOfKey(ValueOfKey {
-                key,
-                predicate: Box::new(pred.into()),
-            }))
-        }
-
-        /// Construct [`Predicate::Container`] variant.
-        #[inline]
-        #[must_use]
-        pub fn at_index(index: u32, pred: impl Into<ValuePredicate>) -> Self {
+        pub fn at_index(index: u32, pred: impl Into<QueryOutputPredicate>) -> Self {
             Self::Container(Container::AtIndex(AtIndex {
                 index,
                 predicate: Box::new(pred.into()),
@@ -1005,36 +1202,23 @@ pub mod value {
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct AtIndex {
         index: u32,
-        predicate: Box<ValuePredicate>,
-    }
-
-    /// A predicate that targets the particular `key` of a collection.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct ValueOfKey {
-        key: Name,
-        predicate: Box<ValuePredicate>,
+        predicate: Box<QueryOutputPredicate>,
     }
 
     /// Predicate that targets specific elements or groups; useful for
-    /// working with containers. Currently only
-    /// [`Metadata`](crate::metadata::Metadata) and [`Vec<Value>`] are
-    /// supported.
+    /// working with containers. Currently only [`Vec<Value>`] is supported.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum Container {
         /// Forward to [`Iterator::any`]
-        Any(Box<ValuePredicate>),
+        Any(Box<QueryOutputPredicate>),
         /// Forward to [`Iterator::all`]
-        All(Box<ValuePredicate>),
+        All(Box<QueryOutputPredicate>),
         /// Apply predicate to the [`Value`] element at the index.
         AtIndex(AtIndex),
-        /// Apply the predicate to the [`Value`] keyed by the index.
-        ValueOfKey(ValueOfKey),
-        /// Forward to [`Metadata::contains`](crate::metadata::Metadata::contains()).
-        HasKey(Name),
     }
 
-    impl From<ValuePredicate> for PredicateBox {
-        fn from(value: ValuePredicate) -> Self {
+    impl From<QueryOutputPredicate> for PredicateBox {
+        fn from(value: QueryOutputPredicate) -> Self {
             PredicateBox::Raw(value)
         }
     }
@@ -1042,271 +1226,112 @@ pub mod value {
     #[cfg(test)]
     mod test {
         use iroha_crypto::KeyPair;
-        use iroha_primitives::{
-            addr::socket_addr,
-            numeric::{numeric, Numeric},
-        };
-        use peer::Peer;
-        use prelude::Metadata;
+        use iroha_primitives::{addr::socket_addr, numeric::numeric};
 
         use super::*;
-        use crate::account::Account;
+        use crate::{
+            account::{Account, AccountId},
+            domain::{Domain, DomainId},
+            metadata::{Metadata, MetadataValueBox},
+            peer::{Peer, PeerId},
+        };
 
         #[test]
         fn typing() {
             {
-                let pred =
-                    ValuePredicate::Identifiable(string::StringPredicate::is("alice@wonderland"));
+                let pred = QueryOutputPredicate::Identifiable(string::StringPredicate::is(
+                    "alice@wonderland",
+                ));
                 println!("{pred:?}");
-                assert!(pred.applies(&Value::String("alice@wonderland".to_owned())));
-                assert!(pred.applies(&Value::Id(IdBox::AccountId(
+                assert!(pred.applies(&QueryOutputBox::Id(IdBox::AccountId(
                     "alice@wonderland".parse().expect("Valid")
                 ))));
                 assert!(
-                    pred.applies(&Value::Identifiable(IdentifiableBox::NewAccount(
+                    pred.applies(&QueryOutputBox::Identifiable(IdentifiableBox::NewAccount(
                         Account::new(
                             "alice@wonderland".parse().expect("Valid"),
-                            KeyPair::generate().into_raw_parts().0,
+                            KeyPair::generate().into_raw_parts().0
                         )
                     )))
                 );
-                assert!(!pred.applies(&Value::Name("alice".parse().expect("Valid"))));
-                assert!(!pred.applies(&Value::Vec(Vec::new())));
+                assert!(!pred.applies(
+                    &MetadataValueBox::from("alice".parse::<Name>().expect("Valid")).into()
+                ));
+                assert!(!pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
             {
-                let pred = ValuePredicate::Pass;
+                let pred = QueryOutputPredicate::Pass;
                 println!("{pred:?}");
-                assert!(pred.applies(&Value::String("alice@wonderland".to_owned())));
+                assert!(pred.applies(&MetadataValueBox::from("alice@wonderland".to_owned()).into()));
             }
             {
-                let pred = ValuePredicate::TimeStamp(numerical::SemiInterval::starting(0));
+                let pred = QueryOutputPredicate::TimeStamp(numerical::SemiInterval::starting(0));
                 println!("{pred:?}");
-                assert!(!pred.applies(&Value::String("alice@wonderland".to_owned())));
+                assert!(
+                    !pred.applies(&MetadataValueBox::from("alice@wonderland".to_owned()).into())
+                );
             }
             {
                 let key_pair = iroha_crypto::KeyPair::generate();
                 let (public_key, _) = key_pair.into();
-                let pred = ValuePredicate::Display(string::StringPredicate::is("alice@wonderland"));
+                let pred =
+                    QueryOutputPredicate::Display(string::StringPredicate::is("alice@wonderland"));
                 println!("{pred:?}");
 
                 assert!(
-                    !pred.applies(&Value::Identifiable(IdentifiableBox::Peer(Peer {
-                        id: peer::PeerId::new(socket_addr!(127.0.0.1:123), public_key)
+                    !pred.applies(&QueryOutputBox::Identifiable(IdentifiableBox::Peer(Peer {
+                        id: PeerId::new(socket_addr!(127.0.0.1:123), public_key)
                     })))
                 );
             }
-            let pred = ValuePredicate::Numerical(numerical::SemiRange::Numeric(
+            let pred = QueryOutputPredicate::Numerical(numerical::SemiRange::Numeric(
                 (numeric!(0), numeric!(42)).into(),
             ));
-            assert!(!pred.applies(&Value::String("alice".to_owned())));
-            assert!(pred.applies(&numeric!(41).to_value()));
+            assert!(!pred.applies(&MetadataValueBox::from("alice".to_owned()).into()));
+            assert!(pred.applies(&numeric!(41).into()));
         }
 
         #[test]
         fn container_vec() {
-            let list = Value::Vec(vec![
-                Value::String("alice".to_owned()),
-                Value::Name("alice_at_wonderland".parse().expect("Valid")),
-                Value::String("aliceee!".to_owned()),
+            let list = QueryOutputBox::Vec(vec![
+                QueryOutputBox::Identifiable(
+                    Domain::new("alice".parse::<DomainId>().unwrap()).into(),
+                ),
+                QueryOutputBox::Id("alice@wonderland".parse::<AccountId>().unwrap().into()),
+                QueryOutputBox::Id("aliceee!".parse::<DomainId>().unwrap().into()),
             ]);
-            let meta = Value::LimitedMetadata(Metadata::default());
-            let alice = Value::Name("alice".parse().expect("Valid"));
 
-            let alice_pred = ValuePredicate::Display(string::StringPredicate::contains("alice"));
+            let alice_pred =
+                QueryOutputPredicate::Display(string::StringPredicate::contains("alice"));
 
             {
-                let pred = ValuePredicate::any(alice_pred.clone());
+                let pred = QueryOutputPredicate::any(alice_pred.clone());
                 println!("{pred:?}");
                 assert!(pred.applies(&list));
-                assert!(!pred.applies(&Value::Vec(Vec::new())));
-                assert!(!pred.applies(&meta));
-                assert!(!pred.applies(&alice));
+                assert!(!pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
 
             {
-                let pred = ValuePredicate::all(alice_pred.clone());
+                let pred = QueryOutputPredicate::all(alice_pred.clone());
                 println!("{pred:?}");
                 assert!(pred.applies(&list));
-                assert!(pred.applies(&Value::Vec(Vec::new())));
-                assert!(pred.applies(&meta)); // Not bug. Same convention as std lib.
-                assert!(!pred.applies(&alice));
+                assert!(pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
 
             {
                 let alice_id_pred =
-                    ValuePredicate::Identifiable(string::StringPredicate::contains("alice"));
-                let pred = ValuePredicate::all(alice_id_pred);
+                    QueryOutputPredicate::Identifiable(string::StringPredicate::contains("alice"));
+                let pred = QueryOutputPredicate::all(alice_id_pred);
                 println!("{pred:?}");
                 assert!(pred.applies(&list));
-                assert!(pred.applies(&Value::Vec(Vec::new())));
-                assert!(pred.applies(&meta)); // Not bug. Same convention as std lib.
-                assert!(!pred.applies(&alice));
+                assert!(pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
 
-            assert!(ValuePredicate::at_index(0, alice_pred.clone()).applies(&list));
+            assert!(QueryOutputPredicate::at_index(0, alice_pred.clone()).applies(&list));
 
-            let idx_pred = ValuePredicate::at_index(3, alice_pred); // Should be out of bounds.
+            let idx_pred = QueryOutputPredicate::at_index(3, alice_pred); // Should be out of bounds.
             println!("{idx_pred:?}");
             assert!(!idx_pred.applies(&list));
-            assert!(!idx_pred.applies(&meta));
-            assert!(!idx_pred.applies(&alice));
-
-            let has_key = ValuePredicate::has_key("alice".parse().expect("Valid"));
-            println!("{has_key:?}");
-            assert!(!has_key.applies(&list));
-            assert!(!has_key.applies(&meta));
-            // TODO: case with non-empty meta
-
-            let value_key = ValuePredicate::value_of("alice".parse().expect("Valid"), has_key);
-            println!("{value_key:?}");
-            assert!(!value_key.applies(&list));
-            assert!(!value_key.applies(&meta));
-            // TODO: case with non-empty meta
-        }
-    }
-}
-
-pub mod ip_addr {
-    //! Predicates for IP address processing.
-    use iroha_primitives::addr::{Ipv4Addr, Ipv6Addr};
-
-    use super::{numerical::Interval as Mask, *};
-
-    /// A Predicate containing independent octuplet masks to be
-    /// applied to all elements of an IP version 4 address.
-    #[derive(
-        Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
-    pub struct Ipv4Predicate([Mask<u8>; 4]);
-
-    impl PredicateTrait<Ipv4Addr> for Ipv4Predicate {
-        type EvaluatesTo = bool;
-
-        fn applies(&self, input: Ipv4Addr) -> Self::EvaluatesTo {
-            self.0
-                .iter()
-                .copied()
-                .zip(input)
-                .all(|(myself, other)| myself.applies(other))
-        }
-    }
-
-    impl Ipv4Predicate {
-        /// Construct a new predicate.
-        pub fn new(
-            octet_0: impl Into<Mask<u8>>,
-            octet_1: impl Into<Mask<u8>>,
-            octet_2: impl Into<Mask<u8>>,
-            octet_3: impl Into<Mask<u8>>,
-        ) -> Self {
-            Self([
-                octet_0.into(),
-                octet_1.into(),
-                octet_2.into(),
-                octet_3.into(),
-            ])
-        }
-    }
-
-    /// A Predicate containing independent _hexadecuplets_ (u16
-    /// groups) masks to be applied to all elements of an IP version 6
-    /// address.
-    #[derive(
-        Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
-    pub struct Ipv6Predicate([Mask<u16>; 8]);
-
-    impl PredicateTrait<Ipv6Addr> for Ipv6Predicate {
-        type EvaluatesTo = bool;
-
-        fn applies(&self, input: Ipv6Addr) -> Self::EvaluatesTo {
-            self.0
-                .iter()
-                .copied()
-                .zip(input)
-                .all(|(myself, other)| myself.applies(other))
-        }
-    }
-
-    // Could do this with a macro, but it doesn't seem to shorten much.
-    #[allow(clippy::too_many_arguments)]
-    impl Ipv6Predicate {
-        /// Construct a new predicate. The 8 arguments must match a
-        /// mask that filters on all 8 of the _hexadecuplets_ (u16
-        /// groups) in a normal IP version 6 address.
-        pub fn new(
-            hexadecuplet_0: impl Into<Mask<u16>>,
-            hexadecuplet_1: impl Into<Mask<u16>>,
-            hexadecuplet_2: impl Into<Mask<u16>>,
-            hexadecuplet_3: impl Into<Mask<u16>>,
-            hexadecuplet_4: impl Into<Mask<u16>>,
-            hexadecuplet_5: impl Into<Mask<u16>>,
-            hexadecuplet_6: impl Into<Mask<u16>>,
-            hexadecuplet_7: impl Into<Mask<u16>>,
-        ) -> Self {
-            Self([
-                hexadecuplet_0.into(),
-                hexadecuplet_1.into(),
-                hexadecuplet_2.into(),
-                hexadecuplet_3.into(),
-                hexadecuplet_4.into(),
-                hexadecuplet_5.into(),
-                hexadecuplet_6.into(),
-                hexadecuplet_7.into(),
-            ])
-        }
-    }
-
-    #[cfg(test)]
-    mod test {
-        use super::*;
-
-        #[test]
-        fn ipv4_filter_example() {
-            {
-                let pred = Ipv4Predicate::new(127, 0, 0, (0, 10));
-                println!("{pred:?}");
-                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 1])));
-                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 3])));
-                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 4])));
-                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 10])));
-                assert!(!pred.applies(Ipv4Addr::from([127, 0, 0, 11])));
-                assert!(!pred.applies(Ipv4Addr::from([125, 0, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr::from([128, 0, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr::from([127, 1, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr::from([127, 0, 1, 1])));
-            }
-
-            {
-                let pred = Ipv4Predicate::new(Mask::starting(0), 0, 0, (0, 10));
-                println!("{pred:?}");
-                assert!(pred.applies(Ipv4Addr::from([0, 0, 0, 1])));
-                assert!(pred.applies(Ipv4Addr::from([255, 0, 0, 1])));
-                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 4])));
-                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 10])));
-                assert!(pred.applies(Ipv4Addr::from([128, 0, 0, 1])));
-                assert!(pred.applies(Ipv4Addr::from([128, 0, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr::from([127, 0, 0, 11])));
-                assert!(pred.applies(Ipv4Addr::from([126, 0, 0, 1])));
-                assert!(pred.applies(Ipv4Addr::from([128, 0, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr::from([127, 1, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr::from([127, 0, 1, 1])));
-            }
-        }
-
-        #[test]
-        fn ipv6_filter_example() {
-            let pred = Ipv6Predicate::new(12700, 0, 0, (0, 10), 0, 0, 0, 0);
-            println!("{pred:?}");
-            assert!(pred.applies(Ipv6Addr::from([12700, 0, 0, 1, 0, 0, 0, 0])));
-            assert!(pred.applies(Ipv6Addr::from([12700, 0, 0, 3, 0, 0, 0, 0])));
-            assert!(pred.applies(Ipv6Addr::from([12700, 0, 0, 4, 0, 0, 0, 0])));
-            assert!(pred.applies(Ipv6Addr::from([12700, 0, 0, 10, 0, 0, 0, 0])));
-            assert!(!pred.applies(Ipv6Addr::from([12700, 0, 0, 11, 0, 0, 0, 0])));
-            assert!(!pred.applies(Ipv6Addr::from([12500, 0, 0, 1, 0, 0, 0, 0])));
-            assert!(!pred.applies(Ipv6Addr::from([12800, 0, 0, 1, 0, 0, 0, 0])));
-            assert!(!pred.applies(Ipv6Addr::from([12700, 1, 0, 1, 0, 0, 0, 0])));
-            assert!(!pred.applies(Ipv6Addr::from([12700, 0, 1, 1, 0, 0, 0, 0])));
         }
     }
 }

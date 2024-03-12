@@ -1,6 +1,6 @@
 use std::str::FromStr as _;
 
-use eyre::{bail, Result};
+use eyre::Result;
 use iroha_client::{
     client::{self, ClientQueryError},
     data_model::{
@@ -57,9 +57,7 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
         client.account_id.clone(),
         Name::from_str("cursor").unwrap(),
     ))?;
-    let Value::String(cursor) = metadata_value.0 else {
-        bail!("Expected `Value::String`, got {:?}", metadata_value.0);
-    };
+    let cursor: String = metadata_value.try_into()?;
     let asset_cursor = serde_json::from_str::<ForwardCursor>(&cursor)?;
 
     let err = client

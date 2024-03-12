@@ -89,7 +89,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let set_key_value = SetKeyValue::account(
         mouse_id,
         Name::from_str("key").expect("Valid"),
-        Value::String("value".to_owned()),
+        "value".to_owned(),
     );
     test_client.submit_blocking(set_key_value)?;
 
@@ -255,7 +255,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
     let set_key_value = SetKeyValue::account(
         mouse_id.clone(),
         Name::from_str("key").expect("Valid"),
-        Value::String("value".to_owned()),
+        "value".to_owned(),
     );
     let permission = PermissionToken::new(
         "CanSetKeyValueInUserAccount".parse()?,

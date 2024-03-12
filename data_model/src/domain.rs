@@ -257,15 +257,6 @@ impl Domain {
     }
 }
 
-impl FromIterator<Domain> for crate::Value {
-    fn from_iter<T: IntoIterator<Item = Domain>>(iter: T) -> Self {
-        iter.into_iter()
-            .map(Into::into)
-            .collect::<Vec<Self>>()
-            .into()
-    }
-}
-
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{Domain, DomainId};

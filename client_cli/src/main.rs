@@ -15,9 +15,9 @@ use erased_serde::Serialize;
 use iroha_client::{
     client::{Client, QueryResult},
     config::Config,
-    data_model::prelude::*,
+    data_model::{metadata::MetadataValueBox, prelude::*},
 };
-use iroha_primitives::addr::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use iroha_primitives::addr::SocketAddr;
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
 /// Should be combined with `#[command(flatten)]` attr.
@@ -53,33 +53,29 @@ impl MetadataArgs {
     }
 }
 
-/// Re-usable clap `--value <Value>` (`-v`) argument.
+/// Re-usable clap `--value <MetadataValue>` (`-v`) argument.
 /// Should be combined with `#[command(flatten)]` attr.
 #[derive(clap::Args, Debug, Clone, PartialEq, Eq)]
-pub struct ValueArg {
-    /// Wrapper around Value to accept possible values and fallback to json.
+pub struct MetadataValueArg {
+    /// Wrapper around MetadataValue to accept possible values and fallback to json.
+    ///
     /// The following types are supported:
     /// Numbers: decimal with optional point
     /// Booleans: false/true
-    /// IPv4/IPv6: e.g. 127.0.0.1, ::1
-    /// Iroha Public Key Multihash: e.g. ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0
     /// JSON: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
     #[arg(short, long)]
-    value: Value,
+    value: MetadataValueBox,
 }
 
-impl FromStr for ValueArg {
+impl FromStr for MetadataValueArg {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse::<bool>()
-            .map(Value::Bool)
-            .or_else(|_| s.parse::<Ipv4Addr>().map(Value::Ipv4Addr))
-            .or_else(|_| s.parse::<Ipv6Addr>().map(Value::Ipv6Addr))
-            .or_else(|_| s.parse::<Numeric>().map(Value::Numeric))
-            .or_else(|_| s.parse::<PublicKey>().map(Value::PublicKey))
-            .or_else(|_| serde_json::from_str::<Value>(s).map_err(Into::into))
-            .map(|value| ValueArg { value })
+            .map(MetadataValueBox::Bool)
+            .or_else(|_| s.parse::<Numeric>().map(MetadataValueBox::Numeric))
+            .or_else(|_| serde_json::from_str::<MetadataValueBox>(s).map_err(Into::into))
+            .map(|value| MetadataValueArg { value })
     }
 }
 
@@ -234,7 +230,7 @@ fn submit(
 }
 
 mod filter {
-    use iroha_client::data_model::predicate::PredicateBox;
+    use iroha_client::data_model::query::predicate::PredicateBox;
 
     use super::*;
 
@@ -450,7 +446,7 @@ mod domain {
             #[arg(short, long)]
             key: Name,
             #[command(flatten)]
-            value: ValueArg,
+            value: MetadataValueArg,
         }
 
         impl RunArgs for Set {
@@ -458,7 +454,7 @@ mod domain {
                 let Self {
                     id,
                     key,
-                    value: ValueArg { value },
+                    value: MetadataValueArg { value },
                 } = self;
                 let set_key_value = SetKeyValue::domain(id, key, value);
                 submit([set_key_value], UnlimitedMetadata::new(), context)
@@ -788,7 +784,7 @@ mod asset {
             } = self;
             let mint_asset = iroha_client::data_model::isi::Mint::asset_numeric(quantity, asset_id);
             submit([mint_asset], metadata.load()?, context)
-                .wrap_err("Failed to mint asset of type `NumericValue::U32`")
+                .wrap_err("Failed to mint asset of type `Numeric`")
         }
     }
 
@@ -814,7 +810,7 @@ mod asset {
             } = self;
             let burn_asset = iroha_client::data_model::isi::Burn::asset_numeric(quantity, asset_id);
             submit([burn_asset], metadata.load()?, context)
-                .wrap_err("Failed to burn asset of type `NumericValue::U32`")
+                .wrap_err("Failed to burn asset of type `Numeric`")
         }
     }
 
@@ -905,7 +901,7 @@ mod asset {
         #[clap(long)]
         pub key: Name,
         #[command(flatten)]
-        pub value: ValueArg,
+        pub value: MetadataValueArg,
     }
 
     impl RunArgs for SetKeyValue {
@@ -913,7 +909,7 @@ mod asset {
             let Self {
                 asset_id,
                 key,
-                value: ValueArg { value },
+                value: MetadataValueArg { value },
             } = self;
 
             let set = iroha_client::data_model::isi::SetKeyValue::asset(asset_id, key, value);
@@ -1100,58 +1096,35 @@ mod json {
 mod tests {
     use std::str::FromStr;
 
-    use iroha_client::data_model::Value;
-
     use super::*;
 
     #[test]
     fn parse_value_arg_cases() {
         macro_rules! case {
             ($input:expr, $expected:expr) => {
-                let ValueArg { value } =
-                    ValueArg::from_str($input).expect("should not fail with valid input");
+                let MetadataValueArg { value } =
+                    MetadataValueArg::from_str($input).expect("should not fail with valid input");
                 assert_eq!(value, $expected);
             };
         }
 
-        // IPv4 address
-        case!(
-            "192.168.0.1",
-            Value::Ipv4Addr(Ipv4Addr::new([192, 168, 0, 1]))
-        );
-
-        // IPv6 address
-        case!(
-            "::1",
-            Value::Ipv6Addr(Ipv6Addr::new([0, 0, 0, 0, 0, 0, 0, 1]))
-        );
-
         // Boolean values
-        case!("true", Value::Bool(true));
-        case!("false", Value::Bool(false));
+        case!("true", true.into());
+        case!("false", false.into());
 
         // Numeric values
-        case!("123", Value::Numeric(numeric!(123)));
-        case!("123.0", Value::Numeric(numeric!(123.0)));
-
-        // Public Key
-        let public_key_str =
-            "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0";
-        case!(
-            public_key_str,
-            Value::PublicKey(PublicKey::from_str(public_key_str).unwrap())
-        );
+        case!("123", numeric!(123).into());
+        case!("123.0", numeric!(123.0).into());
 
         // JSON Value
         let json_str = r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#;
-        let expected_json: Value = serde_json::from_str(json_str).unwrap();
-        case!(json_str, expected_json);
+        case!(json_str, serde_json::from_str(json_str).unwrap());
     }
 
     #[test]
     fn error_parse_invalid_value() {
         let invalid_str = "not_a_valid_value";
-        let _invalid_value = ValueArg::from_str(invalid_str)
+        let _invalid_value = MetadataValueArg::from_str(invalid_str)
             .expect_err("Should fail invalid type from string but passed");
     }
 }

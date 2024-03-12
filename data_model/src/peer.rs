@@ -16,7 +16,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{Identifiable, PublicKey, Registered, Value};
+use crate::{Identifiable, PublicKey, Registered};
 
 #[model]
 pub mod model {
@@ -111,15 +111,6 @@ impl Borrow<PublicKey> for PeerId {
 
 impl Registered for Peer {
     type With = Self;
-}
-
-impl FromIterator<PeerId> for Value {
-    fn from_iter<T: IntoIterator<Item = PeerId>>(iter: T) -> Self {
-        iter.into_iter()
-            .map(Into::into)
-            .collect::<Vec<Value>>()
-            .into()
-    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.

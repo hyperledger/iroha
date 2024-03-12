@@ -57,10 +57,10 @@ pub mod isi {
             let asset = wsv.asset_or_insert(asset_id.clone(), Metadata::new())?;
 
             {
-                let store: &mut Metadata = asset
-                    .try_as_mut()
-                    .map_err(eyre::Error::from)
-                    .map_err(|e| Error::Conversion(e.to_string()))?;
+                let AssetValue::Store(store) = &mut asset.value else {
+                    return Err(Error::Conversion("Expected store asset type".to_owned()));
+                };
+
                 store.insert_with_limits(
                     self.key.clone(),
                     self.value.clone(),
@@ -71,7 +71,7 @@ pub mod isi {
             wsv.emit_events(Some(AssetEvent::MetadataInserted(MetadataChanged {
                 target_id: asset_id,
                 key: self.key,
-                value: Box::new(self.value),
+                value: self.value,
             })));
 
             Ok(())
@@ -91,10 +91,11 @@ pub mod isi {
 
             let value = {
                 let asset = wsv.asset_mut(&asset_id)?;
-                let store: &mut Metadata = asset
-                    .try_as_mut()
-                    .map_err(eyre::Error::from)
-                    .map_err(|e| Error::Conversion(e.to_string()))?;
+
+                let AssetValue::Store(store) = &mut asset.value else {
+                    return Err(Error::Conversion("Expected store asset type".to_owned()));
+                };
+
                 store
                     .remove(&self.key)
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?
@@ -103,7 +104,7 @@ pub mod isi {
             wsv.emit_events(Some(AssetEvent::MetadataRemoved(MetadataChanged {
                 target_id: asset_id,
                 key: self.key,
-                value: Box::new(value),
+                value,
             })));
 
             Ok(())
@@ -158,10 +159,9 @@ pub mod isi {
 
             assert_can_mint(&asset_definition, wsv)?;
             let asset = wsv.asset_or_insert(asset_id.clone(), Numeric::ZERO)?;
-            let quantity: &mut Numeric = asset
-                .try_as_mut()
-                .map_err(eyre::Error::from)
-                .map_err(|e| Error::Conversion(e.to_string()))?;
+            let AssetValue::Numeric(quantity) = &mut asset.value else {
+                return Err(Error::Conversion("Expected numeric asset type".to_owned()));
+            };
             *quantity = quantity
                 .checked_add(self.object)
                 .ok_or(MathError::Overflow)?;
@@ -197,10 +197,9 @@ pub mod isi {
                 .assets
                 .get_mut(&asset_id)
                 .ok_or_else(|| FindError::Asset(asset_id.clone()))?;
-            let quantity: &mut Numeric = asset
-                .try_as_mut()
-                .map_err(eyre::Error::from)
-                .map_err(|e| Error::Conversion(e.to_string()))?;
+            let AssetValue::Numeric(quantity) = &mut asset.value else {
+                return Err(Error::Conversion("Expected numeric asset type".to_owned()));
+            };
             *quantity = quantity
                 .checked_sub(self.object)
                 .ok_or(MathError::NotEnoughQuantity)?;
@@ -243,10 +242,9 @@ pub mod isi {
                     .assets
                     .get_mut(&source_id)
                     .ok_or_else(|| FindError::Asset(source_id.clone()))?;
-                let quantity: &mut Numeric = asset
-                    .try_as_mut()
-                    .map_err(eyre::Error::from)
-                    .map_err(|e| Error::Conversion(e.to_string()))?;
+                let AssetValue::Numeric(quantity) = &mut asset.value else {
+                    return Err(Error::Conversion("Expected numeric asset type".to_owned()));
+                };
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
@@ -257,10 +255,9 @@ pub mod isi {
 
             let destination_asset = wsv.asset_or_insert(destination_id.clone(), Numeric::ZERO)?;
             {
-                let quantity: &mut Numeric = destination_asset
-                    .try_as_mut()
-                    .map_err(eyre::Error::from)
-                    .map_err(|e| Error::Conversion(e.to_string()))?;
+                let AssetValue::Numeric(quantity) = &mut destination_asset.value else {
+                    return Err(Error::Conversion("Expected numeric asset type".to_owned()));
+                };
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(MathError::Overflow)?;
@@ -368,9 +365,8 @@ pub mod query {
     use eyre::Result;
     use iroha_data_model::{
         asset::{Asset, AssetDefinition, AssetValue},
-        query::{
-            asset::FindAssetDefinitionById, error::QueryExecutionFail as Error, MetadataValue,
-        },
+        metadata::MetadataValueBox,
+        query::{asset::FindAssetDefinitionById, error::QueryExecutionFail as Error},
     };
 
     use super::*;
@@ -591,7 +587,7 @@ pub mod query {
 
     impl ValidQuery for FindAssetKeyValueByIdAndKey {
         #[metrics(+"find_asset_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             let asset = wsv.asset(id).map_err(|asset_err| {
@@ -602,11 +598,10 @@ pub mod query {
                 }
             })?;
             iroha_logger::trace!(%id, %key);
-            let store: &Metadata = asset
-                .value
-                .try_as_ref()
-                .map_err(eyre::Error::from)
-                .map_err(|e| Error::Conversion(e.to_string()))?;
+            let AssetValue::Store(store) = &asset.value else {
+                return Err(Error::Conversion("expected store, found other".to_owned()));
+            };
+
             store
                 .get(key)
                 .ok_or_else(|| Error::Find(FindError::MetadataKey(key.clone())))

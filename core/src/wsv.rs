@@ -14,7 +14,7 @@ use iroha_data_model::{
     block::SignedBlock,
     events::notification::{TriggerCompletedEvent, TriggerCompletedOutcome},
     isi::error::{InstructionExecutionError as Error, MathError},
-    parameter::Parameter,
+    parameter::{Parameter, ParameterValueBox},
     permission::PermissionTokenSchema,
     prelude::*,
     query::error::{FindError, QueryExecutionFail},
@@ -1067,7 +1067,7 @@ impl WorldStateView {
     }
 
     /// Query parameter and convert it to a proper type
-    pub fn query_param<T: TryFrom<Value>, P: core::hash::Hash + Eq + ?Sized>(
+    pub fn query_param<T: TryFrom<ParameterValueBox>, P: core::hash::Hash + Eq + ?Sized>(
         &self,
         param: &P,
     ) -> Option<T>
@@ -1078,7 +1078,7 @@ impl WorldStateView {
             .parameters
             .get(param)
             .as_ref()
-            .map(|param| &*param.val)
+            .map(|param| &param.val)
             .cloned()
             .and_then(|param_val| param_val.try_into().ok())
     }

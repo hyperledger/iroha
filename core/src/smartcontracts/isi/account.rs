@@ -228,7 +228,7 @@ pub mod isi {
             wsv.emit_events(Some(AccountEvent::MetadataInserted(MetadataChanged {
                 target_id: account_id.clone(),
                 key: self.key.clone(),
-                value: Box::new(self.value),
+                value: self.value,
             })));
 
             Ok(())
@@ -250,7 +250,7 @@ pub mod isi {
             wsv.emit_events(Some(AccountEvent::MetadataRemoved(MetadataChanged {
                 target_id: account_id.clone(),
                 key: self.key,
-                value: Box::new(value),
+                value,
             })));
 
             Ok(())
@@ -483,9 +483,8 @@ pub mod query {
 
     use eyre::Result;
     use iroha_data_model::{
-        account::Account,
-        permission::PermissionToken,
-        query::{error::QueryExecutionFail as Error, MetadataValue},
+        account::Account, metadata::MetadataValueBox, permission::PermissionToken,
+        query::error::QueryExecutionFail as Error,
     };
 
     use super::*;
@@ -580,7 +579,7 @@ pub mod query {
 
     impl ValidQuery for FindAccountKeyValueByIdAndKey {
         #[metrics(+"find_account_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);

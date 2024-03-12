@@ -1,5 +1,5 @@
 //! Parity Scale decoder tool for Iroha data types. For usage run with `--help`
-use core::num::NonZeroU64;
+use core::num::{NonZeroU32, NonZeroU64};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
@@ -18,29 +18,40 @@ use iroha_data_model::{
     block::{
         error::BlockRejectionReason,
         stream::{BlockMessage, BlockSubscriptionRequest},
-        BlockHeader, SignedBlock, SignedBlockV1,
+        BlockHeader, BlockPayload, SignedBlock, SignedBlockV1,
     },
     domain::NewDomain,
     executor::Executor,
     ipfs::IpfsPath,
-    predicate::{
-        ip_addr::{Ipv4Predicate, Ipv6Predicate},
-        numerical::{Interval, SemiInterval, SemiRange},
-        string::StringPredicate,
-        value::{AtIndex, Container, ValueOfKey, ValuePredicate},
-        GenericPredicateBox, NonTrivial, PredicateBox,
+    isi::{
+        error::{
+            InstructionEvaluationError, InstructionExecutionError, InvalidParameterError,
+            MathError, MintabilityError, Mismatch, RepetitionError, TypeError,
+        },
+        InstructionType,
     },
+    metadata::{MetadataError, MetadataValueBox, SizeError},
+    parameter::ParameterValueBox,
+    permission::JsonString,
     prelude::*,
     query::{
         error::{FindError, QueryExecutionFail},
-        ForwardCursor,
+        predicate::{
+            numerical::{SemiInterval, SemiRange},
+            string::StringPredicate,
+            value::{AtIndex, Container, QueryOutputPredicate},
+            GenericPredicateBox, NonTrivial, PredicateBox,
+        },
+        ForwardCursor, QueryOutputBox,
     },
     transaction::{error::TransactionLimitError, SignedTransactionV1, TransactionLimits},
-    BatchedResponse, BatchedResponseV1, SignedBlockWrapper,
+    BatchedResponse, BatchedResponseV1, Level,
 };
 use iroha_primitives::{
-    addr::{Ipv4Addr, Ipv6Addr},
+    addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
+    const_vec::ConstVec,
     conststr::ConstString,
+    unique_vec::UniqueVec,
 };
 use parity_scale_codec::DecodeAll;
 
@@ -51,6 +62,7 @@ pub fn generate_map() -> DumpDecodedMap {
     macro_rules! insert_into_map {
         ($t:ty) => {{
             let type_id = <$t as iroha_schema::TypeId>::id();
+
             #[allow(trivial_casts)]
             map.insert(type_id, <$t as DumpDecoded>::dump_decoded as DumpDecodedPtr)
         }};
@@ -218,8 +230,8 @@ mod tests {
         let mut metadata = Metadata::new();
         metadata
             .insert_with_limits(
-                "hat".parse().unwrap(),
-                Value::Name("white".parse().unwrap()),
+                "hat".parse().expect("Valid"),
+                "white".parse::<Name>().unwrap(),
                 limits,
             )
             .expect("Valid");
@@ -238,11 +250,7 @@ mod tests {
         let limits = MetadataLimits::new(256, 256);
         let mut metadata = Metadata::new();
         metadata
-            .insert_with_limits(
-                "Is_Jabberwocky_alive".parse().expect("Valid"),
-                Value::Bool(true),
-                limits,
-            )
+            .insert_with_limits("Is_Jabberwocky_alive".parse().expect("Valid"), true, limits)
             .expect("Valid");
         let domain = Domain::new("wonderland".parse().expect("Valid"))
             .with_logo(

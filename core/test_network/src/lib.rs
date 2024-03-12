@@ -14,7 +14,7 @@ use iroha_client::{
 };
 use iroha_config::parameters::actual::Root as Config;
 use iroha_crypto::prelude::*;
-use iroha_data_model::ChainId;
+use iroha_data_model::{query::QueryOutputBox, ChainId};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::InstrumentFutures;
 use iroha_primitives::{
@@ -687,7 +687,7 @@ pub trait TestClient: Sized {
     where
         R::Output: QueryOutput,
         <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>;
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>;
 
     /// Submits instructions with polling
     ///
@@ -702,7 +702,7 @@ pub trait TestClient: Sized {
     where
         R::Output: QueryOutput,
         <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>;
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>;
 
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
     ///
@@ -716,7 +716,7 @@ pub trait TestClient: Sized {
     where
         R::Output: QueryOutput,
         <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>;
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>;
 
     /// Polls request till predicate `f` is satisfied with `period` and `max_attempts` supplied.
     ///
@@ -732,7 +732,7 @@ pub trait TestClient: Sized {
     where
         R::Output: QueryOutput,
         <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>;
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>;
 }
 
 impl TestRuntime for Runtime {
@@ -829,7 +829,7 @@ impl TestClient for Client {
     where
         R::Output: QueryOutput,
         <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
         self.submit(instruction)
             .expect("Failed to submit instruction.");
@@ -845,7 +845,7 @@ impl TestClient for Client {
     where
         R::Output: QueryOutput,
         <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
         self.submit_all(instructions)
             .expect("Failed to submit instruction.");
@@ -862,7 +862,7 @@ impl TestClient for Client {
     where
         R::Output: QueryOutput,
         <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
         let mut query_result = None;
         for _ in 0..max_attempts {
@@ -883,7 +883,7 @@ impl TestClient for Client {
     where
         R::Output: QueryOutput,
         <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
         self.poll_request_with_period(request, Config::pipeline_time() / 2, 10, f)
     }
