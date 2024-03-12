@@ -29,15 +29,15 @@ def extract_hash(stdout):
     return match.group(1) if match else None
 
 
-def get_peers_config_files(path_to_configs):
+def get_peers_ports_list(port_min=8080, port_max=8083):
     """
-    Returns a list of config file paths from the given directory.
+    Returns a list of peer ports within the specified range.
+
+    port_min (int): The minimum port number in the range. Default is 8080.
+    port_max (int): The maximum port number in the range. Default is 8083.
     """
-    config_files = []
-    for entry in os.listdir(path_to_configs):
-        if entry.endswith(".json") and "config_to_peer" in entry:
-            config_files.append(os.path.join(path_to_configs, entry))
-    return config_files
+
+    return [port for port in range(port_min, port_max + 1)]
 
 
 def read_isi_from_json(file_path):
