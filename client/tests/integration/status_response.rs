@@ -29,11 +29,19 @@ fn json_and_scale_statuses_equality() -> Result<()> {
 
     let coins = ["xor", "btc", "eth", "doge"];
 
+    let domain_id: DomainId = "test_domain".parse().expect("Should be valid");
+    let account_id = AccountId::new(domain_id, "test_account".parse().expect("Should be valid"));
+
     for coin in coins {
         let asset_definition_id = AssetDefinitionId::from_str(&format!("{coin}#wonderland"))?;
         let create_asset =
-            Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
-        client.submit_blocking(create_asset)?;
+            Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        let mint_asset = Mint::asset_numeric(
+            1234u32,
+            AssetId::new(asset_definition_id, account_id.clone()),
+        );
+        let instructions: [InstructionBox; 2] = [create_asset.into(), mint_asset.into()];
+        client.submit_all(instructions)?;
     }
 
     let json_status_coins = get_status_json(&client).unwrap();
