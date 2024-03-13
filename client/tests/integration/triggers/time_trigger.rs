@@ -274,8 +274,8 @@ fn get_block_committed_event_listener(
     client: &Client,
 ) -> Result<impl Iterator<Item = Result<Event>>> {
     let block_filter = PipelineEventFilter::new()
-        .from_entity_of_kind(PipelineEntityKind::Block)
-        .with_status(PipelineStatusKind::Committed);
+        .for_entity(PipelineEntityKind::Block)
+        .for_status(PipelineStatusKind::Committed);
     client.listen_for_events(block_filter)
 }
 

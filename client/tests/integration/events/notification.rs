@@ -23,7 +23,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
             asset_id.account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id.clone())
+                    .for_trigger(trigger_id.clone())
                     .under_authority(asset_id.account_id),
             ),
         ),
@@ -38,8 +38,8 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
         let mut event_it =
             thread_client.listen_for_events(NotificationEventFilter::ByTriggerCompleted(
                 TriggerCompletedEventFilter::new()
-                    .from_trigger(trigger_id)
-                    .with_outcome(TriggerCompletedOutcomeType::Success),
+                    .for_trigger(trigger_id)
+                    .for_outcome(TriggerCompletedOutcomeType::Success),
             ))?;
         if event_it.next().is_some() {
             sender.send(())?;
@@ -72,7 +72,7 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
             account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id.clone())
+                    .for_trigger(trigger_id.clone())
                     .under_authority(account_id),
             ),
         ),
@@ -87,8 +87,8 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
         let mut event_it =
             thread_client.listen_for_events(NotificationEventFilter::ByTriggerCompleted(
                 TriggerCompletedEventFilter::new()
-                    .from_trigger(trigger_id)
-                    .with_outcome(TriggerCompletedOutcomeType::Failure),
+                    .for_trigger(trigger_id)
+                    .for_outcome(TriggerCompletedOutcomeType::Failure),
             ))?;
         if event_it.next().is_some() {
             sender.send(())?;

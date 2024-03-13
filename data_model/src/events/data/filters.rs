@@ -265,14 +265,14 @@ impl PeerEventFilter {
 
     /// Modifies a [`PeerEventFilter`] to accept only [`PeerEvent`]s originating from ids matching `id_matcher`.
     #[must_use]
-    pub fn only_from(mut self, id_matcher: PeerId) -> Self {
+    pub fn for_peer(mut self, id_matcher: PeerId) -> Self {
         self.id_matcher = Some(id_matcher);
         self
     }
 
     /// Modifies a [`PeerEventFilter`] to accept only [`PeerEvent`]s of types contained in `event_set`.
     #[must_use]
-    pub const fn only_events(mut self, event_set: PeerEventSet) -> Self {
+    pub const fn for_events(mut self, event_set: PeerEventSet) -> Self {
         self.event_set = event_set;
         self
     }
@@ -314,14 +314,14 @@ impl DomainEventFilter {
 
     /// Modifies a [`DomainEventFilter`] to accept only [`DomainEvent`]s originating from ids matching `id_matcher`.
     #[must_use]
-    pub fn only_from(mut self, id_matcher: DomainId) -> Self {
+    pub fn for_domain(mut self, id_matcher: DomainId) -> Self {
         self.id_matcher = Some(id_matcher);
         self
     }
 
     /// Modifies a [`DomainEventFilter`] to accept only [`DomainEvent`]s of types contained in `event_set`.
     #[must_use]
-    pub const fn only_events(mut self, event_set: DomainEventSet) -> Self {
+    pub const fn for_events(mut self, event_set: DomainEventSet) -> Self {
         self.event_set = event_set;
         self
     }
@@ -363,14 +363,14 @@ impl AccountEventFilter {
 
     /// Modifies a [`AccountEventFilter`] to accept only [`AccountEvent`]s originating from ids matching `id_matcher`.
     #[must_use]
-    pub fn only_from(mut self, id_matcher: AccountId) -> Self {
+    pub fn for_account(mut self, id_matcher: AccountId) -> Self {
         self.id_matcher = Some(id_matcher);
         self
     }
 
     /// Modifies a [`AccountEventFilter`] to accept only [`AccountEvent`]s of types contained in `event_set`.
     #[must_use]
-    pub const fn only_events(mut self, event_set: AccountEventSet) -> Self {
+    pub const fn for_events(mut self, event_set: AccountEventSet) -> Self {
         self.event_set = event_set;
         self
     }
@@ -412,14 +412,14 @@ impl AssetEventFilter {
 
     /// Modifies a [`AssetEventFilter`] to accept only [`AssetEvent`]s originating from ids matching `id_matcher`.
     #[must_use]
-    pub fn only_from(mut self, id_matcher: AssetId) -> Self {
+    pub fn for_asset(mut self, id_matcher: AssetId) -> Self {
         self.id_matcher = Some(id_matcher);
         self
     }
 
     /// Modifies a [`AssetEventFilter`] to accept only [`AssetEvent`]s of types contained in `event_set`.
     #[must_use]
-    pub const fn only_events(mut self, event_set: AssetEventSet) -> Self {
+    pub const fn for_events(mut self, event_set: AssetEventSet) -> Self {
         self.event_set = event_set;
         self
     }
@@ -461,14 +461,14 @@ impl AssetDefinitionEventFilter {
 
     /// Modifies a [`AssetDefinitionEventFilter`] to accept only [`AssetDefinitionEvent`]s originating from ids matching `id_matcher`.
     #[must_use]
-    pub fn only_from(mut self, id_matcher: AssetDefinitionId) -> Self {
+    pub fn for_asset_definition(mut self, id_matcher: AssetDefinitionId) -> Self {
         self.id_matcher = Some(id_matcher);
         self
     }
 
     /// Modifies a [`AssetDefinitionEventFilter`] to accept only [`AssetDefinitionEvent`]s of types contained in `event_set`.
     #[must_use]
-    pub const fn only_events(mut self, event_set: AssetDefinitionEventSet) -> Self {
+    pub const fn for_events(mut self, event_set: AssetDefinitionEventSet) -> Self {
         self.event_set = event_set;
         self
     }
@@ -510,14 +510,14 @@ impl TriggerEventFilter {
 
     /// Modifies a [`TriggerEventFilter`] to accept only [`TriggerEvent`]s originating from ids matching `id_matcher`.
     #[must_use]
-    pub fn only_from(mut self, id_matcher: TriggerId) -> Self {
+    pub fn for_trigger(mut self, id_matcher: TriggerId) -> Self {
         self.id_matcher = Some(id_matcher);
         self
     }
 
     /// Modifies a [`TriggerEventFilter`] to accept only [`TriggerEvent`]s of types matching `event_set`.
     #[must_use]
-    pub const fn only_events(mut self, event_set: TriggerEventSet) -> Self {
+    pub const fn for_events(mut self, event_set: TriggerEventSet) -> Self {
         self.event_set = event_set;
         self
     }
@@ -559,14 +559,14 @@ impl RoleEventFilter {
 
     /// Modifies a [`RoleEventFilter`] to accept only [`RoleEvent`]s originating from ids matching `id_matcher`.
     #[must_use]
-    pub fn only_from(mut self, id_matcher: RoleId) -> Self {
+    pub fn for_role(mut self, id_matcher: RoleId) -> Self {
         self.id_matcher = Some(id_matcher);
         self
     }
 
     /// Modifies a [`RoleEventFilter`] to accept only [`RoleEvent`]s of types matching `event_set`.
     #[must_use]
-    pub const fn only_events(mut self, event_set: RoleEventSet) -> Self {
+    pub const fn for_events(mut self, event_set: RoleEventSet) -> Self {
         self.event_set = event_set;
         self
     }
@@ -608,14 +608,14 @@ impl ConfigurationEventFilter {
 
     /// Modifies a [`ConfigurationEventFilter`] to accept only [`ConfigurationEvent`]s originating from ids matching `id_matcher`.
     #[must_use]
-    pub fn only_from(mut self, id_matcher: ParameterId) -> Self {
+    pub fn for_parameter(mut self, id_matcher: ParameterId) -> Self {
         self.id_matcher = Some(id_matcher);
         self
     }
 
     /// Modifies a [`ConfigurationEventFilter`] to accept only [`ConfigurationEvent`]s of types matching `event_set`.
     #[must_use]
-    pub const fn only_events(mut self, event_set: ConfigurationEventSet) -> Self {
+    pub const fn for_events(mut self, event_set: ConfigurationEventSet) -> Self {
         self.event_set = event_set;
         self
     }
@@ -656,7 +656,7 @@ impl ExecutorEventFilter {
 
     /// Modifies a [`ExecutorEventFilter`] to accept only [`ExecutorEvent`]s of types matching `event_set`.
     #[must_use]
-    pub const fn only_events(mut self, event_set: ExecutorEventSet) -> Self {
+    pub const fn for_events(mut self, event_set: ExecutorEventSet) -> Self {
         self.event_set = event_set;
         self
     }
@@ -789,10 +789,10 @@ mod tests {
             DomainEvent::Account(AccountEvent::Asset(AssetEvent::Created(asset))).into();
 
         // test how the differently nested filters with with the events
-        let domain_filter = DataEventFilter::Domain(DomainEventFilter::new().only_from(domain_id));
+        let domain_filter = DataEventFilter::Domain(DomainEventFilter::new().for_domain(domain_id));
         let account_filter =
-            DataEventFilter::Account(AccountEventFilter::new().only_from(account_id));
-        let asset_filter = DataEventFilter::Asset(AssetEventFilter::new().only_from(asset_id));
+            DataEventFilter::Account(AccountEventFilter::new().for_account(account_id));
+        let asset_filter = DataEventFilter::Asset(AssetEventFilter::new().for_asset(asset_id));
 
         // domain filter matches all of those, because all of those events happened in the same domain
         assert!(domain_filter.matches(&domain_created));

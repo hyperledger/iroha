@@ -605,9 +605,7 @@ impl Client {
             let mut event_iterator = {
                 let event_iterator_result = tokio::time::timeout_at(
                     deadline,
-                    self.listen_for_events_async(
-                        PipelineEventFilter::new().from_entity_with_hash(hash.into()),
-                    ),
+                    self.listen_for_events_async(PipelineEventFilter::new().for_hash(hash.into())),
                 )
                 .await
                 .map_err(Into::into)

@@ -84,9 +84,9 @@ impl Checker {
                 .listener
                 .listen_for_events(
                     PipelineEventFilter::new()
-                        .from_entity_of_kind(PipelineEntityKind::Transaction)
-                        .with_status(status_kind)
-                        .from_entity_with_hash(*self.hash),
+                        .for_entity(PipelineEntityKind::Transaction)
+                        .for_status(status_kind)
+                        .for_hash(*self.hash),
                 )
                 .expect("Failed to create event iterator.");
             let event_result = event_iterator.next().expect("Stream closed");
@@ -101,8 +101,8 @@ fn committed_block_must_be_available_in_kura() {
     wait_for_genesis_committed(&[client.clone()], 0);
 
     let event_filter = PipelineEventFilter::new()
-        .from_entity_of_kind(PipelineEntityKind::Block)
-        .with_status(PipelineStatusKind::Committed);
+        .for_entity(PipelineEntityKind::Block)
+        .for_status(PipelineStatusKind::Committed);
     let mut event_iter = client
         .listen_for_events(event_filter)
         .expect("Failed to subscribe for events");
