@@ -880,9 +880,9 @@
         "type": "ExecuteTriggerEvent"
       },
       {
-        "tag": "Notification",
+        "tag": "TriggerCompleted",
         "discriminant": 4,
-        "type": "NotificationEvent"
+        "type": "TriggerCompletedEvent"
       }
     ]
   },
@@ -909,9 +909,9 @@
         "type": "ExecuteTriggerEventFilter"
       },
       {
-        "tag": "Notification",
+        "tag": "TriggerCompleted",
         "discriminant": 4,
-        "type": "NotificationEventFilter"
+        "type": "TriggerCompletedEventFilter"
       }
     ]
   },
@@ -2214,28 +2214,6 @@
   "NonTrivial<GenericPredicateBox<QueryOutputPredicate>>": "Vec<GenericPredicateBox<QueryOutputPredicate>>",
   "NonZero<u32>": "u32",
   "NonZero<u64>": "u64",
-  "NotificationEvent": {
-    "Enum": [
-      {
-        "tag": "TriggerCompleted",
-        "discriminant": 0,
-        "type": "TriggerCompletedEvent"
-      }
-    ]
-  },
-  "NotificationEventFilter": {
-    "Enum": [
-      {
-        "tag": "ByAny",
-        "discriminant": 0
-      },
-      {
-        "tag": "ByTriggerCompleted",
-        "discriminant": 1,
-        "type": "TriggerCompletedEventFilter"
-      }
-    ]
-  },
   "Numeric": {
     "Struct": [
       {

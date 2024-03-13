@@ -13,9 +13,9 @@ pub use self::model::*;
 
 pub mod data;
 pub mod execute_trigger;
-pub mod notification;
 pub mod pipeline;
 pub mod time;
+pub mod trigger_completed;
 
 #[model]
 pub mod model {
@@ -46,8 +46,8 @@ pub mod model {
         Time(time::TimeEvent),
         /// Trigger execution event.
         ExecuteTrigger(execute_trigger::ExecuteTriggerEvent),
-        /// Notification event.
-        Notification(notification::NotificationEvent),
+        /// Trigger completion event.
+        TriggerCompleted(trigger_completed::TriggerCompletedEvent),
     }
 
     /// Event type which could invoke trigger execution.
@@ -92,8 +92,8 @@ pub mod model {
         Time(time::TimeEventFilter),
         /// Listen to trigger execution event with filter.
         ExecuteTrigger(execute_trigger::ExecuteTriggerEventFilter),
-        /// Listen to notifications event with filter.
-        Notification(notification::NotificationEventFilter),
+        /// Listen to trigger completion event with filter.
+        TriggerCompleted(trigger_completed::TriggerCompletedEventFilter),
     }
 
     /// Event filter which could be attached to trigger.
@@ -165,19 +165,21 @@ impl EventFilter for EventFilterBox {
             (Event::Data(event), Self::Data(filter)) => filter.matches(event),
             (Event::Time(event), Self::Time(filter)) => filter.matches(event),
             (Event::ExecuteTrigger(event), Self::ExecuteTrigger(filter)) => filter.matches(event),
-            (Event::Notification(event), Self::Notification(filter)) => filter.matches(event),
+            (Event::TriggerCompleted(event), Self::TriggerCompleted(filter)) => {
+                filter.matches(event)
+            }
             // Fail to compile in case when new variant to event or filter is added
             (
                 Event::Pipeline(_)
                 | Event::Data(_)
                 | Event::Time(_)
                 | Event::ExecuteTrigger(_)
-                | Event::Notification(_),
+                | Event::TriggerCompleted(_),
                 Self::Pipeline(_)
                 | Self::Data(_)
                 | Self::Time(_)
                 | Self::ExecuteTrigger(_)
-                | Self::Notification(_),
+                | Self::TriggerCompleted(_),
             ) => false,
         }
     }
@@ -200,7 +202,7 @@ impl EventFilter for TriggeringEventFilterBox {
                 | Event::Data(_)
                 | Event::Time(_)
                 | Event::ExecuteTrigger(_)
-                | Event::Notification(_),
+                | Event::TriggerCompleted(_),
                 Self::Pipeline(_) | Self::Data(_) | Self::Time(_) | Self::ExecuteTrigger(_),
             ) => false,
         }
@@ -249,8 +251,8 @@ pub mod prelude {
     #[cfg(feature = "transparent_api")]
     pub use super::EventFilter;
     pub use super::{
-        data::prelude::*, execute_trigger::prelude::*, notification::prelude::*,
-        pipeline::prelude::*, time::prelude::*, Event, EventFilterBox, TriggeringEventFilterBox,
+        data::prelude::*, execute_trigger::prelude::*, pipeline::prelude::*, time::prelude::*,
+        trigger_completed::prelude::*, Event, EventFilterBox, TriggeringEventFilterBox,
         TriggeringEventType,
     };
 }

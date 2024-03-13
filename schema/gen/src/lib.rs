@@ -233,8 +233,6 @@ types!(
     NonTrivial<PredicateBox>,
     NonZeroU32,
     NonZeroU64,
-    NotificationEvent,
-    NotificationEventFilter,
     Numeric,
     NumericSpec,
     Option<u32>,
