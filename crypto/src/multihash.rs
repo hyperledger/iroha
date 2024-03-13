@@ -151,7 +151,7 @@ impl TryFrom<Vec<u8>> for Multihash {
         }
         let payload = ConstVec::new(payload);
 
-        Ok(Self::from(*PublicKey::from_raw(algorithm, &payload)?.0))
+        Ok(Self::from(*PublicKey::from_bytes(algorithm, &payload)?.0))
     }
 }
 
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn multihash_to_bytes() {
         let multihash = Multihash(
-            *PublicKey::from_raw(
+            *PublicKey::from_bytes(
                 Algorithm::Ed25519,
                 &hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
                     .unwrap(),
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn multihash_from_bytes() {
         let multihash = Multihash(
-            *PublicKey::from_raw(
+            *PublicKey::from_bytes(
                 Algorithm::Ed25519,
                 &hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
                     .unwrap(),

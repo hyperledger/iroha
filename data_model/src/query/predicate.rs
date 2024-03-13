@@ -740,7 +740,7 @@ pub mod string {
 
             #[test]
             fn peer_id() {
-                let (public_key, _) = iroha_crypto::KeyPair::generate().into();
+                let (public_key, _) = iroha_crypto::KeyPair::random().into_parts();
                 let id = IdBox::PeerId(PeerId::new(socket_addr!(127.0.0.1:123), public_key));
                 assert!(StringPredicate::contains("123").applies(&id));
             }
@@ -1250,7 +1250,7 @@ pub mod value {
                     pred.applies(&QueryOutputBox::Identifiable(IdentifiableBox::NewAccount(
                         Account::new(
                             "alice@wonderland".parse().expect("Valid"),
-                            KeyPair::generate().into_raw_parts().0
+                            KeyPair::random().into_parts().0
                         )
                     )))
                 );
@@ -1272,8 +1272,8 @@ pub mod value {
                 );
             }
             {
-                let key_pair = iroha_crypto::KeyPair::generate();
-                let (public_key, _) = key_pair.into();
+                let key_pair = iroha_crypto::KeyPair::random();
+                let (public_key, _) = key_pair.into_parts();
                 let pred =
                     QueryOutputPredicate::Display(string::StringPredicate::is("alice@wonderland"));
                 println!("{pred:?}");

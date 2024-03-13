@@ -23,7 +23,7 @@ fn executor_upgrade_should_work() -> Result<()> {
     client.submit_blocking(register_admin_domain)?;
 
     let admin_id: AccountId = "admin@admin".parse()?;
-    let admin_keypair = KeyPair::generate();
+    let admin_keypair = KeyPair::random();
     let admin_account = Account::new(admin_id.clone(), admin_keypair.public_key().clone());
     let register_admin_account = Register::account(admin_account);
     client.submit_blocking(register_admin_account)?;

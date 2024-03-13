@@ -24,7 +24,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
     let kingdom = Domain::new(kingdom_id.clone());
     test_client.submit_blocking(Register::domain(kingdom))?;
 
-    let bob_keypair = KeyPair::generate();
+    let bob_keypair = KeyPair::random();
     let bob = Account::new(bob_id.clone(), bob_keypair.public_key().clone());
     test_client.submit_blocking(Register::account(bob))?;
 
@@ -95,7 +95,7 @@ fn domain_owner_account_permissions() -> Result<()> {
     let kingdom = Domain::new(kingdom_id);
     test_client.submit_blocking(Register::domain(kingdom))?;
 
-    let mad_hatter_keypair = KeyPair::generate();
+    let mad_hatter_keypair = KeyPair::random();
     let mad_hatter = Account::new(
         mad_hatter_id.clone(),
         mad_hatter_keypair.public_key().clone(),
@@ -103,7 +103,7 @@ fn domain_owner_account_permissions() -> Result<()> {
     test_client.submit_blocking(Register::account(mad_hatter))?;
 
     // check that "alice@wonderland" as owner of domain can burn and mint public keys for accounts in her domain
-    let mad_hatter_new_keypair = KeyPair::generate();
+    let mad_hatter_new_keypair = KeyPair::random();
     test_client.submit_blocking(Mint::account_public_key(
         mad_hatter_new_keypair.public_key().clone(),
         mad_hatter_id.clone(),
@@ -159,7 +159,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     let kingdom = Domain::new(kingdom_id.clone());
     test_client.submit_blocking(Register::domain(kingdom))?;
 
-    let bob_keypair = KeyPair::generate();
+    let bob_keypair = KeyPair::random();
     let bob = Account::new(bob_id.clone(), bob_keypair.public_key().clone());
     test_client.submit_blocking(Register::account(bob))?;
 
@@ -229,7 +229,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
     let kingdom = Domain::new(kingdom_id.clone());
     test_client.submit_blocking(Register::domain(kingdom))?;
 
-    let bob_keypair = KeyPair::generate();
+    let bob_keypair = KeyPair::random();
     let bob = Account::new(bob_id.clone(), bob_keypair.public_key().clone());
     test_client.submit_blocking(Register::account(bob))?;
 
@@ -294,7 +294,7 @@ fn domain_owner_trigger_permissions() -> Result<()> {
     let kingdom = Domain::new(kingdom_id);
     test_client.submit_blocking(Register::domain(kingdom))?;
 
-    let bob_keypair = KeyPair::generate();
+    let bob_keypair = KeyPair::random();
     let bob = Account::new(bob_id.clone(), bob_keypair.public_key().clone());
     test_client.submit_blocking(Register::account(bob))?;
 
@@ -355,7 +355,7 @@ fn domain_owner_transfer() -> Result<()> {
     let kingdom = Domain::new(kingdom_id.clone());
     test_client.submit_blocking(Register::domain(kingdom))?;
 
-    let bob_keypair = KeyPair::generate();
+    let bob_keypair = KeyPair::random();
     let bob = Account::new(bob_id.clone(), bob_keypair.public_key().clone());
     test_client.submit_blocking(Register::account(bob))?;
 

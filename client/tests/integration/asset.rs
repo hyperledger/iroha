@@ -268,8 +268,8 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let seller_btc: AssetId = "btc#crypto#seller@company".parse().expect("Valid.");
     let buyer_eth: AssetId = "eth#crypto#buyer@company".parse().expect("Valid.");
 
-    let seller_keypair = KeyPair::generate();
-    let buyer_keypair = KeyPair::generate();
+    let seller_keypair = KeyPair::random();
+    let buyer_keypair = KeyPair::random();
 
     let register_account = |account_id: AccountId, signature: PublicKey| {
         Register::account(Account::new(account_id, signature))

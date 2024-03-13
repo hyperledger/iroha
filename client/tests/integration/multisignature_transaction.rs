@@ -29,7 +29,7 @@ fn multisignature_transactions_should_be_accepted_after_fully_signed() -> Result
 
     let alice_id = AccountId::from_str("alice@wonderland")?;
     let alice_key_pair = get_key_pair();
-    let key_pair_2 = KeyPair::generate();
+    let key_pair_2 = KeyPair::random();
     let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland")?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));

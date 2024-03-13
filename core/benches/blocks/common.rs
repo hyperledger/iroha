@@ -74,7 +74,7 @@ pub fn populate_wsv(
         instructions.push(can_unregister_domain.into());
         for j in 0..accounts_per_domain {
             let account_id = construct_account_id(j, domain_id.clone());
-            let account = Account::new(account_id.clone(), KeyPair::generate().into_raw_parts().0);
+            let account = Account::new(account_id.clone(), KeyPair::random().into_parts().0);
             instructions.push(Register::account(account).into());
             let can_unregister_account = Grant::permission(
                 PermissionToken::new(
@@ -147,8 +147,7 @@ pub fn restore_every_nth(
         for j in 0..accounts_per_domain {
             if j % nth == 0 || i % nth == 0 {
                 let account_id = construct_account_id(j, domain_id.clone());
-                let account =
-                    Account::new(account_id.clone(), KeyPair::generate().into_raw_parts().0);
+                let account = Account::new(account_id.clone(), KeyPair::random().into_parts().0);
                 instructions.push(Register::account(account).into());
             }
         }

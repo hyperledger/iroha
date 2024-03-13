@@ -52,14 +52,14 @@ iroha_schema = { workspace = true }
 derive_more = { workspace = true, features = ["deref", "deref_mut", "display"] }
 parity-scale-codec = { workspace = true, features = ["derive", "full"] }
 serde = { workspace = true, features = ["derive"] }
-serde_with = { workspace = true, features = ["macros"] }
+serde_with = { workspace = true, features = ["macros", "hex"] }
 hex = { workspace = true, features = ["alloc", "serde"] }
 getset = { workspace = true }
 
 thiserror = { version = "1.0.50", optional = true }
 displaydoc = { version = "0.2.4", default-features = false }
 
-digest = { version = "0.10.7", default-features = false, features = ["alloc"]}
+digest = { version = "0.10.7", default-features = false, features = ["alloc"] }
 blake2 = { version = "0.10.6", default-features = false }
 sha2 = { version = "0.10.8", default-features = false }
 hkdf = { version = "0.12.3", default-features = false }
@@ -70,8 +70,8 @@ ed25519-dalek = { version = "2.1.0", default-features = false, features = ["allo
 curve25519-dalek = { version = "4.1.1", default-features = false }
 x25519-dalek = { version = "2.0.0", default-features = false, features = ["static_secrets"] }
 
-rand = { workspace = true, default-features = false, features = ["std_rng", "alloc"]}
-rand_core = { version = "0.6.4", default-features = false, features = ["alloc"]}
+rand = { workspace = true, default-features = false, features = ["std_rng", "alloc"] }
+rand_core = { version = "0.6.4", default-features = false, features = ["alloc"] }
 rand_chacha = { version = "0.3.1", default-features = false }
 
 
@@ -82,11 +82,11 @@ aead = { version = "0.5.2", default-features = false, features = ["alloc"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false }
 
 elliptic-curve = { version = "0.13.6", default-features = false }
-k256 = { version = "0.13.1", default-features = false, features = ["alloc", "ecdsa", "sha256"]}
+k256 = { version = "0.13.1", default-features = false, features = ["alloc", "ecdsa", "sha256"] }
 
 [dev-dependencies]
 hex-literal = { workspace = true }
-serde_json = { workspace = true, features = ["std"]}
+serde_json = { workspace = true, features = ["std"] }
 
 # these crypto libraries are not used to implement actual crypto algorithms
 # but to test some of the primitives against them

@@ -10,7 +10,7 @@ pub type PublicKey = k256::PublicKey;
 pub type PrivateKey = k256::SecretKey;
 
 impl EcdsaSecp256k1Sha256 {
-    pub fn keypair(option: KeyGenOption) -> (PublicKey, PrivateKey) {
+    pub fn keypair(option: KeyGenOption<PrivateKey>) -> (PublicKey, PrivateKey) {
         EcdsaSecp256k1Impl::keypair(option)
     }
 
@@ -34,7 +34,6 @@ impl EcdsaSecp256k1Sha256 {
 mod ecdsa_secp256k1 {
     #[cfg(not(feature = "std"))]
     use alloc::{format, string::ToString as _, vec::Vec};
-    use core::borrow::Borrow;
 
     #[cfg(feature = "rand")]
     use rand::rngs::OsRng;
@@ -46,19 +45,14 @@ mod ecdsa_secp256k1 {
     pub struct EcdsaSecp256k1Impl;
 
     impl EcdsaSecp256k1Impl {
-        pub fn keypair(option: KeyGenOption) -> (PublicKey, PrivateKey) {
+        pub fn keypair(option: KeyGenOption<PrivateKey>) -> (PublicKey, PrivateKey) {
             let signing_key = match option {
                 #[cfg(feature = "rand")]
                 KeyGenOption::Random => PrivateKey::random(&mut OsRng),
                 KeyGenOption::UseSeed(seed) => {
                     PrivateKey::random(&mut super::super::rng_from_seed(seed))
                 }
-                KeyGenOption::FromPrivateKey(ref s) => {
-                    let crate::PrivateKeyInner::Secp256k1(s) = s.0.borrow() else {
-                        panic!("Wrong private key type, expected `Secp256k1`, got {s:?}")
-                    };
-                    s.clone()
-                }
+                KeyGenOption::FromPrivateKey(ref s) => s.clone(),
             };
 
             let public_key = signing_key.public_key();
@@ -139,9 +133,7 @@ mod test {
     #[test]
     fn secp256k1_compatibility() {
         let secret = private_key();
-        let (p, s) = EcdsaSecp256k1Sha256::keypair(KeyGenOption::FromPrivateKey(
-            crate::PrivateKey(Box::new(crate::PrivateKeyInner::Secp256k1(secret))),
-        ));
+        let (p, s) = EcdsaSecp256k1Sha256::keypair(KeyGenOption::FromPrivateKey(secret));
 
         let _sk = secp256k1::SecretKey::from_slice(&s.to_bytes()).unwrap();
         let _pk = secp256k1::PublicKey::from_slice(&p.to_sec1_bytes()).unwrap();
@@ -191,9 +183,7 @@ mod test {
     #[test]
     fn secp256k1_sign() {
         let secret = private_key();
-        let (pk, sk) = EcdsaSecp256k1Sha256::keypair(KeyGenOption::FromPrivateKey(
-            crate::PrivateKey(Box::new(crate::PrivateKeyInner::Secp256k1(secret))),
-        ));
+        let (pk, sk) = EcdsaSecp256k1Sha256::keypair(KeyGenOption::FromPrivateKey(secret));
 
         let sig = EcdsaSecp256k1Sha256::sign(MESSAGE_1, &sk);
         EcdsaSecp256k1Sha256::verify(MESSAGE_1, &sig, &pk).unwrap();

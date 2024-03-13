@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     async fn push_tx() {
-        let key_pair = KeyPair::generate();
+        let key_pair = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
@@ -432,7 +432,7 @@ mod tests {
     async fn push_tx_overflow() {
         let capacity = NonZeroUsize::new(10).unwrap();
 
-        let key_pair = KeyPair::generate();
+        let key_pair = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
@@ -467,7 +467,7 @@ mod tests {
     async fn push_multisignature_tx() {
         let chain_id = ChainId::from("0");
 
-        let key_pairs = [KeyPair::generate(), KeyPair::generate()];
+        let key_pairs = [KeyPair::random(), KeyPair::random()];
         let kura = Kura::blank_kura_for_testing();
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
@@ -530,7 +530,7 @@ mod tests {
     #[test]
     async fn get_available_txs() {
         let max_txs_in_block = 2;
-        let alice_key = KeyPair::generate();
+        let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
@@ -555,7 +555,7 @@ mod tests {
 
     #[test]
     async fn push_tx_already_in_blockchain() {
-        let alice_key = KeyPair::generate();
+        let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let mut wsv = WorldStateView::new(
@@ -579,7 +579,7 @@ mod tests {
     #[test]
     async fn get_tx_drop_if_in_blockchain() {
         let max_txs_in_block = 2;
-        let alice_key = KeyPair::generate();
+        let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let mut wsv = WorldStateView::new(
@@ -603,7 +603,7 @@ mod tests {
     #[test]
     async fn get_available_txs_with_timeout() {
         let max_txs_in_block = 6;
-        let alice_key = KeyPair::generate();
+        let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
@@ -650,7 +650,7 @@ mod tests {
     #[test]
     async fn transactions_available_after_pop() {
         let max_txs_in_block = 2;
-        let alice_key = KeyPair::generate();
+        let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
@@ -684,7 +684,7 @@ mod tests {
         let chain_id = ChainId::from("0");
 
         let max_txs_in_block = 2;
-        let alice_key = KeyPair::generate();
+        let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
@@ -724,7 +724,7 @@ mod tests {
     #[test]
     async fn concurrent_stress_test() {
         let max_txs_in_block = 10;
-        let alice_key = KeyPair::generate();
+        let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let wsv = WorldStateView::new(
@@ -797,7 +797,7 @@ mod tests {
         let future_threshold = Duration::from_secs(1);
 
         let alice_id = "alice@wonderland";
-        let alice_key = KeyPair::generate();
+        let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
@@ -844,8 +844,8 @@ mod tests {
 
     #[test]
     async fn queue_throttling() {
-        let alice_key_pair = KeyPair::generate();
-        let bob_key_pair = KeyPair::generate();
+        let alice_key_pair = KeyPair::random();
+        let bob_key_pair = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let world = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");

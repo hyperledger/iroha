@@ -153,7 +153,7 @@ impl MeasurerUnit {
 
     /// Submit initial transactions for measurement
     fn ready(self) -> Result<Self> {
-        let keypair = iroha_client::crypto::KeyPair::generate();
+        let keypair = iroha_client::crypto::KeyPair::random();
 
         let account_id = account_id(self.name);
         let asset_id = asset_id(self.name);

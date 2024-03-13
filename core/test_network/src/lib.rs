@@ -468,7 +468,7 @@ impl Peer {
     /// - `api_address`
     /// * If keypair generation fails
     pub fn new() -> Result<Self> {
-        let key_pair = KeyPair::generate();
+        let key_pair = KeyPair::random();
         let p2p_address = local_unique_port()?;
         let api_address = local_unique_port()?;
         let id = PeerId::new(p2p_address.clone(), key_pair.public_key().clone());
@@ -759,7 +759,7 @@ impl TestConfig for Config {
         )
         .merge(RootPartial::from_env(&StdEnv).expect("test env variables should parse properly"));
 
-        let (public_key, private_key) = KeyPair::generate().into();
+        let (public_key, private_key) = KeyPair::random().into_parts();
         layer.public_key.set(public_key);
         layer.private_key.set(private_key);
 

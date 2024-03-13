@@ -559,7 +559,7 @@ mod tests {
         use super::*;
 
         fn config_factory() -> PartialUserConfig {
-            let (pubkey, privkey) = KeyPair::generate().into();
+            let (pubkey, privkey) = KeyPair::random().into_parts();
 
             let mut base = PartialUserConfig::default();
 

@@ -17,8 +17,6 @@ use crate::{Algorithm, Error, KeyGenOption, ParseError};
 pub trait BlsConfiguration {
     const ALGORITHM: Algorithm;
     type Engine: w3f_bls::EngineBLS;
-
-    fn extract_private_key(private_key: &crate::PrivateKey) -> Option<&SecretKey<Self::Engine>>;
 }
 
 pub struct BlsImpl<C: BlsConfiguration + ?Sized>(PhantomData<C>);
@@ -26,7 +24,9 @@ pub struct BlsImpl<C: BlsConfiguration + ?Sized>(PhantomData<C>);
 impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
     // the names are from an RFC, not a good idea to change them
     #[allow(clippy::similar_names)]
-    pub fn keypair(mut option: KeyGenOption) -> (PublicKey<C::Engine>, SecretKey<C::Engine>) {
+    pub fn keypair(
+        mut option: KeyGenOption<SecretKey<C::Engine>>,
+    ) -> (PublicKey<C::Engine>, SecretKey<C::Engine>) {
         let private_key = match option {
             #[cfg(feature = "rand")]
             KeyGenOption::Random => SecretKey::generate(OsRng),
@@ -44,14 +44,7 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
 
                 SecretKey::<C::Engine>::from_seed(&okm)
             }
-            KeyGenOption::FromPrivateKey(ref key) => C::extract_private_key(key)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Wrong private key type for {} algorithm, got {key:?}",
-                        C::ALGORITHM,
-                    )
-                })
-                .clone(),
+            KeyGenOption::FromPrivateKey(ref key) => key.clone(),
         };
         (private_key.into_public(), private_key)
     }

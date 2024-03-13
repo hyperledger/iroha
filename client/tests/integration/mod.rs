@@ -26,5 +26,5 @@ mod tx_rollback;
 mod upgrade;
 
 fn new_account_with_random_public_key(account_id: AccountId) -> NewAccount {
-    Account::new(account_id, KeyPair::generate().into_raw_parts().0)
+    Account::new(account_id, KeyPair::random().into_parts().0)
 }

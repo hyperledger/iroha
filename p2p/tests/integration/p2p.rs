@@ -36,7 +36,7 @@ async fn network_create() {
     setup_logger();
     info!("Starting network tests...");
     let address = socket_addr!(127.0.0.1:12_000);
-    let key_pair = KeyPair::generate();
+    let key_pair = KeyPair::random();
     let public_key = key_pair.public_key().clone();
     let network = NetworkHandle::start(address.clone(), key_pair)
         .await
@@ -140,9 +140,9 @@ impl TestActor {
 async fn two_networks() {
     let delay = Duration::from_millis(300);
     setup_logger();
-    let key_pair1 = KeyPair::generate();
+    let key_pair1 = KeyPair::random();
     let public_key1 = key_pair1.public_key().clone();
-    let key_pair2 = KeyPair::generate().clone();
+    let key_pair2 = KeyPair::random().clone();
     let public_key2 = key_pair2.public_key().clone();
     info!("Starting first network...");
     let address1 = socket_addr!(127.0.0.1:12_005);
@@ -216,7 +216,7 @@ async fn multiple_networks() {
     let mut key_pairs = Vec::new();
     for i in 0_u16..10_u16 {
         let address = socket_addr!(127.0.0.1: 12_015 + ( i * 5));
-        let key_pair = KeyPair::generate();
+        let key_pair = KeyPair::random();
         let public_key = key_pair.public_key().clone();
         peers.push(PeerId::new(address, public_key));
         key_pairs.push(key_pair);

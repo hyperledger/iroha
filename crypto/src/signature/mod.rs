@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use zeroize::Zeroize as _;
 
-use crate::{ffi, Error, HashOf, KeyPair, PublicKey};
+use crate::{error::ParseError, ffi, hex_decode, Error, HashOf, KeyPair, PublicKey};
 
 /// Construct cryptographic RNG from seed.
 fn rng_from_seed(mut seed: Vec<u8>) -> impl CryptoRngCore {
@@ -40,7 +40,8 @@ fn rng_from_seed(mut seed: Vec<u8>) -> impl CryptoRngCore {
 }
 
 ffi::ffi_item! {
-    /// Represents signature of the data (`Block` or `Transaction` for example).
+    /// Represents a signature of the data (`Block` or `Transaction` for example).
+    #[serde_with::serde_as]
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, getset::Getters)]
     #[cfg_attr(not(feature="ffi_import"), derive(derive_more::DebugCustom, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema))]
     #[cfg_attr(not(feature="ffi_import"), debug(
@@ -53,20 +54,18 @@ ffi::ffi_item! {
         #[getset(get = "pub")]
         public_key: PublicKey,
         /// Signature payload
-        payload: ConstVec<u8>,
+        #[serde_as(as = "serde_with::hex::Hex<serde_with::formats::Uppercase>")]
+        payload:  ConstVec<u8>,
     }
 }
 
 impl Signature {
-    /// Key payload
+    /// Access the signature's payload
     pub fn payload(&self) -> &[u8] {
         self.payload.as_ref()
     }
 
-    /// Creates new [`Signature`] by signing payload via [`KeyPair::private_key`].
-    ///
-    /// # Errors
-    /// Fails if signing fails
+    /// Creates new signature by signing payload via [`KeyPair::private_key`].
     pub fn new(key_pair: &KeyPair, payload: &[u8]) -> Self {
         let signature = match key_pair.private_key.0.borrow() {
             crate::PrivateKeyInner::Ed25519(sk) => ed25519::Ed25519Sha512::sign(payload, sk),
@@ -82,10 +81,32 @@ impl Signature {
         }
     }
 
+    /// Creates new signature from its raw payload and public key.
+    ///
+    /// **This method does not sign the payload.** Use [`Signature::new`] for this purpose.
+    ///
+    /// This method exists to allow reproducing the signature in a more efficient way than through
+    /// deserialization.
+    pub fn from_bytes(public_key: PublicKey, payload: &[u8]) -> Self {
+        Self {
+            public_key,
+            payload: ConstVec::new(payload),
+        }
+    }
+
+    /// A shorthand for [`Self::from_bytes`] accepting payload as hex.
+    ///
+    /// # Errors
+    /// If passed string is not a valid hex.
+    pub fn from_hex(public_key: PublicKey, payload: impl AsRef<str>) -> Result<Self, ParseError> {
+        let payload: Vec<u8> = hex_decode(payload.as_ref())?;
+        Ok(Self::from_bytes(public_key, &payload))
+    }
+
     /// Verify `payload` using signed data and [`KeyPair::public_key`].
     ///
     /// # Errors
-    /// Fails if message didn't pass verification
+    /// Fails if the message doesn't pass verification
     pub fn verify(&self, payload: &[u8]) -> Result<(), Error> {
         match self.public_key.0.borrow() {
             crate::PublicKeyInner::Ed25519(pk) => {
@@ -537,61 +558,57 @@ impl<T> std::error::Error for SignatureVerificationFail<T> {}
 
 #[cfg(test)]
 mod tests {
+    use core::str::FromStr;
+
+    use serde_json::json;
+
     use super::*;
-    use crate::KeyGenConfiguration;
+    use crate::Algorithm;
 
     #[test]
     #[cfg(feature = "rand")]
     fn create_signature_ed25519() {
-        let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::Ed25519),
-        );
+        let key_pair = KeyPair::random_with_algorithm(crate::Algorithm::Ed25519);
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
-        assert!(*signature.public_key() == *key_pair.public_key());
+        assert_eq!(*signature.public_key(), *key_pair.public_key());
         signature.verify(message).unwrap();
     }
 
     #[test]
     #[cfg(feature = "rand")]
     fn create_signature_secp256k1() {
-        let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::Secp256k1),
-        );
+        let key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
-        assert!(*signature.public_key() == *key_pair.public_key());
+        assert_eq!(*signature.public_key(), *key_pair.public_key());
         signature.verify(message).unwrap();
     }
 
     #[test]
     #[cfg(feature = "rand")]
     fn create_signature_bls_normal() {
-        let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::BlsNormal),
-        );
+        let key_pair = KeyPair::random_with_algorithm(Algorithm::BlsNormal);
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
-        assert!(*signature.public_key() == *key_pair.public_key());
+        assert_eq!(*signature.public_key(), *key_pair.public_key());
         signature.verify(message).unwrap();
     }
 
     #[test]
     #[cfg(all(feature = "rand", any(feature = "std", feature = "ffi_import")))]
     fn create_signature_bls_small() {
-        let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::BlsSmall),
-        );
+        let key_pair = KeyPair::random_with_algorithm(Algorithm::BlsSmall);
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
-        assert!(*signature.public_key() == *key_pair.public_key());
+        assert_eq!(*signature.public_key(), *key_pair.public_key());
         signature.verify(message).unwrap();
     }
 
     #[test]
     #[cfg(all(feature = "rand", not(feature = "ffi_import")))]
     fn signatures_of_deduplication_by_public_key() {
-        let key_pair = KeyPair::generate();
+        let key_pair = KeyPair::random();
         let signatures = [
             SignatureOf::new(&key_pair, &1),
             SignatureOf::new(&key_pair, &2),
@@ -610,7 +627,7 @@ mod tests {
 
         let keys = 5;
         let signatures_per_key = 10;
-        let signatures = core::iter::repeat_with(KeyPair::generate)
+        let signatures = core::iter::repeat_with(KeyPair::random)
             .take(keys)
             .flat_map(|key| {
                 core::iter::repeat_with(move || key.clone())
@@ -632,5 +649,28 @@ mod tests {
             assert!(hash_set.contains(signature));
         }
         // From the above we can conclude that `SignatureWrapperOf` have consistent behavior for `HashSet` and `BTreeSet`
+    }
+
+    #[test]
+    fn signature_serialized_representation() {
+        let input = json!({
+            "public_key": "e701210312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC",
+            "payload": "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
+        });
+
+        let signature: Signature = serde_json::from_value(input.clone()).unwrap();
+
+        assert_eq!(serde_json::to_value(signature).unwrap(), input);
+    }
+
+    #[test]
+    fn signature_from_hex_simply_reproduces_the_data() {
+        let public_key = "e701210312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC";
+        let payload = "3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4";
+
+        let value = Signature::from_hex(PublicKey::from_str(public_key).unwrap(), payload).unwrap();
+
+        assert_eq!(value.public_key().to_string(), public_key);
+        assert_eq!(value.payload(), hex::decode(payload).unwrap());
     }
 }
