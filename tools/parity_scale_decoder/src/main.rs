@@ -271,7 +271,7 @@ mod tests {
         );
         let rose_id = AssetId::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
-        let action = Action::<EventFilterBox>::new(
+        let action = Action::new(
             vec![Mint::asset_numeric(1u32, rose_id)],
             Repeats::Indefinitely,
             account_id,

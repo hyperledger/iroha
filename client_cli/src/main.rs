@@ -264,16 +264,16 @@ mod events {
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let filter = match self {
-                Args::Pipeline => EventFilterBox::Pipeline(PipelineEventFilter::new()),
-                Args::Data => EventFilterBox::Data(DataEventFilter::Any),
-                Args::Notification => EventFilterBox::Notification(NotificationEventFilter::ByAny),
-            };
-            listen(filter, context)
+            match self {
+                Args::Pipeline => listen(PipelineEventFilter::new(), context),
+                Args::Data => listen(DataEventFilter::Any, context),
+                Args::Notification => listen(NotificationEventFilter::ByAny, context),
+            }
         }
     }
 
-    fn listen(filter: EventFilterBox, context: &mut dyn RunContext) -> Result<()> {
+    fn listen(filter: impl Into<EventFilterBox>, context: &mut dyn RunContext) -> Result<()> {
+        let filter = filter.into();
         let iroha_client = context.client_from_config();
         eprintln!("Listening to events with filter: {filter:?}");
         iroha_client
