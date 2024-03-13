@@ -6,3 +6,4 @@ pub mod client_api;
 pub mod kura;
 pub mod logger;
 pub mod parameters;
+pub mod snapshot;

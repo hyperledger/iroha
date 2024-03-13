@@ -52,7 +52,7 @@
 # future_threshold = "1s"
 
 [snapshot]
-# creation_enabled = true
+# mode = "normal"
 # create_every = "1min"
 # store_dir = "./storage/snapshot"
 

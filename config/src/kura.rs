@@ -18,7 +18,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
     SerializeDisplay,
 )]
 #[strum(serialize_all = "snake_case")]
-pub enum Mode {
+pub enum InitMode {
     /// Strict validation of all blocks.
     #[default]
     Strict,
@@ -28,13 +28,13 @@ pub enum Mode {
 
 #[cfg(test)]
 mod tests {
-    use crate::kura::Mode;
+    use crate::kura::InitMode;
 
     #[test]
     fn init_mode_display_reprs() {
-        assert_eq!(format!("{}", Mode::Strict), "strict");
-        assert_eq!(format!("{}", Mode::Fast), "fast");
-        assert_eq!("strict".parse::<Mode>().unwrap(), Mode::Strict);
-        assert_eq!("fast".parse::<Mode>().unwrap(), Mode::Fast);
+        assert_eq!(format!("{}", InitMode::Strict), "strict");
+        assert_eq!(format!("{}", InitMode::Fast), "fast");
+        assert_eq!("strict".parse::<InitMode>().unwrap(), InitMode::Strict);
+        assert_eq!("fast".parse::<InitMode>().unwrap(), InitMode::Fast);
     }
 }

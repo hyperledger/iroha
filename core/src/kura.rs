@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-use iroha_config::{kura::Mode, parameters::actual::Kura as Config};
+use iroha_config::{kura::InitMode, parameters::actual::Kura as Config};
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::block::SignedBlock;
 use iroha_logger::prelude::*;
@@ -31,7 +31,7 @@ const SIZE_OF_BLOCK_HASH: u64 = Hash::LENGTH as u64;
 #[derive(Debug)]
 pub struct Kura {
     /// The mode of initialisation of [`Kura`].
-    mode: Mode,
+    mode: InitMode,
     /// The block storage
     block_store: Mutex<BlockStore>,
     /// The array of block hashes and a slot for an arc of the block. This is normally recovered from the index file.
@@ -71,7 +71,7 @@ impl Kura {
     /// for in-memory blocks only.
     pub fn blank_kura_for_testing() -> Arc<Kura> {
         Arc::new(Self {
-            mode: Mode::Strict,
+            mode: InitMode::Strict,
             block_store: Mutex::new(BlockStore::new(PathBuf::new(), LockStatus::Locked)),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path: None,
@@ -112,11 +112,13 @@ impl Kura {
             .expect("We don't have 4 billion blocks.");
 
         let block_hashes = match self.mode {
-            Mode::Fast => Kura::init_fast_mode(&block_store, block_index_count).or_else(|error| {
-                warn!(%error, "Hashes file is broken. Falling back to strict init mode.");
-                Kura::init_strict_mode(&mut block_store, block_index_count)
-            }),
-            Mode::Strict => Kura::init_strict_mode(&mut block_store, block_index_count),
+            InitMode::Fast => {
+                Kura::init_fast_mode(&block_store, block_index_count).or_else(|error| {
+                    warn!(%error, "Hashes file is broken. Falling back to strict init mode.");
+                    Kura::init_strict_mode(&mut block_store, block_index_count)
+                })
+            }
+            InitMode::Strict => Kura::init_strict_mode(&mut block_store, block_index_count),
         }?;
 
         let block_count = block_hashes.len();
@@ -1047,7 +1049,7 @@ mod tests {
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
         Kura::new(&Config {
-            init_mode: Mode::Strict,
+            init_mode: InitMode::Strict,
             store_dir: temp_dir.path().to_str().unwrap().into(),
             debug_output_new_blocks: false,
         })

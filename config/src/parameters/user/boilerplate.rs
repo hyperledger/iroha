@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::{
-    kura::Mode,
+    kura::InitMode as KuraInitMode,
     logger::Format,
     parameters::{
         defaults::{self, chain_wide::*, network::*, queue::*, torii::*},
@@ -36,6 +36,7 @@ use crate::{
             SumeragiDebug, Telemetry, TelemetryDev, Torii,
         },
     },
+    snapshot::Mode as SnapshotMode,
 };
 
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
@@ -260,7 +261,7 @@ impl FromEnv for GenesisPartial {
 #[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
 pub struct KuraPartial {
-    pub init_mode: UserField<Mode>,
+    pub init_mode: UserField<KuraInitMode>,
     pub store_dir: UserField<PathBuf>,
     pub debug: KuraDebugPartial,
 }
@@ -595,9 +596,9 @@ impl FromEnvDefaultFallback for TelemetryPartial {}
 #[derive(Debug, Clone, Deserialize, Serialize, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
 pub struct SnapshotPartial {
+    pub mode: UserField<SnapshotMode>,
     pub create_every: UserField<HumanDuration>,
     pub store_dir: UserField<PathBuf>,
-    pub creation_enabled: UserField<bool>,
 }
 
 impl UnwrapPartial for SnapshotPartial {
@@ -605,9 +606,7 @@ impl UnwrapPartial for SnapshotPartial {
 
     fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
         Ok(Snapshot {
-            creation_enabled: self
-                .creation_enabled
-                .unwrap_or(defaults::snapshot::DEFAULT_ENABLED),
+            mode: self.mode.unwrap_or_default(),
             create_every: self
                 .create_every
                 .get()
@@ -627,6 +626,9 @@ impl FromEnv for SnapshotPartial {
     {
         let mut emitter = Emitter::new();
 
+        let mode =
+            ParseEnvResult::parse_simple(&mut emitter, env, "SNAPSHOT_MODE", "snapshot.mode")
+                .into();
         let store_dir = ParseEnvResult::parse_simple(
             &mut emitter,
             env,
@@ -634,19 +636,12 @@ impl FromEnv for SnapshotPartial {
             "snapshot.store_dir",
         )
         .into();
-        let creation_enabled = ParseEnvResult::parse_simple(
-            &mut emitter,
-            env,
-            "SNAPSHOT_CREATION_ENABLED",
-            "snapshot.creation_enabled",
-        )
-        .into();
 
         emitter.finish()?;
 
         Ok(Self {
+            mode,
             store_dir,
-            creation_enabled,
             ..Self::default()
         })
     }
