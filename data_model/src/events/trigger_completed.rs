@@ -19,27 +19,6 @@ use crate::trigger::TriggerId;
 pub mod model {
     use super::*;
 
-    /// Notification event for events that arise during block application process like trigger execution for example
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[ffi_type]
-    #[non_exhaustive]
-    pub enum NotificationEvent {
-        TriggerCompleted(TriggerCompletedEvent),
-    }
-
     /// Event that notifies that a trigger was executed
     #[derive(
         Debug,
@@ -95,28 +74,6 @@ pub mod model {
         Failure(String),
     }
 
-    /// Filter for [`NotificationEvent`]
-    #[derive(
-        Debug,
-        Clone,
-        FromVariant,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[ffi_type]
-    #[non_exhaustive]
-    pub enum NotificationEventFilter {
-        ByAny,
-        ByTriggerCompleted(TriggerCompletedEventFilter),
-    }
-
     /// Filter [`TriggerCompletedEvent`] by
     /// 1. if `triger_id` is some filter based on trigger id
     /// 2. if `outcome_type` is some filter based on execution outcome (success/failure)
@@ -141,22 +98,6 @@ pub mod model {
     pub struct TriggerCompletedEventFilter {
         pub(super) trigger_id: Option<TriggerId>,
         pub(super) outcome_type: Option<TriggerCompletedOutcomeType>,
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl super::EventFilter for NotificationEventFilter {
-    type Event = NotificationEvent;
-
-    /// Check if `self` accepts the `event`.
-    #[inline]
-    fn matches(&self, event: &Self::Event) -> bool {
-        match (self, event) {
-            (Self::ByAny, _) => true,
-            (Self::ByTriggerCompleted(filter), NotificationEvent::TriggerCompleted(event)) => {
-                filter.matches(event)
-            }
-        }
     }
 }
 
@@ -219,8 +160,8 @@ impl super::EventFilter for TriggerCompletedEventFilter {
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
-        NotificationEvent, NotificationEventFilter, TriggerCompletedEvent,
-        TriggerCompletedEventFilter, TriggerCompletedOutcome, TriggerCompletedOutcomeType,
+        TriggerCompletedEvent, TriggerCompletedEventFilter, TriggerCompletedOutcome,
+        TriggerCompletedOutcomeType,
     };
 }
 

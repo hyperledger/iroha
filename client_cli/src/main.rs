@@ -258,8 +258,10 @@ mod events {
         Pipeline,
         /// Gets data events
         Data,
-        /// Get notification events
-        Notification,
+        /// Get execute trigger events
+        ExecuteTrigger,
+        /// Get trigger completed events
+        TriggerCompleted,
     }
 
     impl RunArgs for Args {
@@ -267,7 +269,8 @@ mod events {
             match self {
                 Args::Pipeline => listen(PipelineEventFilter::new(), context),
                 Args::Data => listen(DataEventFilter::Any, context),
-                Args::Notification => listen(NotificationEventFilter::ByAny, context),
+                Args::ExecuteTrigger => listen(ExecuteTriggerEventFilter::new(), context),
+                Args::TriggerCompleted => listen(TriggerCompletedEventFilter::new(), context),
             }
         }
     }

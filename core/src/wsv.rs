@@ -12,7 +12,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{
     account::AccountId,
     block::SignedBlock,
-    events::notification::{TriggerCompletedEvent, TriggerCompletedOutcome},
+    events::trigger_completed::{TriggerCompletedEvent, TriggerCompletedOutcome},
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::{Parameter, ParameterValueBox},
     permission::PermissionTokenSchema,
@@ -567,8 +567,7 @@ impl WorldStateView {
                         event
                     }
                 };
-                self.events_buffer
-                    .push(NotificationEvent::from(event).into());
+                self.events_buffer.push(event.into());
             }
         }
 

@@ -35,12 +35,11 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
     let thread_client = test_client.clone();
     let (sender, receiver) = mpsc::channel();
     let _handle = thread::spawn(move || -> Result<()> {
-        let mut event_it =
-            thread_client.listen_for_events(NotificationEventFilter::ByTriggerCompleted(
-                TriggerCompletedEventFilter::new()
-                    .for_trigger(trigger_id)
-                    .for_outcome(TriggerCompletedOutcomeType::Success),
-            ))?;
+        let mut event_it = thread_client.listen_for_events(
+            TriggerCompletedEventFilter::new()
+                .for_trigger(trigger_id)
+                .for_outcome(TriggerCompletedOutcomeType::Success),
+        )?;
         if event_it.next().is_some() {
             sender.send(())?;
             return Ok(());
@@ -84,12 +83,11 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
     let thread_client = test_client.clone();
     let (sender, receiver) = mpsc::channel();
     let _handle = thread::spawn(move || -> Result<()> {
-        let mut event_it =
-            thread_client.listen_for_events(NotificationEventFilter::ByTriggerCompleted(
-                TriggerCompletedEventFilter::new()
-                    .for_trigger(trigger_id)
-                    .for_outcome(TriggerCompletedOutcomeType::Failure),
-            ))?;
+        let mut event_it = thread_client.listen_for_events(
+            TriggerCompletedEventFilter::new()
+                .for_trigger(trigger_id)
+                .for_outcome(TriggerCompletedOutcomeType::Failure),
+        )?;
         if event_it.next().is_some() {
             sender.send(())?;
             return Ok(());
