@@ -30,7 +30,7 @@ fn failed_trigger_revert() -> Result<()> {
             account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id.clone())
+                    .for_trigger(trigger_id.clone())
                     .under_authority(account_id),
             ),
         ),

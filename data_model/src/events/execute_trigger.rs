@@ -73,7 +73,7 @@ impl ExecuteTriggerEventFilter {
     /// Modifies a [`ExecuteTriggerEventFilter`] to accept only [`ExecuteTriggerEvent`]s originating from a specific trigger
     #[must_use]
     #[inline]
-    pub fn from_trigger(mut self, trigger_id: TriggerId) -> Self {
+    pub fn for_trigger(mut self, trigger_id: TriggerId) -> Self {
         self.trigger_id = Some(trigger_id);
         self
     }

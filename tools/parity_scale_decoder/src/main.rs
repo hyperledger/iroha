@@ -276,7 +276,7 @@ mod tests {
             Repeats::Indefinitely,
             account_id,
             EventFilterBox::Data(DataEventFilter::Domain(
-                DomainEventFilter::new().only_events(DomainEventSet::AnyAccount),
+                DomainEventFilter::new().for_events(DomainEventSet::AnyAccount),
             )),
         );
         let trigger = Trigger::new(trigger_id, action);

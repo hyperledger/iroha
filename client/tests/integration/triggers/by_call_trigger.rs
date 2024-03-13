@@ -61,7 +61,7 @@ fn execute_trigger_should_produce_event() -> Result<()> {
     let _handle = thread::spawn(move || -> Result<()> {
         let mut event_it = thread_client.listen_for_events(
             ExecuteTriggerEventFilter::new()
-                .from_trigger(trigger_id)
+                .for_trigger(trigger_id)
                 .under_authority(account_id),
         )?;
         if event_it.next().is_some() {
@@ -126,7 +126,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
             account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(bad_trigger_id.clone())
+                    .for_trigger(bad_trigger_id.clone())
                     .under_authority(account_id.clone()),
             ),
         ),
@@ -182,7 +182,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
             account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id.clone())
+                    .for_trigger(trigger_id.clone())
                     .under_authority(account_id),
             ),
         ),
@@ -247,7 +247,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
             account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id.clone())
+                    .for_trigger(trigger_id.clone())
                     .under_authority(account_id),
             ),
         ),
@@ -291,7 +291,7 @@ fn unregister_trigger() -> Result<()> {
             account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id.clone())
+                    .for_trigger(trigger_id.clone())
                     .under_authority(account_id),
             ),
         ),
@@ -369,7 +369,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
             account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id.clone())
+                    .for_trigger(trigger_id.clone())
                     .under_authority(account_id.clone()),
             ),
         ),
@@ -420,7 +420,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
             account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id_unregister.clone())
+                    .for_trigger(trigger_id_unregister.clone())
                     .under_authority(account_id.clone()),
             ),
         ),
@@ -437,7 +437,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
             account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id_to_be_unregistered.clone())
+                    .for_trigger(trigger_id_to_be_unregistered.clone())
                     .under_authority(account_id),
             ),
         ),
@@ -482,7 +482,7 @@ fn trigger_burn_repetitions() -> Result<()> {
             account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id.clone())
+                    .for_trigger(trigger_id.clone())
                     .under_authority(account_id),
             ),
         ),
@@ -527,7 +527,7 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
                 account_id.clone(),
                 TriggeringEventFilterBox::ExecuteTrigger(
                     ExecuteTriggerEventFilter::new()
-                        .from_trigger(trigger_id)
+                        .for_trigger(trigger_id)
                         .under_authority(account_id.clone()),
                 ),
             ),
@@ -578,7 +578,7 @@ fn build_register_trigger_isi(
             asset_id.account_id.clone(),
             TriggeringEventFilterBox::ExecuteTrigger(
                 ExecuteTriggerEventFilter::new()
-                    .from_trigger(trigger_id)
+                    .for_trigger(trigger_id)
                     .under_authority(asset_id.account_id),
             ),
         ),

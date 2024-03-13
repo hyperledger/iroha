@@ -310,7 +310,7 @@ fn domain_owner_trigger_permissions() -> Result<()> {
             Repeats::from(2_u32),
             bob_id,
             TriggeringEventFilterBox::ExecuteTrigger(
-                ExecuteTriggerEventFilter::new().from_trigger(trigger_id.clone()),
+                ExecuteTriggerEventFilter::new().for_trigger(trigger_id.clone()),
             ),
         ),
     ));
