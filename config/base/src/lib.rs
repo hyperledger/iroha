@@ -18,7 +18,7 @@ use std::{
 use eyre::{eyre, Report, WrapErr};
 pub use merge::Merge;
 pub use serde;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// [`Duration`], but can parse a human-readable string.
 /// TODO: currently deserializes just as [`Duration`]
@@ -114,7 +114,7 @@ pub struct Emitter<T: Debug> {
     bomb: drop_bomb::DropBomb,
 }
 
-impl<T: Debug> Emitter<T> {
+impl<E: Debug> Emitter<E> {
     /// Create a new empty emitter
     pub fn new() -> Self {
         Self {
@@ -126,12 +126,12 @@ impl<T: Debug> Emitter<T> {
     }
 
     /// Emit a single error
-    pub fn emit(&mut self, error: T) {
+    pub fn emit(&mut self, error: E) {
         self.errors.push(error);
     }
 
     /// Emit a collection of errors
-    pub fn emit_collection(&mut self, mut errors: ErrorsCollection<T>) {
+    pub fn emit_collection(&mut self, mut errors: ErrorsCollection<E>) {
         self.errors.append(&mut errors.0);
     }
 
@@ -140,13 +140,34 @@ impl<T: Debug> Emitter<T> {
     ///
     /// # Errors
     /// If any errors were emitted.
-    pub fn finish(mut self) -> Result<(), ErrorsCollection<T>> {
+    pub fn finish(mut self) -> Result<(), ErrorsCollection<E>> {
         self.bomb.defuse();
 
         if self.errors.is_empty() {
             Ok(())
         } else {
             Err(ErrorsCollection(self.errors))
+        }
+    }
+}
+
+impl Emitter<Report> {
+    /// A shorthand to work with [`FromEnv`].
+    ///
+    /// # Errors
+    /// If failed to parse the value from env.
+    pub fn try_from_env<T, R, RE>(&mut self, env: &R) -> Option<T>
+    where
+        T: FromEnv,
+        R: ReadEnv<RE>,
+        RE: Error,
+    {
+        match FromEnv::from_env(env) {
+            Ok(parsed) => Some(parsed),
+            Err(errors) => {
+                self.emit_collection(errors);
+                None
+            }
         }
     }
 }
@@ -310,6 +331,28 @@ pub enum ParseEnvResult<T> {
     None,
 }
 
+impl<'a> ParseEnvResult<Cow<'a, str>> {
+    fn read_env_only<E: Error>(
+        emitter: &mut Emitter<Report>,
+        env: &'a impl ReadEnv<E>,
+        env_key: impl AsRef<str>,
+    ) -> Self {
+        // FIXME: errors handling is such a mess now
+        match env
+            .read_env(env_key.as_ref())
+            .map_err(|err| eyre!("{err}"))
+            .wrap_err_with(|| eyre!("ooops"))
+        {
+            Ok(Some(value)) => Self::Value(value),
+            Ok(None) => Self::None,
+            Err(report) => {
+                emitter.emit(report);
+                Self::Error
+            }
+        }
+    }
+}
+
 impl<T> ParseEnvResult<T>
 where
     T: FromStr,
@@ -322,21 +365,47 @@ where
         env_key: impl AsRef<str>,
         field_name: impl AsRef<str>,
     ) -> Self {
-        // FIXME: errors handling is such a mess now
-        let read = match env
-            .read_env(env_key.as_ref())
-            .map_err(|err| eyre!("{err}"))
-            .wrap_err_with(|| eyre!("ooops"))
-        {
-            Ok(Some(value)) => value,
-            Ok(None) => return Self::None,
-            Err(report) => {
-                emitter.emit(report);
-                return Self::Error;
-            }
+        let read = match ParseEnvResult::read_env_only(emitter, env, env_key.as_ref()) {
+            ParseEnvResult::Value(x) => x,
+            ParseEnvResult::None => return Self::None,
+            ParseEnvResult::Error => return Self::Error,
         };
 
         match FromStr::from_str(read.as_ref()).wrap_err_with(|| {
+            eyre!(
+                "failed to parse `{}` field from `{}` env variable",
+                field_name.as_ref(),
+                env_key.as_ref()
+            )
+        }) {
+            Ok(value) => Self::Value(value),
+            Err(report) => {
+                emitter.emit(report);
+                Self::Error
+            }
+        }
+    }
+}
+
+impl<T> ParseEnvResult<T>
+where
+    T: DeserializeOwned,
+{
+    /// Treat string data in ENV as JSON
+    #[cfg(feature = "json")]
+    pub fn parse_json<E: Error>(
+        emitter: &mut Emitter<Report>,
+        env: &impl ReadEnv<E>,
+        env_key: impl AsRef<str>,
+        field_name: impl AsRef<str>,
+    ) -> Self {
+        let read = match ParseEnvResult::read_env_only(emitter, env, env_key.as_ref()) {
+            ParseEnvResult::Value(x) => x,
+            ParseEnvResult::None => return Self::None,
+            ParseEnvResult::Error => return Self::Error,
+        };
+
+        match serde_json::from_str(read.as_ref()).wrap_err_with(|| {
             eyre!(
                 "failed to parse `{}` field from `{}` env variable",
                 field_name.as_ref(),

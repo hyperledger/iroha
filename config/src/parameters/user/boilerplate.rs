@@ -8,7 +8,7 @@ use std::{
     path::PathBuf,
 };
 
-use eyre::{eyre, Report, WrapErr};
+use eyre::{eyre, WrapErr};
 use iroha_config_base::{
     Emitter, ErrorsCollection, ExtendsPaths, FromEnv, FromEnvDefaultFallback, FromEnvResult,
     HumanBytes, HumanDuration, Merge, MissingFieldError, ParseEnvResult, ReadEnv, UnwrapPartial,
@@ -127,21 +127,6 @@ impl UnwrapPartial for RootPartial {
 
 impl FromEnv for RootPartial {
     fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self> {
-        fn from_env_nested<T, R, RE>(env: &R, emitter: &mut Emitter<Report>) -> Option<T>
-        where
-            T: FromEnv,
-            R: ReadEnv<RE>,
-            RE: Error,
-        {
-            match FromEnv::from_env(env) {
-                Ok(parsed) => Some(parsed),
-                Err(errors) => {
-                    emitter.emit_collection(errors);
-                    None
-                }
-            }
-        }
-
         let mut emitter = Emitter::new();
 
         let chain_id = env
@@ -163,16 +148,16 @@ impl FromEnv for RootPartial {
             user::private_key_from_env(&mut emitter, env, "PRIVATE_KEY", "iroha.private_key")
                 .into();
 
-        let genesis = from_env_nested(env, &mut emitter);
-        let kura = from_env_nested(env, &mut emitter);
-        let sumeragi = from_env_nested(env, &mut emitter);
-        let network = from_env_nested(env, &mut emitter);
-        let logger = from_env_nested(env, &mut emitter);
-        let queue = from_env_nested(env, &mut emitter);
-        let snapshot = from_env_nested(env, &mut emitter);
-        let telemetry = from_env_nested(env, &mut emitter);
-        let torii = from_env_nested(env, &mut emitter);
-        let chain_wide = from_env_nested(env, &mut emitter);
+        let genesis = emitter.try_from_env(env);
+        let kura = emitter.try_from_env(env);
+        let sumeragi = emitter.try_from_env(env);
+        let network = emitter.try_from_env(env);
+        let logger = emitter.try_from_env(env);
+        let queue = emitter.try_from_env(env);
+        let snapshot = emitter.try_from_env(env);
+        let telemetry = emitter.try_from_env(env);
+        let torii = emitter.try_from_env(env);
+        let chain_wide = emitter.try_from_env(env);
 
         emitter.finish()?;
 
@@ -392,7 +377,32 @@ impl UnwrapPartial for SumeragiDebugPartial {
     }
 }
 
-impl FromEnvDefaultFallback for SumeragiPartial {}
+impl FromEnv for SumeragiPartial {
+    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
+    where
+        Self: Sized,
+    {
+        let mut emitter = Emitter::new();
+
+        let trusted_peers = ParseEnvResult::parse_json(
+            &mut emitter,
+            env,
+            "SUMERAGI_TRUSTED_PEERS",
+            "sumeragi.trusted_peers",
+        )
+        .into();
+        let debug = emitter.try_from_env(env);
+
+        emitter.finish()?;
+
+        Ok(Self {
+            trusted_peers,
+            debug: debug.unwrap(),
+        })
+    }
+}
+
+impl FromEnvDefaultFallback for SumeragiDebugPartial {}
 
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]

@@ -2778,6 +2778,7 @@ dependencies = [
  "merge",
  "num-traits",
  "serde",
+ "serde_json",
  "serde_with",
  "thiserror",
  "toml 0.8.8",

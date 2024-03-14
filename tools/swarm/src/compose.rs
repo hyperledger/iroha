@@ -604,7 +604,14 @@ mod tests {
             genesis_private_key: Some(keypair.private_key().clone()),
             p2p_addr: socket_addr!(127.0.0.1:1337),
             api_addr: socket_addr!(127.0.0.1:1338),
-            trusted_peers: BTreeSet::new(),
+            trusted_peers: {
+                let mut set = BTreeSet::new();
+                set.insert(PeerId::new(
+                    socket_addr!(127.0.0.1:8081),
+                    KeyPair::random().into_parts().0,
+                ));
+                set
+            },
         }
         .into();
 

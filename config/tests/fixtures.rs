@@ -337,7 +337,21 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 },
             },
             sumeragi: SumeragiPartial {
-                trusted_peers: None,
+                trusted_peers: Some(
+                    [
+                        PeerId {
+                            address: SocketAddrHost {
+                                host: "iroha2",
+                                port: 1339,
+                            },
+                            public_key: PublicKey(
+                                ed25519(
+                                    "ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4",
+                                ),
+                            ),
+                        },
+                    ],
+                ),
                 debug: SumeragiDebugPartial {
                     force_soft_fork: None,
                 },
