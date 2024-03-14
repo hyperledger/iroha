@@ -468,7 +468,7 @@ impl Peer {
     /// - `api_address`
     /// * If keypair generation fails
     pub fn new() -> Result<Self> {
-        let key_pair = KeyPair::random();
+        let key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let p2p_address = local_unique_port()?;
         let api_address = local_unique_port()?;
         let id = PeerId::new(p2p_address.clone(), key_pair.public_key().clone());

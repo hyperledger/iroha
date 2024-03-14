@@ -294,7 +294,7 @@ mod tests {
 
         let topology = Topology::new(UniqueVec::new());
         let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, Vec::new(), &mut wsv)
             .sign(&ALICE_KEYS)
             .commit(&topology)
             .expect("Block is valid");
@@ -304,7 +304,7 @@ mod tests {
 
         for _ in 1u64..blocks {
             let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
-                .chain(0, &mut wsv)
+                .chain(0, Vec::new(), &mut wsv)
                 .sign(&ALICE_KEYS)
                 .commit(&topology)
                 .expect("Block is valid");
@@ -435,7 +435,7 @@ mod tests {
 
         let topology = Topology::new(UniqueVec::new());
         let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, Vec::new(), &mut wsv)
             .sign(&ALICE_KEYS)
             .commit(&topology)
             .expect("Block is valid");

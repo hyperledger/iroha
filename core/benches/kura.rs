@@ -13,7 +13,7 @@ use iroha_core::{
     sumeragi::network_topology::Topology,
     wsv::World,
 };
-use iroha_crypto::KeyPair;
+use iroha_crypto::{KeyPair, VRFState};
 use iroha_data_model::{prelude::*, transaction::TransactionLimits};
 use iroha_primitives::unique_vec::UniqueVec;
 use tokio::{fs, runtime::Runtime};
@@ -52,7 +52,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let mut wsv = WorldStateView::new(World::new(), kura, query_handle);
     let topology = Topology::new(UniqueVec::new());
     let mut block = BlockBuilder::new(vec![tx], topology, Vec::new())
-        .chain(0, &mut wsv)
+        .chain(0, VRFState::generate_new_random_state(), &mut wsv)
         .sign(&KeyPair::random());
 
     for _ in 1..n_executors {

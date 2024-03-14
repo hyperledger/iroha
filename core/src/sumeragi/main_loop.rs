@@ -8,6 +8,10 @@ use iroha_data_model::{
 };
 use iroha_p2p::UpdateTopology;
 use tracing::{span, Level};
+use vrf::{
+    openssl::{CipherSuite, ECVRF},
+    VRF,
+};
 
 use super::{view_change::ProofBuilder, *};
 use crate::{block::*, sumeragi::tracing::instrument};
@@ -291,8 +295,13 @@ impl Sumeragi {
             .expect("Genesis invalid");
 
         let mut new_wsv = self.wsv.clone();
+        // Here is the only place in sumeragi it is okay to have a bogus unchecked vrf state.
         let genesis = BlockBuilder::new(transactions, self.current_topology.clone(), vec![])
-            .chain(0, &mut new_wsv)
+            .chain(
+                0,
+                self.current_topology.get_vrf_state().clone(),
+                &mut new_wsv,
+            )
             .sign(&self.key_pair);
 
         let genesis_msg = BlockCreated::from(genesis.clone()).into();
@@ -334,6 +343,7 @@ impl Sumeragi {
             role=%self.current_topology.role(&self.peer_id),
             block_height=%block.as_ref().header().height(),
             block_hash=%block.as_ref().hash(),
+            vrf_state=%HashOf::new(&block.as_ref().header().vrf_state),
             "{}", Strategy::LOG_MESSAGE,
         );
 
@@ -638,6 +648,16 @@ impl Sumeragi {
                         info!(%addr, txns=%transactions.len(), "Creating block...");
                         let create_block_start_time = Instant::now();
 
+                        let new_vrf_state: Vec<u8> = perform_vrf(
+                            &self
+                                .wsv
+                                .latest_block_ref()
+                                .expect("Genesis committed")
+                                .header()
+                                .vrf_state,
+                            &self.key_pair,
+                        );
+
                         // TODO: properly process triggers!
                         let mut new_wsv = self.wsv.clone();
                         let event_recommendations = Vec::new();
@@ -646,7 +666,7 @@ impl Sumeragi {
                             self.current_topology.clone(),
                             event_recommendations,
                         )
-                        .chain(current_view_change_index, &mut new_wsv)
+                        .chain(current_view_change_index, new_vrf_state, &mut new_wsv)
                         .sign(&self.key_pair);
 
                         let created_in = create_block_start_time.elapsed();
@@ -1224,7 +1244,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx.clone(), tx], topology.clone(), Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, Vec::new(), &mut wsv)
             .sign(leader_key_pair);
 
         let genesis = block.commit(topology).expect("Block is valid");
@@ -1262,7 +1282,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx1, tx2], topology.clone(), Vec::new())
-            .chain(0, &mut wsv.clone())
+            .chain(0, Vec::new(), &mut wsv.clone())
             .sign(leader_key_pair);
 
         (wsv, kura, block.into())
@@ -1459,4 +1479,20 @@ mod tests {
             ))
         ))
     }
+}
+
+/// Perform the verifiable random function
+pub fn perform_vrf(old_state: &Vec<u8>, kp: &KeyPair) -> Vec<u8> {
+    assert!(kp.algorithm() == iroha_crypto::Algorithm::Secp256k1);
+    let mut ctx = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).expect("Cannot fail");
+    ctx.prove(&kp.private_key().to_bytes().1, old_state.as_ref())
+        .expect("Is not allowed to fail")
+}
+/// Verify the verifiable random function
+pub fn verify_vrf(old_state: &Vec<u8>, new_state: &Vec<u8>, pk: &PublicKey) -> bool {
+    assert!(pk.algorithm() == iroha_crypto::Algorithm::Secp256k1);
+
+    let mut ctx = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).expect("Cannot fail");
+    ctx.verify(&pk.to_bytes().1, new_state.as_ref(), old_state.as_ref())
+        .is_ok()
 }

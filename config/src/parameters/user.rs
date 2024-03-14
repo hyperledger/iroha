@@ -387,6 +387,9 @@ impl Sumeragi {
         } = self;
 
         let trusted_peers = construct_unique_vec(trusted_peers.unwrap_or(vec![]))?;
+        for peer in &trusted_peers {
+            assert!(peer.public_key.algorithm() == iroha_crypto::Algorithm::Secp256k1);
+        }
 
         Ok(actual::Sumeragi {
             trusted_peers,

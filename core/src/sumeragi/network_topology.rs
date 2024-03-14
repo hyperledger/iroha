@@ -2,10 +2,11 @@
 
 use derive_more::Display;
 use indexmap::IndexSet;
-use iroha_crypto::{PublicKey, SignatureOf};
+use iroha_crypto::{HashOf, PublicKey, SignatureOf};
 use iroha_data_model::{block::SignedBlock, prelude::PeerId};
 use iroha_logger::trace;
 use iroha_primitives::unique_vec::UniqueVec;
+use rand::{prelude::SliceRandom, rngs::StdRng, SeedableRng};
 
 /// The ordering of the peers which defines their roles in the current round of consensus.
 ///
@@ -22,6 +23,7 @@ use iroha_primitives::unique_vec::UniqueVec;
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     pub(crate) ordered_peers: UniqueVec<PeerId>,
+    created_with_vrf_state: Vec<u8>,
 }
 
 /// Topology with at least one peer
@@ -39,9 +41,17 @@ pub struct ConsensusTopology<'topology> {
 impl Topology {
     /// Create a new topology.
     pub fn new(peers: UniqueVec<PeerId>) -> Self {
+        for peer in &peers {
+            assert!(peer.public_key.algorithm() == iroha_crypto::Algorithm::Secp256k1);
+        }
         Topology {
             ordered_peers: peers,
+            created_with_vrf_state: (0..128).map(|_| rand::random::<u8>()).collect(),
         }
+    }
+    /// Get the VRF state that this topology was created with.
+    pub fn get_vrf_state(&self) -> &Vec<u8> {
+        &self.created_with_vrf_state
     }
 
     /// True, if the topology contains at least one peer and thus requires consensus
@@ -153,14 +163,6 @@ impl Topology {
         }
     }
 
-    /// Re-arrange the set of peers after each successful block commit.
-    pub fn rotate_set_a(&mut self) {
-        let rotate_at = self.min_votes_for_commit();
-        if rotate_at > 0 {
-            self.modify_peers_directly(|peers| peers[..rotate_at].rotate_left(1));
-        }
-    }
-
     /// Pull peers up in the topology to the top of the a set while preserving local order.
     pub fn lift_up_peers(&mut self, to_lift_up: &[PublicKey]) {
         self.modify_peers_directly(|peers| {
@@ -169,9 +171,8 @@ impl Topology {
     }
 
     /// Perform sequence of actions after block committed.
-    pub fn update_topology(&mut self, block_signees: &[PublicKey], new_peers: UniqueVec<PeerId>) {
+    fn update_topology(&mut self, block_signees: &[PublicKey], new_peers: UniqueVec<PeerId>) {
         self.lift_up_peers(block_signees);
-        self.rotate_set_a();
         self.update_peer_list(new_peers);
     }
 
@@ -181,7 +182,23 @@ impl Topology {
         view_change_index: u64,
         new_peers: UniqueVec<PeerId>,
     ) -> Self {
-        let mut topology = Topology::new(block.commit_topology().clone());
+        let created_with_vrf_state = block.header().vrf_state.clone();
+        let mut rng = StdRng::seed_from_u64(u64::from_le_bytes(
+            HashOf::new(&created_with_vrf_state).as_ref()[0..8]
+                .try_into()
+                .expect("Cannot fail"),
+        ));
+
+        let mut topology = {
+            let mut shuffle_peers: Vec<PeerId> = block.commit_topology().clone().into();
+            shuffle_peers.shuffle(&mut rng);
+            let mut ordered_peers = UniqueVec::new();
+            ordered_peers.extend(shuffle_peers);
+            Topology {
+                ordered_peers,
+                created_with_vrf_state,
+            }
+        };
         let block_signees = block
             .signatures()
             .into_iter()
@@ -311,13 +328,6 @@ mod tests {
             .iter()
             .map(|peer| peer.address.port())
             .collect()
-    }
-
-    #[test]
-    fn rotate_set_a() {
-        let mut topology = topology();
-        topology.rotate_set_a();
-        assert_eq!(extract_ports(&topology), vec![1, 2, 3, 4, 0, 5, 6])
     }
 
     #[test]

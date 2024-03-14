@@ -59,6 +59,8 @@ pub mod model {
         pub timestamp_ms: u64,
         /// Hash of the previous block in the chain.
         pub previous_block_hash: Option<HashOf<SignedBlock>>,
+        /// VRF State
+        pub vrf_state: Vec<u8>,
         /// Hash of merkle tree root of transactions' hashes.
         pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
         /// Value of view change index. Used to resolve soft forks.

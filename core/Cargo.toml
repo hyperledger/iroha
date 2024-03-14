@@ -69,6 +69,7 @@ derive_more = { workspace = true }
 
 uuid = { version = "1.4.1", features = ["v4"] }
 indexmap = "2.1.0"
+vrf = "0.2.4"
 
 [dev-dependencies]
 criterion = { workspace = true }
