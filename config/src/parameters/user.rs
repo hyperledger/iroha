@@ -31,9 +31,10 @@ use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use url::Url;
 
 use crate::{
-    kura::Mode,
-    logger::Format,
+    kura::InitMode as KuraInitMode,
+    logger::Format as LoggerFormat,
     parameters::{actual, defaults::telemetry::*},
+    snapshot::Mode as SnapshotMode,
 };
 
 mod boilerplate;
@@ -343,7 +344,7 @@ pub enum GenesisConfigError {
 
 #[derive(Debug)]
 pub struct Kura {
-    pub init_mode: Mode,
+    pub init_mode: KuraInitMode,
     pub store_dir: PathBuf,
     pub debug: KuraDebug,
 }
@@ -469,7 +470,7 @@ pub struct Logger {
     //       looks inconsistent
     pub level: Level,
     /// Output format
-    pub format: Format,
+    pub format: LoggerFormat,
     #[cfg(feature = "tokio-console")]
     /// Address of tokio console (only available under "tokio-console" feature)
     pub tokio_console_address: SocketAddr,
@@ -480,7 +481,7 @@ impl Default for Logger {
     fn default() -> Self {
         Self {
             level: Level::default(),
-            format: Format::default(),
+            format: LoggerFormat::default(),
             #[cfg(feature = "tokio-console")]
             tokio_console_address: super::defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR,
         }
@@ -541,9 +542,9 @@ impl Telemetry {
 
 #[derive(Debug, Clone)]
 pub struct Snapshot {
+    pub mode: SnapshotMode,
     pub create_every: Duration,
     pub store_dir: PathBuf,
-    pub creation_enabled: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -574,7 +575,7 @@ impl ChainWide {
             asset_definition_metadata_limits,
             account_metadata_limits,
             domain_metadata_limits,
-            ident_length_limits: identifier_length_limits,
+            ident_length_limits,
             executor_fuel_limit,
             executor_max_memory,
             wasm_fuel_limit,
@@ -590,7 +591,7 @@ impl ChainWide {
             asset_definition_metadata_limits,
             account_metadata_limits,
             domain_metadata_limits,
-            ident_length_limits: identifier_length_limits,
+            ident_length_limits,
             executor_runtime: actual::WasmRuntime {
                 fuel_limit: executor_fuel_limit,
                 max_memory_bytes: executor_max_memory.get(),

@@ -46,9 +46,8 @@ pub mod snapshot {
     use super::*;
 
     pub const DEFAULT_STORE_DIR: &str = "./storage/snapshot";
-    // Default frequency of making snapshots is 1 minute, need to be adjusted for larger world state view size
+    // The default frequency of making snapshots is 1 minute, need to be adjusted for larger world state view size
     pub const DEFAULT_CREATE_EVERY: Duration = Duration::from_secs(60);
-    pub const DEFAULT_ENABLED: bool = true;
 }
 
 pub mod chain_wide {

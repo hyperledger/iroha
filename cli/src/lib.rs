@@ -20,7 +20,9 @@ use iroha_core::{
     query::store::LiveQueryStore,
     queue::Queue,
     smartcontracts::isi::Registrable as _,
-    snapshot::{try_read_snapshot, SnapshotMaker, SnapshotMakerHandle},
+    snapshot::{
+        try_read_snapshot, SnapshotMaker, SnapshotMakerHandle, TryReadError as TryReadSnapshotError,
+    },
     sumeragi::{SumeragiHandle, SumeragiStartArgs},
     IrohaNetwork,
 };
@@ -57,8 +59,8 @@ pub struct Iroha {
     pub kura: Arc<Kura>,
     /// Torii web server
     pub torii: Option<Torii>,
-    /// Snapshot service
-    pub snapshot_maker: SnapshotMakerHandle,
+    /// Snapshot service. Might be not started depending on the config.
+    pub snapshot_maker: Option<SnapshotMakerHandle>,
     /// Thread handlers
     thread_handlers: Vec<ThreadHandler>,
 
@@ -215,30 +217,37 @@ impl Iroha {
         let live_query_store_handle = LiveQueryStore::from_config(config.live_query_store).start();
 
         let block_count = kura.init()?;
-        let wsv = try_read_snapshot(
+
+        let wsv = match try_read_snapshot(
             &config.snapshot.store_dir,
             &kura,
             live_query_store_handle.clone(),
             block_count,
-        )
-        .map_or_else(
-            |error| {
-                iroha_logger::warn!(%error, "Failed to load wsv from snapshot, creating empty wsv");
-                WorldStateView::from_config(
-                    config.chain_wide,
-                    world,
-                    Arc::clone(&kura),
-                    live_query_store_handle.clone(),
-                )
-            },
-            |wsv| {
+        ) {
+            Ok(wsv) => {
                 iroha_logger::info!(
                     at_height = wsv.height(),
-                    "Successfully loaded wsv from snapshot"
+                    "Successfully loaded WSV from a snapshot"
                 );
-                wsv
-            },
-        );
+                Some(wsv)
+            }
+            Err(TryReadSnapshotError::NotFound) => {
+                iroha_logger::info!("Didn't find a snapshot of WSV, creating an empty one");
+                None
+            }
+            Err(error) => {
+                iroha_logger::warn!(%error, "Failed to load WSV from a snapshot, creating an empty one");
+                None
+            }
+        }.unwrap_or_else(|| {
+            WorldStateView::from_config(
+                config.chain_wide,
+                world,
+                Arc::clone(&kura),
+                live_query_store_handle.clone(),
+            )
+
+        });
 
         let queue = Arc::new(Queue::from_config(config.queue));
         match Self::start_telemetry(&logger, &config).await? {
@@ -298,7 +307,8 @@ impl Iroha {
         }
         .start();
 
-        let snapshot_maker = SnapshotMaker::from_config(&config.snapshot, sumeragi.clone()).start();
+        let snapshot_maker =
+            SnapshotMaker::from_config(&config.snapshot, &sumeragi).map(SnapshotMaker::start);
 
         let kiso = KisoHandle::new(config.clone());
 

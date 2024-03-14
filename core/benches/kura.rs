@@ -41,7 +41,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
         .expect("Failed to accept Transaction.");
     let dir = tempfile::tempdir().expect("Could not create tempfile.");
     let cfg = Config {
-        init_mode: iroha_config::kura::Mode::Strict,
+        init_mode: iroha_config::kura::InitMode::Strict,
         debug_output_new_blocks: false,
         store_dir: dir.path().to_path_buf(),
     };

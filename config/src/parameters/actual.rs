@@ -19,7 +19,7 @@ use url::Url;
 pub use user::{Logger, Queue, Snapshot};
 
 use crate::{
-    kura::Mode,
+    kura::InitMode,
     parameters::{
         defaults, user,
         user::{CliContext, RootPartial},
@@ -119,7 +119,7 @@ impl Genesis {
 #[allow(missing_docs)]
 #[derive(Debug, Clone)]
 pub struct Kura {
-    pub init_mode: Mode,
+    pub init_mode: InitMode,
     pub store_dir: PathBuf,
     pub debug_output_new_blocks: bool,
 }

@@ -352,7 +352,8 @@ impl Queue {
 }
 
 #[cfg(test)]
-mod tests {
+// this is `pub` to re-use internal utils
+pub mod tests {
     use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
     use iroha_data_model::{prelude::*, transaction::TransactionLimits};
