@@ -356,6 +356,7 @@ mod tests {
                 previous_block_hash: None,
                 transactions_hash: None,
                 timestamp_ms: 0,
+                vrf_state: Vec::new(),
                 view_change_index: 0,
                 consensus_estimation_ms: 0,
             }

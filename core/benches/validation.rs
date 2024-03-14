@@ -179,8 +179,11 @@ fn sign_blocks(criterion: &mut Criterion) {
     let mut count = 0;
 
     let mut state_block = state.block();
-    let block =
-        BlockBuilder::new(vec![transaction], topology, Vec::new()).chain(0, &mut state_block);
+    let block = BlockBuilder::new(vec![transaction], topology, Vec::new()).chain(
+        0,
+        Vec::new(),
+        &mut state_block,
+    );
 
     let _ = criterion.bench_function("sign_block", |b| {
         b.iter_batched(

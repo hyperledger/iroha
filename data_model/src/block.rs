@@ -65,6 +65,8 @@ mod model {
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub timestamp_ms: u64,
+        /// VRF State
+        pub vrf_state: Vec<u8>,
         /// Value of view change index. Used to resolve soft forks.
         #[getset(skip)]
         pub view_change_index: u64,

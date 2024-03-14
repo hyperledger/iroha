@@ -36,6 +36,10 @@ pub mod isi {
         ) -> Result<(), Error> {
             let peer_id = self.object.id;
 
+            if peer_id.public_key().algorithm() != iroha_crypto::Algorithm::Secp256k1 {
+                return Err(InvalidParameterError::KeyAlgorithmNotSupported.into());
+            }
+
             let world = &mut state_transaction.world;
             if !world.trusted_peers_ids.push(peer_id.clone()) {
                 return Err(RepetitionError {

@@ -14,7 +14,7 @@ use iroha_client::{
 };
 use iroha_config::parameters::actual::Root as Config;
 pub use iroha_core::state::StateReadOnly;
-use iroha_crypto::KeyPair;
+use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{query::QueryOutputBox, ChainId};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockFile};
 use iroha_logger::InstrumentFutures;
@@ -486,7 +486,7 @@ impl Peer {
     /// - `api_address`
     /// * If keypair generation fails
     pub fn new() -> Result<Self> {
-        let key_pair = KeyPair::random();
+        let key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let p2p_address = local_unique_port()?;
         let api_address = local_unique_port()?;
         let id = PeerId::new(p2p_address.clone(), key_pair.public_key().clone());
@@ -777,7 +777,8 @@ impl TestConfig for Config {
         )
         .merge(RootPartial::from_env(&StdEnv).expect("test env variables should parse properly"));
 
-        let (public_key, private_key) = KeyPair::random().into_parts();
+        let (public_key, private_key) =
+            KeyPair::random_with_algorithm(Algorithm::Secp256k1).into_parts();
         layer.public_key.set(public_key);
         layer.private_key.set(private_key);
 

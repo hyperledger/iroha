@@ -2,10 +2,11 @@
 
 use derive_more::Display;
 use indexmap::IndexSet;
-use iroha_crypto::{PublicKey, SignatureOf};
+use iroha_crypto::{HashOf, PublicKey, SignatureOf};
 use iroha_data_model::{block::SignedBlock, prelude::PeerId};
 use iroha_logger::trace;
 use iroha_primitives::unique_vec::UniqueVec;
+use rand::{prelude::SliceRandom, rngs::StdRng, SeedableRng};
 
 /// The ordering of the peers which defines their roles in the current round of consensus.
 ///
@@ -22,6 +23,7 @@ use iroha_primitives::unique_vec::UniqueVec;
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     pub(crate) ordered_peers: UniqueVec<PeerId>,
+    created_with_vrf_state: Vec<u8>,
 }
 
 /// Topology with at least one peer
@@ -39,9 +41,17 @@ pub struct ConsensusTopology<'topology> {
 impl Topology {
     /// Create a new topology.
     pub fn new(peers: UniqueVec<PeerId>) -> Self {
+        for peer in &peers {
+            assert!(peer.public_key.algorithm() == iroha_crypto::Algorithm::Secp256k1);
+        }
         Topology {
             ordered_peers: peers,
+            created_with_vrf_state: (0..128).map(|_| rand::random::<u8>()).collect(),
         }
+    }
+    /// Get the VRF state that this topology was created with.
+    pub fn get_vrf_state(&self) -> &Vec<u8> {
+        &self.created_with_vrf_state
     }
 
     /// True, if the topology contains at least one peer and thus requires consensus
@@ -132,7 +142,7 @@ impl Topology {
     }
 
     /// Add or remove peers from the topology.
-    pub fn update_peer_list(&mut self, new_peers: UniqueVec<PeerId>) {
+    fn update_peer_list(&mut self, new_peers: UniqueVec<PeerId>) {
         self.modify_peers_directly(|peers| peers.retain(|peer| new_peers.contains(peer)));
         self.ordered_peers.extend(new_peers);
     }
@@ -153,26 +163,11 @@ impl Topology {
         }
     }
 
-    /// Re-arrange the set of peers after each successful block commit.
-    pub fn rotate_set_a(&mut self) {
-        let rotate_at = self.min_votes_for_commit();
-        if rotate_at > 0 {
-            self.modify_peers_directly(|peers| peers[..rotate_at].rotate_left(1));
-        }
-    }
-
     /// Pull peers up in the topology to the top of the a set while preserving local order.
-    pub fn lift_up_peers(&mut self, to_lift_up: &[PublicKey]) {
+    fn lift_up_peers(&mut self, to_lift_up: &[PublicKey]) {
         self.modify_peers_directly(|peers| {
             peers.sort_by_cached_key(|peer| !to_lift_up.contains(&peer.public_key));
         });
-    }
-
-    /// Perform sequence of actions after block committed.
-    pub fn update_topology(&mut self, block_signees: &[PublicKey], new_peers: UniqueVec<PeerId>) {
-        self.lift_up_peers(block_signees);
-        self.rotate_set_a();
-        self.update_peer_list(new_peers);
     }
 
     /// Recreate topology for given block and view change index
@@ -181,7 +176,23 @@ impl Topology {
         view_change_index: u64,
         new_peers: UniqueVec<PeerId>,
     ) -> Self {
-        let mut topology = Topology::new(block.commit_topology().clone());
+        let created_with_vrf_state = block.header().vrf_state.clone();
+        let mut rng = StdRng::seed_from_u64(u64::from_le_bytes(
+            HashOf::new(&created_with_vrf_state).as_ref()[0..8]
+                .try_into()
+                .expect("Cannot fail"),
+        ));
+
+        let mut topology = {
+            let mut shuffle_peers: Vec<PeerId> = block.commit_topology().clone().into();
+            shuffle_peers.shuffle(&mut rng);
+            let mut ordered_peers = UniqueVec::new();
+            ordered_peers.extend(shuffle_peers);
+            Topology {
+                ordered_peers,
+                created_with_vrf_state,
+            }
+        };
         let block_signees = block
             .signatures()
             .into_iter()
@@ -189,30 +200,15 @@ impl Topology {
             .cloned()
             .collect::<Vec<PublicKey>>();
 
-        topology.update_topology(&block_signees, new_peers);
+        // This causes the signees to be the new A set. But it does not change
+        // their order relative to each other and so the randomness from the
+        // vrf is preserved.
+        topology.lift_up_peers(&block_signees);
+
+        topology.update_peer_list(new_peers);
 
         // Rotate all once for every view_change
         topology.rotate_all_n(view_change_index);
-
-        {
-            // FIXME: This is a hack to prevent consensus from running amock due to
-            // a bug in the implementation by reverting to predictable ordering
-
-            let view_change_limit: usize = view_change_index
-                .saturating_sub(10)
-                .try_into()
-                .expect("u64 must fit into usize");
-
-            if view_change_limit > 1 {
-                iroha_logger::error!("Restarting consensus(internal bug). Report to developers");
-                let mut peers: Vec<_> = topology.ordered_peers.iter().cloned().collect();
-
-                peers.sort();
-                let peers_count = peers.len();
-                peers.rotate_right(view_change_limit % peers_count);
-                topology = Topology::new(peers.into_iter().collect());
-            }
-        }
 
         topology
     }
@@ -280,7 +276,7 @@ pub enum Role {
 #[cfg(test)]
 macro_rules! test_peers {
     ($($id:literal),+$(,)?) => {{
-        let mut iter = ::core::iter::repeat_with(|| KeyPair::random());
+        let mut iter = ::core::iter::repeat_with(|| KeyPair::random_with_algorithm(Algorithm::Secp256k1));
         test_peers![$($id),*: iter]
     }};
     ($($id:literal),+$(,)?: $key_pair_iter:expr) => {
@@ -295,7 +291,7 @@ pub(crate) use test_peers;
 
 #[cfg(test)]
 mod tests {
-    use iroha_crypto::KeyPair;
+    use iroha_crypto::{Algorithm, KeyPair};
     use iroha_primitives::unique_vec;
 
     use super::*;
@@ -311,13 +307,6 @@ mod tests {
             .iter()
             .map(|peer| peer.address.port())
             .collect()
-    }
-
-    #[test]
-    fn rotate_set_a() {
-        let mut topology = topology();
-        topology.rotate_set_a();
-        assert_eq!(extract_ports(&topology), vec![1, 2, 3, 4, 0, 5, 6])
     }
 
     #[test]
@@ -353,9 +342,10 @@ mod tests {
 
     #[test]
     fn filter_by_role() {
-        let key_pairs = core::iter::repeat_with(KeyPair::random)
-            .take(7)
-            .collect::<Vec<_>>();
+        let key_pairs =
+            core::iter::repeat_with(|| KeyPair::random_with_algorithm(Algorithm::Secp256k1))
+                .take(7)
+                .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
         let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
         let topology = Topology::new(peers.clone());
@@ -395,9 +385,10 @@ mod tests {
 
     #[test]
     fn filter_by_role_empty() {
-        let key_pairs = core::iter::repeat_with(KeyPair::random)
-            .take(7)
-            .collect::<Vec<_>>();
+        let key_pairs =
+            core::iter::repeat_with(|| KeyPair::random_with_algorithm(Algorithm::Secp256k1))
+                .take(7)
+                .collect::<Vec<_>>();
         let peers = UniqueVec::new();
         let topology = Topology::new(peers);
 
@@ -426,9 +417,10 @@ mod tests {
 
     #[test]
     fn filter_by_role_1() {
-        let key_pairs = core::iter::repeat_with(KeyPair::random)
-            .take(7)
-            .collect::<Vec<_>>();
+        let key_pairs =
+            core::iter::repeat_with(|| KeyPair::random_with_algorithm(Algorithm::Secp256k1))
+                .take(7)
+                .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
         let peers = test_peers![0: key_pairs_iter];
         let topology = Topology::new(peers.clone());
@@ -459,9 +451,10 @@ mod tests {
 
     #[test]
     fn filter_by_role_2() {
-        let key_pairs = core::iter::repeat_with(KeyPair::random)
-            .take(7)
-            .collect::<Vec<_>>();
+        let key_pairs =
+            core::iter::repeat_with(|| KeyPair::random_with_algorithm(Algorithm::Secp256k1))
+                .take(7)
+                .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
         let peers = test_peers![0, 1: key_pairs_iter];
         let topology = Topology::new(peers.clone());
@@ -493,9 +486,10 @@ mod tests {
 
     #[test]
     fn filter_by_role_3() {
-        let key_pairs = core::iter::repeat_with(KeyPair::random)
-            .take(7)
-            .collect::<Vec<_>>();
+        let key_pairs =
+            core::iter::repeat_with(|| KeyPair::random_with_algorithm(Algorithm::Secp256k1))
+                .take(7)
+                .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
         let peers = test_peers![0, 1, 2: key_pairs_iter];
         let topology = Topology::new(peers.clone());

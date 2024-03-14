@@ -59,13 +59,24 @@ fn minimal_config_snapshot() -> Result<()> {
                 ),
                 key_pair: KeyPair {
                     public_key: PublicKey(
-                        ed25519(
-                            "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                        secp256k1(
+                            "e7012103DD678497624AF3F3A3F59F4F0AD3861751E7F3B16CA402E864A1499DD6358C55",
                         ),
                     ),
                     private_key: "[REDACTED PrivateKey]",
                 },
-                p2p_address: 127.0.0.1:1337,
+                peer_id: PeerId {
+                    address: 127.0.0.1:1337,
+                    public_key: PublicKey(
+                        secp256k1(
+                            "e7012103DD678497624AF3F3A3F59F4F0AD3861751E7F3B16CA402E864A1499DD6358C55",
+                        ),
+                    ),
+                },
+            },
+            network: Network {
+                address: 127.0.0.1:1337,
+                idle_timeout: 60s,
             },
             genesis: Partial {
                 public_key: PublicKey(
@@ -89,8 +100,16 @@ fn minimal_config_snapshot() -> Result<()> {
                         PeerId {
                             address: 127.0.0.1:1338,
                             public_key: PublicKey(
-                                ed25519(
-                                    "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                                secp256k1(
+                                    "e7012103756A6D80129A39E94D40E91826D96FE9DAE6F0EE153ADE3BE1246E019394F445",
+                                ),
+                            ),
+                        },
+                        PeerId {
+                            address: 127.0.0.1:1337,
+                            public_key: PublicKey(
+                                secp256k1(
+                                    "e7012103DD678497624AF3F3A3F59F4F0AD3861751E7F3B16CA402E864A1499DD6358C55",
                                 ),
                             ),
                         },
@@ -301,8 +320,8 @@ fn full_envs_set_is_consumed() -> Result<()> {
             ),
             public_key: Some(
                 PublicKey(
-                    ed25519(
-                        "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                    secp256k1(
+                        "e7012103DD678497624AF3F3A3F59F4F0AD3861751E7F3B16CA402E864A1499DD6358C55",
                     ),
                 ),
             ),
@@ -363,6 +382,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 block_gossip_period: None,
                 transaction_gossip_max_size: None,
                 transaction_gossip_period: None,
+                idle_timeout: None,
             },
             logger: LoggerPartial {
                 level: Some(

@@ -1547,6 +1547,8 @@ pub mod error {
             ///
             /// i.e. too long [`AccountId`]
             NameLength,
+            /// Key Algorithm not supported for this instruction
+            KeyAlgorithmNotSupported,
         }
 
         /// Repetition of of `{instruction_type}` for id `{id}`

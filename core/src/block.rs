@@ -20,7 +20,11 @@ use thiserror::Error;
 
 pub(crate) use self::event::WithEvents;
 pub use self::{chained::Chained, commit::CommittedBlock, valid::ValidBlock};
-use crate::{prelude::*, sumeragi::network_topology::Topology, tx::AcceptTransactionFail};
+use crate::{
+    prelude::*,
+    sumeragi::{network_topology::Topology, vrf::verify_vrf},
+    tx::AcceptTransactionFail,
+};
 
 /// Error during transaction validation
 #[derive(Debug, displaydoc::Display, Error)]
@@ -74,6 +78,8 @@ pub enum BlockValidationError {
     SignatureVerification(#[from] SignatureVerificationError),
     /// Received view change index is too large
     ViewChangeIndexTooLarge,
+    /// Block has an invalid VRF state
+    InvalidVRF,
 }
 
 /// Error during signature verification
@@ -148,11 +154,13 @@ mod pending {
             previous_height: u64,
             prev_block_hash: Option<HashOf<SignedBlock>>,
             view_change_index: u64,
+            vrf_state: Vec<u8>,
             transactions: &[TransactionValue],
         ) -> BlockHeader {
             BlockHeader {
                 height: previous_height + 1,
                 previous_block_hash: prev_block_hash,
+                vrf_state,
                 transactions_hash: transactions
                     .iter()
                     .map(|value| value.as_ref().hash())
@@ -206,6 +214,7 @@ mod pending {
         pub fn chain(
             self,
             view_change_index: u64,
+            vrf_state: Vec<u8>,
             state: &mut StateBlock<'_>,
         ) -> BlockBuilder<Chained> {
             let transactions = Self::categorize_transactions(self.0.transactions, state);
@@ -215,6 +224,7 @@ mod pending {
                     state.height(),
                     state.latest_block_hash(),
                     view_change_index,
+                    vrf_state,
                     &transactions,
                 ),
                 transactions,
@@ -320,6 +330,15 @@ mod valid {
                             actual: actual_commit_topology,
                         },
                     )));
+                }
+
+                let leader_pk = &topology.ordered_peers[0].public_key;
+                if !verify_vrf(
+                    &topology.get_vrf_state(),
+                    &block.header().vrf_state,
+                    leader_pk,
+                ) {
+                    return WithEvents::new(Err((block, BlockValidationError::InvalidVRF)));
                 }
 
                 if topology
@@ -498,12 +517,13 @@ mod valid {
                         .as_millis()
                         .try_into()
                         .expect("Time should fit into u64"),
+                    vrf_state: Vec::new(),
                 },
                 transactions: Vec::new(),
                 commit_topology: UniqueVec::new(),
                 event_recommendations: Vec::new(),
             }))
-            .sign(&KeyPair::random())
+            .sign(&KeyPair::random_with_algorithm(Algorithm::Secp256k1))
             .unpack(|_| {})
         }
 
@@ -576,9 +596,10 @@ mod valid {
 
         #[test]
         fn signature_verification_ok() {
-            let key_pairs = core::iter::repeat_with(KeyPair::random)
-                .take(7)
-                .collect::<Vec<_>>();
+            let key_pairs =
+                core::iter::repeat_with(|| KeyPair::random_with_algorithm(Algorithm::Secp256k1))
+                    .take(7)
+                    .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
             let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
             let topology = Topology::new(peers);
@@ -596,9 +617,10 @@ mod valid {
 
         #[test]
         fn signature_verification_consensus_not_required_ok() {
-            let key_pairs = core::iter::repeat_with(KeyPair::random)
-                .take(1)
-                .collect::<Vec<_>>();
+            let key_pairs =
+                core::iter::repeat_with(|| KeyPair::random_with_algorithm(Algorithm::Secp256k1))
+                    .take(1)
+                    .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
             let peers = test_peers![0,: key_pairs_iter];
             let topology = Topology::new(peers);
@@ -617,9 +639,10 @@ mod valid {
         /// Check requirement of having at least $2f + 1$ signatures in $3f + 1$ network
         #[test]
         fn signature_verification_not_enough_signatures() {
-            let key_pairs = core::iter::repeat_with(KeyPair::random)
-                .take(7)
-                .collect::<Vec<_>>();
+            let key_pairs =
+                core::iter::repeat_with(|| KeyPair::random_with_algorithm(Algorithm::Secp256k1))
+                    .take(7)
+                    .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
             let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
             let topology = Topology::new(peers);
@@ -643,9 +666,10 @@ mod valid {
         /// Check requirement of having leader signature
         #[test]
         fn signature_verification_miss_proxy_tail_signature() {
-            let key_pairs = core::iter::repeat_with(KeyPair::random)
-                .take(7)
-                .collect::<Vec<_>>();
+            let key_pairs =
+                core::iter::repeat_with(|| KeyPair::random_with_algorithm(Algorithm::Secp256k1))
+                    .take(7)
+                    .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
             let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
             let topology = Topology::new(peers);
@@ -850,7 +874,7 @@ mod tests {
         let transactions = vec![tx.clone(), tx];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain(0, &mut state_block)
+            .chain(0, Vec::new(), &mut state_block)
             .sign(&alice_keys)
             .unpack(|_| {});
 
@@ -925,7 +949,7 @@ mod tests {
         let transactions = vec![tx0, tx, tx2];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain(0, &mut state_block)
+            .chain(0, Vec::new(), &mut state_block)
             .sign(&alice_keys)
             .unpack(|_| {});
 
@@ -995,7 +1019,7 @@ mod tests {
         let transactions = vec![tx_fail, tx_accept];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain(0, &mut state_block)
+            .chain(0, Vec::new(), &mut state_block)
             .sign(&alice_keys)
             .unpack(|_| {});
 
@@ -1066,7 +1090,7 @@ mod tests {
         let transactions = vec![tx];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology.clone(), Vec::new())
-            .chain(0, &mut state_block)
+            .chain(0, Vec::new(), &mut state_block)
             .sign(&KeyPair::random())
             .unpack(|_| {});
 

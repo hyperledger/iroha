@@ -142,6 +142,12 @@ impl Root {
         let key_pair =
             KeyPair::new(self.public_key, self.private_key)
                 .wrap_err("failed to construct a key pair from `iroha.public_key` and `iroha.private_key` configuration parameters")
+            .map(|key| {
+                if key.algorithm() != iroha_crypto::Algorithm::Secp256k1 {
+                    emitter.emit(eyre!("Peer key pair must use algorithm Secp256k1. Problematic public key = {}", key.public_key()));
+                }
+                key
+            })
             .map_or_else(|err| {
             emitter.emit(err);
             None
@@ -426,6 +432,11 @@ impl Sumeragi {
         } = self;
 
         let trusted_peers = construct_unique_vec(trusted_peers.unwrap_or(vec![]))?;
+        for peer in &trusted_peers {
+            if peer.public_key.algorithm() != iroha_crypto::Algorithm::Secp256k1 {
+                return Err(eyre!("Only Secp256k1 key pairs are allowed in the trusted peers. Problematic public key = {}", peer.public_key));
+            }
+        }
 
         Ok(actual::Sumeragi {
             trusted_peers,

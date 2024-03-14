@@ -6,7 +6,7 @@ use iroha_data_model::{block::*, events::pipeline::PipelineEventBox, peer::PeerI
 use iroha_p2p::UpdateTopology;
 use tracing::{span, Level};
 
-use super::{view_change::ProofBuilder, *};
+use super::{view_change::ProofBuilder, vrf::perform_vrf, *};
 use crate::{block::*, sumeragi::tracing::instrument};
 
 /// `Sumeragi` is the implementation of the consensus.
@@ -279,8 +279,13 @@ impl Sumeragi {
             .expect("Genesis invalid");
 
         let mut state_block = state.block();
+        // Here is the only place in sumeragi it is okay to have a bogus unchecked vrf state.
         let genesis = BlockBuilder::new(transactions, self.current_topology.clone(), vec![])
-            .chain(0, &mut state_block)
+            .chain(
+                0,
+                self.current_topology.get_vrf_state().clone(),
+                &mut state_block,
+            )
             .sign(&self.key_pair)
             .unpack(|e| self.send_event(e));
 
@@ -324,6 +329,7 @@ impl Sumeragi {
             role=%self.current_topology.role(&self.peer_id),
             block_height=%block.as_ref().header().height,
             block_hash=%block.as_ref().hash(),
+            vrf_state=%HashOf::new(&block.as_ref().header().vrf_state),
             "{}", Strategy::LOG_MESSAGE,
         );
 
@@ -672,6 +678,16 @@ impl Sumeragi {
                         info!(%addr, txns=%transactions.len(), "Creating block...");
                         let create_block_start_time = Instant::now();
 
+                        let new_vrf_state: Vec<u8> = perform_vrf(
+                            &state
+                                .view()
+                                .latest_block_ref()
+                                .expect("Genesis committed")
+                                .header()
+                                .vrf_state,
+                            &self.key_pair,
+                        );
+
                         // TODO: properly process triggers!
                         let mut state_block = state.block();
                         let event_recommendations = Vec::new();
@@ -680,7 +696,7 @@ impl Sumeragi {
                             self.current_topology.clone(),
                             event_recommendations,
                         )
-                        .chain(current_view_change_index, &mut state_block)
+                        .chain(current_view_change_index, new_vrf_state, &mut state_block)
                         .sign(&self.key_pair)
                         .unpack(|e| self.send_event(e));
 
@@ -1249,7 +1265,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx.clone(), tx], topology.clone(), Vec::new())
-            .chain(0, &mut state_block)
+            .chain(0, topology.get_vrf_state().clone(), &mut state_block)
             .sign(leader_key_pair)
             .unpack(|_| {});
 
@@ -1292,9 +1308,18 @@ mod tests {
             .map(Into::into)
             .expect("Valid");
 
+            let new_vrf_state: Vec<u8> = perform_vrf(
+                &state_block
+                    .latest_block_ref()
+                    .expect("Genesis committed")
+                    .header()
+                    .vrf_state,
+                &leader_key_pair,
+            );
+
             // Creating a block of two identical transactions and validating it
             BlockBuilder::new(vec![tx1, tx2], topology.clone(), Vec::new())
-                .chain(0, &mut state_block)
+                .chain(0, new_vrf_state, &mut state_block)
                 .sign(leader_key_pair)
                 .unpack(|_| {})
         };
@@ -1308,7 +1333,7 @@ mod tests {
         let chain_id = ChainId::from("0");
         let tx_signer_key_pair = KeyPair::random();
 
-        let leader_key_pair = KeyPair::random();
+        let leader_key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
@@ -1334,7 +1359,7 @@ mod tests {
         let chain_id = ChainId::from("0");
         let tx_signer_key_pair = KeyPair::random();
 
-        let leader_key_pair = KeyPair::random();
+        let leader_key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
@@ -1383,7 +1408,7 @@ mod tests {
         let tx_signer_key_pair = KeyPair::random();
 
         let topology = Topology::new(UniqueVec::new());
-        let leader_key_pair = KeyPair::random();
+        let leader_key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let (state, _, mut block) =
             create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
 
@@ -1415,7 +1440,7 @@ mod tests {
         let chain_id = ChainId::from("0");
         let tx_signer_key_pair = KeyPair::random();
 
-        let leader_key_pair = KeyPair::random();
+        let leader_key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
@@ -1437,7 +1462,7 @@ mod tests {
         let chain_id = ChainId::from("0");
         let tx_signer_key_pair = KeyPair::random();
 
-        let leader_key_pair = KeyPair::random();
+        let leader_key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
@@ -1482,7 +1507,7 @@ mod tests {
         let chain_id = ChainId::from("0");
         let tx_signer_key_pair = KeyPair::random();
 
-        let leader_key_pair = KeyPair::random();
+        let leader_key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
@@ -1540,7 +1565,7 @@ mod tests {
         let tx_signer_key_pair = KeyPair::random();
 
         let topology = Topology::new(UniqueVec::new());
-        let leader_key_pair = KeyPair::random();
+        let leader_key_pair = KeyPair::random_with_algorithm(Algorithm::Secp256k1);
         let (state, _, mut block) =
             create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
 

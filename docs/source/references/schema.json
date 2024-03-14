@@ -641,6 +641,10 @@
         "type": "u64"
       },
       {
+        "name": "vrf_state",
+        "type": "Vec<u8>"
+      },
+      {
         "name": "view_change_index",
         "type": "u64"
       },
@@ -2007,6 +2011,10 @@
       {
         "tag": "NameLength",
         "discriminant": 1
+      },
+      {
+        "tag": "KeyAlgorithmNotSupported",
+        "discriminant": 2
       }
     ]
   },

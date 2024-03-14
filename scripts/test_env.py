@@ -99,7 +99,7 @@ class _Peer:
 
         logging.info(f"Peer {self.name} generating key pair...")
 
-        command = [self.out_dir / "kagami", "crypto", "-j"]
+        command = [self.out_dir / "kagami", "crypto", "-j", "-a", "secp256k1"]
         if args.peer_name_as_seed:
             command.extend(["-s", self.name])
         kagami = subprocess.run(command, capture_output=True)

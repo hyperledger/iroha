@@ -26,6 +26,7 @@ pub mod main_loop;
 pub mod message;
 pub mod network_topology;
 pub mod view_change;
+pub mod vrf;
 
 use self::{message::*, view_change::ProofChain};
 use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, NetworkMessage};

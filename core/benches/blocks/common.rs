@@ -40,7 +40,7 @@ pub fn create_block(
         topology.clone(),
         Vec::new(),
     )
-    .chain(0, state)
+    .chain(0, Vec::new(), state)
     .sign(key_pair)
     .unpack(|_| {})
     .commit(&topology)

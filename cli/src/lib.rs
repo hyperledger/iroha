@@ -638,14 +638,15 @@ mod tests {
 
         use assertables::{assert_contains, assert_contains_as_result};
         use iroha_config::parameters::user::RootPartial as PartialUserConfig;
-        use iroha_crypto::KeyPair;
+        use iroha_crypto::{Algorithm, KeyPair};
         use iroha_primitives::addr::socket_addr;
         use path_absolutize::Absolutize as _;
 
         use super::*;
 
         fn config_factory() -> PartialUserConfig {
-            let (pubkey, privkey) = KeyPair::random().into_parts();
+            let (pubkey, privkey) =
+                KeyPair::random_with_algorithm(Algorithm::Secp256k1).into_parts();
 
             let mut base = PartialUserConfig::default();
 

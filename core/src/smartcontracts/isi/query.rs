@@ -314,7 +314,7 @@ mod tests {
 
             let topology = Topology::new(UniqueVec::new());
             let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
-                .chain(0, &mut state_block)
+                .chain(0, Vec::new(), &mut state_block)
                 .sign(&ALICE_KEYS)
                 .unpack(|_| {})
                 .commit(&topology)
@@ -326,7 +326,7 @@ mod tests {
 
             for _ in 1u64..blocks {
                 let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
-                    .chain(0, &mut state_block)
+                    .chain(0, Vec::new(), &mut state_block)
                     .sign(&ALICE_KEYS)
                     .unpack(|_| {})
                     .commit(&topology)
@@ -468,7 +468,7 @@ mod tests {
 
         let topology = Topology::new(UniqueVec::new());
         let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
-            .chain(0, &mut state_block)
+            .chain(0, Vec::new(), &mut state_block)
             .sign(&ALICE_KEYS)
             .unpack(|_| {})
             .commit(&topology)
