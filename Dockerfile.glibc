@@ -29,6 +29,7 @@ ARG PROFILE="deploy"
 ARG  STORAGE=/storage
 ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-gnu/${PROFILE}
 ENV  BIN_PATH=/usr/local/bin/
+ENV  CONFIG_DIR=/config
 ENV  KURA_STORE_DIR=$STORAGE
 ENV  SNAPSHOT_STORE_DIR=$STORAGE/snapshot
 ENV  WASM_DIRECTORY=/app/.cache/wasmtime

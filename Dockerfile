@@ -39,6 +39,7 @@ FROM alpine:3.19
 ARG  STORAGE=/storage
 ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-musl/deploy
 ENV  BIN_PATH=/usr/local/bin/
+ENV  CONFIG_DIR=/config
 
 ENV  KURA_STORE_DIR=$STORAGE
 ENV  SNAPSHOT_STORE_DIR=$STORAGE/snapshot
