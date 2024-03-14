@@ -1,6 +1,5 @@
 //! This module contains [`WorldStateView`] snapshot actor service.
 use std::{
-    fmt::Formatter,
     io::Read,
     path::{Path, PathBuf},
     sync::Arc,
@@ -26,8 +25,8 @@ const SNAPSHOT_FILE_NAME: &str = "snapshot.data";
 /// Name of the temporary [`WorldStateView`] snapshot file.
 const SNAPSHOT_TMP_FILE_NAME: &str = "snapshot.tmp";
 
-/// Errors produced by [`SnapshotMaker`] actor.
-pub type Result<T, E = Error> = core::result::Result<T, E>;
+// /// Errors produced by [`SnapshotMaker`] actor.
+// pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// [`SnapshotMaker`] actor handle.
 #[derive(Clone)]
@@ -89,7 +88,7 @@ impl SnapshotMaker {
     async fn create_snapshot(&mut self) {
         let sumeragi = self.sumeragi.clone();
         let store_dir = self.store_dir.clone();
-        let handle = tokio::task::spawn_blocking(move || -> Result<u64> {
+        let handle = tokio::task::spawn_blocking(move || -> Result<u64, TryWriteError> {
             sumeragi.apply_finalized_wsv(|wsv| {
                 try_write_snapshot(wsv, store_dir)?;
                 Ok(wsv.height())
@@ -137,21 +136,21 @@ pub fn try_read_snapshot(
     kura: &Arc<Kura>,
     query_handle: LiveQueryStoreHandle,
     BlockCount(block_count): BlockCount,
-) -> Result<TryReadResult> {
+) -> Result<WorldStateView, TryReadError> {
     let mut bytes = Vec::new();
     let path = store_dir.as_ref().join(SNAPSHOT_FILE_NAME);
     let mut file = match std::fs::OpenOptions::new().read(true).open(&path) {
         Ok(file) => file,
         Err(err) => {
             return if err.kind() == std::io::ErrorKind::NotFound {
-                Ok(TryReadResult::NotFound)
+                Err(TryReadError::NotFound)
             } else {
-                Err(Error::IO(err, path.clone()))
+                Err(TryReadError::IO(err, path.clone()))
             }
         }
     };
     file.read_to_end(&mut bytes)
-        .map_err(|err| Error::IO(err, path.clone()))?;
+        .map_err(|err| TryReadError::IO(err, path.clone()))?;
     let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
     let seed = KuraSeed {
         kura: Arc::clone(kura),
@@ -160,7 +159,7 @@ pub fn try_read_snapshot(
     let wsv = seed.deserialize(&mut deserializer)?;
     let snapshot_height = wsv.block_hashes.len();
     if snapshot_height > block_count {
-        return Err(Error::MismatchedHeight {
+        return Err(TryReadError::MismatchedHeight {
             snapshot_height,
             kura_height: block_count,
         });
@@ -171,14 +170,14 @@ pub fn try_read_snapshot(
             .expect("Kura has height at least as large as wsv_height");
         let snapshot_block_hash = wsv.block_hashes[height - 1];
         if kura_block_hash != snapshot_block_hash {
-            return Err(Error::MismatchedHash {
+            return Err(TryReadError::MismatchedHash {
                 height,
                 snapshot_block_hash,
                 kura_block_hash,
             });
         }
     }
-    Ok(TryReadResult::Found(wsv))
+    Ok(wsv)
 }
 
 /// Serialize and write snapshot to file,
@@ -187,9 +186,12 @@ pub fn try_read_snapshot(
 /// # Errors
 /// - IO errors
 /// - Serialization errors
-fn try_write_snapshot(wsv: &WorldStateView, store_dir: impl AsRef<Path>) -> Result<()> {
+fn try_write_snapshot(
+    wsv: &WorldStateView,
+    store_dir: impl AsRef<Path>,
+) -> Result<(), TryWriteError> {
     std::fs::create_dir_all(store_dir.as_ref())
-        .map_err(|err| Error::IO(err, store_dir.as_ref().to_path_buf()))?;
+        .map_err(|err| TryWriteError::IO(err, store_dir.as_ref().to_path_buf()))?;
     let path_to_file = store_dir.as_ref().join(SNAPSHOT_FILE_NAME);
     let path_to_tmp_file = store_dir.as_ref().join(SNAPSHOT_TMP_FILE_NAME);
     let file = std::fs::OpenOptions::new()
@@ -197,43 +199,28 @@ fn try_write_snapshot(wsv: &WorldStateView, store_dir: impl AsRef<Path>) -> Resu
         .write(true)
         .truncate(true)
         .open(&path_to_tmp_file)
-        .map_err(|err| Error::IO(err, path_to_tmp_file.clone()))?;
+        .map_err(|err| TryWriteError::IO(err, path_to_tmp_file.clone()))?;
     let mut serializer = serde_json::Serializer::new(file);
     wsv.serialize(&mut serializer)?;
     std::fs::rename(path_to_tmp_file, &path_to_file)
-        .map_err(|err| Error::IO(err, path_to_file.clone()))?;
+        .map_err(|err| TryWriteError::IO(err, path_to_file.clone()))?;
     Ok(())
 }
 
-/// OK result of [`try_read_snapshot`].
-pub enum TryReadResult {
-    /// Successfully read a snapshot
-    Found(WorldStateView),
-    /// Haven't found an existing file, which is also fine
-    NotFound,
-}
-
-impl std::fmt::Debug for TryReadResult {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Found(_) => write!(f, "Found(<wsv>)"),
-            Self::NotFound => write!(f, "NotFound"),
-        }
-    }
-}
-
-/// Error variants for snapshot reading/writing logic
+/// Error variants for snapshot reading
 #[derive(thiserror::Error, Debug, displaydoc::Display)]
-pub enum Error {
+pub enum TryReadError {
+    /// The snapshot was not found
+    NotFound,
     /// Failed reading/writing {1:?} from disk
     IO(#[source] std::io::Error, PathBuf),
     /// Error (de)serializing World State View snapshot
     Serialization(#[from] serde_json::Error),
     /// Snapshot is in a non-consistent state. Snapshot has greater height ({snapshot_height}) than kura block store ({kura_height})
     MismatchedHeight {
-        /// Amount of block hashes stored by snapshot
+        /// The amount of block hashes stored by snapshot
         snapshot_height: usize,
-        /// Amount of blocks stored by [`Kura`]
+        /// The amount of blocks stored by [`Kura`]
         kura_height: usize,
     },
     /// Snapshot is in a non-consistent state. Hash of the block at height {height} is different between snapshot ({snapshot_block_hash}) and kura ({kura_block_hash})
@@ -245,6 +232,15 @@ pub enum Error {
         /// Hash of the block stored in kura
         kura_block_hash: HashOf<SignedBlock>,
     },
+}
+
+/// Error variants for snapshot writing
+#[derive(thiserror::Error, Debug, displaydoc::Display)]
+enum TryWriteError {
+    /// Failed reading/writing {1:?} from disk
+    IO(#[source] std::io::Error, PathBuf),
+    /// Error (de)serializing World State View snapshot
+    Serialization(#[from] serde_json::Error),
 }
 
 #[cfg(test)]
@@ -287,31 +283,30 @@ mod tests {
         let wsv = wsv_factory();
 
         try_write_snapshot(&wsv, &store_dir).unwrap();
-        let result = try_read_snapshot(
+        let _wsv = try_read_snapshot(
             &store_dir,
             &Kura::blank_kura_for_testing(),
             LiveQueryStore::test().start(),
             BlockCount(usize::try_from(wsv.height()).unwrap()),
         )
         .unwrap();
-
-        assert!(matches!(result, TryReadResult::Found(_)));
     }
 
     #[test]
-    async fn cannot_find_snapshot_on_read_is_ok() {
+    async fn cannot_find_snapshot_on_read_is_not_found() {
         let tmp_root = tempdir().unwrap();
         let store_dir = tmp_root.path().join("snapshot");
 
-        let result = try_read_snapshot(
+        let Err(error) = try_read_snapshot(
             store_dir,
             &Kura::blank_kura_for_testing(),
             LiveQueryStore::test().start(),
             BlockCount(15),
-        )
-        .unwrap();
+        ) else {
+            panic!("should not be ok")
+        };
 
-        assert!(matches!(result, TryReadResult::NotFound));
+        assert!(matches!(error, TryReadError::NotFound));
     }
 
     #[test]
@@ -324,13 +319,14 @@ mod tests {
             file.write_all(&[1, 4, 1, 2, 3, 4, 1, 4]).unwrap();
         }
 
-        let error = try_read_snapshot(
+        let Err(error) = try_read_snapshot(
             &store_dir,
             &Kura::blank_kura_for_testing(),
             LiveQueryStore::test().start(),
             BlockCount(15),
-        )
-        .unwrap_err();
+        ) else {
+            panic!("should not be ok")
+        };
 
         assert_eq!(
             format!("{error}"),

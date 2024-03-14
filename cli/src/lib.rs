@@ -21,8 +21,7 @@ use iroha_core::{
     queue::Queue,
     smartcontracts::isi::Registrable as _,
     snapshot::{
-        try_read_snapshot, SnapshotMaker, SnapshotMakerHandle,
-        TryReadResult as TryReadSnapshotResult,
+        try_read_snapshot, SnapshotMaker, SnapshotMakerHandle, TryReadError as TryReadSnapshotError,
     },
     sumeragi::{SumeragiHandle, SumeragiStartArgs},
     IrohaNetwork,
@@ -225,14 +224,14 @@ impl Iroha {
             live_query_store_handle.clone(),
             block_count,
         ) {
-            Ok(TryReadSnapshotResult::Found(wsv)) => {
+            Ok(wsv) => {
                 iroha_logger::info!(
                     at_height = wsv.height(),
                     "Successfully loaded WSV from a snapshot"
                 );
                 Some(wsv)
             }
-            Ok(TryReadSnapshotResult::NotFound) => {
+            Err(TryReadSnapshotError::NotFound) => {
                 iroha_logger::info!("Didn't find a snapshot of WSV, creating an empty one");
                 None
             }
