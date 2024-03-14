@@ -123,7 +123,7 @@ fn minimal_config_snapshot() -> Result<()> {
                 future_threshold: 1s,
             },
             snapshot: Snapshot {
-                mode: Normal,
+                mode: ReadWrite,
                 create_every: 60s,
                 store_dir: "./storage/snapshot",
             },
@@ -368,7 +368,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
             },
             snapshot: SnapshotPartial {
                 mode: Some(
-                    Normal,
+                    ReadWrite,
                 ),
                 create_every: None,
                 store_dir: Some(

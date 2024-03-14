@@ -15,7 +15,7 @@
 pub enum Mode {
     /// Read the snapshot on startup, update periodically
     #[default]
-    Normal,
+    ReadWrite,
     /// Read the snapshot on startup, do not update
     Readonly,
     /// Do not read or write the snapshot
@@ -29,8 +29,8 @@ mod tests {
     #[test]
     fn mode_display_form() {
         assert_eq!(
-            format!("{} {} {}", Mode::Normal, Mode::Readonly, Mode::Disabled),
-            "normal readonly disabled"
+            format!("{} {} {}", Mode::ReadWrite, Mode::Readonly, Mode::Disabled),
+            "read_write readonly disabled"
         );
     }
 }

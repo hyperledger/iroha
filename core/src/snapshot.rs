@@ -113,7 +113,7 @@ impl SnapshotMaker {
     ///
     /// Might return [`None`] if the configuration is not suitable for _making_ snapshots.
     pub fn from_config(config: &Config, sumeragi: &SumeragiHandle) -> Option<Self> {
-        if let Mode::Normal = config.mode {
+        if let Mode::ReadWrite = config.mode {
             Some(Self {
                 sumeragi: sumeragi.clone(),
                 create_every: config.create_every,
