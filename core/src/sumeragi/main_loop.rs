@@ -1,7 +1,7 @@
 //! The main event loop that powers sumeragi.
 use std::sync::mpsc;
 
-use iroha_crypto::HashOf;
+use iroha_crypto::{HashOf, VRFState};
 use iroha_data_model::{
     block::*, events::pipeline::PipelineEvent, peer::PeerId,
     transaction::error::TransactionRejectionReason,
@@ -291,8 +291,9 @@ impl Sumeragi {
             .expect("Genesis invalid");
 
         let mut new_wsv = self.wsv.clone();
+        // Here is the only place in sumeragi it is okay to generate a random vrf state.
         let genesis = BlockBuilder::new(transactions, self.current_topology.clone(), vec![])
-            .chain(0, &mut new_wsv)
+            .chain(0, VRFState::generate_new_random_state(), &mut new_wsv)
             .sign(&self.key_pair);
 
         let genesis_msg = BlockCreated::from(genesis.clone()).into();
@@ -334,6 +335,7 @@ impl Sumeragi {
             role=%self.current_topology.role(&self.peer_id),
             block_height=%block.as_ref().header().height(),
             block_hash=%block.as_ref().hash(),
+            vrf_state=%block.as_ref().header().vrf_state,
             "{}", Strategy::LOG_MESSAGE,
         );
 
@@ -638,6 +640,15 @@ impl Sumeragi {
                         info!(%addr, txns=%transactions.len(), "Creating block...");
                         let create_block_start_time = Instant::now();
 
+                        let old_vrf_state: VRFState = self
+                            .wsv
+                            .latest_block_ref()
+                            .expect("Genesis committed")
+                            .header()
+                            .vrf_state
+                            .clone();
+                        let new_vrf_state: VRFState = old_vrf_state.perform_vrf(&self.key_pair);
+
                         // TODO: properly process triggers!
                         let mut new_wsv = self.wsv.clone();
                         let event_recommendations = Vec::new();
@@ -646,7 +657,7 @@ impl Sumeragi {
                             self.current_topology.clone(),
                             event_recommendations,
                         )
-                        .chain(current_view_change_index, &mut new_wsv)
+                        .chain(current_view_change_index, new_vrf_state, &mut new_wsv)
                         .sign(&self.key_pair);
 
                         let created_in = create_block_start_time.elapsed();
@@ -1224,7 +1235,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx.clone(), tx], topology.clone(), Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, VRFState::generate_new_random_state(), &mut wsv)
             .sign(leader_key_pair);
 
         let genesis = block.commit(topology).expect("Block is valid");
@@ -1262,7 +1273,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx1, tx2], topology.clone(), Vec::new())
-            .chain(0, &mut wsv.clone())
+            .chain(0, VRFState::generate_new_random_state(), &mut wsv.clone())
             .sign(leader_key_pair);
 
         (wsv, kura, block.into())

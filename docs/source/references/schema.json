@@ -601,6 +601,10 @@
         "type": "Option<HashOf<SignedBlock>>"
       },
       {
+        "name": "vrf_state",
+        "type": "VRFState"
+      },
+      {
         "name": "transactions_hash",
         "type": "Option<HashOf<MerkleTree<SignedTransaction>>>"
       },
@@ -4487,6 +4491,14 @@
       {
         "name": "executor",
         "type": "Executor"
+      }
+    ]
+  },
+  "VRFState": {
+    "Struct": [
+      {
+        "name": "signature",
+        "type": "Signature"
       }
     ]
   },

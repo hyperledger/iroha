@@ -12,7 +12,7 @@ use derive_more::Display;
 use getset::Getters;
 #[cfg(all(feature = "std", feature = "transparent_api"))]
 use iroha_crypto::KeyPair;
-use iroha_crypto::{HashOf, MerkleTree, SignaturesOf};
+use iroha_crypto::{HashOf, MerkleTree, SignaturesOf, VRFState};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_primitives::unique_vec::UniqueVec;
@@ -59,6 +59,8 @@ pub mod model {
         pub timestamp_ms: u64,
         /// Hash of the previous block in the chain.
         pub previous_block_hash: Option<HashOf<SignedBlock>>,
+        /// VRF State
+        pub vrf_state: VRFState,
         /// Hash of merkle tree root of transactions' hashes.
         pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
         /// Value of view change index. Used to resolve soft forks.

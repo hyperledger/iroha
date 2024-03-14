@@ -7,7 +7,7 @@
 use std::error::Error as _;
 
 use iroha_config::parameters::defaults::chain_wide::DEFAULT_CONSENSUS_ESTIMATION;
-use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
+use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf, VRFState};
 use iroha_data_model::{
     block::*,
     events::prelude::*,
@@ -66,6 +66,8 @@ pub enum BlockValidationError {
     SignatureVerification(#[from] SignatureVerificationError),
     /// Received view change index is too large
     ViewChangeIndexTooLarge,
+    /// Block has an invalid VRF state
+    InvalidVRF,
 }
 
 /// Error during signature verification
@@ -137,6 +139,7 @@ mod pending {
             previous_height: u64,
             previous_block_hash: Option<HashOf<SignedBlock>>,
             view_change_index: u64,
+            vrf_state: VRFState,
             transactions: &[TransactionValue],
         ) -> BlockHeader {
             BlockHeader {
@@ -151,6 +154,7 @@ mod pending {
                 height: previous_height + 1,
                 view_change_index,
                 previous_block_hash,
+                vrf_state,
                 transactions_hash: transactions
                     .iter()
                     .map(|value| value.as_ref().hash())
@@ -191,6 +195,7 @@ mod pending {
         pub fn chain(
             self,
             view_change_index: u64,
+            vrf_state: VRFState,
             wsv: &mut WorldStateView,
         ) -> BlockBuilder<Chained> {
             let transactions = Self::categorize_transactions(self.0.transactions, wsv);
@@ -200,6 +205,7 @@ mod pending {
                     wsv.height(),
                     wsv.latest_block_hash(),
                     view_change_index,
+                    vrf_state,
                     &transactions,
                 ),
                 transactions,
@@ -276,6 +282,15 @@ mod valid {
                             actual: actual_commit_topology,
                         },
                     ));
+                }
+
+                let leader_pk = &topology.ordered_peers[0].public_key;
+                if !block
+                    .header()
+                    .vrf_state
+                    .verify(&topology.get_vrf_state(), leader_pk)
+                {
+                    return Err((block, BlockValidationError::InvalidVRF));
                 }
 
                 if topology
@@ -447,6 +462,7 @@ mod valid {
                     height: 2,
                     view_change_index: 0,
                     previous_block_hash: None,
+                    vrf_state: VRFState::generate_new_random_state(),
                     transactions_hash: None,
                 },
                 transactions: Vec::new(),
@@ -724,7 +740,7 @@ mod tests {
         let transactions = vec![tx.clone(), tx];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, VRFState::generate_new_random_state(), &mut wsv)
             .sign(&alice_keys);
 
         // The first transaction should be confirmed
@@ -785,7 +801,7 @@ mod tests {
         let transactions = vec![tx0, tx, tx2];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, VRFState::generate_new_random_state(), &mut wsv)
             .sign(&alice_keys);
 
         // The first transaction should fail
@@ -841,7 +857,7 @@ mod tests {
         let transactions = vec![tx_fail, tx_accept];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, VRFState::generate_new_random_state(), &mut wsv)
             .sign(&alice_keys);
 
         // The first transaction should be rejected

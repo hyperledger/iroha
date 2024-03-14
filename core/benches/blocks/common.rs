@@ -8,6 +8,7 @@ use iroha_core::{
     sumeragi::network_topology::Topology,
     wsv::World,
 };
+use iroha_crypto::VRFState;
 use iroha_data_model::{
     account::Account,
     asset::{AssetDefinition, AssetDefinitionId},
@@ -40,7 +41,7 @@ pub fn create_block(
         topology.clone(),
         Vec::new(),
     )
-    .chain(0, wsv)
+    .chain(0, VRFState::generate_new_random_state(), wsv)
     .sign(key_pair)
     .commit(&topology)
     .unwrap();
