@@ -32,7 +32,9 @@ fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
     }
 
     builder
-        .executor(construct_executor("../default_executor").expect("Failed to construct executor"))
+        .executor_blob(
+            construct_executor("../default_executor").expect("Failed to construct executor"),
+        )
         .build()
 }
 

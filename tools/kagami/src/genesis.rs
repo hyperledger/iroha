@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{ArgGroup, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use iroha_config::parameters::defaults::chain_wide::{
     DEFAULT_BLOCK_TIME, DEFAULT_COMMIT_TIME, DEFAULT_IDENT_LENGTH_LIMITS, DEFAULT_MAX_TXS,
     DEFAULT_METADATA_LIMITS, DEFAULT_TRANSACTION_LIMITS, DEFAULT_WASM_FUEL_LIMIT,
@@ -11,31 +11,16 @@ use iroha_data_model::{
     parameter::{default::*, ParametersBuilder},
     prelude::AssetId,
 };
-use iroha_genesis::{ExecutorMode, ExecutorPath, RawGenesisBlock, RawGenesisBlockBuilder};
+use iroha_genesis::{executor_state, RawGenesisBlockBuilder, RawGenesisBlockFile};
 use serde_json::json;
 
 use super::*;
 
-const INLINED_EXECUTOR_WARNING: &str = r"WARN: You're using genesis with inlined executor.
-Consider specifying a separate executor file using `--executor-path-in-genesis` instead.
-Use `--help` for more information.";
-
 #[derive(Parser, Debug, Clone)]
-#[clap(group = ArgGroup::new("executor").required(true))]
 pub struct Args {
-    /// Reads the executor from the file at <PATH> (relative to CWD)
-    /// and includes the content into the genesis.
-    ///
-    /// WARN: This approach can lead to reproducibility issues, as WASM builds are currently not
-    /// guaranteed to be reproducible. Additionally, inlining the executor bloats the genesis JSON
-    /// and makes it less readable. Consider specifying a separate executor file
-    /// using `--executor-path-in-genesis` instead. For more details, refer to
-    /// the related PR: https://github.com/hyperledger/iroha/pull/3434
-    #[clap(long, group = "executor", value_name = "PATH")]
-    inline_executor_from_file: Option<PathBuf>,
-    /// Specifies the <PATH> that will be directly inserted into the genesis JSON as-is.
-    #[clap(long, group = "executor", value_name = "PATH")]
-    executor_path_in_genesis: Option<PathBuf>,
+    /// Specifies the `executor_file` <PATH> that will be inserted into the genesis JSON as-is.
+    #[clap(long, value_name = "PATH")]
+    executor_path_in_genesis: PathBuf,
     #[clap(subcommand)]
     mode: Option<Mode>,
 }
@@ -45,7 +30,7 @@ pub enum Mode {
     /// Generate default genesis
     #[default]
     Default,
-    /// Generate synthetic genesis with specified number of domains, accounts and assets.
+    /// Generate synthetic genesis with the specified number of domains, accounts and assets.
     ///
     /// Synthetic mode is useful when we need a semi-realistic genesis for stress-testing
     /// Iroha's startup times as well as being able to just start an Iroha network and have
@@ -55,11 +40,11 @@ pub enum Mode {
         #[clap(long, default_value_t)]
         domains: u64,
         /// Number of accounts per domains in synthetic genesis.
-        /// Total number of  accounts would be `domains * assets_per_domain`.
+        /// The total number of accounts would be `domains * assets_per_domain`.
         #[clap(long, default_value_t)]
         accounts_per_domain: u64,
         /// Number of assets per domains in synthetic genesis.
-        /// Total number of assets would be `domains * assets_per_domain`.
+        /// The total number of assets would be `domains * assets_per_domain`.
         #[clap(long, default_value_t)]
         assets_per_domain: u64,
     },
@@ -68,64 +53,32 @@ pub enum Mode {
 impl<T: Write> RunArgs<T> for Args {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
         let Self {
-            inline_executor_from_file,
             executor_path_in_genesis,
             mode,
         } = self;
 
-        let executor: ExecutorMode = match (inline_executor_from_file, executor_path_in_genesis) {
-            (Some(path), None) => {
-                eprintln!("{INLINED_EXECUTOR_WARNING}");
-                ParsedExecutorArgs::Inline(path)
-            }
-            (None, Some(path)) => ParsedExecutorArgs::Path(path),
-            _ => unreachable!("clap invariant"),
-        }
-        .try_into()?;
-
+        let builder = RawGenesisBlockBuilder::default().executor_file(executor_path_in_genesis);
         let genesis = match mode.unwrap_or_default() {
-            Mode::Default => generate_default(executor),
+            Mode::Default => generate_default(builder),
             Mode::Synthetic {
                 domains,
                 accounts_per_domain,
                 assets_per_domain,
-            } => generate_synthetic(executor, domains, accounts_per_domain, assets_per_domain),
+            } => generate_synthetic(builder, domains, accounts_per_domain, assets_per_domain),
         }?;
         writeln!(writer, "{}", serde_json::to_string_pretty(&genesis)?)
-            .wrap_err("Failed to write serialized genesis to the buffer.")
-    }
-}
-
-enum ParsedExecutorArgs {
-    Inline(PathBuf),
-    Path(PathBuf),
-}
-
-impl TryFrom<ParsedExecutorArgs> for ExecutorMode {
-    type Error = color_eyre::Report;
-
-    fn try_from(value: ParsedExecutorArgs) -> Result<Self, Self::Error> {
-        let mode = match value {
-            ParsedExecutorArgs::Path(path) => ExecutorMode::Path(ExecutorPath(path)),
-            ParsedExecutorArgs::Inline(path) => {
-                let executor = ExecutorMode::Path(ExecutorPath(path.clone()))
-                    .try_into()
-                    .wrap_err_with(|| {
-                        format!("Failed to read the executor located at {}", path.display())
-                    })?;
-                ExecutorMode::Inline(executor)
-            }
-        };
-        Ok(mode)
+            .wrap_err("failed to write serialized genesis to the buffer")
     }
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesisBlock> {
+pub fn generate_default(
+    builder: RawGenesisBlockBuilder<executor_state::SetPath>,
+) -> color_eyre::Result<RawGenesisBlockFile> {
     let mut meta = Metadata::new();
     meta.insert_with_limits("key".parse()?, "value".to_owned(), Limits::new(1024, 1024))?;
 
-    let mut genesis = RawGenesisBlockBuilder::default()
+    let mut genesis = builder
         .domain_with_metadata("wonderland".parse()?, meta.clone())
         .account_with_metadata(
             "alice".parse()?,
@@ -145,7 +98,6 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
             AssetValueType::Numeric(NumericSpec::default()),
         )
         .finish_domain()
-        .executor(executor)
         .build();
 
     let alice_id = AccountId::from_str("alice@wonderland")?;
@@ -236,13 +188,13 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
 }
 
 fn generate_synthetic(
-    executor: ExecutorMode,
+    builder: RawGenesisBlockBuilder<executor_state::SetPath>,
     domains: u64,
     accounts_per_domain: u64,
     assets_per_domain: u64,
-) -> color_eyre::Result<RawGenesisBlock> {
+) -> color_eyre::Result<RawGenesisBlockFile> {
     // Add default `Domain` and `Account` to still be able to query
-    let mut builder = RawGenesisBlockBuilder::default()
+    let mut builder = builder
         .domain("wonderland".parse()?)
         .account("alice".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
         .finish_domain();
@@ -265,7 +217,7 @@ fn generate_synthetic(
 
         builder = domain_builder.finish_domain();
     }
-    let mut genesis = builder.executor(executor).build();
+    let mut genesis = builder.build();
 
     let first_transaction = genesis
         .first_transaction_mut()

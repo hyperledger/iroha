@@ -516,10 +516,11 @@ pub fn read_config_and_genesis<P: AsRef<Path>>(
     let genesis = if let Genesis::Full { key_pair, file } = &config.genesis {
         let raw_block = RawGenesisBlock::from_path(file)?;
 
-        Some(
-            GenesisNetwork::new(raw_block, &config.common.chain_id, key_pair)
-                .wrap_err("Failed to construct the genesis")?,
-        )
+        Some(GenesisNetwork::new(
+            raw_block,
+            &config.common.chain_id,
+            key_pair,
+        ))
     } else {
         None
     };
@@ -559,10 +560,11 @@ mod tests {
     }
 
     mod config_integration {
+        use std::path::PathBuf;
+
         use assertables::{assert_contains, assert_contains_as_result};
         use iroha_config::parameters::user::RootPartial as PartialUserConfig;
         use iroha_crypto::KeyPair;
-        use iroha_genesis::{ExecutorMode, ExecutorPath};
         use iroha_primitives::addr::socket_addr;
         use path_absolutize::Absolutize as _;
 
@@ -591,7 +593,7 @@ mod tests {
             // Given
 
             let genesis = RawGenesisBlockBuilder::default()
-                .executor(ExecutorMode::Path(ExecutorPath("./executor.wasm".into())))
+                .executor_file(PathBuf::from("./executor.wasm"))
                 .build();
 
             let config = {
@@ -649,7 +651,7 @@ mod tests {
             // Given
 
             let genesis = RawGenesisBlockBuilder::default()
-                .executor(ExecutorMode::Path(ExecutorPath("./executor.wasm".into())))
+                .executor_file(PathBuf::from("./executor.wasm"))
                 .build();
 
             let config = {

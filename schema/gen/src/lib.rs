@@ -7,7 +7,6 @@ use iroha_data_model::{
     query::QueryOutputBox,
     BatchedResponse,
 };
-use iroha_genesis::RawGenesisBlock;
 use iroha_schema::prelude::*;
 
 macro_rules! types {
@@ -52,9 +51,6 @@ pub fn build_schemas() -> MetaMap {
         // Block stream
         BlockMessage,
         BlockSubscriptionRequest,
-
-        // SDK devs want to know how to read serialized genesis block
-        RawGenesisBlock,
 
         // Never referenced, but present in type signature. Like `PhantomData<X>`
         MerkleTree<SignedTransaction>,
@@ -476,13 +472,6 @@ mod tests {
 
         insert_into_test_map!(Compact<u128>);
         insert_into_test_map!(Compact<u32>);
-
-        // NOTE: Coming from genesis
-        insert_into_test_map!(Vec<iroha_genesis::GenesisTransactionBuilder>);
-        insert_into_test_map!(iroha_genesis::GenesisTransactionBuilder);
-        insert_into_test_map!(iroha_genesis::RawGenesisBlock);
-        insert_into_test_map!(iroha_genesis::ExecutorMode);
-        insert_into_test_map!(iroha_genesis::ExecutorPath);
 
         map
     }

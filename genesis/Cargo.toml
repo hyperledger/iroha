@@ -21,3 +21,6 @@ serde_json = { workspace = true }
 once_cell = { workspace = true }
 tracing = { workspace = true }
 eyre = { workspace = true }
+
+[dev-dependencies]
+iroha_crypto = { workspace = true, features = ["rand"] }

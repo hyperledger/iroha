@@ -1001,20 +1001,6 @@
     ]
   },
   "ExecutorEventSet": "u32",
-  "ExecutorMode": {
-    "Enum": [
-      {
-        "tag": "Path",
-        "discriminant": 0,
-        "type": "String"
-      },
-      {
-        "tag": "Inline",
-        "discriminant": 1,
-        "type": "Executor"
-      }
-    ]
-  },
   "Fail": {
     "Struct": [
       {
@@ -2864,18 +2850,6 @@
       }
     ]
   },
-  "RawGenesisBlock": {
-    "Struct": [
-      {
-        "name": "transactions",
-        "type": "Vec<Vec<InstructionBox>>"
-      },
-      {
-        "name": "executor",
-        "type": "ExecutorMode"
-      }
-    ]
-  },
   "Register<Account>": {
     "Struct": [
       {
@@ -4113,9 +4087,6 @@
   },
   "Vec<TransactionValue>": {
     "Vec": "TransactionValue"
-  },
-  "Vec<Vec<InstructionBox>>": {
-    "Vec": "Vec<InstructionBox>"
   },
   "Vec<u8>": {
     "Vec": "u8"

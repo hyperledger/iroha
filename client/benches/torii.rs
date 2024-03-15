@@ -36,7 +36,7 @@ fn query_requests(criterion: &mut Criterion) {
                 get_key_pair().public_key().clone(),
             )
             .finish_domain()
-            .executor(
+            .executor_blob(
                 construct_executor("../default_executor").expect("Failed to construct executor"),
             )
             .build(),
@@ -45,8 +45,7 @@ fn query_requests(criterion: &mut Criterion) {
             .genesis
             .key_pair()
             .expect("genesis config should be full, probably a bug"),
-    )
-    .expect("genesis creation failed");
+    );
 
     let builder = PeerBuilder::new()
         .with_config(configuration)
@@ -143,7 +142,7 @@ fn instruction_submits(criterion: &mut Criterion) {
                 configuration.common.key_pair.public_key().clone(),
             )
             .finish_domain()
-            .executor(
+            .executor_blob(
                 construct_executor("../default_executor").expect("Failed to construct executor"),
             )
             .build(),
@@ -152,8 +151,7 @@ fn instruction_submits(criterion: &mut Criterion) {
             .genesis
             .key_pair()
             .expect("config should be full; probably a bug"),
-    )
-    .expect("failed to create genesis");
+    );
     let builder = PeerBuilder::new()
         .with_config(configuration)
         .with_into_genesis(genesis);

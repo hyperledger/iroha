@@ -2,13 +2,13 @@
 //! `RawGenesisBlock` and the `RawGenesisBlockBuilder` structures.
 use std::{
     fmt::Debug,
-    fs::{self, File},
+    fs,
+    fs::File,
     io::BufReader,
     path::{Path, PathBuf},
 };
 
-use derive_more::From;
-use eyre::{eyre, ErrReport, Result, WrapErr};
+use eyre::{eyre, Report, Result, WrapErr};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     asset::{AssetDefinition, AssetValueType},
@@ -16,7 +16,6 @@ use iroha_data_model::{
     prelude::{Metadata, *},
     ChainId,
 };
-use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
@@ -41,23 +40,16 @@ pub struct GenesisNetwork {
 }
 
 impl GenesisNetwork {
-    /// Construct [`GenesisNetwork`] from configuration.
-    ///
-    /// # Errors
-    /// If fails to resolve the executor
+    /// Construct from configuration
     pub fn new(
         raw_block: RawGenesisBlock,
         chain_id: &ChainId,
         genesis_key_pair: &KeyPair,
-    ) -> Result<GenesisNetwork> {
-        // First instruction should be Executor upgrade.
-        // This makes possible to grant permissions to users in genesis.
+    ) -> GenesisNetwork {
+        // The first instruction should be Executor upgrade.
+        // This makes it possible to grant permissions to users in genesis.
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
-            isi: vec![Upgrade::new(
-                Executor::try_from(raw_block.executor)
-                    .wrap_err("Failed to construct the executor")?,
-            )
-            .into()],
+            isi: vec![Upgrade::new(raw_block.executor).into()],
         })
         .chain(raw_block.transactions);
 
@@ -66,26 +58,65 @@ impl GenesisNetwork {
             .map(GenesisTransaction)
             .collect();
 
-        Ok(GenesisNetwork { transactions })
+        GenesisNetwork { transactions }
     }
 
-    /// Consume `self` into genesis transactions
+    /// Transform into genesis transactions
     pub fn into_transactions(self) -> Vec<GenesisTransaction> {
         self.transactions
     }
 }
 
-/// [`RawGenesisBlock`] is an initial block of the network
-#[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
+/// The initial block of the network
+///
+/// Use [`RawGenesisBlockFile`] to read it from a file.
+#[derive(Debug, Clone)]
 pub struct RawGenesisBlock {
     /// Transactions
     transactions: Vec<GenesisTransactionBuilder>,
-    /// Runtime Executor
-    // TODO `RawGenesisBlock` should have evaluated executor, i.e. loaded
-    executor: ExecutorMode,
+    /// The [`Executor`]
+    executor: Executor,
 }
 
 impl RawGenesisBlock {
+    /// Shorthand for [`RawGenesisBlockFile::from_path`]
+    ///
+    /// # Errors
+    /// Refer to the original method
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+        RawGenesisBlockFile::from_path(path)?.try_into()
+    }
+}
+
+/// A (de-)serializable version of [`RawGenesisBlock`].
+///
+/// The conversion is performed using [`TryFrom`].
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RawGenesisBlockFile {
+    /// Transactions
+    transactions: Vec<GenesisTransactionBuilder>,
+    /// Path to the [`Executor`] file
+    executor_file: PathBuf,
+}
+
+impl TryFrom<RawGenesisBlockFile> for RawGenesisBlock {
+    type Error = Report;
+
+    fn try_from(value: RawGenesisBlockFile) -> Result<Self> {
+        let wasm = fs::read(&value.executor_file).wrap_err_with(|| {
+            eyre!(
+                "failed to read the executor from {}",
+                &value.executor_file.display()
+            )
+        })?;
+        Ok(Self {
+            transactions: value.transactions,
+            executor: Executor::new(WasmSmartContract::from_compiled(wasm)),
+        })
+    }
+}
+
+impl RawGenesisBlockFile {
     const WARN_ON_GENESIS_GTE: u64 = 1024 * 1024 * 1024; // 1Gb
 
     /// Construct a genesis block from a `.json` file at the specified
@@ -95,91 +126,38 @@ impl RawGenesisBlock {
     /// If file not found or deserialization from file fails.
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         let file = File::open(&path)
-            .wrap_err_with(|| eyre!("Failed to open {}", path.as_ref().display()))?;
+            .wrap_err_with(|| eyre!("failed to open genesis at {}", path.as_ref().display()))?;
         let size = file
             .metadata()
-            .wrap_err("Unable to access genesis file metadata")?
+            .wrap_err("failed to access genesis file metadata")?
             .len();
         if size >= Self::WARN_ON_GENESIS_GTE {
             eprintln!("Genesis is quite large, it will take some time to apply it (size = {}, threshold = {})", size, Self::WARN_ON_GENESIS_GTE);
         }
         let reader = BufReader::new(file);
-        let mut raw_genesis_block: Self = serde_json::from_reader(reader).wrap_err_with(|| {
+        let mut value: Self = serde_json::from_reader(reader).wrap_err_with(|| {
             eyre!(
-                "Failed to deserialize raw genesis block from {:?}",
+                "failed to deserialize raw genesis block from {}",
                 path.as_ref().display()
             )
         })?;
-        raw_genesis_block.executor.set_genesis_path(path);
-        Ok(raw_genesis_block)
+        value.executor_file = path
+            .as_ref()
+            .parent()
+            .expect("genesis must be a file in some directory")
+            .join(value.executor_file);
+        Ok(value)
     }
 
-    /// Get first transaction
+    /// Get the first transaction
     pub fn first_transaction_mut(&mut self) -> Option<&mut GenesisTransactionBuilder> {
         self.transactions.first_mut()
     }
 }
 
-/// Ways to provide executor either directly as base64 encoded string or as path to wasm file
-#[derive(Debug, Clone, From, Deserialize, Serialize, IntoSchema)]
-#[serde(untagged)]
-pub enum ExecutorMode {
-    /// Path to executor wasm file
-    // In the first place to initially try to parse path
-    Path(ExecutorPath),
-    /// Executor encoded as base64 string
-    Inline(Executor),
-}
-
-impl ExecutorMode {
-    fn set_genesis_path(&mut self, genesis_path: impl AsRef<Path>) {
-        if let Self::Path(path) = self {
-            path.set_genesis_path(genesis_path);
-        }
-    }
-}
-
-/// Loads the executor from the path or uses the inline blob for conversion
-impl TryFrom<ExecutorMode> for Executor {
-    type Error = ErrReport;
-
-    fn try_from(value: ExecutorMode) -> Result<Self> {
-        match value {
-            ExecutorMode::Inline(executor) => Ok(executor),
-            ExecutorMode::Path(ExecutorPath(relative_executor_path)) => {
-                let wasm = fs::read(&relative_executor_path)
-                    .wrap_err(format!("Failed to open {:?}", &relative_executor_path))?;
-                Ok(Executor::new(WasmSmartContract::from_compiled(wasm)))
-            }
-        }
-    }
-}
-
-/// Path to the executor relative to genesis location
-///
-/// If path is absolute it will be used directly otherwise it will be treated as relative to genesis location.
-#[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
-#[schema(transparent = "String")]
-#[serde(transparent)]
-#[repr(transparent)]
-pub struct ExecutorPath(pub PathBuf);
-
-impl ExecutorPath {
-    fn set_genesis_path(&mut self, genesis_path: impl AsRef<Path>) {
-        let path_to_executor = genesis_path
-            .as_ref()
-            .parent()
-            .expect("Genesis must be in some directory")
-            .join(&self.0);
-        self.0 = path_to_executor;
-    }
-}
-
 /// Transaction for initialize settings.
-#[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-#[schema(transparent)]
-#[repr(transparent)]
 pub struct GenesisTransactionBuilder {
     /// Instructions
     isi: Vec<InstructionBox>,
@@ -220,12 +198,19 @@ pub struct RawGenesisDomainBuilder<S> {
     state: S,
 }
 
-mod executor_state {
-    use super::ExecutorMode;
+/// States of executor in [`RawGenesisBlockBuilder`]
+pub mod executor_state {
+    use super::{Executor, PathBuf};
 
+    /// The executor is set directly as a blob
     #[cfg_attr(test, derive(Clone))]
-    pub struct Set(pub ExecutorMode);
+    pub struct SetBlob(pub Executor);
 
+    /// The executor is set as a file path
+    #[cfg_attr(test, derive(Clone))]
+    pub struct SetPath(pub PathBuf);
+
+    /// The executor isn't set yet
     #[derive(Clone, Copy)]
     pub struct Unset;
 }
@@ -244,14 +229,19 @@ impl Default for RawGenesisBlockBuilder<executor_state::Unset> {
 }
 
 impl RawGenesisBlockBuilder<executor_state::Unset> {
-    /// Set the executor.
-    pub fn executor(
-        self,
-        executor: impl Into<ExecutorMode>,
-    ) -> RawGenesisBlockBuilder<executor_state::Set> {
+    /// Set the executor as a binary blob
+    pub fn executor_blob(self, value: Executor) -> RawGenesisBlockBuilder<executor_state::SetBlob> {
         RawGenesisBlockBuilder {
             transaction: self.transaction,
-            state: executor_state::Set(executor.into()),
+            state: executor_state::SetBlob(value),
+        }
+    }
+
+    /// Set the executor as a file path
+    pub fn executor_file(self, path: PathBuf) -> RawGenesisBlockBuilder<executor_state::SetPath> {
+        RawGenesisBlockBuilder {
+            transaction: self.transaction,
+            state: executor_state::SetPath(path),
         }
     }
 }
@@ -283,12 +273,22 @@ impl<S> RawGenesisBlockBuilder<S> {
     }
 }
 
-impl RawGenesisBlockBuilder<executor_state::Set> {
-    /// Finish building and produce a `RawGenesisBlock`.
+impl RawGenesisBlockBuilder<executor_state::SetBlob> {
+    /// Finish building and produce a [`RawGenesisBlock`].
     pub fn build(self) -> RawGenesisBlock {
         RawGenesisBlock {
             transactions: vec![self.transaction],
             executor: self.state.0,
+        }
+    }
+}
+
+impl RawGenesisBlockBuilder<executor_state::SetPath> {
+    /// Finish building and produce a [`RawGenesisBlockFile`].
+    pub fn build(self) -> RawGenesisBlockFile {
+        RawGenesisBlockFile {
+            transactions: vec![self.transaction],
+            executor_file: self.state.0,
         }
     }
 }
@@ -345,19 +345,15 @@ impl<S> RawGenesisDomainBuilder<S> {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
-    fn dummy_executor() -> ExecutorMode {
-        ExecutorMode::Inline(Executor::new(WasmSmartContract::from_compiled(vec![
-            1, 2, 3,
-        ])))
+    fn dummy_executor() -> Executor {
+        Executor::new(WasmSmartContract::from_compiled(vec![1, 2, 3]))
     }
 
     #[test]
     fn load_new_genesis_block() -> Result<()> {
         let chain_id = ChainId::from("0");
-
         let genesis_key_pair = KeyPair::random();
         let (alice_public_key, _) = KeyPair::random().into_parts();
 
@@ -366,11 +362,11 @@ mod tests {
                 .domain("wonderland".parse()?)
                 .account("alice".parse()?, alice_public_key)
                 .finish_domain()
-                .executor(dummy_executor())
+                .executor_blob(dummy_executor())
                 .build(),
             &chain_id,
             &genesis_key_pair,
-        )?;
+        );
         Ok(())
     }
 
@@ -396,7 +392,7 @@ mod tests {
             .finish_domain();
 
         // In real cases executor should be constructed from a wasm blob
-        let finished_genesis_block = genesis_builder.executor(dummy_executor()).build();
+        let finished_genesis_block = genesis_builder.executor_blob(dummy_executor()).build();
         {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(

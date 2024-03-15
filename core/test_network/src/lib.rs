@@ -15,7 +15,7 @@ use iroha_client::{
 use iroha_config::parameters::actual::Root as Config;
 use iroha_crypto::prelude::*;
 use iroha_data_model::{query::QueryOutputBox, ChainId};
-use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
+use iroha_genesis::{GenesisNetwork, RawGenesisBlockFile};
 use iroha_logger::InstrumentFutures;
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
@@ -81,7 +81,7 @@ impl TestGenesis for GenesisNetwork {
         // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut genesis =
-            RawGenesisBlock::from_path(manifest_dir.join("../../configs/swarm/genesis.json"))
+            RawGenesisBlockFile::from_path(manifest_dir.join("../../configs/swarm/genesis.json"))
                 .expect("Failed to deserialize genesis block from file");
 
         let rose_definition_id =
@@ -126,15 +126,18 @@ impl TestGenesis for GenesisNetwork {
             first_transaction.append_instruction(isi);
         }
 
-        GenesisNetwork::new(genesis, &cfg.common.chain_id, {
-            use iroha_config::parameters::actual::Genesis;
-            if let Genesis::Full { key_pair, .. } = &cfg.genesis {
-                key_pair
-            } else {
-                unreachable!("test config should contain full genesis config (or it is a bug)")
-            }
-        })
-        .expect("Failed to init genesis")
+        GenesisNetwork::new(
+            genesis.try_into().expect("genesis should load fine"),
+            &cfg.common.chain_id,
+            {
+                use iroha_config::parameters::actual::Genesis;
+                if let Genesis::Full { key_pair, .. } = &cfg.genesis {
+                    key_pair
+                } else {
+                    unreachable!("test config should contain full genesis config (or it is a bug)")
+                }
+            },
+        )
     }
 }
 
