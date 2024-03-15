@@ -560,3 +560,196 @@ mod tests {
         }
     }
 }
+
+/// Proof of concept for the new account, with non-essential parts omitted. There is room for optimization in actual implementation.
+#[allow(dead_code)]
+mod poc {
+    use blake2::{digest::consts::U32, Blake2b, Digest};
+    use iroha_crypto::Algorithm;
+
+    use super::{PublicKey, Signatories};
+
+    /// Opaque bytes interpreted to either personal or shared account ID.
+    type RawId = [u8; 32];
+
+    struct AccountId(RawId);
+
+    struct Account {
+        /// - For personal accounts, essentially the public key itself.
+        /// - For shared accounts, the hash value of `credential`, which is ensured to be off curve and thus have no associated private key.
+        id: AccountId,
+        /// Identity of shared account which is also the authentication policy.
+        credential: Option<Credential>,
+    }
+
+    struct Credential {
+        /// Possible signatories of the shared account.
+        signatories: Signatories,
+        /// Minimum number of signatures by `signatories` required to pass authentication.
+        /// Replaces the previous `SignatureCheckCondition`.
+        threshold: u32,
+        /// Value to adjust the hash value of this `Credential`.
+        bump_seed: u8,
+    }
+
+    /// Unverified account creation request.
+    enum AccountRequest {
+        Personal(RawId),
+        Shared {
+            signatories: Vec<RawId>,
+            threshold: u32,
+        },
+    }
+
+    /// An utility for this PoC.
+    type Result<T> = core::result::Result<T, &'static str>;
+
+    /// An utility for this PoC. Fails if `raw_id` is off ed25519 curve.
+    fn valid_public_key_from(raw_id: &RawId) -> Result<PublicKey> {
+        PublicKey::from_bytes(Algorithm::default(), raw_id)
+            .map_err(|_| "failed to decode as a public key")
+    }
+
+    impl Account {
+        fn new(req: AccountRequest) -> Result<Self> {
+            match req {
+                AccountRequest::Personal(raw_id) => {
+                    if valid_public_key_from(&raw_id).is_ok() {
+                        Ok(Self {
+                            id: AccountId(raw_id),
+                            credential: None,
+                        })
+                    } else {
+                        Err("invalid personal id")
+                    }
+                }
+                AccountRequest::Shared {
+                    signatories,
+                    threshold,
+                } => {
+                    let signatories_len = signatories.len() as u32;
+                    if !(1 < signatories_len) {
+                        return Err("shared accounts must have at least 2 signatories");
+                    }
+                    if !(0 < threshold && threshold <= signatories_len) {
+                        return Err("threshold is out of range");
+                    }
+                    let Ok(signatories) = signatories
+                        .iter()
+                        .map(|raw_id| valid_public_key_from(raw_id))
+                        .collect()
+                    else {
+                        return Err("invalid signatory");
+                    };
+                    let mut credential = Credential::new(signatories, threshold);
+                    while credential.is_hashed_to_public_key() {
+                        credential.bump()
+                    }
+                    Ok(Self {
+                        id: AccountId(credential.hash()),
+                        credential: Some(credential),
+                    })
+                }
+            }
+        }
+
+        fn is_personal(&self) -> bool {
+            self.credential.is_none()
+        }
+
+        fn is_shared(&self) -> bool {
+            self.credential.is_some()
+        }
+    }
+
+    impl Credential {
+        /// Not checked if its hash can collide with any public key.
+        fn new(signatories: Signatories, threshold: u32) -> Self {
+            Self {
+                signatories,
+                threshold,
+                bump_seed: 0,
+            }
+        }
+
+        fn is_hashed_to_public_key(&self) -> bool {
+            valid_public_key_from(&self.hash()).is_ok()
+        }
+
+        /// # Panics
+        ///
+        /// Panics in the statistically improbable event that a successful bump seed could not be found.
+        fn bump(&mut self) {
+            self.bump_seed += 1;
+        }
+
+        #[allow(unsafe_code)]
+        fn hash(&self) -> RawId {
+            let mut hasher = Blake2b::<U32>::new();
+            for signatory in &self.signatories {
+                hasher.update(signatory.to_bytes().1)
+            }
+            // SAFETY: Src and Dst of transmute have the same representation.
+            let threshold = unsafe { std::mem::transmute::<u32, [u8; 4]>(self.threshold) };
+            hasher.update(&threshold);
+            hasher.update(&[self.bump_seed]);
+            hasher.finalize().into()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use iroha_crypto::KeyPair;
+
+        use super::*;
+
+        #[test]
+        fn spec() {
+            let gen_valid_personal_id = || {
+                KeyPair::random()
+                    .public_key()
+                    .to_bytes()
+                    .1
+                    .try_into()
+                    .expect("32 bytes")
+            };
+
+            let req_personal = AccountRequest::Personal(gen_valid_personal_id());
+            let req_shared = AccountRequest::Shared {
+                signatories: (0..3).map(|_| gen_valid_personal_id()).collect(),
+                threshold: 2,
+            };
+
+            let account_personal = Account::new(req_personal).expect("valid request");
+            let account_shared = Account::new(req_shared).expect("valid request");
+
+            assert!(account_personal.is_personal());
+            assert!(account_shared.is_shared());
+
+            assert!(valid_public_key_from(&account_personal.id.0).is_ok());
+            assert!(valid_public_key_from(&account_shared.id.0).is_err());
+
+            let signatories_len = account_shared
+                .credential
+                .as_ref()
+                .expect("shared accounts should have")
+                .signatories
+                .len() as u32;
+            assert!(1 < signatories_len);
+            let threshold = account_shared
+                .credential
+                .as_ref()
+                .expect("shared accounts should have")
+                .threshold;
+            assert!(0 < threshold && threshold <= signatories_len);
+
+            assert_eq!(
+                account_shared.id.0,
+                account_shared
+                    .credential
+                    .expect("shared accounts should have")
+                    .hash()
+            );
+        }
+    }
+}
