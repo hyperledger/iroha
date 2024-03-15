@@ -461,7 +461,6 @@ pub struct Queue {
     pub future_threshold: Duration,
 }
 
-#[allow(missing_copy_implementations)] // triggered without tokio-console
 #[derive(Debug, Clone)]
 pub struct Logger {
     /// Level of logging verbosity
@@ -471,18 +470,15 @@ pub struct Logger {
     pub level: Level,
     /// Output format
     pub format: LoggerFormat,
-    #[cfg(feature = "tokio-console")]
-    /// Address of tokio console (only available under "tokio-console" feature)
+    /// Address of tokio console
     pub tokio_console_address: SocketAddr,
 }
 
-#[allow(clippy::derivable_impls)] // triggers in absence of `tokio-console` feature
 impl Default for Logger {
     fn default() -> Self {
         Self {
             level: Level::default(),
             format: LoggerFormat::default(),
-            #[cfg(feature = "tokio-console")]
             tokio_console_address: super::defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR,
         }
     }
