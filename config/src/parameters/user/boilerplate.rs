@@ -500,18 +500,11 @@ impl UnwrapPartial for QueuePartial {
 
 impl FromEnvDefaultFallback for QueuePartial {}
 
-/// 'Logger' configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default, Merge)]
-// `tokio_console_addr` is not `Copy`, but warning appears without `tokio-console` feature
-#[allow(missing_copy_implementations)]
 #[serde(deny_unknown_fields, default)]
 pub struct LoggerPartial {
-    /// Level of logging verbosity
     pub level: UserField<Level>,
-    /// Output format
     pub format: UserField<Format>,
-    #[cfg(feature = "tokio-console")]
-    /// Address of tokio console (only available under "tokio-console" feature)
     pub tokio_console_address: UserField<SocketAddr>,
 }
 
@@ -522,9 +515,8 @@ impl UnwrapPartial for LoggerPartial {
         Ok(Logger {
             level: self.level.unwrap_or_default(),
             format: self.format.unwrap_or_default(),
-            #[cfg(feature = "tokio-console")]
             tokio_console_address: self.tokio_console_address.get().unwrap_or_else(|| {
-                super::super::defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR.clone()
+                defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR.clone()
             }),
         })
     }

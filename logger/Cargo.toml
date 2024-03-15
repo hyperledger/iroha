@@ -32,6 +32,6 @@ tokio = { workspace = true, features = ["macros", "time", "rt"] }
 
 
 [features]
-tokio-console = ["dep:console-subscriber", "tokio/tracing", "iroha_config/tokio-console"]
+tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 # Workaround to avoid activating `tokio-console` with `--all-features` flag, because `tokio-console` require `tokio_unstable` rustc flag
 no-tokio-console = []

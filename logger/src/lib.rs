@@ -82,7 +82,6 @@ pub fn test_logger() -> LoggerHandle {
             // with ENV vars rather than by extending `test_logger` signature. This will both remain
             // `test_logger` simple and also will emphasise isolation which is necessary anyway in
             // case of singleton mocking (where the logger is the singleton).
-            #[allow(clippy::needless_update)] // triggers without "tokio-console" feature
             let config = Config {
                 level: Level::DEBUG,
                 format: Format::Pretty,

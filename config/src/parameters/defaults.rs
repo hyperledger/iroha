@@ -24,7 +24,6 @@ pub mod kura {
     pub const DEFAULT_STORE_DIR: &str = "./storage";
 }
 
-#[cfg(feature = "tokio-console")]
 pub mod logger {
     use iroha_primitives::addr::{socket_addr, SocketAddr};
 
