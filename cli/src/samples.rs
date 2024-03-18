@@ -7,6 +7,7 @@ use iroha_config::{
         actual::Root as Config,
         user::{CliContext, RootPartial as UserConfig},
     },
+    snapshot::Mode as SnapshotMode,
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{peer::PeerId, prelude::*, ChainId};
@@ -91,6 +92,9 @@ pub fn get_user_config(
     config.genesis.private_key.set(private_key);
     config.genesis.public_key.set(public_key);
     config.genesis.file.set("./genesis.json".into());
+    // There is no need in persistency in tests
+    // If required to should be set explicitly not to overlap with other existing tests
+    config.snapshot.mode.set(SnapshotMode::Disabled);
 
     config
 }
