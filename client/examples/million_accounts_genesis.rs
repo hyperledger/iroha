@@ -55,8 +55,7 @@ fn main_genesis() {
             .genesis
             .key_pair()
             .expect("should be available in the config; probably a bug"),
-    )
-    .expect("genesis creation failed");
+    );
 
     let builder = PeerBuilder::new()
         .with_into_genesis(genesis)
