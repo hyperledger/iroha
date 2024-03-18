@@ -515,9 +515,10 @@ impl UnwrapPartial for LoggerPartial {
         Ok(Logger {
             level: self.level.unwrap_or_default(),
             format: self.format.unwrap_or_default(),
-            tokio_console_address: self.tokio_console_address.get().unwrap_or_else(|| {
-                defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR.clone()
-            }),
+            tokio_console_address: self
+                .tokio_console_address
+                .get()
+                .unwrap_or_else(|| defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR.clone()),
         })
     }
 }
