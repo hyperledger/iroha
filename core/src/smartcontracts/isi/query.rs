@@ -7,7 +7,10 @@ use iroha_data_model::{
 };
 use parity_scale_codec::{Decode, Encode};
 
-use crate::{prelude::ValidQuery, state::StateSnapshot};
+use crate::{
+    prelude::ValidQuery,
+    state::{StateReadOnly, WorldReadOnly},
+};
 
 /// Represents lazy evaluated query output
 pub trait Lazy {
@@ -67,10 +70,10 @@ impl ValidQueryRequest {
     /// - Account has incorrect permissions
     pub fn validate(
         query: SignedQuery,
-        state_snapshot: &StateSnapshot<'_>,
+        state_ro: &impl StateReadOnly,
     ) -> Result<Self, ValidationFail> {
-        let account_has_public_key = state_snapshot
-            .world
+        let account_has_public_key = state_ro
+            .world()
             .map_account(query.authority(), |account| {
                 account.contains_signatory(query.signature().public_key())
             })
@@ -81,8 +84,8 @@ impl ValidQueryRequest {
             ))
             .into());
         }
-        state_snapshot.world.executor.validate_query(
-            state_snapshot,
+        state_ro.world().executor().validate_query(
+            state_ro,
             query.authority(),
             query.query().clone(),
         )?;
@@ -95,9 +98,9 @@ impl ValidQueryRequest {
     /// Forwards `self.query.execute` error.
     pub fn execute<'state>(
         &'state self,
-        state_snapshot: &'state StateSnapshot<'state>,
+        state_ro: &'state impl StateReadOnly,
     ) -> Result<LazyQueryOutput<'state>, Error> {
-        let output = self.0.query().execute(state_snapshot)?;
+        let output = self.0.query().execute(state_ro)?;
 
         Ok(if let LazyQueryOutput::Iter(iter) = output {
             LazyQueryOutput::Iter(Box::new(iter.filter(|val| self.0.filter().applies(val))))
@@ -118,15 +121,15 @@ impl ValidQueryRequest {
 impl ValidQuery for QueryBox {
     fn execute<'state>(
         &self,
-        state_snapshot: &'state StateSnapshot<'state>,
+        state_ro: &'state impl StateReadOnly,
     ) -> Result<LazyQueryOutput<'state>, Error> {
         iroha_logger::debug!(query=%self, "Executing");
 
         macro_rules! match_all {
             ( non_iter: {$( $non_iter_query:ident ),+ $(,)?} $( $query:ident, )+ ) => {
                 match self { $(
-                    QueryBox::$non_iter_query(query) => query.execute(state_snapshot).map(QueryOutputBox::from).map(LazyQueryOutput::QueryOutput), )+ $(
-                    QueryBox::$query(query) => query.execute(state_snapshot).map(|i| i.map(QueryOutputBox::from)).map(|iter| LazyQueryOutput::Iter(Box::new(iter))), )+
+                    QueryBox::$non_iter_query(query) => query.execute(state_ro).map(QueryOutputBox::from).map(LazyQueryOutput::QueryOutput), )+ $(
+                    QueryBox::$query(query) => query.execute(state_ro).map(|i| i.map(QueryOutputBox::from)).map(|iter| LazyQueryOutput::Iter(Box::new(iter))), )+
                 }
             };
         }
@@ -344,7 +347,7 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
         let bytes = FindAssetKeyValueByIdAndKey::new(asset_id, Name::from_str("Bytes")?)
-            .execute(&state.view().to_snapshot())?;
+            .execute(&state.view())?;
         assert_eq!(
             MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
             bytes,
@@ -359,7 +362,7 @@ mod tests {
         let state = State::new(world_with_test_account_with_metadata()?, kura, query_handle);
 
         let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
-            .execute(&state.view().to_snapshot())?;
+            .execute(&state.view())?;
         assert_eq!(
             MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
             bytes,
@@ -372,9 +375,7 @@ mod tests {
         let num_blocks = 100;
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let blocks = FindAllBlocks
-            .execute(&state.view().to_snapshot())?
-            .collect::<Vec<_>>();
+        let blocks = FindAllBlocks.execute(&state.view())?.collect::<Vec<_>>();
 
         assert_eq!(blocks.len() as u64, num_blocks);
         assert!(blocks.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -388,7 +389,7 @@ mod tests {
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
         let block_headers = FindAllBlockHeaders
-            .execute(&state.view().to_snapshot())?
+            .execute(&state.view())?
             .collect::<Vec<_>>();
 
         assert_eq!(block_headers.len() as u64, num_blocks);
@@ -401,17 +402,16 @@ mod tests {
     async fn find_block_header_by_hash() -> Result<()> {
         let state = state_with_test_blocks_and_transactions(1, 1, 1)?;
         let state_view = state.view();
-        let state_snapshot = state_view.to_snapshot();
-        let block = state_snapshot.all_blocks().last().expect("state is empty");
+        let block = state_view.all_blocks().last().expect("state is empty");
 
         assert_eq!(
-            FindBlockHeaderByHash::new(block.hash()).execute(&state_snapshot)?,
+            FindBlockHeaderByHash::new(block.hash()).execute(&state_view)?,
             *block.header()
         );
 
         assert!(
             FindBlockHeaderByHash::new(HashOf::from_untyped_unchecked(Hash::new([42])))
-                .execute(&state_snapshot)
+                .execute(&state_view)
                 .is_err()
         );
 
@@ -424,9 +424,8 @@ mod tests {
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
         let state_view = state.view();
-        let state_snapshot = state_view.to_snapshot();
         let txs = FindAllTransactions
-            .execute(&state_snapshot)?
+            .execute(&state_view)?
             .collect::<Vec<_>>();
 
         assert_eq!(txs.len() as u64, num_blocks * 2);
@@ -475,20 +474,19 @@ mod tests {
         state_block.commit();
 
         let state_view = state.view();
-        let state_snapshot = state_view.to_snapshot();
 
         let unapplied_tx = TransactionBuilder::new(chain_id, ALICE_ID.clone())
             .with_instructions([Unregister::account("account@domain".parse().unwrap())])
             .sign(&ALICE_KEYS);
         let wrong_hash = unapplied_tx.hash();
-        let not_found = FindTransactionByHash::new(wrong_hash).execute(&state_snapshot);
+        let not_found = FindTransactionByHash::new(wrong_hash).execute(&state_view);
         assert!(matches!(
             not_found,
             Err(Error::Find(FindError::Transaction(_)))
         ));
 
         let found_accepted =
-            FindTransactionByHash::new(va_tx.as_ref().hash()).execute(&state_snapshot)?;
+            FindTransactionByHash::new(va_tx.as_ref().hash()).execute(&state_view)?;
         if found_accepted.transaction.error.is_none() {
             assert_eq!(
                 va_tx.as_ref().hash(),
@@ -526,8 +524,7 @@ mod tests {
 
         let domain_id = DomainId::from_str("wonderland")?;
         let key = Name::from_str("Bytes")?;
-        let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key)
-            .execute(&state.view().to_snapshot())?;
+        let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&state.view())?;
         assert_eq!(
             MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
             bytes,

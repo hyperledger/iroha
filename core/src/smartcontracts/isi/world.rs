@@ -386,18 +386,18 @@ pub mod query {
     };
 
     use super::*;
-    use crate::state::StateSnapshot;
+    use crate::state::StateReadOnly;
 
     impl ValidQuery for FindAllRoles {
         #[metrics(+"find_all_roles")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Role> + 'state>, Error> {
             Ok(Box::new(
-                state_snapshot
-                    .world
-                    .roles
+                state_ro
+                    .world()
+                    .roles()
                     .iter()
                     .map(|(_, role)| role)
                     .cloned(),
@@ -409,12 +409,12 @@ pub mod query {
         #[metrics(+"find_all_role_ids")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = RoleId> + 'state>, Error> {
             Ok(Box::new(
-                state_snapshot
-               .world
-               .roles
+                state_ro
+               .world()
+               .roles()
                .iter()
                .map(|(_, role)| role)
                // To me, this should probably be a method, not a field.
@@ -426,11 +426,11 @@ pub mod query {
 
     impl ValidQuery for FindRoleByRoleId {
         #[metrics(+"find_role_by_role_id")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Role, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Role, Error> {
             let role_id = &self.id;
             iroha_logger::trace!(%role_id);
 
-            state_snapshot.world.roles.get(role_id).map_or_else(
+            state_ro.world().roles().get(role_id).map_or_else(
                 || Err(Error::Find(FindError::Role(role_id.clone()))),
                 |role_ref| Ok(role_ref.clone()),
             )
@@ -441,21 +441,16 @@ pub mod query {
         #[metrics("find_all_peers")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Peer> + 'state>, Error> {
-            Ok(Box::new(
-                state_snapshot.world.peers().cloned().map(Peer::new),
-            ))
+            Ok(Box::new(state_ro.world().peers().cloned().map(Peer::new)))
         }
     }
 
     impl ValidQuery for FindPermissionTokenSchema {
         #[metrics("find_permission_token_schema")]
-        fn execute(
-            &self,
-            state_snapshot: &StateSnapshot<'_>,
-        ) -> Result<PermissionTokenSchema, Error> {
-            Ok(state_snapshot.world.permission_token_schema.clone())
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<PermissionTokenSchema, Error> {
+            Ok(state_ro.world().permission_token_schema().clone())
         }
     }
 
@@ -463,9 +458,9 @@ pub mod query {
         #[metrics("find_all_parameters")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Parameter> + 'state>, Error> {
-            Ok(Box::new(state_snapshot.world.parameters().cloned()))
+            Ok(Box::new(state_ro.world().parameters_iter().cloned()))
         }
     }
 }

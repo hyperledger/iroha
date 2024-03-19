@@ -32,7 +32,7 @@ use wasmtime::{
 use crate::{
     query::store::LiveQueryStoreHandle,
     smartcontracts::{wasm::state::ValidateQueryOperation, Execute},
-    state::{StateSnapshot, StateTransaction},
+    state::{StateReadOnly, StateTransaction, WorldReadOnly},
     ValidQuery as _,
 };
 
@@ -412,12 +412,10 @@ pub mod state {
     pub mod chain_state {
         //! Strongly typed kinds of chain state
 
-        use std::borrow::Borrow;
-
         use super::*;
 
         /// Read-only access to chain state.
-        pub struct WithConst<'wrld, 'state>(pub(in super::super) &'wrld StateSnapshot<'state>);
+        pub struct WithConst<'wrld, S: StateReadOnly>(pub(in super::super) &'wrld S);
 
         /// Mutable access to chain state.
         pub struct WithMut<'wrld, 'block, 'state>(
@@ -428,28 +426,19 @@ pub mod state {
         ///
         /// Exists to write generic code for [`WithMut`] and [`WithConst`].
         pub trait ConstState {
-            /// Type which can be borrowed into `[WorldStateSnapshot]`
-            type State<'wrld, 'state: 'wrld>: Borrow<StateSnapshot<'state>>
-            where
-                Self: 'state + 'wrld;
-
             /// Get immutable chain state.
-            fn state(&self) -> Self::State<'_, '_>;
+            fn state(&self) -> &impl StateReadOnly;
         }
 
-        impl ConstState for WithConst<'_, '_> {
-            type State<'wrld, 'state: 'wrld> = &'wrld StateSnapshot<'state> where Self: 'state;
-
-            fn state(&self) -> &StateSnapshot<'_> {
+        impl<S: StateReadOnly> ConstState for WithConst<'_, S> {
+            fn state(&self) -> &impl StateReadOnly {
                 self.0
             }
         }
 
         impl ConstState for WithMut<'_, '_, '_> {
-            type State<'wrld, 'state: 'wrld> = StateSnapshot<'state> where Self: 'state;
-
-            fn state(&self) -> StateSnapshot<'_> {
-                self.0.to_snapshot()
+            fn state(&self) -> &impl StateReadOnly {
+                self.0
             }
         }
     }
@@ -519,11 +508,11 @@ pub mod state {
             authority: &AccountId,
             query: QueryBox,
         ) -> Result<(), ValidationFail> {
-            let state_snapshot = self.state.state();
-            state_snapshot
-                .world
-                .executor
-                .validate_query(&state_snapshot, authority, query)
+            let state_ro = self.state.state();
+            state_ro
+                .world()
+                .executor()
+                .validate_query(state_ro, authority, query)
         }
     }
 
@@ -533,11 +522,11 @@ pub mod state {
             authority: &AccountId,
             query: QueryBox,
         ) -> Result<(), ValidationFail> {
-            let state_snapshot = self.state.state();
-            state_snapshot
-                .world
-                .executor
-                .validate_query(&state_snapshot, authority, query)
+            let state_ro = self.state.state();
+            state_ro
+                .world()
+                .executor()
+                .validate_query(state_ro, authority, query)
         }
     }
 
@@ -553,8 +542,8 @@ pub mod state {
         >;
 
         /// State for executing `validate_query()` entrypoint
-        pub type ValidateQuery<'wrld, 'state> =
-            CommonState<chain_state::WithConst<'wrld, 'state>, specific::executor::ValidateQuery>;
+        pub type ValidateQuery<'wrld, S> =
+            CommonState<chain_state::WithConst<'wrld, S>, specific::executor::ValidateQuery>;
 
         /// State for executing `validate_instruction()` entrypoint
         pub type ValidateInstruction<'wrld, 'block, 'state> = CommonState<
@@ -583,9 +572,18 @@ pub mod state {
         impl_blank_validate_operations!(
             ValidateTransaction<'_, '_, '_>,
             ValidateInstruction<'_, '_, '_>,
-            ValidateQuery<'_, '_>,
             Migrate<'_, '_, '_>,
         );
+
+        impl<S: StateReadOnly> ValidateQueryOperation for ValidateQuery<'_, S> {
+            fn validate_query(
+                &self,
+                _authority: &AccountId,
+                _query: QueryBox,
+            ) -> Result<(), ValidationFail> {
+                Ok(())
+            }
+        }
     }
 }
 
@@ -777,7 +775,10 @@ impl<W: state::chain_state::ConstState, S> Runtime<state::CommonState<W, S>> {
 
         let mut state = store.into_data();
         let executed_queries = state.take_executed_queries();
-        forget_all_executed_queries(state.state.state().borrow().query_handle, executed_queries)?;
+        forget_all_executed_queries(
+            state.state.state().borrow().query_handle(),
+            executed_queries,
+        )?;
         Ok(validation_res)
     }
 }
@@ -801,13 +802,13 @@ where
                 fetch_size,
             }) => {
                 let batched = {
-                    let state_snapshot = state.state.state();
-                    let state_snapshot = state_snapshot.borrow();
+                    let state_ro = state.state.state();
+                    let state_ro = state_ro.borrow();
                     state.validate_query(&state.authority, query.clone())?;
-                    let output = query.execute(state_snapshot)?;
+                    let output = query.execute(state_ro)?;
 
-                    state_snapshot
-                        .query_handle
+                    state_ro
+                        .query_handle()
                         .handle_query_output(output, &sorting, pagination, fetch_size)
                 }?;
                 match &batched {
@@ -829,7 +830,7 @@ where
                     .state
                     .state()
                     .borrow()
-                    .query_handle
+                    .query_handle()
                     .handle_query_cursor(cursor)
             }
         }
@@ -1253,7 +1254,7 @@ impl<'wrld> FakeSetPermissionTokenSchema<state::executor::ValidateInstruction<'w
     const ENTRYPOINT_FN_NAME: &'static str = "validate_instruction";
 }
 
-impl<'wrld, 'state> Runtime<state::executor::ValidateQuery<'wrld, 'state>> {
+impl<'wrld, S: StateReadOnly> Runtime<state::executor::ValidateQuery<'wrld, S>> {
     /// Execute `validate_query()` entrypoint of the given module of runtime executor
     ///
     /// # Errors
@@ -1264,7 +1265,7 @@ impl<'wrld, 'state> Runtime<state::executor::ValidateQuery<'wrld, 'state>> {
     /// - if unable to decode [`executor::Result`]
     pub fn execute_executor_validate_query(
         &self,
-        state_transaction: &'wrld StateSnapshot<'state>,
+        state_ro: &'wrld S,
         authority: &AccountId,
         module: &wasmtime::Module,
         query: QueryBox,
@@ -1277,7 +1278,7 @@ impl<'wrld, 'state> Runtime<state::executor::ValidateQuery<'wrld, 'state>> {
                 authority.clone(),
                 self.config,
                 span,
-                state::chain_state::WithConst(state_transaction),
+                state::chain_state::WithConst(state_ro),
                 state::specific::executor::ValidateQuery::new(query),
             ),
             import::EXECUTOR_VALIDATE_QUERY,
@@ -1285,13 +1286,14 @@ impl<'wrld, 'state> Runtime<state::executor::ValidateQuery<'wrld, 'state>> {
     }
 }
 
-impl<'wrld, 'state> import::traits::ExecuteOperations<state::executor::ValidateQuery<'wrld, 'state>>
-    for Runtime<state::executor::ValidateQuery<'wrld, 'state>>
+impl<'wrld, S: StateReadOnly>
+    import::traits::ExecuteOperations<state::executor::ValidateQuery<'wrld, S>>
+    for Runtime<state::executor::ValidateQuery<'wrld, S>>
 {
     #[codec::wrap]
     fn execute_query(
         query_request: SmartContractQueryRequest,
-        state: &mut state::executor::ValidateQuery<'wrld, 'state>,
+        state: &mut state::executor::ValidateQuery<'wrld, S>,
     ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
         debug!(%query_request, "Executing as executor");
 
@@ -1301,40 +1303,38 @@ impl<'wrld, 'state> import::traits::ExecuteOperations<state::executor::ValidateQ
     #[codec::wrap]
     fn execute_instruction(
         _instruction: InstructionBox,
-        _state: &mut state::executor::ValidateQuery<'wrld, 'state>,
+        _state: &mut state::executor::ValidateQuery<'wrld, S>,
     ) -> Result<(), ValidationFail> {
         panic!("Executor `validate_query()` entrypoint should not execute instructions")
     }
 }
 
-impl<'wrld, 'state>
-    import::traits::GetExecutorPayloads<state::executor::ValidateQuery<'wrld, 'state>>
-    for Runtime<state::executor::ValidateQuery<'wrld, 'state>>
+impl<'wrld, S: StateReadOnly>
+    import::traits::GetExecutorPayloads<state::executor::ValidateQuery<'wrld, S>>
+    for Runtime<state::executor::ValidateQuery<'wrld, S>>
 {
     #[codec::wrap]
-    fn get_migrate_payload(
-        _state: &state::executor::ValidateQuery<'wrld, 'state>,
-    ) -> payloads::Migrate {
+    fn get_migrate_payload(_state: &state::executor::ValidateQuery<'wrld, S>) -> payloads::Migrate {
         panic!("Executor `validate_query()` entrypoint should not query payload for `migrate()` entrypoint")
     }
 
     #[codec::wrap]
     fn get_validate_transaction_payload(
-        _state: &state::executor::ValidateQuery<'wrld, 'state>,
+        _state: &state::executor::ValidateQuery<'wrld, S>,
     ) -> Validate<SignedTransaction> {
         panic!("Executor `validate_query()` entrypoint should not query payload for `validate_transaction()` entrypoint")
     }
 
     #[codec::wrap]
     fn get_validate_instruction_payload(
-        _state: &state::executor::ValidateQuery<'wrld, 'state>,
+        _state: &state::executor::ValidateQuery<'wrld, S>,
     ) -> Validate<InstructionBox> {
         panic!("Executor `validate_query()` entrypoint should not query payload for `validate_instruction()` entrypoint")
     }
 
     #[codec::wrap]
     fn get_validate_query_payload(
-        state: &state::executor::ValidateQuery<'wrld, 'state>,
+        state: &state::executor::ValidateQuery<'wrld, S>,
     ) -> Validate<QueryBox> {
         Validate {
             authority: state.authority.clone(),
@@ -1344,8 +1344,8 @@ impl<'wrld, 'state>
     }
 }
 
-impl<'wrld, 'state> FakeSetPermissionTokenSchema<state::executor::ValidateQuery<'wrld, 'state>>
-    for Runtime<state::executor::ValidateQuery<'wrld, 'state>>
+impl<'wrld, S: StateReadOnly> FakeSetPermissionTokenSchema<state::executor::ValidateQuery<'wrld, S>>
+    for Runtime<state::executor::ValidateQuery<'wrld, S>>
 {
     const ENTRYPOINT_FN_NAME: &'static str = "validate_query";
 }
@@ -1633,25 +1633,25 @@ impl<'wrld, 'block, 'state>
     }
 }
 
-impl<'wrld, 'state> RuntimeBuilder<state::executor::ValidateQuery<'wrld, 'state>> {
+impl<'wrld, S: StateReadOnly> RuntimeBuilder<state::executor::ValidateQuery<'wrld, S>> {
     /// Builds the [`Runtime`] for *Executor* `validate_query()` execution
     ///
     /// # Errors
     ///
     /// Fails if failed to create default linker.
-    pub fn build(self) -> Result<Runtime<state::executor::ValidateQuery<'wrld, 'state>>> {
+    pub fn build(self) -> Result<Runtime<state::executor::ValidateQuery<'wrld, S>>> {
         self.finalize(|engine| {
             let mut linker = Linker::new(engine);
 
             // NOTE: doesn't need closure here because `ValidateQuery` is covariant over 'wrld so 'static can be used and substituted with appropriate lifetime
-            create_imports!(linker, state::executor::ValidateQuery<'_, '_>,
-                export::EXECUTE_ISI => Runtime::execute_instruction,
-                export::EXECUTE_QUERY => Runtime::execute_query,
-                export::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
-                export::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
-                export::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
-                export::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
-                export::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
+            create_imports!(linker, state::executor::ValidateQuery<'_, S>,
+                export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>, offset, len| Runtime::execute_instruction(caller, offset, len),
+                export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>, offset, len| Runtime::execute_query(caller, offset, len),
+                export::GET_MIGRATE_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_migrate_payload(caller),
+                export::GET_VALIDATE_TRANSACTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_validate_transaction_payload(caller),
+                export::GET_VALIDATE_INSTRUCTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_validate_instruction_payload(caller),
+                export::GET_VALIDATE_QUERY_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_validate_query_payload(caller),
+                export::SET_PERMISSION_TOKEN_SCHEMA => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>, offset, len| Runtime::set_permission_token_schema(caller, offset, len),
             )?;
             Ok(linker)
         })

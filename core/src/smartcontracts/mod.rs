@@ -13,7 +13,7 @@ use iroha_data_model::{
 pub use isi::*;
 
 use self::query::Lazy;
-use crate::state::{StateSnapshot, StateTransaction};
+use crate::state::{StateReadOnly, StateTransaction};
 
 /// Trait implementations should provide actions to apply changes on [`StateTransaction`].
 pub trait Execute {
@@ -41,6 +41,6 @@ where
     /// Concrete to each implementer
     fn execute<'state>(
         &self,
-        state_snapshot: &'state StateSnapshot<'state>,
+        state_ro: &'state impl StateReadOnly,
     ) -> Result<<Self::Output as Lazy>::Lazy<'state>, QueryExecutionFail>;
 }

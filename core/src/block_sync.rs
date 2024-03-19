@@ -10,7 +10,12 @@ use iroha_p2p::Post;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
 
-use crate::{kura::Kura, state::State, sumeragi::SumeragiHandle, IrohaNetwork, NetworkMessage};
+use crate::{
+    kura::Kura,
+    state::{State, StateReadOnly},
+    sumeragi::SumeragiHandle,
+    IrohaNetwork, NetworkMessage,
+};
 
 /// [`BlockSynchronizer`] actor handle.
 #[derive(Clone)]

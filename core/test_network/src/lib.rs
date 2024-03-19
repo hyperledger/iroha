@@ -13,6 +13,7 @@ use iroha_client::{
     data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level},
 };
 use iroha_config::parameters::actual::Root as Config;
+pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::prelude::*;
 use iroha_data_model::{query::QueryOutputBox, ChainId};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockFile};

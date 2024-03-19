@@ -26,7 +26,7 @@ use serde::{
 use storage::{
     cell::{Block as CellBlock, Cell, Transaction as CellTransaction, View as CellView},
     storage::{
-        Block as StorageBlock, RangeIter, Snapshot as StorageSnapshot, Storage,
+        Block as StorageBlock, RangeIter, Storage, StorageReadOnly,
         Transaction as StorageTransaction, View as StorageView,
     },
 };
@@ -153,29 +153,6 @@ pub struct WorldView<'world> {
     pub(crate) executor: CellView<'world, Executor>,
 }
 
-/// Consistent point in time view of the [`World`]
-/// Used in places where [`WorldBlock`], [`WorldTransaction`], [`WorldView`] need to be converted to the same type for immutable operations
-pub struct WorldSnapshot<'world> {
-    /// Iroha config parameters.
-    pub(crate) parameters: &'world Parameters,
-    /// Identifications of discovered trusted peers.
-    pub(crate) trusted_peers_ids: &'world PeersIds,
-    /// Registered domains.
-    pub(crate) domains: StorageSnapshot<'world, DomainId, Domain>,
-    /// Roles. [`Role`] pairs.
-    pub(crate) roles: StorageSnapshot<'world, RoleId, Role>,
-    /// Permission tokens of an account.
-    pub(crate) account_permission_tokens: StorageSnapshot<'world, AccountId, Permissions>,
-    /// Roles of an account.
-    pub(crate) account_roles: StorageSnapshot<'world, RoleIdWithOwner, ()>,
-    /// Registered permission token ids.
-    pub(crate) permission_token_schema: &'world PermissionTokenSchema,
-    /// Triggers
-    pub(crate) triggers: &'world TriggerSet,
-    /// Runtime Executor
-    pub(crate) executor: &'world Executor,
-}
-
 /// Current state of the blockchain
 #[derive(Serialize)]
 pub struct State {
@@ -270,29 +247,6 @@ pub struct StateView<'state> {
     pub new_tx_amounts: &'state Mutex<Vec<f64>>,
 }
 
-/// Consistent point in time view of the [`State`]
-/// Used in places where [`StateBlock`], [`StateTransaction`], [`StateView`] need to be converted to the same type for immutable operations
-pub struct StateSnapshot<'state> {
-    /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
-    pub world: WorldSnapshot<'state>,
-    /// Configuration of World State View.
-    pub config: &'state Config,
-    /// Blockchain.
-    pub block_hashes: &'state Vec<HashOf<SignedBlock>>,
-    /// Hashes of transactions mapped onto block height where they stored
-    pub transactions: StorageSnapshot<'state, HashOf<SignedTransaction>, u64>,
-    /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
-    pub engine: &'state wasmtime::Engine,
-
-    /// Reference to Kura subsystem.
-    kura: &'state Kura,
-    /// Handle to the [`LiveQueryStore`].
-    pub query_handle: &'state LiveQueryStoreHandle,
-    /// Temporary metrics buffer of amounts of any asset that has been transacted.
-    /// TODO: this should be done through events
-    pub new_tx_amounts: &'state Mutex<Vec<f64>>,
-}
-
 impl World {
     /// Creates an empty `World`.
     pub fn new() -> Self {
@@ -347,26 +301,28 @@ impl World {
     }
 }
 
-macro_rules! world_read_only_methods {
-    ($($tt:tt)*) => {
-        macro_rules! insert_world_read_only_methods {
-            () => {
-                $($tt)*
-            }
-        }
-    }
-}
+/// Trait to perform read-only operations on [`WorldBlock`], [`WorldTransaction`] and [`WorldView`]
+#[allow(missing_docs)]
+pub trait WorldReadOnly {
+    fn parameters(&self) -> &Parameters;
+    fn trusted_peers_ids(&self) -> &PeersIds;
+    fn domains(&self) -> &impl StorageReadOnly<DomainId, Domain>;
+    fn roles(&self) -> &impl StorageReadOnly<RoleId, Role>;
+    fn account_permission_tokens(&self) -> &impl StorageReadOnly<AccountId, Permissions>;
+    fn account_roles(&self) -> &impl StorageReadOnly<RoleIdWithOwner, ()>;
+    fn permission_token_schema(&self) -> &PermissionTokenSchema;
+    fn triggers(&self) -> &TriggerSet;
+    fn executor(&self) -> &Executor;
 
-world_read_only_methods! {
     // Domain-related methods
 
     /// Get `Domain` without an ability to modify it.
     ///
     /// # Errors
     /// Fails if there is no domain
-    pub fn domain(&self, id: &DomainId) -> Result<&Domain, FindError> {
+    fn domain(&self, id: &DomainId) -> Result<&Domain, FindError> {
         let domain = self
-            .domains
+            .domains()
             .get(id)
             .ok_or_else(|| FindError::Domain(id.clone()))?;
         Ok(domain)
@@ -376,7 +332,7 @@ world_read_only_methods! {
     ///
     /// # Errors
     /// Fails if there is no domain
-    pub fn map_domain<'slf, T>(
+    fn map_domain<'slf, T>(
         &'slf self,
         id: &DomainId,
         f: impl FnOnce(&'slf Domain) -> T,
@@ -388,8 +344,8 @@ world_read_only_methods! {
 
     /// Returns reference for domains map
     #[inline]
-    pub fn domains(&self) -> impl Iterator<Item = &Domain> {
-        self.domains.iter().map(|(_, domain)| domain)
+    fn domains_iter(&self) -> impl Iterator<Item = &Domain> {
+        self.domains().iter().map(|(_, domain)| domain)
     }
 
     // Account-related methods
@@ -398,7 +354,7 @@ world_read_only_methods! {
     ///
     /// # Errors
     /// Fails if there is no domain or account
-    pub fn account(&self, id: &AccountId) -> Result<&Account, FindError> {
+    fn account(&self, id: &AccountId) -> Result<&Account, FindError> {
         self.domain(&id.domain_id).and_then(|domain| {
             domain
                 .accounts
@@ -411,7 +367,7 @@ world_read_only_methods! {
     ///
     /// # Errors
     /// Fails if there is no domain or account
-    pub fn map_account<'slf, T>(
+    fn map_account<'slf, T>(
         &'slf self,
         id: &AccountId,
         f: impl FnOnce(&'slf Account) -> T,
@@ -428,19 +384,26 @@ world_read_only_methods! {
     ///
     /// # Errors
     /// Fails if there is no domain or account
-    pub fn account_assets(
+    fn account_assets(
         &self,
         id: &AccountId,
-    ) -> Result<impl ExactSizeIterator<Item = &Asset>, QueryExecutionFail> {
+    ) -> Result<std::collections::btree_map::Values<'_, AssetId, Asset>, QueryExecutionFail> {
         self.map_account(id, |account| account.assets.values())
     }
 
     /// Get [`Account`]'s [`RoleId`]s
     // NOTE: have to use concreate type because don't want to capture lifetme of `id`
-    pub fn account_roles<'slf>(&'slf self, id: &AccountId) -> core::iter::Map<RangeIter<'_, 'slf, RoleIdWithOwner, ()>, fn((&'slf RoleIdWithOwner, &'slf ())) -> &'slf RoleId> {
-        self.account_roles
+    #[allow(clippy::type_complexity)]
+    fn account_roles_iter<'slf>(
+        &'slf self,
+        id: &AccountId,
+    ) -> core::iter::Map<
+        RangeIter<'slf, RoleIdWithOwner, ()>,
+        fn((&'slf RoleIdWithOwner, &'slf ())) -> &'slf RoleId,
+    > {
+        self.account_roles()
             .range(RoleIdByAccountBounds::new(id))
-            .map(|(role, _)| &role.role_id)
+            .map(|(role, ())| &role.role_id)
     }
 
     /// Return a set of all permission tokens granted to this account.
@@ -448,7 +411,7 @@ world_read_only_methods! {
     /// # Errors
     ///
     /// - if `account_id` is not found in `self`
-    pub fn account_permission_tokens<'slf>(
+    fn account_permission_tokens_iter<'slf>(
         &'slf self,
         account_id: &AccountId,
     ) -> Result<std::collections::btree_set::IntoIter<&'slf PermissionToken>, FindError> {
@@ -458,8 +421,8 @@ world_read_only_methods! {
             .account_inherent_permission_tokens(account_id)
             .collect::<BTreeSet<_>>();
 
-        for role_id in self.account_roles(account_id) {
-            if let Some(role) = self.roles.get(role_id) {
+        for role_id in self.account_roles_iter(account_id) {
+            if let Some(role) = self.roles().get(role_id) {
                 tokens.extend(role.permissions.iter());
             }
         }
@@ -472,23 +435,23 @@ world_read_only_methods! {
     /// # Errors
     ///
     /// - `account_id` is not found in `self.world`.
-    pub fn account_inherent_permission_tokens<'slf>(
+    fn account_inherent_permission_tokens<'slf>(
         &'slf self,
         account_id: &AccountId,
     ) -> std::collections::btree_set::Iter<'slf, PermissionToken> {
-        self.account_permission_tokens
+        self.account_permission_tokens()
             .get(account_id)
             .map_or_else(Default::default, std::collections::BTreeSet::iter)
     }
 
     /// Return `true` if [`Account`] contains a permission token not associated with any role.
     #[inline]
-    pub fn account_contains_inherent_permission(
+    fn account_contains_inherent_permission(
         &self,
         account: &AccountId,
         token: &PermissionToken,
     ) -> bool {
-        self.account_permission_tokens
+        self.account_permission_tokens()
             .get(account)
             .map_or(false, |permissions| permissions.contains(token))
     }
@@ -501,7 +464,7 @@ world_read_only_methods! {
     /// - No such [`Asset`]
     /// - The [`Account`] with which the [`Asset`] is associated doesn't exist.
     /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
-    pub fn asset(&self, id: &AssetId) -> Result<Asset, QueryExecutionFail> {
+    fn asset(&self, id: &AssetId) -> Result<Asset, QueryExecutionFail> {
         self.map_account(
             &id.account_id,
             |account| -> Result<Asset, QueryExecutionFail> {
@@ -509,7 +472,7 @@ world_read_only_methods! {
                     .assets
                     .get(id)
                     .ok_or_else(|| QueryExecutionFail::from(FindError::Asset(id.clone())))
-                    .map(Clone::clone)
+                    .cloned()
             },
         )?
     }
@@ -520,25 +483,19 @@ world_read_only_methods! {
     ///
     /// # Errors
     /// - Asset definition entry not found
-    pub fn asset_definition(
-        &self,
-        asset_id: &AssetDefinitionId,
-    ) -> Result<AssetDefinition, FindError> {
+    fn asset_definition(&self, asset_id: &AssetDefinitionId) -> Result<AssetDefinition, FindError> {
         self.domain(&asset_id.domain_id)?
             .asset_definitions
             .get(asset_id)
             .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
-            .map(Clone::clone)
+            .cloned()
     }
 
     /// Get total amount of [`Asset`].
     ///
     /// # Errors
     /// - Asset definition not found
-    pub fn asset_total_amount(
-        &self,
-        definition_id: &AssetDefinitionId,
-    ) -> Result<Numeric, FindError> {
+    fn asset_total_amount(&self, definition_id: &AssetDefinitionId) -> Result<Numeric, FindError> {
         self.domain(&definition_id.domain_id)?
             .asset_total_quantities
             .get(definition_id)
@@ -547,24 +504,24 @@ world_read_only_methods! {
     }
 
     /// Get an immutable iterator over the [`PeerId`]s.
-    pub fn peers(&self) -> impl ExactSizeIterator<Item = &PeerId> {
-        self.trusted_peers_ids.iter()
+    fn peers(&self) -> impl ExactSizeIterator<Item = &PeerId> {
+        self.trusted_peers_ids().iter()
     }
 
     /// Get all `Parameter`s registered in the world.
-    pub fn parameters(&self) -> impl Iterator<Item = &Parameter> {
-        self.parameters.iter()
+    fn parameters_iter(&self) -> impl Iterator<Item = &Parameter> {
+        self.parameters().iter()
     }
 
     /// Query parameter and convert it to a proper type
-    pub fn query_param<T: TryFrom<ParameterValueBox>, P: core::hash::Hash + Eq + ?Sized>(
+    fn query_param<T: TryFrom<ParameterValueBox>, P: core::hash::Hash + Eq + ?Sized>(
         &self,
         param: &P,
     ) -> Option<T>
     where
         Parameter: Borrow<P>,
     {
-        Parameters::get(&self.parameters, param)
+        Parameters::get(self.parameters(), param)
             .as_ref()
             .map(|param| &param.val)
             .cloned()
@@ -573,9 +530,47 @@ world_read_only_methods! {
 
     /// Returns reference for trusted peer ids
     #[inline]
-    pub fn peers_ids(&self) -> &PeersIds {
-        &self.trusted_peers_ids
+    fn peers_ids(&self) -> &PeersIds {
+        self.trusted_peers_ids()
     }
+}
+
+macro_rules! impl_world_ro {
+    ($($ident:ty),*) => {$(
+        impl WorldReadOnly for $ident {
+            fn parameters(&self) -> &Parameters {
+                &self.parameters
+            }
+            fn trusted_peers_ids(&self) -> &PeersIds {
+                &self.trusted_peers_ids
+            }
+            fn domains(&self) -> &impl StorageReadOnly<DomainId, Domain> {
+                &self.domains
+            }
+            fn roles(&self) -> &impl StorageReadOnly<RoleId, Role> {
+                &self.roles
+            }
+            fn account_permission_tokens(&self) -> &impl StorageReadOnly<AccountId, Permissions> {
+                &self.account_permission_tokens
+            }
+            fn account_roles(&self) -> &impl StorageReadOnly<RoleIdWithOwner, ()> {
+                &self.account_roles
+            }
+            fn permission_token_schema(&self) -> &PermissionTokenSchema {
+                &self.permission_token_schema
+            }
+            fn triggers(&self) -> &TriggerSet {
+                &self.triggers
+            }
+            fn executor(&self) -> &Executor {
+                &self.executor
+            }
+        }
+    )*};
+}
+
+impl_world_ro! {
+    WorldBlock<'_>, WorldTransaction<'_, '_>, WorldView<'_>
 }
 
 impl<'world> WorldBlock<'world> {
@@ -611,23 +606,6 @@ impl<'world> WorldBlock<'world> {
         self.trusted_peers_ids.commit();
         self.parameters.commit();
     }
-
-    /// Convert [`Self`] to [`WorldSnapshot`]
-    pub fn to_snapshot(&self) -> WorldSnapshot<'_> {
-        WorldSnapshot {
-            parameters: &self.parameters,
-            trusted_peers_ids: &self.trusted_peers_ids,
-            domains: self.domains.to_snapshot(),
-            roles: self.roles.to_snapshot(),
-            account_permission_tokens: self.account_permission_tokens.to_snapshot(),
-            account_roles: self.account_roles.to_snapshot(),
-            permission_token_schema: &self.permission_token_schema,
-            triggers: &self.triggers,
-            executor: &self.executor,
-        }
-    }
-
-    insert_world_read_only_methods! {}
 }
 
 impl WorldTransaction<'_, '_> {
@@ -643,21 +621,6 @@ impl WorldTransaction<'_, '_> {
         self.trusted_peers_ids.apply();
         self.parameters.apply();
         self.events_buffer.events_created_in_transaction = 0;
-    }
-
-    /// Convert [`Self`] to [`WorldSnapshot`]
-    pub fn to_snapshot(&self) -> WorldSnapshot<'_> {
-        WorldSnapshot {
-            parameters: &self.parameters,
-            trusted_peers_ids: &self.trusted_peers_ids,
-            domains: self.domains.to_snapshot(),
-            roles: self.roles.to_snapshot(),
-            account_permission_tokens: self.account_permission_tokens.to_snapshot(),
-            account_roles: self.account_roles.to_snapshot(),
-            permission_token_schema: &self.permission_token_schema,
-            triggers: &self.triggers,
-            executor: &self.executor,
-        }
     }
 
     /// Get `Domain` with an ability to modify it.
@@ -913,8 +876,6 @@ impl WorldTransaction<'_, '_> {
         }
         events_buffer.extend(data_events.into_iter().map(Into::into));
     }
-
-    insert_world_read_only_methods! {}
 }
 
 impl TransactionEventBuffer<'_> {
@@ -939,29 +900,6 @@ impl Drop for TransactionEventBuffer<'_> {
         self.events_buffer
             .truncate(self.events_buffer.len() - self.events_created_in_transaction);
     }
-}
-
-impl WorldView<'_> {
-    insert_world_read_only_methods! {}
-
-    /// Convert [`Self`] to [`WorldSnapshot`]
-    pub fn to_snapshot(&self) -> WorldSnapshot<'_> {
-        WorldSnapshot {
-            parameters: &self.parameters,
-            trusted_peers_ids: &self.trusted_peers_ids,
-            domains: self.domains.to_snapshot(),
-            roles: self.roles.to_snapshot(),
-            account_permission_tokens: self.account_permission_tokens.to_snapshot(),
-            account_roles: self.account_roles.to_snapshot(),
-            permission_token_schema: &self.permission_token_schema,
-            triggers: &self.triggers,
-            executor: &self.executor,
-        }
-    }
-}
-
-impl WorldSnapshot<'_> {
-    insert_world_read_only_methods! {}
 }
 
 impl State {
@@ -1022,63 +960,63 @@ impl State {
     }
 }
 
-macro_rules! world_state_read_only_methods {
-    ($($tt:tt)*) => {
-        macro_rules! insert_world_state_read_only_methods {
-            () => {
-                $($tt)*
-            }
-        }
-    }
-}
+/// Trait to perform read-only operations on [`StateBlock`], [`StateTransaction`] and [`StateView`]
+#[allow(missing_docs)]
+pub trait StateReadOnly {
+    fn world(&self) -> &impl WorldReadOnly;
+    fn config(&self) -> &Config;
+    fn block_hashes(&self) -> &[HashOf<SignedBlock>];
+    fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, u64>;
+    fn engine(&self) -> &wasmtime::Engine;
+    fn kura(&self) -> &Kura;
+    fn query_handle(&self) -> &LiveQueryStoreHandle;
+    fn new_tx_amounts(&self) -> &Mutex<Vec<f64>>;
 
-// Read-only methods reused across `StateBlock`, `StateTransaction`, `StateView`
-world_state_read_only_methods! {
     // Block-related methods
 
     /// Get a reference to the latest block. Returns none if genesis is not committed.
     #[inline]
-    pub fn latest_block_ref(&self) -> Option<Arc<SignedBlock>> {
-        self.kura
-            .get_block_by_height(self.block_hashes.len() as u64)
+    fn latest_block_ref(&self) -> Option<Arc<SignedBlock>> {
+        self.kura()
+            .get_block_by_height(self.block_hashes().len() as u64)
     }
 
     /// Return the hash of the latest block
-    pub fn latest_block_hash(&self) -> Option<HashOf<SignedBlock>> {
-        self.block_hashes.iter().nth_back(0).copied()
+    fn latest_block_hash(&self) -> Option<HashOf<SignedBlock>> {
+        self.block_hashes().iter().nth_back(0).copied()
     }
 
     /// Return the view change index of the latest block
-    pub fn latest_block_view_change_index(&self) -> u64 {
-        self.kura
+    fn latest_block_view_change_index(&self) -> u64 {
+        self.kura()
             .get_block_by_height(self.height())
             .map_or(0, |block| block.header().view_change_index)
     }
 
     /// Return the hash of the block one before the latest block
-    pub fn previous_block_hash(&self) -> Option<HashOf<SignedBlock>> {
-        self.block_hashes.iter().nth_back(1).copied()
+    fn previous_block_hash(&self) -> Option<HashOf<SignedBlock>> {
+        self.block_hashes().iter().nth_back(1).copied()
     }
 
     /// Load all blocks in the block chain from disc
-    pub fn all_blocks(&self) -> impl DoubleEndedIterator<Item = Arc<SignedBlock>> + '_ {
-        let block_count = self.block_hashes.len() as u64;
+    fn all_blocks(&self) -> impl DoubleEndedIterator<Item = Arc<SignedBlock>> + '_ {
+        let block_count = self.block_hashes().len() as u64;
         (1..=block_count).map(|height| {
-            self.kura
+            self.kura()
                 .get_block_by_height(height)
                 .expect("Failed to load block.")
         })
     }
 
     /// Return a vector of blockchain blocks after the block with the given `hash`
-    pub fn block_hashes_after_hash(
+    fn block_hashes_after_hash(
         &self,
         hash: Option<HashOf<SignedBlock>>,
     ) -> Vec<HashOf<SignedBlock>> {
         hash.map_or_else(
-            || self.block_hashes.clone(),
+            || self.block_hashes().to_vec(),
             |block_hash| {
-                self.block_hashes
+                self.block_hashes()
                     .iter()
                     .skip_while(|&x| *x != block_hash)
                     .skip(1)
@@ -1089,8 +1027,8 @@ world_state_read_only_methods! {
     }
 
     /// Return an iterator over blockchain block hashes starting with the block of the given `height`
-    pub fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<SignedBlock>> {
-        self.block_hashes
+    fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<SignedBlock>> {
+        self.block_hashes()
             .iter()
             .skip(height.saturating_sub(1))
             .copied()
@@ -1099,25 +1037,25 @@ world_state_read_only_methods! {
 
     /// Height of blockchain
     #[inline]
-    pub fn height(&self) -> u64 {
-        self.block_hashes.len() as u64
+    fn height(&self) -> u64 {
+        self.block_hashes().len() as u64
     }
 
     /// Find a [`SignedBlock`] by hash.
-    pub fn block_with_tx(&self, hash: &HashOf<SignedTransaction>) -> Option<Arc<SignedBlock>> {
-        let height = *self.transactions.get(hash)?;
-        self.kura.get_block_by_height(height)
+    fn block_with_tx(&self, hash: &HashOf<SignedTransaction>) -> Option<Arc<SignedBlock>> {
+        let height = *self.transactions().get(hash)?;
+        self.kura().get_block_by_height(height)
     }
 
     /// Returns [`Some`] milliseconds since the genesis block was
     /// committed, or [`None`] if it wasn't.
     #[inline]
-    pub fn genesis_timestamp(&self) -> Option<Duration> {
-        if self.block_hashes.is_empty() {
+    fn genesis_timestamp(&self) -> Option<Duration> {
+        if self.block_hashes().is_empty() {
             None
         } else {
             let opt = self
-                .kura
+                .kura()
                 .get_block_by_height(1)
                 .map(|genesis_block| genesis_block.header().timestamp());
 
@@ -1130,14 +1068,49 @@ world_state_read_only_methods! {
 
     /// Check if this [`SignedTransaction`] is already committed or rejected.
     #[inline]
-    pub fn has_transaction(&self, hash: HashOf<SignedTransaction>) -> bool {
-        self.transactions.get(&hash).is_some()
+    fn has_transaction(&self, hash: HashOf<SignedTransaction>) -> bool {
+        self.transactions().get(&hash).is_some()
     }
 
     /// Get transaction executor
-    pub fn transaction_executor(&self) -> TransactionExecutor {
-        TransactionExecutor::new(self.config.transaction_limits)
+    fn transaction_executor(&self) -> TransactionExecutor {
+        TransactionExecutor::new(self.config().transaction_limits)
     }
+}
+
+macro_rules! impl_state_ro {
+    ($($ident:ty),*) => {$(
+        impl StateReadOnly for $ident {
+            fn world(&self) -> &impl WorldReadOnly {
+                &self.world
+            }
+            fn config(&self) -> &Config {
+                &self.config
+            }
+            fn block_hashes(&self) -> &[HashOf<SignedBlock>] {
+                &self.block_hashes
+            }
+            fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, u64> {
+                &self.transactions
+            }
+            fn engine(&self) -> &wasmtime::Engine {
+                &self.engine
+            }
+            fn kura(&self) -> &Kura {
+                &self.kura
+            }
+            fn query_handle(&self) -> &LiveQueryStoreHandle {
+                &self.query_handle
+            }
+            fn new_tx_amounts(&self) -> &Mutex<Vec<f64>> {
+                &self.new_tx_amounts
+            }
+        }
+    )*};
+}
+
+impl_state_ro! {
+    StateBlock<'_>, StateTransaction<'_, '_>, StateView<'_>
 }
 
 impl<'state> StateBlock<'state> {
@@ -1161,20 +1134,6 @@ impl<'state> StateBlock<'state> {
         self.block_hashes.commit();
         self.config.commit();
         self.world.commit();
-    }
-
-    /// Convert [`Self`] to [`WorldStateSnapshot`]
-    pub fn to_snapshot(&self) -> StateSnapshot<'_> {
-        StateSnapshot {
-            world: self.world.to_snapshot(),
-            config: &self.config,
-            block_hashes: &self.block_hashes,
-            transactions: self.transactions.to_snapshot(),
-            engine: self.engine,
-            kura: self.kura,
-            query_handle: self.query_handle,
-            new_tx_amounts: self.new_tx_amounts,
-        }
     }
 
     /// Commit `CommittedBlock` with changes in form of **Iroha Special
@@ -1356,8 +1315,6 @@ impl<'state> StateBlock<'state> {
             TRANSACTION_LIMITS => self.config.transaction_limits,
         }
     }
-
-    insert_world_state_read_only_methods! {}
 }
 
 impl StateTransaction<'_, '_> {
@@ -1367,20 +1324,6 @@ impl StateTransaction<'_, '_> {
         self.block_hashes.apply();
         self.config.apply();
         self.world.apply();
-    }
-
-    /// Convert [`Self`] to [`WorldStateSnapshot`]
-    pub fn to_snapshot(&self) -> StateSnapshot<'_> {
-        StateSnapshot {
-            world: self.world.to_snapshot(),
-            config: &self.config,
-            block_hashes: &self.block_hashes,
-            transactions: self.transactions.to_snapshot(),
-            engine: self.engine,
-            kura: self.kura,
-            query_handle: self.query_handle,
-            new_tx_amounts: self.new_tx_amounts,
-        }
     }
 
     fn process_executable(&mut self, executable: &Executable, authority: AccountId) -> Result<()> {
@@ -1435,30 +1378,6 @@ impl StateTransaction<'_, '_> {
             }
         }
     }
-
-    insert_world_state_read_only_methods! {}
-}
-
-impl StateView<'_> {
-    /// Convert [`Self`] to [`WorldStateSnapshot`]
-    pub fn to_snapshot(&self) -> StateSnapshot<'_> {
-        StateSnapshot {
-            world: self.world.to_snapshot(),
-            config: &self.config,
-            block_hashes: &self.block_hashes,
-            transactions: self.transactions.to_snapshot(),
-            engine: self.engine,
-            kura: self.kura,
-            query_handle: self.query_handle,
-            new_tx_amounts: self.new_tx_amounts,
-        }
-    }
-
-    insert_world_state_read_only_methods! {}
-}
-
-impl StateSnapshot<'_> {
-    insert_world_state_read_only_methods! {}
 }
 
 /// Bounds for `range` queries

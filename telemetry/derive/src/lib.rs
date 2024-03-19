@@ -27,8 +27,19 @@ fn type_has_metrics_field(ty: &Type) -> bool {
                 .last()
                 .expect("Should have at least one segment")
                 .ident;
-            *type_name == "StateSnapshot" || *type_name == "StateTransaction"
+            *type_name == "StateTransaction"
         }
+        Type::ImplTrait(impl_trait) => impl_trait.bounds.iter().any(|bounds| match bounds {
+            syn::TypeParamBound::Trait(trt) => {
+                let Path { segments, .. } = trt.path.clone();
+                let type_name = &segments
+                    .last()
+                    .expect("Should have at least one segment")
+                    .ident;
+                *type_name == "StateReadOnly"
+            }
+            _ => false,
+        }),
         _ => false,
     }
 }
@@ -161,7 +172,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
         emit!(
             emitter,
             func.sig,
-            "Function must have at least one argument of type `StateTransaction` or `StateSnapshot`."
+            "Function must have at least one argument of type `StateTransaction` or `StateReadOnly`."
         );
         return emitter.finish_token_stream();
     }
@@ -219,7 +230,7 @@ fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn::ItemFn)
             emit!(
                 emitter,
                 args,
-                "At least one argument must be a `StateTransaction` or `StateSnapshot`."
+                "At least one argument must be a `StateTransaction` or `StateReadOnly`."
             );
             return quote!();
         }

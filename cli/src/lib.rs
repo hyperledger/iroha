@@ -22,7 +22,7 @@ use iroha_core::{
     snapshot::{
         try_read_snapshot, SnapshotMaker, SnapshotMakerHandle, TryReadError as TryReadSnapshotError,
     },
-    state::{State, World},
+    state::{State, StateReadOnly, World},
     sumeragi::{SumeragiHandle, SumeragiStartArgs},
     IrohaNetwork,
 };
