@@ -323,7 +323,7 @@ impl_query_output! {
     crate::data_model::metadata::MetadataValueBox,
     crate::data_model::query::TransactionQueryOutput,
     crate::data_model::permission::PermissionTokenSchema,
-    crate::data_model::trigger::Trigger<crate::data_model::events::TriggeringEventFilterBox>,
+    crate::data_model::trigger::Trigger,
     crate::data_model::prelude::Numeric,
 }
 

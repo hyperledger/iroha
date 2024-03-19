@@ -12,8 +12,7 @@ fn main() {
 
     sample_into_binary_file::<NewDomain>("domain").expect("Failed to encode into domain.bin.");
 
-    sample_into_binary_file::<Trigger<TriggeringEventFilterBox>>("trigger")
-        .expect("Failed to encode into trigger.bin.");
+    sample_into_binary_file::<Trigger>("trigger").expect("Failed to encode into trigger.bin.");
 }
 
 fn sample_into_binary_file<T>(filename: &str) -> Result<()>

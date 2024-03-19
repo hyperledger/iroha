@@ -23,9 +23,7 @@ fn must_execute_both_triggers() -> Result<()> {
             [instruction.clone()],
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringEventFilterBox::Data(DataEventFilter::Account(
-                AccountEventFilter::new().for_events(AccountEventSet::Created),
-            )),
+            AccountEventFilter::new().for_events(AccountEventSet::Created),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -36,9 +34,7 @@ fn must_execute_both_triggers() -> Result<()> {
             [instruction],
             Repeats::Indefinitely,
             account_id,
-            TriggeringEventFilterBox::Data(DataEventFilter::Domain(
-                DomainEventFilter::new().for_events(DomainEventSet::Created),
-            )),
+            DomainEventFilter::new().for_events(DomainEventSet::Created),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -88,9 +84,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
             [Mint::asset_numeric(1u32, asset_id.clone())],
             Repeats::Indefinitely,
             account_id,
-            TriggeringEventFilterBox::Data(DataEventFilter::Account(
-                AccountEventFilter::new().for_events(AccountEventSet::Created),
-            )),
+            AccountEventFilter::new().for_events(AccountEventSet::Created),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;

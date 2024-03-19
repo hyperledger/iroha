@@ -28,11 +28,9 @@ fn failed_trigger_revert() -> Result<()> {
             instructions,
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(
-                ExecuteTriggerEventFilter::new()
-                    .for_trigger(trigger_id.clone())
-                    .under_authority(account_id),
-            ),
+            ExecuteTriggerEventFilter::new()
+                .for_trigger(trigger_id.clone())
+                .under_authority(account_id),
         ),
     ));
     let _ = client.submit_blocking(register_trigger);

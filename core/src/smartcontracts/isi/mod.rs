@@ -378,11 +378,9 @@ mod tests {
                 Vec::<InstructionBox>::new(),
                 Repeats::Indefinitely,
                 account_id.clone(),
-                TriggeringEventFilterBox::ExecuteTrigger(
-                    ExecuteTriggerEventFilter::new()
-                        .for_trigger(trigger_id.clone())
-                        .under_authority(account_id.clone()),
-                ),
+                ExecuteTriggerEventFilter::new()
+                    .for_trigger(trigger_id.clone())
+                    .under_authority(account_id.clone()),
             ),
         ));
 

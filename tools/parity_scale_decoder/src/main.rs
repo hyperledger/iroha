@@ -275,17 +275,11 @@ mod tests {
             vec![Mint::asset_numeric(1u32, rose_id)],
             Repeats::Indefinitely,
             account_id,
-            EventFilterBox::Data(DataEventFilter::Domain(
-                DomainEventFilter::new().for_events(DomainEventSet::AnyAccount),
-            )),
+            DomainEventFilter::new().for_events(DomainEventSet::AnyAccount),
         );
         let trigger = Trigger::new(trigger_id, action);
 
-        decode_sample(
-            "trigger.bin",
-            String::from("Trigger<TriggeringEventFilterBox>"),
-            &trigger,
-        );
+        decode_sample("trigger.bin", String::from("Trigger"), &trigger);
     }
 
     fn decode_sample<T: Debug>(sample_path: &str, type_id: String, expected: &T) {

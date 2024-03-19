@@ -94,7 +94,7 @@ pub trait Visit {
         visit_register_asset_definition(&Register<AssetDefinition>),
         visit_register_asset(&Register<Asset>),
         visit_register_role(&Register<Role>),
-        visit_register_trigger(&Register<Trigger<TriggeringEventFilterBox >>),
+        visit_register_trigger(&Register<Trigger>),
 
         // Visit UnregisterBox
         visit_unregister_peer(&Unregister<Peer>),
@@ -104,18 +104,18 @@ pub trait Visit {
         visit_unregister_asset(&Unregister<Asset>),
         // TODO: Need to allow role creator to unregister it somehow
         visit_unregister_role(&Unregister<Role>),
-        visit_unregister_trigger(&Unregister<Trigger<TriggeringEventFilterBox >>),
+        visit_unregister_trigger(&Unregister<Trigger>),
 
         // Visit MintBox
         visit_mint_asset_numeric(&Mint<Numeric, Asset>),
         visit_mint_account_public_key(&Mint<PublicKey, Account>),
         visit_mint_account_signature_check_condition(&Mint<SignatureCheckCondition, Account>),
-        visit_mint_trigger_repetitions(&Mint<u32, Trigger<TriggeringEventFilterBox >>),
+        visit_mint_trigger_repetitions(&Mint<u32, Trigger>),
 
         // Visit BurnBox
         visit_burn_account_public_key(&Burn<PublicKey, Account>),
         visit_burn_asset_numeric(&Burn<Numeric, Asset>),
-        visit_burn_trigger_repetitions(&Burn<u32, Trigger<TriggeringEventFilterBox>>),
+        visit_burn_trigger_repetitions(&Burn<u32, Trigger>),
 
         // Visit TransferBox
         visit_transfer_asset_definition(&Transfer<Account, AssetDefinitionId, Account>),
@@ -429,10 +429,10 @@ leaf_visitors! {
     visit_revoke_account_role(&Revoke<RoleId, Account>),
     visit_grant_role_permission(&Grant<PermissionToken, Role>),
     visit_revoke_role_permission(&Revoke<PermissionToken, Role>),
-    visit_register_trigger(&Register<Trigger<TriggeringEventFilterBox >>),
-    visit_unregister_trigger(&Unregister<Trigger<TriggeringEventFilterBox >>),
-    visit_mint_trigger_repetitions(&Mint<u32, Trigger<TriggeringEventFilterBox >>),
-    visit_burn_trigger_repetitions(&Burn<u32, Trigger<TriggeringEventFilterBox >>),
+    visit_register_trigger(&Register<Trigger>),
+    visit_unregister_trigger(&Unregister<Trigger>),
+    visit_mint_trigger_repetitions(&Mint<u32, Trigger>),
+    visit_burn_trigger_repetitions(&Burn<u32, Trigger>),
     visit_upgrade(&Upgrade),
     visit_new_parameter(&NewParameter),
     visit_set_parameter(&SetParameter),

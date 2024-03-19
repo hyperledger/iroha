@@ -52,7 +52,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
             vec![instruction],
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringEventFilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
+            TimeEventFilter::new(ExecutionTime::Schedule(schedule)),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -110,7 +110,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
             vec![instruction],
             Repeats::from(1_u32),
             account_id.clone(),
-            TriggeringEventFilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
+            TimeEventFilter::new(ExecutionTime::Schedule(schedule)),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -154,7 +154,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
             vec![instruction],
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringEventFilterBox::Time(TimeEventFilter::new(ExecutionTime::PreCommit)),
+            TimeEventFilter::new(ExecutionTime::PreCommit),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -229,7 +229,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
             WasmSmartContract::from_compiled(wasm),
             Repeats::Indefinitely,
             alice_id.clone(),
-            TriggeringEventFilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
+            TimeEventFilter::new(ExecutionTime::Schedule(schedule)),
         ),
     ));
     test_client.submit(register_trigger)?;

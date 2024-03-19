@@ -21,11 +21,9 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
             vec![InstructionBox::from(instruction)],
             Repeats::Indefinitely,
             asset_id.account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(
-                ExecuteTriggerEventFilter::new()
-                    .for_trigger(trigger_id.clone())
-                    .under_authority(asset_id.account_id),
-            ),
+            ExecuteTriggerEventFilter::new()
+                .for_trigger(trigger_id.clone())
+                .under_authority(asset_id.account_id),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -69,11 +67,9 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
             vec![InstructionBox::from(instruction)],
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(
-                ExecuteTriggerEventFilter::new()
-                    .for_trigger(trigger_id.clone())
-                    .under_authority(account_id),
-            ),
+            ExecuteTriggerEventFilter::new()
+                .for_trigger(trigger_id.clone())
+                .under_authority(account_id),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;

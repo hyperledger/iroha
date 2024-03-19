@@ -1,5 +1,8 @@
 //! Structures traits and impls related to `Trigger`s.
 
+// If editing this file, consider updating `core/src/smartcontracts/isi/triggers/specialized.rs`
+// It mirrors structures from this file.
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 use core::{cmp, str::FromStr};
@@ -51,76 +54,39 @@ pub mod model {
 
     /// Type which is used for registering a `Trigger`.
     #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdEqOrdHash,
-        Constructor,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     #[display(fmt = "@@{id}")]
     #[ffi_type]
-    pub struct Trigger<F> {
+    pub struct Trigger {
         /// [`Id`] of the [`Trigger`].
         pub id: TriggerId,
         /// Action to be performed when the trigger matches.
-        pub action: action::Action<F>,
+        pub action: action::Action,
     }
 }
 
 #[ffi_impl_opaque]
-impl Trigger<TriggeringEventFilterBox> {
+impl Trigger {
+    // we can derive this with `derive_more::Constructor`, but RustRover freaks out and thinks it's signature is (TriggerId, TriggerId, Action, Action), giving bogus errors
+    /// Construct a trigger given `id` and `action`.
+    pub fn new(id: TriggerId, action: action::Action) -> Trigger {
+        Trigger { id, action }
+    }
+
     /// [`Id`] of the [`Trigger`].
     pub fn id(&self) -> &TriggerId {
         &self.id
     }
 
     /// Action to be performed when the trigger matches.
-    pub fn action(&self) -> &action::Action<TriggeringEventFilterBox> {
+    pub fn action(&self) -> &action::Action {
         &self.action
     }
 }
 
-impl Registered for Trigger<TriggeringEventFilterBox> {
+impl Registered for Trigger {
     type With = Self;
-}
-
-macro_rules! impl_try_from_box {
-    ($($variant:ident => $filter_type:ty),+ $(,)?) => {
-        $(
-            impl TryFrom<Trigger<TriggeringEventFilterBox>> for Trigger<$filter_type> {
-                type Error = &'static str;
-
-                fn try_from(boxed: Trigger<TriggeringEventFilterBox>) -> Result<Self, Self::Error> {
-                    if let TriggeringEventFilterBox::$variant(concrete_filter) = boxed.action.filter {
-                        let action = action::Action::new(
-                            boxed.action.executable,
-                            boxed.action.repeats,
-                            boxed.action.authority,
-                            concrete_filter,
-                        );
-                        Ok(Self {
-                            id: boxed.id,
-                            action,
-                        })
-                    } else {
-                        Err(concat!("Expected `TriggeringEventFilterBox::", stringify!($variant),"`, but another variant found"))
-                    }
-                }
-            }
-        )+
-    };
-}
-
-impl_try_from_box! {
-    Data => DataEventFilter,
-    Pipeline => PipelineEventFilter,
-    Time => TimeEventFilter,
-    ExecuteTrigger => ExecuteTriggerEventFilter,
 }
 
 impl core::fmt::Display for TriggerId {
@@ -186,7 +152,7 @@ pub mod action {
             Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
         #[ffi_type]
-        pub struct Action<F> {
+        pub struct Action {
             /// The executable linked to this action
             pub executable: Executable,
             /// The repeating scheme of the action. It's kept as part of the
@@ -196,7 +162,7 @@ pub mod action {
             /// Account executing this action
             pub authority: AccountId,
             /// Defines events which trigger the `Action`
-            pub filter: F,
+            pub filter: TriggeringEventFilterBox,
             /// Metadata used as persistent storage for trigger data.
             pub metadata: Metadata,
         }
@@ -215,14 +181,14 @@ pub mod action {
     }
 
     #[cfg(feature = "transparent_api")]
-    impl<F> crate::HasMetadata for Action<F> {
+    impl crate::HasMetadata for Action {
         fn metadata(&self) -> &crate::metadata::Metadata {
             &self.metadata
         }
     }
 
     #[ffi_impl_opaque]
-    impl Action<TriggeringEventFilterBox> {
+    impl Action {
         /// The executable linked to this action
         pub fn executable(&self) -> &Executable {
             &self.executable
@@ -243,20 +209,20 @@ pub mod action {
         }
     }
 
-    impl<F> Action<F> {
+    impl Action {
         /// Construct an action given `executable`, `repeats`, `authority` and `filter`.
         pub fn new(
             executable: impl Into<Executable>,
             repeats: impl Into<Repeats>,
             authority: AccountId,
-            filter: F,
+            filter: impl Into<TriggeringEventFilterBox>,
         ) -> Self {
             Self {
                 executable: executable.into(),
                 repeats: repeats.into(),
                 // TODO: At this point the authority is meaningless.
                 authority,
-                filter,
+                filter: filter.into(),
                 metadata: Metadata::new(),
             }
         }
@@ -269,7 +235,7 @@ pub mod action {
         }
     }
 
-    impl<F: PartialEq> PartialOrd for Action<F> {
+    impl PartialOrd for Action {
         fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
             // Exclude the executable. When debugging and replacing
             // the trigger, its position in Hash and Tree maps should
@@ -282,7 +248,7 @@ pub mod action {
         }
     }
 
-    impl<F: Eq> Ord for Action<F> {
+    impl Ord for Action {
         fn cmp(&self, other: &Self) -> cmp::Ordering {
             self.partial_cmp(other)
                 .expect("`PartialCmp::partial_cmp()` for `Action` should never return `None`")
@@ -322,35 +288,4 @@ pub mod prelude {
     //! Re-exports of commonly used types.
 
     pub use super::{action::prelude::*, Trigger, TriggerId};
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn trigger_with_filterbox_can_be_unboxed() {
-        /// Should fail to compile if a new variant will be added to `TriggeringEventFilterBox`
-        #[allow(dead_code)]
-        fn compile_time_check(boxed: Trigger<TriggeringEventFilterBox>) {
-            match &boxed.action.filter {
-                TriggeringEventFilterBox::Data(_) => Trigger::<DataEventFilter>::try_from(boxed)
-                    .map(|_| ())
-                    .unwrap(),
-                TriggeringEventFilterBox::Pipeline(_) => {
-                    Trigger::<PipelineEventFilter>::try_from(boxed)
-                        .map(|_| ())
-                        .unwrap()
-                }
-                TriggeringEventFilterBox::Time(_) => Trigger::<TimeEventFilter>::try_from(boxed)
-                    .map(|_| ())
-                    .unwrap(),
-                TriggeringEventFilterBox::ExecuteTrigger(_) => {
-                    Trigger::<ExecuteTriggerEventFilter>::try_from(boxed)
-                        .map(|_| ())
-                        .unwrap()
-                }
-            }
-        }
-    }
 }

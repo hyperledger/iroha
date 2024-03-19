@@ -5,6 +5,7 @@ use iroha_data_model::{isi::error::MathError, prelude::*, query::error::FindErro
 use iroha_telemetry::metrics;
 
 pub mod set;
+pub mod specialized;
 
 /// All instructions related to triggers.
 /// - registering a trigger
@@ -20,7 +21,7 @@ pub mod isi {
 
     use super::{super::prelude::*, *};
 
-    impl Execute for Register<Trigger<TriggeringEventFilterBox>> {
+    impl Execute for Register<Trigger> {
         #[metrics(+"register_trigger")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let new_trigger = self.object;
@@ -79,7 +80,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Unregister<Trigger<TriggeringEventFilterBox>> {
+    impl Execute for Unregister<Trigger> {
         #[metrics(+"unregister_trigger")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger_id = self.object_id.clone();
@@ -98,7 +99,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<u32, Trigger<TriggeringEventFilterBox>> {
+    impl Execute for Mint<u32, Trigger> {
         #[metrics(+"mint_trigger_repetitions")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let id = self.destination_id;
@@ -130,7 +131,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Burn<u32, Trigger<TriggeringEventFilterBox>> {
+    impl Execute for Burn<u32, Trigger> {
         #[metrics(+"burn_trigger_repetitions")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger = self.destination_id;
@@ -194,7 +195,6 @@ pub mod isi {
 pub mod query {
     //! Queries associated to triggers.
     use iroha_data_model::{
-        events::TriggeringEventFilterBox,
         metadata::MetadataValueBox,
         query::error::QueryExecutionFail as Error,
         trigger::{Trigger, TriggerId},
@@ -215,10 +215,7 @@ pub mod query {
 
     impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
-        fn execute(
-            &self,
-            wsv: &WorldStateView,
-        ) -> Result<Trigger<TriggeringEventFilterBox>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Trigger, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
             // Can't use just `LoadedActionTrait::clone_and_box` cause this will trigger lifetime mismatch
@@ -228,7 +225,7 @@ pub mod query {
                 .inspect_by_id(id, |action| action.clone_and_box())
                 .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?;
 
-            let action = wsv.triggers().get_original_action(loaded_action);
+            let action = wsv.triggers().get_original_action(loaded_action).into();
 
             // TODO: Should we redact the metadata if the account is not the authority/owner?
             Ok(Trigger::new(id.clone(), action))
@@ -259,8 +256,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> eyre::Result<Box<dyn Iterator<Item = Trigger<TriggeringEventFilterBox>> + 'wsv>, Error>
-        {
+        ) -> eyre::Result<Box<dyn Iterator<Item = Trigger> + 'wsv>, Error> {
             let domain_id = &self.domain_id;
 
             Ok(Box::new(
@@ -269,7 +265,7 @@ pub mod query {
                         (trigger_id.clone(), action.clone_and_box())
                     })
                     .map(|(trigger_id, action)| {
-                        let action = wsv.triggers().get_original_action(action);
+                        let action = wsv.triggers().get_original_action(action).into();
                         Trigger::new(trigger_id, action)
                     }),
             ))
