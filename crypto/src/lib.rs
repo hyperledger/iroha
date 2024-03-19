@@ -718,6 +718,65 @@ impl From<PrivateKey> for PrivateKeySerialized {
     }
 }
 
+ffi::ffi_item! {
+/// Random State of Verifiable Random Function
+#[derive(
+    Debug,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Eq,
+    Clone,
+    Hash,
+    Decode,
+    Encode,
+    Serialize,
+    Deserialize,
+    IntoSchema,
+)]
+pub struct VRFState {
+    signature: Signature,
+}
+}
+
+impl fmt::Display for VRFState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use fmt::Debug;
+        self.signature.fmt(f)
+    }
+}
+
+impl VRFState {
+    /// Generate an initial random state to seed the VRF.
+    #[cfg(feature = "std")]
+    pub fn generate_new_random_state() -> Self {
+        let key_pair = KeyPair::random();
+        let (public, _) = key_pair.clone().into_parts();
+        let (_, bytes) = public.to_bytes();
+        Self {
+            signature: Signature::new(&key_pair, &bytes),
+        }
+    }
+    /// Generate an initial random state to seed the VRF.
+    #[must_use]
+    pub fn perform_vrf(&self, key_pair: &KeyPair) -> Self {
+        Self {
+            signature: Signature::new(key_pair, HashOf::new(&self).as_ref()),
+        }
+    }
+    /// Verify the vrf using old state and expected public key. In the context
+    /// of Sumeragi the expected public key is the public key of the peer that
+    /// created the block. In other words the peer with the Leader role.
+    pub fn verify(&self, old_state: &Self, expected_key: &PublicKey) -> bool {
+        if self.signature.public_key() != expected_key {
+            return false;
+        }
+        self.signature
+            .verify(HashOf::new(&old_state).as_ref())
+            .is_ok()
+    }
+}
+
 /// A session key derived from a key exchange. Will usually be used for a symmetric encryption afterwards
 pub struct SessionKey(ConstVec<u8>);
 

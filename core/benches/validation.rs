@@ -12,6 +12,7 @@ use iroha_core::{
     tx::TransactionExecutor,
     wsv::World,
 };
+use iroha_crypto::VRFState;
 use iroha_data_model::{isi::InstructionBox, prelude::*, transaction::TransactionLimits};
 use iroha_primitives::unique_vec::UniqueVec;
 
@@ -174,7 +175,11 @@ fn sign_blocks(criterion: &mut Criterion) {
 
     let mut count = 0;
 
-    let block = BlockBuilder::new(vec![transaction], topology, Vec::new()).chain(0, &mut wsv);
+    let block = BlockBuilder::new(vec![transaction], topology, Vec::new()).chain(
+        0,
+        VRFState::generate_new_random_state(),
+        &mut wsv,
+    );
 
     let _ = criterion.bench_function("sign_block", |b| {
         b.iter_batched(
