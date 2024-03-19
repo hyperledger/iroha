@@ -29,7 +29,7 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/x86_64-linux-musl-native/bin/
 # builder stage
 WORKDIR /iroha
 COPY . .
-# FIXME: shouldn't it only build `iroha`, `iroha_client_cli`, and `kagami`?
+# FIXME: consider building only `iroha`, `iroha_client_cli`, and `kagami`?
 RUN cargo build --target x86_64-unknown-linux-musl --profile deploy
 
 
@@ -41,10 +41,8 @@ ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-musl/deploy
 ENV  BIN_PATH=/usr/local/bin/
 ENV  CONFIG_DIR=/config
 
-# FIXME: these are obsolete
-ENV  IROHA2_CONFIG_PATH=$CONFIG_DIR/config.json
-ENV  IROHA2_GENESIS_PATH=$CONFIG_DIR/genesis.json
-ENV  KURA_BLOCK_STORE_PATH=$STORAGE
+ENV  KURA_STORE_DIR=$STORAGE
+ENV  SNAPSHOT_STORE_DIR=$STORAGE/snapshot
 
 ENV  WASM_DIRECTORY=/app/.cache/wasmtime
 ENV  USER=iroha
