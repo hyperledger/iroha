@@ -209,6 +209,57 @@ impl EventFilter for TriggeringEventFilterBox {
     }
 }
 
+mod conversions {
+    use super::prelude::*;
+
+    macro_rules! last_tt {
+        ($last:tt) => {
+            $last
+        };
+        ($head:tt $($tail:tt)+) => {
+            last_tt!($($tail)*)
+        };
+    }
+
+    // chain multiple conversions into one
+    macro_rules! impl_from_via_path {
+        ($($initial:ty $(=> $intermediate:ty)*),+ $(,)?) => {
+            $(
+                impl From<$initial> for last_tt!($($intermediate)*) {
+                    fn from(filter: $initial) -> Self {
+                        $(
+                            let filter: $intermediate = filter.into();
+                        )*
+                        filter
+                    }
+                }
+            )+
+        };
+    }
+
+    impl_from_via_path! {
+        PeerEventFilter             => DataEventFilter => EventFilterBox,
+        DomainEventFilter           => DataEventFilter => EventFilterBox,
+        AccountEventFilter          => DataEventFilter => EventFilterBox,
+        AssetEventFilter            => DataEventFilter => EventFilterBox,
+        AssetDefinitionEventFilter  => DataEventFilter => EventFilterBox,
+        TriggerEventFilter          => DataEventFilter => EventFilterBox,
+        RoleEventFilter             => DataEventFilter => EventFilterBox,
+        ConfigurationEventFilter    => DataEventFilter => EventFilterBox,
+        ExecutorEventFilter         => DataEventFilter => EventFilterBox,
+
+        PeerEventFilter             => DataEventFilter => TriggeringEventFilterBox,
+        DomainEventFilter           => DataEventFilter => TriggeringEventFilterBox,
+        AccountEventFilter          => DataEventFilter => TriggeringEventFilterBox,
+        AssetEventFilter            => DataEventFilter => TriggeringEventFilterBox,
+        AssetDefinitionEventFilter  => DataEventFilter => TriggeringEventFilterBox,
+        TriggerEventFilter          => DataEventFilter => TriggeringEventFilterBox,
+        RoleEventFilter             => DataEventFilter => TriggeringEventFilterBox,
+        ConfigurationEventFilter    => DataEventFilter => TriggeringEventFilterBox,
+        ExecutorEventFilter         => DataEventFilter => TriggeringEventFilterBox,
+    }
+}
+
 #[cfg(feature = "http")]
 pub mod stream {
     //! Structures related to event streaming over HTTP

@@ -215,14 +215,14 @@ pub mod action {
             executable: impl Into<Executable>,
             repeats: impl Into<Repeats>,
             authority: AccountId,
-            filter: TriggeringEventFilterBox,
+            filter: impl Into<TriggeringEventFilterBox>,
         ) -> Self {
             Self {
                 executable: executable.into(),
                 repeats: repeats.into(),
                 // TODO: At this point the authority is meaningless.
                 authority,
-                filter,
+                filter: filter.into(),
                 metadata: Metadata::new(),
             }
         }

@@ -275,9 +275,7 @@ mod tests {
             vec![Mint::asset_numeric(1u32, rose_id)],
             Repeats::Indefinitely,
             account_id,
-            TriggeringEventFilterBox::Data(DataEventFilter::Domain(
-                DomainEventFilter::new().for_events(DomainEventSet::AnyAccount),
-            )),
+            DomainEventFilter::new().for_events(DomainEventSet::AnyAccount),
         );
         let trigger = Trigger::new(trigger_id, action);
 
