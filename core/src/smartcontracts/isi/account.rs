@@ -598,18 +598,18 @@ pub mod query {
     };
 
     use super::*;
-    use crate::state::StateSnapshot;
+    use crate::state::StateReadOnly;
 
     impl ValidQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = RoleId> + 'state>, Error> {
             let account_id = &self.id;
-            state_snapshot.world.account(account_id)?;
+            state_ro.world().account(account_id)?;
             Ok(Box::new(
-                state_snapshot.world.account_roles(account_id).cloned(),
+                state_ro.world().account_roles_iter(account_id).cloned(),
             ))
         }
     }
@@ -618,13 +618,13 @@ pub mod query {
         #[metrics(+"find_permission_tokens_by_account_id")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = PermissionToken> + 'state>, Error> {
             let account_id = &self.id;
             Ok(Box::new(
-                state_snapshot
-                    .world
-                    .account_permission_tokens(account_id)?
+                state_ro
+                    .world()
+                    .account_permission_tokens_iter(account_id)?
                     .cloned(),
             ))
         }
@@ -634,12 +634,12 @@ pub mod query {
         #[metrics(+"find_all_accounts")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
             Ok(Box::new(
-                state_snapshot
-                    .world
-                    .domains()
+                state_ro
+                    .world()
+                    .domains_iter()
                     .flat_map(|domain| domain.accounts.values())
                     .cloned(),
             ))
@@ -648,11 +648,11 @@ pub mod query {
 
     impl ValidQuery for FindAccountById {
         #[metrics(+"find_account_by_id")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Account, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Account, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
-            state_snapshot
-                .world
+            state_ro
+                .world()
                 .map_account(id, Clone::clone)
                 .map_err(Into::into)
         }
@@ -662,14 +662,14 @@ pub mod query {
         #[metrics(+"find_account_by_name")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
             let name = self.name.clone();
             iroha_logger::trace!(%name);
             Ok(Box::new(
-                state_snapshot
-                    .world
-                    .domains()
+                state_ro
+                    .world()
+                    .domains_iter()
                     .flat_map(move |domain| {
                         let name = name.clone();
 
@@ -687,25 +687,25 @@ pub mod query {
         #[metrics(+"find_accounts_by_domain_id")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
             let id = &self.domain_id;
 
             iroha_logger::trace!(%id);
             Ok(Box::new(
-                state_snapshot.world.domain(id)?.accounts.values().cloned(),
+                state_ro.world().domain(id)?.accounts.values().cloned(),
             ))
         }
     }
 
     impl ValidQuery for FindAccountKeyValueByIdAndKey {
         #[metrics(+"find_account_key_value_by_id_and_key")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            state_snapshot
-                .world
+            state_ro
+                .world()
                 .map_account(id, |account| account.metadata.get(key).cloned())?
                 .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 .map(Into::into)
@@ -716,14 +716,14 @@ pub mod query {
         #[metrics(+"find_accounts_with_asset")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
             let asset_definition_id = self.asset_definition_id.clone();
             iroha_logger::trace!(%asset_definition_id);
 
             Ok(Box::new(
-                state_snapshot
-                    .world
+                state_ro
+                    .world()
                     .map_domain(&asset_definition_id.domain_id.clone(), move |domain| {
                         domain.accounts.values().filter(move |account| {
                             let asset_id =

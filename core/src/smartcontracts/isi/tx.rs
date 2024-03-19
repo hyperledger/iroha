@@ -16,7 +16,6 @@ use iroha_data_model::{
 use iroha_telemetry::metrics;
 
 use super::*;
-use crate::state::StateSnapshot;
 
 pub(crate) struct BlockTransactionIter(Arc<SignedBlock>, usize);
 pub(crate) struct BlockTransactionRef(Arc<SignedBlock>, usize);
@@ -68,10 +67,10 @@ impl ValidQuery for FindAllTransactions {
     #[metrics(+"find_all_transactions")]
     fn execute<'state>(
         &self,
-        state_snapshot: &'state StateSnapshot<'state>,
+        state_ro: &'state impl StateReadOnly,
     ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
-            state_snapshot
+            state_ro
                 .all_blocks()
                 .flat_map(BlockTransactionIter::new)
                 .map(|tx| TransactionQueryOutput {
@@ -86,12 +85,12 @@ impl ValidQuery for FindTransactionsByAccountId {
     #[metrics(+"find_transactions_by_account_id")]
     fn execute<'state>(
         &self,
-        state_snapshot: &'state StateSnapshot<'state>,
+        state_ro: &'state impl StateReadOnly,
     ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'state>, QueryExecutionFail> {
         let account_id = self.account_id.clone();
 
         Ok(Box::new(
-            state_snapshot
+            state_ro
                 .all_blocks()
                 .flat_map(BlockTransactionIter::new)
                 .filter(move |tx| *tx.authority() == account_id)
@@ -107,15 +106,15 @@ impl ValidQuery for FindTransactionByHash {
     #[metrics(+"find_transaction_by_hash")]
     fn execute(
         &self,
-        state_snapshot: &StateSnapshot<'_>,
+        state_ro: &impl StateReadOnly,
     ) -> Result<TransactionQueryOutput, QueryExecutionFail> {
         let tx_hash = self.hash;
 
         iroha_logger::trace!(%tx_hash);
-        if !state_snapshot.has_transaction(tx_hash) {
+        if !state_ro.has_transaction(tx_hash) {
             return Err(FindError::Transaction(tx_hash).into());
         };
-        let block = state_snapshot
+        let block = state_ro
             .block_with_tx(&tx_hash)
             .ok_or_else(|| FindError::Transaction(tx_hash))?;
 

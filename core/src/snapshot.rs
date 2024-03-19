@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use crate::{
     kura::{BlockCount, Kura},
     query::store::LiveQueryStoreHandle,
-    state::{deserialize::KuraSeed, State},
+    state::{deserialize::KuraSeed, State, StateReadOnly},
 };
 
 /// Name of the [`State`] snapshot file.

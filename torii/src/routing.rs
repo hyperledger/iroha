@@ -106,7 +106,6 @@ pub async fn handle_queries(
 ) -> Result<Scale<BatchedResponse<QueryOutputBox>>> {
     let handle = task::spawn_blocking(move || {
         let state_view = state.view();
-        let state_snapshot = state_view.to_snapshot();
         match query_request.0 {
             QueryRequest::Query(QueryWithParameters {
                 query: signed_query,
@@ -114,8 +113,8 @@ pub async fn handle_queries(
                 pagination,
                 fetch_size,
             }) => {
-                let valid_query = ValidQueryRequest::validate(signed_query, &state_snapshot)?;
-                let query_output = valid_query.execute(&state_snapshot)?;
+                let valid_query = ValidQueryRequest::validate(signed_query, &state_view)?;
+                let query_output = valid_query.execute(&state_view)?;
                 live_query_store
                     .handle_query_output(query_output, &sorting, pagination, fetch_size)
                     .map_err(ValidationFail::from)

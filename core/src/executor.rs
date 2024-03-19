@@ -17,7 +17,7 @@ use serde::{
 
 use crate::{
     smartcontracts::{wasm, Execute as _},
-    state::{deserialize::WasmSeed, StateSnapshot, StateTransaction},
+    state::{deserialize::WasmSeed, StateReadOnly, StateTransaction},
 };
 
 impl From<wasm::error::Error> for ValidationFail {
@@ -213,9 +213,9 @@ impl Executor {
     /// - Failed to prepare runtime for WASM execution;
     /// - Failed to execute the entrypoint of the WASM blob;
     /// - Executor denied the operation.
-    pub fn validate_query(
+    pub fn validate_query<S: StateReadOnly>(
         &self,
-        state_snapshot: &StateSnapshot<'_>,
+        state_ro: &S,
         authority: &AccountId,
         query: QueryBox,
     ) -> Result<(), ValidationFail> {
@@ -224,13 +224,13 @@ impl Executor {
         match self {
             Self::Initial => Ok(()),
             Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
-                let runtime = wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery>::new()
-                    .with_engine(state_snapshot.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                    .with_config(state_snapshot.config.executor_runtime)
+                let runtime = wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery<S>>::new()
+                    .with_engine(state_ro.engine().clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+                    .with_config(state_ro.config().executor_runtime)
                     .build()?;
 
                 runtime.execute_executor_validate_query(
-                    state_snapshot,
+                    state_ro,
                     authority,
                     &loaded_executor.module,
                     query,

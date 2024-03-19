@@ -10,19 +10,16 @@ use iroha_data_model::{
 use iroha_telemetry::metrics;
 
 use super::*;
-use crate::state::StateSnapshot;
+use crate::state::StateReadOnly;
 
 impl ValidQuery for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
     fn execute<'state>(
         &self,
-        state_snapshot: &'state StateSnapshot<'state>,
+        state_ro: &'state impl StateReadOnly,
     ) -> Result<Box<dyn Iterator<Item = SignedBlock> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
-            state_snapshot
-                .all_blocks()
-                .rev()
-                .map(|block| (*block).clone()),
+            state_ro.all_blocks().rev().map(|block| (*block).clone()),
         ))
     }
 }
@@ -31,7 +28,7 @@ impl ValidQuery for FindAllBlockHeaders {
     #[metrics(+"find_all_block_headers")]
     fn execute<'state>(
         &self,
-        staete_snapshot: &'state StateSnapshot<'state>,
+        staete_snapshot: &'state impl StateReadOnly,
     ) -> Result<Box<dyn Iterator<Item = BlockHeader> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
             staete_snapshot
@@ -44,13 +41,10 @@ impl ValidQuery for FindAllBlockHeaders {
 
 impl ValidQuery for FindBlockHeaderByHash {
     #[metrics(+"find_block_header")]
-    fn execute(
-        &self,
-        state_snapshot: &StateSnapshot<'_>,
-    ) -> Result<BlockHeader, QueryExecutionFail> {
+    fn execute(&self, state_ro: &impl StateReadOnly) -> Result<BlockHeader, QueryExecutionFail> {
         let hash = self.hash;
 
-        let block = state_snapshot
+        let block = state_ro
             .all_blocks()
             .find(|block| block.hash() == hash)
             .ok_or_else(|| QueryExecutionFail::Find(FindError::Block(hash)))?;

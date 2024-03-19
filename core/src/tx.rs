@@ -22,7 +22,7 @@ use iroha_macro::FromVariant;
 
 use crate::{
     smartcontracts::wasm,
-    state::{StateBlock, StateTransaction},
+    state::{StateBlock, StateTransaction, WorldReadOnly},
 };
 
 /// `AcceptedTransaction` — a transaction accepted by iroha peer.

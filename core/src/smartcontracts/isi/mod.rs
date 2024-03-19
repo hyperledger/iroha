@@ -16,9 +16,13 @@ use iroha_data_model::{
     prelude::*,
 };
 use iroha_logger::prelude::*;
+use storage::storage::StorageReadOnly;
 
 use super::Execute;
-use crate::{prelude::*, state::StateTransaction};
+use crate::{
+    prelude::*,
+    state::{StateReadOnly, StateTransaction, WorldReadOnly},
+};
 
 /// Trait for proxy objects used for registration.
 pub trait Registrable {

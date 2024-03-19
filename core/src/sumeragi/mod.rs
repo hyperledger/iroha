@@ -15,6 +15,7 @@ use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
+use storage::storage::StorageReadOnly;
 
 use crate::{
     block::ValidBlock,
@@ -141,8 +142,8 @@ impl SumeragiHandle {
 
         self.metrics
             .domains
-            .set(state_view.world.domains.len() as u64);
-        for domain in state_view.world.domains() {
+            .set(state_view.world().domains().len() as u64);
+        for domain in state_view.world().domains_iter() {
             self.metrics
                 .accounts
                 .get_metric_with_label_values(&[domain.id().name.as_ref()])

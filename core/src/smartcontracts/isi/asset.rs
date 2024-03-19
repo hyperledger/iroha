@@ -432,18 +432,18 @@ pub mod query {
     };
 
     use super::*;
-    use crate::state::StateSnapshot;
+    use crate::state::StateReadOnly;
 
     impl ValidQuery for FindAllAssets {
         #[metrics(+"find_all_assets")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
             Ok(Box::new(
-                state_snapshot
-                    .world
-                    .domains()
+                state_ro
+                    .world()
+                    .domains_iter()
                     .flat_map(|domain| {
                         domain
                             .accounts
@@ -459,12 +459,12 @@ pub mod query {
         #[metrics(+"find_all_asset_definitions")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = AssetDefinition> + 'state>, Error> {
             Ok(Box::new(
-                state_snapshot
-                    .world
-                    .domains()
+                state_ro
+                    .world()
+                    .domains_iter()
                     .flat_map(|domain| domain.asset_definitions.values())
                     .cloned(),
             ))
@@ -473,13 +473,11 @@ pub mod query {
 
     impl ValidQuery for FindAssetById {
         #[metrics(+"find_asset_by_id")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Asset, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Asset, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
-            state_snapshot.world.asset(id).map_err(|asset_err| {
-                if let Err(definition_err) =
-                    state_snapshot.world.asset_definition(&id.definition_id)
-                {
+            state_ro.world().asset(id).map_err(|asset_err| {
+                if let Err(definition_err) = state_ro.world().asset_definition(&id.definition_id) {
                     definition_err.into()
                 } else {
                     asset_err
@@ -490,13 +488,10 @@ pub mod query {
 
     impl ValidQuery for FindAssetDefinitionById {
         #[metrics(+"find_asset_defintion_by_id")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<AssetDefinition, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<AssetDefinition, Error> {
             let id = &self.id;
 
-            let entry = state_snapshot
-                .world
-                .asset_definition(id)
-                .map_err(Error::from)?;
+            let entry = state_ro.world().asset_definition(id).map_err(Error::from)?;
 
             Ok(entry)
         }
@@ -506,14 +501,14 @@ pub mod query {
         #[metrics(+"find_assets_by_name")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
             let name = self.name.clone();
             iroha_logger::trace!(%name);
             Ok(Box::new(
-                state_snapshot
-                    .world
-                    .domains()
+                state_ro
+                    .world()
+                    .domains_iter()
                     .flat_map(move |domain| {
                         let name = name.clone();
 
@@ -535,11 +530,11 @@ pub mod query {
         #[metrics(+"find_assets_by_account_id")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
             let id = &self.account_id;
             iroha_logger::trace!(%id);
-            Ok(Box::new(state_snapshot.world.account_assets(id)?.cloned()))
+            Ok(Box::new(state_ro.world().account_assets(id)?.cloned()))
         }
     }
 
@@ -547,14 +542,14 @@ pub mod query {
         #[metrics(+"find_assets_by_asset_definition_id")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
             let id = self.asset_definition_id.clone();
             iroha_logger::trace!(%id);
             Ok(Box::new(
-                state_snapshot
-                    .world
-                    .domains()
+                state_ro
+                    .world()
+                    .domains_iter()
                     .flat_map(move |domain| {
                         let id = id.clone();
 
@@ -576,13 +571,13 @@ pub mod query {
         #[metrics(+"find_assets_by_domain_id")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
             let id = &self.domain_id;
             iroha_logger::trace!(%id);
             Ok(Box::new(
-                state_snapshot
-                    .world
+                state_ro
+                    .world()
                     .domain(id)?
                     .accounts
                     .values()
@@ -596,11 +591,11 @@ pub mod query {
         #[metrics(+"find_assets_by_domain_id_and_asset_definition_id")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
             let domain_id = self.domain_id.clone();
             let asset_definition_id = self.asset_definition_id.clone();
-            let domain = state_snapshot.world.domain(&domain_id)?;
+            let domain = state_ro.world().domain(&domain_id)?;
             let _definition = domain
                 .asset_definitions
                 .get(&asset_definition_id)
@@ -626,15 +621,15 @@ pub mod query {
 
     impl ValidQuery for FindAssetQuantityById {
         #[metrics(+"find_asset_quantity_by_id")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Numeric, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Numeric, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
-            let value = state_snapshot
-                .world
+            let value = state_ro
+                .world()
                 .asset(id)
                 .map_err(|asset_err| {
                     if let Err(definition_err) =
-                        state_snapshot.world.asset_definition(&id.definition_id)
+                        state_ro.world().asset_definition(&id.definition_id)
                     {
                         Error::Find(definition_err)
                     } else {
@@ -654,23 +649,21 @@ pub mod query {
 
     impl ValidQuery for FindTotalAssetQuantityByAssetDefinitionId {
         #[metrics(+"find_total_asset_quantity_by_asset_definition_id")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Numeric, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Numeric, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
-            let asset_value = state_snapshot.world.asset_total_amount(id)?;
+            let asset_value = state_ro.world().asset_total_amount(id)?;
             Ok(asset_value)
         }
     }
 
     impl ValidQuery for FindAssetKeyValueByIdAndKey {
         #[metrics(+"find_asset_key_value_by_id_and_key")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
-            let asset = state_snapshot.world.asset(id).map_err(|asset_err| {
-                if let Err(definition_err) =
-                    state_snapshot.world.asset_definition(&id.definition_id)
-                {
+            let asset = state_ro.world().asset(id).map_err(|asset_err| {
+                if let Err(definition_err) = state_ro.world().asset_definition(&id.definition_id) {
                     Error::Find(definition_err)
                 } else {
                     asset_err

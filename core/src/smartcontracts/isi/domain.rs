@@ -147,7 +147,7 @@ pub mod isi {
             let asset_definition_id = self.object_id;
 
             let mut assets_to_remove = Vec::new();
-            for domain in state_transaction.world.domains() {
+            for domain in state_transaction.world.domains_iter() {
                 for account in domain.accounts.values() {
                     assets_to_remove.extend(
                         account
@@ -367,35 +367,35 @@ pub mod query {
     };
 
     use super::*;
-    use crate::state::StateSnapshot;
+    use crate::state::StateReadOnly;
 
     impl ValidQuery for FindAllDomains {
         #[metrics(+"find_all_domains")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Domain> + 'state>, Error> {
-            Ok(Box::new(state_snapshot.world.domains().cloned()))
+            Ok(Box::new(state_ro.world().domains_iter().cloned()))
         }
     }
 
     impl ValidQuery for FindDomainById {
         #[metrics(+"find_domain_by_id")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Domain, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Domain, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
-            Ok(state_snapshot.world.domain(id)?.clone())
+            Ok(state_ro.world().domain(id)?.clone())
         }
     }
 
     impl ValidQuery for FindDomainKeyValueByIdAndKey {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            state_snapshot
-                .world
+            state_ro
+                .world()
                 .map_domain(id, |domain| domain.metadata.get(key).cloned())?
                 .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 .map(Into::into)
@@ -404,12 +404,12 @@ pub mod query {
 
     impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            Ok(state_snapshot
-                .world
+            Ok(state_ro
+                .world()
                 .asset_definition(id)?
                 .metadata
                 .get(key)

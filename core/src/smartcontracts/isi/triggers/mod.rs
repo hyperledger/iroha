@@ -233,35 +233,36 @@ pub mod query {
     };
 
     use super::*;
-    use crate::{prelude::*, state::StateSnapshot};
+    use crate::{prelude::*, state::StateReadOnly};
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = TriggerId> + 'state>, Error> {
-            Ok(Box::new(state_snapshot.world.triggers.ids().cloned()))
+            Ok(Box::new(state_ro.world().triggers().ids().cloned()))
         }
     }
 
     impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Trigger, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Trigger, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
             // Can't use just `LoadedActionTrait::clone_and_box` cause this will trigger lifetime mismatch
             #[allow(clippy::redundant_closure_for_method_calls)]
-            let loaded_action = state_snapshot
-                .world
-                .triggers
+            let loaded_action = state_ro
+                .world()
+                .triggers()
                 .inspect_by_id(id, |action| action.clone_and_box())
                 .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?;
 
-            let action = state_snapshot
-                .world
-                .triggers
-                .get_original_action(loaded_action).into();
+            let action = state_ro
+                .world()
+                .triggers()
+                .get_original_action(loaded_action)
+                .into();
 
             // TODO: Should we redact the metadata if the account is not the authority/owner?
             Ok(Trigger::new(id.clone(), action))
@@ -270,13 +271,13 @@ pub mod query {
 
     impl ValidQuery for FindTriggerKeyValueByIdAndKey {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            state_snapshot
-                .world
-                .triggers
+            state_ro
+                .world()
+                .triggers()
                 .inspect_by_id(id, |action| {
                     action
                         .metadata()
@@ -293,19 +294,23 @@ pub mod query {
         #[metrics(+"find_triggers_by_domain_id")]
         fn execute<'state>(
             &self,
-            state_snapshot: &'state StateSnapshot<'state>,
+            state_ro: &'state impl StateReadOnly,
         ) -> eyre::Result<Box<dyn Iterator<Item = Trigger> + 'state>, Error> {
             let domain_id = &self.domain_id;
 
             Ok(Box::new(
-                state_snapshot
-                    .world
-                    .triggers
+                state_ro
+                    .world()
+                    .triggers()
                     .inspect_by_domain_id(domain_id, |trigger_id, action| {
                         (trigger_id.clone(), action.clone_and_box())
                     })
                     .map(|(trigger_id, action)| {
-                        let action = state_snapshot.world.triggers.get_original_action(action).into();
+                        let action = state_ro
+                            .world()
+                            .triggers()
+                            .get_original_action(action)
+                            .into();
                         Trigger::new(trigger_id, action)
                     }),
             ))

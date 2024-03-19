@@ -134,7 +134,7 @@ parity-scale-codec = { version = "3.6.5", default-features = false }
 json5 = "0.4.1"
 toml = "0.8.8"
 
-storage = { git = "https://github.com/Erigara/storage.git", rev = "232843aab94770089ecbffe8c8e8cb24c9cedb62" }
+storage = { git = "https://github.com/Erigara/storage.git", rev = "79689ae68573bfe4c4d80d902c726d84fec22257" }
 
 [workspace.lints]
 rustdoc.private_doc_tests = "deny"
