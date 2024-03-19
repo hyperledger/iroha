@@ -145,7 +145,7 @@
       }
     ]
   },
-  "Action<TriggeringEventFilterBox>": {
+  "Action": {
     "Struct": [
       {
         "name": "executable",
@@ -562,7 +562,7 @@
       }
     ]
   },
-  "Burn<u32, Trigger<TriggeringEventFilterBox>>": {
+  "Burn<u32, Trigger>": {
     "Struct": [
       {
         "name": "object",
@@ -589,7 +589,7 @@
       {
         "tag": "TriggerRepetitions",
         "discriminant": 2,
-        "type": "Burn<u32, Trigger<TriggeringEventFilterBox>>"
+        "type": "Burn<u32, Trigger>"
       }
     ]
   },
@@ -1525,7 +1525,7 @@
       {
         "tag": "Trigger",
         "discriminant": 9,
-        "type": "Trigger<TriggeringEventFilterBox>"
+        "type": "Trigger"
       },
       {
         "tag": "Role",
@@ -2053,7 +2053,7 @@
       }
     ]
   },
-  "Mint<u32, Trigger<TriggeringEventFilterBox>>": {
+  "Mint<u32, Trigger>": {
     "Struct": [
       {
         "name": "object",
@@ -2080,7 +2080,7 @@
       {
         "tag": "TriggerRepetitions",
         "discriminant": 2,
-        "type": "Mint<u32, Trigger<TriggeringEventFilterBox>>"
+        "type": "Mint<u32, Trigger>"
       }
     ]
   },
@@ -2898,11 +2898,11 @@
       }
     ]
   },
-  "Register<Trigger<TriggeringEventFilterBox>>": {
+  "Register<Trigger>": {
     "Struct": [
       {
         "name": "object",
-        "type": "Trigger<TriggeringEventFilterBox>"
+        "type": "Trigger"
       }
     ]
   },
@@ -2941,7 +2941,7 @@
       {
         "tag": "Trigger",
         "discriminant": 6,
-        "type": "Register<Trigger<TriggeringEventFilterBox>>"
+        "type": "Register<Trigger>"
       }
     ]
   },
@@ -3766,7 +3766,7 @@
       }
     ]
   },
-  "Trigger<TriggeringEventFilterBox>": {
+  "Trigger": {
     "Struct": [
       {
         "name": "id",
@@ -3774,7 +3774,7 @@
       },
       {
         "name": "action",
-        "type": "Action<TriggeringEventFilterBox>"
+        "type": "Action"
       }
     ]
   },
@@ -3979,7 +3979,7 @@
       }
     ]
   },
-  "Unregister<Trigger<TriggeringEventFilterBox>>": {
+  "Unregister<Trigger>": {
     "Struct": [
       {
         "name": "object_id",
@@ -4022,7 +4022,7 @@
       {
         "tag": "Trigger",
         "discriminant": 6,
-        "type": "Unregister<Trigger<TriggeringEventFilterBox>>"
+        "type": "Unregister<Trigger>"
       }
     ]
   },

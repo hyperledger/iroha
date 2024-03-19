@@ -36,7 +36,8 @@ use crate::{
     smartcontracts::{
         triggers::{
             self,
-            set::{LoadedActionTrait, LoadedWasm, Set as TriggerSet},
+            set::{LoadedWasm, Set as TriggerSet},
+            specialized::LoadedActionTrait,
         },
         wasm, Execute,
     },

@@ -19,7 +19,6 @@ use iroha_data_model::{
     prelude::*,
     query::error::FindError,
     transaction::WasmSmartContract,
-    trigger::Trigger,
 };
 use serde::{
     de::{DeserializeSeed, MapAccess, Visitor},
@@ -28,7 +27,15 @@ use serde::{
 };
 use thiserror::Error;
 
-use crate::{smartcontracts::wasm, wsv::WasmSeed};
+use crate::{
+    smartcontracts::{
+        isi::triggers::specialized::{
+            LoadedAction, LoadedActionTrait, SpecializedAction, SpecializedTrigger,
+        },
+        wasm,
+    },
+    wsv::WasmSeed,
+};
 
 /// Error type for [`Set`] operations.
 #[derive(Debug, Error, displaydoc::Display)]
@@ -39,110 +46,6 @@ pub enum Error {
 
 /// Result type for [`Set`] operations.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
-
-/// Same as [`Action`](`iroha_data_model::trigger::Action`) but with
-/// executable in pre-loaded form
-#[derive(Clone, Debug)]
-pub struct LoadedAction<F> {
-    /// The executable linked to this action in loaded form
-    executable: LoadedExecutable,
-    /// The repeating scheme of the action. It's kept as part of the
-    /// action and not inside the [`Trigger`] type, so that further
-    /// sanity checking can be done.
-    pub repeats: Repeats,
-    /// Account executing this action
-    pub authority: AccountId,
-    /// Defines events which trigger the `Action`
-    pub filter: F,
-    /// Metadata used as persistent storage for trigger data.
-    pub metadata: Metadata,
-}
-
-impl<F> LoadedAction<F> {
-    fn extract_blob_hash(&self) -> Option<HashOf<WasmSmartContract>> {
-        match self.executable {
-            LoadedExecutable::Wasm(LoadedWasm { blob_hash, .. }) => Some(blob_hash),
-            LoadedExecutable::Instructions(_) => None,
-        }
-    }
-}
-
-/// Trait common for all `LoadedAction`s
-pub trait LoadedActionTrait {
-    /// Get action executable
-    fn executable(&self) -> &LoadedExecutable;
-
-    /// Get action repeats enum
-    fn repeats(&self) -> &Repeats;
-
-    /// Set action repeats
-    fn set_repeats(&mut self, repeats: Repeats);
-
-    /// Get action technical account
-    fn authority(&self) -> &AccountId;
-
-    /// Get action metadata
-    fn metadata(&self) -> &Metadata;
-
-    /// Check if action is mintable.
-    fn mintable(&self) -> bool;
-
-    /// Convert action to a boxed representation
-    fn into_boxed(self) -> LoadedAction<TriggeringEventFilterBox>;
-
-    /// Same as [`into_boxed()`](LoadedActionTrait::into_boxed) but clones `self`
-    fn clone_and_box(&self) -> LoadedAction<TriggeringEventFilterBox>;
-}
-
-impl<F: EventFilter + Into<TriggeringEventFilterBox> + Clone> LoadedActionTrait
-    for LoadedAction<F>
-{
-    fn executable(&self) -> &LoadedExecutable {
-        &self.executable
-    }
-
-    fn repeats(&self) -> &iroha_data_model::trigger::action::Repeats {
-        &self.repeats
-    }
-
-    fn set_repeats(&mut self, repeats: iroha_data_model::trigger::action::Repeats) {
-        self.repeats = repeats;
-    }
-
-    fn authority(&self) -> &AccountId {
-        &self.authority
-    }
-
-    fn metadata(&self) -> &Metadata {
-        &self.metadata
-    }
-
-    fn mintable(&self) -> bool {
-        self.filter.mintable()
-    }
-
-    fn into_boxed(self) -> LoadedAction<TriggeringEventFilterBox> {
-        let Self {
-            executable,
-            repeats,
-            authority,
-            filter,
-            metadata,
-        } = self;
-
-        LoadedAction {
-            executable,
-            repeats,
-            authority,
-            filter: filter.into(),
-            metadata,
-        }
-    }
-
-    fn clone_and_box(&self) -> LoadedAction<TriggeringEventFilterBox> {
-        self.clone().into_boxed()
-    }
-}
 
 /// [`WasmSmartContract`]s by [`TriggerId`].
 /// Stored together with number to count triggers with identical [`WasmSmartContract`].
@@ -261,39 +164,49 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "data_triggers" => {
-                            let triggers: IndexMap<TriggerId, Action<DataEventFilter>> =
+                            let triggers: IndexMap<TriggerId, SpecializedAction<DataEventFilter>> =
                                 map.next_value()?;
                             for (id, action) in triggers {
-                                set.add_data_trigger(self.loader.engine, Trigger::new(id, action))
-                                    .unwrap();
+                                set.add_data_trigger(
+                                    self.loader.engine,
+                                    SpecializedTrigger::new(id, action),
+                                )
+                                .unwrap();
                             }
                         }
                         "pipeline_triggers" => {
-                            let triggers: IndexMap<TriggerId, Action<PipelineEventFilter>> =
-                                map.next_value()?;
+                            let triggers: IndexMap<
+                                TriggerId,
+                                SpecializedAction<PipelineEventFilter>,
+                            > = map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_pipeline_trigger(
                                     self.loader.engine,
-                                    Trigger::new(id, action),
+                                    SpecializedTrigger::new(id, action),
                                 )
                                 .unwrap();
                             }
                         }
                         "time_triggers" => {
-                            let triggers: IndexMap<TriggerId, Action<TimeEventFilter>> =
+                            let triggers: IndexMap<TriggerId, SpecializedAction<TimeEventFilter>> =
                                 map.next_value()?;
                             for (id, action) in triggers {
-                                set.add_time_trigger(self.loader.engine, Trigger::new(id, action))
-                                    .unwrap();
+                                set.add_time_trigger(
+                                    self.loader.engine,
+                                    SpecializedTrigger::new(id, action),
+                                )
+                                .unwrap();
                             }
                         }
                         "by_call_triggers" => {
-                            let triggers: IndexMap<TriggerId, Action<ExecuteTriggerEventFilter>> =
-                                map.next_value()?;
+                            let triggers: IndexMap<
+                                TriggerId,
+                                SpecializedAction<ExecuteTriggerEventFilter>,
+                            > = map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_by_call_trigger(
                                     self.loader.engine,
-                                    Trigger::new(id, action),
+                                    SpecializedTrigger::new(id, action),
                                 )
                                 .unwrap();
                             }
@@ -339,7 +252,7 @@ impl Set {
     pub fn add_data_trigger(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: Trigger<DataEventFilter>,
+        trigger: SpecializedTrigger<DataEventFilter>,
     ) -> Result<bool> {
         self.add_to(engine, trigger, TriggeringEventType::Data, |me| {
             &mut me.data_triggers
@@ -357,7 +270,7 @@ impl Set {
     pub fn add_pipeline_trigger(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: Trigger<PipelineEventFilter>,
+        trigger: SpecializedTrigger<PipelineEventFilter>,
     ) -> Result<bool> {
         self.add_to(engine, trigger, TriggeringEventType::Pipeline, |me| {
             &mut me.pipeline_triggers
@@ -375,7 +288,7 @@ impl Set {
     pub fn add_time_trigger(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: Trigger<TimeEventFilter>,
+        trigger: SpecializedTrigger<TimeEventFilter>,
     ) -> Result<bool> {
         self.add_to(engine, trigger, TriggeringEventType::Time, |me| {
             &mut me.time_triggers
@@ -393,7 +306,7 @@ impl Set {
     pub fn add_by_call_trigger(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: Trigger<ExecuteTriggerEventFilter>,
+        trigger: SpecializedTrigger<ExecuteTriggerEventFilter>,
     ) -> Result<bool> {
         self.add_to(engine, trigger, TriggeringEventType::ExecuteTrigger, |me| {
             &mut me.by_call_triggers
@@ -410,22 +323,25 @@ impl Set {
     fn add_to<F: EventFilter>(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: Trigger<F>,
+        trigger: SpecializedTrigger<F>,
         event_type: TriggeringEventType,
         map: impl FnOnce(&mut Self) -> &mut IndexMap<TriggerId, LoadedAction<F>>,
     ) -> Result<bool> {
-        if self.contains(trigger.id()) {
+        let SpecializedTrigger {
+            id: trigger_id,
+            action:
+                SpecializedAction {
+                    executable,
+                    repeats,
+                    authority,
+                    filter,
+                    metadata,
+                },
+        } = trigger;
+
+        if self.contains(&trigger_id) {
             return Ok(false);
         }
-
-        let trigger_id = trigger.id;
-        let Action {
-            executable,
-            repeats,
-            authority,
-            filter,
-            metadata,
-        } = trigger.action;
 
         let loaded_executable = match executable {
             Executable::Wasm(bytes) => {
@@ -478,7 +394,7 @@ impl Set {
 
     /// Convert [`LoadedAction`] to original [`Action`] by retrieving original
     /// [`WasmSmartContract`] if applicable
-    pub fn get_original_action<F: Clone>(&self, action: LoadedAction<F>) -> Action<F> {
+    pub fn get_original_action<F: Clone>(&self, action: LoadedAction<F>) -> SpecializedAction<F> {
         let LoadedAction {
             executable,
             repeats,
@@ -498,7 +414,7 @@ impl Set {
             LoadedExecutable::Instructions(isi) => Executable::Instructions(isi),
         };
 
-        Action {
+        SpecializedAction {
             executable: original_executable,
             repeats,
             authority,
