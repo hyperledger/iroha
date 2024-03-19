@@ -1,4 +1,4 @@
 {
   "transactions": [],
-  "executor": "./executor.wasm"
+  "executor_file": "./executor.wasm"
 }
