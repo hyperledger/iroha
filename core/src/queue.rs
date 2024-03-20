@@ -586,7 +586,7 @@ pub mod tests {
             query_handle,
         );
         let tx = accepted_tx("alice@wonderland", &alice_key);
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         state_block.transactions.insert(tx.as_ref().hash(), 1);
         state_block.commit();
         let state_view = state.view();
@@ -615,7 +615,7 @@ pub mod tests {
         let tx = accepted_tx("alice@wonderland", &alice_key);
         let queue = Queue::from_config(config_factory());
         queue.push(tx.clone(), &state.view()).unwrap();
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         state_block.transactions.insert(tx.as_ref().hash(), 1);
         state_block.commit();
         assert_eq!(
@@ -800,7 +800,7 @@ pub mod tests {
                 while start_time.elapsed() < run_for {
                     for tx in queue.collect_transactions_for_block(&state.view(), max_txs_in_block)
                     {
-                        let mut state_block = state.block(false);
+                        let mut state_block = state.block();
                         state_block.transactions.insert(tx.as_ref().hash(), 1);
                         state_block.commit();
                     }
@@ -936,7 +936,7 @@ pub mod tests {
 
         let transactions = queue.collect_transactions_for_block(&state.view(), 10);
         assert_eq!(transactions.len(), 2);
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         for transaction in transactions {
             // Put transaction hashes into state as if they were in the blockchain
             state_block

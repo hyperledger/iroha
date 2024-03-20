@@ -714,7 +714,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
@@ -758,7 +758,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
@@ -823,7 +823,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let transaction_limits = &state_block.transaction_executor().transaction_limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");

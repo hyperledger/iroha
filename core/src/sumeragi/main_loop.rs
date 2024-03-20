@@ -232,7 +232,7 @@ impl Sumeragi {
                         }
                     };
 
-                    let mut state_block = state.block(false);
+                    let mut state_block = state.block();
                     let block = match ValidBlock::validate(
                         block,
                         &self.current_topology,
@@ -277,7 +277,7 @@ impl Sumeragi {
             .collect::<Result<_, _>>()
             .expect("Genesis invalid");
 
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let genesis = BlockBuilder::new(transactions, self.current_topology.clone(), vec![])
             .chain(0, &mut state_block)
             .sign(&self.key_pair);
@@ -390,7 +390,7 @@ impl Sumeragi {
         let role = self.current_topology.role(&self.peer_id);
         trace!(%addr, %role, block_hash=%block_hash, "Block received, voting...");
 
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let block = match ValidBlock::validate(block, topology, &self.chain_id, &mut state_block) {
             Ok(block) => block,
             Err((_, error)) => {
@@ -633,7 +633,7 @@ impl Sumeragi {
                         let create_block_start_time = Instant::now();
 
                         // TODO: properly process triggers!
-                        let mut state_block = state.block(false);
+                        let mut state_block = state.block();
                         let event_recommendations = Vec::new();
                         let new_block = BlockBuilder::new(
                             transactions,
@@ -1101,7 +1101,7 @@ fn handle_block_sync<'state>(
     let state_height = state.view().height();
     if state_height + 1 == block_height {
         // Normal branch for adding new block on top of current
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let topology = {
             let last_committed_block = state_block
                 .latest_block_ref()
@@ -1134,7 +1134,7 @@ fn handle_block_sync<'state>(
             ));
         }
 
-        let mut state_block = state.block(true);
+        let mut state_block = state.block_and_revert();
         let topology = {
             let last_committed_block = state_block
                 .latest_block_ref()
@@ -1199,7 +1199,7 @@ mod tests {
         // Creating an instruction
         let fail_box = Fail::new("Dummy isi".to_owned());
 
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         // Making two transactions that have the same instruction
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_box])
@@ -1222,7 +1222,7 @@ mod tests {
         kura.store_block(genesis);
 
         let block = {
-            let mut state_block = state.block(false);
+            let mut state_block = state.block();
             // Making two transactions that have the same instruction
             let create_asset_definition1 = Register::asset_definition(AssetDefinition::numeric(
                 "xor1#wonderland".parse().expect("Valid"),
@@ -1291,7 +1291,7 @@ mod tests {
         )]);
         let (state, kura, mut block) = create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let validated_block =
             ValidBlock::validate(block.clone(), &topology, &chain_id, &mut state_block).unwrap();
         let committed_block = validated_block.commit(&topology).expect("Block is valid");
@@ -1363,7 +1363,7 @@ mod tests {
         )]);
         let (state, kura, mut block) = create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let validated_block =
             ValidBlock::validate(block.clone(), &topology, &chain_id, &mut state_block).unwrap();
         let committed_block = validated_block.commit(&topology).expect("Block is valid");
@@ -1396,7 +1396,7 @@ mod tests {
         // Increase block view change index
         payload_mut(&mut block).header.view_change_index = 42;
 
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let validated_block =
             ValidBlock::validate(block.clone(), &topology, &chain_id, &mut state_block).unwrap();
         let committed_block = validated_block.commit(&topology).expect("Block is valid");

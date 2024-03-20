@@ -1807,7 +1807,7 @@ mod tests {
         );
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
         runtime
-            .execute(&mut state.block(false).transaction(), authority, wat)
+            .execute(&mut state.block().transaction(), authority, wat)
             .expect("Execution failed");
 
         Ok(())
@@ -1852,7 +1852,7 @@ mod tests {
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
         runtime
-            .execute(&mut state.block(false).transaction(), authority, wat)
+            .execute(&mut state.block().transaction(), authority, wat)
             .expect("Execution failed");
 
         Ok(())
@@ -1898,7 +1898,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let res = runtime.validate(&mut state.block(false).transaction(), authority, wat, 1);
+        let res = runtime.validate(&mut state.block().transaction(), authority, wat, 1);
 
         if let Error::ExportFnCall(ExportFnCallError::Other(report)) =
             res.expect_err("Execution should fail")
@@ -1950,7 +1950,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let res = runtime.validate(&mut state.block(false).transaction(), authority, wat, 1);
+        let res = runtime.validate(&mut state.block().transaction(), authority, wat, 1);
 
         if let Error::ExportFnCall(ExportFnCallError::HostExecution(report)) =
             res.expect_err("Execution should fail")
@@ -1994,7 +1994,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let res = runtime.validate(&mut state.block(false).transaction(), authority, wat, 1);
+        let res = runtime.validate(&mut state.block().transaction(), authority, wat, 1);
 
         if let Error::ExportFnCall(ExportFnCallError::HostExecution(report)) =
             res.expect_err("Execution should fail")
@@ -2036,7 +2036,7 @@ mod tests {
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
         let err = runtime
-            .execute(&mut state.block(false).transaction(), authority, wat)
+            .execute(&mut state.block().transaction(), authority, wat)
             .expect_err("Execution should fail");
 
         assert!(matches!(

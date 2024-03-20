@@ -282,7 +282,7 @@ mod tests {
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_domains(), kura.clone(), query_handle);
         {
-            let mut state_block = state.block(false);
+            let mut state_block = state.block();
             let limits = TransactionLimits {
                 max_instruction_number: 1,
                 max_wasm_size_bytes: 0,
@@ -453,7 +453,7 @@ mod tests {
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_domains(), kura.clone(), query_handle);
 
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let instructions: [InstructionBox; 0] = [];
         let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
             .with_instructions(instructions)

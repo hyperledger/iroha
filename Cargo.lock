@@ -5304,7 +5304,7 @@ dependencies = [
 [[package]]
 name = "storage"
 version = "0.1.0"
-source = "git+https://github.com/Erigara/storage.git?rev=79689ae68573bfe4c4d80d902c726d84fec22257#79689ae68573bfe4c4d80d902c726d84fec22257"
+source = "git+https://github.com/Erigara/storage.git?rev=e0afe4b42810e9b3cf067cfbaa63a6ad7af6e2ba#e0afe4b42810e9b3cf067cfbaa63a6ad7af6e2ba"
 dependencies = [
  "concread",
  "serde",

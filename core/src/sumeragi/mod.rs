@@ -273,7 +273,7 @@ impl SumeragiHandle {
         }
 
         for block in blocks_iter {
-            let mut state_block = state.block(false);
+            let mut state_block = state.block();
             current_topology = Self::replay_block(
                 &common_config.chain_id,
                 &block,
