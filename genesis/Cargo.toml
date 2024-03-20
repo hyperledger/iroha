@@ -15,6 +15,7 @@ iroha_crypto = { workspace = true }
 iroha_data_model = { workspace = true, features = ["http"] }
 iroha_schema = { workspace = true }
 
+parity-scale-codec = { workspace = true, features = ["derive"] }
 derive_more = { workspace = true, features = ["deref"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

@@ -1,14 +1,118 @@
-use clap::{builder::PossibleValue, ArgGroup, ValueEnum};
-use color_eyre::eyre::WrapErr as _;
+use std::{
+    borrow::{Borrow, Cow},
+    fs,
+    path::{Path, PathBuf},
+};
+
+use clap::{builder::PossibleValue, ArgGroup, Subcommand, ValueEnum};
+use color_eyre::{
+    eyre::{eyre, WrapErr as _},
+    Result,
+};
 use iroha_crypto::{Algorithm, KeyPair, PrivateKey};
+use iroha_data_model::ChainId;
+use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
+use parity_scale_codec::Encode;
 
 use super::*;
 
+#[derive(Subcommand, Debug, Clone)]
+pub enum CryptoMode {
+    GenesisSigning(GenesisSigningArgs),
+    KeyPairGeneration(KeyPairArgs),
+}
+
+/// Use `Kagami` to sign genesis block.
+#[derive(ClapArgs, Clone, Debug)]
+#[command(group = ArgGroup::new("private_key").required(true))]
+#[command(group = ArgGroup::new("public_key").required(true))]
+pub struct GenesisSigningArgs {
+    /// The algorithm of the provided keypair
+    #[clap(default_value_t, long, short)]
+    algorithm: AlgorithmArg,
+    /// Private key (in string format) to sign genesis block
+    #[clap(long, group = "private_key")]
+    private_key_string: Option<String>,
+    /// Path to private key to to sign genesis block
+    #[clap(long, group = "private_key")]
+    private_key_path: Option<PathBuf>,
+    /// Public key of the corresponding private key
+    #[clap(long, group = "public_key")]
+    public_key_string: Option<String>,
+    /// Path to public key of the corresponding private key
+    #[clap(long, group = "public_key")]
+    public_key_path: Option<PathBuf>,
+    /// Unique id of blockchain
+    #[clap(long, short)]
+    chain_id: ChainId,
+    /// Path to genesis json file
+    #[clap(long, short)]
+    genesis_path: PathBuf,
+    // Path to signed genesis output file
+    #[clap(long, short)]
+    output_path: PathBuf,
+}
+
+impl GenesisSigningArgs {
+    fn get_private_key(&self) -> Result<PrivateKey> {
+        let private_key_bytes =
+            Self::get_key_bytes(&self.private_key_path, &self.private_key_string)?;
+        PrivateKey::from_bytes(self.algorithm.0, private_key_bytes.borrow()).wrap_err_with(|| {
+            eyre!(
+                "Failed to parse private key for algorithm `{}`",
+                self.algorithm
+            )
+        })
+    }
+
+    fn get_public_key(&self) -> Result<PublicKey> {
+        let public_key_bytes = Self::get_key_bytes(&self.public_key_path, &self.public_key_string)?;
+        PublicKey::from_bytes(self.algorithm.0, public_key_bytes.borrow()).wrap_err_with(|| {
+            eyre!(
+                "Failed to parse public key for algorithm `{}`",
+                self.algorithm
+            )
+        })
+    }
+
+    fn get_key_bytes<'a, P: AsRef<Path>>(
+        path: &Option<P>,
+        value: &'a Option<String>,
+    ) -> Result<Cow<'a, [u8]>, std::io::Error> {
+        match (path, value) {
+            (Some(path_buf), None) => Ok(Cow::Owned(fs::read(path_buf)?)),
+            (None, Some(hex)) => Ok(Cow::Borrowed(hex.as_bytes())),
+            _ => unreachable!("Clap group invariant"),
+        }
+    }
+}
+
+impl<T: Write> RunArgs<T> for GenesisSigningArgs {
+    fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+        let (public_key, private_key) = (self.get_public_key()?, self.get_private_key()?);
+        let key_pair = KeyPair::new(public_key, private_key)?;
+
+        let genesis_block = RawGenesisBlock::from_path(&self.genesis_path)?;
+        let encoded_genesis_network =
+            GenesisNetwork::new(genesis_block, &self.chain_id, &key_pair).encode();
+
+        fs::write(&self.output_path, encoded_genesis_network)?;
+
+        writeln!(
+            writer,
+            "Genesis was successfully signed, encoded and written to `{}`",
+            self.output_path.display()
+        )?;
+
+        Ok(())
+    }
+}
+
 /// Use `Kagami` to generate cryptographic key-pairs.
-#[derive(ClapArgs, Debug, Clone)]
+#[derive(ClapArgs, Clone, Debug)]
 #[command(group = ArgGroup::new("generate_from").required(false))]
 #[command(group = ArgGroup::new("format").required(false))]
-pub struct Args {
+pub struct KeyPairArgs {
     /// An algorithm to use for the key-pair generation
     #[clap(default_value_t, long, short)]
     algorithm: AlgorithmArg,
@@ -48,7 +152,7 @@ impl ValueEnum for AlgorithmArg {
     }
 }
 
-impl<T: Write> RunArgs<T> for Args {
+impl<T: Write> RunArgs<T> for KeyPairArgs {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
         if self.json {
             let key_pair = self.key_pair()?;
@@ -78,7 +182,7 @@ impl<T: Write> RunArgs<T> for Args {
     }
 }
 
-impl Args {
+impl KeyPairArgs {
     fn key_pair(self) -> color_eyre::Result<KeyPair> {
         let algorithm = self.algorithm.0;
 
