@@ -272,7 +272,7 @@ mod tests {
         let account_id = AccountId::from_str("alice@wonderland")?;
         let (public_key, _) = KeyPair::random().into_parts();
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let mut state_transaction = state_block.transaction();
         Register::domain(Domain::new(DomainId::from_str("wonderland")?))
             .execute(&genesis_account_id, &mut state_transaction)?;
@@ -289,7 +289,7 @@ mod tests {
     async fn asset_store() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut staet_block = state.block(false);
+        let mut staet_block = state.block();
         let mut state_transaction = staet_block.transaction();
         let account_id = AccountId::from_str("alice@wonderland")?;
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
@@ -320,7 +320,7 @@ mod tests {
     async fn account_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let mut state_transaction = state_block.transaction();
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValue::account(
@@ -352,7 +352,7 @@ mod tests {
     async fn asset_definition_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let mut state_transaction = state_block.transaction();
         let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
@@ -383,7 +383,7 @@ mod tests {
     async fn domain_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let mut state_transaction = state_block.transaction();
         let domain_id = DomainId::from_str("wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
@@ -414,7 +414,7 @@ mod tests {
     async fn executing_unregistered_trigger_should_return_error() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let mut state_transaction = state_block.transaction();
         let account_id = AccountId::from_str("alice@wonderland")?;
         let trigger_id = TriggerId::from_str("test_trigger_id")?;
@@ -433,7 +433,7 @@ mod tests {
     async fn unauthorized_trigger_execution_should_return_error() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let mut state_transaction = state_block.transaction();
         let account_id = AccountId::from_str("alice@wonderland")?;
         let fake_account_id = AccountId::from_str("fake@wonderland")?;

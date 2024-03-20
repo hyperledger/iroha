@@ -270,17 +270,33 @@ impl World {
     }
 
     /// Create struct to apply block's changes
-    pub fn block(&self, rollback_latest_block: bool) -> WorldBlock {
+    pub fn block(&self) -> WorldBlock {
         WorldBlock {
-            parameters: self.parameters.block(rollback_latest_block),
-            trusted_peers_ids: self.trusted_peers_ids.block(rollback_latest_block),
-            domains: self.domains.block(rollback_latest_block),
-            roles: self.roles.block(rollback_latest_block),
-            account_permission_tokens: self.account_permission_tokens.block(rollback_latest_block),
-            account_roles: self.account_roles.block(rollback_latest_block),
-            permission_token_schema: self.permission_token_schema.block(rollback_latest_block),
-            triggers: self.triggers.block(rollback_latest_block),
-            executor: self.executor.block(rollback_latest_block),
+            parameters: self.parameters.block(),
+            trusted_peers_ids: self.trusted_peers_ids.block(),
+            domains: self.domains.block(),
+            roles: self.roles.block(),
+            account_permission_tokens: self.account_permission_tokens.block(),
+            account_roles: self.account_roles.block(),
+            permission_token_schema: self.permission_token_schema.block(),
+            triggers: self.triggers.block(),
+            executor: self.executor.block(),
+            events_buffer: Vec::new(),
+        }
+    }
+
+    /// Create struct to apply block's changes while reverting changes made in the latest block  
+    pub fn block_and_revert(&self) -> WorldBlock {
+        WorldBlock {
+            parameters: self.parameters.block_and_revert(),
+            trusted_peers_ids: self.trusted_peers_ids.block_and_revert(),
+            domains: self.domains.block_and_revert(),
+            roles: self.roles.block_and_revert(),
+            account_permission_tokens: self.account_permission_tokens.block_and_revert(),
+            account_roles: self.account_roles.block_and_revert(),
+            permission_token_schema: self.permission_token_schema.block_and_revert(),
+            triggers: self.triggers.block_and_revert(),
+            executor: self.executor.block_and_revert(),
             events_buffer: Vec::new(),
         }
     }
@@ -931,13 +947,27 @@ impl State {
         }
     }
 
-    /// Create structure to execute block
-    pub fn block(&self, rollback_latest_block: bool) -> StateBlock<'_> {
+    /// Create structure to execute a block
+    pub fn block(&self) -> StateBlock<'_> {
         StateBlock {
-            world: self.world.block(rollback_latest_block),
-            config: self.config.block(rollback_latest_block),
-            block_hashes: self.block_hashes.block(rollback_latest_block),
-            transactions: self.transactions.block(rollback_latest_block),
+            world: self.world.block(),
+            config: self.config.block(),
+            block_hashes: self.block_hashes.block(),
+            transactions: self.transactions.block(),
+            engine: &self.engine,
+            kura: &self.kura,
+            query_handle: &self.query_handle,
+            new_tx_amounts: &self.new_tx_amounts,
+        }
+    }
+
+    /// Create structure to execute a block while reverting changes made in the latest block
+    pub fn block_and_revert(&self) -> StateBlock<'_> {
+        StateBlock {
+            world: self.world.block_and_revert(),
+            config: self.config.block_and_revert(),
+            block_hashes: self.block_hashes.block_and_revert(),
+            transactions: self.transactions.block_and_revert(),
             engine: &self.engine,
             kura: &self.kura,
             query_handle: &self.query_handle,
@@ -1734,7 +1764,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(World::default(), kura, query_handle);
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
@@ -1762,7 +1792,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(World::default(), kura.clone(), query_handle);
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
 
         for i in 1..=BLOCK_CNT {
             let mut block = block.clone();

@@ -78,7 +78,7 @@ fn build_test_and_transient_state(keys: KeyPair) -> State {
     );
 
     {
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         let mut state_transaction = state_block.transaction();
         let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../configs/swarm/executor.wasm");
@@ -150,7 +150,7 @@ fn validate_transaction(criterion: &mut Criterion) {
     let _ = criterion.bench_function("validate", move |b| {
         let transaction_executor = TransactionExecutor::new(TRANSACTION_LIMITS);
         b.iter(|| {
-            let mut state_block = state.block(false);
+            let mut state_block = state.block();
             match transaction_executor.validate(transaction.clone(), &mut state_block) {
                 Ok(_) => success_count += 1,
                 Err(_) => failure_count += 1,
@@ -178,7 +178,7 @@ fn sign_blocks(criterion: &mut Criterion) {
 
     let mut count = 0;
 
-    let mut state_block = state.block(false);
+    let mut state_block = state.block();
     let block =
         BlockBuilder::new(vec![transaction], topology, Vec::new()).chain(0, &mut state_block);
 

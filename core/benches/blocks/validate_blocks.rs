@@ -63,7 +63,7 @@ impl StateValidateBlocks {
         }: Self,
     ) -> Result<()> {
         for (instructions, i) in instructions.into_iter().zip(1..) {
-            let mut state_block = state.block(false);
+            let mut state_block = state.block();
             let block = create_block(
                 &mut state_block,
                 instructions,

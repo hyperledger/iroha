@@ -180,7 +180,7 @@ pub fn build_state(
     let state = State::new(World::with([domain], UniqueVec::new()), kura, query_handle);
 
     {
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
 
         state_block.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);
         state_block.config.executor_runtime.fuel_limit = u64::MAX;

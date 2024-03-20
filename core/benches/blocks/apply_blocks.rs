@@ -40,7 +40,7 @@ impl StateApplyBlocks {
             instructions
                 .into_iter()
                 .map(|instructions| -> Result<_> {
-                    let mut state_block = state.block(false);
+                    let mut state_block = state.block();
                     let block = create_block(
                         &mut state_block,
                         instructions,
@@ -67,7 +67,7 @@ impl StateApplyBlocks {
     /// If state height isn't updated after applying block
     pub fn measure(Self { state, blocks }: &Self) -> Result<()> {
         for (block, i) in blocks.iter().zip(1..) {
-            let mut state_block = state.block(false);
+            let mut state_block = state.block();
             state_block.apply(block)?;
             assert_eq!(state_block.height(), i);
             state_block.commit();

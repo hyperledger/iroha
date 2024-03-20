@@ -52,7 +52,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let state = State::new(World::new(), kura, query_handle);
     let topology = Topology::new(UniqueVec::new());
     let mut block = {
-        let mut state_block = state.block(false);
+        let mut state_block = state.block();
         BlockBuilder::new(vec![tx], topology, Vec::new())
             .chain(0, &mut state_block)
             .sign(&KeyPair::random())
