@@ -26,7 +26,7 @@ use iroha_core::{
         try_read_snapshot, SnapshotMaker, SnapshotMakerHandle, TryReadError as TryReadSnapshotError,
     },
     state::{State, StateReadOnly, World},
-    sumeragi::{GenesisWithPubKey, SumeragiHandle, SumeragiStartArgs},
+    sumeragi::{GenesisWithPubKey, SumeragiHandle, SumeragiMetrics, SumeragiStartArgs},
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
@@ -278,7 +278,10 @@ impl Iroha {
                 public_key: config.genesis.public_key().clone(),
             },
             block_count,
-            dropped_messages: metrics_reporter.metrics().dropped_messages.clone(),
+            sumeragi_metrics: SumeragiMetrics {
+                dropped_messages: metrics_reporter.metrics().dropped_messages.clone(),
+                view_changes: metrics_reporter.metrics().view_changes.clone(),
+            },
         };
         // Starting Sumeragi requires no async context enabled
         let sumeragi = tokio::task::spawn_blocking(move || SumeragiHandle::start(start_args))

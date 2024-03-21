@@ -139,10 +139,6 @@ impl MetricsReporter {
                 .set(domain.accounts.len() as u64);
         }
 
-        self.metrics
-            .view_changes
-            .set(state_view.latest_block_view_change_index());
-
         self.metrics.queue_size.set(self.queue.tx_len() as u64);
 
         Ok(())
