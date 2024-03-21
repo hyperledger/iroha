@@ -68,6 +68,8 @@ uuid = { version = "1.8.0", features = ["v4"] }
 indexmap = "2.2.6"
 
 [dev-dependencies]
+test_samples = { workspace = true }
+
 criterion = { workspace = true }
 hex = { workspace = true }
 once_cell = { workspace = true }

@@ -74,27 +74,38 @@ pub fn stub_getrandom(_dest: &mut [u8]) -> Result<(), getrandom::Error> {
     unimplemented!("{ERROR_MESSAGE}")
 }
 
-/// Macro to parse literal as a type. Panics if failed.
+/// Returns the annotated type of value parsed from the given expression, or fails with [`dbg_expect`](debug::DebugExpectExt::dbg_expect) message.
+/// Panics if the internal parsing fails.
 ///
-/// # Example
+/// # Examples
 ///
+/// FIXME `cargo test --all-features -p iroha_smart_contract --doc -- parse`
 /// ```ignore
-/// use iroha_smart_contract::{prelude::*, parse};
+/// use iroha_smart_contract::{parse, prelude::*};
 ///
-/// let account_id = parse!("alice@wonderland" as AccountId);
+/// let from_literal = parse!(DomainId, "wonderland");
+/// let expr = "wonderland";
+/// // Although "expr" would be less informative in debug message
+/// let from_expr = parse!(DomainId, expr);
 /// ```
 #[macro_export]
 macro_rules! parse {
-    ($l:literal as _) => {
+    (_, $e:expr) => {
         compile_error!(
             "Don't use `_` as a type in this macro, \
              otherwise panic message would be less informative"
         )
     };
-    ($l:literal as $t:ty) => {
+    ($t:ty, $e:expr) => {
         $crate::debug::DebugExpectExt::dbg_expect(
-            $l.parse::<$t>(),
-            concat!("Failed to parse `", $l, "` as `", stringify!($t), "`"),
+            $e.parse::<$t>(),
+            concat!(
+                "Failed to parse `",
+                stringify!($e),
+                "` as `",
+                stringify!($t),
+                "`"
+            ),
         )
     };
 }
@@ -489,14 +500,12 @@ mod tests {
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());
 
     fn get_test_instruction() -> InstructionBox {
-        let new_asset_id = "tulip##alice@wonderland".parse().unwrap();
-        let register_isi = Register::asset(Asset::new(new_asset_id, 1_u32));
-
-        register_isi.into()
+        let new_asset_id: AssetId = "tulip##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse().unwrap();
+        Register::asset(Asset::new(new_asset_id, 1_u32)).into()
     }
 
     fn get_test_query() -> QueryBox {
-        let asset_id: AssetId = "rose##alice@wonderland".parse().expect("Valid");
+        let asset_id: AssetId = "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse().unwrap();
         FindAssetQuantityById::new(asset_id).into()
     }
 

@@ -15,11 +15,11 @@ class Stderr(Enum):
     Enum for standard error messages.
     """
 
-    CANNOT_BE_EMPTY = "cannot be empty\n\nFor more information, try '--help'.\n"
+    EMPTY = "Empty"
     REPETITION = "Repetition"
     TOO_LONG = "Name length violation"
     FAILED_TO_FIND_DOMAIN = "Failed to find domain"
-    INVALID_CHARACTER = "Invalid character"
+    INVALID_CHARACTER = "Failed to parse"
     INVALID_VALUE_TYPE = "should be either `Store` or `Numeric`"
     RESERVED_CHARACTER = (
         "The `@` character is reserved for `account@domain` constructs,"

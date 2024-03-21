@@ -9,8 +9,6 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
-#[cfg(all(feature = "std", feature = "transparent_api"))]
-use iroha_crypto::KeyPair;
 use iroha_crypto::{HashOf, MerkleTree, SignaturesOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
@@ -166,6 +164,7 @@ impl SignedBlock {
 
     /// Signatures of peers which approved this block.
     #[inline]
+    #[allow(private_interfaces)]
     pub fn signatures(&self) -> &SignaturesOf<BlockPayload> {
         let SignedBlock::V1(block) = self;
         &block.signatures
@@ -188,8 +187,8 @@ impl SignedBlock {
 
     /// Add additional signatures to this block
     #[must_use]
-    #[cfg(feature = "transparent_api")]
-    pub fn sign(mut self, key_pair: &KeyPair) -> Self {
+    #[cfg(all(feature = "std", feature = "transparent_api"))]
+    pub fn sign(mut self, key_pair: &iroha_crypto::KeyPair) -> Self {
         let SignedBlock::V1(block) = &mut self;
         let signature = iroha_crypto::SignatureOf::new(key_pair, &block.payload);
         block.signatures.insert(signature);

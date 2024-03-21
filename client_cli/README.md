@@ -60,20 +60,27 @@ Check the [Bash guide in Iroha Tutorial](https://hyperledger.github.io/iroha-2-d
 
 ```bash
 ./iroha_client_cli domain register --id="Soramitsu"
-./iroha_client_cli account register --id="White Rabbit@Soramitsu" --key=""
+./iroha_client_cli account register --id="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu"
 ./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Numeric
-./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
-./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu"
+./iroha_client_cli asset mint --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
+./iroha_client_cli asset get --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu"
 ```
 
 In this section we will show you how to use Iroha CLI Client to do the following:
 
-- [Create new Domain](#create-new-domain)
-- [Create new Account](#create-new-account)
-- [Mint Asset to Account](#mint-asset-to-account)
-- [Query Account Assets Quantity](#query-account-assets-quantity)
-- [Execute WASM transaction](#execute-wasm-transaction)
-- [Execute Multi-instruction Transactions](#execute-multi-instruction-instructions)
+- [Iroha CLI Client](#iroha-cli-client)
+  - [Features](#features)
+  - [Installation](#installation)
+  - [Usage](#usage)
+    - [Options](#options)
+    - [Subcommands](#subcommands)
+  - [Examples](#examples)
+    - [Create new Domain](#create-new-domain)
+    - [Create new Account](#create-new-account)
+    - [Mint Asset to Account](#mint-asset-to-account)
+    - [Query Account Assets Quantity](#query-account-assets-quantity)
+    - [Execute WASM transaction](#execute-wasm-transaction)
+    - [Execute Multi-instruction Transactions](#execute-multi-instruction-transactions)
 
 ### Create new Domain
 
@@ -89,12 +96,10 @@ Now you have a domain without any accounts.
 
 ### Create new Account
 
-Let's create a new account. Like in the previous example, specify the entity type (`account`) and the command (`register`). Then define the account name as the value of the `id` argument.
-
-Additionally, you need to provide the `key` argument with the account's public key as a double-quoted multihash representation of the key. Providing an empty string also works (but is highly discouraged), while omitting the argument altogether will produce an error.
+Let's create a new account. Like in the previous example, specify the entity type (`account`) and the command (`register`). Then define the value of the `id` argument in "signatory@domain" format, where signatory is the account's public key in multihash representation.
 
 ```bash
-./iroha_client_cli account register --id="White Rabbit@Soramitsu" --key=""
+./iroha_client_cli account register --id="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu"
 ```
 
 ### Mint Asset to Account
@@ -107,10 +112,10 @@ Every asset has its own value spec. In this example, it is defined as `Numeric`,
 
 ```bash
 ./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Numeric
-./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
+./iroha_client_cli asset mint --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
 ```
 
-You created `XOR#Soramitsu`, an asset of type `Numeric`, and then gave `1010` units of this asset to the account `White Rabbit@Soramitsu`.
+You created `XOR#Soramitsu`, an asset of type `Numeric`, and then gave `1010` units of this asset to the account `ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu`.
 
 ### Query Account Assets Quantity
 
@@ -128,10 +133,10 @@ Let's use Get Account Assets Query as an example.
 To know how many units of a particular asset an account has, use `asset get` with the specified account and asset:
 
 ```bash
-./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu"
+./iroha_client_cli asset get --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu"
 ```
 
-This query returns the quantity of `XOR#Soramitsu` asset for the `White Rabbit@Soramitsu` account.
+This query returns the quantity of `XOR#Soramitsu` asset for the `ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu` account.
 
 It's possible to filter based on either account, asset or domain id by using the filtering API provided by the Iroha client CLI.
 

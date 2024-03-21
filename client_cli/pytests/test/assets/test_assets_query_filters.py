@@ -69,7 +69,7 @@ def test_filter_by_asset_id(
         asset_id = (
             GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name
             + "##"
-            + GIVEN_currently_authorized_account.name
+            + GIVEN_currently_authorized_account.signatory
             + "@"
             + GIVEN_currently_authorized_account.domain
         )

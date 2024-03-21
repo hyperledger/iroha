@@ -12,7 +12,11 @@ def story_account_unregisters_asset():
 
 @allure.label("sdk_test_id", "unregister_asset")
 @pytest.mark.parametrize(
-    "GIVEN_numeric_asset_for_account", ["alice@wonderland"], indirect=True
+    "GIVEN_numeric_asset_for_account",
+    [
+        "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+    ],
+    indirect=True,
 )
 @pytest.mark.xfail(reason="wait for #4039")
 def test_unregister_asset(

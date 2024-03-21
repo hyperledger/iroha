@@ -106,7 +106,7 @@ impl FromStr for TriggerId {
         let mut split = s.split('$');
         match (split.next(), split.next(), split.next()) {
             (Some(""), _, _) => Err(ParseError {
-                reason: "Trigger ID cannot be empty",
+                reason: "Empty `name` part in `name` or `name$domain_id`",
             }),
             (Some(name), None, _) => Ok(Self {
                 name: Name::from_str(name)?,

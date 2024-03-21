@@ -614,6 +614,8 @@ pub mod string {
         use super::*;
 
         mod id_box {
+            use iroha_crypto::KeyPair;
+
             use super::*;
             use crate::peer::PeerId;
 
@@ -689,34 +691,32 @@ pub mod string {
 
             #[test]
             fn account_id() {
-                let id = IdBox::AccountId("alice@wonderland".parse().expect("Valid"));
-                assert!(StringPredicate::starts_with("alice@").applies(&id));
+                let alice: PublicKey = KeyPair::random().into_parts().0;
+                let id = IdBox::AccountId(format!("{alice}@wonderland").parse().expect("Valid"));
+                assert!(StringPredicate::starts_with(&*format!("{alice}@")).applies(&id));
                 assert!(StringPredicate::ends_with("@wonderland").applies(&id));
-                assert!(StringPredicate::is("alice@wonderland").applies(&id));
+                assert!(StringPredicate::is(&*format!("{alice}@wonderland")).applies(&id));
                 // Should we also include a check into string
                 // predicates? If the internal predicate starts with
                 // whitespace, it can't possibly match any Id, but
                 // there's no way to enforce this at both type level
                 // and run-time.
-                assert!(!StringPredicate::starts_with(" alice@").applies(&id));
+                assert!(!StringPredicate::starts_with(&*format!(" {alice}@")).applies(&id));
                 assert!(!StringPredicate::ends_with("@wonderland ").applies(&id));
-                assert!(!StringPredicate::is("alice@@wonderland ").applies(&id));
+                assert!(!StringPredicate::is(&*format!("{alice}@@wonderland ")).applies(&id));
                 assert!(!StringPredicate::contains("#").applies(&id));
-                assert!(!StringPredicate::is("alice#wonderland").applies(&id));
+                assert!(!StringPredicate::is(&*format!("{alice}#wonderland")).applies(&id));
             }
 
             #[test]
             fn asset_id() {
-                let definition_id = "rose#wonderland".parse().expect("Valid");
-                let account_id = "alice@wonderland".parse().expect("Valid");
-                let id = IdBox::AssetId(crate::asset::AssetId {
-                    definition_id,
-                    account_id,
-                });
+                let alice: PublicKey = KeyPair::random().into_parts().0;
+                let id =
+                    IdBox::AssetId(format!("rose##{alice}@wonderland").parse().expect("Valid"));
                 assert!(StringPredicate::starts_with("rose##").applies(&id));
-                assert!(StringPredicate::ends_with("#alice@wonderland").applies(&id));
-                assert!(StringPredicate::is("rose##alice@wonderland").applies(&id));
-                assert!(StringPredicate::contains("#alice@").applies(&id));
+                assert!(StringPredicate::ends_with(&*format!("#{alice}@wonderland")).applies(&id));
+                assert!(StringPredicate::is(&*format!("rose##{alice}@wonderland")).applies(&id));
+                assert!(StringPredicate::contains(&*format!("#{alice}@")).applies(&id));
             }
 
             #[test]
@@ -1237,98 +1237,95 @@ pub mod value {
 
         #[test]
         fn typing() {
+            let alice: PublicKey = KeyPair::random().into_parts().0;
+            let alice_id: AccountId = format!("{alice}@wonderland").parse().expect("Valid");
             {
                 let pred = QueryOutputPredicate::Identifiable(string::StringPredicate::is(
-                    "alice@wonderland",
+                    &*alice_id.to_string(),
                 ));
                 println!("{pred:?}");
-                assert!(pred.applies(&QueryOutputBox::Id(IdBox::AccountId(
-                    "alice@wonderland".parse().expect("Valid")
-                ))));
+                assert!(pred.applies(&QueryOutputBox::Id(IdBox::AccountId(alice_id.clone()))));
                 assert!(
                     pred.applies(&QueryOutputBox::Identifiable(IdentifiableBox::NewAccount(
-                        Account::new(
-                            "alice@wonderland".parse().expect("Valid"),
-                            KeyPair::random().into_parts().0
-                        )
+                        Account::new(alice_id.clone())
                     )))
                 );
-                assert!(!pred.applies(
-                    &MetadataValueBox::from("alice".parse::<Name>().expect("Valid")).into()
-                ));
+                assert!(!pred.applies(&MetadataValueBox::from(alice_id.to_string()).into()));
                 assert!(!pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
             {
                 let pred = QueryOutputPredicate::Pass;
                 println!("{pred:?}");
-                assert!(pred.applies(&MetadataValueBox::from("alice@wonderland".to_owned()).into()));
+                assert!(pred.applies(&MetadataValueBox::from(alice_id.to_string()).into()));
             }
             {
                 let pred = QueryOutputPredicate::TimeStamp(numerical::SemiInterval::starting(0));
                 println!("{pred:?}");
-                assert!(
-                    !pred.applies(&MetadataValueBox::from("alice@wonderland".to_owned()).into())
-                );
+                assert!(!pred.applies(&MetadataValueBox::from(alice_id.to_string()).into()));
             }
             {
-                let key_pair = iroha_crypto::KeyPair::random();
-                let (public_key, _) = key_pair.into_parts();
-                let pred =
-                    QueryOutputPredicate::Display(string::StringPredicate::is("alice@wonderland"));
+                let pred = QueryOutputPredicate::Display(string::StringPredicate::is(
+                    &*alice_id.to_string(),
+                ));
                 println!("{pred:?}");
 
                 assert!(
                     !pred.applies(&QueryOutputBox::Identifiable(IdentifiableBox::Peer(Peer {
-                        id: PeerId::new(socket_addr!(127.0.0.1:123), public_key)
+                        id: PeerId::new(
+                            socket_addr!(127.0.0.1:123),
+                            KeyPair::random().into_parts().0
+                        )
                     })))
                 );
             }
             let pred = QueryOutputPredicate::Numerical(numerical::SemiRange::Numeric(
                 (numeric!(0), numeric!(42)).into(),
             ));
-            assert!(!pred.applies(&MetadataValueBox::from("alice".to_owned()).into()));
+            assert!(!pred.applies(&MetadataValueBox::from(alice_id.to_string()).into()));
             assert!(pred.applies(&numeric!(41).into()));
         }
 
         #[test]
         fn container_vec() {
+            let wonderland: DomainId = "wonderland".parse().expect("Valid");
+            let alice: PublicKey = KeyPair::random().into_parts().0;
+            let alice_id = AccountId::new(wonderland.clone(), alice.clone());
             let list = QueryOutputBox::Vec(vec![
-                QueryOutputBox::Identifiable(
-                    Domain::new("alice".parse::<DomainId>().unwrap()).into(),
-                ),
-                QueryOutputBox::Id("alice@wonderland".parse::<AccountId>().unwrap().into()),
-                QueryOutputBox::Id("aliceee!".parse::<DomainId>().unwrap().into()),
+                QueryOutputBox::Identifiable(Domain::new(wonderland.clone()).into()),
+                QueryOutputBox::Id(alice_id.into()),
+                QueryOutputBox::Id(wonderland.clone().into()),
             ]);
 
-            let alice_pred =
-                QueryOutputPredicate::Display(string::StringPredicate::contains("alice"));
+            let wonderland_pred =
+                QueryOutputPredicate::Display(string::StringPredicate::contains("wonderland"));
 
             {
-                let pred = QueryOutputPredicate::any(alice_pred.clone());
+                let pred = QueryOutputPredicate::any(wonderland_pred.clone());
                 println!("{pred:?}");
                 assert!(pred.applies(&list));
                 assert!(!pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
 
             {
-                let pred = QueryOutputPredicate::all(alice_pred.clone());
+                let pred = QueryOutputPredicate::all(wonderland_pred.clone());
                 println!("{pred:?}");
                 assert!(pred.applies(&list));
                 assert!(pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
 
             {
-                let alice_id_pred =
-                    QueryOutputPredicate::Identifiable(string::StringPredicate::contains("alice"));
-                let pred = QueryOutputPredicate::all(alice_id_pred);
+                let wonderland_id_pred = QueryOutputPredicate::Identifiable(
+                    string::StringPredicate::contains("wonderland"),
+                );
+                let pred = QueryOutputPredicate::all(wonderland_id_pred);
                 println!("{pred:?}");
                 assert!(pred.applies(&list));
                 assert!(pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
 
-            assert!(QueryOutputPredicate::at_index(0, alice_pred.clone()).applies(&list));
+            assert!(QueryOutputPredicate::at_index(0, wonderland_pred.clone()).applies(&list));
 
-            let idx_pred = QueryOutputPredicate::at_index(3, alice_pred); // Should be out of bounds.
+            let idx_pred = QueryOutputPredicate::at_index(3, wonderland_pred); // Should be out of bounds.
             println!("{idx_pred:?}");
             assert!(!idx_pred.applies(&list));
         }

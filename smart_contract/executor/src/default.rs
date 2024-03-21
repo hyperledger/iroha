@@ -6,9 +6,8 @@ pub mod tokens;
 use alloc::format;
 
 pub use account::{
-    visit_burn_account_public_key, visit_mint_account_public_key,
-    visit_mint_account_signature_check_condition, visit_register_account,
-    visit_remove_account_key_value, visit_set_account_key_value, visit_unregister_account,
+    visit_register_account, visit_remove_account_key_value, visit_set_account_key_value,
+    visit_unregister_account,
 };
 pub use asset::{
     visit_burn_asset_numeric, visit_mint_asset_numeric, visit_register_asset,
@@ -498,85 +497,6 @@ pub mod account {
         deny!(executor, "Can't unregister another account");
     }
 
-    pub fn visit_mint_account_public_key<V: Validate + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Mint<PublicKey, Account>,
-    ) {
-        let account_id = isi.destination_id();
-
-        if is_genesis(executor) {
-            execute!(executor, isi);
-        }
-        match is_account_owner(account_id, authority) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => execute!(executor, isi),
-            Ok(false) => {}
-        }
-        let can_mint_user_public_keys = tokens::account::CanMintUserPublicKeys {
-            account_id: account_id.clone(),
-        };
-        if can_mint_user_public_keys.is_owned_by(authority) {
-            execute!(executor, isi);
-        }
-
-        deny!(executor, "Can't mint public keys of another account");
-    }
-
-    pub fn visit_burn_account_public_key<V: Validate + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Burn<PublicKey, Account>,
-    ) {
-        let account_id = isi.destination_id();
-
-        if is_genesis(executor) {
-            execute!(executor, isi);
-        }
-        match is_account_owner(account_id, authority) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => execute!(executor, isi),
-            Ok(false) => {}
-        }
-        let can_burn_user_public_keys = tokens::account::CanBurnUserPublicKeys {
-            account_id: account_id.clone(),
-        };
-        if can_burn_user_public_keys.is_owned_by(authority) {
-            execute!(executor, isi);
-        }
-
-        deny!(executor, "Can't burn public keys of another account");
-    }
-
-    pub fn visit_mint_account_signature_check_condition<V: Validate + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Mint<SignatureCheckCondition, Account>,
-    ) {
-        let account_id = isi.destination_id();
-
-        if is_genesis(executor) {
-            execute!(executor, isi);
-        }
-        match is_account_owner(account_id, authority) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => execute!(executor, isi),
-            Ok(false) => {}
-        }
-        let can_mint_user_signature_check_conditions_token =
-            tokens::account::CanMintUserSignatureCheckConditions {
-                account_id: account_id.clone(),
-            };
-        if can_mint_user_signature_check_conditions_token.is_owned_by(authority) {
-            execute!(executor, isi);
-        }
-
-        deny!(
-            executor,
-            "Can't mint signature check conditions of another account"
-        );
-    }
-
     pub fn visit_set_account_key_value<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
@@ -794,7 +714,7 @@ pub mod asset_definition {
         isi: &Transfer<Account, AssetDefinitionId, Account>,
     ) {
         let source_id = isi.source_id();
-        let destination_id = isi.object();
+        let asset_definition_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -804,7 +724,7 @@ pub mod asset_definition {
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        match is_asset_definition_owner(destination_id, authority) {
+        match is_asset_definition_owner(asset_definition_id, authority) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}

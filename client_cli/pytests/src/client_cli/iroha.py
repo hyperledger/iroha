@@ -87,7 +87,7 @@ class Iroha(ClientCli):
         Retrieve assets from the Iroha network and return them as a dictionary
         where the keys are asset ids and the values are the corresponding asset objects.
 
-        :return:  Dictionary of assets.
+        :return: Dictionary of assets.
         :rtype: Dict[str, Any]
         """
         self._execute_command("asset")

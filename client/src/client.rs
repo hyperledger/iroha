@@ -1575,6 +1575,7 @@ mod tests {
     use std::str::FromStr;
 
     use iroha_primitives::small::SmallStr;
+    use test_samples::gen_account_in;
 
     use super::*;
     use crate::config::{BasicAuth, Config, WebLogin};
@@ -1585,12 +1586,11 @@ mod tests {
     const ENCRYPTED_CREDENTIALS: &str = "bWFkX2hhdHRlcjppbG92ZXRlYQ==";
 
     fn config_factory() -> Config {
+        let (account_id, key_pair) = gen_account_in("wonderland");
         Config {
             chain_id: ChainId::from("0"),
-            key_pair: KeyPair::random(),
-            account_id: "alice@wonderland"
-                .parse()
-                .expect("This account ID should be valid"),
+            key_pair,
+            account_id,
             torii_api_url: "http://127.0.0.1:8080".parse().unwrap(),
             basic_auth: None,
             transaction_add_nonce: false,

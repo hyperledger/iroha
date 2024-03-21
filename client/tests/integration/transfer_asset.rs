@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use iroha_client::{
     client::{self, QueryResult},
-    crypto::KeyPair,
     data_model::{isi::Instruction, prelude::*, Registered},
 };
 use iroha_data_model::{
@@ -12,6 +11,7 @@ use iroha_data_model::{
     name::Name,
 };
 use test_network::*;
+use test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 // This test suite is also covered at the UI level in the iroha_client_cli tests
@@ -135,12 +135,11 @@ fn simulate_transfer<T>(
 }
 
 fn generate_two_ids() -> (AccountId, AccountId) {
-    let alice_id: AccountId = "alice@wonderland".parse().unwrap();
-    let mouse_id: AccountId = "mouse@wonderland".parse().unwrap();
+    let alice_id = ALICE_ID.clone();
+    let (mouse_id, _mouse_keypair) = gen_account_in("wonderland");
     (alice_id, mouse_id)
 }
 
 fn create_mouse(mouse_id: AccountId) -> Register<Account> {
-    let (mouse_public_key, _) = KeyPair::random().into_parts();
-    Register::account(Account::new(mouse_id, mouse_public_key))
+    Register::account(Account::new(mouse_id))
 }

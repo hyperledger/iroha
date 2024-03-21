@@ -1770,6 +1770,7 @@ pub(crate) mod deserialize {
 mod tests {
     use iroha_data_model::block::BlockPayload;
     use iroha_primitives::unique_vec::UniqueVec;
+    use test_samples::gen_account_in;
 
     use super::*;
     use crate::{
@@ -1848,14 +1849,14 @@ mod tests {
 
     #[test]
     fn role_account_range() {
-        let account_id: AccountId = "alice@wonderland".parse().unwrap();
+        let (account_id, _account_keypair) = gen_account_in("wonderland");
         let roles = [
             RoleIdWithOwner::new(account_id.clone(), "1".parse().unwrap()),
             RoleIdWithOwner::new(account_id.clone(), "2".parse().unwrap()),
-            RoleIdWithOwner::new("bob@wonderland".parse().unwrap(), "3".parse().unwrap()),
-            RoleIdWithOwner::new("a@wonderland".parse().unwrap(), "4".parse().unwrap()),
-            RoleIdWithOwner::new("0@0".parse().unwrap(), "5".parse().unwrap()),
-            RoleIdWithOwner::new("1@1".parse().unwrap(), "6".parse().unwrap()),
+            RoleIdWithOwner::new(gen_account_in("wonderland").0, "3".parse().unwrap()),
+            RoleIdWithOwner::new(gen_account_in("wonderland").0, "4".parse().unwrap()),
+            RoleIdWithOwner::new(gen_account_in("0").0, "5".parse().unwrap()),
+            RoleIdWithOwner::new(gen_account_in("1").0, "6".parse().unwrap()),
         ];
         let map = BTreeSet::from(roles);
 

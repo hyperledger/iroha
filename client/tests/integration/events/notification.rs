@@ -3,6 +3,7 @@ use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 use eyre::{eyre, Result, WrapErr};
 use iroha_client::data_model::prelude::*;
 use test_network::*;
+use test_samples::ALICE_ID;
 
 #[test]
 fn trigger_completion_success_should_produce_event() -> Result<()> {
@@ -10,7 +11,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id: AccountId = "alice@wonderland".parse()?;
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id);
     let trigger_id = TriggerId::from_str("mint_rose")?;
 
@@ -55,7 +56,7 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_055).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let account_id: AccountId = "alice@wonderland".parse()?;
+    let account_id = ALICE_ID.clone();
     let trigger_id = TriggerId::from_str("fail_box")?;
 
     let instruction = Fail::new("Fail box".to_owned());

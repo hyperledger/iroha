@@ -1,15 +1,16 @@
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
+    crypto::KeyPair,
     data_model::{
         peer::{Peer as DataModelPeer, PeerId},
         prelude::*,
     },
 };
 use iroha_config::parameters::actual::Root as Config;
-use iroha_crypto::KeyPair;
 use iroha_primitives::addr::socket_addr;
 use test_network::*;
+use test_samples::ALICE_ID;
 use tokio::runtime::Runtime;
 
 #[test]
@@ -25,7 +26,7 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
     wait_for_genesis_committed(&network.clients(), 1);
 
     //When
-    let alice_id: AccountId = "alice@wonderland".parse()?;
+    let alice_id = ALICE_ID.clone();
     let roses = "rose#wonderland".parse()?;
     let alice_has_roses = numeric!(13);
 

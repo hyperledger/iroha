@@ -6,6 +6,7 @@ use iroha_client::{
     data_model::{prelude::*, query::asset::FindAllAssetsDefinitions, trigger::TriggerId},
 };
 use test_network::*;
+use test_samples::ALICE_ID;
 
 #[test]
 fn failed_trigger_revert() -> Result<()> {
@@ -14,7 +15,7 @@ fn failed_trigger_revert() -> Result<()> {
 
     //When
     let trigger_id = TriggerId::from_str("trigger")?;
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));

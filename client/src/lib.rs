@@ -27,13 +27,14 @@ pub mod samples {
 
     /// Get sample client configuration.
     pub fn get_client_config(chain_id: ChainId, key_pair: KeyPair, torii_api_url: Url) -> Config {
+        let account_id = format!("{}@wonderland", key_pair.public_key())
+            .parse()
+            .expect("should be valid");
         Config {
             chain_id,
             key_pair,
             torii_api_url,
-            account_id: "alice@wonderland"
-                .parse()
-                .expect("This account ID should be valid"),
+            account_id,
             basic_auth: None,
             transaction_ttl: DEFAULT_TRANSACTION_TIME_TO_LIVE,
             transaction_status_timeout: DEFAULT_TRANSACTION_STATUS_TIMEOUT,

@@ -8,6 +8,7 @@ use iroha_client::{
 use iroha_config::parameters::actual::Root as Config;
 use rand::seq::SliceRandom;
 use test_network::*;
+use test_samples::ALICE_ID;
 use tokio::runtime::Runtime;
 
 const MAX_TRANSACTIONS_IN_BLOCK: u32 = 5;
@@ -75,7 +76,7 @@ fn unstable_network(
 
     let pipeline_time = Config::pipeline_time();
 
-    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let account_id = ALICE_ID.clone();
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
     let register_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));

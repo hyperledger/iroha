@@ -6,6 +6,7 @@ use iroha_client::{
     data_model::prelude::*,
 };
 use test_network::*;
+use test_samples::ALICE_ID;
 
 #[test]
 fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() -> Result<()> {
@@ -13,7 +14,7 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
     wait_for_genesis_committed(&[client.clone()], 0);
 
     //When
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
     let wrong_asset_definition_id = AssetDefinitionId::from_str("ksor#wonderland")?;
     let create_asset = Register::asset_definition(AssetDefinition::numeric(asset_definition_id));

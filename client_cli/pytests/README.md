@@ -4,14 +4,15 @@ This directory contains the `pytest` framework with test suites for the Iroha 2 
 
 For quick access to a topic that interests you, select one of the following:
 
-- [Framework Structure](#framework-structure)
-- [Iroha 2 Test Model](#iroha-2-test-model)
-- [Using Test Suites](#using-test-suites)
-	- [Custom Test Environment with Docker Compose](#custom-test-environment-with-docker-compose)
-	- [Poetry Configuration](#poetry-configuration)
-	- [Tests Configuration](#tests-configuration)
-- [Running Tests](#running-tests)
-- [Viewing Test Reports](#viewing-test-reports)
+- [Overview](#overview)
+	- [Framework Structure](#framework-structure)
+	- [Iroha 2 Test Model](#iroha-2-test-model)
+	- [Using Test Suites](#using-test-suites)
+		- [Custom Test Environment with Docker Compose](#custom-test-environment-with-docker-compose)
+		- [Poetry Configuration](#poetry-configuration)
+		- [Tests Configuration](#tests-configuration)
+	- [Running Tests](#running-tests)
+	- [Viewing Test Reports](#viewing-test-reports)
 
 ## Framework Structure
 
@@ -105,20 +106,20 @@ To do so, perform the following steps:
 	 cargo build --bin iroha_client_cli
 	 ```
 
-3. Create a new directory, then copy the `iroha_client_cli` binary and its `config.json` configuration file into it:
+3. Create a new directory, then copy the `iroha_client_cli` binary and its `client.toml` configuration file into it:
 
 	 ```shell
 	 # Create a new directory:
-	 mkdir test_client
+	 mkdir test
 	 # Copy the files:
-	 cp configs/client/config.json test_client
-	 cp target/debug/iroha_client_cli test_client
+	 cp configs/swarm/client.toml test
+	 cp target/debug/iroha_client_cli test
 	 ```
 
 4. Proceed with _Step 2_ of the [Using Test Suites](#using-test-suites) instructions.
 
 > [!NOTE]
-> Don't forget to specify the path to the directory created for the `iroha_client_cli` binary and its `config.json` configuration file (see Step 3) in the `CLIENT_CLI_DIR` variable of the `.env` file.
+> Don't forget to specify the path to the directory created for the `iroha_client_cli` binary and its `client.toml` configuration file (see Step 3) in the `CLIENT_CLI_DIR` variable of the `.env` file.
 > For details, see [Tests Configuration](#tests-configuration) below.
 
 ### Poetry Configuration

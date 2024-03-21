@@ -1,5 +1,4 @@
 from test import (
-    GIVEN_127_length_name,
     GIVEN_129_length_name,
     GIVEN_fake_name,
     GIVEN_key_with_invalid_character_in_key,

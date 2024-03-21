@@ -5,6 +5,7 @@ use iroha_client::data_model::{prelude::*, transaction::WasmSmartContract};
 use parity_scale_codec::Encode as _;
 use serde_json::json;
 use test_network::*;
+use test_samples::{ALICE_ID, BOB_ID};
 
 /// Return string containing exported memory, dummy allocator, and
 /// host function imports which you can embed into your wasm module.
@@ -196,7 +197,7 @@ fn produce_multiple_events() -> Result<()> {
     init_receiver.recv()?;
 
     // Registering role
-    let alice_id = AccountId::from_str("alice@wonderland")?;
+    let alice_id = ALICE_ID.clone();
     let role_id = RoleId::from_str("TEST_ROLE")?;
     let token_1 = PermissionToken::new(
         "CanRemoveKeyValueInAccount".parse()?,
@@ -213,7 +214,7 @@ fn produce_multiple_events() -> Result<()> {
     client.submit_all_blocking(instructions)?;
 
     // Grants role to Bob
-    let bob_id = AccountId::from_str("bob@wonderland")?;
+    let bob_id = BOB_ID.clone();
     let grant_role = Grant::role(role_id.clone(), bob_id.clone());
     client.submit_blocking(grant_role)?;
 

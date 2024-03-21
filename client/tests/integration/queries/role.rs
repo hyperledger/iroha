@@ -7,6 +7,7 @@ use iroha_client::{
 };
 use serde_json::json;
 use test_network::*;
+use test_samples::ALICE_ID;
 
 fn create_role_ids() -> [RoleId; 5] {
     [
@@ -123,7 +124,7 @@ fn find_roles_by_account_id() -> Result<()> {
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let role_ids = create_role_ids();
-    let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let alice_id = ALICE_ID.clone();
 
     // Registering roles
     let register_roles = role_ids

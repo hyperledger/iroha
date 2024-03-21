@@ -123,41 +123,21 @@ class Config:
         return {**os.environ, **self._envs}
 
     @property
-    def account_id(self):
-        """
-        Get the ACCOUNT_ID configuration value.
-
-        :return: The ACCOUNT_ID.
-        :rtype: str
-        """
-        return self._config["account"]["id"]
-
-    @property
-    def account_name(self):
-        """
-        Get the account name from the ACCOUNT_ID configuration value.
-
-        :return: The account name.
-        :rtype: str
-        """
-        return self.account_id.split("@")[0]
-
-    @property
     def account_domain(self):
         """
-        Get the account domain from the ACCOUNT_ID configuration value.
+        Get the ACCOUNT_DOMAIN configuration value.
 
         :return: The account domain.
         :rtype: str
         """
-        return self.account_id.split("@")[1]
+        return self._config["account"]["domain_id"]
 
     @property
-    def public_key(self):
+    def account_signatory(self):
         """
         Get the PUBLIC_KEY configuration value.
 
-        :return: The public key.
+        :return: The account signatory.
         :rtype: str
         """
-        return self._config["account"]["public_key"].split("ed0120")[1]
+        return self._config["account"]["public_key"]

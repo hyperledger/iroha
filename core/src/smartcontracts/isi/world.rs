@@ -90,7 +90,7 @@ pub mod isi {
 
             if domain_id == *iroha_genesis::GENESIS_DOMAIN_ID {
                 return Err(InstructionExecutionError::InvariantViolation(
-                    "Not allowed to register `genesis` domain".to_owned(),
+                    "Not allowed to register genesis domain".to_owned(),
                 ));
             }
 

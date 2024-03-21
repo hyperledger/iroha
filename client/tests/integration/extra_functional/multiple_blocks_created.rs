@@ -3,7 +3,6 @@ use std::thread;
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
-    crypto::KeyPair,
     data_model::{
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
         prelude::*,
@@ -11,6 +10,7 @@ use iroha_client::{
 };
 use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
+use test_samples::gen_account_in;
 
 const N_BLOCKS: usize = 510;
 
@@ -29,9 +29,8 @@ fn long_multiple_blocks_created() -> Result<()> {
     )?;
 
     let create_domain: InstructionBox = Register::domain(Domain::new("domain".parse()?)).into();
-    let account_id: AccountId = "account@domain".parse()?;
-    let (public_key, _) = KeyPair::random().into_parts();
-    let create_account = Register::account(Account::new(account_id.clone(), public_key)).into();
+    let (account_id, _account_keypair) = gen_account_in("domain");
+    let create_account = Register::account(Account::new(account_id.clone())).into();
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();

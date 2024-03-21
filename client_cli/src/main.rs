@@ -504,9 +504,6 @@ mod account {
     pub enum Args {
         /// Register account
         Register(Register),
-        /// Set something in account
-        #[command(subcommand)]
-        Set(Set),
         /// List accounts
         #[command(subcommand)]
         List(List),
@@ -520,7 +517,6 @@ mod account {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             match_all!((self, context), {
                 Args::Register,
-                Args::Set,
                 Args::List,
                 Args::Grant,
                 Args::ListPermissions,
@@ -534,71 +530,16 @@ mod account {
         /// Id of account in form `name@domain_name`
         #[arg(short, long)]
         pub id: AccountId,
-        /// Its public key
-        #[arg(short, long)]
-        pub key: PublicKey,
         #[command(flatten)]
         pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self { id, key, metadata } = self;
-            let create_account =
-                iroha_client::data_model::isi::Register::account(Account::new(id, key));
+            let Self { id, metadata } = self;
+            let create_account = iroha_client::data_model::isi::Register::account(Account::new(id));
             submit([create_account], metadata.load()?, context)
                 .wrap_err("Failed to register account")
-        }
-    }
-
-    /// Set subcommand of account
-    #[derive(clap::Subcommand, Debug)]
-    pub enum Set {
-        /// Signature condition
-        SignatureCondition(SignatureCondition),
-    }
-
-    impl RunArgs for Set {
-        fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            match_all!((self, context), { Set::SignatureCondition })
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct Signature(SignatureCheckCondition);
-
-    impl FromStr for Signature {
-        type Err = Error;
-        fn from_str(s: &str) -> Result<Self> {
-            let err_msg = format!("Failed to open the signature condition file {}", &s);
-            let deser_err_msg =
-                format!("Failed to deserialize signature condition from file {}", &s);
-            let content = fs::read_to_string(s).wrap_err(err_msg)?;
-            let condition: SignatureCheckCondition =
-                json5::from_str(&content).wrap_err(deser_err_msg)?;
-            Ok(Self(condition))
-        }
-    }
-
-    /// Set accounts signature condition
-    #[derive(clap::Args, Debug)]
-    pub struct SignatureCondition {
-        /// Signature condition file
-        pub condition: Signature,
-        #[command(flatten)]
-        pub metadata: MetadataArgs,
-    }
-
-    impl RunArgs for SignatureCondition {
-        fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let account_id = context.configuration().account_id.clone();
-            let Self {
-                condition: Signature(condition),
-                metadata,
-            } = self;
-            let mint_box = Mint::account_signature_check_condition(condition, account_id);
-            submit([mint_box], metadata.load()?, context)
-                .wrap_err("Failed to set signature condition")
         }
     }
 

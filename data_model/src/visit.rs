@@ -1,7 +1,6 @@
 //! Visitor that visits every node in Iroha syntax tree
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
-use iroha_crypto::PublicKey;
 use iroha_primitives::numeric::Numeric;
 
 use crate::{isi::Log, prelude::*};
@@ -49,7 +48,6 @@ pub trait Visit {
         visit_find_account_by_id(&FindAccountById),
         visit_find_account_key_value_by_id_and_key(&FindAccountKeyValueByIdAndKey),
         visit_find_accounts_by_domain_id(&FindAccountsByDomainId),
-        visit_find_accounts_by_name(&FindAccountsByName),
         visit_find_accounts_with_asset(&FindAccountsWithAsset),
         visit_find_all_accounts(&FindAllAccounts),
         visit_find_all_active_trigger_ids(&FindAllActiveTriggerIds),
@@ -108,12 +106,9 @@ pub trait Visit {
 
         // Visit MintBox
         visit_mint_asset_numeric(&Mint<Numeric, Asset>),
-        visit_mint_account_public_key(&Mint<PublicKey, Account>),
-        visit_mint_account_signature_check_condition(&Mint<SignatureCheckCondition, Account>),
         visit_mint_trigger_repetitions(&Mint<u32, Trigger>),
 
         // Visit BurnBox
-        visit_burn_account_public_key(&Burn<PublicKey, Account>),
         visit_burn_asset_numeric(&Burn<Numeric, Asset>),
         visit_burn_trigger_repetitions(&Burn<u32, Trigger>),
 
@@ -178,7 +173,6 @@ pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, qu
         visit_find_account_by_id(FindAccountById),
         visit_find_account_key_value_by_id_and_key(FindAccountKeyValueByIdAndKey),
         visit_find_accounts_by_domain_id(FindAccountsByDomainId),
-        visit_find_accounts_by_name(FindAccountsByName),
         visit_find_accounts_with_asset(FindAccountsWithAsset),
         visit_find_all_accounts(FindAllAccounts),
         visit_find_all_active_trigger_ids(FindAllActiveTriggerIds),
@@ -304,12 +298,6 @@ pub fn visit_unregister<V: Visit + ?Sized>(
 
 pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &MintBox) {
     match isi {
-        MintBox::Account(mint_account) => match mint_account {
-            AccountMintBox::PublicKey(obj) => visitor.visit_mint_account_public_key(authority, obj),
-            AccountMintBox::SignatureCheckCondition(obj) => {
-                visitor.visit_mint_account_signature_check_condition(authority, obj)
-            }
-        },
         MintBox::Asset(obj) => visitor.visit_mint_asset_numeric(authority, obj),
         MintBox::TriggerRepetitions(obj) => visitor.visit_mint_trigger_repetitions(authority, obj),
     }
@@ -317,7 +305,6 @@ pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
 
 pub fn visit_burn<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &BurnBox) {
     match isi {
-        BurnBox::AccountPublicKey(obj) => visitor.visit_burn_account_public_key(authority, obj),
         BurnBox::Asset(obj) => visitor.visit_burn_asset_numeric(authority, obj),
         BurnBox::TriggerRepetitions(obj) => visitor.visit_burn_trigger_repetitions(authority, obj),
     }
@@ -400,9 +387,6 @@ leaf_visitors! {
     // Instruction visitors
     visit_register_account(&Register<Account>),
     visit_unregister_account(&Unregister<Account>),
-    visit_mint_account_public_key(&Mint<PublicKey, Account>),
-    visit_burn_account_public_key(&Burn<PublicKey, Account>),
-    visit_mint_account_signature_check_condition(&Mint<SignatureCheckCondition, Account>),
     visit_set_account_key_value(&SetKeyValue<Account>),
     visit_remove_account_key_value(&RemoveKeyValue<Account>),
     visit_register_asset(&Register<Asset>),
@@ -450,7 +434,6 @@ leaf_visitors! {
     visit_find_account_by_id(&FindAccountById),
     visit_find_account_key_value_by_id_and_key(&FindAccountKeyValueByIdAndKey),
     visit_find_accounts_by_domain_id(&FindAccountsByDomainId),
-    visit_find_accounts_by_name(&FindAccountsByName),
     visit_find_accounts_with_asset(&FindAccountsWithAsset),
     visit_find_all_accounts(&FindAllAccounts),
     visit_find_all_active_trigger_ids(&FindAllActiveTriggerIds),

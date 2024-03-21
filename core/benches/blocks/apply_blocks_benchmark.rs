@@ -14,7 +14,7 @@ fn apply_blocks(c: &mut Criterion) {
     group.significance_level(0.1).sample_size(10);
     group.bench_function("apply_blocks", |b| {
         b.iter_batched_ref(
-            || StateApplyBlocks::setup(rt.handle()).expect("Failed to setup benchmark"),
+            || StateApplyBlocks::setup(rt.handle()),
             |bench| {
                 StateApplyBlocks::measure(bench).expect("Failed to execute benchmark");
             },

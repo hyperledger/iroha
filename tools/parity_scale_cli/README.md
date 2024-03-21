@@ -63,6 +63,7 @@ Algorithm
 </details>
 
 ## `scale-to-json` and `json-to-scale`
+
 Both commands by default read data from `stdin` and print result to `stdout`.
 There are flags `--input` and `--output` which can be used to read/write from files instead.
 
@@ -85,7 +86,7 @@ These commands require `--type` argument. If data type is not known, [`scale-to-
 * Encode the `NewAccount` data type from the `samples/account.json`:
 
   ```bash
-  ./target/debug/parity_scale_cli json-to-scale --input tools/parity_scale_cli/samples/domain.bin --output result.bin --type NewAccount
+  ./target/debug/parity_scale_cli json-to-scale --input tools/parity_scale_cli/samples/account.json --output result.bin --type NewAccount
   ```
 
 ## `scale-to-rust`

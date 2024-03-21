@@ -1,11 +1,10 @@
-use std::str::FromStr;
-
 use eyre::Result;
 use iroha_client::{
     client::{self, Client},
     data_model::prelude::*,
 };
 use test_network::*;
+use test_samples::ALICE_ID;
 
 #[test]
 fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
@@ -13,7 +12,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 

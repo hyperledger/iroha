@@ -2,7 +2,7 @@
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicBool;
-use std::{collections::BTreeMap, path::Path, sync::Arc, thread};
+use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc, thread};
 
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
@@ -26,6 +26,7 @@ use iroha_primitives::{
 use rand::{seq::IteratorRandom, thread_rng};
 use serde_json::json;
 use tempfile::TempDir;
+use test_samples::{ALICE_ID, ALICE_KEYPAIR, PEER_KEYPAIR, SAMPLE_GENESIS_ACCOUNT_KEYPAIR};
 use tokio::{
     runtime::{self, Runtime},
     task::{self, JoinHandle},
@@ -48,17 +49,22 @@ pub fn get_chain_id() -> ChainId {
     ChainId::from("0")
 }
 
-/// Get a standardised key-pair from the hard-coded literals.
-pub fn get_key_pair() -> KeyPair {
-    KeyPair::new(
-        iroha_crypto::PublicKey::from_str(
-            "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
-        ).unwrap(),
-        iroha_crypto::PrivateKey::from_hex(
-            iroha_crypto::Algorithm::Ed25519,
-            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
-        ).unwrap()
-    ).unwrap()
+/// Get a key pair of a common signatory in the test network
+pub fn get_key_pair(signatory: Signatory) -> KeyPair {
+    match signatory {
+        Signatory::Peer => &PEER_KEYPAIR,
+        Signatory::Genesis => &SAMPLE_GENESIS_ACCOUNT_KEYPAIR,
+        Signatory::Alice => &ALICE_KEYPAIR,
+    }
+    .deref()
+    .clone()
+}
+
+/// A common signatory in the test network
+pub enum Signatory {
+    Peer,
+    Genesis,
+    Alice,
 }
 
 /// Trait used to differentiate a test instance of `genesis`.
@@ -84,7 +90,6 @@ impl TestGenesis for GenesisNetwork {
 
         let rose_definition_id =
             AssetDefinitionId::from_str("rose#wonderland").expect("valid names");
-        let alice_id = AccountId::from_str("alice@wonderland").expect("valid names");
 
         let mint_rose_permission = PermissionToken::new(
             "CanMintAssetWithDefinition".parse().unwrap(),
@@ -117,7 +122,7 @@ impl TestGenesis for GenesisNetwork {
             upgrade_executor_permission,
         ] {
             first_transaction
-                .append_instruction(Grant::permission(permission, alice_id.clone()).into());
+                .append_instruction(Grant::permission(permission, ALICE_ID.clone()).into());
         }
 
         for isi in extra_isi.into_iter() {
@@ -781,7 +786,8 @@ impl TestConfig for Config {
         let mut layer = iroha::samples::get_user_config(
             &UniqueVec::new(),
             Some(get_chain_id()),
-            Some(get_key_pair()),
+            Some(get_key_pair(Signatory::Peer)),
+            Some(get_key_pair(Signatory::Genesis)),
         )
         .merge(RootPartial::from_env(&StdEnv).expect("test env variables should parse properly"));
 
@@ -811,7 +817,7 @@ impl TestClientConfig for ClientConfig {
     fn test(api_address: &SocketAddr) -> Self {
         iroha_client::samples::get_client_config(
             get_chain_id(),
-            get_key_pair().clone(),
+            get_key_pair(Signatory::Alice),
             format!("http://{api_address}")
                 .parse()
                 .expect("should be valid url"),

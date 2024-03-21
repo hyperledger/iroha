@@ -67,15 +67,12 @@ def GIVEN_registered_domain_with_uppercase_letter(GIVEN_registered_domain):
 @pytest.fixture()
 def GIVEN_registered_account(GIVEN_registered_domain, GIVEN_public_key):
     """Fixture to create an account."""
-    name = fake_name()
-    account = Account(
-        name=name, domain=GIVEN_registered_domain.name, public_key=GIVEN_public_key
-    )
+    account = Account(signatory=GIVEN_public_key, domain=GIVEN_registered_domain.name)
     with allure.step(
-        f'GIVEN the account "{name}" in the "{GIVEN_registered_domain.name}" domain'
+        f'GIVEN the account "{GIVEN_public_key}" in the "{GIVEN_registered_domain.name}" domain'
     ):
         client_cli.register().account(
-            account=account.name, domain=account.domain, key=account.public_key
+            signatory=account.signatory, domain=account.domain
         )
     return account
 
@@ -84,12 +81,11 @@ def GIVEN_registered_account(GIVEN_registered_domain, GIVEN_public_key):
 def GIVEN_currently_authorized_account():
     """Fixture to get the currently authorized account."""
     account: Account = Account(
-        name=config.account_name,
+        signatory=config.account_signatory,
         domain=config.account_domain,
-        public_key=config.public_key,
     )
     with allure.step(
-        f'GIVEN the currently authorized account "{account.name}" '
+        f'GIVEN the currently authorized account "{account.signatory}" '
         f'in the "{account.domain}" domain'
     ):
         return account
@@ -106,7 +102,7 @@ def GIVEN_currently_account_quantity_with_two_quantity_of_asset(
         value_type=GIVEN_numeric_value_type,
     )
     asset = Asset(
-        definition=asset_def, value="2", account=GIVEN_currently_authorized_account.name
+        definition=asset_def, value="2", account=GIVEN_currently_authorized_account
     )
     name = fake_name()
     with allure.step(
@@ -132,12 +128,14 @@ def GIVEN_numeric_asset_for_account(
 ):
     """Fixture to get an asset for a given account and domain with specified quantity."""
     account, domain = request.param.split("@")
-    account = Account(name=account, domain=domain)
+    account = Account(signatory=account, domain=domain)
 
     asset_def = AssetDefinition(
         name=GIVEN_fake_asset_name, domain=domain, value_type=GIVEN_numeric_value_type
     )
-    asset = Asset(definition=asset_def, value=GIVEN_numeric_value, account=account.name)
+    asset = Asset(
+        definition=asset_def, value=GIVEN_numeric_value, account=account.signatory
+    )
 
     with allure.step(
         f'GIVEN the asset_definition "{asset_def.name}" ' f'in the "{domain}" domain'
@@ -325,13 +323,6 @@ def GIVEN_128_length_name():
 def GIVEN_129_length_name():
     ident = generate_random_string_without_reserved_chars(129)
     with allure.step(f'GIVEN a name with 129 length "{ident}"'):
-        return ident
-
-
-@pytest.fixture()
-def GIVEN_127_length_name():
-    ident = generate_random_string_without_reserved_chars(127)
-    with allure.step(f'GIVEN a name with 127 length "{ident}"'):
         return ident
 
 

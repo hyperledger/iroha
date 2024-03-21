@@ -360,6 +360,7 @@ pub mod profiling {
     use super::*;
 
     /// Query params used to configure profile gathering
+    #[allow(clippy::unsafe_derive_deserialize)]
     #[derive(Serialize, Deserialize, Clone, Copy)]
     pub struct ProfileParams {
         /// How often to sample iroha

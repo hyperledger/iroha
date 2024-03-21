@@ -75,14 +75,16 @@ fn domain_registration_test(config: Config) -> Result<(), Error> {
 
 fn account_definition_test() -> Result<(), Error> {
     // #region account_definition_comparison
-    use iroha_client::data_model::prelude::AccountId;
+    use iroha_client::{crypto::KeyPair, data_model::prelude::AccountId};
 
-    // Create an `iroha_client::data_model::AccountId` instance
-    // with a DomainId instance and a Domain ID for an account
-    let longhand_account_id = AccountId::new("white_rabbit".parse()?, "looking_glass".parse()?);
-    let account_id: AccountId = "white_rabbit@looking_glass"
+    // Generate a new public key for a new account
+    let (public_key, _) = KeyPair::random().into_parts();
+    // Create an AccountId instance by providing a DomainId instance and the public key
+    let longhand_account_id = AccountId::new("looking_glass".parse()?, public_key.clone());
+    // Create an AccountId instance by parsing the serialized format "signatory@domain"
+    let account_id: AccountId = format!("{public_key}@looking_glass")
         .parse()
-        .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
+        .expect("Valid, because before @ is a valid public key and after @ is a valid name i.e. a string with no spaces or forbidden chars");
 
     // Check that two ways to define an account match
     assert_eq!(account_id, longhand_account_id);
@@ -109,19 +111,17 @@ fn account_registration_test(config: Config) -> Result<(), Error> {
     let iroha_client = Client::new(config);
 
     // #region register_account_create
-    // Create an AccountId instance by providing the account and domain name
-    let account_id: AccountId = "white_rabbit@looking_glass"
-        .parse()
-        .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
-    // #endregion register_account_create
-
-    // TODO: consider getting a key from white_rabbit
     // Generate a new public key for a new account
     let (public_key, _) = KeyPair::random().into_parts();
+    // Create an AccountId instance by parsing the serialized format "signatory@domain"
+    let account_id: AccountId = format!("{public_key}@looking_glass")
+        .parse()
+        .expect("Valid, because before @ is a valid public key and after @ is a valid name i.e. a string with no spaces or forbidden chars");
+    // #endregion register_account_create
 
     // #region register_account_generate
     // Generate a new account
-    let create_account = Register::account(Account::new(account_id, public_key));
+    let create_account = Register::account(Account::new(account_id));
     // #endregion register_account_generate
 
     // #region register_account_prepare_tx
@@ -147,6 +147,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
 
     use iroha_client::{
         client::Client,
+        crypto::KeyPair,
         data_model::prelude::{
             numeric, AccountId, AssetDefinition, AssetDefinitionId, AssetId, Mint, Register,
         },
@@ -171,10 +172,12 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
     iroha_client.submit(register_time)?;
     // #endregion register_asset_init_submit
 
-    // Create an account using the previously defined asset
-    let account_id: AccountId = "white_rabbit@looking_glass"
+    // Generate a new public key for a new account
+    let (public_key, _) = KeyPair::random().into_parts();
+    // Create an AccountId instance by parsing the serialized format "signatory@domain"
+    let account_id: AccountId = format!("{public_key}@looking_glass")
         .parse()
-        .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
+        .expect("Valid, because before @ is a valid public key and after @ is a valid name i.e. a string with no spaces or forbidden chars");
 
     // #region register_asset_mint_submit
     // Create a MintBox using a previous asset and account
@@ -205,8 +208,8 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
     // #region mint_asset_define_asset_account
     let roses = AssetDefinitionId::from_str("rose#wonderland")
         .expect("Valid, because the string contains no whitespace, has a single '#' character and is not empty after");
-    let alice: AccountId = "alice@wonderland".parse()
-        .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
+    let alice: AccountId = "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse()
+        .expect("Valid, because before @ is a valid public key and after @ is a valid name i.e. a string with no spaces or forbidden chars");
     // #endregion mint_asset_define_asset_account
 
     // Mint the Asset instance
@@ -222,11 +225,14 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
 
     // #region mint_asset_mint_alt
     // Mint the Asset instance (alternate syntax).
-    // The syntax is `asset_name#asset_domain#account_name@account_domain`,
+    // The syntax is `asset_name#asset_domain#account_signatory@account_domain`,
     // or `roses.to_string() + "#" + alice.to_string()`.
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
-    let mint_roses_alt = Mint::asset_numeric(10u32, "rose##alice@wonderland".parse()?);
+    let alice_roses: AssetId =
+        "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+            .parse()?;
+    let mint_roses_alt = Mint::asset_numeric(10u32, alice_roses);
     // #endregion mint_asset_mint_alt
 
     // #region mint_asset_submit_tx_alt
@@ -256,8 +262,8 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
     // Define the instances of an Asset and Account
     let roses = AssetDefinitionId::from_str("rose#wonderland")
         .expect("Valid, because the string contains no whitespace, has a single '#' character and is not empty after");
-    let alice: AccountId = "alice@wonderland".parse()
-        .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
+    let alice: AccountId = "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse()
+        .expect("Valid, because before @ is a valid public key and after @ is a valid name i.e. a string with no spaces or forbidden chars");
     // #endregion burn_asset_define_asset_account
 
     // #region burn_asset_burn
@@ -273,11 +279,14 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
 
     // #region burn_asset_burn_alt
     // Burn the Asset instance (alternate syntax).
-    // The syntax is `asset_name#asset_domain#account_name@account_domain`,
+    // The syntax is `asset_name#asset_domain#account_signatory@account_domain`,
     // or `roses.to_string() + "#" + alice.to_string()`.
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
-    let burn_roses_alt = Burn::asset_numeric(10u32, "rose##alice@wonderland".parse()?);
+    let alice_roses: AssetId =
+        "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+            .parse()?;
+    let burn_roses_alt = Burn::asset_numeric(10u32, alice_roses);
     // #endregion burn_asset_burn_alt
 
     // #region burn_asset_submit_tx_alt

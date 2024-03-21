@@ -19,7 +19,7 @@ def extract_hash(stdout):
     """
     Extracts a SHA-256 hash from the given string.
 
-    :param stdout: The  string from which to extract the hash.
+    :param stdout: The string from which to extract the hash.
     :return: The extracted hash if found, otherwise None.
     """
     if not isinstance(stdout, str) or not stdout.strip():
@@ -98,7 +98,7 @@ def generate_public_key():
             encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
         )
     ).decode()
-    return public_key
+    return "ed0120" + public_key.upper()
 
 
 def generate_random_string(length, allowed_chars):

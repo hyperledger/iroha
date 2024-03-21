@@ -8,9 +8,10 @@ use iroha_data_model::trigger::TriggerId;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use test_network::{
-    get_chain_id, wait_for_genesis_committed_with_max_retries, Peer as TestPeer, PeerBuilder,
-    TestClient, TestRuntime,
+    get_chain_id, get_key_pair, wait_for_genesis_committed_with_max_retries, Peer as TestPeer,
+    PeerBuilder, TestClient, TestRuntime,
 };
+use test_samples::gen_account_in;
 use tokio::runtime::Runtime;
 
 fn generate_genesis(num_triggers: u32) -> Result<RawGenesisBlock, Box<dyn std::error::Error>> {
@@ -23,7 +24,7 @@ fn generate_genesis(num_triggers: u32) -> Result<RawGenesisBlock, Box<dyn std::e
             .optimize()?
             .into_bytes()?;
     let wasm = WasmSmartContract::from_compiled(wasm);
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let (account_id, _account_keypair) = gen_account_in("wonderland");
 
     let build_trigger = |trigger_id: TriggerId| {
         Trigger::new(
@@ -55,13 +56,14 @@ fn generate_genesis(num_triggers: u32) -> Result<RawGenesisBlock, Box<dyn std::e
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut peer = <TestPeer>::new().expect("Failed to create peer");
+    let mut peer: TestPeer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
     let mut configuration = get_config(
         &unique_vec![peer.id.clone()],
         Some(chain_id.clone()),
-        Some(peer.key_pair.clone()),
+        Some(get_key_pair(test_network::Signatory::Peer)),
+        Some(get_key_pair(test_network::Signatory::Genesis)),
     );
 
     // Increase executor limits for large genesis

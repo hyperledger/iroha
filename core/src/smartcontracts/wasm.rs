@@ -74,7 +74,7 @@ mod import {
 
         use super::super::*;
 
-        pub(crate) trait ExecuteOperations<S> {
+        pub trait ExecuteOperations<S> {
             /// Execute `query` on host
             #[codec::wrap_trait_fn]
             fn execute_query(
@@ -1706,11 +1706,9 @@ impl<C: wasmtime::AsContextMut> GetExport for (&wasmtime::Instance, C) {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr as _;
-
-    use iroha_crypto::KeyPair;
     use iroha_data_model::query::{sorting::Sorting, Pagination};
     use parity_scale_codec::Encode;
+    use test_samples::gen_account_in;
     use tokio::test;
 
     use super::*;
@@ -1721,8 +1719,7 @@ mod tests {
 
     fn world_with_test_account(authority: &AccountId) -> World {
         let domain_id = authority.domain_id.clone();
-        let (public_key, _) = KeyPair::random().into_parts();
-        let account = Account::new(authority.clone(), public_key).build(authority);
+        let account = Account::new(authority.clone()).build(authority);
         let mut domain = Domain::new(domain_id).build(authority);
         assert!(domain.add_account(account).is_none());
 
@@ -1775,17 +1772,14 @@ mod tests {
 
     #[test]
     async fn execute_instruction_exported() -> Result<(), Error> {
-        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
+        let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
 
         let isi_hex = {
-            let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = Register::account(Account::new(
-                new_authority,
-                KeyPair::random().into_parts().0,
-            ));
+            let (new_authority, _new_authority_keypair) = gen_account_in("wonderland");
+            let register_isi = Register::account(Account::new(new_authority));
             encode_hex(InstructionBox::from(register_isi))
         };
 
@@ -1820,7 +1814,7 @@ mod tests {
 
     #[test]
     async fn execute_query_exported() -> Result<(), Error> {
-        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
+        let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
@@ -1865,18 +1859,15 @@ mod tests {
 
     #[test]
     async fn instruction_limit_reached() -> Result<(), Error> {
-        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
+        let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
 
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
 
         let isi_hex = {
-            let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = Register::account(Account::new(
-                new_authority,
-                KeyPair::random().into_parts().0,
-            ));
+            let (new_authority, _new_authority_keypair) = gen_account_in("wonderland");
+            let register_isi = Register::account(Account::new(new_authority));
             encode_hex(InstructionBox::from(register_isi))
         };
 
@@ -1918,17 +1909,14 @@ mod tests {
 
     #[test]
     async fn instructions_not_allowed() -> Result<(), Error> {
-        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
+        let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
 
         let isi_hex = {
-            let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = Register::account(Account::new(
-                new_authority,
-                KeyPair::random().into_parts().0,
-            ));
+            let (new_authority, _new_authority_keypair) = gen_account_in("wonderland");
+            let register_isi = Register::account(Account::new(new_authority));
             encode_hex(InstructionBox::from(register_isi))
         };
 
@@ -1970,7 +1958,7 @@ mod tests {
 
     #[test]
     async fn queries_not_allowed() -> Result<(), Error> {
-        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
+        let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
@@ -2012,7 +2000,7 @@ mod tests {
 
     #[test]
     async fn trigger_related_func_is_not_linked_for_smart_contract() -> Result<(), Error> {
-        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
+        let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
