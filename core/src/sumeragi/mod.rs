@@ -34,7 +34,7 @@ use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, Ne
 #[derive(Clone)]
 pub struct SumeragiHandle {
     /// Counter for amount of dropped messages by sumeragi
-    dropped_messages: iroha_telemetry::metrics::IntCounter,
+    dropped_messages_metric: iroha_telemetry::metrics::DroppedMessagesCounter,
     _thread_handle: Arc<ThreadHandler>,
     // Should be dropped after `_thread_handle` to prevent sumeargi thread from panicking
     control_message_sender: mpsc::SyncSender<ControlFlowMessage>,
@@ -45,7 +45,7 @@ impl SumeragiHandle {
     /// Deposit a sumeragi control flow network message.
     pub fn incoming_control_flow_message(&self, msg: ControlFlowMessage) {
         if let Err(error) = self.control_message_sender.try_send(msg) {
-            self.dropped_messages.inc();
+            self.dropped_messages_metric.inc();
             error!(
                 ?error,
                 "This peer is faulty. \
@@ -57,7 +57,7 @@ impl SumeragiHandle {
     /// Deposit a sumeragi network message.
     pub fn incoming_block_message(&self, msg: BlockMessage) {
         if let Err(error) = self.message_sender.try_send(msg) {
-            self.dropped_messages.inc();
+            self.dropped_messages_metric.inc();
             error!(
                 ?error,
                 "This peer is faulty. \
@@ -128,7 +128,11 @@ impl SumeragiHandle {
             network,
             genesis_network,
             block_count: BlockCount(block_count),
-            dropped_messages,
+            sumeragi_metrics:
+                SumeragiMetrics {
+                    view_changes,
+                    dropped_messages,
+                },
         }: SumeragiStartArgs,
     ) -> SumeragiHandle {
         let (control_message_sender, control_message_receiver) = mpsc::sync_channel(100);
@@ -204,6 +208,7 @@ impl SumeragiHandle {
             debug_force_soft_fork,
             current_topology,
             transaction_cache: Vec::new(),
+            view_changes_metric: view_changes,
         };
 
         // Oneshot channel to allow forcefully stopping the thread.
@@ -227,7 +232,7 @@ impl SumeragiHandle {
 
         let thread_handle = ThreadHandler::new(Box::new(shutdown), thread_handle);
         SumeragiHandle {
-            dropped_messages,
+            dropped_messages_metric: dropped_messages,
             control_message_sender,
             message_sender,
             _thread_handle: Arc::new(thread_handle),
@@ -295,7 +300,15 @@ pub struct SumeragiStartArgs {
     pub network: IrohaNetwork,
     pub genesis_network: GenesisWithPubKey,
     pub block_count: BlockCount,
-    pub dropped_messages: iroha_telemetry::metrics::IntCounter,
+    pub sumeragi_metrics: SumeragiMetrics,
+}
+
+/// Relevant sumeragi metrics
+pub struct SumeragiMetrics {
+    /// Number of view changes in current round
+    pub view_changes: iroha_telemetry::metrics::ViewChangesGauge,
+    /// Amount of dropped messages by sumeragi
+    pub dropped_messages: iroha_telemetry::metrics::DroppedMessagesCounter,
 }
 
 /// Optional genesis paired with genesis public key for verification

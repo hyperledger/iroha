@@ -47,6 +47,8 @@ pub struct Sumeragi {
     /// sumeragi is more dependent on the code that is internal to the
     /// subsystem.
     pub transaction_cache: Vec<AcceptedTransaction>,
+    /// Metrics for reporting number of view changes in current round
+    pub view_changes_metric: iroha_telemetry::metrics::ViewChangesGauge,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -919,6 +921,7 @@ pub(crate) fn run(
             &mut last_view_change_time,
             &mut view_change_time,
         );
+        sumeragi.view_changes_metric.set(old_view_change_index);
 
         if let Some(message) = {
             let (msg, sleep) =
@@ -999,6 +1002,7 @@ pub(crate) fn run(
             &mut last_view_change_time,
             &mut view_change_time,
         );
+        sumeragi.view_changes_metric.set(old_view_change_index);
 
         sumeragi.process_message_independent(
             &state,
