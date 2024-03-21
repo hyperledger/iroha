@@ -3,7 +3,7 @@
 use std::{ops::Deref, time::Duration};
 
 use parity_scale_codec::{Compact, Decode, Encode};
-use prometheus::{
+pub use prometheus::{
     core::{AtomicU64, GenericGauge, GenericGaugeVec},
     Encoder, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry,
 };

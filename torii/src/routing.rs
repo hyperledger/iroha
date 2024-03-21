@@ -9,8 +9,6 @@
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
 use iroha_config::client_api::ConfigDTO;
-#[cfg(feature = "telemetry")]
-use iroha_core::sumeragi::SumeragiHandle;
 use iroha_core::{query::store::LiveQueryStoreHandle, smartcontracts::query::ValidQueryRequest};
 use iroha_data_model::{
     block::{
@@ -296,16 +294,16 @@ pub async fn handle_version(state: Arc<State>) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
-fn update_metrics_gracefully(sumeragi: &SumeragiHandle) {
-    if let Err(error) = sumeragi.update_metrics() {
-        iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
+fn update_metrics_gracefully(metrics_reporter: &MetricsReporter) {
+    if let Err(error) = metrics_reporter.update_metrics() {
+        iroha_logger::error!(%error, "Error while calling `metrics_reporter::update_metrics`.");
     }
 }
 
 #[cfg(feature = "telemetry")]
-pub fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
-    update_metrics_gracefully(sumeragi);
-    sumeragi
+pub fn handle_metrics(metrics_reporter: &MetricsReporter) -> Result<String> {
+    update_metrics_gracefully(metrics_reporter);
+    metrics_reporter
         .metrics()
         .try_to_string()
         .map_err(Error::Prometheus)
@@ -314,14 +312,14 @@ pub fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unnecessary_wraps)]
 pub fn handle_status(
-    sumeragi: &SumeragiHandle,
+    metrics_reporter: &MetricsReporter,
     accept: Option<impl AsRef<str>>,
     tail: &warp::path::Tail,
 ) -> Result<Response> {
     use eyre::ContextCompat;
 
-    update_metrics_gracefully(sumeragi);
-    let status = Status::from(&sumeragi.metrics());
+    update_metrics_gracefully(metrics_reporter);
+    let status = Status::from(&metrics_reporter.metrics());
 
     let tail = tail.as_str();
     if tail.is_empty() {

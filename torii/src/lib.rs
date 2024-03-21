@@ -15,7 +15,7 @@ use std::{
 use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_config::parameters::actual::Torii as Config;
 #[cfg(feature = "telemetry")]
-use iroha_core::sumeragi::SumeragiHandle;
+use iroha_core::metrics::MetricsReporter;
 use iroha_core::{
     kiso::{Error as KisoError, KisoHandle},
     kura::Kura,
@@ -50,13 +50,13 @@ pub struct Torii {
     queue: Arc<Queue>,
     events: EventsSender,
     notify_shutdown: Arc<Notify>,
-    #[cfg(feature = "telemetry")]
-    sumeragi: SumeragiHandle,
     query_service: LiveQueryStoreHandle,
     kura: Arc<Kura>,
     transaction_max_content_length: u64,
     address: SocketAddr,
     state: Arc<State>,
+    #[cfg(feature = "telemetry")]
+    metrics_reporter: MetricsReporter,
 }
 
 impl Torii {
@@ -69,10 +69,10 @@ impl Torii {
         queue: Arc<Queue>,
         events: EventsSender,
         notify_shutdown: Arc<Notify>,
-        #[cfg(feature = "telemetry")] sumeragi: SumeragiHandle,
         query_service: LiveQueryStoreHandle,
         kura: Arc<Kura>,
         state: Arc<State>,
+        #[cfg(feature = "telemetry")] metrics_reporter: MetricsReporter,
     ) -> Self {
         Self {
             chain_id: Arc::new(chain_id),
@@ -80,11 +80,11 @@ impl Torii {
             queue,
             events,
             notify_shutdown,
-            #[cfg(feature = "telemetry")]
-            sumeragi,
             query_service,
             kura,
             state,
+            #[cfg(feature = "telemetry")]
+            metrics_reporter,
             address: config.address,
             transaction_max_content_length: config.max_content_len_bytes,
         }
@@ -108,21 +108,23 @@ impl Torii {
         #[cfg(feature = "telemetry")]
         let get_router = get_router
             .or(warp::path(uri::STATUS)
-                .and(add_state!(self.sumeragi.clone()))
+                .and(add_state!(self.metrics_reporter.clone()))
                 .and(warp::header::optional(warp::http::header::ACCEPT.as_str()))
                 .and(warp::path::tail())
-                .and_then(|sumeragi, accept: Option<String>, tail| async move {
-                    Ok::<_, Infallible>(crate::utils::WarpResult(routing::handle_status(
-                        &sumeragi,
-                        accept.as_ref(),
-                        &tail,
-                    )))
-                }))
+                .and_then(
+                    |metrics_reporter, accept: Option<String>, tail| async move {
+                        Ok::<_, Infallible>(crate::utils::WarpResult(routing::handle_status(
+                            &metrics_reporter,
+                            accept.as_ref(),
+                            &tail,
+                        )))
+                    },
+                ))
             .or(warp::path(uri::METRICS)
-                .and(add_state!(self.sumeragi))
-                .and_then(|sumeragi| async move {
+                .and(add_state!(self.metrics_reporter))
+                .and_then(|metrics_reporter| async move {
                     Ok::<_, Infallible>(crate::utils::WarpResult(routing::handle_metrics(
-                        &sumeragi,
+                        &metrics_reporter,
                     )))
                 }))
             .or(warp::path(uri::API_VERSION)
