@@ -36,6 +36,8 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use iroha::is_colouring_supported;
 
     use super::*;

@@ -38,7 +38,6 @@ force_soft_fork = true
 [logger]
 level = "TRACE"
 format = "compact"
-tokio_console_address = "127.0.0.1:5555"
 
 [queue]
 capacity = 65536

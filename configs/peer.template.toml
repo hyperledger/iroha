@@ -42,7 +42,6 @@
 [logger]
 # level = "INFO"
 # format = "full"
-# tokio_console_address = "127.0.0.1:5555"
 
 ## Transactions Queue
 [queue]

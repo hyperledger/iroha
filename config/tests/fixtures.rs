@@ -114,7 +114,6 @@ fn minimal_config_snapshot() -> Result<()> {
             logger: Logger {
                 level: INFO,
                 format: Full,
-                tokio_console_address: 127.0.0.1:5555,
             },
             queue: Queue {
                 capacity: 65536,
@@ -128,7 +127,9 @@ fn minimal_config_snapshot() -> Result<()> {
                 store_dir: "./storage/snapshot",
             },
             telemetry: None,
-            dev_telemetry: None,
+            dev_telemetry: DevTelemetry {
+                out_file: None,
+            },
             chain_wide: ChainWide {
                 max_transactions_in_block: 512,
                 block_time: 2s,
@@ -372,7 +373,6 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 format: Some(
                     Pretty,
                 ),
-                tokio_console_address: None,
             },
             queue: QueuePartial {
                 capacity: None,
@@ -494,7 +494,6 @@ fn multiple_extends_works() -> Result<()> {
             format: Some(
                 Compact,
             ),
-            tokio_console_address: None,
         }"#]];
     expected.assert_eq(&format!("{layer:#?}"));
 

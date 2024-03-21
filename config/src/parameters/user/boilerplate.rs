@@ -555,7 +555,6 @@ pub struct TelemetryPartial {
 #[serde(deny_unknown_fields, default)]
 pub struct TelemetryDevPartial {
     pub out_file: UserField<PathBuf>,
-    pub tokio_console_address: UserField<SocketAddr>,
 }
 
 impl UnwrapPartial for TelemetryDevPartial {
