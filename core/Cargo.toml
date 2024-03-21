@@ -18,15 +18,10 @@ categories.workspace = true
 workspace = true
 
 [features]
-default = ["cli", "telemetry"]
+default = ["telemetry"]
 
 # Support lightweight telemetry, including diagnostics
 telemetry = []
-# Support the included CLI
-cli = []
-# Support developer-specific telemetry.
-# Should not be enabled on production builds.
-dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry"]
 # Support Prometheus metrics. See https://prometheus.io/.
 expensive-telemetry = ["iroha_telemetry/metric-instrumentation"]
 # Profiler integration for wasmtime
@@ -109,8 +104,8 @@ path = "benches/blocks/validate_blocks_oneshot.rs"
 
 [package.metadata.cargo-all-features]
 denylist = [
-"schema-endpoint",
-"telemetry",
-"test-network"
+    "schema-endpoint",
+    "telemetry",
+    "test-network"
 ]
 skip_optional_dependencies = true

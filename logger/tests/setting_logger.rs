@@ -1,13 +1,13 @@
-use iroha_logger::{init_global, Config};
+use iroha_logger::{init_global, Config, InitConfig};
 
 #[tokio::test]
 async fn setting_logger_twice_fails() {
     let cfg = Config::default();
 
-    let first = init_global(&cfg, false);
+    let first = init_global(InitConfig::new(cfg, false));
     assert!(first.is_ok());
 
-    let second = init_global(&cfg, false);
+    let second = init_global(InitConfig::new(cfg, false));
     assert!(second.is_err());
 }
 

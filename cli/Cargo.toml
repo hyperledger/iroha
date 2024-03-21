@@ -24,7 +24,9 @@ default = ["telemetry", "schema-endpoint"]
 telemetry = ["iroha_telemetry", "iroha_core/telemetry", "iroha_torii/telemetry"]
 # Support developer-specific telemetry.
 # Should not be enabled on production builds.
-dev-telemetry = ["iroha_core/dev-telemetry", "iroha_telemetry"]
+# Tokio Console is configured via ENV:
+#   https://docs.rs/console-subscriber/0.2.0/console_subscriber/struct.Builder.html#method.with_default_env
+dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry", "iroha_logger/tokio-console"]
 # Support schema generation from the `schema` endpoint in the local binary.
 # Useful for debugging issues with decoding in SDKs.
 schema-endpoint = ["iroha_torii/schema"]
@@ -79,8 +81,8 @@ vergen = { workspace = true, features = ["cargo"] }
 
 [package.metadata.cargo-all-features]
 denylist = [
-  "schema-endpoint",
-  "telemetry",
-  "test-network",
+    "schema-endpoint",
+    "telemetry",
+    "test-network",
 ]
 skip_optional_dependencies = true

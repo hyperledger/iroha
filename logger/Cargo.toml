@@ -21,7 +21,7 @@ tracing-core = "0.1.31"
 tracing-futures = { version = "0.2.5", default-features = false, features = ["std-future", "std"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi", "json"] }
 tokio = { workspace = true, features = ["sync", "rt", "macros"] }
-console-subscriber =  { version = "0.2.0", optional = true }
+console-subscriber = { version = "0.2.0", optional = true }
 once_cell = { workspace = true }
 derive_more = { workspace = true }
 tracing-error = "0.2.0"
@@ -32,6 +32,9 @@ tokio = { workspace = true, features = ["macros", "time", "rt"] }
 
 
 [features]
+# When this feature is enabled, tokio console will be started anyway.
+# Configured via ENV:
+#   https://docs.rs/console-subscriber/0.2.0/console_subscriber/struct.Builder.html#method.with_default_env
 tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 # Workaround to avoid activating `tokio-console` with `--all-features` flag, because `tokio-console` require `tokio_unstable` rustc flag
 no-tokio-console = []

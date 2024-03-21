@@ -1,53 +1,9 @@
 //! Iroha peer command-line interface.
-use std::{env, path::PathBuf};
+use std::env;
 
 use clap::Parser;
 use color_eyre::eyre::Result;
-
-fn is_colouring_supported() -> bool {
-    supports_color::on(supports_color::Stream::Stdout).is_some()
-}
-
-fn default_terminal_colors_str() -> clap::builder::OsStr {
-    is_colouring_supported().to_string().into()
-}
-
-/// Iroha peer Command-Line Interface.
-#[derive(Parser, Debug)]
-#[command(name = "iroha", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
-struct Args {
-    /// Path to the configuration file
-    #[arg(long, short, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
-    config: Option<PathBuf>,
-    /// Whether to enable ANSI colored output or not
-    ///
-    /// By default, Iroha determines whether the terminal supports colors or not.
-    ///
-    /// In order to disable this flag explicitly, pass `--terminal-colors=false`.
-    #[arg(
-        long,
-        env,
-        default_missing_value("true"),
-        default_value(default_terminal_colors_str()),
-        action(clap::ArgAction::Set),
-        require_equals(true),
-        num_args(0..=1),
-    )]
-    terminal_colors: bool,
-    /// Whether the current peer should submit the genesis block or not
-    ///
-    /// Only one peer in the network should submit the genesis block.
-    ///
-    /// This argument must be set alongside with `genesis.file` and `genesis.private_key`
-    /// configuration options. If not, Iroha will exit with an error.
-    ///
-    /// In case when the network consists only of this one peer, i.e. the amount of trusted
-    /// peers in the configuration (`sumeragi.trusted_peers`) is less than 2, this peer must
-    /// submit the genesis, since there are no other peers who can provide it. In this case, Iroha
-    /// will exit with an error if `--submit-genesis` is not set.
-    #[arg(long)]
-    submit_genesis: bool,
-}
+use iroha::Args;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -57,8 +13,8 @@ async fn main() -> Result<()> {
         color_eyre::install()?;
     }
 
-    let (config, genesis) = iroha::read_config_and_genesis(args.config, args.submit_genesis)?;
-    let logger = iroha_logger::init_global(&config.logger, args.terminal_colors)?;
+    let (config, logger_config, genesis) = iroha::read_config_and_genesis(&args)?;
+    let logger = iroha_logger::init_global(logger_config)?;
 
     iroha_logger::info!(
         version = env!("CARGO_PKG_VERSION"),
@@ -80,6 +36,8 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use iroha::is_colouring_supported;
+
     use super::*;
 
     #[test]

@@ -42,7 +42,7 @@ pub struct Root {
     pub queue: Queue,
     pub snapshot: Snapshot,
     pub telemetry: Option<Telemetry>,
-    pub dev_telemetry: Option<DevTelemetry>,
+    pub dev_telemetry: DevTelemetry,
     pub chain_wide: ChainWide,
 }
 
@@ -249,5 +249,5 @@ pub struct Telemetry {
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct DevTelemetry {
-    pub out_file: PathBuf,
+    pub out_file: Option<PathBuf>,
 }

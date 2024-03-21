@@ -461,7 +461,7 @@ pub struct Queue {
     pub future_threshold: Duration,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Logger {
     /// Level of logging verbosity
     // TODO: parse user provided value in a case insensitive way,
@@ -470,18 +470,6 @@ pub struct Logger {
     pub level: Level,
     /// Output format
     pub format: LoggerFormat,
-    /// Address of tokio console
-    pub tokio_console_address: SocketAddr,
-}
-
-impl Default for Logger {
-    fn default() -> Self {
-        Self {
-            level: Level::default(),
-            format: LoggerFormat::default(),
-            tokio_console_address: super::defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -501,7 +489,7 @@ pub struct TelemetryDev {
 }
 
 impl Telemetry {
-    fn parse(self) -> Result<(Option<actual::Telemetry>, Option<actual::DevTelemetry>), Report> {
+    fn parse(self) -> Result<(Option<actual::Telemetry>, actual::DevTelemetry), Report> {
         let Self {
             name,
             url,
@@ -528,9 +516,7 @@ impl Telemetry {
             }
         };
 
-        let dev = file.map(|file| actual::DevTelemetry {
-            out_file: file.clone(),
-        });
+        let dev = actual::DevTelemetry { out_file: file };
 
         Ok((regular, dev))
     }

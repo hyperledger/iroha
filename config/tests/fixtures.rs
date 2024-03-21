@@ -525,7 +525,7 @@ fn absolute_paths_are_preserved() {
     assert_eq!(cfg.kura.store_dir, PathBuf::from("/kura/store"));
     assert_eq!(cfg.snapshot.store_dir, PathBuf::from("/snapshot/store"));
     assert_eq!(
-        cfg.dev_telemetry.unwrap().out_file,
+        cfg.dev_telemetry.out_file.unwrap(),
         PathBuf::from("/telemetry/file.json")
     );
     if let Genesis::Full {

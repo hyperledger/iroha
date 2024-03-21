@@ -6,8 +6,9 @@
 //! should be constructed externally: (see `main.rs`).
 #[cfg(debug_assertions)]
 use core::sync::atomic::{AtomicBool, Ordering};
-use std::{path::Path, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
+use clap::Parser;
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use iroha_config::parameters::{actual::Root as Config, user::CliContext};
 use iroha_core::{
@@ -28,7 +29,7 @@ use iroha_core::{
 };
 use iroha_data_model::prelude::*;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
-use iroha_logger::actor::LoggerHandle;
+use iroha_logger::{actor::LoggerHandle, InitConfig as LoggerInitConfig};
 use iroha_torii::Torii;
 use tokio::{
     signal,
@@ -252,10 +253,9 @@ impl Iroha {
         let state = Arc::new(state);
 
         let queue = Arc::new(Queue::from_config(config.queue));
-        match Self::start_telemetry(&logger, &config).await? {
-            TelemetryStartStatus::Started => iroha_logger::info!("Telemetry started"),
-            TelemetryStartStatus::NotStarted => iroha_logger::warn!("Telemetry not started"),
-        };
+
+        #[cfg(feature = "telemetry")]
+        Self::start_telemetry(&logger, &config).await?;
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
@@ -382,18 +382,15 @@ impl Iroha {
     }
 
     #[cfg(feature = "telemetry")]
-    async fn start_telemetry(
-        logger: &LoggerHandle,
-        config: &Config,
-    ) -> Result<TelemetryStartStatus> {
+    async fn start_telemetry(logger: &LoggerHandle, config: &Config) -> Result<()> {
         #[cfg(feature = "dev-telemetry")]
         {
-            if let Some(config) = &config.dev_telemetry {
+            if let Some(out_file) = &config.dev_telemetry.out_file {
                 let receiver = logger
                     .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Future)
                     .await
                     .wrap_err("Failed to subscribe on telemetry")?;
-                let _handle = iroha_telemetry::dev::start(config.clone(), receiver)
+                let _handle = iroha_telemetry::dev::start_file_output(out_file.clone(), receiver)
                     .await
                     .wrap_err("Failed to setup telemetry for futures")?;
             }
@@ -407,19 +404,12 @@ impl Iroha {
             let _handle = iroha_telemetry::ws::start(config.clone(), receiver)
                 .await
                 .wrap_err("Failed to setup telemetry for websocket communication")?;
-
-            Ok(TelemetryStartStatus::Started)
+            iroha_logger::info!("Telemetry started");
+            Ok(())
         } else {
-            Ok(TelemetryStartStatus::NotStarted)
+            iroha_logger::warn!("Telemetry not started - make sure you have configured the `telemetry` configuration section properly");
+            Ok(())
         }
-    }
-
-    #[cfg(not(feature = "telemetry"))]
-    async fn start_telemetry(
-        _logger: &LoggerHandle,
-        _config: &Config,
-    ) -> Result<TelemetryStartStatus> {
-        Ok(TelemetryStartStatus::NotStarted)
     }
 
     fn start_listening_signal(notify_shutdown: Arc<Notify>) -> Result<task::JoinHandle<()>> {
@@ -481,11 +471,6 @@ impl Iroha {
     }
 }
 
-enum TelemetryStartStatus {
-    Started,
-    NotStarted,
-}
-
 fn genesis_account(public_key: PublicKey) -> Account {
     Account::new(iroha_genesis::GENESIS_ACCOUNT_ID.clone(), public_key)
         .build(&iroha_genesis::GENESIS_ACCOUNT_ID)
@@ -503,20 +488,24 @@ fn genesis_domain(public_key: PublicKey) -> Domain {
     domain
 }
 
-/// Read configuration and then a genesis block if specified.
+/// Read the configuration and then a genesis block if specified.
 ///
 /// # Errors
 /// - If failed to read the config
 /// - If failed to load the genesis block
 /// - If failed to build a genesis network
-pub fn read_config_and_genesis<P: AsRef<Path>>(
-    path: Option<P>,
-    submit_genesis: bool,
-) -> Result<(Config, Option<GenesisNetwork>)> {
+pub fn read_config_and_genesis(
+    args: &Args,
+) -> Result<(Config, LoggerInitConfig, Option<GenesisNetwork>)> {
     use iroha_config::parameters::actual::Genesis;
 
-    let config = Config::load(path, CliContext { submit_genesis })
-        .wrap_err("failed to load configuration")?;
+    let config = Config::load(
+        args.config.as_ref(),
+        CliContext {
+            submit_genesis: args.submit_genesis,
+        },
+    )
+    .wrap_err("failed to load configuration")?;
 
     let genesis = if let Genesis::Full { key_pair, file } = &config.genesis {
         let raw_block = RawGenesisBlock::from_path(file)?;
@@ -530,7 +519,62 @@ pub fn read_config_and_genesis<P: AsRef<Path>>(
         None
     };
 
-    Ok((config, genesis))
+    let logger_config = LoggerInitConfig::new(config.logger, args.terminal_colors);
+
+    #[cfg(not(feature = "telemetry"))]
+    if config.telemetry.is_some() {
+        // TODO: use a centralized configuration logging
+        //       https://github.com/hyperledger/iroha/issues/4300
+        eprintln!("`telemetry` config is specified, but ignored, because Iroha is compiled without `telemetry` feature enabled");
+    }
+
+    Ok((config, logger_config, genesis))
+}
+
+#[allow(missing_docs)]
+pub fn is_colouring_supported() -> bool {
+    supports_color::on(supports_color::Stream::Stdout).is_some()
+}
+
+fn default_terminal_colors_str() -> clap::builder::OsStr {
+    is_colouring_supported().to_string().into()
+}
+
+/// Iroha peer Command-Line Interface.
+#[derive(Parser, Debug)]
+#[command(name = "iroha", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
+pub struct Args {
+    /// Path to the configuration file
+    #[arg(long, short, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
+    pub config: Option<PathBuf>,
+    /// Whether to enable ANSI colored output or not
+    ///
+    /// By default, Iroha determines whether the terminal supports colors or not.
+    ///
+    /// In order to disable this flag explicitly, pass `--terminal-colors=false`.
+    #[arg(
+        long,
+        env,
+        default_missing_value("true"),
+        default_value(default_terminal_colors_str()),
+        action(clap::ArgAction::Set),
+        require_equals(true),
+        num_args(0..=1),
+    )]
+    pub terminal_colors: bool,
+    /// Whether the current peer should submit the genesis block or not
+    ///
+    /// Only one peer in the network should submit the genesis block.
+    ///
+    /// This argument must be set alongside with `genesis.file` and `genesis.private_key`
+    /// configuration options. If not, Iroha will exit with an error.
+    ///
+    /// In case when the network consists only of this one peer, i.e. the amount of trusted
+    /// peers in the configuration (`sumeragi.trusted_peers`) is less than 2, this peer must
+    /// submit the genesis, since there are no other peers who can provide it. In this case, Iroha
+    /// will exit with an error if `--submit-genesis` is not set.
+    #[arg(long)]
+    pub submit_genesis: bool,
 }
 
 #[cfg(test)]
@@ -624,7 +668,11 @@ mod tests {
 
             // When
 
-            let (config, genesis) = read_config_and_genesis(Some(config_path), true)?;
+            let (config, _logger, genesis) = read_config_and_genesis(&Args {
+                config: Some(config_path),
+                submit_genesis: true,
+                terminal_colors: false,
+            })?;
 
             // Then
 
@@ -642,8 +690,8 @@ mod tests {
             assert_eq!(
                 config
                     .dev_telemetry
-                    .expect("dev telemetry should be set")
                     .out_file
+                    .expect("dev telemetry should be set")
                     .absolutize()?,
                 dir.path().join("logs/telemetry")
             );
@@ -673,7 +721,12 @@ mod tests {
 
             // When & Then
 
-            let report = read_config_and_genesis(Some(config_path), false).unwrap_err();
+            let report = read_config_and_genesis(&Args {
+                config: Some(config_path),
+                submit_genesis: false,
+                terminal_colors: false,
+            })
+            .unwrap_err();
 
             assert_contains!(
                 format!("{report:#}"),

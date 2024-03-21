@@ -16,7 +16,7 @@ use color_eyre::{eyre::eyre, Report, Result};
 use iroha_config::logger::into_tracing_level;
 pub use iroha_config::{
     logger::{Format, Level},
-    parameters::actual::Logger as Config,
+    parameters::actual::{DevTelemetry as DevTelemetryConfig, Logger as Config},
 };
 use tracing::subscriber::set_global_default;
 pub use tracing::{
@@ -41,6 +41,23 @@ fn try_set_logger() -> Result<()> {
     Ok(())
 }
 
+/// Configuration needed for [`init_global`]. It is a little extension of [`Config`].
+#[derive(Copy, Clone, Debug)]
+pub struct InitConfig {
+    base: Config,
+    terminal_colors: bool,
+}
+
+impl InitConfig {
+    /// Create new config from the base logger [`Config`]
+    pub fn new(base: Config, terminal_colors: bool) -> Self {
+        Self {
+            base,
+            terminal_colors,
+        }
+    }
+}
+
 /// Initializes the logger globally with given [`Configuration`].
 ///
 /// Returns [`LoggerHandle`] to interact with the logger instance
@@ -53,18 +70,18 @@ fn try_set_logger() -> Result<()> {
 /// If the logger is already set, raises a generic error.
 // TODO: refactor configuration in a way that `terminal_colors` is part of it
 //       https://github.com/hyperledger/iroha/issues/3500
-pub fn init_global(configuration: &Config, terminal_colors: bool) -> Result<LoggerHandle> {
+pub fn init_global(config: InitConfig) -> Result<LoggerHandle> {
     try_set_logger()?;
 
     let layer = tracing_subscriber::fmt::layer()
-        .with_ansi(terminal_colors)
+        .with_ansi(config.terminal_colors)
         .with_test_writer();
 
-    match configuration.format {
-        Format::Full => step2(configuration, layer),
-        Format::Compact => step2(configuration, layer.compact()),
-        Format::Pretty => step2(configuration, layer.pretty()),
-        Format::Json => step2(configuration, layer.json()),
+    match config.base.format {
+        Format::Full => step2(config, layer),
+        Format::Compact => step2(config, layer.compact()),
+        Format::Pretty => step2(config, layer.pretty()),
+        Format::Json => step2(config, layer.json()),
     }
 }
 
@@ -85,10 +102,9 @@ pub fn test_logger() -> LoggerHandle {
             let config = Config {
                 level: Level::DEBUG,
                 format: Format::Pretty,
-                ..Config::default()
             };
 
-            init_global(&config, true).expect(
+            init_global(InitConfig::new(config, true)).expect(
                 "`init_global()` or `disable_global()` should not be called before `test_logger()`",
             )
         })
@@ -105,11 +121,11 @@ pub fn disable_global() -> Result<()> {
     try_set_logger()
 }
 
-fn step2<L>(configuration: &Config, layer: L) -> Result<LoggerHandle>
+fn step2<L>(config: InitConfig, layer: L) -> Result<LoggerHandle>
 where
     L: tracing_subscriber::Layer<Registry> + Debug + Send + Sync + 'static,
 {
-    let level: tracing::Level = into_tracing_level(configuration.level);
+    let level: tracing::Level = into_tracing_level(config.base.level);
     let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
     let (level_filter, level_filter_handle) = reload::Layer::new(level_filter);
     let subscriber = Registry::default()
@@ -118,18 +134,8 @@ where
         .with(tracing_error::ErrorLayer::default());
 
     #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
-    let subscriber = {
-        let console_subscriber = console_subscriber::ConsoleLayer::builder()
-            .server_addr(
-                configuration
-                    .tokio_console_addr
-                    .into()
-                    .expect("Invalid address for tokio console"),
-            )
-            .spawn();
+    let subscriber = subscriber.with(console_subscriber::spawn());
 
-        subscriber.with(console_subscriber)
-    };
     let (subscriber, receiver) = telemetry::Layer::with_capacity(subscriber, TELEMETRY_CAPACITY);
     set_global_default(subscriber)?;
 

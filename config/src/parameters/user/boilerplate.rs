@@ -505,7 +505,6 @@ impl FromEnvDefaultFallback for QueuePartial {}
 pub struct LoggerPartial {
     pub level: UserField<Level>,
     pub format: UserField<Format>,
-    pub tokio_console_address: UserField<SocketAddr>,
 }
 
 impl UnwrapPartial for LoggerPartial {
@@ -515,10 +514,6 @@ impl UnwrapPartial for LoggerPartial {
         Ok(Logger {
             level: self.level.unwrap_or_default(),
             format: self.format.unwrap_or_default(),
-            tokio_console_address: self
-                .tokio_console_address
-                .get()
-                .unwrap_or_else(|| defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR.clone()),
         })
     }
 }
@@ -560,6 +555,7 @@ pub struct TelemetryPartial {
 #[serde(deny_unknown_fields, default)]
 pub struct TelemetryDevPartial {
     pub out_file: UserField<PathBuf>,
+    pub tokio_console_address: UserField<SocketAddr>,
 }
 
 impl UnwrapPartial for TelemetryDevPartial {
