@@ -408,7 +408,7 @@ impl Iroha {
             iroha_logger::info!("Telemetry started");
             Ok(())
         } else {
-            iroha_logger::warn!("Telemetry not started - make sure you have configured the `telemetry` configuration section properly");
+            iroha_logger::info!("Telemetry not started due to absent configuration");
             Ok(())
         }
     }
@@ -527,6 +527,13 @@ pub fn read_config_and_genesis(
         // TODO: use a centralized configuration logging
         //       https://github.com/hyperledger/iroha/issues/4300
         eprintln!("`telemetry` config is specified, but ignored, because Iroha is compiled without `telemetry` feature enabled");
+    }
+
+    #[cfg(not(feature = "dev-telemetry"))]
+    if config.dev_telemetry.out_file.is_some() {
+        // TODO: use a centralized configuration logging
+        //       https://github.com/hyperledger/iroha/issues/4300
+        eprintln!("`dev_telemetry.out_file` config is specified, but ignored, because Iroha is compiled without `dev-telemetry` feature enabled");
     }
 
     Ok((config, logger_config, genesis))
