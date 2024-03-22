@@ -14,6 +14,8 @@ use std::{
 
 use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_config::parameters::actual::Torii as Config;
+#[cfg(feature = "telemetry")]
+use iroha_core::sumeragi::SumeragiHandle;
 use iroha_core::{
     kiso::{Error as KisoError, KisoHandle},
     kura::Kura,
@@ -21,7 +23,6 @@ use iroha_core::{
     query::store::LiveQueryStoreHandle,
     queue::{self, Queue},
     state::State,
-    sumeragi::SumeragiHandle,
     EventsSender,
 };
 use iroha_data_model::ChainId;
@@ -49,6 +50,7 @@ pub struct Torii {
     queue: Arc<Queue>,
     events: EventsSender,
     notify_shutdown: Arc<Notify>,
+    #[cfg(feature = "telemetry")]
     sumeragi: SumeragiHandle,
     query_service: LiveQueryStoreHandle,
     kura: Arc<Kura>,
@@ -67,7 +69,7 @@ impl Torii {
         queue: Arc<Queue>,
         events: EventsSender,
         notify_shutdown: Arc<Notify>,
-        sumeragi: SumeragiHandle,
+        #[cfg(feature = "telemetry")] sumeragi: SumeragiHandle,
         query_service: LiveQueryStoreHandle,
         kura: Arc<Kura>,
         state: Arc<State>,
@@ -78,6 +80,7 @@ impl Torii {
             queue,
             events,
             notify_shutdown,
+            #[cfg(feature = "telemetry")]
             sumeragi,
             query_service,
             kura,

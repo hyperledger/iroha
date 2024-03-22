@@ -322,6 +322,7 @@ impl Iroha {
             Arc::clone(&queue),
             events_sender,
             Arc::clone(&notify_shutdown),
+            #[cfg(feature = "telemetry")]
             sumeragi.clone(),
             live_query_store_handle,
             Arc::clone(&kura),
