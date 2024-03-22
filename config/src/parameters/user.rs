@@ -155,8 +155,14 @@ impl Root {
             },
             Some,
         );
+        if let Some(actual::Genesis::Full { file, .. }) = &genesis {
+            if !file.is_file() {
+                emitter.emit(eyre!("unable to access `genesis.file`: {}", file.display()))
+            }
+        }
 
         let kura = self.kura.parse();
+        validate_directory_path(&mut emitter, &kura.store_dir, "kura.store_dir");
 
         let sumeragi = self.sumeragi.parse().map_or_else(
             |err| {
@@ -182,8 +188,19 @@ impl Root {
 
         let logger = self.logger;
         let queue = self.queue;
+
         let snapshot = self.snapshot;
+        validate_directory_path(&mut emitter, &snapshot.store_dir, "snapshot.store_dir");
+
         let dev_telemetry = self.dev_telemetry;
+        if let Some(path) = &dev_telemetry.out_file {
+            if path.parent().is_none() {
+                emitter.emit(eyre!("`dev_telemetry.out_file` is not a valid file path"))
+            }
+            if path.is_dir() {
+                emitter.emit(eyre!("`dev_telemetry.out_file` is expected to be a file path, but it is a directory: {}", path.display()))
+            }
+        }
 
         let (torii, live_query_store) = self.torii.parse();
 
@@ -234,6 +251,20 @@ impl Root {
             dev_telemetry,
             chain_wide,
         })
+    }
+}
+
+fn validate_directory_path(
+    emitter: &mut Emitter<Report>,
+    path: impl AsRef<Path>,
+    name: impl AsRef<str>,
+) {
+    if path.as_ref().is_file() {
+        emitter.emit(eyre!(
+            "`{}` is expected to be a directory path (existing or non-existing), but it points to an existing file: {}",
+            name.as_ref(),
+            path.as_ref().display()
+        ))
     }
 }
 
