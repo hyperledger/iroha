@@ -12,7 +12,8 @@ use tokio::{
 };
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 
-/// Starts telemetry writing to a file
+/// Starts telemetry writing to a file. Will create all parent directories.
+///
 /// # Errors
 /// Fails if unable to open the file
 pub async fn start_file_output(
@@ -20,6 +21,17 @@ pub async fn start_file_output(
     telemetry: Receiver<Telemetry>,
 ) -> Result<JoinHandle<()>> {
     let mut stream = crate::futures::get_stream(BroadcastStream::new(telemetry).fuse());
+
+    std::fs::create_dir_all(
+        path.parent()
+            .ok_or_else(|| eyre!("the dev telemetry output file should have a parent directory"))?,
+    )
+    .wrap_err_with(|| {
+        eyre!(
+            "failed to recursively create directories for the dev telemetry output file: {}",
+            path.display()
+        )
+    })?;
 
     let mut file = OpenOptions::new()
         .write(true)
@@ -29,7 +41,7 @@ pub async fn start_file_output(
         .await
         .wrap_err_with(|| {
             eyre!(
-                "failed to open the target file for telemetry: {}",
+                "failed to open the dev telemetry output file: {}",
                 path.display()
             )
         })?;
