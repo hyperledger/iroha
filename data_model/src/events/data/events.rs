@@ -543,13 +543,18 @@ mod executor {
     use iroha_data_model_derive::model;
 
     pub use self::model::*;
+    // this is used in no_std
+    #[allow(unused)]
+    use super::*;
 
     #[model]
     pub mod model {
-        #[cfg(not(feature = "std"))]
-        use alloc::{format, string::String, vec::Vec};
 
         use iroha_data_model_derive::EventSet;
+
+        // this is used in no_std
+        #[allow(unused)]
+        use super::*;
 
         #[derive(
             Debug,
