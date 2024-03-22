@@ -61,12 +61,11 @@ pub async fn start_file_output(
 }
 
 async fn write_telemetry(file: &mut File, item: &FuturePollTelemetry) -> Result<()> {
-    let json = serde_json::to_string(&item).wrap_err("failed to serialize telemetry to JSON")?;
-    file.write_vectored(&[
-        std::io::IoSlice::new(json.as_bytes()),
-        std::io::IoSlice::new(b"\n"),
-    ])
-    .await
-    .wrap_err("failed to write data to the file")?;
+    let mut json =
+        serde_json::to_string(&item).wrap_err("failed to serialize telemetry to JSON")?;
+    json.push_str("\n");
+    file.write_all(json.as_bytes())
+        .await
+        .wrap_err("failed to write data to the file")?;
     Ok(())
 }
