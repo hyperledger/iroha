@@ -543,7 +543,11 @@ fn default_terminal_colors_str() -> clap::builder::OsStr {
 
 /// Iroha peer Command-Line Interface.
 #[derive(Parser, Debug)]
-#[command(name = "iroha", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
+#[command(
+    name = "iroha",
+    version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA"), " cargo_features=", env!("VERGEN_CARGO_FEATURES")),
+    author
+)]
 pub struct Args {
     /// Path to the configuration file
     #[arg(long, short, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
