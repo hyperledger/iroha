@@ -1,11 +1,11 @@
 //! Contains message structures for p2p communication during consensus.
 use iroha_crypto::{HashOf, SignaturesOf};
-use iroha_data_model::block::{BlockPayload, SignedBlock};
+use iroha_data_model::block::Block;
 use iroha_macro::*;
 use parity_scale_codec::{Decode, Encode};
 
 use super::view_change;
-use crate::block::{CommittedBlock, ValidBlock};
+use crate::block::{CommittedBlock, SignedBlock, ValidBlock};
 
 #[allow(clippy::enum_variant_names)]
 /// Message's variants that are used by peers to communicate in the process of consensus.
@@ -46,9 +46,8 @@ pub struct BlockCreated {
 
 impl From<ValidBlock> for BlockCreated {
     fn from(block: ValidBlock) -> Self {
-        Self {
-            block: block.into(),
-        }
+        let block = block.into();
+        Self { block }
     }
 }
 
@@ -57,20 +56,19 @@ impl From<ValidBlock> for BlockCreated {
 #[non_exhaustive]
 pub struct BlockSigned {
     /// Hash of the block being signed.
-    pub hash: HashOf<BlockPayload>,
+    pub hash: HashOf<Block>,
     /// Set of signatures.
-    pub signatures: SignaturesOf<BlockPayload>,
+    pub signatures: SignaturesOf<Block>,
 }
 
 impl From<ValidBlock> for BlockSigned {
     fn from(block: ValidBlock) -> Self {
-        let block_hash = block.as_ref().hash_of_payload();
-        let SignedBlock::V1(block) = block.into();
+        let block: SignedBlock = block.into();
 
-        Self {
-            hash: block_hash,
-            signatures: block.signatures,
-        }
+        let hash = block.as_ref().hash();
+        let (signatures, _) = block.into();
+
+        Self { hash, signatures }
     }
 }
 
@@ -79,33 +77,32 @@ impl From<ValidBlock> for BlockSigned {
 #[non_exhaustive]
 pub struct BlockCommitted {
     /// Hash of the block being signed.
-    pub hash: HashOf<BlockPayload>,
+    pub hash: HashOf<Block>,
     /// Set of signatures.
-    pub signatures: SignaturesOf<BlockPayload>,
+    pub signatures: SignaturesOf<Block>,
 }
 
 impl From<CommittedBlock> for BlockCommitted {
     fn from(block: CommittedBlock) -> Self {
-        let block_hash = block.as_ref().hash_of_payload();
-        let block_signatures = block.as_ref().signatures().clone();
+        let block: SignedBlock = block.into();
 
-        Self {
-            hash: block_hash,
-            signatures: block_signatures,
-        }
+        let hash = block.as_ref().hash();
+        let (signatures, _) = block.into();
+
+        Self { hash, signatures }
     }
 }
 
 /// `BlockSyncUpdate` message structure
 #[derive(Debug, Clone, Decode, Encode)]
-#[non_exhaustive]
+#[repr(transparent)]
 pub struct BlockSyncUpdate {
     /// The corresponding block.
-    pub block: SignedBlock,
+    pub block: Block,
 }
 
-impl From<SignedBlock> for BlockSyncUpdate {
-    fn from(block: SignedBlock) -> Self {
+impl From<Block> for BlockSyncUpdate {
+    fn from(block: Block) -> Self {
         Self { block }
     }
 }

@@ -10,9 +10,7 @@ use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
 use getset::Getters;
-#[cfg(all(feature = "std", feature = "transparent_api"))]
-use iroha_crypto::KeyPair;
-use iroha_crypto::{HashOf, MerkleTree, SignaturesOf};
+use iroha_crypto::{HashOf, MerkleTree};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_primitives::unique_vec::UniqueVec;
@@ -22,7 +20,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{events::prelude::*, peer, transaction::prelude::*};
+use crate::{peer, transaction::prelude::*};
 
 #[model]
 pub mod model {
@@ -54,92 +52,39 @@ pub mod model {
     pub struct BlockHeader {
         /// Number of blocks in the chain including this block.
         pub height: u64,
-        /// Creation timestamp (unix time in milliseconds).
-        #[getset(skip)]
-        pub timestamp_ms: u64,
         /// Hash of the previous block in the chain.
-        pub previous_block_hash: Option<HashOf<SignedBlock>>,
+        pub prev_block_hash: Option<HashOf<Block>>,
         /// Hash of merkle tree root of transactions' hashes.
-        pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
+        pub transactions_hash: HashOf<MerkleTree<SignedTransaction>>,
         /// Value of view change index. Used to resolve soft forks.
         pub view_change_index: u64,
+        /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
-        /// Estimation of consensus duration (in milliseconds).
-        pub consensus_estimation_ms: u64,
+        pub creation_time_ms: u64,
     }
 
+    /// Block
+    #[version_with_scale(version = 1, versioned_alias = "Block")]
     #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
-    #[display(fmt = "({header})")]
-    #[getset(get = "pub")]
-    #[allow(missing_docs)]
+    #[cfg_attr(not(feature = "std"), display(fmt = "Block"))]
+    #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
     #[ffi_type]
-    pub struct BlockPayload {
+    pub struct BlockV1 {
         /// Block header
         pub header: BlockHeader,
         /// Topology of the network at the time of block commit.
-        #[getset(skip)] // FIXME: Because ffi related issues
         pub commit_topology: UniqueVec<peer::PeerId>,
-        /// array of transactions, which successfully passed validation and consensus step.
-        #[getset(skip)] // FIXME: Because ffi related issues
-        pub transactions: Vec<TransactionValue>,
-        /// Event recommendations.
-        #[getset(skip)] // NOTE: Unused ATM
-        pub event_recommendations: Vec<Event>,
-    }
-
-    /// Signed block
-    #[version_with_scale(version = 1, versioned_alias = "SignedBlock")]
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Getters,
-        Encode,
-        Serialize,
-        IntoSchema,
-    )]
-    #[cfg_attr(not(feature = "std"), display(fmt = "Signed block"))]
-    #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
-    #[getset(get = "pub")]
-    #[ffi_type]
-    pub struct SignedBlockV1 {
-        /// Signatures of peers which approved this block.
-        #[getset(skip)]
-        pub signatures: SignaturesOf<BlockPayload>,
-        /// Block payload
-        pub payload: BlockPayload,
+        /// Collection of all transactions store in the block
+        pub transactions: Vec<CommittedTransaction>,
     }
 }
 
 #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
-declare_versioned!(SignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, iroha_ffi::FfiType, IntoSchema);
+declare_versioned!(Block 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, iroha_ffi::FfiType, IntoSchema);
 #[cfg(all(not(feature = "ffi_export"), not(feature = "ffi_import")))]
-declare_versioned!(SignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
-
-impl BlockPayload {
-    /// Calculate block payload [`Hash`](`iroha_crypto::HashOf`).
-    pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
-        iroha_crypto::HashOf::new(self)
-    }
-}
+declare_versioned!(Block 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
 
 impl BlockHeader {
     /// Checks if it's a header of a genesis block.
@@ -150,118 +95,45 @@ impl BlockHeader {
     }
 
     /// Creation timestamp
-    pub fn timestamp(&self) -> Duration {
-        Duration::from_millis(self.timestamp_ms)
-    }
-
-    /// Consensus estimation
-    pub fn consensus_estimation(&self) -> Duration {
-        Duration::from_millis(self.consensus_estimation_ms)
+    pub fn creation_time(&self) -> Duration {
+        Duration::from_millis(self.creation_time_ms)
     }
 }
 
-impl SignedBlockV1 {
+impl BlockV1 {
     #[cfg(feature = "std")]
-    fn hash(&self) -> iroha_crypto::HashOf<SignedBlock> {
+    fn hash(&self) -> iroha_crypto::HashOf<Block> {
         iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::HashOf::new(self).into())
     }
 }
 
-impl SignedBlock {
-    /// Block transactions
-    #[inline]
-    pub fn transactions(&self) -> impl ExactSizeIterator<Item = &TransactionValue> {
-        let SignedBlock::V1(block) = self;
-        block.payload.transactions.iter()
-    }
-
+impl Block {
     /// Block header
     #[inline]
     pub fn header(&self) -> &BlockHeader {
-        let SignedBlock::V1(block) = self;
-        block.payload.header()
+        let Block::V1(block) = self;
+        &block.header
     }
 
     /// Block commit topology
     #[inline]
     #[cfg(feature = "transparent_api")]
     pub fn commit_topology(&self) -> &UniqueVec<peer::PeerId> {
-        let SignedBlock::V1(block) = self;
-        &block.payload.commit_topology
+        let Block::V1(block) = self;
+        &block.commit_topology
     }
 
-    /// Signatures of peers which approved this block.
+    /// Block transactions
     #[inline]
-    pub fn signatures(&self) -> &SignaturesOf<BlockPayload> {
-        let SignedBlock::V1(block) = self;
-        &block.signatures
+    pub fn transactions(&self) -> impl ExactSizeIterator<Item = &CommittedTransaction> {
+        let Block::V1(block) = self;
+        block.transactions.iter()
     }
 
     /// Calculate block hash
     #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         iroha_crypto::HashOf::new(self)
-    }
-
-    /// Calculate block payload [`Hash`](`iroha_crypto::HashOf`).
-    #[inline]
-    #[cfg(feature = "std")]
-    #[cfg(feature = "transparent_api")]
-    pub fn hash_of_payload(&self) -> iroha_crypto::HashOf<BlockPayload> {
-        let SignedBlock::V1(block) = self;
-        iroha_crypto::HashOf::new(&block.payload)
-    }
-
-    /// Add additional signatures to this block
-    #[cfg(feature = "transparent_api")]
-    #[must_use]
-    pub fn sign(mut self, key_pair: &KeyPair) -> Self {
-        let SignedBlock::V1(block) = &mut self;
-        let signature = iroha_crypto::SignatureOf::new(key_pair, &block.payload);
-        block.signatures.insert(signature);
-        self
-    }
-
-    /// Add additional signatures to this block
-    ///
-    /// # Errors
-    ///
-    /// If given signature doesn't match block hash
-    #[cfg(feature = "transparent_api")]
-    pub fn add_signature(
-        &mut self,
-        signature: iroha_crypto::SignatureOf<BlockPayload>,
-    ) -> Result<(), iroha_crypto::error::Error> {
-        let SignedBlock::V1(block) = self;
-        signature.verify(&block.payload)?;
-
-        let SignedBlock::V1(block) = self;
-        block.signatures.insert(signature);
-
-        Ok(())
-    }
-
-    /// Add additional signatures to this block
-    #[cfg(feature = "transparent_api")]
-    pub fn replace_signatures(
-        &mut self,
-        signatures: iroha_crypto::SignaturesOf<BlockPayload>,
-    ) -> bool {
-        #[cfg(not(feature = "std"))]
-        use alloc::collections::BTreeSet;
-        #[cfg(feature = "std")]
-        use std::collections::BTreeSet;
-
-        let SignedBlock::V1(block) = self;
-        block.signatures = BTreeSet::new().into();
-
-        for signature in signatures {
-            if self.add_signature(signature).is_err() {
-                return false;
-            }
-        }
-
-        true
     }
 }
 
@@ -271,36 +143,37 @@ mod candidate {
     use super::*;
 
     #[derive(Decode, Deserialize)]
-    struct SignedBlockCandidate {
-        signatures: SignaturesOf<BlockPayload>,
-        payload: BlockPayload,
+    struct BlockCandidate {
+        header: BlockHeader,
+        commit_topology: UniqueVec<peer::PeerId>,
+        transactions: Vec<CommittedTransaction>,
     }
 
-    impl SignedBlockCandidate {
-        fn validate(self) -> Result<SignedBlockV1, &'static str> {
-            self.validate_signatures()?;
+    impl BlockCandidate {
+        fn validate(self) -> Result<BlockV1, &'static str> {
             self.validate_header()?;
 
-            if self.payload.transactions.is_empty() {
+            if self.transactions.is_empty() {
                 return Err("Block is empty");
             }
 
-            Ok(SignedBlockV1 {
-                payload: self.payload,
-                signatures: self.signatures,
+            Ok(BlockV1 {
+                header: self.header,
+                commit_topology: self.commit_topology,
+                transactions: self.transactions,
             })
         }
 
         fn validate_header(&self) -> Result<(), &'static str> {
-            let actual_txs_hash = self.payload.header().transactions_hash;
+            let actual_txs_hash = self.header.transactions_hash;
 
             let expected_txs_hash = self
-                .payload
                 .transactions
                 .iter()
                 .map(|value| value.as_ref().hash())
                 .collect::<MerkleTree<_>>()
-                .hash();
+                .hash()
+                .unwrap();
 
             if expected_txs_hash != actual_txs_hash {
                 return Err("Transactions' hash incorrect. Expected: {expected_txs_hash:?}, actual: {actual_txs_hash:?}");
@@ -309,38 +182,32 @@ mod candidate {
 
             Ok(())
         }
-
-        fn validate_signatures(&self) -> Result<(), &'static str> {
-            self.signatures
-                .verify(&self.payload)
-                .map_err(|_| "Transaction contains invalid signatures")
-        }
     }
 
-    impl Decode for SignedBlockV1 {
+    impl Decode for BlockV1 {
         fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
-            SignedBlockCandidate::decode(input)?
+            BlockCandidate::decode(input)?
                 .validate()
                 .map_err(Into::into)
         }
     }
-    impl<'de> Deserialize<'de> for SignedBlockV1 {
+    impl<'de> Deserialize<'de> for BlockV1 {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
         {
             use serde::de::Error as _;
 
-            SignedBlockCandidate::deserialize(deserializer)?
+            BlockCandidate::deserialize(deserializer)?
                 .validate()
                 .map_err(D::Error::custom)
         }
     }
 }
 
-impl Display for SignedBlock {
+impl Display for Block {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let SignedBlock::V1(block) = self;
+        let Block::V1(block) = self;
         block.fmt(f)
     }
 }
@@ -370,10 +237,10 @@ pub mod stream {
         /// Message sent by the stream producer containing block.
         #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
-        pub struct BlockMessage(pub SignedBlock);
+        pub struct BlockMessage(pub Block);
     }
 
-    impl From<BlockMessage> for SignedBlock {
+    impl From<BlockMessage> for Block {
         fn from(source: BlockMessage) -> Self {
             source.0
         }

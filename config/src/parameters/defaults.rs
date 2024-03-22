@@ -61,16 +61,6 @@ pub mod chain_wide {
     // TODO: wrap into a `Bytes` newtype
     pub const DEFAULT_WASM_MAX_MEMORY_BYTES: u32 = 500 * 2_u32.pow(20);
 
-    /// Default estimation of consensus duration.
-    pub const DEFAULT_CONSENSUS_ESTIMATION: Duration =
-        match DEFAULT_BLOCK_TIME.checked_add(match DEFAULT_COMMIT_TIME.checked_div(2) {
-            Some(x) => x,
-            None => unreachable!(),
-        }) {
-            Some(x) => x,
-            None => unreachable!(),
-        };
-
     /// Default limits for metadata
     pub const DEFAULT_METADATA_LIMITS: MetadataLimits =
         MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));

@@ -102,20 +102,19 @@ pub mod model {
         /// Unique id of the blockchain. Used for simple replay attack protection.
         #[getset(skip)] // FIXME: ffi error
         pub chain_id: ChainId,
+        /// Random value to make different hashes for transactions which occur repeatedly and simultaneously.
+        #[getset(skip)] // FIXME: ffi error
+        pub nonce: Option<NonZeroU32>,
+        /// Account ID of transaction creator.
+        pub authority: AccountId,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub creation_time_ms: u64,
-        /// Account ID of transaction creator.
-        pub authority: AccountId,
-        /// ISI or a `WebAssembly` smart contract.
-        pub instructions: Executable,
         /// If transaction is not committed by this time it will be dropped.
         #[getset(skip)]
         pub time_to_live_ms: Option<NonZeroU64>,
-        /// Random value to make different hashes for transactions which occur repeatedly and simultaneously.
-        // TODO: Only temporary
-        #[getset(skip)]
-        pub nonce: Option<NonZeroU32>,
+        /// ISI or a `WebAssembly` smart contract.
+        pub instructions: Executable,
         /// Store for additional information.
         #[getset(skip)] // FIXME: ffi error
         pub metadata: UnlimitedMetadata,
@@ -184,12 +183,11 @@ pub mod model {
         IntoSchema,
     )]
     #[ffi_type]
-    #[getset(get = "pub")]
-    pub struct TransactionValue {
+    pub struct CommittedTransaction {
         /// Committed transaction
-        #[getset(skip)]
         pub value: SignedTransaction,
         /// Reason of rejection
+        #[getset(get = "pub")]
         pub error: Option<error::TransactionRejectionReason>,
     }
 }
@@ -341,30 +339,51 @@ impl SignedTransactionV1 {
     }
 }
 
-impl AsRef<SignedTransaction> for TransactionValue {
+impl AsRef<SignedTransaction> for CommittedTransaction {
     fn as_ref(&self) -> &SignedTransaction {
         &self.value
     }
 }
 
 mod candidate {
+    use iroha_crypto::SignatureOf;
     use parity_scale_codec::Input;
 
     use super::*;
 
     #[derive(Decode, Deserialize)]
     struct SignedTransactionCandidate {
-        signatures: SignaturesOf<TransactionPayload>,
+        signatures: Vec<SignatureOf<TransactionPayload>>,
         payload: TransactionPayload,
     }
 
     impl SignedTransactionCandidate {
         fn validate(self) -> Result<SignedTransactionV1, &'static str> {
-            self.validate_signatures()?;
-            self.validate_instructions()
-        }
+            #[cfg(not(feature = "std"))]
+            use alloc::collections::BTreeSet;
+            #[cfg(feature = "std")]
+            use std::collections::BTreeSet;
 
-        fn validate_instructions(self) -> Result<SignedTransactionV1, &'static str> {
+            if self.signatures.is_empty() {
+                return Err("Signature set is empty");
+            }
+
+            let signatures = self
+                .signatures
+                .into_iter()
+                .try_fold(BTreeSet::new(), |mut unique, signature| {
+                    signature
+                        .verify(&self.payload)
+                        .map_err(|_| "Transaction contains invalid signatures")?;
+
+                    if !unique.insert(signature) {
+                        return Err("Transaction contains duplicate signatures");
+                    }
+
+                    Ok(unique)
+                })
+                .map(Into::into)?;
+
             if let Executable::Instructions(instructions) = &self.payload.instructions {
                 if instructions.is_empty() {
                     return Err("Transaction is empty");
@@ -372,15 +391,9 @@ mod candidate {
             }
 
             Ok(SignedTransactionV1 {
+                signatures,
                 payload: self.payload,
-                signatures: self.signatures,
             })
-        }
-
-        fn validate_signatures(&self) -> Result<(), &'static str> {
-            self.signatures
-                .verify(&self.payload)
-                .map_err(|_| "Transaction contains invalid signatures")
         }
     }
 
@@ -738,13 +751,16 @@ pub mod prelude {
     #[cfg(feature = "http")]
     pub use super::http::TransactionBuilder;
     pub use super::{
-        error::prelude::*, Executable, SignedTransaction, TransactionPayload, TransactionValue,
+        error::prelude::*, CommittedTransaction, Executable, SignedTransaction, TransactionPayload,
         WasmSmartContract,
     };
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
+
     use super::*;
 
     #[test]

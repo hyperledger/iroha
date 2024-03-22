@@ -6,7 +6,7 @@ use iroha_config::parameters::actual::ChainWide as Config;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     account::AccountId,
-    block::SignedBlock,
+    block::Block,
     events::trigger_completed::{TriggerCompletedEvent, TriggerCompletedOutcome},
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::{Parameter, ParameterValueBox},
@@ -162,7 +162,7 @@ pub struct State {
     pub config: Cell<Config>,
     /// Blockchain.
     // TODO: Cell is redundant here since block_hashes is very easy to rollback by just popping the last element
-    pub block_hashes: Cell<Vec<HashOf<SignedBlock>>>,
+    pub block_hashes: Cell<Vec<HashOf<Block>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: Storage<HashOf<SignedTransaction>, u64>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
@@ -188,7 +188,7 @@ pub struct StateBlock<'state> {
     /// Configuration of World State View.
     pub config: CellBlock<'state, Config>,
     /// Blockchain.
-    pub block_hashes: CellBlock<'state, Vec<HashOf<SignedBlock>>>,
+    pub block_hashes: CellBlock<'state, Vec<HashOf<Block>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: StorageBlock<'state, HashOf<SignedTransaction>, u64>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
@@ -210,7 +210,7 @@ pub struct StateTransaction<'block, 'state> {
     /// Configuration of World State View.
     pub config: CellTransaction<'block, 'state, Config>,
     /// Blockchain.
-    pub block_hashes: CellTransaction<'block, 'state, Vec<HashOf<SignedBlock>>>,
+    pub block_hashes: CellTransaction<'block, 'state, Vec<HashOf<Block>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: StorageTransaction<'block, 'state, HashOf<SignedTransaction>, u64>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
@@ -232,7 +232,7 @@ pub struct StateView<'state> {
     /// Configuration of World State View.
     pub config: CellView<'state, Config>,
     /// Blockchain.
-    pub block_hashes: CellView<'state, Vec<HashOf<SignedBlock>>>,
+    pub block_hashes: CellView<'state, Vec<HashOf<Block>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: StorageView<'state, HashOf<SignedTransaction>, u64>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
@@ -285,7 +285,7 @@ impl World {
         }
     }
 
-    /// Create struct to apply block's changes while reverting changes made in the latest block  
+    /// Create struct to apply block's changes while reverting changes made in the latest block
     pub fn block_and_revert(&self) -> WorldBlock {
         WorldBlock {
             parameters: self.parameters.block_and_revert(),
@@ -995,7 +995,7 @@ impl State {
 pub trait StateReadOnly {
     fn world(&self) -> &impl WorldReadOnly;
     fn config(&self) -> &Config;
-    fn block_hashes(&self) -> &[HashOf<SignedBlock>];
+    fn block_hashes(&self) -> &[HashOf<Block>];
     fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, u64>;
     fn engine(&self) -> &wasmtime::Engine;
     fn kura(&self) -> &Kura;
@@ -1006,13 +1006,13 @@ pub trait StateReadOnly {
 
     /// Get a reference to the latest block. Returns none if genesis is not committed.
     #[inline]
-    fn latest_block_ref(&self) -> Option<Arc<SignedBlock>> {
+    fn latest_block_ref(&self) -> Option<Arc<Block>> {
         self.kura()
             .get_block_by_height(self.block_hashes().len() as u64)
     }
 
     /// Return the hash of the latest block
-    fn latest_block_hash(&self) -> Option<HashOf<SignedBlock>> {
+    fn latest_block_hash(&self) -> Option<HashOf<Block>> {
         self.block_hashes().iter().nth_back(0).copied()
     }
 
@@ -1024,12 +1024,12 @@ pub trait StateReadOnly {
     }
 
     /// Return the hash of the block one before the latest block
-    fn previous_block_hash(&self) -> Option<HashOf<SignedBlock>> {
+    fn prev_block_hash(&self) -> Option<HashOf<Block>> {
         self.block_hashes().iter().nth_back(1).copied()
     }
 
     /// Load all blocks in the block chain from disc
-    fn all_blocks(&self) -> impl DoubleEndedIterator<Item = Arc<SignedBlock>> + '_ {
+    fn all_blocks(&self) -> impl DoubleEndedIterator<Item = Arc<Block>> + '_ {
         let block_count = self.block_hashes().len() as u64;
         (1..=block_count).map(|height| {
             self.kura()
@@ -1039,10 +1039,7 @@ pub trait StateReadOnly {
     }
 
     /// Return a vector of blockchain blocks after the block with the given `hash`
-    fn block_hashes_after_hash(
-        &self,
-        hash: Option<HashOf<SignedBlock>>,
-    ) -> Vec<HashOf<SignedBlock>> {
+    fn block_hashes_after_hash(&self, hash: Option<HashOf<Block>>) -> Vec<HashOf<Block>> {
         hash.map_or_else(
             || self.block_hashes().to_vec(),
             |block_hash| {
@@ -1057,7 +1054,7 @@ pub trait StateReadOnly {
     }
 
     /// Return an iterator over blockchain block hashes starting with the block of the given `height`
-    fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<SignedBlock>> {
+    fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<Block>> {
         self.block_hashes()
             .iter()
             .skip(height.saturating_sub(1))
@@ -1071,8 +1068,8 @@ pub trait StateReadOnly {
         self.block_hashes().len() as u64
     }
 
-    /// Find a [`SignedBlock`] by hash.
-    fn block_with_tx(&self, hash: &HashOf<SignedTransaction>) -> Option<Arc<SignedBlock>> {
+    /// Find a [`Block`] by hash.
+    fn block_with_tx(&self, hash: &HashOf<SignedTransaction>) -> Option<Arc<Block>> {
         let height = *self.transactions().get(hash)?;
         self.kura().get_block_by_height(height)
     }
@@ -1087,7 +1084,7 @@ pub trait StateReadOnly {
             let opt = self
                 .kura()
                 .get_block_by_height(1)
-                .map(|genesis_block| genesis_block.header().timestamp());
+                .map(|genesis_block| genesis_block.header().creation_time());
 
             if opt.is_none() {
                 error!("Failed to get genesis block from Kura.");
@@ -1117,7 +1114,7 @@ macro_rules! impl_state_ro {
             fn config(&self) -> &Config {
                 &self.config
             }
-            fn block_hashes(&self) -> &[HashOf<SignedBlock>] {
+            fn block_hashes(&self) -> &[HashOf<Block>] {
                 &self.block_hashes
             }
             fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, u64> {
@@ -1198,8 +1195,10 @@ impl<'state> StateBlock<'state> {
     /// # Errors
     /// Fails if transaction instruction execution fails
     fn execute_transactions(&mut self, block: &CommittedBlock) -> Result<()> {
+        let block: &Block = block.as_ref();
+
         // TODO: Should this block panic instead?
-        for tx in block.as_ref().transactions() {
+        for tx in block.transactions() {
             if tx.error.is_none() {
                 // Execute every tx in it's own transaction
                 let mut transaction = self.transaction();
@@ -1216,17 +1215,19 @@ impl<'state> StateBlock<'state> {
 
     /// Apply transactions without actually executing them.
     /// It's assumed that block's transaction was already executed (as part of validation for example).
-    #[iroha_logger::log(skip_all, fields(block_height = block.as_ref().header().height))]
+    #[iroha_logger::log(skip_all, fields(block_height = {
+        let block: &Block = block.as_ref();
+        block.header().height
+    }))]
     pub fn apply_without_execution(&mut self, block: &CommittedBlock) -> Result<()> {
-        let block_hash = block.as_ref().hash();
-        trace!(%block_hash, "Applying block");
+        let block: &Block = block.as_ref();
 
-        let time_event = self.create_time_event(block);
+        trace!(block=%block.hash(), "Applying block");
+        let time_event = self.create_time_event(block.header().creation_time());
         self.world.events_buffer.push(Event::Time(time_event));
 
-        let block_height = block.as_ref().header().height;
+        let block_height = block.header().height;
         block
-            .as_ref()
             .transactions()
             .map(|tx| &tx.value)
             .map(SignedTransaction::hash)
@@ -1245,27 +1246,39 @@ impl<'state> StateBlock<'state> {
             );
         }
 
-        self.block_hashes.push(block_hash);
-
+        self.block_hashes.push(block.hash());
         self.apply_parameters();
-
         Ok(())
     }
 
     /// Create time event using previous and current blocks
-    fn create_time_event(&self, block: &CommittedBlock) -> TimeEvent {
+    fn create_time_event(&self, block_creation_time: Duration) -> TimeEvent {
+        const DEFAULT_CONSENSUS_ESTIMATION: Duration = {
+            use iroha_config::parameters::defaults::chain_wide::{
+                DEFAULT_BLOCK_TIME, DEFAULT_COMMIT_TIME,
+            };
+
+            match DEFAULT_BLOCK_TIME.checked_add(match DEFAULT_COMMIT_TIME.checked_div(2) {
+                Some(x) => x,
+                None => unreachable!(),
+            }) {
+                Some(x) => x,
+                None => unreachable!(),
+            }
+        };
+
         let prev_interval = self.latest_block_ref().map(|latest_block| {
             let header = &latest_block.as_ref().header();
 
             TimeInterval {
-                since: header.timestamp(),
-                length: header.consensus_estimation(),
+                since: header.creation_time(),
+                length: DEFAULT_CONSENSUS_ESTIMATION,
             }
         });
 
         let interval = TimeInterval {
-            since: block.as_ref().header().timestamp(),
-            length: block.as_ref().header().consensus_estimation(),
+            since: block_creation_time,
+            length: DEFAULT_CONSENSUS_ESTIMATION,
         };
 
         TimeEvent {
@@ -1740,7 +1753,7 @@ pub(crate) mod deserialize {
 
 #[cfg(test)]
 mod tests {
-    use iroha_data_model::block::BlockPayload;
+    use iroha_data_model::block::{Block, BlockV1};
     use iroha_primitives::unique_vec::UniqueVec;
 
     use super::*;
@@ -1750,9 +1763,9 @@ mod tests {
     };
 
     /// Used to inject faulty payload for testing
-    fn payload_mut(block: &mut CommittedBlock) -> &mut BlockPayload {
-        let SignedBlock::V1(signed) = &mut block.0 .0;
-        &mut signed.payload
+    fn payload_mut(block: &mut CommittedBlock) -> &mut BlockV1 {
+        let Block::V1(block) = block.as_mut();
+        block
     }
 
     #[tokio::test]
@@ -1760,7 +1773,7 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let topology = Topology::new(UniqueVec::new());
-        let block = ValidBlock::new_dummy().commit(&topology).unwrap();
+        let block = ValidBlock::dummy().commit(&topology).unwrap();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(World::default(), kura, query_handle);
@@ -1771,9 +1784,10 @@ mod tests {
             let mut block = block.clone();
 
             payload_mut(&mut block).header.height = i as u64;
-            payload_mut(&mut block).header.previous_block_hash = block_hashes.last().copied();
+            payload_mut(&mut block).header.prev_block_hash = block_hashes.last().copied();
 
-            block_hashes.push(block.as_ref().hash());
+            let block_ref: &Block = block.as_ref();
+            block_hashes.push(block_ref.hash());
             state_block.apply(&block).unwrap();
         }
 
@@ -1788,7 +1802,7 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let topology = Topology::new(UniqueVec::new());
-        let block = ValidBlock::new_dummy().commit(&topology).unwrap();
+        let block = ValidBlock::dummy().commit(&topology).unwrap();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(World::default(), kura.clone(), query_handle);

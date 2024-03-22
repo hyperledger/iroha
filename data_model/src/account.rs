@@ -431,6 +431,8 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
     use core::cmp::Ordering;
 
     use iroha_crypto::{KeyPair, PublicKey};
@@ -535,7 +537,7 @@ mod tests {
         let name_a: Name = "a".parse().expect("failed to parse Name");
         let name_b: Name = "b".parse().expect("failed to parse Name");
 
-        let mut account_ids = Vec::new();
+        let mut account_ids = vec![];
         for name in [&name_a, &name_b] {
             for domain_id in [&domain_id_a, &domain_id_b] {
                 account_ids.push(AccountId::new(domain_id.clone(), name.clone()));

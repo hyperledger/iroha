@@ -28,7 +28,7 @@ use crate::{
     config::Config,
     crypto::{HashOf, KeyPair},
     data_model::{
-        block::SignedBlock,
+        block::Block,
         isi::Instruction,
         prelude::*,
         query::{predicate::PredicateBox, Pagination, Query, Sorting},
@@ -950,7 +950,7 @@ impl Client {
     pub fn listen_for_blocks(
         &self,
         height: NonZeroU64,
-    ) -> Result<impl Iterator<Item = Result<SignedBlock>>> {
+    ) -> Result<impl Iterator<Item = Result<Block>>> {
         blocks_api::BlockIterator::new(self.blocks_handler(height)?)
     }
 
@@ -1363,7 +1363,7 @@ mod blocks_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = crate::data_model::block::SignedBlock;
+            type Event = crate::data_model::block::Block;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 Ok(BlockMessage::decode_all(&mut message.as_slice()).map(Into::into)?)
@@ -1444,7 +1444,7 @@ pub mod block {
     }
 
     /// Construct a query to find block header by hash
-    pub fn header_by_hash(hash: HashOf<SignedBlock>) -> FindBlockHeaderByHash {
+    pub fn header_by_hash(hash: HashOf<Block>) -> FindBlockHeaderByHash {
         FindBlockHeaderByHash::new(hash)
     }
 }

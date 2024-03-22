@@ -1163,7 +1163,7 @@ pub mod value {
                 QueryOutputPredicate::Display(pred) => pred.applies(&input.to_string()),
                 QueryOutputPredicate::TimeStamp(pred) => match input {
                     QueryOutputBox::Block(block) => {
-                        pred.applies(block.header().timestamp().as_millis())
+                        pred.applies(block.header().creation_time().as_millis())
                     }
                     _ => false,
                 },

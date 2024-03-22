@@ -30,11 +30,11 @@ use self::{
 };
 use crate::{
     account::{Account, AccountId},
-    block::{BlockHeader, SignedBlock},
+    block::{Block, BlockHeader},
     events::TriggeringEventFilterBox,
     metadata::MetadataValueBox,
     seal,
-    transaction::{SignedTransaction, TransactionPayload, TransactionValue},
+    transaction::{CommittedTransaction, SignedTransaction, TransactionPayload},
     IdBox, Identifiable, IdentifiableBox,
 };
 
@@ -121,7 +121,7 @@ pub mod model {
     use strum::EnumDiscriminants;
 
     use super::*;
-    use crate::{block::SignedBlock, permission::PermissionTokenId};
+    use crate::{block::Block, permission::PermissionTokenId};
 
     /// Sized container for all possible Queries.
     #[allow(clippy::enum_variant_names)]
@@ -219,7 +219,7 @@ pub mod model {
         LimitedMetadata(MetadataValueBox),
         Numeric(Numeric),
         BlockHeader(BlockHeader),
-        Block(crate::block::SignedBlock),
+        Block(crate::block::Block),
 
         Vec(
             #[skip_from]
@@ -247,10 +247,10 @@ pub mod model {
     #[ffi_type]
     pub struct TransactionQueryOutput {
         /// The hash of the block to which `tx` belongs to
-        pub block_hash: HashOf<SignedBlock>,
+        pub block_hash: HashOf<Block>,
         /// Transaction
         #[getset(skip)]
-        pub transaction: TransactionValue,
+        pub transaction: CommittedTransaction,
     }
 
     /// Request type clients (like http clients or wasm) can send to a query endpoint.
@@ -370,7 +370,7 @@ impl_query! {
     FindAllTransactions => Vec<TransactionQueryOutput>,
     FindTransactionsByAccountId => Vec<TransactionQueryOutput>,
     FindTransactionByHash => TransactionQueryOutput,
-    FindAllBlocks => Vec<SignedBlock>,
+    FindAllBlocks => Vec<Block>,
     FindAllBlockHeaders => Vec<crate::block::BlockHeader>,
     FindBlockHeaderByHash => crate::block::BlockHeader,
 }
@@ -507,9 +507,15 @@ where
     }
 }
 
-impl AsRef<TransactionValue> for TransactionQueryOutput {
-    fn as_ref(&self) -> &TransactionValue {
+impl AsRef<CommittedTransaction> for TransactionQueryOutput {
+    fn as_ref(&self) -> &CommittedTransaction {
         &self.transaction
+    }
+}
+
+impl AsRef<SignedTransaction> for TransactionQueryOutput {
+    fn as_ref(&self) -> &SignedTransaction {
+        self.transaction.as_ref()
     }
 }
 
@@ -1110,7 +1116,7 @@ pub mod block {
     use iroha_crypto::HashOf;
     use parity_scale_codec::{Decode, Encode};
 
-    use super::{Query, SignedBlock};
+    use super::{Block, Query};
 
     queries! {
         /// [`FindAllBlocks`] Iroha Query lists all blocks sorted by
@@ -1131,11 +1137,11 @@ pub mod block {
         #[derive(Copy, Display)]
         #[display(fmt = "Find block header with `{hash}` hash")]
         #[repr(transparent)]
-        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<HashOf<SignedBlock>>`
+        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<HashOf<Block>>`
         #[ffi_type(unsafe {robust})]
         pub struct FindBlockHeaderByHash {
             /// Block hash.
-            pub hash: HashOf<SignedBlock>,
+            pub hash: HashOf<Block>,
         }
     }
 
@@ -1419,7 +1425,7 @@ pub mod error {
             /// Failed to find metadata key: `{0}`
             MetadataKey(Name),
             /// Block with hash `{0}` not found
-            Block(HashOf<SignedBlock>),
+            Block(HashOf<Block>),
             /// Transaction with hash `{0}` not found
             Transaction(HashOf<SignedTransaction>),
             /// Peer with id `{0}` not found

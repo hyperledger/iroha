@@ -149,6 +149,9 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::borrow::ToOwned;
+
     use parity_scale_codec::DecodeAll;
 
     use super::*;

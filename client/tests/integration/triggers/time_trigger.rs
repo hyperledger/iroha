@@ -5,7 +5,7 @@ use iroha_client::{
     client::{self, Client, QueryResult},
     data_model::{prelude::*, transaction::WasmSmartContract},
 };
-use iroha_config::parameters::defaults::chain_wide::DEFAULT_CONSENSUS_ESTIMATION;
+use iroha_config::parameters::defaults::chain_wide::{DEFAULT_BLOCK_TIME, DEFAULT_COMMIT_TIME};
 use iroha_logger::info;
 use test_network::*;
 
@@ -18,6 +18,16 @@ macro_rules! const_assert {
         const _: usize = ($e as bool) as usize - 1;
     };
 }
+
+/// Default estimation of consensus duration.
+const DEFAULT_CONSENSUS_ESTIMATION: Duration =
+    match DEFAULT_BLOCK_TIME.checked_add(match DEFAULT_COMMIT_TIME.checked_div(2) {
+        Some(x) => x,
+        None => unreachable!(),
+    }) {
+        Some(x) => x,
+        None => unreachable!(),
+    };
 
 /// Time-based triggers and block commitment process depend heavily on **current time** and **CPU**,
 /// so it's impossible to create fully reproducible test scenario.
