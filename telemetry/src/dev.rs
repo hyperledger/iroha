@@ -3,9 +3,10 @@
 use std::path::PathBuf;
 
 use eyre::{eyre, Result, WrapErr};
+use iroha_futures::FuturePollTelemetry;
 use iroha_logger::telemetry::Event as Telemetry;
 use tokio::{
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io::AsyncWriteExt,
     sync::broadcast::Receiver,
     task::{self, JoinHandle},
@@ -50,18 +51,22 @@ pub async fn start_file_output(
     // So let synchronous code be here.
     let join_handle = task::spawn(async move {
         while let Some(item) = stream.next().await {
-            let telemetry_json = match serde_json::to_string(&item) {
-                Ok(json) => json,
-                Err(error) => {
-                    iroha_logger::error!(%error, "Failed to serialize telemetry to json");
-                    continue;
-                }
-            };
-            if let Err(error) = file.write_all(telemetry_json.as_bytes()).await {
-                iroha_logger::error!(%error, "Failed to write telemetry to file");
+            if let Err(error) = write_telemetry(&mut file, &item).await {
+                iroha_logger::error!(%error, "failed to write telemetry")
             }
         }
     });
 
     Ok(join_handle)
+}
+
+async fn write_telemetry(file: &mut File, item: &FuturePollTelemetry) -> Result<()> {
+    let json = serde_json::to_string(&item).wrap_err("failed to serialize telemetry to JSON")?;
+    file.write_vectored(&[
+        std::io::IoSlice::new(json.as_bytes()),
+        std::io::IoSlice::new(b"\n"),
+    ])
+    .await
+    .wrap_err("failed to write data to the file")?;
+    Ok(())
 }
