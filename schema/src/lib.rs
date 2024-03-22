@@ -145,6 +145,8 @@ pub enum Metadata {
     Option(core::any::TypeId),
     /// Result
     Result(ResultMeta),
+    /// A bitmap: integer where bits have a specific meaning
+    Bitmap(BitmapMeta),
 }
 
 /// Array metadata
@@ -237,6 +239,25 @@ pub enum IntMode {
     FixedWidth,
     /// Scale compact
     Compact,
+}
+
+/// Bitmap metadata
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BitmapMeta {
+    /// Underlying integer type
+    pub repr: core::any::TypeId,
+    /// Masks, specifying the meaning of the bits
+    pub masks: Vec<BitmapMask>,
+}
+
+/// Bitmap mask
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct BitmapMask {
+    /// Symbolic name of the mask
+    pub name: String,
+    /// Mask value
+    // while we can technically have masks with multiple bits set or intersecting masks, we currently only emit single-bit disjoint masks
+    pub mask: u64,
 }
 
 /// Compact predicate. Just for documentation purposes
