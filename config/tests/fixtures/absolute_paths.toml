@@ -6,7 +6,7 @@ store_dir = "/kura/store"
 [snapshot]
 store_dir = "/snapshot/store"
 
-[telemetry.dev]
+[dev_telemetry]
 out_file = "/telemetry/file.json"
 
 [genesis]

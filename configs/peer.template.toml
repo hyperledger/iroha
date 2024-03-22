@@ -61,6 +61,6 @@
 # min_retry_period = "1s"
 # max_retry_delay_exponent = 4
 
-[telemetry.dev]
-## FIXME: is it JSON5?
-# out_file = "./dev-telemetry.json5"
+[dev_telemetry]
+## A path to a file with JSON logs
+# out_file = "./dev-telemetry.json"

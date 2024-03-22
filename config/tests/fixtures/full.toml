@@ -56,8 +56,8 @@ url = "http://test.com"
 min_retry_period = 5_000
 max_retry_delay_exponent = 4
 
-[telemetry.dev]
-out_file = "./dev-telemetry.json5"
+[dev_telemetry]
+out_file = "./dev-telemetry.json"
 
 [chain_wide]
 max_transactions_in_block = 512

@@ -52,6 +52,7 @@ pub struct Root {
     queue: Queue,
     snapshot: Snapshot,
     telemetry: Telemetry,
+    dev_telemetry: DevTelemetry,
     torii: Torii,
     chain_wide: ChainWide,
 }
@@ -119,7 +120,7 @@ impl RootPartial {
         patch!(self.genesis.file);
         patch!(self.snapshot.store_dir);
         patch!(self.kura.store_dir);
-        patch!(self.telemetry.dev.out_file);
+        patch!(self.dev_telemetry.out_file);
     }
 
     // FIXME workaround the inconvenient way `Merge::merge` works
@@ -182,10 +183,11 @@ impl Root {
         let logger = self.logger;
         let queue = self.queue;
         let snapshot = self.snapshot;
+        let dev_telemetry = self.dev_telemetry;
 
         let (torii, live_query_store) = self.torii.parse();
 
-        let telemetries = self.telemetry.parse().map_or_else(
+        let telemetry = self.telemetry.parse().map_or_else(
             |err| {
                 emitter.emit(err);
                 None
@@ -208,7 +210,7 @@ impl Root {
             key_pair: key_pair.unwrap(),
             p2p_address,
         };
-        let (telemetry, dev_telemetry) = telemetries.unwrap();
+        let telemetry = telemetry.unwrap();
         let genesis = genesis.unwrap();
         let sumeragi = {
             let mut x = sumeragi.unwrap();
@@ -480,22 +482,20 @@ pub struct Telemetry {
     pub url: Option<Url>,
     pub min_retry_period: Option<Duration>,
     pub max_retry_delay_exponent: Option<u8>,
-    pub dev: TelemetryDev,
 }
 
-#[derive(Debug)]
-pub struct TelemetryDev {
+#[derive(Debug, Clone)]
+pub struct DevTelemetry {
     pub out_file: Option<PathBuf>,
 }
 
 impl Telemetry {
-    fn parse(self) -> Result<(Option<actual::Telemetry>, actual::DevTelemetry), Report> {
+    fn parse(self) -> Result<Option<actual::Telemetry>, Report> {
         let Self {
             name,
             url,
             max_retry_delay_exponent,
             min_retry_period,
-            dev: TelemetryDev { out_file: file },
         } = self;
 
         let regular = match (name, url) {
@@ -516,9 +516,7 @@ impl Telemetry {
             }
         };
 
-        let dev = actual::DevTelemetry { out_file: file };
-
-        Ok((regular, dev))
+        Ok(regular)
     }
 }
 

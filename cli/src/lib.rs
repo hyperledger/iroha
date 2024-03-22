@@ -650,7 +650,7 @@ mod tests {
                 cfg.genesis.file.set("./genesis/gen.json".into());
                 cfg.kura.store_dir.set("../storage".into());
                 cfg.snapshot.store_dir.set("../snapshots".into());
-                cfg.telemetry.dev.out_file.set("../logs/telemetry".into());
+                cfg.dev_telemetry.out_file.set("../logs/telemetry".into());
                 toml::Value::try_from(cfg)?
             };
 

@@ -394,9 +394,9 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 url: None,
                 min_retry_period: None,
                 max_retry_delay_exponent: None,
-                dev: TelemetryDevPartial {
-                    out_file: None,
-                },
+            },
+            dev_telemetry: DevTelemetryPartial {
+                out_file: None,
             },
             torii: ToriiPartial {
                 address: Some(
