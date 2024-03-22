@@ -148,6 +148,10 @@ rust.elided_lifetimes_in_paths = "allow"
 rust.unknown_lints = "warn"
 rust.single_use_lifetimes = "warn"
 rust.unused_lifetimes = "warn"
+# TODO: reenable
+# rust.unsafe_op_in_unsafe_fn = "deny"
+
+# pedantic
 clippy.pedantic = { level = "warn", priority = -1 }
 clippy.match_wildcard_for_single_variants = "allow"
 clippy.semicolon_if_nothing_returned = "allow"
@@ -157,7 +161,11 @@ clippy.enum_glob_use = "allow"
 clippy.module_name_repetitions = "allow"
 clippy.must_use_candidate = "allow"
 clippy.missing_panics_doc = "allow"
+
+# restriction
 clippy.dbg_macro = "deny"
+
+# nursery
 clippy.debug_assert_with_mut_call = "deny"
 clippy.derive_partial_eq_without_eq = "deny"
 clippy.empty_line_after_outer_attr = "deny"
@@ -179,6 +187,8 @@ clippy.redundant_pub_crate = "warn"
 clippy.string_lit_as_bytes = "warn"
 clippy.suspicious_operation_groupings = "warn"
 clippy.useless_let_if_seq = "warn"
+
+#cargo
 clippy.redundant_feature_names = "deny"
 clippy.wildcard_dependencies = "deny"
 
