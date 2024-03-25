@@ -230,16 +230,16 @@ impl Iroha {
             Ok(state) => {
                 iroha_logger::info!(
                     at_height = state.view().height(),
-                    "Successfully loaded WSV from a snapshot"
+                    "Successfully loaded the state from a snapshot"
                 );
                 Some(state)
             }
             Err(TryReadSnapshotError::NotFound) => {
-                iroha_logger::info!("Didn't find a WSV snapshot; creating empty WSV");
+                iroha_logger::info!("Didn't find a state snapshot; creating an empty state");
                 None
             }
             Err(error) => {
-                iroha_logger::warn!(%error, "Failed to load WSV from a snapshot; creating empty WSV");
+                iroha_logger::warn!(%error, "Failed to load the state from a snapshot; creating an empty state");
                 None
             }
         }.unwrap_or_else(|| {
