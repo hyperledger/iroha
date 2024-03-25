@@ -165,18 +165,6 @@ impl Root {
             Some,
         );
 
-        if let Some(ref config) = sumeragi {
-            if !cli.submit_genesis && config.trusted_peers.len() == 0 {
-                emitter.emit(eyre!("\
-                    The network consists from this one peer only (no `sumeragi.trusted_peers` provided). \
-                    Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
-                    Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
-                    and `genesis.file` configuration parameters, or increase the number of trusted peers in \
-                    the network using `sumeragi.trusted_peers` configuration parameter.\
-                "));
-            }
-        }
-
         let (p2p_address, block_sync, transaction_gossiper) = self.network.parse();
 
         let logger = self.logger;
@@ -236,10 +224,9 @@ impl Root {
 }
 
 #[derive(Copy, Clone)]
-pub struct CliContext {
-    pub submit_genesis: bool,
-}
+pub struct CliContext {}
 
+// TODO: FIX?
 pub(crate) fn private_key_from_env<E: Error>(
     emitter: &mut Emitter<Report>,
     env: &impl ReadEnv<E>,
@@ -308,24 +295,22 @@ pub(crate) fn private_key_from_env<E: Error>(
 #[derive(Debug)]
 pub struct Genesis {
     pub public_key: PublicKey,
-    pub private_key: Option<PrivateKey>,
     pub file: Option<PathBuf>,
 }
 
 impl Genesis {
-    fn parse(self, cli: CliContext) -> Result<actual::Genesis, GenesisConfigError> {
-        match (self.private_key, self.file, cli.submit_genesis) {
-            (None, None, false) => Ok(actual::Genesis::Partial {
+    fn parse(self, _cli: CliContext) -> Result<actual::Genesis, GenesisConfigError> {
+        match self.file {
+            None => Ok(actual::Genesis::Partial {
                 public_key: self.public_key,
             }),
-            (Some(private_key), Some(file), true) => Ok(actual::Genesis::Full {
-                key_pair: KeyPair::new(self.public_key, private_key)
-                    .map_err(GenesisConfigError::from)?,
+            Some(file) => Ok(actual::Genesis::Full {
+                public_key: self.public_key,
                 file,
             }),
-            (Some(_), Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit),
-            (None, None, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
-            _ => Err(GenesisConfigError::Inconsistent),
+            // (Some(_), Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit),
+            // (None, None, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
+            // _ => Err(GenesisConfigError::Inconsistent),
         }
     }
 }

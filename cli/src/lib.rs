@@ -6,7 +6,7 @@
 //! should be constructed externally: (see `main.rs`).
 #[cfg(debug_assertions)]
 use core::sync::atomic::{AtomicBool, Ordering};
-use std::{path::Path, sync::Arc};
+use std::{fs, path::Path, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use iroha_config::parameters::{actual::Root as Config, user::CliContext};
@@ -27,7 +27,7 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
+use iroha_genesis::GenesisNetwork;
 use iroha_logger::actor::LoggerHandle;
 use iroha_torii::Torii;
 use tokio::{
@@ -35,6 +35,8 @@ use tokio::{
     sync::{broadcast, mpsc, Notify},
     task,
 };
+
+use parity_scale_codec::Decode;
 
 // FIXME: move from CLI
 pub mod samples;
@@ -511,21 +513,16 @@ fn genesis_domain(public_key: PublicKey) -> Domain {
 /// - If failed to build a genesis network
 pub fn read_config_and_genesis<P: AsRef<Path>>(
     path: Option<P>,
-    submit_genesis: bool,
 ) -> Result<(Config, Option<GenesisNetwork>)> {
     use iroha_config::parameters::actual::Genesis;
 
-    let config = Config::load(path, CliContext { submit_genesis })
+    let config = Config::load(path, CliContext {})
         .wrap_err("failed to load configuration")?;
 
-    let genesis = if let Genesis::Full { key_pair, file } = &config.genesis {
-        let raw_block = RawGenesisBlock::from_path(file)?;
+    let genesis = if let Genesis::Full { public_key: _, file } = &config.genesis {
+        let encoded_block = fs::read(file)?;
 
-        Some(GenesisNetwork::new(
-            raw_block,
-            &config.common.chain_id,
-            key_pair,
-        ))
+        Some(GenesisNetwork::decode(&mut encoded_block.as_slice())?)
     } else {
         None
     };
@@ -585,8 +582,8 @@ mod tests {
             base.private_key.set(privkey.clone());
             base.network.address.set(socket_addr!(127.0.0.1:1337));
 
-            base.genesis.public_key.set(pubkey);
-            base.genesis.private_key.set(privkey);
+            base.genesis.public_key.set(pubkey.clone());
+            base.genesis.public_key_algorithm.set(pubkey.algorithm());
 
             base.torii.address.set(socket_addr!(127.0.0.1:8080));
 
@@ -624,7 +621,7 @@ mod tests {
 
             // When
 
-            let (config, genesis) = read_config_and_genesis(Some(config_path), true)?;
+            let (config, genesis) = read_config_and_genesis(Some(config_path))?;
 
             // Then
 
@@ -673,7 +670,7 @@ mod tests {
 
             // When & Then
 
-            let report = read_config_and_genesis(Some(config_path), false).unwrap_err();
+            let report = read_config_and_genesis(Some(config_path)).unwrap_err();
 
             assert_contains!(
                 format!("{report:#}"),

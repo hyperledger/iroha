@@ -26,6 +26,7 @@ pub enum CryptoMode {
 #[derive(ClapArgs, Clone, Debug)]
 #[command(group = ArgGroup::new("private_key").required(true))]
 #[command(group = ArgGroup::new("public_key").required(true))]
+#[command(group = ArgGroup::new("format").required(false))]
 pub struct GenesisSigningArgs {
     /// The algorithm of the provided keypair
     #[clap(default_value_t, long, short)]
@@ -42,15 +43,18 @@ pub struct GenesisSigningArgs {
     /// Path to public key of the corresponding private key
     #[clap(long, group = "public_key")]
     public_key_path: Option<PathBuf>,
+    /// Path to json-serialized keypair
+    #[clap(long, short, group = "private_key", group = "public_key")]
+    keypair_path: Option<PathBuf>,
     /// Unique id of blockchain
-    #[clap(long, short)]
+    #[clap(long)]
     chain_id: ChainId,
     /// Path to genesis json file
     #[clap(long, short)]
     genesis_path: PathBuf,
-    // Path to signed genesis output file
-    #[clap(long, short)]
-    output_path: PathBuf,
+    /// Path to signed genesis output file
+    #[clap(long, short, group = "format")]
+    output_path: Option<PathBuf>,
 }
 
 impl GenesisSigningArgs {
@@ -85,24 +89,37 @@ impl GenesisSigningArgs {
             _ => unreachable!("Clap group invariant"),
         }
     }
+
+    fn read_keypair<P: AsRef<Path>>(path: P) -> Result<KeyPair> {
+        let bytes = fs::read(path)?;
+        Ok(serde_json::from_slice(bytes.as_slice())?)
+    }
 }
 
 impl<T: Write> RunArgs<T> for GenesisSigningArgs {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-        let (public_key, private_key) = (self.get_public_key()?, self.get_private_key()?);
-        let key_pair = KeyPair::new(public_key, private_key)?;
+        let key_pair = if let Some(path) = self.keypair_path {
+            Self::read_keypair(path)?
+        } else {
+            let (public_key, private_key) = (self.get_public_key()?, self.get_private_key()?);
+            KeyPair::new(public_key, private_key)?
+        };
 
         let genesis_block = RawGenesisBlock::from_path(&self.genesis_path)?;
         let encoded_genesis_network =
             GenesisNetwork::new(genesis_block, &self.chain_id, &key_pair).encode();
 
-        fs::write(&self.output_path, encoded_genesis_network)?;
+        if let Some(path) = self.output_path {
+            fs::write(&path, encoded_genesis_network)?;
 
-        writeln!(
-            writer,
-            "Genesis was successfully signed, encoded and written to `{}`",
-            self.output_path.display()
-        )?;
+            writeln!(
+                writer,
+                "Genesis was successfully signed, encoded and written to `{}`",
+                path.display()
+            )?;
+        } else {
+            // TODO: ADD ?
+        }
 
         Ok(())
     }
@@ -206,7 +223,18 @@ impl KeyPairArgs {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, io::BufWriter, path::PathBuf, str::FromStr};
+
+    use color_eyre::Result;
+    use iroha_data_model::ChainId;
+    use iroha_genesis::GenesisNetwork;
+    use parity_scale_codec::Decode;
+
     use super::{Algorithm, AlgorithmArg};
+    use crate::{
+        crypto::{GenesisSigningArgs, KeyPairArgs},
+        RunArgs,
+    };
 
     #[test]
     fn algorithm_arg_displays_as_algorithm() {
@@ -214,5 +242,54 @@ mod tests {
             format!("{}", AlgorithmArg(Algorithm::Ed25519)),
             format!("{}", Algorithm::Ed25519)
         )
+    }
+
+    const GENESIS_JSON_PATH: &str = "../../configs/swarm/genesis.json";
+    const GEN_KEYPAIR_JSON_PATH: &str = "test_keypair_path_for_crypt0_genesis_kagami.json";
+    const GEN_SIGNED_ENCODED_GENESIS_PATH: &str =
+        "test_signed_encoded_genesis_path_for_crypt0_genesis_kagami";
+
+    fn genesis_signing_works() -> Result<()> {
+        let keypair_config = KeyPairArgs {
+            algorithm: AlgorithmArg::default(),
+            private_key: None,
+            seed: None,
+            json: true,
+            compact: false,
+        };
+
+        let mut keypair_json = BufWriter::new(Vec::new());
+        keypair_config.run(&mut keypair_json)?;
+
+        fs::write(GEN_KEYPAIR_JSON_PATH, keypair_json.buffer())?;
+
+        let crypto_genesis_config = GenesisSigningArgs {
+            algorithm: AlgorithmArg::default(),
+            private_key_string: None,
+            private_key_path: None,
+            public_key_string: None,
+            public_key_path: None,
+            keypair_path: Some(PathBuf::from_str(GEN_KEYPAIR_JSON_PATH)?),
+            chain_id: ChainId::from("0123456"),
+            genesis_path: PathBuf::from_str(GENESIS_JSON_PATH)?,
+            output_path: Some(PathBuf::from_str(GEN_SIGNED_ENCODED_GENESIS_PATH)?),
+        };
+
+        let mut genesis_buf_writer = BufWriter::new(Vec::new());
+
+        crypto_genesis_config.run(&mut genesis_buf_writer)?;
+
+        let signed_genesis_from_file_encoded = fs::read(GEN_SIGNED_ENCODED_GENESIS_PATH)?;
+        let _maybe_signed_genesis_from_file: GenesisNetwork =
+            GenesisNetwork::decode(&mut signed_genesis_from_file_encoded.as_slice())?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_genesis_signing_works() {
+        let result = genesis_signing_works();
+        let _ = fs::remove_file(GEN_KEYPAIR_JSON_PATH);
+        let _ = fs::remove_file(GEN_SIGNED_ENCODED_GENESIS_PATH);
+        assert!(result.is_ok());
     }
 }
