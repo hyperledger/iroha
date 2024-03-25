@@ -155,11 +155,13 @@ impl Root {
             },
             Some,
         );
-        if let Some(actual::Genesis::Full { file, .. }) = &genesis {
-            if !file.is_file() {
-                emitter.emit(eyre!("unable to access `genesis.file`: {}", file.display()))
-            }
-        }
+
+        // TODO: enable this check after fix of https://github.com/hyperledger/iroha/issues/4383
+        // if let Some(actual::Genesis::Full { file, .. }) = &genesis {
+        //     if !file.is_file() {
+        //         emitter.emit(eyre!("unable to access `genesis.file`: {}", file.display()))
+        //     }
+        // }
 
         let kura = self.kura.parse();
         validate_directory_path(&mut emitter, &kura.store_dir, "kura.store_dir");
