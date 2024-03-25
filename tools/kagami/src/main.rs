@@ -62,7 +62,7 @@ impl<T: Write> RunArgs<T> for Args {
         match self {
             Crypto(args) => {
                 match args {
-                    CryptoMode::GenesisSigning { .. } => todo!(),
+                    CryptoMode::GenesisSigning(args) => args.run(writer),
                     CryptoMode::KeyPairGeneration(args) => args.run(writer),
                 }
             }

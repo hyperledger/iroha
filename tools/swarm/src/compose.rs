@@ -20,6 +20,7 @@ use crate::{cli::SourceParsed, util::AbsolutePath};
 const DIR_CONFIG_IN_DOCKER: &str = "/config";
 const PATH_TO_GENESIS: &str = "/config/genesis.json";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
+// TODO: FIX
 const COMMAND_SUBMIT_GENESIS: &str = "iroha --submit-genesis";
 const DOCKER_COMPOSE_VERSION: &str = "3.8";
 const PLATFORM_ARCHITECTURE: &str = "linux/amd64";
@@ -169,7 +170,8 @@ impl DockerComposeServiceBuilder {
             chain_id,
             trusted_peers,
             genesis_public_key,
-            genesis_private_key,
+            // TODO: FIX
+            genesis_public_key_algorithm: Algorithm::Ed25519,
             key_pair: peer.key_pair.clone(),
             p2p_addr: socket_addr!(0.0.0.0:peer.port_p2p),
             api_addr: socket_addr!(0.0.0.0:peer.port_api),
@@ -304,9 +306,7 @@ struct FullPeerEnv {
     p2p_address: SocketAddr,
     api_address: SocketAddr,
     genesis_public_key: PublicKey,
-    genesis_private_key_algorithm: Option<Algorithm>,
-    #[serde_as(as = "Option<serde_with::hex::Hex>")]
-    genesis_private_key_payload: Option<Vec<u8>>,
+    genesis_public_key_algorithm: Algorithm,
     genesis_file: Option<String>,
     #[serde_as(as = "Option<serde_with::json::JsonString>")]
     sumeragi_trusted_peers: Option<BTreeSet<PeerId>>,
@@ -317,24 +317,27 @@ struct CompactPeerEnv {
     key_pair: KeyPair,
     genesis_public_key: PublicKey,
     /// Genesis private key is only needed for a peer that is submitting the genesis block
-    genesis_private_key: Option<PrivateKey>,
+    genesis_public_key_algorithm: Algorithm,
     p2p_addr: SocketAddr,
     api_addr: SocketAddr,
     trusted_peers: BTreeSet<PeerId>,
 }
 
+// TODO: FIX
 impl From<CompactPeerEnv> for FullPeerEnv {
     fn from(value: CompactPeerEnv) -> Self {
-        let (genesis_private_key_algorithm, genesis_private_key_payload, genesis_file) = value
-            .genesis_private_key
-            .map_or((None, None, None), |private_key| {
-                let (algorithm, payload) = private_key.to_bytes();
-                (
-                    Some(algorithm),
-                    Some(payload),
-                    Some(PATH_TO_GENESIS.to_string()),
-                )
-            });
+        let genesis_file = Some(PATH_TO_GENESIS.to_string());
+        // TODO: FIX
+        // let (genesis_private_key_algorithm, genesis_private_key_payload, genesis_file) = value
+        //     .genesis_private_key
+        //     .map_or((None, None, None), |private_key| {
+        //         let (algorithm, payload) = private_key.to_bytes();
+        //         (
+        //             Some(algorithm),
+        //             Some(payload),
+        //             Some(PATH_TO_GENESIS.to_string()),
+        //         )
+        //     });
 
         let (private_key_algorithm, private_key_payload) = {
             let (algorithm, payload) = value.key_pair.private_key().clone().to_bytes();
@@ -347,8 +350,7 @@ impl From<CompactPeerEnv> for FullPeerEnv {
             private_key_algorithm,
             private_key_payload,
             genesis_public_key: value.genesis_public_key,
-            genesis_private_key_algorithm,
-            genesis_private_key_payload,
+            genesis_public_key_algorithm: value.genesis_public_key_algorithm,
             genesis_file,
             p2p_address: value.p2p_addr,
             api_address: value.api_addr,
@@ -550,6 +552,7 @@ impl TryFrom<SourceParsed> for ResolvedImageSource {
     }
 }
 
+// TODO: FIX TESTS
 #[cfg(test)]
 mod tests {
     use std::{
@@ -601,7 +604,7 @@ mod tests {
             chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
             genesis_public_key: keypair.public_key().clone(),
-            genesis_private_key: Some(keypair.private_key().clone()),
+            genesis_public_key_algorithm: keypair.algorithm(),
             p2p_addr: socket_addr!(127.0.0.1:1337),
             api_addr: socket_addr!(127.0.0.1:1338),
             trusted_peers: {
@@ -619,9 +622,7 @@ mod tests {
             .expect("valid env")
             .unwrap_partial()
             .expect("should not fail as input has all required fields")
-            .parse(CliContext {
-                submit_genesis: true,
-            })
+            .parse(CliContext {})
             .expect("should not fail as input is valid");
 
         assert_eq!(env.unvisited(), HashSet::new());
@@ -654,7 +655,7 @@ mod tests {
                             chain_id,
                             key_pair: key_pair.clone(),
                             genesis_public_key: key_pair.public_key().clone(),
-                            genesis_private_key: Some(key_pair.private_key().clone()),
+                            genesis_public_key_algorithm: key_pair.algorithm(),
                             p2p_addr: SocketAddr::from_str("iroha1:1339").unwrap(),
                             api_addr: SocketAddr::from_str("iroha1:1338").unwrap(),
                             trusted_peers: BTreeSet::new(),
@@ -720,7 +721,7 @@ mod tests {
             chain_id,
             key_pair: key_pair.clone(),
             genesis_public_key: key_pair.public_key().clone(),
-            genesis_private_key: None,
+            genesis_public_key_algorithm: key_pair.algorithm(),
             p2p_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             api_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             trusted_peers: BTreeSet::new(),

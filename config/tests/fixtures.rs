@@ -47,9 +47,7 @@ fn test_env_from_file(p: impl AsRef<Path>) -> TestEnv {
 fn minimal_config_snapshot() -> Result<()> {
     let config = RootPartial::from_toml(fixtures_dir().join("minimal_with_trusted_peers.toml"))?
         .unwrap_partial()?
-        .parse(CliContext {
-            submit_genesis: false,
-        })?;
+        .parse(CliContext {})?;
 
     let expected = expect_test::expect![[r#"
         Root {
@@ -181,9 +179,7 @@ fn minimal_config_snapshot() -> Result<()> {
 fn config_with_genesis() -> Result<()> {
     let _config = RootPartial::from_toml(fixtures_dir().join("minimal_alone_with_genesis.toml"))?
         .unwrap_partial()?
-        .parse(CliContext {
-            submit_genesis: true,
-        })?;
+        .parse(CliContext {})?;
     Ok(())
 }
 
@@ -191,9 +187,7 @@ fn config_with_genesis() -> Result<()> {
 fn minimal_with_genesis_but_no_cli_arg_fails() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("minimal_alone_with_genesis.toml"))?
         .unwrap_partial()?
-        .parse(CliContext {
-            submit_genesis: false,
-        })
+        .parse(CliContext {})
         .expect_err("should fail since `--submit-genesis=false`");
 
     let expected = expect_test::expect![[r#"
@@ -208,9 +202,7 @@ fn minimal_with_genesis_but_no_cli_arg_fails() -> Result<()> {
 fn minimal_without_genesis_but_with_submit_fails() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("minimal_with_trusted_peers.toml"))?
         .unwrap_partial()?
-        .parse(CliContext {
-            submit_genesis: true,
-        })
+        .parse(CliContext {})
         .expect_err(
             "should fail since there is no genesis in the config, but `--submit-genesis=true`",
         );
@@ -225,9 +217,7 @@ fn minimal_without_genesis_but_with_submit_fails() -> Result<()> {
 fn self_is_presented_in_trusted_peers() -> Result<()> {
     let config = RootPartial::from_toml(fixtures_dir().join("minimal_alone_with_genesis.toml"))?
         .unwrap_partial()?
-        .parse(CliContext {
-            submit_genesis: true,
-        })?;
+        .parse(CliContext {})?;
 
     assert!(config
         .sumeragi
@@ -269,9 +259,7 @@ fn inconsistent_genesis_config() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("inconsistent_genesis.toml"))?
         .unwrap_partial()
         .expect("all fields are present")
-        .parse(CliContext {
-            submit_genesis: false,
-        })
+        .parse(CliContext {})
         .expect_err("should fail with bad genesis config");
 
     let expected = expect_test::expect![[r#"
@@ -453,9 +441,7 @@ fn config_from_file_and_env() -> Result<()> {
     let _config = RootPartial::from_toml(fixtures_dir().join("minimal_file_and_env.toml"))?
         .merge(RootPartial::from_env(&env)?)
         .unwrap_partial()?
-        .parse(CliContext {
-            submit_genesis: false,
-        })?;
+        .parse(CliContext {})?;
 
     Ok(())
 }
@@ -465,9 +451,7 @@ fn fails_if_torii_address_and_p2p_address_are_equal() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("bad.torii_addr_eq_p2p_addr.toml"))?
         .unwrap_partial()
         .expect("should not fail, all fields are present")
-        .parse(CliContext {
-            submit_genesis: false,
-        })
+        .parse(CliContext {})
         .expect_err("should fail because of bad input");
 
     let expected =
@@ -509,9 +493,7 @@ fn multiple_extends_works() -> Result<()> {
 fn full_config_parses_fine() {
     let _cfg = Root::load(
         Some(fixtures_dir().join("full.toml")),
-        CliContext {
-            submit_genesis: true,
-        },
+        CliContext {},
     )
     .expect("should be fine");
 }
@@ -520,9 +502,7 @@ fn full_config_parses_fine() {
 fn absolute_paths_are_preserved() {
     let cfg = Root::load(
         Some(fixtures_dir().join("absolute_paths.toml")),
-        CliContext {
-            submit_genesis: true,
-        },
+        CliContext {},
     )
     .expect("should be fine");
 

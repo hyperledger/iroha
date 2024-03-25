@@ -130,14 +130,16 @@ impl TestGenesis for GenesisNetwork {
         GenesisNetwork::new(
             genesis.try_into().expect("genesis should load fine"),
             &cfg.common.chain_id,
-            {
-                use iroha_config::parameters::actual::Genesis;
-                if let Genesis::Full { key_pair, .. } = &cfg.genesis {
-                    key_pair
-                } else {
-                    unreachable!("test config should contain full genesis config (or it is a bug)")
-                }
-            },
+            // TODO: FIX
+            &KeyPair::random()
+            // {
+            //     use iroha_config::parameters::actual::Genesis;
+            //     if let Genesis::Full { key_pair, .. } = &cfg.genesis {
+            //         key_pair
+            //     } else {
+            //         unreachable!("test config should contain full genesis config (or it is a bug)")
+            //     }
+            // },
         )
     }
 }
@@ -787,9 +789,7 @@ impl TestConfig for Config {
         layer
             .unwrap_partial()
             .expect("should not fail as all fields are present")
-            .parse(CliContext {
-                submit_genesis: true,
-            })
+            .parse(CliContext {})
             .expect("Test Iroha config failed to build. This is likely to be a bug.")
     }
 

@@ -37,6 +37,8 @@ use tokio::{
     task,
 };
 
+use parity_scale_codec::Decode;
+
 // FIXME: move from CLI
 pub mod samples;
 
@@ -505,14 +507,10 @@ pub fn read_config_and_genesis(
     )
     .wrap_err("failed to load configuration")?;
 
-    let genesis = if let Genesis::Full { key_pair, file } = &config.genesis {
-        let raw_block = RawGenesisBlock::from_path(file)?;
+    let genesis = if let Genesis::Full { public_key: _, file } = &config.genesis {
+        let encoded_block = fs::read(file)?;
 
-        Some(GenesisNetwork::new(
-            raw_block,
-            &config.common.chain_id,
-            key_pair,
-        ))
+        Some(GenesisNetwork::decode(&mut encoded_block.as_slice())?)
     } else {
         None
     };
@@ -638,8 +636,8 @@ mod tests {
             base.private_key.set(privkey.clone());
             base.network.address.set(socket_addr!(127.0.0.1:1337));
 
-            base.genesis.public_key.set(pubkey);
-            base.genesis.private_key.set(privkey);
+            base.genesis.public_key.set(pubkey.clone());
+            base.genesis.public_key_algorithm.set(pubkey.algorithm());
 
             base.torii.address.set(socket_addr!(127.0.0.1:8080));
 
