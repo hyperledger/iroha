@@ -2,6 +2,8 @@
 set -e
 cargo +nightly fmt --all -- --check
 cargo +nightly lints clippy --workspace --benches --tests --examples --all-features
-cargo run --bin kagami -- genesis >configs/peer/genesis.json
+cargo run --bin kagami -- genesis >configs/swarm/genesis.json
 cargo run --bin kagami -- schema >docs/source/references/schema.json
-git add configs/peer/genesis.json docs/source/references/schema.json
+cargo run --bin kagami -- crypto key-pair-generation -j >configs/swarm/keypair.json
+cargo run --bin kagami -- crypto --keypair-path configs/swarm/keypair.json --genesis-path configs/swarm/genesis.json --chain-id 01234 -o configs/swarm/signes_genesis.scale
+git add configs/peer/genesis.json configs/swarm/keypair.json configs/swarm/signes_genesis.scale docs/source/references/schema.json
