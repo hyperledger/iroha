@@ -94,7 +94,57 @@
       }
     ]
   },
-  "AccountEventSet": "u32",
+  "AccountEventSet": {
+    "Bitmap": {
+      "repr": "u32",
+      "masks": [
+        {
+          "name": "AnyAsset",
+          "mask": 1
+        },
+        {
+          "name": "Created",
+          "mask": 2
+        },
+        {
+          "name": "Deleted",
+          "mask": 4
+        },
+        {
+          "name": "AuthenticationAdded",
+          "mask": 8
+        },
+        {
+          "name": "AuthenticationRemoved",
+          "mask": 16
+        },
+        {
+          "name": "PermissionAdded",
+          "mask": 32
+        },
+        {
+          "name": "PermissionRemoved",
+          "mask": 64
+        },
+        {
+          "name": "RoleRevoked",
+          "mask": 128
+        },
+        {
+          "name": "RoleGranted",
+          "mask": 256
+        },
+        {
+          "name": "MetadataInserted",
+          "mask": 512
+        },
+        {
+          "name": "MetadataRemoved",
+          "mask": 1024
+        }
+      ]
+    }
+  },
   "AccountId": {
     "Struct": [
       {
@@ -310,7 +360,41 @@
       }
     ]
   },
-  "AssetDefinitionEventSet": "u32",
+  "AssetDefinitionEventSet": {
+    "Bitmap": {
+      "repr": "u32",
+      "masks": [
+        {
+          "name": "Created",
+          "mask": 1
+        },
+        {
+          "name": "MintabilityChanged",
+          "mask": 2
+        },
+        {
+          "name": "OwnerChanged",
+          "mask": 4
+        },
+        {
+          "name": "Deleted",
+          "mask": 8
+        },
+        {
+          "name": "MetadataInserted",
+          "mask": 16
+        },
+        {
+          "name": "MetadataRemoved",
+          "mask": 32
+        },
+        {
+          "name": "TotalQuantityChanged",
+          "mask": 64
+        }
+      ]
+    }
+  },
   "AssetDefinitionId": {
     "Struct": [
       {
@@ -393,7 +477,37 @@
       }
     ]
   },
-  "AssetEventSet": "u32",
+  "AssetEventSet": {
+    "Bitmap": {
+      "repr": "u32",
+      "masks": [
+        {
+          "name": "Created",
+          "mask": 1
+        },
+        {
+          "name": "Deleted",
+          "mask": 2
+        },
+        {
+          "name": "Added",
+          "mask": 4
+        },
+        {
+          "name": "Removed",
+          "mask": 8
+        },
+        {
+          "name": "MetadataInserted",
+          "mask": 16
+        },
+        {
+          "name": "MetadataRemoved",
+          "mask": 32
+        }
+      ]
+    }
+  },
   "AssetId": {
     "Struct": [
       {
@@ -631,7 +745,25 @@
       }
     ]
   },
-  "ConfigurationEventSet": "u32",
+  "ConfigurationEventSet": {
+    "Bitmap": {
+      "repr": "u32",
+      "masks": [
+        {
+          "name": "Changed",
+          "mask": 1
+        },
+        {
+          "name": "Created",
+          "mask": 2
+        },
+        {
+          "name": "Deleted",
+          "mask": 4
+        }
+      ]
+    }
+  },
   "Container": {
     "Enum": [
       {
@@ -830,7 +962,41 @@
       }
     ]
   },
-  "DomainEventSet": "u32",
+  "DomainEventSet": {
+    "Bitmap": {
+      "repr": "u32",
+      "masks": [
+        {
+          "name": "AnyAccount",
+          "mask": 1
+        },
+        {
+          "name": "AnyAssetDefinition",
+          "mask": 2
+        },
+        {
+          "name": "Created",
+          "mask": 4
+        },
+        {
+          "name": "Deleted",
+          "mask": 8
+        },
+        {
+          "name": "MetadataInserted",
+          "mask": 16
+        },
+        {
+          "name": "MetadataRemoved",
+          "mask": 32
+        },
+        {
+          "name": "OwnerChanged",
+          "mask": 64
+        }
+      ]
+    }
+  },
   "DomainId": {
     "Struct": [
       {
@@ -1000,7 +1166,17 @@
       }
     ]
   },
-  "ExecutorEventSet": "u32",
+  "ExecutorEventSet": {
+    "Bitmap": {
+      "repr": "u32",
+      "masks": [
+        {
+          "name": "Upgraded",
+          "mask": 1
+        }
+      ]
+    }
+  },
   "Fail": {
     "Struct": [
       {
@@ -2364,7 +2540,21 @@
       }
     ]
   },
-  "PeerEventSet": "u32",
+  "PeerEventSet": {
+    "Bitmap": {
+      "repr": "u32",
+      "masks": [
+        {
+          "name": "Added",
+          "mask": 1
+        },
+        {
+          "name": "Removed",
+          "mask": 2
+        }
+      ]
+    }
+  },
   "PeerId": {
     "Struct": [
       {
@@ -3145,7 +3335,29 @@
       }
     ]
   },
-  "RoleEventSet": "u32",
+  "RoleEventSet": {
+    "Bitmap": {
+      "repr": "u32",
+      "masks": [
+        {
+          "name": "Created",
+          "mask": 1
+        },
+        {
+          "name": "Deleted",
+          "mask": 2
+        },
+        {
+          "name": "PermissionRemoved",
+          "mask": 4
+        },
+        {
+          "name": "PermissionAdded",
+          "mask": 8
+        }
+      ]
+    }
+  },
   "RoleId": {
     "Struct": [
       {
@@ -3863,7 +4075,29 @@
       }
     ]
   },
-  "TriggerEventSet": "u32",
+  "TriggerEventSet": {
+    "Bitmap": {
+      "repr": "u32",
+      "masks": [
+        {
+          "name": "Created",
+          "mask": 1
+        },
+        {
+          "name": "Deleted",
+          "mask": 2
+        },
+        {
+          "name": "Extended",
+          "mask": 4
+        },
+        {
+          "name": "Shortened",
+          "mask": 8
+        }
+      ]
+    }
+  },
   "TriggerId": {
     "Struct": [
       {

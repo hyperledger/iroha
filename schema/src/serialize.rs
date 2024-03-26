@@ -214,6 +214,24 @@ impl PartialEq for WithContext<'_, '_, FixedMeta> {
     }
 }
 
+impl Serialize for WithContext<'_, '_, BitmapMeta> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("repr", self.type_name(self.data.repr))?;
+        map.serialize_entry("masks", &self.data.masks)?;
+        map.end()
+    }
+}
+impl PartialEq for WithContext<'_, '_, BitmapMeta> {
+    fn eq(&self, other: &Self) -> bool {
+        self.type_name(self.data.repr) == other.type_name(other.data.repr)
+            && self.data.masks == other.data.masks
+    }
+}
+
 impl Serialize for WithContext<'_, '_, Metadata> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         macro_rules! match_variants {
@@ -253,7 +271,7 @@ impl Serialize for WithContext<'_, '_, Metadata> {
             };
         }
 
-        match_variants!(Struct, Enum, FixedPoint, Array, Vec, Map, Result)
+        match_variants!(Struct, Enum, FixedPoint, Array, Vec, Map, Result, Bitmap)
     }
 }
 impl PartialEq for WithContext<'_, '_, Metadata> {
@@ -288,7 +306,7 @@ impl PartialEq for WithContext<'_, '_, Metadata> {
             };
         }
 
-        match_variants!(Tuple, Struct, Enum, FixedPoint, Array, Vec, Map, Result)
+        match_variants!(Tuple, Struct, Enum, FixedPoint, Array, Vec, Map, Result, Bitmap)
     }
 }
 

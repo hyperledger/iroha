@@ -131,20 +131,26 @@ impl ToTokens for EventSetEnum {
             variants,
         } = self;
 
+        let flag_raw_values = variants
+            .iter()
+            .zip(0u32..)
+            .map(|(_, i)| quote!(1 << #i))
+            .collect::<Vec<_>>();
+
         // definitions of consts for each event
-        let flag_defs = variants.iter().zip(0u32..).map(
+        let flag_defs = variants.iter().zip(flag_raw_values.iter()).map(
             |(
                 EventSetVariant {
                     flag_ident,
                     event_ident,
                     ..
                 },
-                i,
+                raw_value,
             )| {
                 let doc = format!(" Matches [`{event_enum_ident}::{event_ident}`]");
                 quote! {
                     #[doc = #doc]
-                    #vis const #flag_ident: Self = Self(1 << #i);
+                    #vis const #flag_ident: Self = Self(#raw_value);
                 }
             },
         );
@@ -197,8 +203,7 @@ impl ToTokens for EventSetEnum {
                 // but it's the easiest way to make sure those traits are implemented
                 parity_scale_codec::Decode,
                 parity_scale_codec::Encode,
-                // TODO: we probably want to represent the bit values for each variant in the schema
-                iroha_schema::IntoSchema,
+                iroha_schema::TypeId,
             )]
             #[repr(transparent)]
             #[doc = #doc]
@@ -378,6 +383,32 @@ impl ToTokens for EventSetEnum {
                     }
 
                     deserializer.deserialize_seq(Visitor)
+                }
+            }
+
+
+            impl iroha_schema::IntoSchema for #set_ident {
+                fn type_name() -> iroha_schema::Ident {
+                    <Self as iroha_schema::TypeId>::id()
+                }
+
+                fn update_schema_map(metamap: &mut iroha_schema::MetaMap) {
+                    if !metamap.contains_key::<Self>() {
+                        if !metamap.contains_key::<u32>() {
+                            <u32 as iroha_schema::IntoSchema>::update_schema_map(metamap);
+                        }
+                        metamap.insert::<Self>(iroha_schema::Metadata::Bitmap(iroha_schema::BitmapMeta {
+                            repr: core::any::TypeId::of::<u32>(),
+                            masks: vec![
+                                #(
+                                    iroha_schema::BitmapMask {
+                                        name: String::from(#flag_names),
+                                        mask: #flag_raw_values,
+                                    },
+                                )*
+                            ],
+                        }));
+                    }
                 }
             }
         })
