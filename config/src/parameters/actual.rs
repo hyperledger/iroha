@@ -16,7 +16,7 @@ use iroha_data_model::{
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::{Deserialize, Serialize};
 use url::Url;
-pub use user::{Logger, Queue, Snapshot};
+pub use user::{DevTelemetry, Logger, Queue, Snapshot};
 
 use crate::{
     kura::InitMode,
@@ -42,7 +42,7 @@ pub struct Root {
     pub queue: Queue,
     pub snapshot: Snapshot,
     pub telemetry: Option<Telemetry>,
-    pub dev_telemetry: Option<DevTelemetry>,
+    pub dev_telemetry: DevTelemetry,
     pub chain_wide: ChainWide,
 }
 
@@ -243,11 +243,4 @@ pub struct Telemetry {
     pub url: Url,
     pub min_retry_period: Duration,
     pub max_retry_delay_exponent: u8,
-}
-
-/// Complete configuration needed to start dev telemetry.
-#[derive(Debug, Clone)]
-#[allow(missing_docs)]
-pub struct DevTelemetry {
-    pub out_file: PathBuf,
 }

@@ -15,7 +15,6 @@ categories = ["cryptography::cryptocurrencies"]
 
 [workspace.dependencies]
 iroha = { path = "cli" }
-iroha_dsl = { version = "=2.0.0-pre-rc.20", path = "dsl" }
 iroha_torii = { version = "=2.0.0-pre-rc.20", path = "torii" }
 iroha_torii_derive = { version = "=2.0.0-pre-rc.20", path = "torii/derive" }
 iroha_torii_const = { version = "=2.0.0-pre-rc.20", path = "torii/const" }
@@ -51,14 +50,10 @@ iroha_wasm_builder = { version = "=2.0.0-pre-rc.20", path = "wasm_builder" }
 iroha_smart_contract = { version = "=2.0.0-pre-rc.20", path = "smart_contract" }
 iroha_smart_contract_derive = { version = "=2.0.0-pre-rc.20", path = "smart_contract/derive" }
 iroha_smart_contract_utils = { version = "=2.0.0-pre-rc.20", path = "smart_contract/utils" }
-iroha_executor = { version = "=2.0.0-pre-rc.20", path = "smart_contract/executor" }
 iroha_executor_derive = { version = "=2.0.0-pre-rc.20", path = "smart_contract/executor/derive" }
-iroha_trigger = { version = "=2.0.0-pre-rc.20", path = "smart_contract/trigger" }
 iroha_trigger_derive = { version = "=2.0.0-pre-rc.20", path = "smart_contract/trigger/derive" }
 
 test_network = { version = "=2.0.0-pre-rc.20", path = "core/test_network" }
-
-proc-macro-error = "1.0.4"
 proc-macro2 = "1.0.69"
 syn = { version = "2.0.38", default-features = false }
 quote = "1.0.33"
@@ -71,8 +66,6 @@ tokio = "1.33.0"
 tokio-stream = "0.1.14"
 tokio-tungstenite = "0.20.1"
 tungstenite = "0.20.1"
-
-crossbeam = "0.8.2"
 crossbeam-queue = "0.3.8"
 parking_lot = { version = "0.12.1" }
 
@@ -98,10 +91,8 @@ owo-colors = "3.5.0"
 supports-color = "2.1.0"
 inquire = "0.6.2"
 spinoff = "0.8.0"
-duct = "0.13.6"
 
 criterion = "0.5.1"
-proptest = "1.3.1"
 expect-test = "1.4.1"
 
 eyre = "0.6.8"
@@ -204,53 +195,53 @@ clippy.wildcard_dependencies = "deny"
 [workspace]
 resolver = "2"
 members = [
-  "cli",
-  "client",
-  "client_cli",
-  "config",
-  "config/base",
-  "core",
-  "core/test_network",
-  "crypto",
-  "data_model",
-  "genesis",
-  "primitives",
-  "primitives/derive",
-  "primitives/numeric",
-  "ffi",
-  "ffi/derive",
-  "futures",
-  "futures/derive",
-  "logger",
-  "macro",
-  "macro/derive",
-  "macro/utils",
-  "p2p",
-  "schema",
-  "schema/derive",
-  "schema/gen",
-  "smart_contract",
-  "smart_contract/derive",
-  "smart_contract/trigger",
-  "smart_contract/trigger/derive",
-  "smart_contract/utils",
-  "smart_contract/executor",
-  "smart_contract/executor/derive",
-  "telemetry",
-  "tools/kagami",
-  "tools/kura_inspector",
-  "tools/parity_scale_decoder",
-  "tools/swarm",
-  "tools/wasm_builder_cli",
-  "tools/wasm_test_runner",
-  "torii",
-  "torii/derive",
-  "torii/const",
-  "version",
-  "version/derive",
-  "wasm_codec",
-  "wasm_codec/derive",
-  "wasm_builder",
+    "cli",
+    "client",
+    "client_cli",
+    "config",
+    "config/base",
+    "core",
+    "core/test_network",
+    "crypto",
+    "data_model",
+    "genesis",
+    "primitives",
+    "primitives/derive",
+    "primitives/numeric",
+    "ffi",
+    "ffi/derive",
+    "futures",
+    "futures/derive",
+    "logger",
+    "macro",
+    "macro/derive",
+    "macro/utils",
+    "p2p",
+    "schema",
+    "schema/derive",
+    "schema/gen",
+    "smart_contract",
+    "smart_contract/derive",
+    "smart_contract/trigger",
+    "smart_contract/trigger/derive",
+    "smart_contract/utils",
+    "smart_contract/executor",
+    "smart_contract/executor/derive",
+    "telemetry",
+    "tools/kagami",
+    "tools/kura_inspector",
+    "tools/parity_scale_decoder",
+    "tools/swarm",
+    "tools/wasm_builder_cli",
+    "tools/wasm_test_runner",
+    "torii",
+    "torii/derive",
+    "torii/const",
+    "version",
+    "version/derive",
+    "wasm_codec",
+    "wasm_codec/derive",
+    "wasm_builder",
 ]
 
 [profile.deploy]

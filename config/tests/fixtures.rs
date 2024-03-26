@@ -114,7 +114,6 @@ fn minimal_config_snapshot() -> Result<()> {
             logger: Logger {
                 level: INFO,
                 format: Full,
-                tokio_console_address: 127.0.0.1:5555,
             },
             queue: Queue {
                 capacity: 65536,
@@ -128,7 +127,9 @@ fn minimal_config_snapshot() -> Result<()> {
                 store_dir: "./storage/snapshot",
             },
             telemetry: None,
-            dev_telemetry: None,
+            dev_telemetry: DevTelemetry {
+                out_file: None,
+            },
             chain_wide: ChainWide {
                 max_transactions_in_block: 512,
                 block_time: 2s,
@@ -372,7 +373,6 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 format: Some(
                     Pretty,
                 ),
-                tokio_console_address: None,
             },
             queue: QueuePartial {
                 capacity: None,
@@ -394,9 +394,9 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 url: None,
                 min_retry_period: None,
                 max_retry_delay_exponent: None,
-                dev: TelemetryDevPartial {
-                    out_file: None,
-                },
+            },
+            dev_telemetry: DevTelemetryPartial {
+                out_file: None,
             },
             torii: ToriiPartial {
                 address: Some(
@@ -494,7 +494,6 @@ fn multiple_extends_works() -> Result<()> {
             format: Some(
                 Compact,
             ),
-            tokio_console_address: None,
         }"#]];
     expected.assert_eq(&format!("{layer:#?}"));
 
@@ -525,7 +524,7 @@ fn absolute_paths_are_preserved() {
     assert_eq!(cfg.kura.store_dir, PathBuf::from("/kura/store"));
     assert_eq!(cfg.snapshot.store_dir, PathBuf::from("/snapshot/store"));
     assert_eq!(
-        cfg.dev_telemetry.unwrap().out_file,
+        cfg.dev_telemetry.out_file.unwrap(),
         PathBuf::from("/telemetry/file.json")
     );
     if let Genesis::Full {

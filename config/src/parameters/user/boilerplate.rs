@@ -32,8 +32,8 @@ use crate::{
         defaults::{self, chain_wide::*, network::*, queue::*, torii::*},
         user,
         user::{
-            ChainWide, Genesis, Kura, KuraDebug, Logger, Network, Queue, Root, Snapshot, Sumeragi,
-            SumeragiDebug, Telemetry, TelemetryDev, Torii,
+            ChainWide, DevTelemetry, Genesis, Kura, KuraDebug, Logger, Network, Queue, Root,
+            Snapshot, Sumeragi, SumeragiDebug, Telemetry, Torii,
         },
     },
     snapshot::Mode as SnapshotMode,
@@ -54,6 +54,7 @@ pub struct RootPartial {
     pub queue: QueuePartial,
     pub snapshot: SnapshotPartial,
     pub telemetry: TelemetryPartial,
+    pub dev_telemetry: DevTelemetryPartial,
     pub torii: ToriiPartial,
     pub chain_wide: ChainWidePartial,
 }
@@ -102,6 +103,7 @@ impl UnwrapPartial for RootPartial {
         let queue = nested!(self.queue);
         let snapshot = nested!(self.snapshot);
         let telemetry = nested!(self.telemetry);
+        let dev_telemetry = nested!(self.dev_telemetry);
         let torii = nested!(self.torii);
         let chain_wide = nested!(self.chain_wide);
 
@@ -115,6 +117,7 @@ impl UnwrapPartial for RootPartial {
             kura: kura.unwrap(),
             sumeragi: sumeragi.unwrap(),
             telemetry: telemetry.unwrap(),
+            dev_telemetry: dev_telemetry.unwrap(),
             logger: logger.unwrap(),
             queue: queue.unwrap(),
             snapshot: snapshot.unwrap(),
@@ -156,6 +159,7 @@ impl FromEnv for RootPartial {
         let queue = emitter.try_from_env(env);
         let snapshot = emitter.try_from_env(env);
         let telemetry = emitter.try_from_env(env);
+        let dev_telemetry = emitter.try_from_env(env);
         let torii = emitter.try_from_env(env);
         let chain_wide = emitter.try_from_env(env);
 
@@ -174,6 +178,7 @@ impl FromEnv for RootPartial {
             queue: queue.unwrap(),
             snapshot: snapshot.unwrap(),
             telemetry: telemetry.unwrap(),
+            dev_telemetry: dev_telemetry.unwrap(),
             torii: torii.unwrap(),
             chain_wide: chain_wide.unwrap(),
         })
@@ -500,19 +505,11 @@ impl UnwrapPartial for QueuePartial {
 
 impl FromEnvDefaultFallback for QueuePartial {}
 
-/// 'Logger' configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default, Merge)]
-// `tokio_console_addr` is not `Copy`, but warning appears without `tokio-console` feature
-#[allow(missing_copy_implementations)]
 #[serde(deny_unknown_fields, default)]
 pub struct LoggerPartial {
-    /// Level of logging verbosity
     pub level: UserField<Level>,
-    /// Output format
     pub format: UserField<Format>,
-    #[cfg(feature = "tokio-console")]
-    /// Address of tokio console (only available under "tokio-console" feature)
-    pub tokio_console_address: UserField<SocketAddr>,
 }
 
 impl UnwrapPartial for LoggerPartial {
@@ -522,10 +519,6 @@ impl UnwrapPartial for LoggerPartial {
         Ok(Logger {
             level: self.level.unwrap_or_default(),
             format: self.format.unwrap_or_default(),
-            #[cfg(feature = "tokio-console")]
-            tokio_console_address: self.tokio_console_address.get().unwrap_or_else(|| {
-                super::super::defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR.clone()
-            }),
         })
     }
 }
@@ -560,20 +553,19 @@ pub struct TelemetryPartial {
     pub url: UserField<Url>,
     pub min_retry_period: UserField<HumanDuration>,
     pub max_retry_delay_exponent: UserField<u8>,
-    pub dev: TelemetryDevPartial,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct TelemetryDevPartial {
+pub struct DevTelemetryPartial {
     pub out_file: UserField<PathBuf>,
 }
 
-impl UnwrapPartial for TelemetryDevPartial {
-    type Output = TelemetryDev;
+impl UnwrapPartial for DevTelemetryPartial {
+    type Output = DevTelemetry;
 
     fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
-        Ok(TelemetryDev {
+        Ok(DevTelemetry {
             out_file: self.out_file.get(),
         })
     }
@@ -588,7 +580,6 @@ impl UnwrapPartial for TelemetryPartial {
             url,
             max_retry_delay_exponent,
             min_retry_period,
-            dev,
         } = self;
 
         Ok(Telemetry {
@@ -596,12 +587,13 @@ impl UnwrapPartial for TelemetryPartial {
             url: url.get(),
             max_retry_delay_exponent: max_retry_delay_exponent.get(),
             min_retry_period: min_retry_period.get().map(HumanDuration::get),
-            dev: dev.unwrap_partial()?,
         })
     }
 }
 
 impl FromEnvDefaultFallback for TelemetryPartial {}
+
+impl FromEnvDefaultFallback for DevTelemetryPartial {}
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
