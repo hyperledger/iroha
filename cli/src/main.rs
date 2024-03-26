@@ -34,19 +34,6 @@ struct Args {
         num_args(0..=1),
     )]
     terminal_colors: bool,
-    /// Whether the current peer should submit the genesis block or not
-    ///
-    /// Only one peer in the network should submit the genesis block.
-    ///
-    /// This argument must be set alongside with `genesis.file` and `genesis.private_key`
-    /// configuration options. If not, Iroha will exit with an error.
-    ///
-    /// In case when the network consists only of this one peer, i.e. the amount of trusted
-    /// peers in the configuration (`sumeragi.trusted_peers`) is less than 2, this peer must
-    /// submit the genesis, since there are no other peers who can provide it. In this case, Iroha
-    /// will exit with an error if `--submit-genesis` is not set.
-    #[arg(long)]
-    submit_genesis: bool,
 }
 
 #[tokio::main]
@@ -57,7 +44,7 @@ async fn main() -> Result<()> {
         color_eyre::install()?;
     }
 
-    let (config, genesis) = iroha::read_config_and_genesis(args.config, args.submit_genesis)?;
+    let (config, genesis) = iroha::read_config_and_genesis(args.config)?;
     let logger = iroha_logger::init_global(&config.logger, args.terminal_colors)?;
 
     iroha_logger::info!(
@@ -88,7 +75,6 @@ mod tests {
         let args = Args::try_parse_from(["test"])?;
 
         assert_eq!(args.terminal_colors, is_colouring_supported());
-        assert_eq!(args.submit_genesis, false);
 
         Ok(())
     }

@@ -13,7 +13,7 @@ use test_network::{
 };
 use tokio::runtime::Runtime;
 
-fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
+fn generate_genesis(num_domains: u32) -> (RawGenesisBlock, KeyPair) {
     let mut builder = RawGenesisBlockBuilder::default();
 
     let key_pair = get_key_pair();
@@ -31,11 +31,11 @@ fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
             .finish_domain();
     }
 
-    builder
+    (builder
         .executor_blob(
             construct_executor("../default_executor").expect("Failed to construct executor"),
         )
-        .build()
+        .build(), key_pair)
 }
 
 fn main_genesis() {
@@ -48,13 +48,11 @@ fn main_genesis() {
         Some(get_key_pair()),
     );
     let rt = Runtime::test();
+    let (genesis, key_pair) = generate_genesis(1_000_000_u32);
     let genesis = GenesisNetwork::new(
-        generate_genesis(1_000_000_u32),
+        genesis,
         &chain_id,
-        configuration
-            .genesis
-            .key_pair()
-            .expect("should be available in the config; probably a bug"),
+        &key_pair
     );
 
     let builder = PeerBuilder::new()

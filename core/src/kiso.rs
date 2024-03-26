@@ -163,9 +163,7 @@ mod tests {
         Root::load(
             // FIXME Specifying path here might break!
             Some("../config/iroha_test_config.toml"),
-            CliContext {
-                submit_genesis: true,
-            },
+            CliContext {},
         )
         .expect("test config should be valid, it is probably a bug")
     }

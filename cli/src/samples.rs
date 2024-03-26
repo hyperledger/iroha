@@ -89,7 +89,6 @@ pub fn get_user_config(
         .network
         .block_gossip_period
         .set(HumanDuration(Duration::from_millis(500)));
-    config.genesis.private_key.set(private_key);
     config.genesis.public_key.set(public_key);
     config.genesis.file.set("./genesis.json".into());
     // There is no need in persistency in tests
@@ -114,9 +113,7 @@ pub fn get_config(
     get_user_config(trusted_peers, chain_id, key_pair)
         .unwrap_partial()
         .expect("config should build as all required fields were provided")
-        .parse(CliContext {
-            submit_genesis: true,
-        })
+        .parse(CliContext {})
         .expect("config should finalize as the input is semantically valid (or there is a bug)")
 }
 

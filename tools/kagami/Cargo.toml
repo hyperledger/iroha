@@ -5,7 +5,7 @@ edition.workspace = true
 version.workspace = true
 authors.workspace = true
 
-description = "A tool used to generate cryptographic keys, docs, the schema and genesis block."
+description = "A tool used to sign genesis blocks, generate cryptographic keys, docs, the schema and genesis block."
 
 license.workspace = true
 
@@ -13,7 +13,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-iroha_crypto = { workspace = true }
+iroha_crypto = { workspace = true, features = ["rand"] }
 iroha_config = { workspace = true }
 iroha_data_model = { workspace = true }
 iroha_schema_gen = { workspace = true }

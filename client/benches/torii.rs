@@ -41,10 +41,7 @@ fn query_requests(criterion: &mut Criterion) {
             )
             .build(),
         &chain_id,
-        configuration
-            .genesis
-            .key_pair()
-            .expect("genesis config should be full, probably a bug"),
+        &get_key_pair(),
     );
 
     let builder = PeerBuilder::new()
@@ -147,10 +144,7 @@ fn instruction_submits(criterion: &mut Criterion) {
             )
             .build(),
         &chain_id,
-        configuration
-            .genesis
-            .key_pair()
-            .expect("config should be full; probably a bug"),
+        &get_key_pair(),
     );
     let builder = PeerBuilder::new()
         .with_config(configuration)
