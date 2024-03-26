@@ -52,6 +52,7 @@ pub struct Root {
     queue: Queue,
     snapshot: Snapshot,
     telemetry: Telemetry,
+    dev_telemetry: DevTelemetry,
     torii: Torii,
     chain_wide: ChainWide,
 }
@@ -119,7 +120,7 @@ impl RootPartial {
         patch!(self.genesis.file);
         patch!(self.snapshot.store_dir);
         patch!(self.kura.store_dir);
-        patch!(self.telemetry.dev.out_file);
+        patch!(self.dev_telemetry.out_file);
     }
 
     // FIXME workaround the inconvenient way `Merge::merge` works
@@ -155,7 +156,15 @@ impl Root {
             Some,
         );
 
+        // TODO: enable this check after fix of https://github.com/hyperledger/iroha/issues/4383
+        // if let Some(actual::Genesis::Full { file, .. }) = &genesis {
+        //     if !file.is_file() {
+        //         emitter.emit(eyre!("unable to access `genesis.file`: {}", file.display()))
+        //     }
+        // }
+
         let kura = self.kura.parse();
+        validate_directory_path(&mut emitter, &kura.store_dir, "kura.store_dir");
 
         let sumeragi = self.sumeragi.parse().map_or_else(
             |err| {
@@ -181,11 +190,23 @@ impl Root {
 
         let logger = self.logger;
         let queue = self.queue;
+
         let snapshot = self.snapshot;
+        validate_directory_path(&mut emitter, &snapshot.store_dir, "snapshot.store_dir");
+
+        let dev_telemetry = self.dev_telemetry;
+        if let Some(path) = &dev_telemetry.out_file {
+            if path.parent().is_none() {
+                emitter.emit(eyre!("`dev_telemetry.out_file` is not a valid file path"))
+            }
+            if path.is_dir() {
+                emitter.emit(eyre!("`dev_telemetry.out_file` is expected to be a file path, but it is a directory: {}", path.display()))
+            }
+        }
 
         let (torii, live_query_store) = self.torii.parse();
 
-        let telemetries = self.telemetry.parse().map_or_else(
+        let telemetry = self.telemetry.parse().map_or_else(
             |err| {
                 emitter.emit(err);
                 None
@@ -208,7 +229,7 @@ impl Root {
             key_pair: key_pair.unwrap(),
             p2p_address,
         };
-        let (telemetry, dev_telemetry) = telemetries.unwrap();
+        let telemetry = telemetry.unwrap();
         let genesis = genesis.unwrap();
         let sumeragi = {
             let mut x = sumeragi.unwrap();
@@ -232,6 +253,20 @@ impl Root {
             dev_telemetry,
             chain_wide,
         })
+    }
+}
+
+fn validate_directory_path(
+    emitter: &mut Emitter<Report>,
+    path: impl AsRef<Path>,
+    name: impl AsRef<str>,
+) {
+    if path.as_ref().is_file() {
+        emitter.emit(eyre!(
+            "`{}` is expected to be a directory path (existing or non-existing), but it points to an existing file: {}",
+            name.as_ref(),
+            path.as_ref().display()
+        ))
     }
 }
 
@@ -461,8 +496,7 @@ pub struct Queue {
     pub future_threshold: Duration,
 }
 
-#[allow(missing_copy_implementations)] // triggered without tokio-console
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Logger {
     /// Level of logging verbosity
     // TODO: parse user provided value in a case insensitive way,
@@ -471,21 +505,6 @@ pub struct Logger {
     pub level: Level,
     /// Output format
     pub format: LoggerFormat,
-    #[cfg(feature = "tokio-console")]
-    /// Address of tokio console (only available under "tokio-console" feature)
-    pub tokio_console_address: SocketAddr,
-}
-
-#[allow(clippy::derivable_impls)] // triggers in absence of `tokio-console` feature
-impl Default for Logger {
-    fn default() -> Self {
-        Self {
-            level: Level::default(),
-            format: LoggerFormat::default(),
-            #[cfg(feature = "tokio-console")]
-            tokio_console_address: super::defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -496,22 +515,20 @@ pub struct Telemetry {
     pub url: Option<Url>,
     pub min_retry_period: Option<Duration>,
     pub max_retry_delay_exponent: Option<u8>,
-    pub dev: TelemetryDev,
 }
 
-#[derive(Debug)]
-pub struct TelemetryDev {
+#[derive(Debug, Clone)]
+pub struct DevTelemetry {
     pub out_file: Option<PathBuf>,
 }
 
 impl Telemetry {
-    fn parse(self) -> Result<(Option<actual::Telemetry>, Option<actual::DevTelemetry>), Report> {
+    fn parse(self) -> Result<Option<actual::Telemetry>, Report> {
         let Self {
             name,
             url,
             max_retry_delay_exponent,
             min_retry_period,
-            dev: TelemetryDev { out_file: file },
         } = self;
 
         let regular = match (name, url) {
@@ -532,11 +549,7 @@ impl Telemetry {
             }
         };
 
-        let dev = file.map(|file| actual::DevTelemetry {
-            out_file: file.clone(),
-        });
-
-        Ok((regular, dev))
+        Ok(regular)
     }
 }
 

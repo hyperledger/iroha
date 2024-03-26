@@ -9,10 +9,9 @@
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
 use iroha_config::client_api::ConfigDTO;
-use iroha_core::{
-    query::store::LiveQueryStoreHandle, smartcontracts::query::ValidQueryRequest,
-    sumeragi::SumeragiHandle,
-};
+#[cfg(feature = "telemetry")]
+use iroha_core::sumeragi::SumeragiHandle;
+use iroha_core::{query::store::LiveQueryStoreHandle, smartcontracts::query::ValidQueryRequest};
 use iroha_data_model::{
     block::{
         stream::{BlockMessage, BlockSubscriptionRequest},
