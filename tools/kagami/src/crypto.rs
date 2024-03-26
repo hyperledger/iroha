@@ -1,5 +1,4 @@
 use std::{
-    borrow::{Borrow, Cow},
     fs,
     path::{Path, PathBuf},
 };
@@ -15,6 +14,8 @@ use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use parity_scale_codec::Encode;
 
 use super::*;
+
+const ED25519_PREFIX: &str = "ed0120";
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum CryptoMode {
@@ -57,35 +58,68 @@ pub struct GenesisSigningArgs {
     output_path: Option<PathBuf>,
 }
 
+#[derive(Debug)]
+enum KeyStorage<'a> {
+    FromFile(Vec<u8>),
+    FromCLI(&'a str),
+}
+
 impl GenesisSigningArgs {
     fn get_private_key(&self) -> Result<PrivateKey> {
         let private_key_bytes =
-            Self::get_key_bytes(&self.private_key_path, &self.private_key_string)?;
-        PrivateKey::from_bytes(self.algorithm.0, private_key_bytes.borrow()).wrap_err_with(|| {
-            eyre!(
-                "Failed to parse private key for algorithm `{}`",
-                self.algorithm
-            )
-        })
+            Self::get_key_raw(&self.private_key_path, &self.private_key_string)?;
+            match private_key_bytes {
+                KeyStorage::FromFile(bytes) => PrivateKey::from_bytes(self.algorithm.0, bytes.as_slice()).wrap_err_with(|| {
+                    eyre!(
+                        "Failed to parse private key from bytes for algorithm `{}`",
+                        self.algorithm
+                    )
+                }),
+                KeyStorage::FromCLI(hex) => PrivateKey::from_hex(self.algorithm.0, hex).wrap_err_with(|| {
+                    eyre!(
+                        "Failed to parse private key from hex for algorithm `{}`",
+                        self.algorithm
+                    )
+                }),
+            }
     }
 
     fn get_public_key(&self) -> Result<PublicKey> {
-        let public_key_bytes = Self::get_key_bytes(&self.public_key_path, &self.public_key_string)?;
-        PublicKey::from_bytes(self.algorithm.0, public_key_bytes.borrow()).wrap_err_with(|| {
-            eyre!(
-                "Failed to parse public key for algorithm `{}`",
-                self.algorithm
-            )
-        })
+        let public_key_bytes = Self::get_key_raw(&self.public_key_path, &self.public_key_string)?;
+        match public_key_bytes {
+            KeyStorage::FromFile(bytes) => PublicKey::from_bytes(self.algorithm.0, bytes.as_slice()).wrap_err_with(|| {
+                eyre!(
+                    "Failed to parse public key from bytes for algorithm `{}`",
+                    self.algorithm
+                )
+            }),
+            KeyStorage::FromCLI(hex) => {
+                if hex.starts_with(ED25519_PREFIX) {
+                    PublicKey::from_str(hex).wrap_err_with(|| {
+                        eyre!(
+                            "Failed to deserialize public key from hex for algorithm `{}`",
+                            self.algorithm
+                        )
+                    })
+                } else {
+                    PublicKey::from_hex(self.algorithm.0, hex).wrap_err_with(|| {
+                    eyre!(
+                        "Failed to parse public key from hex for algorithm `{}`",
+                        self.algorithm
+                    )
+                })
+            }
+        },
+        }
     }
 
-    fn get_key_bytes<'a, P: AsRef<Path>>(
+    fn get_key_raw<'a, P: AsRef<Path>>(
         path: &Option<P>,
         value: &'a Option<String>,
-    ) -> Result<Cow<'a, [u8]>, std::io::Error> {
+    ) -> Result<KeyStorage<'a>, std::io::Error> {
         match (path, value) {
-            (Some(path_buf), None) => Ok(Cow::Owned(fs::read(path_buf)?)),
-            (None, Some(hex)) => Ok(Cow::Borrowed(hex.as_bytes())),
+            (Some(path_buf), None) => Ok(KeyStorage::FromFile(fs::read(path_buf)?)),
+            (None, Some(hex)) => Ok(KeyStorage::FromCLI(hex.as_str())),
             _ => unreachable!("Clap group invariant"),
         }
     }

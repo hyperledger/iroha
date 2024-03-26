@@ -41,8 +41,7 @@ fn query_requests(criterion: &mut Criterion) {
             )
             .build(),
         &chain_id,
-        // TODO: FIX
-        &KeyPair::random()
+        &get_key_pair(),
     );
 
     let builder = PeerBuilder::new()
@@ -145,7 +144,7 @@ fn instruction_submits(criterion: &mut Criterion) {
             )
             .build(),
         &chain_id,
-        &KeyPair::random(),
+        &get_key_pair(),
     );
     let builder = PeerBuilder::new()
         .with_config(configuration)
