@@ -3,7 +3,7 @@
 use derive_more::Display;
 use indexmap::IndexSet;
 use iroha_crypto::{PublicKey, SignatureOf};
-use iroha_data_model::{block::SignedBlock, prelude::PeerId};
+use iroha_data_model::prelude::PeerId;
 use iroha_logger::trace;
 use iroha_primitives::unique_vec::UniqueVec;
 
@@ -176,23 +176,16 @@ impl Topology {
     }
 
     /// Recreate topology for given block and view change index
-    pub fn recreate_topology(
-        block: &SignedBlock,
-        view_change_index: u64,
+    pub fn recreate(
+        &mut self,
         new_peers: UniqueVec<PeerId>,
-    ) -> Self {
-        let mut topology = Topology::new(block.commit_topology().clone());
-        let block_signees = block
-            .signatures()
-            .into_iter()
-            .map(|s| s.public_key())
-            .cloned()
-            .collect::<Vec<PublicKey>>();
-
-        topology.update_topology(&block_signees, new_peers);
+        block_signees: &[PublicKey],
+        view_change_index: u64,
+    ) {
+        self.update_topology(&block_signees, new_peers);
 
         // Rotate all once for every view_change
-        topology.rotate_all_n(view_change_index);
+        self.rotate_all_n(view_change_index);
 
         {
             // FIXME: This is a hack to prevent consensus from running amock due to
@@ -205,16 +198,14 @@ impl Topology {
 
             if view_change_limit > 1 {
                 iroha_logger::error!("Restarting consensus(internal bug). Report to developers");
-                let mut peers: Vec<_> = topology.ordered_peers.iter().cloned().collect();
+                let mut peers: Vec<_> = self.ordered_peers.iter().cloned().collect();
 
                 peers.sort();
                 let peers_count = peers.len();
                 peers.rotate_right(view_change_limit % peers_count);
-                topology = Topology::new(peers.into_iter().collect());
+                *self = Topology::new(peers.into_iter().collect());
             }
         }
-
-        topology
     }
 
     /// Modify [`ordered_peers`](Self::ordered_peers) directly as [`Vec`].

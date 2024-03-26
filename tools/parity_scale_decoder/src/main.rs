@@ -18,7 +18,7 @@ use iroha_data_model::{
     block::{
         error::BlockRejectionReason,
         stream::{BlockMessage, BlockSubscriptionRequest},
-        BlockHeader, BlockPayload, SignedBlock, SignedBlockV1,
+        Block, BlockHeader, BlockV1,
     },
     domain::NewDomain,
     executor::Executor,

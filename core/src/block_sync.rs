@@ -3,7 +3,7 @@ use std::{fmt::Debug, num::NonZeroU32, sync::Arc, time::Duration};
 
 use iroha_config::parameters::actual::BlockSync as Config;
 use iroha_crypto::HashOf;
-use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_data_model::{block::Block, prelude::*};
 use iroha_logger::prelude::*;
 use iroha_macro::*;
 use iroha_p2p::Post;
@@ -91,16 +91,13 @@ impl BlockSynchronizer {
 
     /// Sends request for latest blocks to a chosen peer
     async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
-        let (previous_hash, latest_hash) = {
+        let (prev_hash, latest_hash) = {
             let state_view = self.state.view();
-            (
-                state_view.previous_block_hash(),
-                state_view.latest_block_hash(),
-            )
+            (state_view.prev_block_hash(), state_view.latest_block_hash())
         };
         message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
             latest_hash,
-            previous_hash,
+            prev_hash,
             self.peer_id.clone(),
         ))
         .send_to(&self.network, peer_id)
@@ -136,9 +133,9 @@ pub mod message {
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct GetBlocksAfter {
         /// Hash of latest available block
-        pub latest_hash: Option<HashOf<SignedBlock>>,
+        pub latest_hash: Option<HashOf<Block>>,
         /// Hash of second to latest block
-        pub previous_hash: Option<HashOf<SignedBlock>>,
+        pub prev_hash: Option<HashOf<Block>>,
         /// Peer id
         pub peer_id: PeerId,
     }
@@ -146,13 +143,13 @@ pub mod message {
     impl GetBlocksAfter {
         /// Construct [`GetBlocksAfter`].
         pub const fn new(
-            latest_hash: Option<HashOf<SignedBlock>>,
-            previous_hash: Option<HashOf<SignedBlock>>,
+            latest_hash: Option<HashOf<Block>>,
+            prev_hash: Option<HashOf<Block>>,
             peer_id: PeerId,
         ) -> Self {
             Self {
                 latest_hash,
-                previous_hash,
+                prev_hash,
                 peer_id,
             }
         }
@@ -162,14 +159,14 @@ pub mod message {
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct ShareBlocks {
         /// Blocks
-        pub blocks: Vec<SignedBlock>,
+        pub blocks: Vec<Block>,
         /// Peer id
         pub peer_id: PeerId,
     }
 
     impl ShareBlocks {
         /// Construct [`ShareBlocks`].
-        pub const fn new(blocks: Vec<SignedBlock>, peer_id: PeerId) -> Self {
+        pub const fn new(blocks: Vec<Block>, peer_id: PeerId) -> Self {
             Self { blocks, peer_id }
         }
     }
@@ -190,21 +187,21 @@ pub mod message {
             match self {
                 Message::GetBlocksAfter(GetBlocksAfter {
                     latest_hash,
-                    previous_hash,
+                    prev_hash,
                     peer_id,
                 }) => {
                     let local_latest_block_hash = block_sync.state.view().latest_block_hash();
 
                     if *latest_hash == local_latest_block_hash
-                        || *previous_hash == local_latest_block_hash
+                        || *prev_hash == local_latest_block_hash
                     {
                         return;
                     }
 
-                    let start_height = match previous_hash {
+                    let start_height = match prev_hash {
                         Some(hash) => match block_sync.kura.get_block_height_by_hash(hash) {
                             None => {
-                                error!(?previous_hash, "Block hash not found");
+                                error!(?prev_hash, "Block hash not found");
                                 return;
                             }
                             Some(height) => height + 1, // It's get blocks *after*, so we add 1.
@@ -223,9 +220,9 @@ pub mod message {
                         // The only case where the blocks array could be empty is if we got queried for blocks
                         // after the latest hash. There is a check earlier in the function that returns early
                         // so it should not be possible for us to get here.
-                        error!(hash=?previous_hash, "Blocks array is empty but shouldn't be.");
+                        error!(hash=?prev_hash, "Blocks array is empty but shouldn't be.");
                     } else {
-                        trace!(hash=?previous_hash, "Sharing blocks after hash");
+                        trace!(hash=?prev_hash, "Sharing blocks after hash");
                         Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
                             .send_to(&block_sync.network, peer_id.clone())
                             .await;

@@ -1,6 +1,6 @@
 //! Translates to warehouse. File-system and persistence-related
 //! logic.  [`Kura`] is the main entity which should be used to store
-//! new [`Block`](`crate::block::SignedBlock`)s on the
+//! new [`Block`](`crate::block::Block`)s on the
 //! blockchain.
 use std::{
     fmt::Debug,
@@ -12,7 +12,7 @@ use std::{
 
 use iroha_config::{kura::InitMode, parameters::actual::Kura as Config};
 use iroha_crypto::{Hash, HashOf};
-use iroha_data_model::block::SignedBlock;
+use iroha_data_model::block::Block;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use parity_scale_codec::DecodeAll;
@@ -36,7 +36,7 @@ pub struct Kura {
     block_store: Mutex<BlockStore>,
     /// The array of block hashes and a slot for an arc of the block. This is normally recovered from the index file.
     #[allow(clippy::type_complexity)]
-    block_data: Mutex<Vec<(HashOf<SignedBlock>, Option<Arc<SignedBlock>>)>>,
+    block_data: Mutex<Vec<(HashOf<Block>, Option<Arc<Block>>)>>,
     /// Path to file for plain text blocks.
     block_plain_text_path: Option<PathBuf>,
 }
@@ -133,7 +133,7 @@ impl Kura {
     fn init_fast_mode(
         block_store: &BlockStore,
         block_index_count: usize,
-    ) -> Result<Vec<HashOf<SignedBlock>>, Error> {
+    ) -> Result<Vec<HashOf<Block>>, Error> {
         let block_hashes_count = block_store
             .read_hashes_count()?
             .try_into()
@@ -148,27 +148,27 @@ impl Kura {
     fn init_strict_mode(
         block_store: &mut BlockStore,
         block_index_count: usize,
-    ) -> Result<Vec<HashOf<SignedBlock>>, Error> {
+    ) -> Result<Vec<HashOf<Block>>, Error> {
         let mut block_hashes = Vec::with_capacity(block_index_count);
 
         let mut block_indices = vec![BlockIndex::default(); block_index_count];
         block_store.read_block_indices(0, &mut block_indices)?;
 
-        let mut previous_block_hash = None;
+        let mut prev_block_hash = None;
         for block in block_indices {
             // This is re-allocated every iteration. This could cause a problem.
             let mut block_data_buffer = vec![0_u8; block.length.try_into()?];
 
             match block_store.read_block_data(block.start, &mut block_data_buffer) {
-                Ok(()) => match SignedBlock::decode_all_versioned(&block_data_buffer) {
+                Ok(()) => match Block::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
-                        if previous_block_hash != decoded_block.header().previous_block_hash {
+                        if prev_block_hash != decoded_block.header().prev_block_hash {
                             error!("Block has wrong previous block hash. Not reading any blocks beyond this height.");
                             break;
                         }
                         let decoded_block_hash = decoded_block.hash();
                         block_hashes.push(decoded_block_hash);
-                        previous_block_hash = Some(decoded_block_hash);
+                        prev_block_hash = Some(decoded_block_hash);
                     }
                     Err(error) => {
                         error!(?error, "Encountered malformed block. Not reading any blocks beyond this height.");
@@ -270,7 +270,7 @@ impl Kura {
     }
 
     /// Get the hash of the block at the provided height.
-    pub fn get_block_hash(&self, block_height: u64) -> Option<HashOf<SignedBlock>> {
+    pub fn get_block_hash(&self, block_height: u64) -> Option<HashOf<Block>> {
         let hash_data_guard = self.block_data.lock();
         if block_height == 0 || block_height > hash_data_guard.len() as u64 {
             return None;
@@ -282,7 +282,7 @@ impl Kura {
     }
 
     /// Search through blocks for the height of the block with the given hash.
-    pub fn get_block_height_by_hash(&self, hash: &HashOf<SignedBlock>) -> Option<u64> {
+    pub fn get_block_height_by_hash(&self, hash: &HashOf<Block>) -> Option<u64> {
         self.block_data
             .lock()
             .iter()
@@ -293,7 +293,7 @@ impl Kura {
     /// Get a reference to block by height, loading it from disk if needed.
     // The below lint suggests changing the code into something that does not compile due
     // to the borrow checker.
-    pub fn get_block_by_height(&self, block_height: u64) -> Option<Arc<SignedBlock>> {
+    pub fn get_block_by_height(&self, block_height: u64) -> Option<Arc<Block>> {
         let mut data_array_guard = self.block_data.lock();
         if block_height == 0 || block_height > data_array_guard.len() as u64 {
             return None;
@@ -316,7 +316,7 @@ impl Kura {
         block_store
             .read_block_data(start, &mut block_buf)
             .expect("Failed to read block data.");
-        let block = SignedBlock::decode_all_versioned(&block_buf).expect("Failed to decode block");
+        let block = Block::decode_all_versioned(&block_buf).expect("Failed to decode block");
 
         let block_arc = Arc::new(block);
         data_array_guard[block_number].1 = Some(Arc::clone(&block_arc));
@@ -328,7 +328,7 @@ impl Kura {
     /// Internally this function searches linearly for the block's height and
     /// then calls `get_block_by_height`. If you know the height of the block,
     /// call `get_block_by_height` directly.
-    pub fn get_block_by_hash(&self, block_hash: &HashOf<SignedBlock>) -> Option<Arc<SignedBlock>> {
+    pub fn get_block_by_hash(&self, block_hash: &HashOf<Block>) -> Option<Arc<Block>> {
         let index = self
             .block_data
             .lock()
@@ -340,14 +340,19 @@ impl Kura {
 
     /// Put a block in kura's in memory block store.
     pub fn store_block(&self, block: CommittedBlock) {
-        let block = Arc::new(SignedBlock::from(block));
+        let (_, block) = block.into();
+        let block = Arc::new(block);
+
         self.block_data.lock().push((block.hash(), Some(block)));
     }
 
     /// Replace the block in `Kura`'s in memory block store.
     pub fn replace_top_block(&self, block: CommittedBlock) {
-        let block = Arc::new(SignedBlock::from(block));
+        let (_, block) = block.into();
+        let block = Arc::new(block);
+
         let mut data = self.block_data.lock();
+
         data.pop();
         data.push((block.hash(), Some(block)));
     }
@@ -527,7 +532,7 @@ impl BlockStore {
         &self,
         start_block_height: u64,
         block_count: usize,
-    ) -> Result<Vec<HashOf<SignedBlock>>> {
+    ) -> Result<Vec<HashOf<Block>>> {
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         let mut hashes_file = std::fs::OpenOptions::new()
             .read(true)
@@ -561,7 +566,7 @@ impl BlockStore {
 
     /// Get the number of hashes in the hashes file, which is
     /// calculated as the size of the hashes file in bytes divided by
-    /// `size_of(HashOf<SignedBlock>)`.
+    /// `size_of(HashOf<Block>)`.
     ///
     /// # Errors
     /// IO Error.
@@ -695,7 +700,7 @@ impl BlockStore {
     ///
     /// # Errors
     /// IO Error.
-    pub fn write_block_hash(&mut self, block_height: u64, hash: HashOf<SignedBlock>) -> Result<()> {
+    pub fn write_block_hash(&mut self, block_height: u64, hash: HashOf<Block>) -> Result<()> {
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         let mut hashes_file = std::fs::OpenOptions::new()
             .write(true)
@@ -723,7 +728,7 @@ impl BlockStore {
     ///
     /// # Errors
     /// IO Error.
-    pub fn overwrite_block_hashes(&mut self, hashes: &[HashOf<SignedBlock>]) -> Result<()> {
+    pub fn overwrite_block_hashes(&mut self, hashes: &[HashOf<Block>]) -> Result<()> {
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         let hashes_file = std::fs::OpenOptions::new()
             .write(true)
@@ -777,7 +782,7 @@ impl BlockStore {
     /// # Errors
     /// Fails if any of the required platform-specific functions
     /// fail.
-    pub fn append_block_to_chain(&mut self, block: &SignedBlock) -> Result<()> {
+    pub fn append_block_to_chain(&mut self, block: &Block) -> Result<()> {
         let bytes = block.encode_versioned();
         let new_block_height = self.read_index_count()?;
         let start_location_in_data_file = if new_block_height == 0 {
@@ -945,8 +950,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
-
-        let dummy_block = ValidBlock::new_dummy().into();
+        let (_, dummy_block) = ValidBlock::dummy().into();
 
         let append_count = 35;
         for _ in 0..append_count {
@@ -961,8 +965,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
-
-        let dummy_block = ValidBlock::new_dummy().into();
+        let (_, dummy_block) = ValidBlock::dummy().into();
 
         let append_count = 35;
         for _ in 0..append_count {
@@ -977,8 +980,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
-
-        let dummy_block = ValidBlock::new_dummy().into();
+        let (_, dummy_block) = ValidBlock::dummy().into();
 
         let append_count = 35;
         for _ in 0..append_count {
@@ -997,8 +999,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
-
-        let dummy_block = ValidBlock::new_dummy().into();
+        let (_, dummy_block) = ValidBlock::dummy().into();
 
         let append_count = 35;
         for _ in 0..append_count {

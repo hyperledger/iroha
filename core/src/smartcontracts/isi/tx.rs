@@ -5,23 +5,23 @@ use std::sync::Arc;
 use eyre::Result;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
-    block::SignedBlock,
+    block::Block,
     prelude::*,
     query::{
         error::{FindError, QueryExecutionFail},
         TransactionQueryOutput,
     },
-    transaction::TransactionValue,
+    transaction::CommittedTransaction,
 };
 use iroha_telemetry::metrics;
 
 use super::*;
 
-pub(crate) struct BlockTransactionIter(Arc<SignedBlock>, usize);
-pub(crate) struct BlockTransactionRef(Arc<SignedBlock>, usize);
+pub(crate) struct BlockTransactionIter(Arc<Block>, usize);
+pub(crate) struct BlockTransactionRef(Arc<Block>, usize);
 
 impl BlockTransactionIter {
-    fn new(block: Arc<SignedBlock>) -> Self {
+    fn new(block: Arc<Block>) -> Self {
         Self(block, 0)
     }
 }
@@ -42,7 +42,7 @@ impl Iterator for BlockTransactionIter {
 }
 
 impl BlockTransactionRef {
-    fn block_hash(&self) -> HashOf<SignedBlock> {
+    fn block_hash(&self) -> HashOf<Block> {
         self.0.hash()
     }
 
@@ -54,7 +54,7 @@ impl BlockTransactionRef {
             .as_ref()
             .authority()
     }
-    fn value(&self) -> TransactionValue {
+    fn value(&self) -> CommittedTransaction {
         self.0
             .transactions()
             .nth(self.1)

@@ -313,7 +313,7 @@ mod tests {
             transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
             let topology = Topology::new(UniqueVec::new());
-            let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
+            let first_block = BlockBuilder::new(transactions.clone(), topology.clone())
                 .chain(0, &mut state_block)
                 .sign(&ALICE_KEYS)
                 .commit(&topology)
@@ -323,7 +323,7 @@ mod tests {
             kura.store_block(first_block);
 
             for _ in 1u64..blocks {
-                let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
+                let block = BlockBuilder::new(transactions.clone(), topology.clone())
                     .chain(0, &mut state_block)
                     .sign(&ALICE_KEYS)
                     .commit(&topology)
@@ -463,7 +463,7 @@ mod tests {
         let va_tx = AcceptedTransaction::accept(tx, &chain_id, tx_limits)?;
 
         let topology = Topology::new(UniqueVec::new());
-        let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
+        let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone())
             .chain(0, &mut state_block)
             .sign(&ALICE_KEYS)
             .commit(&topology)
@@ -488,10 +488,8 @@ mod tests {
         let found_accepted =
             FindTransactionByHash::new(va_tx.as_ref().hash()).execute(&state_view)?;
         if found_accepted.transaction.error.is_none() {
-            assert_eq!(
-                va_tx.as_ref().hash(),
-                found_accepted.as_ref().as_ref().hash()
-            )
+            let found_accepted: &SignedTransaction = found_accepted.as_ref();
+            assert_eq!(va_tx.as_ref().hash(), found_accepted.hash())
         }
         Ok(())
     }

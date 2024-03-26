@@ -8,7 +8,7 @@ use std::{
 
 use iroha_config::{parameters::actual::Snapshot as Config, snapshot::Mode};
 use iroha_crypto::HashOf;
-use iroha_data_model::block::SignedBlock;
+use iroha_data_model::block::Block;
 use iroha_logger::prelude::*;
 use serde::{de::DeserializeSeed, Serialize};
 use tokio::sync::mpsc;
@@ -42,7 +42,7 @@ pub struct SnapshotMaker {
     /// Path to the directory where snapshots are stored
     store_dir: PathBuf,
     /// Hash of the latest block stored in the state
-    latest_block_hash: Option<HashOf<SignedBlock>>,
+    latest_block_hash: Option<HashOf<Block>>,
 }
 
 impl SnapshotMaker {
@@ -228,9 +228,9 @@ pub enum TryReadError {
         /// Height at which block hashes differs between snapshot and [`Kura`]
         height: usize,
         /// Hash of the block stored in snapshot
-        snapshot_block_hash: HashOf<SignedBlock>,
+        snapshot_block_hash: HashOf<Block>,
         /// Hash of the block stored in kura
-        kura_block_hash: HashOf<SignedBlock>,
+        kura_block_hash: HashOf<Block>,
     },
 }
 

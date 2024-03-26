@@ -10,7 +10,7 @@ use std::{
 use eyre::{Result, WrapErr as _};
 use iroha_config::parameters::actual::{Common as CommonConfig, Sumeragi as SumeragiConfig};
 use iroha_crypto::{KeyPair, SignatureOf};
-use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_data_model::{block::Block, prelude::*};
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
@@ -191,20 +191,22 @@ impl SumeragiHandle {
 
     fn replay_block(
         chain_id: &ChainId,
-        block: &SignedBlock,
+        block: &Block,
         state_block: &mut StateBlock<'_>,
         mut current_topology: Topology,
     ) -> Topology {
         // NOTE: topology need to be updated up to block's view_change_index
         current_topology.rotate_all_n(block.header().view_change_index);
 
-        let block = ValidBlock::validate(block.clone(), &current_topology, chain_id, state_block)
+        let is_genesis = block.header().is_genesis();
+        let block = ValidBlock::validate(block, &current_topology, chain_id, state_block)
             .expect("Kura blocks should be valid")
             .commit(&current_topology)
             .expect("Kura blocks should be valid");
 
-        if block.as_ref().header().is_genesis() {
-            *state_block.world.trusted_peers_ids = block.as_ref().commit_topology().clone();
+        let block_ref: &Block = block.as_ref();
+        if is_genesis {
+            *state_block.world.trusted_peers_ids = block_ref.commit_topology().clone();
         }
 
         state_block.apply_without_execution(&block).expect(
@@ -212,11 +214,10 @@ impl SumeragiHandle {
              Blocks loaded from kura assumed to be valid",
         );
 
-        Topology::recreate_topology(
-            block.as_ref(),
-            0,
-            state_block.world.peers().cloned().collect(),
-        )
+        let mut current_topology = Topology::new(block_ref.commit_topology().clone());
+        current_topology.recreate(state_block.world.peers().cloned().collect(), &[], 0);
+
+        current_topology
     }
 
     /// Start [`Sumeragi`] actor and return handle to it.
@@ -241,11 +242,10 @@ impl SumeragiHandle {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
         let blocks_iter;
-        let mut current_topology;
-
-        {
+        let mut current_topology = {
             let state_view = state.view();
             let skip_block_count = state_view.block_hashes.len();
+
             blocks_iter = (skip_block_count + 1..=block_count).map(|block_height| {
                 kura.get_block_by_height(block_height as u64).expect(
                     "Sumeragi should be able to load the block that was reported as presented. \
@@ -253,7 +253,7 @@ impl SumeragiHandle {
                 )
             });
 
-            current_topology = match state_view.height() {
+            match state_view.height() {
                 0 => {
                     assert!(!sumeragi_config.trusted_peers.is_empty());
                     Topology::new(sumeragi_config.trusted_peers.clone())
@@ -263,23 +263,29 @@ impl SumeragiHandle {
                         "Sumeragi could not load block that was reported as present. \
                         Please check that the block storage was not disconnected.",
                     );
-                    Topology::recreate_topology(
-                        &block_ref,
-                        0,
+                    let mut current_topology =
+                        Topology::new(block_ref.as_ref().commit_topology().clone());
+                    current_topology.recreate(
                         state_view.world.peers_ids().iter().cloned().collect(),
-                    )
+                        &[],
+                        0,
+                    );
+
+                    current_topology
                 }
-            };
-        }
+            }
+        };
 
         for block in blocks_iter {
             let mut state_block = state.block();
+
             current_topology = Self::replay_block(
                 &common_config.chain_id,
                 &block,
                 &mut state_block,
                 current_topology,
             );
+
             state_block.commit();
         }
 
@@ -356,14 +362,19 @@ pub const PEERS_CONNECT_INTERVAL: Duration = Duration::from_secs(1);
 pub const TELEMETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Structure represents a block that is currently in discussion.
-#[non_exhaustive]
 pub struct VotingBlock<'state> {
+    /// Valid Block
+    block: ValidBlock,
     /// At what time has this peer voted for this block
     pub voted_at: Instant,
-    /// Valid Block
-    pub block: ValidBlock,
     /// [`WorldState`] after applying transactions to it but before it was committed
     pub state_block: StateBlock<'state>,
+}
+
+impl AsRef<Block> for VotingBlock<'_> {
+    fn as_ref(&self) -> &Block {
+        self.as_ref()
+    }
 }
 
 impl VotingBlock<'_> {

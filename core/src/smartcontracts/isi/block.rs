@@ -1,7 +1,7 @@
 //! This module contains trait implementations related to block queries
 use eyre::Result;
 use iroha_data_model::{
-    block::{BlockHeader, SignedBlock},
+    block::{Block, BlockHeader},
     query::{
         block::FindBlockHeaderByHash,
         error::{FindError, QueryExecutionFail},
@@ -17,7 +17,7 @@ impl ValidQuery for FindAllBlocks {
     fn execute<'state>(
         &self,
         state_ro: &'state impl StateReadOnly,
-    ) -> Result<Box<dyn Iterator<Item = SignedBlock> + 'state>, QueryExecutionFail> {
+    ) -> Result<Box<dyn Iterator<Item = Block> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
             state_ro.all_blocks().rev().map(|block| (*block).clone()),
         ))

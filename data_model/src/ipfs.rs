@@ -107,6 +107,9 @@ impl Decode for IpfsPath {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::string::ToString as _;
+
     use parity_scale_codec::DecodeAll as _;
 
     use super::*;

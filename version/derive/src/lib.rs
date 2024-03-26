@@ -13,8 +13,7 @@ use syn::{
     Data, DeriveInput, Error as SynError, Ident, LitInt, Path, Result as SynResult, Token,
 };
 
-const VERSION_FIELD_NAME: &str = "version";
-const CONTENT_FIELD_NAME: &str = "content";
+const VERSION_FIELD_NAME: &str = "api_version";
 
 /// Used to declare that this struct represents a particular version as a part of the versioned container.
 ///
@@ -325,9 +324,8 @@ fn impl_declare_versioned(
     } else {
         quote!()
     };
-    let content_field_name = CONTENT_FIELD_NAME;
     let json_enum_attribute = if with_json {
-        quote!(#[serde(tag = #version_field_name, content = #content_field_name)])
+        quote!(#[serde(tag = #version_field_name)])
     } else {
         quote!()
     };

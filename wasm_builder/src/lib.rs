@@ -228,7 +228,7 @@ mod internal {
             let full_out_dir = self.out_dir.join("wasm32-unknown-unknown/release/");
             let wasm_file = full_out_dir.join(package_name).with_extension("wasm");
 
-            let previous_hash = if wasm_file.exists() {
+            let prev_hash = if wasm_file.exists() {
                 let hash = sha256::try_digest(wasm_file.as_path()).wrap_err_with(|| {
                     format!(
                         "Failed to compute sha256 digest of wasm file: {}",
@@ -249,7 +249,7 @@ mod internal {
 
             Ok(Output {
                 wasm_file,
-                previous_hash,
+                prev_hash,
             })
         }
 
@@ -285,7 +285,7 @@ pub struct Output {
     /// Path to the non-optimized `.wasm` file.
     wasm_file: PathBuf,
     /// Hash of the `self.wasm_file` on previous iteration if there is some.
-    previous_hash: Option<String>,
+    prev_hash: Option<String>,
 }
 
 impl Output {
@@ -319,8 +319,8 @@ impl Output {
             )
         })?;
 
-        match self.previous_hash {
-            Some(previous_hash) if optimized_file.exists() && current_hash == previous_hash => {
+        match self.prev_hash {
+            Some(prev_hash) if optimized_file.exists() && current_hash == prev_hash => {
                 // Do nothing because original `.wasm` file wasn't changed
                 // so `_optimized.wasm` should stay the same
             }
@@ -332,7 +332,7 @@ impl Output {
 
         Ok(Self {
             wasm_file: optimized_file,
-            previous_hash: Some(current_hash),
+            prev_hash: Some(current_hash),
         })
     }
 
