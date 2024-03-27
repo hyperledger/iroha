@@ -25,12 +25,12 @@ pub static GENESIS_ACCOUNT_ID: Lazy<AccountId> =
     Lazy::new(|| AccountId::new(GENESIS_DOMAIN_ID.clone(), "genesis".parse().expect("Valid")));
 
 /// Genesis transaction
-#[derive(Debug, Clone, Decode, Encode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 #[repr(transparent)]
 pub struct GenesisTransaction(pub SignedTransaction);
 
 /// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
-#[derive(Debug, Clone, Decode, Encode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct GenesisNetwork {
     /// Transactions from [`RawGenesisBlock`]. This vector is guaranteed to be non-empty,
     /// unless [`GenesisNetwork::transactions_mut()`] is used.
