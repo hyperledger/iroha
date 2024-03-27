@@ -8,7 +8,6 @@ use std::{
 
 use clap::{Args as ClapArgs, Parser};
 use color_eyre::eyre::WrapErr as _;
-use crypto::CryptoMode;
 use iroha_data_model::prelude::*;
 
 mod crypto;
@@ -48,7 +47,7 @@ enum Args {
     /// Generate cryptographic key pairs using the given algorithm and either private key or seed
     /// Or sign genesis block offline
     #[clap(subcommand)]
-    Crypto(CryptoMode),
+    Crypto(crypto::Args),
     /// Generate the schema used for code generation in Iroha SDKs
     Schema(schema::Args),
     /// Generate the genesis block that is used in tests
@@ -60,12 +59,10 @@ impl<T: Write> RunArgs<T> for Args {
         use Args::*;
 
         match self {
-            Crypto(args) => {
-                match args {
-                    CryptoMode::GenesisSigning(args) => args.run(writer),
-                    CryptoMode::KeyPairGeneration(args) => args.run(writer),
-                }
-            }
+            Crypto(args) => match args {
+                crypto::Args::SignGenesis(args) => args.run(writer),
+                crypto::Args::GenerateKeyPair(args) => args.run(writer),
+            },
             Schema(args) => args.run(writer),
             Genesis(args) => args.run(writer),
         }

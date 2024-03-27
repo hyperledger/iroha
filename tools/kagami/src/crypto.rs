@@ -18,9 +18,9 @@ use super::*;
 const ED25519_PREFIX: &str = "ed0120";
 
 #[derive(Subcommand, Debug, Clone)]
-pub enum CryptoMode {
-    GenesisSigning(GenesisSigningArgs),
-    KeyPairGeneration(KeyPairArgs),
+pub enum Args {
+    SignGenesis(SignGenesisArgs),
+    GenerateKeyPair(GenerateKeyPairArgs),
 }
 
 /// Use `Kagami` to sign genesis block.
@@ -28,34 +28,40 @@ pub enum CryptoMode {
 #[command(group = ArgGroup::new("private_key").required(true))]
 #[command(group = ArgGroup::new("public_key").required(true))]
 #[command(group = ArgGroup::new("format").required(false))]
-pub struct GenesisSigningArgs {
+pub struct SignGenesisArgs {
     /// The algorithm of the provided keypair
     #[clap(default_value_t, long, short)]
     algorithm: AlgorithmArg,
     /// Private key (in string format) to sign genesis block
     #[clap(long, group = "private_key")]
     private_key_string: Option<String>,
-    /// Path to private key to to sign genesis block
+    /// Path to private key to sign genesis block
     #[clap(long, group = "private_key")]
-    private_key_path: Option<PathBuf>,
-    /// Public key of the corresponding private key
+    private_key_file: Option<PathBuf>,
+    /// Public key in multihash format of the corresponding private key
     #[clap(long, group = "public_key")]
     public_key_string: Option<String>,
-    /// Path to public key of the corresponding private key
+    /// Path to public key in multihash format of the corresponding private key
     #[clap(long, group = "public_key")]
-    public_key_path: Option<PathBuf>,
+    public_key_file: Option<PathBuf>,
     /// Path to json-serialized keypair
     #[clap(long, short, group = "private_key", group = "public_key")]
-    keypair_path: Option<PathBuf>,
+    keypair_file: Option<PathBuf>,
     /// Unique id of blockchain
     #[clap(long)]
     chain_id: ChainId,
     /// Path to genesis json file
     #[clap(long, short)]
-    genesis_path: PathBuf,
-    /// Path to signed genesis output file
-    #[clap(long, short, group = "format")]
-    output_path: Option<PathBuf>,
+    genesis_file: PathBuf,
+    /// Output signed genesis block in JSON format
+    #[clap(long, short, default_value_t = true, group = "format")]
+    json: bool,
+    /// Encode signed genesis block with SCALE (it is only supported with file output)
+    #[clap(long, short, default_value_t = false, group = "format")]
+    scale: bool,
+    /// Path to signed genesis output file (stdout by default)
+    #[clap(long, short)]
+    outfile: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -64,35 +70,56 @@ enum KeyStorage<'a> {
     FromCLI(&'a str),
 }
 
-impl GenesisSigningArgs {
+fn get_key_raw<'a, P: AsRef<Path>>(
+    path: &Option<P>,
+    value: &'a Option<String>,
+) -> Result<KeyStorage<'a>, std::io::Error> {
+    match (path, value) {
+        (Some(path_buf), None) => Ok(KeyStorage::FromFile(fs::read(path_buf)?)),
+        (None, Some(hex)) => Ok(KeyStorage::FromCLI(hex.as_str())),
+        _ => unreachable!("Clap group invariant"),
+    }
+}
+
+fn read_keypair<P: AsRef<Path>>(path: P) -> Result<KeyPair> {
+    let bytes = fs::read(path)?;
+    Ok(serde_json::from_slice(bytes.as_slice())?)
+}
+
+impl SignGenesisArgs {
     fn get_private_key(&self) -> Result<PrivateKey> {
-        let private_key_bytes =
-            Self::get_key_raw(&self.private_key_path, &self.private_key_string)?;
-            match private_key_bytes {
-                KeyStorage::FromFile(bytes) => PrivateKey::from_bytes(self.algorithm.0, bytes.as_slice()).wrap_err_with(|| {
+        let private_key_bytes = get_key_raw(&self.private_key_file, &self.private_key_string)?;
+        match private_key_bytes {
+            KeyStorage::FromFile(bytes) => {
+                PrivateKey::from_bytes(self.algorithm.0, bytes.as_slice()).wrap_err_with(|| {
                     eyre!(
                         "Failed to parse private key from bytes for algorithm `{}`",
                         self.algorithm
                     )
-                }),
-                KeyStorage::FromCLI(hex) => PrivateKey::from_hex(self.algorithm.0, hex).wrap_err_with(|| {
+                })
+            }
+            KeyStorage::FromCLI(hex) => {
+                PrivateKey::from_hex(self.algorithm.0, hex).wrap_err_with(|| {
                     eyre!(
                         "Failed to parse private key from hex for algorithm `{}`",
                         self.algorithm
                     )
-                }),
+                })
             }
+        }
     }
 
     fn get_public_key(&self) -> Result<PublicKey> {
-        let public_key_bytes = Self::get_key_raw(&self.public_key_path, &self.public_key_string)?;
+        let public_key_bytes = get_key_raw(&self.public_key_file, &self.public_key_string)?;
         match public_key_bytes {
-            KeyStorage::FromFile(bytes) => PublicKey::from_bytes(self.algorithm.0, bytes.as_slice()).wrap_err_with(|| {
-                eyre!(
-                    "Failed to parse public key from bytes for algorithm `{}`",
-                    self.algorithm
-                )
-            }),
+            KeyStorage::FromFile(bytes) => {
+                PublicKey::from_bytes(self.algorithm.0, bytes.as_slice()).wrap_err_with(|| {
+                    eyre!(
+                        "Failed to parse public key from bytes for algorithm `{}`",
+                        self.algorithm
+                    )
+                })
+            }
             KeyStorage::FromCLI(hex) => {
                 if hex.starts_with(ED25519_PREFIX) {
                     PublicKey::from_str(hex).wrap_err_with(|| {
@@ -103,56 +130,61 @@ impl GenesisSigningArgs {
                     })
                 } else {
                     PublicKey::from_hex(self.algorithm.0, hex).wrap_err_with(|| {
-                    eyre!(
-                        "Failed to parse public key from hex for algorithm `{}`",
-                        self.algorithm
-                    )
-                })
+                        eyre!(
+                            "Failed to parse public key from hex for algorithm `{}`",
+                            self.algorithm
+                        )
+                    })
+                }
             }
-        },
         }
-    }
-
-    fn get_key_raw<'a, P: AsRef<Path>>(
-        path: &Option<P>,
-        value: &'a Option<String>,
-    ) -> Result<KeyStorage<'a>, std::io::Error> {
-        match (path, value) {
-            (Some(path_buf), None) => Ok(KeyStorage::FromFile(fs::read(path_buf)?)),
-            (None, Some(hex)) => Ok(KeyStorage::FromCLI(hex.as_str())),
-            _ => unreachable!("Clap group invariant"),
-        }
-    }
-
-    fn read_keypair<P: AsRef<Path>>(path: P) -> Result<KeyPair> {
-        let bytes = fs::read(path)?;
-        Ok(serde_json::from_slice(bytes.as_slice())?)
     }
 }
 
-impl<T: Write> RunArgs<T> for GenesisSigningArgs {
+impl<T: Write> RunArgs<T> for SignGenesisArgs {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-        let key_pair = if let Some(path) = self.keypair_path {
-            Self::read_keypair(path)?
+        let key_pair = if let Some(path) = self.keypair_file {
+            read_keypair(path)?
         } else {
             let (public_key, private_key) = (self.get_public_key()?, self.get_private_key()?);
             KeyPair::new(public_key, private_key)?
         };
 
-        let genesis_block = RawGenesisBlock::from_path(&self.genesis_path)?;
-        let encoded_genesis_network =
-            GenesisNetwork::new(genesis_block, &self.chain_id, &key_pair).encode();
+        let genesis_block = RawGenesisBlock::from_path(&self.genesis_file)?;
+        let genesis_network = GenesisNetwork::new(genesis_block, &self.chain_id, &key_pair);
 
-        if let Some(path) = self.output_path {
-            fs::write(&path, encoded_genesis_network)?;
+        let encoded_genesis_network = if self.scale {
+            genesis_network.encode()
+        } else {
+            Vec::default()
+        };
+
+        let json_genesis_network = if self.json {
+            serde_json::to_string_pretty(&genesis_network)
+                .wrap_err("Failed to serialise genesis network to JSON.")?
+        } else {
+            String::default()
+        };
+
+        if let Some(path) = self.outfile {
+            if self.scale {
+                fs::write(&path, encoded_genesis_network)?;
+            } else {
+                fs::write(&path, json_genesis_network)?;
+            }
 
             writeln!(
                 writer,
-                "Genesis was successfully signed, encoded and written to `{}`",
+                "Genesis was successfully signed and written to `{}`",
                 path.display()
             )?;
+        } else if self.scale {
+            writeln!(
+                writer,
+                "SCALE encoded data is not supported for console outputs."
+            )?;
         } else {
-            // TODO: ADD ?
+            writeln!(writer, "{json_genesis_network}")?;
         }
 
         Ok(())
@@ -163,7 +195,7 @@ impl<T: Write> RunArgs<T> for GenesisSigningArgs {
 #[derive(ClapArgs, Clone, Debug)]
 #[command(group = ArgGroup::new("generate_from").required(false))]
 #[command(group = ArgGroup::new("format").required(false))]
-pub struct KeyPairArgs {
+pub struct GenerateKeyPairArgs {
     /// An algorithm to use for the key-pair generation
     #[clap(default_value_t, long, short)]
     algorithm: AlgorithmArg,
@@ -203,7 +235,7 @@ impl ValueEnum for AlgorithmArg {
     }
 }
 
-impl<T: Write> RunArgs<T> for KeyPairArgs {
+impl<T: Write> RunArgs<T> for GenerateKeyPairArgs {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
         if self.json {
             let key_pair = self.key_pair()?;
@@ -233,7 +265,7 @@ impl<T: Write> RunArgs<T> for KeyPairArgs {
     }
 }
 
-impl KeyPairArgs {
+impl GenerateKeyPairArgs {
     fn key_pair(self) -> color_eyre::Result<KeyPair> {
         let algorithm = self.algorithm.0;
 
@@ -257,18 +289,9 @@ impl KeyPairArgs {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, io::BufWriter, path::PathBuf, str::FromStr};
-
-    use color_eyre::Result;
-    use iroha_data_model::ChainId;
-    use iroha_genesis::GenesisNetwork;
     use parity_scale_codec::Decode;
 
-    use super::{Algorithm, AlgorithmArg};
-    use crate::{
-        crypto::{GenesisSigningArgs, KeyPairArgs},
-        RunArgs,
-    };
+    use super::*;
 
     #[test]
     fn algorithm_arg_displays_as_algorithm() {
@@ -284,7 +307,7 @@ mod tests {
         "test_signed_encoded_genesis_path_for_crypt0_genesis_kagami";
 
     fn genesis_signing_works() -> Result<()> {
-        let keypair_config = KeyPairArgs {
+        let keypair_config = GenerateKeyPairArgs {
             algorithm: AlgorithmArg::default(),
             private_key: None,
             seed: None,
@@ -297,16 +320,18 @@ mod tests {
 
         fs::write(GEN_KEYPAIR_JSON_PATH, keypair_json.buffer())?;
 
-        let crypto_genesis_config = GenesisSigningArgs {
+        let crypto_genesis_config = SignGenesisArgs {
             algorithm: AlgorithmArg::default(),
             private_key_string: None,
-            private_key_path: None,
+            private_key_file: None,
             public_key_string: None,
-            public_key_path: None,
-            keypair_path: Some(PathBuf::from_str(GEN_KEYPAIR_JSON_PATH)?),
+            public_key_file: None,
+            keypair_file: Some(PathBuf::from_str(GEN_KEYPAIR_JSON_PATH)?),
             chain_id: ChainId::from("0123456"),
-            genesis_path: PathBuf::from_str(GENESIS_JSON_PATH)?,
-            output_path: Some(PathBuf::from_str(GEN_SIGNED_ENCODED_GENESIS_PATH)?),
+            genesis_file: PathBuf::from_str(GENESIS_JSON_PATH)?,
+            outfile: Some(PathBuf::from_str(GEN_SIGNED_ENCODED_GENESIS_PATH)?),
+            scale: true,
+            json: false,
         };
 
         let mut genesis_buf_writer = BufWriter::new(Vec::new());
