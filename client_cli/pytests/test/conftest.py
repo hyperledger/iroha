@@ -14,13 +14,14 @@ from common.helpers import (
     generate_random_string_with_reserved_char,
     generate_random_string_with_whitespace,
     generate_random_string_without_reserved_chars,
+    get_peers_ports_list,
     key_with_invalid_character_in_key,
     name_with_uppercase_letter,
     not_existing_name,
     random,
     string,
 )
-from common.settings import PEERS_CONFIGS_PATH
+from common.settings import PORT_MIN, PORT_MAX
 from models import Account, Asset, AssetDefinition, Domain
 from src.client_cli import client_cli, config
 
@@ -31,7 +32,7 @@ def before_all():
     """Initial setup for all test sessions.
     This fixture generates configurations based on peers and is automatically
     used for every test session."""
-    config.generate_by_peers(PEERS_CONFIGS_PATH)
+    client_cli.start_listening_to_events(get_peers_ports_list(PORT_MIN, PORT_MAX))
     yield
 
 
