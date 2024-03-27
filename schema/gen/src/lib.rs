@@ -246,6 +246,7 @@ types!(
     MetadataChanged<AssetDefinitionId>,
     MetadataChanged<AssetId>,
     MetadataChanged<DomainId>,
+    MetadataChanged<TriggerId>,
     MetadataLimits,
     MintExpr,
     Mintable,

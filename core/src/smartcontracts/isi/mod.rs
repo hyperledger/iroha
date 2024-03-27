@@ -310,6 +310,12 @@ impl Execute for SetKeyValueExpr {
                 value,
             }
             .execute(authority, wsv),
+            IdBox::TriggerId(object_id) => SetKeyValue::<Trigger<TriggeringFilterBox>> {
+                object_id,
+                key,
+                value,
+            }
+            .execute(authority, wsv),
             _ => Err(Error::Evaluate(InstructionType::SetKeyValue.into())),
         }
     }
@@ -331,6 +337,10 @@ impl Execute for RemoveKeyValueExpr {
             }
             IdBox::DomainId(object_id) => {
                 RemoveKeyValue::<Domain> { object_id, key }.execute(authority, wsv)
+            }
+            IdBox::TriggerId(object_id) => {
+                RemoveKeyValue::<Trigger<TriggeringFilterBox>> { object_id, key }
+                    .execute(authority, wsv)
             }
             _ => Err(Error::Evaluate(InstructionType::RemoveKeyValue.into())),
         }

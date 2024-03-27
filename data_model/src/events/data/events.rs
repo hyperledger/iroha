@@ -501,8 +501,11 @@ mod trigger {
     pub use self::model::*;
     use super::*;
 
+    // type alias required by `Filter` macro
+    type TriggerMetadataChanged = MetadataChanged<TriggerId>;
+
     data_event! {
-        #[has_origin(origin = Trigger<FilterBox>)]
+        #[has_origin(origin = Trigger<TriggeringFilterBox>)]
         pub enum TriggerEvent {
             Created(TriggerId),
             Deleted(TriggerId),
@@ -510,6 +513,10 @@ mod trigger {
             Extended(TriggerNumberOfExecutionsChanged),
             #[has_origin(number_of_executions_changed => &number_of_executions_changed.trigger_id)]
             Shortened(TriggerNumberOfExecutionsChanged),
+            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            MetadataInserted(TriggerMetadataChanged),
+            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            MetadataRemoved(TriggerMetadataChanged),
         }
     }
 

@@ -2833,6 +2833,22 @@
       }
     ]
   },
+  "MetadataChanged<TriggerId>": {
+    "Struct": [
+      {
+        "name": "target_id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "key",
+        "type": "Name"
+      },
+      {
+        "name": "value",
+        "type": "Value"
+      }
+    ]
+  },
   "MetadataError": {
     "Enum": [
       {
@@ -4418,6 +4434,16 @@
         "tag": "Shortened",
         "discriminant": 3,
         "type": "TriggerNumberOfExecutionsChanged"
+      },
+      {
+        "tag": "MetadataInserted",
+        "discriminant": 4,
+        "type": "MetadataChanged<TriggerId>"
+      },
+      {
+        "tag": "MetadataRemoved",
+        "discriminant": 5,
+        "type": "MetadataChanged<TriggerId>"
       }
     ]
   },
@@ -4438,6 +4464,14 @@
       {
         "tag": "ByShortened",
         "discriminant": 3
+      },
+      {
+        "tag": "ByMetadataInserted",
+        "discriminant": 4
+      },
+      {
+        "tag": "ByMetadataRemoved",
+        "discriminant": 5
       }
     ]
   },

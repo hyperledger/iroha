@@ -473,11 +473,29 @@ pub mod trigger {
         }
     }
 
+    token! {
+        #[derive(ValidateGrantRevoke)]
+        #[validate(permission::trigger::Owner)]
+        pub struct CanSetKeyValueInTrigger {
+            pub trigger_id: TriggerId,
+        }
+    }
+
+    token! {
+        #[derive(ValidateGrantRevoke)]
+        #[validate(permission::trigger::Owner)]
+        pub struct CanRemoveKeyValueInTrigger {
+            pub trigger_id: TriggerId,
+        }
+    }
+
     impl_froms!(
         CanExecuteUserTrigger,
         CanUnregisterUserTrigger,
         CanMintUserTrigger,
         CanBurnUserTrigger,
+        CanSetKeyValueInTrigger,
+        CanRemoveKeyValueInTrigger,
     );
 }
 

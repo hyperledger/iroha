@@ -428,6 +428,8 @@ pub mod state {
     /// Trigger execution state
     pub struct Trigger<'wrld> {
         pub(super) common: Common<'wrld>,
+        /// Id of this trigger
+        pub(in super::super) id: TriggerId,
         /// Event which activated this trigger
         pub(super) triggering_event: Event,
     }
@@ -923,6 +925,7 @@ impl<'wrld> Runtime<state::Trigger<'wrld>> {
         let span = wasm_log_span!("Trigger execution", %id, %authority);
         let state = state::Trigger {
             common: state::Common::new(wsv, authority, self.config, span),
+            id: id.clone(),
             triggering_event: event,
         };
 
@@ -941,6 +944,7 @@ impl<'wrld> Runtime<state::Trigger<'wrld>> {
     #[codec::wrap]
     fn get_trigger_payload(state: &state::Trigger) -> payloads::Trigger {
         payloads::Trigger {
+            id: state.id.clone(),
             owner: state.authority().clone(),
             event: state.triggering_event.clone(),
         }

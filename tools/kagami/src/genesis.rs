@@ -186,6 +186,7 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
         )?
         .add_parameter(WSV_ACCOUNT_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
         .add_parameter(WSV_DOMAIN_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
+        .add_parameter(WSV_TRIGGER_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
         .add_parameter(WSV_IDENT_LENGTH_LIMITS, DEFAULT_IDENT_LENGTH_LIMITS)?
         .add_parameter(WASM_FUEL_LIMIT, DEFAULT_FUEL_LIMIT)?
         .add_parameter(WASM_MAX_MEMORY, DEFAULT_MAX_MEMORY)?

@@ -159,6 +159,11 @@
           },
           {
             "NewParameter": {
+              "Parameter": "?WSVTriggerMetadataLimits=1048576,4096_ML"
+            }
+          },
+          {
+            "NewParameter": {
               "Parameter": "?WSVIdentLengthLimits=1,128_LL"
             }
           },

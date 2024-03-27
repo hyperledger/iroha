@@ -17,6 +17,8 @@ pub mod payloads {
     /// Payload for trigger entrypoint
     #[derive(Debug, Clone, Encode, Decode)]
     pub struct Trigger {
+        /// Id of this trigger
+        pub id: TriggerId,
         /// Trigger owner who registered the trigger
         pub owner: AccountId,
         /// Event which triggered the execution
