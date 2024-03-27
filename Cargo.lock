@@ -2909,6 +2909,7 @@ name = "iroha_data_model"
 version = "2.0.0-pre-rc.20"
 dependencies = [
  "base64",
+ "blake2",
  "criterion",
  "derive_more",
  "displaydoc",
