@@ -151,7 +151,7 @@ type UnitName = u32;
 
 impl MeasurerUnit {
     /// Number of blocks that will be committed by [`Self::ready()`] call
-    const PREPARATION_BLOCKS_NUMBER: u32 = 3;
+    const PREPARATION_BLOCKS_NUMBER: u32 = 2;
 
     /// Submit initial transactions for measurement
     fn ready(self) -> Result<Self> {
