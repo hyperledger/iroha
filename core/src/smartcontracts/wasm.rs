@@ -464,6 +464,8 @@ pub mod state {
         /// Trigger execution state
         #[derive(Constructor)]
         pub struct Trigger {
+            pub(in super::super) id: TriggerId,
+
             /// Event which activated this trigger
             pub(in super::super) triggering_event: EventBox,
         }
@@ -985,7 +987,7 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::Trigger<'wrld, 'block,
             self.config,
             span,
             state::chain_state::WithMut(state_transaction),
-            state::specific::Trigger::new(event),
+            state::specific::Trigger::new(id.clone(), event),
         );
 
         let mut store = self.create_store(state);
@@ -1006,6 +1008,7 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::Trigger<'wrld, 'block,
     #[codec::wrap]
     fn get_trigger_payload(state: &state::Trigger) -> payloads::Trigger {
         payloads::Trigger {
+            id: state.specific_state.id.clone(),
             owner: state.authority.clone(),
             event: state.specific_state.triggering_event.clone(),
         }

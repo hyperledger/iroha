@@ -152,6 +152,9 @@ pub trait LoadedActionTrait {
     /// Get action metadata
     fn metadata(&self) -> &Metadata;
 
+    /// Get action metadata
+    fn metadata_mut(&mut self) -> &mut Metadata;
+
     /// Check if action is mintable.
     fn mintable(&self) -> bool;
 
@@ -183,6 +186,10 @@ impl<F: EventFilter + Into<TriggeringEventFilterBox> + Clone> LoadedActionTrait
 
     fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+
+    fn metadata_mut(&mut self) -> &mut Metadata {
+        &mut self.metadata
     }
 
     fn mintable(&self) -> bool {

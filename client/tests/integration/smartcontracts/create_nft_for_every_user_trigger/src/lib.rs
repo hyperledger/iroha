@@ -16,7 +16,7 @@ static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeList
 getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 
 #[iroha_trigger::main]
-fn main(_owner: AccountId, _event: EventBox) {
+fn main(_id: TriggerId, _owner: AccountId, _event: EventBox) {
     iroha_trigger::log::info!("Executing trigger");
 
     let accounts_cursor = FindAllAccounts.execute().dbg_unwrap();

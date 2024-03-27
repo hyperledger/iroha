@@ -138,7 +138,7 @@ fn minimal_config_snapshot() -> Result<()> {
                     max_instruction_number: 4096,
                     max_wasm_size_bytes: 4194304,
                 },
-                asset_metadata_limits: Limits {
+                domain_metadata_limits: Limits {
                     capacity: 1048576,
                     max_entry_len: 4096,
                 },
@@ -150,7 +150,11 @@ fn minimal_config_snapshot() -> Result<()> {
                     capacity: 1048576,
                     max_entry_len: 4096,
                 },
-                domain_metadata_limits: Limits {
+                asset_metadata_limits: Limits {
+                    capacity: 1048576,
+                    max_entry_len: 4096,
+                },
+                trigger_metadata_limits: Limits {
                     capacity: 1048576,
                     max_entry_len: 4096,
                 },
@@ -410,10 +414,11 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 block_time: None,
                 commit_time: None,
                 transaction_limits: None,
-                asset_metadata_limits: None,
+                domain_metadata_limits: None,
                 asset_definition_metadata_limits: None,
                 account_metadata_limits: None,
-                domain_metadata_limits: None,
+                asset_metadata_limits: None,
+                trigger_metadata_limits: None,
                 ident_length_limits: None,
                 executor_fuel_limit: None,
                 executor_max_memory: None,

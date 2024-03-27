@@ -134,13 +134,15 @@ macro_rules! impl_instruction {
 
 impl_instruction! {
     SetKeyValue<Domain>,
-    SetKeyValue<Account>,
     SetKeyValue<AssetDefinition>,
+    SetKeyValue<Account>,
     SetKeyValue<Asset>,
+    SetKeyValue<Trigger>,
     RemoveKeyValue<Domain>,
-    RemoveKeyValue<Account>,
     RemoveKeyValue<AssetDefinition>,
+    RemoveKeyValue<Account>,
     RemoveKeyValue<Asset>,
+    RemoveKeyValue<Trigger>,
     Register<Peer>,
     Register<Domain>,
     Register<Account>,
@@ -339,6 +341,21 @@ mod transparent {
         }
     }
 
+    impl SetKeyValue<Trigger> {
+        /// Constructs a new [`SetKeyValue`] for a [`Trigger`] with the given `key` and `value`.
+        pub fn trigger(
+            trigger_id: TriggerId,
+            key: Name,
+            value: impl Into<MetadataValueBox>,
+        ) -> Self {
+            Self {
+                object_id: trigger_id,
+                key,
+                value: value.into(),
+            }
+        }
+    }
+
     impl_display! {
         SetKeyValue<O>
         where
@@ -353,7 +370,8 @@ mod transparent {
         SetKeyValue<Domain> |
         SetKeyValue<Account> |
         SetKeyValue<AssetDefinition> |
-        SetKeyValue<Asset>
+        SetKeyValue<Asset> |
+        SetKeyValue<Trigger>
     => SetKeyValueBox => InstructionBox[SetKeyValue],
     => SetKeyValueBoxRef<'a> => InstructionBoxRef<'a>[SetKeyValue]
     }
@@ -410,6 +428,16 @@ mod transparent {
         }
     }
 
+    impl RemoveKeyValue<Trigger> {
+        /// Constructs a new [`RemoveKeyValue`] for an [`Asset`] with the given `key`.
+        pub fn trigger(trigger_id: TriggerId, key: Name) -> Self {
+            Self {
+                object_id: trigger_id,
+                key,
+            }
+        }
+    }
+
     impl_display! {
         RemoveKeyValue<O>
         where
@@ -424,7 +452,8 @@ mod transparent {
         RemoveKeyValue<Domain> |
         RemoveKeyValue<Account> |
         RemoveKeyValue<AssetDefinition> |
-        RemoveKeyValue<Asset>
+        RemoveKeyValue<Asset> |
+        RemoveKeyValue<Trigger>
     => RemoveKeyValueBox => InstructionBox[RemoveKeyValue],
     => RemoveKeyValueBoxRef<'a> => InstructionBoxRef<'a>[RemoveKeyValue]
     }
@@ -1059,6 +1088,8 @@ isi_box! {
         AssetDefinition(SetKeyValue<AssetDefinition>),
         /// Set key value for [`Asset`].
         Asset(SetKeyValue<Asset>),
+        /// Set key value for [`Trigger`].
+        Trigger(SetKeyValue<Trigger>),
     }
 }
 
@@ -1078,6 +1109,8 @@ isi_box! {
         AssetDefinition(RemoveKeyValue<AssetDefinition>),
         /// Remove key value from [`Asset`].
         Asset(RemoveKeyValue<Asset>),
+        /// Remove key value for [`Trigger`].
+        Trigger(RemoveKeyValue<Trigger>),
     }
 }
 

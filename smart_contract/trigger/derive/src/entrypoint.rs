@@ -47,7 +47,7 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
         #[doc(hidden)]
         unsafe extern "C" fn #main_fn_name() {
             let payload = ::iroha_trigger::get_trigger_payload();
-            #fn_name(payload.owner, payload.event)
+            #fn_name(payload.id, payload.owner, payload.event)
         }
 
         // NOTE: Host objects are always passed by value to wasm

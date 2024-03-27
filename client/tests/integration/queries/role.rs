@@ -131,7 +131,7 @@ fn find_roles_by_account_id() -> Result<()> {
         .cloned()
         .map(|role_id| {
             Register::role(Role::new(role_id).add_permission(PermissionToken::new(
-                "CanSetKeyValueInUserAccount".parse().unwrap(),
+                "CanSetKeyValueInAccount".parse().unwrap(),
                 &json!({ "account_id": alice_id }),
             )))
         })

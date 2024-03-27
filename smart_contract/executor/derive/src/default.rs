@@ -138,6 +138,8 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn::DeriveInput) -> Tok
         "fn visit_transfer_asset_store(operation: &Transfer<Asset, Metadata, Account>)",
         "fn visit_set_asset_key_value(operation: &SetKeyValue<Asset>)",
         "fn visit_remove_asset_key_value(operation: &RemoveKeyValue<Asset>)",
+        "fn visit_set_trigger_key_value(operation: &SetKeyValue<Trigger>)",
+        "fn visit_remove_trigger_key_value(operation: &RemoveKeyValue<Trigger>)",
         "fn visit_register_asset_definition(operation: &Register<AssetDefinition>)",
         "fn visit_unregister_asset_definition(operation: &Unregister<AssetDefinition>)",
         "fn visit_transfer_asset_definition(operation: &Transfer<Account, AssetDefinitionId, Account>)",

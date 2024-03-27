@@ -128,12 +128,14 @@ pub trait Visit {
         visit_set_account_key_value(&SetKeyValue<Account>),
         visit_set_asset_definition_key_value(&SetKeyValue<AssetDefinition>),
         visit_set_asset_key_value(&SetKeyValue<Asset>),
+        visit_set_trigger_key_value(&SetKeyValue<Trigger>),
 
         // Visit RemoveKeyValueBox
         visit_remove_domain_key_value(&RemoveKeyValue<Domain>),
         visit_remove_account_key_value(&RemoveKeyValue<Account>),
         visit_remove_asset_definition_key_value(&RemoveKeyValue<AssetDefinition>),
         visit_remove_asset_key_value(&RemoveKeyValue<Asset>),
+        visit_remove_trigger_key_value(&RemoveKeyValue<Trigger>),
 
         // Visit GrantBox
         visit_grant_account_permission(&Grant<PermissionToken, Account>),
@@ -350,6 +352,7 @@ pub fn visit_set_key_value<V: Visit + ?Sized>(
             visitor.visit_set_asset_definition_key_value(authority, obj)
         }
         SetKeyValueBox::Asset(obj) => visitor.visit_set_asset_key_value(authority, obj),
+        SetKeyValueBox::Trigger(obj) => visitor.visit_set_trigger_key_value(authority, obj),
     }
 }
 
@@ -365,6 +368,7 @@ pub fn visit_remove_key_value<V: Visit + ?Sized>(
             visitor.visit_remove_asset_definition_key_value(authority, obj)
         }
         RemoveKeyValueBox::Asset(obj) => visitor.visit_remove_asset_key_value(authority, obj),
+        RemoveKeyValueBox::Trigger(obj) => visitor.visit_remove_trigger_key_value(authority, obj),
     }
 }
 
@@ -409,6 +413,8 @@ leaf_visitors! {
     visit_transfer_asset_store(&Transfer<Asset, Metadata, Account>),
     visit_set_asset_key_value(&SetKeyValue<Asset>),
     visit_remove_asset_key_value(&RemoveKeyValue<Asset>),
+    visit_set_trigger_key_value(&SetKeyValue<Trigger>),
+    visit_remove_trigger_key_value(&RemoveKeyValue<Trigger>),
     visit_register_asset_definition(&Register<AssetDefinition>),
     visit_unregister_asset_definition(&Unregister<AssetDefinition>),
     visit_transfer_asset_definition(&Transfer<Account, AssetDefinitionId, Account>),

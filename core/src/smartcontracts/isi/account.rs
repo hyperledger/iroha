@@ -285,8 +285,8 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(AccountEvent::MetadataInserted(MetadataChanged {
-                    target_id: account_id.clone(),
-                    key: self.key.clone(),
+                    target_id: account_id,
+                    key: self.key,
                     value: self.value,
                 })));
 
@@ -316,7 +316,7 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(AccountEvent::MetadataRemoved(MetadataChanged {
-                    target_id: account_id.clone(),
+                    target_id: account_id,
                     key: self.key,
                     value,
                 })));

@@ -135,7 +135,7 @@
         "NewParameter": "?TransactionLimits=4096,4194304_TL"
       },
       {
-        "NewParameter": "?WSVAssetMetadataLimits=1048576,4096_ML"
+        "NewParameter": "?WSVDomainMetadataLimits=1048576,4096_ML"
       },
       {
         "NewParameter": "?WSVAssetDefinitionMetadataLimits=1048576,4096_ML"
@@ -144,7 +144,10 @@
         "NewParameter": "?WSVAccountMetadataLimits=1048576,4096_ML"
       },
       {
-        "NewParameter": "?WSVDomainMetadataLimits=1048576,4096_ML"
+        "NewParameter": "?WSVAssetMetadataLimits=1048576,4096_ML"
+      },
+      {
+        "NewParameter": "?WSVTriggerMetadataLimits=1048576,4096_ML"
       },
       {
         "NewParameter": "?WSVIdentLengthLimits=1,128_LL"
@@ -167,13 +170,13 @@
             "id": "ALICE_METADATA_ACCESS",
             "permissions": [
               {
-                "definition_id": "CanRemoveKeyValueInUserAccount",
+                "definition_id": "CanRemoveKeyValueInAccount",
                 "payload": {
                   "account_id": "alice@wonderland"
                 }
               },
               {
-                "definition_id": "CanSetKeyValueInUserAccount",
+                "definition_id": "CanSetKeyValueInAccount",
                 "payload": {
                   "account_id": "alice@wonderland"
                 }

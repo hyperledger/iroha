@@ -177,6 +177,72 @@ pub mod isi {
         }
     }
 
+    impl Execute for SetKeyValue<Trigger> {
+        #[metrics(+"set_trigger_key_value")]
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
+            let trigger_id = self.object_id;
+
+            let trigger_metadata_limits = state_transaction.config.account_metadata_limits;
+            state_transaction
+                .world
+                .triggers
+                .inspect_by_id_mut(&trigger_id, |action| {
+                    action.metadata_mut().insert_with_limits(
+                        self.key.clone(),
+                        self.value.clone(),
+                        trigger_metadata_limits,
+                    )
+                })
+                .ok_or(FindError::Trigger(trigger_id.clone()))??;
+
+            state_transaction
+                .world
+                .emit_events(Some(TriggerEvent::MetadataInserted(MetadataChanged {
+                    target_id: trigger_id,
+                    key: self.key,
+                    value: self.value,
+                })));
+
+            Ok(())
+        }
+    }
+
+    impl Execute for RemoveKeyValue<Trigger> {
+        #[metrics(+"remove_trigger_key_value")]
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
+            let trigger_id = self.object_id;
+
+            let value = state_transaction
+                .world
+                .triggers
+                .inspect_by_id_mut(&trigger_id, |action| {
+                    action
+                        .metadata_mut()
+                        .remove(&self.key)
+                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
+                })
+                .ok_or(FindError::Trigger(trigger_id.clone()))??;
+
+            state_transaction
+                .world
+                .emit_events(Some(TriggerEvent::MetadataRemoved(MetadataChanged {
+                    target_id: trigger_id,
+                    key: self.key,
+                    value,
+                })));
+
+            Ok(())
+        }
+    }
+
     impl Execute for ExecuteTrigger {
         #[metrics(+"execute_trigger")]
         fn execute(
