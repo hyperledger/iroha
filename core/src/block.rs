@@ -277,6 +277,33 @@ mod valid {
             expected_chain_id: &ChainId,
             state_block: &mut StateBlock<'_>,
         ) -> WithEvents<Result<ValidBlock, (SignedBlock, BlockValidationError)>> {
+            let expected_block_height = state_block.height() + 1;
+            let actual_height = block.header().height;
+
+            if expected_block_height != actual_height {
+                return WithEvents::new(Err((
+                    block,
+                    BlockValidationError::LatestBlockHeightMismatch {
+                        expected: expected_block_height,
+                        actual: actual_height,
+                    },
+                )));
+            }
+
+            let expected_prev_block_hash = state_block.latest_block_hash();
+            let actual_prev_block_hash = block.header().previous_block_hash;
+
+            if expected_prev_block_hash != actual_prev_block_hash {
+                return WithEvents::new(Err((
+                    block,
+                    BlockValidationError::LatestBlockHashMismatch {
+                        expected: expected_prev_block_hash,
+                        actual: actual_prev_block_hash,
+                    },
+                )));
+            }
+
+            // NOTE: should be checked AFTER height and hash, both this issues lead to topology mismatch
             if !block.header().is_genesis() {
                 let actual_commit_topology = block.commit_topology();
                 let expected_commit_topology = &topology.ordered_peers;
@@ -302,32 +329,6 @@ mod valid {
                         SignatureVerificationError::LeaderMissing.into(),
                     )));
                 }
-            }
-
-            let expected_block_height = state_block.height() + 1;
-            let actual_height = block.header().height;
-
-            if expected_block_height != actual_height {
-                return WithEvents::new(Err((
-                    block,
-                    BlockValidationError::LatestBlockHeightMismatch {
-                        expected: expected_block_height,
-                        actual: actual_height,
-                    },
-                )));
-            }
-
-            let expected_prev_block_hash = state_block.latest_block_hash();
-            let actual_prev_block_hash = block.header().previous_block_hash;
-
-            if expected_prev_block_hash != actual_prev_block_hash {
-                return WithEvents::new(Err((
-                    block,
-                    BlockValidationError::LatestBlockHashMismatch {
-                        expected: expected_prev_block_hash,
-                        actual: actual_prev_block_hash,
-                    },
-                )));
             }
 
             if block
