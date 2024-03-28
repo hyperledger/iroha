@@ -60,7 +60,7 @@ impl<T: Write> RunArgs<T> for Args {
 
         match self {
             Crypto(args) => match args {
-                crypto::Args::SignGenesis(args) => args.run(writer),
+                crypto::Args::SignTransaction(args) => args.run(writer),
                 crypto::Args::GenerateKeyPair(args) => args.run(writer),
             },
             Schema(args) => args.run(writer),
