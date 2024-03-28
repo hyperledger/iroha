@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use aead::{
     generic_array::{
-        typenum::{U0, U12, U16, U32, U36},
+        typenum::{U0, U12, U16, U28, U32},
         GenericArray,
     },
     Aead, AeadCore, Error, KeyInit, KeySizeUser, Payload,
@@ -19,7 +19,7 @@ pub struct ChaCha20Poly1305 {
 }
 
 impl Encryptor for ChaCha20Poly1305 {
-    type MinSize = U36;
+    type MinSize = U28;
 }
 
 impl KeySizeUser for ChaCha20Poly1305 {
@@ -109,6 +109,25 @@ mod tests {
         let aad = b"decrypt should fail".to_vec();
         ciphertext[0] ^= ciphertext[1];
         cipher.decrypt_easy(&aad, &ciphertext).unwrap_err();
+    }
+
+    #[test]
+    fn decrypting_empty_message_should_work() {
+        use aead::generic_array::typenum::Unsigned as _;
+
+        let cipher = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
+        let aad = b"Iroha2 AAD".to_vec();
+        // zero length message, encodes to the message of minimum length (28)
+        let message = b"".to_vec();
+        let ciphertext = cipher.encrypt_easy(&aad, &message).unwrap();
+
+        assert_eq!(
+            ciphertext.len(),
+            <ChaCha20Poly1305 as Encryptor>::MinSize::to_usize()
+        );
+
+        let decrypted_message = cipher.decrypt_easy(&aad, &ciphertext).unwrap();
+        assert_eq!(message, decrypted_message);
     }
 
     // TODO: this should be tested for, but only after we integrate with secrecy/zeroize
