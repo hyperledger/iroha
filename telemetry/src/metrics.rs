@@ -9,6 +9,11 @@ use prometheus::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Type for reporting amount of dropped messages for sumeragi
+pub type DroppedMessagesCounter = IntCounter;
+/// Type for reporting view change index of current round
+pub type ViewChangesGauge = GenericGauge<AtomicU64>;
+
 /// Thin wrapper around duration that `impl`s [`Default`]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Uptime(pub Duration);
@@ -102,11 +107,11 @@ pub struct Metrics {
     /// Query handle time Histogram
     pub isi_times: HistogramVec,
     /// Number of view changes in the current round
-    pub view_changes: GenericGauge<AtomicU64>,
+    pub view_changes: ViewChangesGauge,
     /// Number of transactions in the queue
     pub queue_size: GenericGauge<AtomicU64>,
     /// Number of sumeragi dropped messages
-    pub dropped_messages: IntCounter,
+    pub dropped_messages: DroppedMessagesCounter,
     /// Internal use only. Needed for generating the response.
     registry: Registry,
 }
