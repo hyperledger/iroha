@@ -138,6 +138,8 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn2::DeriveInput) -> To
         "fn visit_transfer_asset(operation: Transfer<Asset, NumericValue, Account>)",
         "fn visit_set_asset_key_value(operation: SetKeyValue<Asset>)",
         "fn visit_remove_asset_key_value(operation: RemoveKeyValue<Asset>)",
+        "fn visit_set_trigger_key_value(operation: SetKeyValue<Trigger<TriggeringFilterBox>>)",
+        "fn visit_remove_trigger_key_value(operation: RemoveKeyValue<Trigger<TriggeringFilterBox>>)",
         "fn visit_unregister_asset_definition(operation: Unregister<AssetDefinition>)",
         "fn visit_transfer_asset_definition(operation: Transfer<Account, AssetDefinitionId, Account>)",
         "fn visit_set_asset_definition_key_value(operation: SetKeyValue<AssetDefinition>)",

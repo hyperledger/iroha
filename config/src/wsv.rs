@@ -38,6 +38,8 @@ pub struct Configuration {
     pub account_metadata_limits: MetadataLimits,
     /// [`MetadataLimits`] of any domain metadata.
     pub domain_metadata_limits: MetadataLimits,
+    /// [`MetadataLimits`] of any trigger metadata.
+    pub trigger_metadata_limits: MetadataLimits,
     /// [`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
     pub ident_length_limits: LengthLimits,
     /// Limits that all transactions need to obey, in terms of size
@@ -55,6 +57,7 @@ impl Default for ConfigurationProxy {
             asset_definition_metadata_limits: Some(DEFAULT_METADATA_LIMITS),
             account_metadata_limits: Some(DEFAULT_METADATA_LIMITS),
             domain_metadata_limits: Some(DEFAULT_METADATA_LIMITS),
+            trigger_metadata_limits: Some(DEFAULT_METADATA_LIMITS),
             ident_length_limits: Some(DEFAULT_IDENT_LENGTH_LIMITS),
             transaction_limits: Some(DEFAULT_TRANSACTION_LIMITS),
             wasm_runtime_config: Some(wasm::ConfigurationProxy::default()),
@@ -75,12 +78,13 @@ pub mod tests {
                 asset_definition_metadata_limits in prop::option::of(Just(DEFAULT_METADATA_LIMITS)),
                 account_metadata_limits in prop::option::of(Just(DEFAULT_METADATA_LIMITS)),
                 domain_metadata_limits in prop::option::of(Just(DEFAULT_METADATA_LIMITS)),
+                trigger_metadata_limits in prop::option::of(Just(DEFAULT_METADATA_LIMITS)),
                 ident_length_limits in prop::option::of(Just(DEFAULT_IDENT_LENGTH_LIMITS)),
                 transaction_limits in prop::option::of(Just(DEFAULT_TRANSACTION_LIMITS)),
                 wasm_runtime_config in prop::option::of(Just(wasm::ConfigurationProxy::default())),
             )
             -> ConfigurationProxy {
-            ConfigurationProxy { asset_metadata_limits, asset_definition_metadata_limits, account_metadata_limits, domain_metadata_limits, ident_length_limits, transaction_limits, wasm_runtime_config }
+            ConfigurationProxy { asset_metadata_limits, asset_definition_metadata_limits, account_metadata_limits, domain_metadata_limits, trigger_metadata_limits, ident_length_limits, transaction_limits, wasm_runtime_config }
         }
     }
 }

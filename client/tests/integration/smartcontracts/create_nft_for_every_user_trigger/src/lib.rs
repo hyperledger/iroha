@@ -14,7 +14,7 @@ use lol_alloc::{FreeListAllocator, LockedAllocator};
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
 #[iroha_trigger::main]
-fn main(_owner: AccountId, _event: Event) {
+fn main(_id: TriggerId, _owner: AccountId, _event: Event) {
     iroha_trigger::log::info!("Executing trigger");
     let accounts = FindAllAccounts.execute().dbg_unwrap();
     let limits = MetadataLimits::new(256, 256);

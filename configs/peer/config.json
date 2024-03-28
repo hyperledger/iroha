@@ -67,6 +67,10 @@
       "max_len": 1048576,
       "max_entry_byte_size": 4096
     },
+    "TRIGGER_METADATA_LIMITS": {
+      "max_len": 1048576,
+      "max_entry_byte_size": 4096
+    },
     "IDENT_LENGTH_LIMITS": {
       "min": 1,
       "max": 128

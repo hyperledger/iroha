@@ -15,12 +15,17 @@ static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeList
 
 /// Mint 1 rose for owner
 #[iroha_trigger::main]
-fn main(owner: AccountId, _event: Event) {
+fn main(id: TriggerId, owner: AccountId, _event: Event) {
     let rose_definition_id = AssetDefinitionId::from_str("rose#wonderland")
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
     let rose_id = AssetId::new(rose_definition_id, owner);
 
-    MintExpr::new(1_u32, rose_id)
+    let val: Value = FindTriggerKeyValueByIdAndKey::new(id, Name::from_str("VAL").unwrap())
+        .execute()
+        .dbg_unwrap()
+        .into();
+
+    MintExpr::new(val, rose_id)
         .execute()
         .dbg_expect("Failed to mint rose");
 }

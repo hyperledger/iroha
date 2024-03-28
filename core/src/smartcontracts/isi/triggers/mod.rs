@@ -154,6 +154,59 @@ pub mod isi {
         }
     }
 
+    impl Execute for SetKeyValue<Trigger<TriggeringFilterBox>> {
+        #[metrics(+"set_trigger_key_value")]
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+            let trigger_id = self.object_id;
+
+            let trigger_metadata_limits = wsv.config.account_metadata_limits;
+            wsv.world
+                .triggers
+                .inspect_by_id_mut(&trigger_id, |action| {
+                    action.metadata_mut().insert_with_limits(
+                        self.key.clone(),
+                        self.value.clone(),
+                        trigger_metadata_limits,
+                    )
+                })
+                .ok_or(FindError::Trigger(trigger_id.clone()))??;
+
+            wsv.emit_events(Some(TriggerEvent::MetadataInserted(MetadataChanged {
+                target_id: trigger_id,
+                key: self.key,
+                value: Box::new(self.value),
+            })));
+
+            Ok(())
+        }
+    }
+
+    impl Execute for RemoveKeyValue<Trigger<TriggeringFilterBox>> {
+        #[metrics(+"remove_trigger_key_value")]
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+            let trigger_id = self.object_id;
+
+            let value = wsv
+                .world
+                .triggers
+                .inspect_by_id_mut(&trigger_id, |action| {
+                    action
+                        .metadata_mut()
+                        .remove(&self.key)
+                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
+                })
+                .ok_or(FindError::Trigger(trigger_id.clone()))??;
+
+            wsv.emit_events(Some(TriggerEvent::MetadataRemoved(MetadataChanged {
+                target_id: trigger_id,
+                key: self.key,
+                value: Box::new(value),
+            })));
+
+            Ok(())
+        }
+    }
+
     impl Execute for ExecuteTriggerExpr {
         #[metrics(+"execute_trigger")]
         fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {

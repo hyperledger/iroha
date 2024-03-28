@@ -32,7 +32,7 @@ pub use role::{
 };
 pub use trigger::{
     visit_burn_trigger_repetitions, visit_execute_trigger, visit_mint_trigger_repetitions,
-    visit_unregister_trigger,
+    visit_remove_trigger_key_value, visit_set_trigger_key_value, visit_unregister_trigger,
 };
 
 use crate::{permission, permission::Token as _, prelude::*};
@@ -312,9 +312,7 @@ pub mod peer {
 
 pub mod domain {
     use iroha_smart_contract::data_model::{domain::DomainId, permission::PermissionToken};
-    use permission::{
-        accounts_permission_tokens, domain::is_domain_owner,
-    };
+    use permission::{accounts_permission_tokens, domain::is_domain_owner};
     use tokens::AnyPermissionToken;
 
     use super::*;
@@ -1446,6 +1444,60 @@ pub mod trigger {
         }
 
         deny!(executor, "Can't execute trigger owned by another account");
+    }
+
+    pub fn visit_set_trigger_key_value<V: Validate + ?Sized>(
+        executor: &mut V,
+        authority: &AccountId,
+        isi: SetKeyValue<Trigger<TriggeringFilterBox>>,
+    ) {
+        let trigger_id = isi.object_id;
+
+        if is_genesis(executor) {
+            pass!(executor);
+        }
+        match is_trigger_owner(&trigger_id, authority) {
+            Err(err) => deny!(executor, err),
+            Ok(true) => pass!(executor),
+            Ok(false) => {}
+        }
+        let can_set_key_value_in_user_trigger_token =
+            tokens::trigger::CanSetKeyValueInTrigger { trigger_id };
+        if can_set_key_value_in_user_trigger_token.is_owned_by(authority) {
+            pass!(executor);
+        }
+
+        deny!(
+            executor,
+            "Can't set value to the metadata of another trigger"
+        );
+    }
+
+    pub fn visit_remove_trigger_key_value<V: Validate + ?Sized>(
+        executor: &mut V,
+        authority: &AccountId,
+        isi: RemoveKeyValue<Trigger<TriggeringFilterBox>>,
+    ) {
+        let trigger_id = isi.object_id;
+
+        if is_genesis(executor) {
+            pass!(executor);
+        }
+        match is_trigger_owner(&trigger_id, authority) {
+            Err(err) => deny!(executor, err),
+            Ok(true) => pass!(executor),
+            Ok(false) => {}
+        }
+        let can_remove_key_value_in_trigger_token =
+            tokens::trigger::CanRemoveKeyValueInTrigger { trigger_id };
+        if can_remove_key_value_in_trigger_token.is_owned_by(authority) {
+            pass!(executor);
+        }
+
+        deny!(
+            executor,
+            "Can't remove value from the metadata of another trigger"
+        );
     }
 
     fn is_token_trigger_associated(permission: &PermissionToken, trigger_id: &TriggerId) -> bool {

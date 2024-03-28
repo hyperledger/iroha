@@ -147,12 +147,14 @@ pub trait Visit: ExpressionEvaluator {
         visit_set_account_key_value(SetKeyValue<Account>),
         visit_set_asset_definition_key_value(SetKeyValue<AssetDefinition>),
         visit_set_asset_key_value(SetKeyValue<Asset>),
+        visit_set_trigger_key_value(SetKeyValue<Trigger<TriggeringFilterBox>>),
 
         // Visit RemoveKeyValueExpr
         visit_remove_domain_key_value(RemoveKeyValue<Domain>),
         visit_remove_account_key_value(RemoveKeyValue<Account>),
         visit_remove_asset_definition_key_value(RemoveKeyValue<AssetDefinition>),
         visit_remove_asset_key_value(RemoveKeyValue<Asset>),
+        visit_remove_trigger_key_value(RemoveKeyValue<Trigger<TriggeringFilterBox>>),
 
         // Visit GrantExpr
         visit_grant_account_permission(Grant<PermissionToken>),
@@ -575,6 +577,14 @@ pub fn visit_set_key_value<V: Visit + ?Sized>(
                 value,
             },
         ),
+        IdBox::TriggerId(object_id) => visitor.visit_set_trigger_key_value(
+            authority,
+            SetKeyValue {
+                object_id,
+                key,
+                value,
+            },
+        ),
         _ => visitor.visit_unsupported(authority, isi),
     }
 }
@@ -598,6 +608,9 @@ pub fn visit_remove_key_value<V: Visit + ?Sized>(
         }
         IdBox::DomainId(object_id) => {
             visitor.visit_remove_domain_key_value(authority, RemoveKeyValue { object_id, key });
+        }
+        IdBox::TriggerId(object_id) => {
+            visitor.visit_remove_trigger_key_value(authority, RemoveKeyValue { object_id, key });
         }
         _ => visitor.visit_unsupported(authority, isi),
     }
@@ -710,6 +723,8 @@ leaf_visitors! {
     visit_transfer_asset(Transfer<Asset, NumericValue, Account>),
     visit_set_asset_key_value(SetKeyValue<Asset>),
     visit_remove_asset_key_value(RemoveKeyValue<Asset>),
+    visit_set_trigger_key_value(SetKeyValue<Trigger<TriggeringFilterBox>>),
+    visit_remove_trigger_key_value(RemoveKeyValue<Trigger<TriggeringFilterBox>>),
     visit_register_asset_definition(Register<AssetDefinition>),
     visit_unregister_asset_definition(Unregister<AssetDefinition>),
     visit_transfer_asset_definition(Transfer<Account, AssetDefinitionId, Account>),

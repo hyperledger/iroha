@@ -238,6 +238,7 @@ pub mod parameter {
         pub const WSV_ASSET_DEFINITION_METADATA_LIMITS: &str = "WSVAssetDefinitionMetadataLimits";
         pub const WSV_ACCOUNT_METADATA_LIMITS: &str = "WSVAccountMetadataLimits";
         pub const WSV_DOMAIN_METADATA_LIMITS: &str = "WSVDomainMetadataLimits";
+        pub const WSV_TRIGGER_METADATA_LIMITS: &str = "WSVTriggerMetadataLimits";
         pub const WSV_IDENT_LENGTH_LIMITS: &str = "WSVIdentLengthLimits";
         pub const WASM_FUEL_LIMIT: &str = "WASMFuelLimit";
         pub const WASM_MAX_MEMORY: &str = "WASMMaxMemory";
