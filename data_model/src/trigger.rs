@@ -23,7 +23,7 @@ use crate::{
 };
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Identification of a `Trigger`.
@@ -133,7 +133,7 @@ pub mod action {
     use crate::account::AccountId;
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// Designed to differentiate between oneshot and unlimited
@@ -237,21 +237,21 @@ pub mod action {
 
     impl PartialOrd for Action {
         fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-            // Exclude the executable. When debugging and replacing
-            // the trigger, its position in Hash and Tree maps should
-            // not change depending on the content.
-            match self.repeats.cmp(&other.repeats) {
-                cmp::Ordering::Equal => {}
-                ord => return Some(ord),
-            }
-            Some(self.authority.cmp(&other.authority))
+            Some(self.cmp(other))
         }
     }
 
     impl Ord for Action {
         fn cmp(&self, other: &Self) -> cmp::Ordering {
-            self.partial_cmp(other)
-                .expect("`PartialCmp::partial_cmp()` for `Action` should never return `None`")
+            // Exclude the executable. When debugging and replacing
+            // the trigger, its position in Hash and Tree maps should
+            // not change depending on the content.
+            match self.repeats.cmp(&other.repeats) {
+                cmp::Ordering::Equal => {}
+                ord => return ord,
+            }
+
+            self.authority.cmp(&other.authority)
         }
     }
 

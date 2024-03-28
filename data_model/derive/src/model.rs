@@ -15,14 +15,16 @@ pub fn impl_model(emitter: &mut Emitter, input: &syn::ItemMod) -> TokenStream {
         ..
     } = input;
 
-    let syn::Visibility::Public(vis_public) = vis else {
+    if *vis != syn::Visibility::Inherited {
         emit!(
             emitter,
             input,
-            "The `model` attribute can only be used on public modules"
+            "The `model` attribute can only be used on private modules"
         );
+
         return quote!();
     };
+
     if ident != "model" {
         emit!(
             emitter,
@@ -38,7 +40,7 @@ pub fn impl_model(emitter: &mut Emitter, input: &syn::ItemMod) -> TokenStream {
     quote! {
         #(#attrs)*
         #[allow(missing_docs)]
-        #vis_public #mod_token #ident {
+        #mod_token #ident {
             #(#items_code)*
         }#semi
     }

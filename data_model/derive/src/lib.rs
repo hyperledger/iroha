@@ -15,35 +15,39 @@ use proc_macro2::TokenStream;
 /// # Example
 ///
 /// ```
-/// use iroha_data_model_derive::EnumRef;
-/// use parity_scale_codec::Encode;
+/// mod model {
+///     use iroha_data_model_derive::EnumRef;
+///     use parity_scale_codec::Encode;
 ///
-/// #[derive(EnumRef)]
-/// #[enum_ref(derive(Encode))]
-/// pub enum InnerEnum {
-///     A(u32),
-///     B(i32)
-/// }
+///     #[derive(EnumRef)]
+///     #[enum_ref(derive(Encode))]
+///     pub enum InnerEnum {
+///         A(u32),
+///         B(i32)
+///     }
 ///
-/// #[derive(EnumRef)]
-/// #[enum_ref(derive(Encode))]
-/// pub enum OuterEnum {
-///     A(String),
-///     #[enum_ref(transparent)]
-///     B(InnerEnum),
+///     #[derive(EnumRef)]
+///     #[enum_ref(derive(Encode))]
+///     pub enum OuterEnum {
+///         A(String),
+///         #[enum_ref(transparent)]
+///         B(InnerEnum),
+///     }
 /// }
 ///
 /// /* will produce:
-/// #[derive(Encode)]
-/// pub(crate) enum InnerEnumRef<'a> {
-///     A(&'a u32),
-///     B(&'a i32),
-/// }
+/// mod model {
+///     #[derive(Encode)]
+///     pub(super) enum InnerEnumRef<'a> {
+///         A(&'a u32),
+///         B(&'a i32),
+///     }
 ///
-/// #[derive(Encode)]
-/// pub(crate) enum OuterEnumRef<'a> {
-///     A(&'a String),
-///     B(InnerEnumRef<'a>),
+///     #[derive(Encode)]
+///     pub(super) enum OuterEnumRef<'a> {
+///         A(&'a String),
+///         B(InnerEnumRef<'a>),
+///     }
 /// }
 /// */
 /// ```
@@ -73,7 +77,7 @@ pub fn enum_ref(input: TokenStream) -> Result<TokenStream> {
 /// use iroha_data_model_derive::model;
 ///
 /// #[model]
-/// pub mod model {
+/// mod model {
 ///     pub struct DataModel1 {
 ///        pub item1: u32,
 ///        item2: u64
@@ -86,7 +90,7 @@ pub fn enum_ref(input: TokenStream) -> Result<TokenStream> {
 /// }
 ///
 /// /* will produce:
-/// pub mod model {
+/// mod model {
 ///     pub struct DataModel1 {
 ///         #[cfg(feature = "transparent_api")]
 ///         pub item1: u32,

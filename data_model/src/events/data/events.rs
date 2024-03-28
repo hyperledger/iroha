@@ -36,7 +36,7 @@ macro_rules! data_event {
 // NOTE: if adding/editing events here, make sure to update the corresponding event filter in [`super::filter`]
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
     use crate::metadata::MetadataValueBox;
 
@@ -146,7 +146,7 @@ mod asset {
     }
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// Depending on the wrapping event, [`Self`] represents the added or removed asset quantity.
@@ -259,7 +259,7 @@ mod role {
     }
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// Depending on the wrapping event, [`RolePermissionChanged`] role represents the added or removed role's permission
@@ -296,7 +296,7 @@ mod permission {
     use crate::permission::PermissionTokenSchema;
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// Information about permission tokens update.
@@ -364,7 +364,7 @@ mod account {
     }
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// Depending on the wrapping event, [`AccountPermissionChanged`] role represents the added or removed account role
@@ -451,7 +451,7 @@ mod domain {
     }
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// Event indicate that owner of the [`Domain`] is changed
@@ -499,7 +499,7 @@ mod trigger {
     }
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// Depending on the wrapping event, [`Self`] represents the increased or decreased number of event executions.
@@ -548,7 +548,7 @@ mod executor {
     use super::*;
 
     #[model]
-    pub mod model {
+    mod model {
 
         use iroha_data_model_derive::EventSet;
 

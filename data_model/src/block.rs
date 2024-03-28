@@ -9,7 +9,6 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
-use getset::Getters;
 #[cfg(all(feature = "std", feature = "transparent_api"))]
 use iroha_crypto::KeyPair;
 use iroha_crypto::{HashOf, MerkleTree, SignaturesOf};
@@ -25,7 +24,9 @@ pub use self::model::*;
 use crate::{events::prelude::*, peer, transaction::prelude::*};
 
 #[model]
-pub mod model {
+mod model {
+    use getset::{CopyGetters, Getters};
+
     use super::*;
 
     #[derive(
@@ -37,6 +38,7 @@ pub mod model {
         PartialOrd,
         Ord,
         Getters,
+        CopyGetters,
         Decode,
         Encode,
         Deserialize,
@@ -48,22 +50,24 @@ pub mod model {
         display(fmt = "Block №{height} (hash: {});", "HashOf::new(&self)")
     )]
     #[cfg_attr(not(feature = "std"), display(fmt = "Block №{height}"))]
-    #[getset(get = "pub")]
     #[allow(missing_docs)]
     #[ffi_type]
     pub struct BlockHeader {
         /// Number of blocks in the chain including this block.
+        #[getset(get_copy = "pub")]
         pub height: u64,
+        /// Hash of the previous block in the chain.
+        #[getset(get = "pub")]
+        pub previous_block_hash: Option<HashOf<SignedBlock>>,
+        /// Hash of merkle tree root of transactions' hashes.
+        #[getset(get = "pub")]
+        pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub timestamp_ms: u64,
-        /// Hash of the previous block in the chain.
-        pub previous_block_hash: Option<HashOf<SignedBlock>>,
-        /// Hash of merkle tree root of transactions' hashes.
-        pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
         /// Value of view change index. Used to resolve soft forks.
-        pub view_change_index: u64,
         #[getset(skip)]
+        pub view_change_index: u64,
         /// Estimation of consensus duration (in milliseconds).
         pub consensus_estimation_ms: u64,
     }
@@ -76,7 +80,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Getters,
         Decode,
         Encode,
         Deserialize,
@@ -84,45 +87,28 @@ pub mod model {
         IntoSchema,
     )]
     #[display(fmt = "({header})")]
-    #[getset(get = "pub")]
     #[allow(missing_docs)]
-    #[ffi_type]
-    pub struct BlockPayload {
+    pub(crate) struct BlockPayload {
         /// Block header
         pub header: BlockHeader,
         /// Topology of the network at the time of block commit.
-        #[getset(skip)] // FIXME: Because ffi related issues
         pub commit_topology: UniqueVec<peer::PeerId>,
         /// array of transactions, which successfully passed validation and consensus step.
-        #[getset(skip)] // FIXME: Because ffi related issues
         pub transactions: Vec<TransactionValue>,
         /// Event recommendations.
-        #[getset(skip)] // NOTE: Unused ATM
-        pub event_recommendations: Vec<Event>,
+        pub event_recommendations: Vec<EventBox>,
     }
 
     /// Signed block
     #[version_with_scale(version = 1, versioned_alias = "SignedBlock")]
     #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Getters,
-        Encode,
-        Serialize,
-        IntoSchema,
+        Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
     #[cfg_attr(not(feature = "std"), display(fmt = "Signed block"))]
     #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
-    #[getset(get = "pub")]
     #[ffi_type]
     pub struct SignedBlockV1 {
         /// Signatures of peers which approved this block.
-        #[getset(skip)]
         pub signatures: SignaturesOf<BlockPayload>,
         /// Block payload
         pub payload: BlockPayload,
@@ -133,13 +119,6 @@ pub mod model {
 declare_versioned!(SignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, iroha_ffi::FfiType, IntoSchema);
 #[cfg(all(not(feature = "ffi_export"), not(feature = "ffi_import")))]
 declare_versioned!(SignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
-
-impl BlockPayload {
-    /// Calculate block payload [`Hash`](`iroha_crypto::HashOf`).
-    pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
-        iroha_crypto::HashOf::new(self)
-    }
-}
 
 impl BlockHeader {
     /// Checks if it's a header of a genesis block.
@@ -153,11 +132,6 @@ impl BlockHeader {
     pub fn timestamp(&self) -> Duration {
         Duration::from_millis(self.timestamp_ms)
     }
-
-    /// Consensus estimation
-    pub fn consensus_estimation(&self) -> Duration {
-        Duration::from_millis(self.consensus_estimation_ms)
-    }
 }
 
 impl SignedBlockV1 {
@@ -168,6 +142,13 @@ impl SignedBlockV1 {
 }
 
 impl SignedBlock {
+    /// Block header
+    #[inline]
+    pub fn header(&self) -> &BlockHeader {
+        let SignedBlock::V1(block) = self;
+        &block.payload.header
+    }
+
     /// Block transactions
     #[inline]
     pub fn transactions(&self) -> impl ExactSizeIterator<Item = &TransactionValue> {
@@ -175,14 +156,7 @@ impl SignedBlock {
         block.payload.transactions.iter()
     }
 
-    /// Block header
-    #[inline]
-    pub fn header(&self) -> &BlockHeader {
-        let SignedBlock::V1(block) = self;
-        block.payload.header()
-    }
-
-    /// Block commit topology
+    /// Topology of the network at the time of block commit.
     #[inline]
     #[cfg(feature = "transparent_api")]
     pub fn commit_topology(&self) -> &UniqueVec<peer::PeerId> {
@@ -213,8 +187,8 @@ impl SignedBlock {
     }
 
     /// Add additional signatures to this block
-    #[cfg(feature = "transparent_api")]
     #[must_use]
+    #[cfg(feature = "transparent_api")]
     pub fn sign(mut self, key_pair: &KeyPair) -> Self {
         let SignedBlock::V1(block) = &mut self;
         let signature = iroha_crypto::SignatureOf::new(key_pair, &block.payload);
@@ -292,7 +266,7 @@ mod candidate {
         }
 
         fn validate_header(&self) -> Result<(), &'static str> {
-            let actual_txs_hash = self.payload.header().transactions_hash;
+            let actual_txs_hash = self.payload.header.transactions_hash;
 
             let expected_txs_hash = self
                 .payload
@@ -357,7 +331,7 @@ pub mod stream {
     use super::*;
 
     #[model]
-    pub mod model {
+    mod model {
         use core::num::NonZeroU64;
 
         use super::*;
@@ -392,7 +366,7 @@ pub mod error {
     use super::*;
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// The reason for rejecting a transaction with new blocks.

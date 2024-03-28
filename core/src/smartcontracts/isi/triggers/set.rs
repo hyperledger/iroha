@@ -58,8 +58,8 @@ type WasmSmartContractMap = IndexMap<HashOf<WasmSmartContract>, (WasmSmartContra
 pub struct Set {
     /// Triggers using [`DataEventFilter`]
     data_triggers: IndexMap<TriggerId, LoadedAction<DataEventFilter>>,
-    /// Triggers using [`PipelineEventFilter`]
-    pipeline_triggers: IndexMap<TriggerId, LoadedAction<PipelineEventFilter>>,
+    /// Triggers using [`PipelineEventFilterBox`]
+    pipeline_triggers: IndexMap<TriggerId, LoadedAction<PipelineEventFilterBox>>,
     /// Triggers using [`TimeEventFilter`]
     time_triggers: IndexMap<TriggerId, LoadedAction<TimeEventFilter>>,
     /// Triggers using [`ExecuteTriggerEventFilter`]
@@ -70,7 +70,7 @@ pub struct Set {
     original_contracts: WasmSmartContractMap,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
-    matched_ids: Vec<(Event, TriggerId)>,
+    matched_ids: Vec<(EventBox, TriggerId)>,
 }
 
 /// Helper struct for serializing triggers.
@@ -177,7 +177,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                         "pipeline_triggers" => {
                             let triggers: IndexMap<
                                 TriggerId,
-                                SpecializedAction<PipelineEventFilter>,
+                                SpecializedAction<PipelineEventFilterBox>,
                             > = map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_pipeline_trigger(
@@ -259,7 +259,7 @@ impl Set {
         })
     }
 
-    /// Add trigger with [`PipelineEventFilter`]
+    /// Add trigger with [`PipelineEventFilterBox`]
     ///
     /// Return `false` if a trigger with given id already exists
     ///
@@ -270,7 +270,7 @@ impl Set {
     pub fn add_pipeline_trigger(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: SpecializedTrigger<PipelineEventFilter>,
+        trigger: SpecializedTrigger<PipelineEventFilterBox>,
     ) -> Result<bool> {
         self.add_to(engine, trigger, TriggeringEventType::Pipeline, |me| {
             &mut me.pipeline_triggers
@@ -721,18 +721,6 @@ impl Set {
         };
     }
 
-    /// Handle [`PipelineEvent`].
-    ///
-    /// Find all actions that are triggered by `event` and store them.
-    /// These actions are inspected in the next [`Set::inspect_matched()`] call.
-    // Passing by value to follow other `handle_` methods interface
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn handle_pipeline_event(&mut self, event: PipelineEvent) {
-        self.pipeline_triggers.iter().for_each(|entry| {
-            Self::match_and_insert_trigger(&mut self.matched_ids, event.clone(), entry)
-        });
-    }
-
     /// Handle [`TimeEvent`].
     ///
     /// Find all actions that are triggered by `event` and store them.
@@ -747,7 +735,7 @@ impl Set {
                 continue;
             }
 
-            let ids = core::iter::repeat_with(|| (Event::Time(event), id.clone())).take(
+            let ids = core::iter::repeat_with(|| (EventBox::Time(event), id.clone())).take(
                 count
                     .try_into()
                     .expect("`u32` should always fit in `usize`"),
@@ -761,8 +749,8 @@ impl Set {
     /// Skips insertion:
     /// - If the action's filter doesn't match an event
     /// - If the action's repeats count equals to 0
-    fn match_and_insert_trigger<E: Into<Event>, F: EventFilter<Event = E>>(
-        matched_ids: &mut Vec<(Event, TriggerId)>,
+    fn match_and_insert_trigger<E: Into<EventBox>, F: EventFilter<Event = E>>(
+        matched_ids: &mut Vec<(EventBox, TriggerId)>,
         event: E,
         (id, action): (&TriggerId, &LoadedAction<F>),
     ) {
@@ -825,7 +813,7 @@ impl Set {
     }
 
     /// Extract `matched_id`
-    pub fn extract_matched_ids(&mut self) -> Vec<(Event, TriggerId)> {
+    pub fn extract_matched_ids(&mut self) -> Vec<(EventBox, TriggerId)> {
         core::mem::take(&mut self.matched_ids)
     }
 }

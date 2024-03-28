@@ -249,13 +249,17 @@ mod filter {
 
 mod events {
 
+    use iroha_client::data_model::events::pipeline::{BlockEventFilter, TransactionEventFilter};
+
     use super::*;
 
     /// Get event stream from iroha peer
     #[derive(clap::Subcommand, Debug, Clone, Copy)]
     pub enum Args {
-        /// Gets pipeline events
-        Pipeline,
+        /// Gets block pipeline events
+        BlockPipeline,
+        /// Gets transaction pipeline events
+        TransactionPipeline,
         /// Gets data events
         Data,
         /// Get execute trigger events
@@ -267,7 +271,8 @@ mod events {
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             match self {
-                Args::Pipeline => listen(PipelineEventFilter::new(), context),
+                Args::TransactionPipeline => listen(TransactionEventFilter::default(), context),
+                Args::BlockPipeline => listen(BlockEventFilter::default(), context),
                 Args::Data => listen(DataEventFilter::Any, context),
                 Args::ExecuteTrigger => listen(ExecuteTriggerEventFilter::new(), context),
                 Args::TriggerCompleted => listen(TriggerCompletedEventFilter::new(), context),
@@ -280,7 +285,7 @@ mod events {
         let iroha_client = context.client_from_config();
         eprintln!("Listening to events with filter: {filter:?}");
         iroha_client
-            .listen_for_events(filter)
+            .listen_for_events([filter])
             .wrap_err("Failed to listen for events.")?
             .try_for_each(|event| context.print_data(&event?))?;
         Ok(())

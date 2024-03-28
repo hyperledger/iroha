@@ -9,7 +9,6 @@ use core::{
 };
 
 use derive_more::{DebugCustom, Display};
-use getset::Getters;
 use iroha_crypto::SignaturesOf;
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
@@ -27,7 +26,9 @@ use crate::{
 };
 
 #[model]
-pub mod model {
+mod model {
+    use getset::{CopyGetters, Getters};
+
     use super::*;
 
     /// Either ISI or Wasm binary
@@ -89,35 +90,26 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Getters,
         Decode,
         Encode,
         Deserialize,
         Serialize,
         IntoSchema,
     )]
-    #[getset(get = "pub")]
-    #[ffi_type]
-    pub struct TransactionPayload {
+    pub(crate) struct TransactionPayload {
         /// Unique id of the blockchain. Used for simple replay attack protection.
-        #[getset(skip)] // FIXME: ffi error
         pub chain_id: ChainId,
-        /// Creation timestamp (unix time in milliseconds).
-        #[getset(skip)]
-        pub creation_time_ms: u64,
         /// Account ID of transaction creator.
         pub authority: AccountId,
+        /// Creation timestamp (unix time in milliseconds).
+        pub creation_time_ms: u64,
         /// ISI or a `WebAssembly` smart contract.
         pub instructions: Executable,
         /// If transaction is not committed by this time it will be dropped.
-        #[getset(skip)]
         pub time_to_live_ms: Option<NonZeroU64>,
         /// Random value to make different hashes for transactions which occur repeatedly and simultaneously.
-        // TODO: Only temporary
-        #[getset(skip)]
         pub nonce: Option<NonZeroU32>,
         /// Store for additional information.
-        #[getset(skip)] // FIXME: ffi error
         pub metadata: UnlimitedMetadata,
     }
 
@@ -131,7 +123,7 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Getters,
+        CopyGetters,
         Decode,
         Encode,
         Deserialize,
@@ -139,7 +131,7 @@ pub mod model {
         IntoSchema,
     )]
     #[display(fmt = "{max_instruction_number},{max_wasm_size_bytes}_TL")]
-    #[getset(get = "pub")]
+    #[getset(get_copy = "pub")]
     #[ffi_type]
     pub struct TransactionLimits {
         /// Maximum number of instructions per transaction
@@ -251,14 +243,14 @@ impl SignedTransaction {
     #[inline]
     pub fn instructions(&self) -> &Executable {
         let SignedTransaction::V1(tx) = self;
-        tx.payload.instructions()
+        &tx.payload.instructions
     }
 
     /// Return transaction authority
     #[inline]
     pub fn authority(&self) -> &AccountId {
         let SignedTransaction::V1(tx) = self;
-        tx.payload.authority()
+        &tx.payload.authority
     }
 
     /// Return transaction metadata.
@@ -448,7 +440,9 @@ pub mod error {
     use super::*;
 
     #[model]
-    pub mod model {
+    mod model {
+        use getset::Getters;
+
         use super::*;
 
         /// Error which indicates max instruction count was reached
@@ -565,8 +559,6 @@ pub mod error {
             InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
             /// Failure in WebAssembly execution
             WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
-            /// Transaction rejected due to being expired
-            Expired,
         }
     }
 
@@ -620,7 +612,7 @@ mod http {
     use super::*;
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// Structure that represents the initial state of a transaction before the transaction receives any signatures.
@@ -638,7 +630,11 @@ mod http {
         #[inline]
         #[cfg(feature = "std")]
         pub fn new(chain_id: ChainId, authority: AccountId) -> Self {
-            let creation_time_ms = crate::current_time()
+            use std::time::SystemTime;
+
+            let creation_time_ms = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Failed to get the current system time")
                 .as_millis()
                 .try_into()
                 .expect("Unix timestamp exceedes u64::MAX");
@@ -738,13 +734,15 @@ pub mod prelude {
     #[cfg(feature = "http")]
     pub use super::http::TransactionBuilder;
     pub use super::{
-        error::prelude::*, Executable, SignedTransaction, TransactionPayload, TransactionValue,
-        WasmSmartContract,
+        error::prelude::*, Executable, SignedTransaction, TransactionValue, WasmSmartContract,
     };
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
+
     use super::*;
 
     #[test]

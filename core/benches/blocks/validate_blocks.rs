@@ -1,4 +1,3 @@
-use eyre::Result;
 use iroha_core::{prelude::*, state::State};
 use iroha_data_model::{isi::InstructionBox, prelude::*};
 
@@ -21,11 +20,11 @@ impl StateValidateBlocks {
     /// - Failed to parse [`AccountId`]
     /// - Failed to generate [`KeyPair`]
     /// - Failed to create instructions for block
-    pub fn setup(rt: &tokio::runtime::Handle) -> Result<Self> {
+    pub fn setup(rt: &tokio::runtime::Handle) -> Self {
         let domains = 100;
         let accounts_per_domain = 1000;
         let assets_per_domain = 1000;
-        let account_id: AccountId = "alice@wonderland".parse()?;
+        let account_id: AccountId = "alice@wonderland".parse().unwrap();
         let key_pair = KeyPair::random();
         let state = build_state(rt, &account_id, &key_pair);
 
@@ -38,12 +37,12 @@ impl StateValidateBlocks {
         .into_iter()
         .collect::<Vec<_>>();
 
-        Ok(Self {
+        Self {
             state,
             instructions,
             key_pair,
             account_id,
-        })
+        }
     }
 
     /// Run benchmark body.
@@ -61,7 +60,7 @@ impl StateValidateBlocks {
             key_pair,
             account_id,
         }: Self,
-    ) -> Result<()> {
+    ) {
         for (instructions, i) in instructions.into_iter().zip(1..) {
             let mut state_block = state.block();
             let block = create_block(
@@ -70,11 +69,9 @@ impl StateValidateBlocks {
                 account_id.clone(),
                 &key_pair,
             );
-            state_block.apply_without_execution(&block)?;
+            let _events = state_block.apply_without_execution(&block);
             assert_eq!(state_block.height(), i);
             state_block.commit();
         }
-
-        Ok(())
     }
 }

@@ -8,7 +8,7 @@ use super::*;
 use crate::prelude::*;
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Trigger execution event. Produced every time the `ExecuteTrigger` instruction is executed.

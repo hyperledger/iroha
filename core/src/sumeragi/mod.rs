@@ -4,7 +4,7 @@
 use std::{
     fmt::{self, Debug, Formatter},
     sync::{mpsc, Arc},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use eyre::{Result, WrapErr as _};
@@ -129,9 +129,13 @@ impl SumeragiHandle {
 
         #[allow(clippy::cast_possible_truncation)]
         if let Some(timestamp) = state_view.genesis_timestamp() {
+            let curr_time = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Failed to get the current system time");
+
             // this will overflow in 584942417years.
             self.metrics.uptime_since_genesis_ms.set(
-                (current_time() - timestamp)
+                (curr_time - timestamp)
                     .as_millis()
                     .try_into()
                     .expect("Timestamp should fit into u64"),
@@ -193,24 +197,33 @@ impl SumeragiHandle {
         chain_id: &ChainId,
         block: &SignedBlock,
         state_block: &mut StateBlock<'_>,
+        events_sender: &EventsSender,
         mut current_topology: Topology,
     ) -> Topology {
         // NOTE: topology need to be updated up to block's view_change_index
         current_topology.rotate_all_n(block.header().view_change_index);
 
         let block = ValidBlock::validate(block.clone(), &current_topology, chain_id, state_block)
-            .expect("Kura blocks should be valid")
+            .unpack(|e| {
+                let _ = events_sender.send(e.into());
+            })
+            .expect("Kura: Invalid block")
             .commit(&current_topology)
-            .expect("Kura blocks should be valid");
+            .unpack(|e| {
+                let _ = events_sender.send(e.into());
+            })
+            .expect("Kura: Invalid block");
 
         if block.as_ref().header().is_genesis() {
             *state_block.world.trusted_peers_ids = block.as_ref().commit_topology().clone();
         }
 
-        state_block.apply_without_execution(&block).expect(
-            "Block application in init should not fail. \
-             Blocks loaded from kura assumed to be valid",
-        );
+        state_block
+            .apply_without_execution(&block)
+            .into_iter()
+            .for_each(|e| {
+                let _ = events_sender.send(e);
+            });
 
         Topology::recreate_topology(
             block.as_ref(),
@@ -278,6 +291,7 @@ impl SumeragiHandle {
                 &common_config.chain_id,
                 &block,
                 &mut state_block,
+                &events_sender,
                 current_topology,
             );
             state_block.commit();
@@ -356,14 +370,19 @@ pub const PEERS_CONNECT_INTERVAL: Duration = Duration::from_secs(1);
 pub const TELEMETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Structure represents a block that is currently in discussion.
-#[non_exhaustive]
 pub struct VotingBlock<'state> {
+    /// Valid Block
+    block: ValidBlock,
     /// At what time has this peer voted for this block
     pub voted_at: Instant,
-    /// Valid Block
-    pub block: ValidBlock,
     /// [`WorldState`] after applying transactions to it but before it was committed
     pub state_block: StateBlock<'state>,
+}
+
+impl AsRef<ValidBlock> for VotingBlock<'_> {
+    fn as_ref(&self) -> &ValidBlock {
+        &self.block
+    }
 }
 
 impl VotingBlock<'_> {
@@ -382,8 +401,8 @@ impl VotingBlock<'_> {
         voted_at: Instant,
     ) -> VotingBlock {
         VotingBlock {
-            voted_at,
             block,
+            voted_at,
             state_block,
         }
     }

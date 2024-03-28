@@ -1,9 +1,6 @@
 //! [`Metrics`] and [`Status`]-related logic and functions.
 
-use std::{
-    ops::Deref,
-    time::{Duration, SystemTime},
-};
+use std::{ops::Deref, time::Duration};
 
 use parity_scale_codec::{Compact, Decode, Encode};
 use prometheus::{
@@ -217,17 +214,6 @@ impl Metrics {
         let metric_families = self.registry.gather();
         Encoder::encode(&encoder, &metric_families, &mut buffer)?;
         Ok(String::from_utf8(buffer)?)
-    }
-
-    /// Get time elapsed since Unix epoch.
-    ///
-    /// # Panics
-    /// Never
-    #[allow(clippy::unused_self)]
-    pub fn current_time(&self) -> Duration {
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("Failed to get the current system time")
     }
 }
 

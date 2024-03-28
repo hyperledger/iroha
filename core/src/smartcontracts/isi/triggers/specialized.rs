@@ -103,7 +103,7 @@ macro_rules! impl_try_from_box {
 
 impl_try_from_box! {
     Data => DataEventFilter,
-    Pipeline => PipelineEventFilter,
+    Pipeline => PipelineEventFilterBox,
     Time => TimeEventFilter,
     ExecuteTrigger => ExecuteTriggerEventFilter,
 }
@@ -228,7 +228,7 @@ mod tests {
                         .unwrap()
                 }
                 TriggeringEventFilterBox::Pipeline(_) => {
-                    SpecializedTrigger::<PipelineEventFilter>::try_from(boxed)
+                    SpecializedTrigger::<PipelineEventFilterBox>::try_from(boxed)
                         .map(|_| ())
                         .unwrap()
                 }

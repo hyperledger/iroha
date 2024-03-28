@@ -42,7 +42,9 @@ pub fn create_block(
     )
     .chain(0, state)
     .sign(key_pair)
+    .unpack(|_| {})
     .commit(&topology)
+    .unpack(|_| {})
     .unwrap();
 
     // Verify that transactions are valid

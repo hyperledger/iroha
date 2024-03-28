@@ -16,7 +16,7 @@ pub use self::model::*;
 use crate::trigger::TriggerId;
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Event that notifies that a trigger was executed

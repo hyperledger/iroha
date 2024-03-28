@@ -1,6 +1,6 @@
 //! Module with queue actor
 use core::time::Duration;
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, time::SystemTime};
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
@@ -8,17 +8,21 @@ use eyre::Result;
 use indexmap::IndexSet;
 use iroha_config::parameters::actual::Queue as Config;
 use iroha_crypto::HashOf;
-use iroha_data_model::{account::AccountId, transaction::prelude::*};
+use iroha_data_model::{
+    account::AccountId,
+    events::pipeline::{TransactionEvent, TransactionStatus},
+    transaction::prelude::*,
+};
 use iroha_logger::{trace, warn};
-use iroha_primitives::must_use::MustUse;
 use rand::seq::IteratorRandom;
 use thiserror::Error;
 
-use crate::prelude::*;
+use crate::{prelude::*, EventsSender};
 
 impl AcceptedTransaction {
     // TODO: We should have another type of transaction like `CheckedTransaction` in the type system?
-    fn check_signature_condition(&self, state_view: &StateView<'_>) -> MustUse<bool> {
+    #[must_use]
+    fn check_signature_condition(&self, state_view: &StateView<'_>) -> bool {
         let authority = self.as_ref().authority();
 
         let transaction_signatories = self
@@ -34,7 +38,7 @@ impl AcceptedTransaction {
             .map_account(authority, |account| {
                 account.check_signature_check_condition(&transaction_signatories)
             })
-            .unwrap_or(MustUse(false))
+            .unwrap_or(false)
     }
 
     /// Check if [`self`] is committed or rejected.
@@ -48,6 +52,7 @@ impl AcceptedTransaction {
 /// Multiple producers, single consumer
 #[derive(Debug)]
 pub struct Queue {
+    events_sender: EventsSender,
     /// The queue for transactions
     tx_hashes: ArrayQueue<HashOf<SignedTransaction>>,
     /// [`AcceptedTransaction`]s addressed by `Hash`
@@ -96,8 +101,9 @@ pub struct Failure {
 
 impl Queue {
     /// Makes queue from configuration
-    pub fn from_config(cfg: Config) -> Self {
+    pub fn from_config(cfg: Config, events_sender: EventsSender) -> Self {
         Self {
+            events_sender,
             tx_hashes: ArrayQueue::new(cfg.capacity.get()),
             accepted_txs: DashMap::new(),
             txs_per_user: DashMap::new(),
@@ -121,13 +127,19 @@ impl Queue {
             |tx_time_to_live| core::cmp::min(self.tx_time_to_live, tx_time_to_live),
         );
 
-        iroha_data_model::current_time().saturating_sub(tx_creation_time) > time_limit
+        let curr_time = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Failed to get the current system time");
+        curr_time.saturating_sub(tx_creation_time) > time_limit
     }
 
     /// If `true`, this transaction is regarded to have been tampered to have a future timestamp.
     fn is_in_future(&self, tx: &AcceptedTransaction) -> bool {
         let tx_timestamp = tx.as_ref().creation_time();
-        tx_timestamp.saturating_sub(iroha_data_model::current_time()) > self.future_threshold
+        let curr_time = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Failed to get the current system time");
+        tx_timestamp.saturating_sub(curr_time) > self.future_threshold
     }
 
     /// Returns all pending transactions.
@@ -167,7 +179,7 @@ impl Queue {
             Err(Error::Expired)
         } else if tx.is_in_blockchain(state_view) {
             Err(Error::InBlockchain)
-        } else if !tx.check_signature_condition(state_view).into_inner() {
+        } else if !tx.check_signature_condition(state_view) {
             Err(Error::SignatureCondition)
         } else {
             Ok(())
@@ -226,6 +238,14 @@ impl Queue {
                 err: Error::Full,
             }
         })?;
+        let _ = self.events_sender.send(
+            TransactionEvent {
+                hash,
+                block_height: None,
+                status: TransactionStatus::Queued,
+            }
+            .into(),
+        );
         trace!("Transaction queue length = {}", self.tx_hashes.len(),);
         Ok(())
     }
@@ -281,12 +301,7 @@ impl Queue {
         max_txs_in_block: usize,
     ) -> Vec<AcceptedTransaction> {
         let mut transactions = Vec::with_capacity(max_txs_in_block);
-        self.get_transactions_for_block(
-            state_view,
-            max_txs_in_block,
-            &mut transactions,
-            &mut Vec::new(),
-        );
+        self.get_transactions_for_block(state_view, max_txs_in_block, &mut transactions);
         transactions
     }
 
@@ -298,17 +313,16 @@ impl Queue {
         state_view: &StateView,
         max_txs_in_block: usize,
         transactions: &mut Vec<AcceptedTransaction>,
-        expired_transactions: &mut Vec<AcceptedTransaction>,
     ) {
         if transactions.len() >= max_txs_in_block {
             return;
         }
 
         let mut seen_queue = Vec::new();
-        let mut expired_transactions_queue = Vec::new();
+        let mut expired_transactions = Vec::new();
 
         let txs_from_queue = core::iter::from_fn(|| {
-            self.pop_from_queue(&mut seen_queue, state_view, &mut expired_transactions_queue)
+            self.pop_from_queue(&mut seen_queue, state_view, &mut expired_transactions)
         });
 
         let transactions_hashes: IndexSet<HashOf<SignedTransaction>> =
@@ -322,7 +336,17 @@ impl Queue {
             .into_iter()
             .try_for_each(|hash| self.tx_hashes.push(hash))
             .expect("Exceeded the number of transactions pending");
-        expired_transactions.extend(expired_transactions_queue);
+
+        expired_transactions
+            .into_iter()
+            .map(|tx| TransactionEvent {
+                hash: tx.as_ref().hash(),
+                block_height: None,
+                status: TransactionStatus::Expired,
+            })
+            .for_each(|e| {
+                let _ = self.events_sender.send(e.into());
+            });
     }
 
     /// Check that the user adhered to the maximum transaction per user limit and increment their transaction count.
@@ -368,7 +392,6 @@ pub mod tests {
     use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
     use iroha_data_model::{prelude::*, transaction::TransactionLimits};
-    use iroha_primitives::must_use::MustUse;
     use rand::Rng as _;
     use tokio::test;
 
@@ -380,6 +403,21 @@ pub mod tests {
         state::{State, World},
         PeersIds,
     };
+
+    impl Queue {
+        pub fn test(cfg: Config) -> Self {
+            Self {
+                events_sender: tokio::sync::broadcast::Sender::new(1),
+                tx_hashes: ArrayQueue::new(cfg.capacity.get()),
+                accepted_txs: DashMap::new(),
+                txs_per_user: DashMap::new(),
+                capacity: cfg.capacity,
+                capacity_per_user: cfg.capacity_per_user,
+                tx_time_to_live: cfg.transaction_time_to_live,
+                future_threshold: cfg.future_threshold,
+            }
+        }
+    }
 
     fn accepted_tx(account_id: &str, key: &KeyPair) -> AcceptedTransaction {
         let chain_id = ChainId::from("0");
@@ -437,7 +475,7 @@ pub mod tests {
         ));
         let state_view = state.view();
 
-        let queue = Queue::from_config(config_factory());
+        let queue = Queue::test(config_factory());
 
         queue
             .push(accepted_tx("alice@wonderland", &key_pair), &state_view)
@@ -458,7 +496,7 @@ pub mod tests {
         ));
         let state_view = state.view();
 
-        let queue = Queue::from_config(Config {
+        let queue = Queue::test(Config {
             transaction_time_to_live: Duration::from_secs(100),
             capacity,
             ..Config::default()
@@ -504,7 +542,7 @@ pub mod tests {
         };
         let state_view = state.view();
 
-        let queue = Queue::from_config(config_factory());
+        let queue = Queue::test(config_factory());
         let instructions: [InstructionBox; 0] = [];
         let tx =
             TransactionBuilder::new(chain_id.clone(), "alice@wonderland".parse().expect("Valid"))
@@ -524,7 +562,7 @@ pub mod tests {
         // Check that fully signed transaction passes signature check
         assert!(matches!(
             fully_signed_tx.check_signature_condition(&state_view),
-            MustUse(true)
+            true
         ));
 
         let get_tx = |key_pair| {
@@ -534,10 +572,7 @@ pub mod tests {
         for key_pair in key_pairs {
             let partially_signed_tx: AcceptedTransaction = get_tx(key_pair);
             // Check that none of partially signed txs passes signature check
-            assert_eq!(
-                partially_signed_tx.check_signature_condition(&state_view),
-                MustUse(false)
-            );
+            assert!(!partially_signed_tx.check_signature_condition(&state_view),);
             assert!(matches!(
                 queue
                     .push(partially_signed_tx, &state_view)
@@ -560,7 +595,7 @@ pub mod tests {
             query_handle,
         ));
         let state_view = state.view();
-        let queue = Queue::from_config(Config {
+        let queue = Queue::test(Config {
             transaction_time_to_live: Duration::from_secs(100),
             ..config_factory()
         });
@@ -590,7 +625,7 @@ pub mod tests {
         state_block.transactions.insert(tx.as_ref().hash(), 1);
         state_block.commit();
         let state_view = state.view();
-        let queue = Queue::from_config(config_factory());
+        let queue = Queue::test(config_factory());
         assert!(matches!(
             queue.push(tx, &state_view),
             Err(Failure {
@@ -613,7 +648,7 @@ pub mod tests {
             query_handle,
         );
         let tx = accepted_tx("alice@wonderland", &alice_key);
-        let queue = Queue::from_config(config_factory());
+        let queue = Queue::test(config_factory());
         queue.push(tx.clone(), &state.view()).unwrap();
         let mut state_block = state.block();
         state_block.transactions.insert(tx.as_ref().hash(), 1);
@@ -639,7 +674,7 @@ pub mod tests {
             query_handle,
         ));
         let state_view = state.view();
-        let queue = Queue::from_config(Config {
+        let queue = Queue::test(Config {
             transaction_time_to_live: Duration::from_millis(300),
             ..config_factory()
         });
@@ -687,7 +722,7 @@ pub mod tests {
             query_handle,
         ));
         let state_view = state.view();
-        let queue = Queue::from_config(config_factory());
+        let queue = Queue::test(config_factory());
         queue
             .push(accepted_tx("alice@wonderland", &alice_key), &state_view)
             .expect("Failed to push tx into queue");
@@ -722,7 +757,9 @@ pub mod tests {
             query_handle,
         ));
         let state_view = state.view();
-        let queue = Queue::from_config(config_factory());
+        let mut queue = Queue::test(config_factory());
+        let (event_sender, mut event_receiver) = tokio::sync::broadcast::channel(1);
+        queue.events_sender = event_sender;
         let instructions = [Fail {
             message: "expired".to_owned(),
         }];
@@ -737,18 +774,39 @@ pub mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
+        let tx_hash = tx.hash();
         let tx = AcceptedTransaction::accept(tx, &chain_id, &limits)
             .expect("Failed to accept Transaction.");
         queue
             .push(tx.clone(), &state_view)
             .expect("Failed to push tx into queue");
+        let queued_tx_event = event_receiver.recv().await.unwrap();
+
+        assert_eq!(
+            queued_tx_event,
+            TransactionEvent {
+                hash: tx_hash,
+                block_height: None,
+                status: TransactionStatus::Queued,
+            }
+            .into()
+        );
+
         let mut txs = Vec::new();
-        let mut expired_txs = Vec::new();
         thread::sleep(Duration::from_millis(TTL_MS));
-        queue.get_transactions_for_block(&state_view, max_txs_in_block, &mut txs, &mut expired_txs);
+        queue.get_transactions_for_block(&state_view, max_txs_in_block, &mut txs);
+        let expired_tx_event = event_receiver.recv().await.unwrap();
         assert!(txs.is_empty());
-        assert_eq!(expired_txs.len(), 1);
-        assert_eq!(expired_txs[0], tx);
+
+        assert_eq!(
+            expired_tx_event,
+            TransactionEvent {
+                hash: tx_hash,
+                block_height: None,
+                status: TransactionStatus::Expired,
+            }
+            .into()
+        )
     }
 
     #[test]
@@ -763,7 +821,7 @@ pub mod tests {
             query_handle,
         ));
 
-        let queue = Arc::new(Queue::from_config(Config {
+        let queue = Arc::new(Queue::test(Config {
             transaction_time_to_live: Duration::from_secs(100),
             capacity: 100_000_000.try_into().unwrap(),
             ..Config::default()
@@ -837,7 +895,7 @@ pub mod tests {
         ));
         let state_view = state.view();
 
-        let queue = Queue::from_config(Config {
+        let queue = Queue::test(Config {
             future_threshold,
             ..Config::default()
         });
@@ -898,7 +956,7 @@ pub mod tests {
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
 
-        let queue = Queue::from_config(Config {
+        let queue = Queue::test(Config {
             transaction_time_to_live: Duration::from_secs(100),
             capacity: 100.try_into().unwrap(),
             capacity_per_user: 1.try_into().unwrap(),

@@ -22,7 +22,7 @@ The results of the compilation can be found in `<IROHA REPO ROOT>/target/release
 
 ### Add features
 
-To add optional features, use ``--features``. For example, to add the support for _dev_telemetry_, run:
+To add optional features, use ``--features``. For example, to add the support for _dev telemetry_, run:
 
 ```bash
 cargo build --release --features dev-telemetry

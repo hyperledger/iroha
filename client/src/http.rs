@@ -150,7 +150,7 @@ pub mod ws {
     /// use eyre::Result;
     /// use url::Url;
     /// use iroha_client::{
-    ///     data_model::prelude::Event,
+    ///     data_model::prelude::EventBox,
     ///     client::events_api::flow as events_api_flow,
     ///     http::{
     ///         ws::conn_flow::{Events, Init, InitData},
@@ -203,7 +203,7 @@ pub mod ws {
     ///     }
     /// }
     ///
-    /// fn collect_5_events(flow: events_api_flow::Init) -> Result<Vec<Event>> {
+    /// fn collect_5_events(flow: events_api_flow::Init) -> Result<Vec<EventBox>> {
     ///     // Constructing initial flow data
     ///     let InitData {
     ///         next: flow,
@@ -216,7 +216,7 @@ pub mod ws {
     ///     stream.send(first_message);
     ///
     ///     // And now we are able to collect events
-    ///     let mut events: Vec<Event> = Vec::with_capacity(5);
+    ///     let mut events: Vec<EventBox> = Vec::with_capacity(5);
     ///     while events.len() < 5 {
     ///         let msg = stream.get_next();
     ///         let event = flow.message(msg)?;

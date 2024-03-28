@@ -22,7 +22,7 @@ const QUERY_ID: &str = "query_id";
 const CURSOR: &str = "cursor";
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Forward-only (a.k.a non-scrollable) cursor

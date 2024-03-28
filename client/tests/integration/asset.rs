@@ -10,6 +10,7 @@ use iroha_config::parameters::actual::Root as Config;
 use iroha_data_model::{
     asset::{AssetId, AssetValue, AssetValueType},
     isi::error::{InstructionEvaluationError, InstructionExecutionError, Mismatch, TypeError},
+    transaction::error::TransactionRejectionReason,
 };
 use serde_json::json;
 use test_network::*;
@@ -463,17 +464,17 @@ fn fail_if_dont_satisfy_spec() {
             .expect_err("Should be rejected due to non integer value");
 
         let rejection_reason = err
-            .downcast_ref::<PipelineRejectionReason>()
-            .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReason"));
+            .downcast_ref::<TransactionRejectionReason>()
+            .unwrap_or_else(|| panic!("Error {err} is not TransactionRejectionReason"));
 
         assert_eq!(
             rejection_reason,
-            &PipelineRejectionReason::Transaction(TransactionRejectionReason::Validation(
-                ValidationFail::InstructionFailed(InstructionExecutionError::Evaluate(
-                    InstructionEvaluationError::Type(TypeError::from(Mismatch {
+            &TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
+                InstructionExecutionError::Evaluate(InstructionEvaluationError::Type(
+                    TypeError::from(Mismatch {
                         expected: AssetValueType::Numeric(NumericSpec::integer()),
                         actual: AssetValueType::Numeric(NumericSpec::fractional(2))
-                    }))
+                    })
                 ))
             ))
         );

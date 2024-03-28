@@ -63,4 +63,4 @@
 
 [dev_telemetry]
 ## A path to a file with JSON logs
-# out_file = "./dev-telemetry.json"
+# out_file = "./dev_telemetry.json"

@@ -14,8 +14,6 @@ use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_primitives::const_vec::ConstVec;
-#[cfg(feature = "transparent_api")]
-use iroha_primitives::must_use::MustUse;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -39,7 +37,7 @@ pub type AccountsMap = btree_map::BTreeMap<AccountId, Account>;
 type Signatories = btree_set::BTreeSet<PublicKey>;
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Identification of an [`Account`]. Consists of Account name and Domain name.
@@ -276,10 +274,11 @@ impl Account {
 
     /// Checks whether the transaction contains all the signatures required by the
     /// [`SignatureCheckCondition`] stored in this account.
+    #[must_use]
     pub fn check_signature_check_condition(
         &self,
         transaction_signatories: &btree_set::BTreeSet<PublicKey>,
-    ) -> MustUse<bool> {
+    ) -> bool {
         self.signature_check_condition
             .check(&self.signatories, transaction_signatories)
     }
@@ -399,12 +398,13 @@ impl SignatureCheckCondition {
         Self::AllAccountSignaturesAnd(ConstVec::new_empty())
     }
 
+    #[must_use]
     #[cfg(feature = "transparent_api")]
     fn check(
         &self,
         account_signatories: &btree_set::BTreeSet<PublicKey>,
         transaction_signatories: &btree_set::BTreeSet<PublicKey>,
-    ) -> MustUse<bool> {
+    ) -> bool {
         let result = match &self {
             SignatureCheckCondition::AnyAccountSignatureOr(additional_allowed_signatures) => {
                 account_signatories
@@ -420,7 +420,7 @@ impl SignatureCheckCondition {
             }
         };
 
-        MustUse::new(result)
+        result
     }
 }
 
@@ -431,6 +431,8 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::{vec, vec::Vec};
     use core::cmp::Ordering;
 
     use iroha_crypto::{KeyPair, PublicKey};
@@ -452,7 +454,7 @@ mod tests {
         let tx_signatories = tx_signatories.iter().copied().cloned().collect();
 
         assert_eq!(
-            condition.check(&account_signatories, &tx_signatories,).0,
+            condition.check(&account_signatories, &tx_signatories,),
             result
         );
     }

@@ -62,14 +62,14 @@ pub struct BlockSigned {
     pub signatures: SignaturesOf<BlockPayload>,
 }
 
-impl From<ValidBlock> for BlockSigned {
-    fn from(block: ValidBlock) -> Self {
+impl From<&ValidBlock> for BlockSigned {
+    fn from(block: &ValidBlock) -> Self {
         let block_hash = block.as_ref().hash_of_payload();
-        let SignedBlock::V1(block) = block.into();
+        let block_signatures = block.as_ref().signatures().clone();
 
         Self {
             hash: block_hash,
-            signatures: block.signatures,
+            signatures: block_signatures,
         }
     }
 }
@@ -79,14 +79,14 @@ impl From<ValidBlock> for BlockSigned {
 #[non_exhaustive]
 pub struct BlockCommitted {
     /// Hash of the block being signed.
-    pub hash: HashOf<BlockPayload>,
+    pub hash: HashOf<SignedBlock>,
     /// Set of signatures.
     pub signatures: SignaturesOf<BlockPayload>,
 }
 
-impl From<CommittedBlock> for BlockCommitted {
-    fn from(block: CommittedBlock) -> Self {
-        let block_hash = block.as_ref().hash_of_payload();
+impl From<&CommittedBlock> for BlockCommitted {
+    fn from(block: &CommittedBlock) -> Self {
+        let block_hash = block.as_ref().hash();
         let block_signatures = block.as_ref().signatures().clone();
 
         Self {

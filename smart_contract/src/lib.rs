@@ -291,7 +291,7 @@ pub struct QueryOutputCursor<T> {
 
 impl<T> QueryOutputCursor<T> {
     /// Get inner values of batch and cursor, consuming [`Self`].
-    pub fn into_raw_parts(self) -> (T, ForwardCursor) {
+    pub fn into_parts(self) -> (T, ForwardCursor) {
         (self.batch, self.cursor)
     }
 }
@@ -524,7 +524,7 @@ mod tests {
 
         let response: Result<BatchedResponse<QueryOutputBox>, ValidationFail> =
             Ok(BatchedResponseV1::new(
-                QUERY_RESULT.unwrap().into_raw_parts().0,
+                QUERY_RESULT.unwrap().into_parts().0,
                 ForwardCursor::new(None, None),
             )
             .into());

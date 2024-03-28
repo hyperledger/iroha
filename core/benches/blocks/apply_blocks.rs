@@ -39,7 +39,7 @@ impl StateApplyBlocks {
             let state = build_state(rt, &account_id, &key_pair);
             instructions
                 .into_iter()
-                .map(|instructions| -> Result<_> {
+                .map(|instructions| {
                     let mut state_block = state.block();
                     let block = create_block(
                         &mut state_block,
@@ -47,11 +47,11 @@ impl StateApplyBlocks {
                         account_id.clone(),
                         &key_pair,
                     );
-                    state_block.apply_without_execution(&block)?;
+                    let _events = state_block.apply_without_execution(&block);
                     state_block.commit();
-                    Ok(block)
+                    block
                 })
-                .collect::<Result<Vec<_>, _>>()?
+                .collect::<Vec<_>>()
         };
 
         Ok(Self { state, blocks })
@@ -68,7 +68,7 @@ impl StateApplyBlocks {
     pub fn measure(Self { state, blocks }: &Self) -> Result<()> {
         for (block, i) in blocks.iter().zip(1..) {
             let mut state_block = state.block();
-            state_block.apply(block)?;
+            let _events = state_block.apply(block)?;
             assert_eq!(state_block.height(), i);
             state_block.commit();
         }

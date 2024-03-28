@@ -17,7 +17,7 @@ use crate::{
 };
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Identification of a role.

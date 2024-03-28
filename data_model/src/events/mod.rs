@@ -7,6 +7,7 @@ use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
+use pipeline::{BlockEvent, TransactionEvent};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
@@ -18,7 +19,7 @@ pub mod time;
 pub mod trigger_completed;
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     #[allow(missing_docs)]
@@ -37,9 +38,9 @@ pub mod model {
         IntoSchema,
     )]
     #[ffi_type]
-    pub enum Event {
+    pub enum EventBox {
         /// Pipeline event.
-        Pipeline(pipeline::PipelineEvent),
+        Pipeline(pipeline::PipelineEventBox),
         /// Data event.
         Data(data::DataEvent),
         /// Time event.
@@ -85,7 +86,7 @@ pub mod model {
     #[ffi_type(opaque)]
     pub enum EventFilterBox {
         /// Listen to pipeline events with filter.
-        Pipeline(pipeline::PipelineEventFilter),
+        Pipeline(pipeline::PipelineEventFilterBox),
         /// Listen to data events with filter.
         Data(data::DataEventFilter),
         /// Listen to time events with filter.
@@ -116,13 +117,57 @@ pub mod model {
     #[ffi_type(opaque)]
     pub enum TriggeringEventFilterBox {
         /// Listen to pipeline events with filter.
-        Pipeline(pipeline::PipelineEventFilter),
+        Pipeline(pipeline::PipelineEventFilterBox),
         /// Listen to data events with filter.
         Data(data::DataEventFilter),
         /// Listen to time events with filter.
         Time(time::TimeEventFilter),
         /// Listen to trigger execution event with filter.
         ExecuteTrigger(execute_trigger::ExecuteTriggerEventFilter),
+    }
+}
+
+impl From<TransactionEvent> for EventBox {
+    fn from(source: TransactionEvent) -> Self {
+        Self::Pipeline(source.into())
+    }
+}
+
+impl From<BlockEvent> for EventBox {
+    fn from(source: BlockEvent) -> Self {
+        Self::Pipeline(source.into())
+    }
+}
+
+impl TryFrom<EventBox> for TransactionEvent {
+    type Error = iroha_macro::error::ErrorTryFromEnum<EventBox, Self>;
+
+    fn try_from(event: EventBox) -> Result<Self, Self::Error> {
+        use iroha_macro::error::ErrorTryFromEnum;
+
+        let EventBox::Pipeline(pipeline_event) = event else {
+            return Err(ErrorTryFromEnum::default());
+        };
+
+        pipeline_event
+            .try_into()
+            .map_err(|_| ErrorTryFromEnum::default())
+    }
+}
+
+impl TryFrom<EventBox> for BlockEvent {
+    type Error = iroha_macro::error::ErrorTryFromEnum<EventBox, Self>;
+
+    fn try_from(event: EventBox) -> Result<Self, Self::Error> {
+        use iroha_macro::error::ErrorTryFromEnum;
+
+        let EventBox::Pipeline(pipeline_event) = event else {
+            return Err(ErrorTryFromEnum::default());
+        };
+
+        pipeline_event
+            .try_into()
+            .map_err(|_| ErrorTryFromEnum::default())
     }
 }
 
@@ -156,25 +201,27 @@ pub trait EventFilter {
 
 #[cfg(feature = "transparent_api")]
 impl EventFilter for EventFilterBox {
-    type Event = Event;
+    type Event = EventBox;
 
     /// Apply filter to event.
-    fn matches(&self, event: &Event) -> bool {
+    fn matches(&self, event: &EventBox) -> bool {
         match (event, self) {
-            (Event::Pipeline(event), Self::Pipeline(filter)) => filter.matches(event),
-            (Event::Data(event), Self::Data(filter)) => filter.matches(event),
-            (Event::Time(event), Self::Time(filter)) => filter.matches(event),
-            (Event::ExecuteTrigger(event), Self::ExecuteTrigger(filter)) => filter.matches(event),
-            (Event::TriggerCompleted(event), Self::TriggerCompleted(filter)) => {
+            (EventBox::Pipeline(event), Self::Pipeline(filter)) => filter.matches(event),
+            (EventBox::Data(event), Self::Data(filter)) => filter.matches(event),
+            (EventBox::Time(event), Self::Time(filter)) => filter.matches(event),
+            (EventBox::ExecuteTrigger(event), Self::ExecuteTrigger(filter)) => {
+                filter.matches(event)
+            }
+            (EventBox::TriggerCompleted(event), Self::TriggerCompleted(filter)) => {
                 filter.matches(event)
             }
             // Fail to compile in case when new variant to event or filter is added
             (
-                Event::Pipeline(_)
-                | Event::Data(_)
-                | Event::Time(_)
-                | Event::ExecuteTrigger(_)
-                | Event::TriggerCompleted(_),
+                EventBox::Pipeline(_)
+                | EventBox::Data(_)
+                | EventBox::Time(_)
+                | EventBox::ExecuteTrigger(_)
+                | EventBox::TriggerCompleted(_),
                 Self::Pipeline(_)
                 | Self::Data(_)
                 | Self::Time(_)
@@ -187,22 +234,24 @@ impl EventFilter for EventFilterBox {
 
 #[cfg(feature = "transparent_api")]
 impl EventFilter for TriggeringEventFilterBox {
-    type Event = Event;
+    type Event = EventBox;
 
     /// Apply filter to event.
-    fn matches(&self, event: &Event) -> bool {
+    fn matches(&self, event: &EventBox) -> bool {
         match (event, self) {
-            (Event::Pipeline(event), Self::Pipeline(filter)) => filter.matches(event),
-            (Event::Data(event), Self::Data(filter)) => filter.matches(event),
-            (Event::Time(event), Self::Time(filter)) => filter.matches(event),
-            (Event::ExecuteTrigger(event), Self::ExecuteTrigger(filter)) => filter.matches(event),
+            (EventBox::Pipeline(event), Self::Pipeline(filter)) => filter.matches(event),
+            (EventBox::Data(event), Self::Data(filter)) => filter.matches(event),
+            (EventBox::Time(event), Self::Time(filter)) => filter.matches(event),
+            (EventBox::ExecuteTrigger(event), Self::ExecuteTrigger(filter)) => {
+                filter.matches(event)
+            }
             // Fail to compile in case when new variant to event or filter is added
             (
-                Event::Pipeline(_)
-                | Event::Data(_)
-                | Event::Time(_)
-                | Event::ExecuteTrigger(_)
-                | Event::TriggerCompleted(_),
+                EventBox::Pipeline(_)
+                | EventBox::Data(_)
+                | EventBox::Time(_)
+                | EventBox::ExecuteTrigger(_)
+                | EventBox::TriggerCompleted(_),
                 Self::Pipeline(_) | Self::Data(_) | Self::Time(_) | Self::ExecuteTrigger(_),
             ) => false,
         }
@@ -210,7 +259,10 @@ impl EventFilter for TriggeringEventFilterBox {
 }
 
 mod conversions {
-    use super::prelude::*;
+    use super::{
+        pipeline::{BlockEventFilter, TransactionEventFilter},
+        prelude::*,
+    };
 
     macro_rules! last_tt {
         ($last:tt) => {
@@ -257,6 +309,12 @@ mod conversions {
         RoleEventFilter             => DataEventFilter => TriggeringEventFilterBox,
         ConfigurationEventFilter    => DataEventFilter => TriggeringEventFilterBox,
         ExecutorEventFilter         => DataEventFilter => TriggeringEventFilterBox,
+
+        TransactionEventFilter => PipelineEventFilterBox => TriggeringEventFilterBox,
+        BlockEventFilter       => PipelineEventFilterBox => TriggeringEventFilterBox,
+
+        TransactionEventFilter => PipelineEventFilterBox => EventFilterBox,
+        BlockEventFilter       => PipelineEventFilterBox => EventFilterBox,
     }
 }
 
@@ -272,23 +330,23 @@ pub mod stream {
     use super::*;
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// Message sent by the stream producer.
         /// Event sent by the peer.
         #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
-        pub struct EventMessage(pub Event);
+        pub struct EventMessage(pub EventBox);
 
         /// Message sent by the stream consumer.
         /// Request sent by the client to subscribe to events.
         #[derive(Debug, Clone, Constructor, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
-        pub struct EventSubscriptionRequest(pub EventFilterBox);
+        pub struct EventSubscriptionRequest(pub Vec<EventFilterBox>);
     }
 
-    impl From<EventMessage> for Event {
+    impl From<EventMessage> for EventBox {
         fn from(source: EventMessage) -> Self {
             source.0
         }
@@ -303,7 +361,7 @@ pub mod prelude {
     pub use super::EventFilter;
     pub use super::{
         data::prelude::*, execute_trigger::prelude::*, pipeline::prelude::*, time::prelude::*,
-        trigger_completed::prelude::*, Event, EventFilterBox, TriggeringEventFilterBox,
+        trigger_completed::prelude::*, EventBox, EventFilterBox, TriggeringEventFilterBox,
         TriggeringEventType,
     };
 }

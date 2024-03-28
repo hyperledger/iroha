@@ -154,7 +154,7 @@ impl Kura {
         let mut block_indices = vec![BlockIndex::default(); block_index_count];
         block_store.read_block_indices(0, &mut block_indices)?;
 
-        let mut previous_block_hash = None;
+        let mut prev_block_hash = None;
         for block in block_indices {
             // This is re-allocated every iteration. This could cause a problem.
             let mut block_data_buffer = vec![0_u8; block.length.try_into()?];
@@ -162,13 +162,13 @@ impl Kura {
             match block_store.read_block_data(block.start, &mut block_data_buffer) {
                 Ok(()) => match SignedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
-                        if previous_block_hash != decoded_block.header().previous_block_hash {
+                        if prev_block_hash != decoded_block.header().previous_block_hash {
                             error!("Block has wrong previous block hash. Not reading any blocks beyond this height.");
                             break;
                         }
                         let decoded_block_hash = decoded_block.hash();
                         block_hashes.push(decoded_block_hash);
-                        previous_block_hash = Some(decoded_block_hash);
+                        prev_block_hash = Some(decoded_block_hash);
                     }
                     Err(error) => {
                         error!(?error, "Encountered malformed block. Not reading any blocks beyond this height.");

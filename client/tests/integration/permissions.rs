@@ -6,7 +6,9 @@ use iroha_client::{
     crypto::KeyPair,
     data_model::prelude::*,
 };
-use iroha_data_model::permission::PermissionToken;
+use iroha_data_model::{
+    permission::PermissionToken, transaction::error::TransactionRejectionReason,
+};
 use iroha_genesis::GenesisNetwork;
 use serde_json::json;
 use test_network::{PeerBuilder, *};
@@ -104,14 +106,12 @@ fn permissions_disallow_asset_transfer() {
         .submit_transaction_blocking(&transfer_tx)
         .expect_err("Transaction was not rejected.");
     let rejection_reason = err
-        .downcast_ref::<PipelineRejectionReason>()
-        .expect("Error {err} is not PipelineRejectionReason");
+        .downcast_ref::<TransactionRejectionReason>()
+        .expect("Error {err} is not TransactionRejectionReason");
     //Then
     assert!(matches!(
         rejection_reason,
-        &PipelineRejectionReason::Transaction(TransactionRejectionReason::Validation(
-            ValidationFail::NotPermitted(_)
-        ))
+        &TransactionRejectionReason::Validation(ValidationFail::NotPermitted(_))
     ));
     let alice_assets = get_assets(&iroha_client, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
@@ -156,14 +156,12 @@ fn permissions_disallow_asset_burn() {
         .submit_transaction_blocking(&burn_tx)
         .expect_err("Transaction was not rejected.");
     let rejection_reason = err
-        .downcast_ref::<PipelineRejectionReason>()
-        .expect("Error {err} is not PipelineRejectionReason");
+        .downcast_ref::<TransactionRejectionReason>()
+        .expect("Error {err} is not TransactionRejectionReason");
 
     assert!(matches!(
         rejection_reason,
-        &PipelineRejectionReason::Transaction(TransactionRejectionReason::Validation(
-            ValidationFail::NotPermitted(_)
-        ))
+        &TransactionRejectionReason::Validation(ValidationFail::NotPermitted(_))
     ));
 
     let alice_assets = get_assets(&iroha_client, &alice_id);

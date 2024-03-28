@@ -9,7 +9,7 @@ pub use self::model::*;
 use super::*;
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Special event that is emitted when state is ready for handling time-triggers

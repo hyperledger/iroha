@@ -85,7 +85,7 @@ macro_rules! queries {
         pub use self::model::*;
 
         #[iroha_data_model_derive::model]
-        pub mod model{
+        mod model{
             use super::*; $(
 
             #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -114,7 +114,7 @@ pub trait Query: Into<QueryBox> + seal::Sealed {
 }
 
 #[model]
-pub mod model {
+mod model {
     use getset::Getters;
     use iroha_crypto::HashOf;
     use iroha_macro::FromVariant;
@@ -144,7 +144,7 @@ pub mod model {
     )]
     #[enum_ref(derive(Encode, FromVariant))]
     #[strum_discriminants(
-        vis(pub(crate)),
+        vis(pub(super)),
         name(QueryType),
         derive(Encode),
         allow(clippy::enum_variant_names)
@@ -1160,7 +1160,7 @@ pub mod http {
     declare_versioned_with_scale!(SignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
     #[model]
-    pub mod model {
+    mod model {
         use core::num::NonZeroU64;
 
         use super::*;
@@ -1347,7 +1347,7 @@ pub mod error {
     use crate::{executor, permission, prelude::*};
 
     #[model]
-    pub mod model {
+    mod model {
         use super::*;
 
         /// Query errors.

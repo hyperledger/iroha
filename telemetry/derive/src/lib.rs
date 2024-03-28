@@ -242,11 +242,16 @@ fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn::ItemFn)
         quote!(
             #(#attrs)* #vis #sig {
                 let _closure = || #block;
+                let start_time = std::time::SystemTime::now()
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get the current system time");
 
-                let start_time = #_metric_arg_ident.metrics.current_time();
                 #totals
                 let res = _closure();
-                let end_time = #_metric_arg_ident.metrics.current_time();
+                let end_time = std::time::SystemTime::now()
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get the current system time");
+
                 #times
                 if let Ok(_) = res {
                     #successes

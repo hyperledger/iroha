@@ -18,7 +18,7 @@ use crate::{name::Name, prelude::*};
 const SORT_BY_KEY: &str = "sort_by_metadata_key";
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Struct for sorting requests

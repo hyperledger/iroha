@@ -186,7 +186,7 @@ fn sign_blocks(criterion: &mut Criterion) {
         b.iter_batched(
             || block.clone(),
             |block| {
-                let _: ValidBlock = block.sign(&key_pair);
+                let _: ValidBlock = block.sign(&key_pair).unpack(|_| {});
                 count += 1;
             },
             BatchSize::SmallInput,

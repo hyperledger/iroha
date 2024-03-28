@@ -140,7 +140,7 @@ fn transaction_execution_should_produce_events(
     let (event_sender, event_receiver) = mpsc::channel();
     let event_filter = DataEventFilter::Any;
     thread::spawn(move || -> Result<()> {
-        let event_iterator = listener.listen_for_events(event_filter)?;
+        let event_iterator = listener.listen_for_events([event_filter])?;
         init_sender.send(())?;
         for event in event_iterator {
             event_sender.send(event)?
@@ -184,7 +184,7 @@ fn produce_multiple_events() -> Result<()> {
     let (event_sender, event_receiver) = mpsc::channel();
     let event_filter = DataEventFilter::Any;
     thread::spawn(move || -> Result<()> {
-        let event_iterator = listener.listen_for_events(event_filter)?;
+        let event_iterator = listener.listen_for_events([event_filter])?;
         init_sender.send(())?;
         for event in event_iterator {
             event_sender.send(event)?

@@ -7,7 +7,12 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{
     account::AccountId,
     block::SignedBlock,
-    events::trigger_completed::{TriggerCompletedEvent, TriggerCompletedOutcome},
+    events::{
+        pipeline::BlockEvent,
+        time::TimeEvent,
+        trigger_completed::{TriggerCompletedEvent, TriggerCompletedOutcome},
+        EventBox,
+    },
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::{Parameter, ParameterValueBox},
     permission::{PermissionTokenSchema, Permissions},
@@ -16,7 +21,7 @@ use iroha_data_model::{
     role::RoleId,
 };
 use iroha_logger::prelude::*;
-use iroha_primitives::{numeric::Numeric, small::SmallVec};
+use iroha_primitives::{must_use::MustUse, numeric::Numeric, small::SmallVec};
 use parking_lot::Mutex;
 use range_bounds::RoleIdByAccountBounds;
 use serde::{
@@ -95,7 +100,7 @@ pub struct WorldBlock<'world> {
     /// Runtime Executor
     pub(crate) executor: CellBlock<'world, Executor>,
     /// Events produced during execution of block
-    pub(crate) events_buffer: Vec<Event>,
+    events_buffer: Vec<EventBox>,
 }
 
 /// Struct for single transaction's aggregated changes
@@ -126,7 +131,7 @@ pub struct WorldTransaction<'block, 'world> {
 /// Wrapper for event's buffer to apply transaction rollback
 struct TransactionEventBuffer<'block> {
     /// Events produced during execution of block
-    events_buffer: &'block mut Vec<Event>,
+    events_buffer: &'block mut Vec<EventBox>,
     /// Number of events produced during execution current transaction
     events_created_in_transaction: usize,
 }
@@ -285,7 +290,7 @@ impl World {
         }
     }
 
-    /// Create struct to apply block's changes while reverting changes made in the latest block  
+    /// Create struct to apply block's changes while reverting changes made in the latest block
     pub fn block_and_revert(&self) -> WorldBlock {
         WorldBlock {
             parameters: self.parameters.block_and_revert(),
@@ -895,14 +900,14 @@ impl WorldTransaction<'_, '_> {
 }
 
 impl TransactionEventBuffer<'_> {
-    fn push(&mut self, event: Event) {
+    fn push(&mut self, event: EventBox) {
         self.events_created_in_transaction += 1;
         self.events_buffer.push(event);
     }
 }
 
-impl Extend<Event> for TransactionEventBuffer<'_> {
-    fn extend<T: IntoIterator<Item = Event>>(&mut self, iter: T) {
+impl Extend<EventBox> for TransactionEventBuffer<'_> {
+    fn extend<T: IntoIterator<Item = EventBox>>(&mut self, iter: T) {
         let len_before = self.events_buffer.len();
         self.events_buffer.extend(iter);
         let len_after = self.events_buffer.len();
@@ -1024,7 +1029,7 @@ pub trait StateReadOnly {
     }
 
     /// Return the hash of the block one before the latest block
-    fn previous_block_hash(&self) -> Option<HashOf<SignedBlock>> {
+    fn prev_block_hash(&self) -> Option<HashOf<SignedBlock>> {
         self.block_hashes().iter().nth_back(1).copied()
     }
 
@@ -1183,13 +1188,10 @@ impl<'state> StateBlock<'state> {
         deprecated(note = "This function is to be used in testing only. ")
     )]
     #[iroha_logger::log(skip_all, fields(block_height))]
-    pub fn apply(&mut self, block: &CommittedBlock) -> Result<()> {
+    pub fn apply(&mut self, block: &CommittedBlock) -> Result<MustUse<Vec<EventBox>>> {
         self.execute_transactions(block)?;
         debug!("All block transactions successfully executed");
-
-        self.apply_without_execution(block)?;
-
-        Ok(())
+        Ok(self.apply_without_execution(block).into())
     }
 
     /// Execute `block` transactions and store their hashes as well as
@@ -1217,12 +1219,13 @@ impl<'state> StateBlock<'state> {
     /// Apply transactions without actually executing them.
     /// It's assumed that block's transaction was already executed (as part of validation for example).
     #[iroha_logger::log(skip_all, fields(block_height = block.as_ref().header().height))]
-    pub fn apply_without_execution(&mut self, block: &CommittedBlock) -> Result<()> {
+    #[must_use]
+    pub fn apply_without_execution(&mut self, block: &CommittedBlock) -> Vec<EventBox> {
         let block_hash = block.as_ref().hash();
         trace!(%block_hash, "Applying block");
 
         let time_event = self.create_time_event(block);
-        self.world.events_buffer.push(Event::Time(time_event));
+        self.world.events_buffer.push(time_event.into());
 
         let block_height = block.as_ref().header().height;
         block
@@ -1248,24 +1251,44 @@ impl<'state> StateBlock<'state> {
         self.block_hashes.push(block_hash);
 
         self.apply_parameters();
-
-        Ok(())
+        self.world.events_buffer.push(
+            BlockEvent {
+                header: block.as_ref().header().clone(),
+                hash: block.as_ref().hash(),
+                status: BlockStatus::Applied,
+            }
+            .into(),
+        );
+        core::mem::take(&mut self.world.events_buffer)
     }
 
     /// Create time event using previous and current blocks
     fn create_time_event(&self, block: &CommittedBlock) -> TimeEvent {
+        use iroha_config::parameters::defaults::chain_wide::{
+            DEFAULT_BLOCK_TIME, DEFAULT_COMMIT_TIME,
+        };
+
+        const DEFAULT_CONSENSUS_ESTIMATION: Duration =
+            match DEFAULT_BLOCK_TIME.checked_add(match DEFAULT_COMMIT_TIME.checked_div(2) {
+                Some(x) => x,
+                None => unreachable!(),
+            }) {
+                Some(x) => x,
+                None => unreachable!(),
+            };
+
         let prev_interval = self.latest_block_ref().map(|latest_block| {
             let header = &latest_block.as_ref().header();
 
             TimeInterval {
                 since: header.timestamp(),
-                length: header.consensus_estimation(),
+                length: DEFAULT_CONSENSUS_ESTIMATION,
             }
         });
 
         let interval = TimeInterval {
             since: block.as_ref().header().timestamp(),
-            length: block.as_ref().header().consensus_estimation(),
+            length: DEFAULT_CONSENSUS_ESTIMATION,
         };
 
         TimeEvent {
@@ -1388,7 +1411,7 @@ impl StateTransaction<'_, '_> {
         &mut self,
         id: &TriggerId,
         action: &dyn LoadedActionTrait,
-        event: Event,
+        event: EventBox,
     ) -> Result<()> {
         use triggers::set::LoadedExecutable::*;
         let authority = action.authority();
@@ -1751,7 +1774,7 @@ mod tests {
 
     /// Used to inject faulty payload for testing
     fn payload_mut(block: &mut CommittedBlock) -> &mut BlockPayload {
-        let SignedBlock::V1(signed) = &mut block.0 .0;
+        let SignedBlock::V1(signed) = block.as_mut();
         &mut signed.payload
     }
 
@@ -1760,7 +1783,10 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let topology = Topology::new(UniqueVec::new());
-        let block = ValidBlock::new_dummy().commit(&topology).unwrap();
+        let block = ValidBlock::new_dummy()
+            .commit(&topology)
+            .unpack(|_| {})
+            .unwrap();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(World::default(), kura, query_handle);
@@ -1774,7 +1800,7 @@ mod tests {
             payload_mut(&mut block).header.previous_block_hash = block_hashes.last().copied();
 
             block_hashes.push(block.as_ref().hash());
-            state_block.apply(&block).unwrap();
+            let _events = state_block.apply(&block).unwrap();
         }
 
         assert!(state_block
@@ -1788,7 +1814,10 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let topology = Topology::new(UniqueVec::new());
-        let block = ValidBlock::new_dummy().commit(&topology).unwrap();
+        let block = ValidBlock::new_dummy()
+            .commit(&topology)
+            .unpack(|_| {})
+            .unwrap();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(World::default(), kura.clone(), query_handle);
@@ -1798,7 +1827,7 @@ mod tests {
             let mut block = block.clone();
             payload_mut(&mut block).header.height = i as u64;
 
-            state_block.apply(&block).unwrap();
+            let _events = state_block.apply(&block).unwrap();
             kura.store_block(block);
         }
 
@@ -1806,7 +1835,7 @@ mod tests {
             &state_block
                 .all_blocks()
                 .skip(7)
-                .map(|block| *block.header().height())
+                .map(|block| block.header().height())
                 .collect::<Vec<_>>(),
             &[8, 9, 10]
         );

@@ -13,7 +13,7 @@ cargo build --bin parity_scale_decoder
 If your terminal does not support colours, run:
 
 ```bash
-cargo build --features no-color --bin parity_scale_decoder
+cargo build --features no_color --bin parity_scale_decoder
 ```
 
 ## Usage
@@ -66,9 +66,9 @@ Decode the data type from a given binary.
   ```
 
 * If you are not sure which data type is encoded in the binary, run the tool without the `--type` option:
- 
+
   ```bash
-    ./target/debug/parity_scale_decoder decode <path_to_binary> 
+    ./target/debug/parity_scale_decoder decode <path_to_binary>
   ```
 
 ### `decode` usage examples

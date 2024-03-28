@@ -29,7 +29,7 @@ pub type Path = [Name];
 pub type UnlimitedMetadata = btree_map::BTreeMap<Name, MetadataValueBox>;
 
 #[model]
-pub mod model {
+mod model {
     use super::*;
 
     /// Collection of parameters by their names with checked insertion.

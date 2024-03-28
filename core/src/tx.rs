@@ -14,7 +14,7 @@ pub use iroha_data_model::prelude::*;
 use iroha_data_model::{
     isi::error::Mismatch,
     query::error::FindError,
-    transaction::{error::TransactionLimitError, TransactionLimits},
+    transaction::{error::TransactionLimitError, TransactionLimits, TransactionPayload},
 };
 use iroha_genesis::GenesisTransaction;
 use iroha_logger::{debug, error};

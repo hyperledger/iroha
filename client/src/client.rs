@@ -14,7 +14,13 @@ use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
 pub use iroha_config::client_api::ConfigDTO;
-use iroha_data_model::query::QueryOutputBox;
+use iroha_data_model::{
+    events::pipeline::{
+        BlockEventFilter, BlockStatus, PipelineEventBox, PipelineEventFilterBox,
+        TransactionEventFilter, TransactionStatus,
+    },
+    query::QueryOutputBox,
+};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_torii_const::uri as torii_uri;
@@ -603,14 +609,19 @@ impl Client {
 
         rt.block_on(async {
             let mut event_iterator = {
-                let event_iterator_result = tokio::time::timeout_at(
-                    deadline,
-                    self.listen_for_events_async(PipelineEventFilter::new().for_hash(hash.into())),
-                )
-                .await
-                .map_err(Into::into)
-                .and_then(std::convert::identity)
-                .wrap_err("Failed to establish event listener connection");
+                let filters = vec![
+                    TransactionEventFilter::default().for_hash(hash).into(),
+                    PipelineEventFilterBox::from(
+                        BlockEventFilter::default().for_status(BlockStatus::Applied),
+                    ),
+                ];
+
+                let event_iterator_result =
+                    tokio::time::timeout_at(deadline, self.listen_for_events_async(filters))
+                        .await
+                        .map_err(Into::into)
+                        .and_then(std::convert::identity)
+                        .wrap_err("Failed to establish event listener connection");
                 let _send_result = init_sender.send(event_iterator_result.is_ok());
                 event_iterator_result?
             };
@@ -631,17 +642,34 @@ impl Client {
         event_iterator: &mut AsyncEventStream,
         hash: HashOf<SignedTransaction>,
     ) -> Result<HashOf<SignedTransaction>> {
+        let mut block_height = None;
+
         while let Some(event) = event_iterator.next().await {
-            if let Event::Pipeline(this_event) = event? {
-                match this_event.status() {
-                    PipelineStatus::Validating => {}
-                    PipelineStatus::Rejected(ref reason) => {
-                        return Err(reason.clone().into());
+            if let EventBox::Pipeline(this_event) = event? {
+                match this_event {
+                    PipelineEventBox::Transaction(transaction_event) => {
+                        match transaction_event.status() {
+                            TransactionStatus::Queued => {}
+                            TransactionStatus::Approved => {
+                                block_height = transaction_event.block_height;
+                            }
+                            TransactionStatus::Rejected(reason) => {
+                                return Err((Clone::clone(&**reason)).into());
+                            }
+                            TransactionStatus::Expired => return Err(eyre!("Transaction expired")),
+                        }
                     }
-                    PipelineStatus::Committed => return Ok(hash),
+                    PipelineEventBox::Block(block_event) => {
+                        if Some(block_event.header().height()) == block_height {
+                            if let BlockStatus::Applied = block_event.status() {
+                                return Ok(hash);
+                            }
+                        }
+                    }
                 }
             }
         }
+
         Err(eyre!(
             "Connection dropped without `Committed` or `Rejected` event"
         ))
@@ -903,11 +931,9 @@ impl Client {
     /// - Forwards from [`events_api::EventIterator::new`]
     pub fn listen_for_events(
         &self,
-        event_filter: impl Into<EventFilterBox>,
-    ) -> Result<impl Iterator<Item = Result<Event>>> {
-        let event_filter = event_filter.into();
-        iroha_logger::trace!(?event_filter);
-        events_api::EventIterator::new(self.events_handler(event_filter)?)
+        event_filters: impl IntoIterator<Item = impl Into<EventFilterBox>>,
+    ) -> Result<impl Iterator<Item = Result<EventBox>>> {
+        events_api::EventIterator::new(self.events_handler(event_filters)?)
     }
 
     /// Connect asynchronously (through `WebSocket`) to listen for `Iroha` `pipeline` and `data` events.
@@ -917,11 +943,9 @@ impl Client {
     /// - Forwards from [`events_api::AsyncEventStream::new`]
     pub async fn listen_for_events_async(
         &self,
-        event_filter: impl Into<EventFilterBox> + Send,
+        event_filters: impl IntoIterator<Item = impl Into<EventFilterBox>> + Send,
     ) -> Result<AsyncEventStream> {
-        let event_filter = event_filter.into();
-        iroha_logger::trace!(?event_filter, "Async listening with");
-        events_api::AsyncEventStream::new(self.events_handler(event_filter)?).await
+        events_api::AsyncEventStream::new(self.events_handler(event_filters)?).await
     }
 
     /// Constructs an Events API handler. With it, you can use any WS client you want.
@@ -931,10 +955,10 @@ impl Client {
     #[inline]
     pub fn events_handler(
         &self,
-        event_filter: impl Into<EventFilterBox>,
+        event_filters: impl IntoIterator<Item = impl Into<EventFilterBox>>,
     ) -> Result<events_api::flow::Init> {
         events_api::flow::Init::new(
-            event_filter.into(),
+            event_filters.into_iter().map(Into::into).collect(),
             self.headers.clone(),
             self.torii_url
                 .join(torii_uri::SUBSCRIPTION)
@@ -1237,12 +1261,12 @@ pub mod events_api {
 
         /// Initialization struct for Events API flow.
         pub struct Init {
-            /// Event filter
-            filter: EventFilterBox,
-            /// HTTP request headers
-            headers: HashMap<String, String>,
             /// TORII URL
             url: Url,
+            /// HTTP request headers
+            headers: HashMap<String, String>,
+            /// Event filter
+            filters: Vec<EventFilterBox>,
         }
 
         impl Init {
@@ -1252,14 +1276,14 @@ pub mod events_api {
             /// Fails if [`transform_ws_url`] fails.
             #[inline]
             pub(in super::super) fn new(
-                filter: EventFilterBox,
+                filters: Vec<EventFilterBox>,
                 headers: HashMap<String, String>,
                 url: Url,
             ) -> Result<Self> {
                 Ok(Self {
-                    filter,
-                    headers,
                     url: transform_ws_url(url)?,
+                    headers,
+                    filters,
                 })
             }
         }
@@ -1269,12 +1293,12 @@ pub mod events_api {
 
             fn init(self) -> InitData<R, Self::Next> {
                 let Self {
-                    filter,
-                    headers,
                     url,
+                    headers,
+                    filters,
                 } = self;
 
-                let msg = EventSubscriptionRequest::new(filter).encode();
+                let msg = EventSubscriptionRequest::new(filters).encode();
                 InitData::new(R::new(HttpMethod::GET, url).headers(headers), msg, Events)
             }
         }
@@ -1284,7 +1308,7 @@ pub mod events_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = crate::data_model::prelude::Event;
+            type Event = crate::data_model::prelude::EventBox;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let event_socket_message = EventMessage::decode_all(&mut message.as_slice())?;
