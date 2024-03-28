@@ -69,11 +69,11 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let role_id = RoleId::from_str("ACCESS_TO_MOUSE_METADATA")?;
     let role = Role::new(role_id.clone())
         .add_permission(PermissionToken::new(
-            "CanSetKeyValueInUserAccount".parse()?,
+            "CanSetKeyValueInAccount".parse()?,
             &json!({ "account_id": mouse_id }),
         ))
         .add_permission(PermissionToken::new(
-            "CanRemoveKeyValueInUserAccount".parse()?,
+            "CanRemoveKeyValueInAccount".parse()?,
             &json!({ "account_id": mouse_id }),
         ));
     let register_role = Register::role(role);
@@ -119,7 +119,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     // Register root role
     let register_role = Register::role(Role::new(role_id.clone()).add_permission(
         PermissionToken::new(
-            "CanSetKeyValueInUserAccount".parse()?,
+            "CanSetKeyValueInAccount".parse()?,
             &json!({ "account_id": alice_id }),
         ),
     ));
@@ -156,7 +156,7 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
     let role_id = RoleId::from_str("ACCESS_TO_ACCOUNT_METADATA")?;
     let rose_asset_id = AssetId::from_str("rose##alice@wonderland")?;
     let role = Role::new(role_id).add_permission(PermissionToken::new(
-        "CanSetKeyValueInUserAccount".parse()?,
+        "CanSetKeyValueInAccount".parse()?,
         &json!({ "account_id": rose_asset_id }),
     ));
 
@@ -257,7 +257,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
         "value".to_owned(),
     );
     let permission = PermissionToken::new(
-        "CanSetKeyValueInUserAccount".parse()?,
+        "CanSetKeyValueInAccount".parse()?,
         &json!({ "account_id": mouse_id }),
     );
     let grant_role_permission = Grant::role_permission(permission.clone(), role_id.clone());

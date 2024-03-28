@@ -2175,6 +2175,22 @@
       }
     ]
   },
+  "MetadataChanged<TriggerId>": {
+    "Struct": [
+      {
+        "name": "target_id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "key",
+        "type": "Name"
+      },
+      {
+        "name": "value",
+        "type": "MetadataValueBox"
+      }
+    ]
+  },
   "MetadataError": {
     "Enum": [
       {
@@ -3175,6 +3191,18 @@
       }
     ]
   },
+  "RemoveKeyValue<Trigger>": {
+    "Struct": [
+      {
+        "name": "object_id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "key",
+        "type": "Name"
+      }
+    ]
+  },
   "RemoveKeyValueBox": {
     "Enum": [
       {
@@ -3196,6 +3224,11 @@
         "tag": "Asset",
         "discriminant": 3,
         "type": "RemoveKeyValue<Asset>"
+      },
+      {
+        "tag": "Trigger",
+        "discriminant": 4,
+        "type": "RemoveKeyValue<Trigger>"
       }
     ]
   },
@@ -3479,6 +3512,22 @@
       }
     ]
   },
+  "SetKeyValue<Trigger>": {
+    "Struct": [
+      {
+        "name": "object_id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "key",
+        "type": "Name"
+      },
+      {
+        "name": "value",
+        "type": "MetadataValueBox"
+      }
+    ]
+  },
   "SetKeyValueBox": {
     "Enum": [
       {
@@ -3500,6 +3549,11 @@
         "tag": "Asset",
         "discriminant": 3,
         "type": "SetKeyValue<Asset>"
+      },
+      {
+        "tag": "Trigger",
+        "discriminant": 4,
+        "type": "SetKeyValue<Trigger>"
       }
     ]
   },
@@ -4101,6 +4155,16 @@
         "tag": "Shortened",
         "discriminant": 3,
         "type": "TriggerNumberOfExecutionsChanged"
+      },
+      {
+        "tag": "MetadataInserted",
+        "discriminant": 4,
+        "type": "MetadataChanged<TriggerId>"
+      },
+      {
+        "tag": "MetadataRemoved",
+        "discriminant": 5,
+        "type": "MetadataChanged<TriggerId>"
       }
     ]
   },
@@ -4135,6 +4199,14 @@
         {
           "name": "Shortened",
           "mask": 8
+        },
+        {
+          "name": "MetadataInserted",
+          "mask": 16
+        },
+        {
+          "name": "MetadataRemoved",
+          "mask": 32
         }
       ]
     }

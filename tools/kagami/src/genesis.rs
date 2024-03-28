@@ -122,11 +122,11 @@ pub fn generate_default(
     let register_user_metadata_access = Register::role(
         Role::new("ALICE_METADATA_ACCESS".parse()?)
             .add_permission(PermissionToken::new(
-                "CanSetKeyValueInUserAccount".parse()?,
+                "CanSetKeyValueInAccount".parse()?,
                 &json!({ "account_id": alice_id }),
             ))
             .add_permission(PermissionToken::new(
-                "CanRemoveKeyValueInUserAccount".parse()?,
+                "CanRemoveKeyValueInAccount".parse()?,
                 &json!({ "account_id": alice_id }),
             )),
     )
@@ -143,13 +143,14 @@ pub fn generate_default(
             Numeric::new(DEFAULT_COMMIT_TIME.as_millis(), 0),
         )?
         .add_parameter(TRANSACTION_LIMITS, DEFAULT_TRANSACTION_LIMITS)?
-        .add_parameter(WSV_ASSET_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
+        .add_parameter(WSV_DOMAIN_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
         .add_parameter(
             WSV_ASSET_DEFINITION_METADATA_LIMITS,
             DEFAULT_METADATA_LIMITS,
         )?
         .add_parameter(WSV_ACCOUNT_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
-        .add_parameter(WSV_DOMAIN_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
+        .add_parameter(WSV_ASSET_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
+        .add_parameter(WSV_TRIGGER_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
         .add_parameter(WSV_IDENT_LENGTH_LIMITS, DEFAULT_IDENT_LENGTH_LIMITS)?
         .add_parameter(
             EXECUTOR_FUEL_LIMIT,

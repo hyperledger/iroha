@@ -1356,10 +1356,11 @@ impl<'state> StateBlock<'state> {
         }
 
         update_params! {
-            WSV_ASSET_METADATA_LIMITS => self.config.asset_metadata_limits,
+            WSV_DOMAIN_METADATA_LIMITS => self.config.domain_metadata_limits,
             WSV_ASSET_DEFINITION_METADATA_LIMITS => self.config.asset_definition_metadata_limits,
             WSV_ACCOUNT_METADATA_LIMITS => self.config.account_metadata_limits,
-            WSV_DOMAIN_METADATA_LIMITS => self.config.domain_metadata_limits,
+            WSV_ASSET_METADATA_LIMITS => self.config.asset_metadata_limits,
+            WSV_TRIGGER_METADATA_LIMITS => self.config.trigger_metadata_limits,
             WSV_IDENT_LENGTH_LIMITS => self.config.ident_length_limits,
             EXECUTOR_FUEL_LIMIT => self.config.executor_runtime.fuel_limit,
             EXECUTOR_MAX_MEMORY => self.config.executor_runtime.max_memory_bytes,

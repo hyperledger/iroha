@@ -656,10 +656,11 @@ pub struct ChainWidePartial {
     pub block_time: UserField<HumanDuration>,
     pub commit_time: UserField<HumanDuration>,
     pub transaction_limits: UserField<TransactionLimits>,
-    pub asset_metadata_limits: UserField<MetadataLimits>,
+    pub domain_metadata_limits: UserField<MetadataLimits>,
     pub asset_definition_metadata_limits: UserField<MetadataLimits>,
     pub account_metadata_limits: UserField<MetadataLimits>,
-    pub domain_metadata_limits: UserField<MetadataLimits>,
+    pub asset_metadata_limits: UserField<MetadataLimits>,
+    pub trigger_metadata_limits: UserField<MetadataLimits>,
     pub ident_length_limits: UserField<LengthLimits>,
     pub executor_fuel_limit: UserField<u64>,
     pub executor_max_memory: UserField<HumanBytes<u32>>,
@@ -682,8 +683,8 @@ impl UnwrapPartial for ChainWidePartial {
             transaction_limits: self
                 .transaction_limits
                 .unwrap_or(DEFAULT_TRANSACTION_LIMITS),
-            asset_metadata_limits: self
-                .asset_metadata_limits
+            domain_metadata_limits: self
+                .domain_metadata_limits
                 .unwrap_or(DEFAULT_METADATA_LIMITS),
             asset_definition_metadata_limits: self
                 .asset_definition_metadata_limits
@@ -691,8 +692,11 @@ impl UnwrapPartial for ChainWidePartial {
             account_metadata_limits: self
                 .account_metadata_limits
                 .unwrap_or(DEFAULT_METADATA_LIMITS),
-            domain_metadata_limits: self
-                .domain_metadata_limits
+            asset_metadata_limits: self
+                .asset_metadata_limits
+                .unwrap_or(DEFAULT_METADATA_LIMITS),
+            trigger_metadata_limits: self
+                .trigger_metadata_limits
                 .unwrap_or(DEFAULT_METADATA_LIMITS),
             ident_length_limits: self
                 .ident_length_limits

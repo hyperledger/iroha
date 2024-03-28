@@ -105,8 +105,8 @@ declare_tokens! {
     crate::default::tokens::account::{CanMintUserPublicKeys},
     crate::default::tokens::account::{CanBurnUserPublicKeys},
     crate::default::tokens::account::{CanMintUserSignatureCheckConditions},
-    crate::default::tokens::account::{CanSetKeyValueInUserAccount},
-    crate::default::tokens::account::{CanRemoveKeyValueInUserAccount},
+    crate::default::tokens::account::{CanSetKeyValueInAccount},
+    crate::default::tokens::account::{CanRemoveKeyValueInAccount},
 
     crate::default::tokens::asset_definition::{CanUnregisterAssetDefinition},
     crate::default::tokens::asset_definition::{CanSetKeyValueInAssetDefinition},
@@ -229,14 +229,14 @@ pub mod account {
     token! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
-        pub struct CanSetKeyValueInUserAccount {
+        pub struct CanSetKeyValueInAccount {
             pub account_id: AccountId,
         }
     }
     token! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
-        pub struct CanRemoveKeyValueInUserAccount {
+        pub struct CanRemoveKeyValueInAccount {
             pub account_id: AccountId,
         }
     }
@@ -507,11 +507,29 @@ pub mod trigger {
         }
     }
 
+    token! {
+        #[derive(ValidateGrantRevoke)]
+        #[validate(permission::trigger::Owner)]
+        pub struct CanSetKeyValueInTrigger {
+            pub trigger_id: TriggerId,
+        }
+    }
+
+    token! {
+        #[derive(ValidateGrantRevoke)]
+        #[validate(permission::trigger::Owner)]
+        pub struct CanRemoveKeyValueInTrigger {
+            pub trigger_id: TriggerId,
+        }
+    }
+
     impl_froms!(
-        CanExecuteUserTrigger,
         CanUnregisterUserTrigger,
         CanMintUserTrigger,
         CanBurnUserTrigger,
+        CanExecuteUserTrigger,
+        CanSetKeyValueInTrigger,
+        CanRemoveKeyValueInTrigger,
     );
 }
 

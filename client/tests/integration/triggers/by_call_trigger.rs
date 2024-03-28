@@ -376,6 +376,13 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
     // Executing trigger
+    test_client
+        .submit_blocking(SetKeyValue::trigger(
+            trigger_id.clone(),
+            "VAL".parse()?,
+            numeric!(1),
+        ))
+        .unwrap();
     let call_trigger = ExecuteTrigger::new(trigger_id);
     test_client.submit_blocking(call_trigger)?;
 

@@ -106,7 +106,6 @@ mod asset {
     pub use self::model::*;
     use super::*;
 
-    // type alias required by `Filter` macro
     type AssetMetadataChanged = MetadataChanged<AssetId>;
     type AssetDefinitionMetadataChanged = MetadataChanged<AssetDefinitionId>;
 
@@ -335,7 +334,6 @@ mod account {
     use super::*;
     use crate::name::Name;
 
-    // type alias required by `Filter` macro
     type AccountMetadataChanged = MetadataChanged<AccountId>;
 
     data_event! {
@@ -428,7 +426,6 @@ mod domain {
     pub use self::model::*;
     use super::*;
 
-    // type alias required by `Filter` macro
     type DomainMetadataChanged = MetadataChanged<DomainId>;
 
     data_event! {
@@ -486,6 +483,8 @@ mod trigger {
     pub use self::model::*;
     use super::*;
 
+    type TriggerMetadataChanged = MetadataChanged<TriggerId>;
+
     data_event! {
         #[has_origin(origin = Trigger)]
         pub enum TriggerEvent {
@@ -495,6 +494,10 @@ mod trigger {
             Extended(TriggerNumberOfExecutionsChanged),
             #[has_origin(number_of_executions_changed => &number_of_executions_changed.trigger_id)]
             Shortened(TriggerNumberOfExecutionsChanged),
+            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            MetadataInserted(TriggerMetadataChanged),
+            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            MetadataRemoved(TriggerMetadataChanged),
         }
     }
 

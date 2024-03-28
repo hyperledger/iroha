@@ -70,14 +70,16 @@ mod seal {
         InstructionBox,
 
         SetKeyValue<Domain>,
-        SetKeyValue<Account>,
         SetKeyValue<AssetDefinition>,
+        SetKeyValue<Account>,
         SetKeyValue<Asset>,
+        SetKeyValue<Trigger>,
 
         RemoveKeyValue<Domain>,
-        RemoveKeyValue<Account>,
         RemoveKeyValue<AssetDefinition>,
+        RemoveKeyValue<Account>,
         RemoveKeyValue<Asset>,
+        RemoveKeyValue<Trigger>,
 
         Register<Peer>,
         Register<Domain>,
@@ -231,10 +233,11 @@ pub mod parameter {
         pub const BLOCK_TIME: &str = "BlockTime";
         pub const COMMIT_TIME_LIMIT: &str = "CommitTimeLimit";
         pub const TRANSACTION_LIMITS: &str = "TransactionLimits";
-        pub const WSV_ASSET_METADATA_LIMITS: &str = "WSVAssetMetadataLimits";
+        pub const WSV_DOMAIN_METADATA_LIMITS: &str = "WSVDomainMetadataLimits";
         pub const WSV_ASSET_DEFINITION_METADATA_LIMITS: &str = "WSVAssetDefinitionMetadataLimits";
         pub const WSV_ACCOUNT_METADATA_LIMITS: &str = "WSVAccountMetadataLimits";
-        pub const WSV_DOMAIN_METADATA_LIMITS: &str = "WSVDomainMetadataLimits";
+        pub const WSV_ASSET_METADATA_LIMITS: &str = "WSVAssetMetadataLimits";
+        pub const WSV_TRIGGER_METADATA_LIMITS: &str = "WSVTriggerMetadataLimits";
         pub const WSV_IDENT_LENGTH_LIMITS: &str = "WSVIdentLengthLimits";
         pub const EXECUTOR_FUEL_LIMIT: &str = "ExecutorFuelLimit";
         pub const EXECUTOR_MAX_MEMORY: &str = "ExecutorMaxMemory";

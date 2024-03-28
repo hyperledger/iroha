@@ -181,6 +181,7 @@ impl Execute for SetKeyValueBox {
             Self::Account(isi) => isi.execute(authority, state_transaction),
             Self::AssetDefinition(isi) => isi.execute(authority, state_transaction),
             Self::Asset(isi) => isi.execute(authority, state_transaction),
+            Self::Trigger(isi) => isi.execute(authority, state_transaction),
         }
     }
 }
@@ -196,6 +197,7 @@ impl Execute for RemoveKeyValueBox {
             Self::Account(isi) => isi.execute(authority, state_transaction),
             Self::AssetDefinition(isi) => isi.execute(authority, state_transaction),
             Self::Asset(isi) => isi.execute(authority, state_transaction),
+            Self::Trigger(isi) => isi.execute(authority, state_transaction),
         }
     }
 }

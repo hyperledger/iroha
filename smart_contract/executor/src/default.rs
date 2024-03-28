@@ -37,7 +37,8 @@ pub use role::{
 };
 pub use trigger::{
     visit_burn_trigger_repetitions, visit_execute_trigger, visit_mint_trigger_repetitions,
-    visit_register_trigger, visit_unregister_trigger,
+    visit_register_trigger, visit_remove_trigger_key_value, visit_set_trigger_key_value,
+    visit_unregister_trigger,
 };
 
 use crate::{permission, permission::Token as _, prelude::*};
@@ -376,10 +377,10 @@ pub mod domain {
             AnyPermissionToken::CanMintUserSignatureCheckConditions(permission) => {
                 permission.account_id.domain_id() == domain_id
             }
-            AnyPermissionToken::CanSetKeyValueInUserAccount(permission) => {
+            AnyPermissionToken::CanSetKeyValueInAccount(permission) => {
                 permission.account_id.domain_id() == domain_id
             }
-            AnyPermissionToken::CanRemoveKeyValueInUserAccount(permission) => {
+            AnyPermissionToken::CanRemoveKeyValueInAccount(permission) => {
                 permission.account_id.domain_id() == domain_id
             }
             AnyPermissionToken::CanUnregisterUserTrigger(permission) => {
@@ -566,10 +567,9 @@ pub mod account {
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        let can_set_key_value_in_user_account_token =
-            tokens::account::CanSetKeyValueInUserAccount {
-                account_id: account_id.clone(),
-            };
+        let can_set_key_value_in_user_account_token = tokens::account::CanSetKeyValueInAccount {
+            account_id: account_id.clone(),
+        };
         if can_set_key_value_in_user_account_token.is_owned_by(authority) {
             execute!(executor, isi);
         }
@@ -596,7 +596,7 @@ pub mod account {
             Ok(false) => {}
         }
         let can_remove_key_value_in_user_account_token =
-            tokens::account::CanRemoveKeyValueInUserAccount {
+            tokens::account::CanRemoveKeyValueInAccount {
                 account_id: account_id.clone(),
             };
         if can_remove_key_value_in_user_account_token.is_owned_by(authority) {
@@ -626,10 +626,10 @@ pub mod account {
             AnyPermissionToken::CanMintUserSignatureCheckConditions(permission) => {
                 &permission.account_id == account_id
             }
-            AnyPermissionToken::CanSetKeyValueInUserAccount(permission) => {
+            AnyPermissionToken::CanSetKeyValueInAccount(permission) => {
                 &permission.account_id == account_id
             }
-            AnyPermissionToken::CanRemoveKeyValueInUserAccount(permission) => {
+            AnyPermissionToken::CanRemoveKeyValueInAccount(permission) => {
                 &permission.account_id == account_id
             }
             AnyPermissionToken::CanBurnUserAsset(permission) => {
@@ -893,8 +893,8 @@ pub mod asset_definition {
             | AnyPermissionToken::CanMintUserPublicKeys(_)
             | AnyPermissionToken::CanBurnUserPublicKeys(_)
             | AnyPermissionToken::CanMintUserSignatureCheckConditions(_)
-            | AnyPermissionToken::CanSetKeyValueInUserAccount(_)
-            | AnyPermissionToken::CanRemoveKeyValueInUserAccount(_)
+            | AnyPermissionToken::CanSetKeyValueInAccount(_)
+            | AnyPermissionToken::CanRemoveKeyValueInAccount(_)
             | AnyPermissionToken::CanUnregisterUserTrigger(_)
             | AnyPermissionToken::CanExecuteUserTrigger(_)
             | AnyPermissionToken::CanBurnUserTrigger(_)
@@ -1246,7 +1246,7 @@ pub mod role {
             let role_id = $isi.object();
 
             let find_role_query_res = match FindRoleByRoleId::new(role_id.clone()).execute() {
-                Ok(res) => res.into_parts().0,
+                Ok(res) => res.into_inner(),
                 Err(error) => {
                     deny!($executor, error);
                 }
@@ -1394,7 +1394,7 @@ pub mod role {
 }
 
 pub mod trigger {
-    use iroha_smart_contract::data_model::{permission::PermissionToken, trigger::TriggerId};
+    use iroha_smart_contract::data_model::{permission::PermissionToken, trigger::Trigger};
     use permission::{accounts_permission_tokens, trigger::is_trigger_owner};
     use tokens::AnyPermissionToken;
 
@@ -1524,6 +1524,62 @@ pub mod trigger {
         deny!(executor, "Can't execute trigger owned by another account");
     }
 
+    pub fn visit_set_trigger_key_value<V: Validate + ?Sized>(
+        executor: &mut V,
+        authority: &AccountId,
+        isi: &SetKeyValue<Trigger>,
+    ) {
+        let trigger_id = isi.object_id();
+
+        if is_genesis(executor) {
+            execute!(executor, isi);
+        }
+        match is_trigger_owner(trigger_id, authority) {
+            Err(err) => deny!(executor, err),
+            Ok(true) => execute!(executor, isi),
+            Ok(false) => {}
+        }
+        let can_set_key_value_in_user_trigger_token = tokens::trigger::CanSetKeyValueInTrigger {
+            trigger_id: trigger_id.clone(),
+        };
+        if can_set_key_value_in_user_trigger_token.is_owned_by(authority) {
+            execute!(executor, isi);
+        }
+
+        deny!(
+            executor,
+            "Can't set value to the metadata of another trigger"
+        );
+    }
+
+    pub fn visit_remove_trigger_key_value<V: Validate + ?Sized>(
+        executor: &mut V,
+        authority: &AccountId,
+        isi: &RemoveKeyValue<Trigger>,
+    ) {
+        let trigger_id = isi.object_id();
+
+        if is_genesis(executor) {
+            execute!(executor, isi);
+        }
+        match is_trigger_owner(trigger_id, authority) {
+            Err(err) => deny!(executor, err),
+            Ok(true) => execute!(executor, isi),
+            Ok(false) => {}
+        }
+        let can_remove_key_value_in_trigger_token = tokens::trigger::CanRemoveKeyValueInTrigger {
+            trigger_id: trigger_id.clone(),
+        };
+        if can_remove_key_value_in_trigger_token.is_owned_by(authority) {
+            execute!(executor, isi);
+        }
+
+        deny!(
+            executor,
+            "Can't remove value from the metadata of another trigger"
+        );
+    }
+
     fn is_token_trigger_associated(permission: &PermissionToken, trigger_id: &TriggerId) -> bool {
         let Ok(permission) = AnyPermissionToken::try_from(permission) else {
             return false;
@@ -1551,8 +1607,8 @@ pub mod trigger {
             | AnyPermissionToken::CanMintUserPublicKeys(_)
             | AnyPermissionToken::CanBurnUserPublicKeys(_)
             | AnyPermissionToken::CanMintUserSignatureCheckConditions(_)
-            | AnyPermissionToken::CanSetKeyValueInUserAccount(_)
-            | AnyPermissionToken::CanRemoveKeyValueInUserAccount(_)
+            | AnyPermissionToken::CanSetKeyValueInAccount(_)
+            | AnyPermissionToken::CanRemoveKeyValueInAccount(_)
             | AnyPermissionToken::CanUnregisterAssetDefinition(_)
             | AnyPermissionToken::CanSetKeyValueInAssetDefinition(_)
             | AnyPermissionToken::CanRemoveKeyValueInAssetDefinition(_)

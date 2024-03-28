@@ -199,11 +199,11 @@ fn produce_multiple_events() -> Result<()> {
     let alice_id = AccountId::from_str("alice@wonderland")?;
     let role_id = RoleId::from_str("TEST_ROLE")?;
     let token_1 = PermissionToken::new(
-        "CanRemoveKeyValueInUserAccount".parse()?,
+        "CanRemoveKeyValueInAccount".parse()?,
         &json!({ "account_id": alice_id }),
     );
     let token_2 = PermissionToken::new(
-        "CanSetKeyValueInUserAccount".parse()?,
+        "CanSetKeyValueInAccount".parse()?,
         &json!({ "account_id": alice_id }),
     );
     let role = iroha_client::data_model::role::Role::new(role_id.clone())
