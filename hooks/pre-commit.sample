@@ -2,6 +2,6 @@
 set -e
 cargo +nightly fmt --all -- --check
 cargo +nightly lints clippy --workspace --benches --tests --examples --all-features
-cargo run --bin kagami -- genesis >configs/peer/genesis.json
+cargo run --bin kagami -- genesis >configs/swarm/genesis.json
 cargo run --bin kagami -- schema >docs/source/references/schema.json
-git add configs/peer/genesis.json docs/source/references/schema.json
+git add configs/swarm/genesis.json docs/source/references/schema.json
