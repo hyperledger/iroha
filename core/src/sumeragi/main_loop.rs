@@ -532,27 +532,55 @@ impl Sumeragi {
                     *voting_block = Some(v_block);
                 }
             }
-            (BlockMessage::BlockCreated(block_created), Role::ObservingPeer) => {
+            (BlockMessage::BlockCreated(BlockCreated { block }), Role::ObservingPeer) => {
                 let current_topology = current_topology.is_consensus_required().expect(
                     "Peer has `ObservingPeer` role, which mean that current topology require consensus"
                 );
 
                 // Release block writer before creating new one
                 let _ = voting_block.take();
-                if let Some(v_block) = self.vote_for_block(state, &current_topology, block_created)
-                {
-                    if current_view_change_index >= 1 {
-                        let block_hash = v_block.block.as_ref().hash();
 
+                let v_block = {
+                    let block_hash = block.hash_of_payload();
+                    let role = self.current_topology.role(&self.peer_id);
+                    trace!(%addr, %role, %block_hash, "Block received, voting...");
+
+                    let mut state_block = state.block();
+                    match ValidBlock::validate(
+                        block,
+                        &current_topology,
+                        &self.chain_id,
+                        &mut state_block,
+                    )
+                    .unpack(|e| self.send_event(e))
+                    {
+                        Ok(block) => {
+                            let block = if current_view_change_index >= 1 {
+                                block.sign(&self.key_pair)
+                            } else {
+                                block
+                            };
+
+                            Some(VotingBlock::new(block, state_block))
+                        }
+                        Err((_, error)) => {
+                            warn!(%addr, %role, ?error, "Block validation failed");
+                            None
+                        }
+                    }
+                };
+
+                if let Some(v_block) = v_block {
+                    let block_hash = v_block.block.as_ref().hash();
+                    info!(%addr, %block_hash, "Block validated");
+                    if current_view_change_index >= 1 {
                         self.broadcast_packet_to(
                             BlockSigned::from(&v_block.block),
                             [current_topology.proxy_tail()],
                         );
-                        info!(%addr, block=%block_hash, "Block validated, signed and forwarded");
-                        *voting_block = Some(v_block);
-                    } else {
-                        error!(%addr, %role, "Received BlockCreated message, but shouldn't");
+                        info!(%addr, block=%block_hash, "Block signed and forwarded");
                     }
+                    *voting_block = Some(v_block);
                 }
             }
             (BlockMessage::BlockCreated(block_created), Role::ProxyTail) => {
@@ -636,7 +664,7 @@ impl Sumeragi {
                         .unpack(|e| self.send_event(e));
 
                         let created_in = create_block_start_time.elapsed();
-                        if let Some(current_topology) = current_topology.is_consensus_required() {
+                        if current_topology.is_consensus_required().is_some() {
                             info!(%addr, created_in_ms=%created_in.as_millis(), block=%new_block.as_ref().hash(), "Block created");
 
                             if created_in > self.pipeline_time() / 2 {
@@ -645,11 +673,7 @@ impl Sumeragi {
                             *voting_block = Some(VotingBlock::new(new_block.clone(), state_block));
 
                             let msg = BlockCreated::from(new_block);
-                            if current_view_change_index >= 1 {
-                                self.broadcast_packet(msg);
-                            } else {
-                                self.broadcast_packet_to(msg, current_topology.voting_peers());
-                            }
+                            self.broadcast_packet(msg);
                         } else {
                             match new_block
                                 .commit(current_topology)
@@ -679,32 +703,17 @@ impl Sumeragi {
                             info!(block=%committed_block.as_ref().hash(), "Block reached required number of votes");
 
                             let msg = BlockCommitted::from(&committed_block);
-                            let current_topology = current_topology
-                            .is_consensus_required()
-                            .expect("Peer has `ProxyTail` role, which mean that current topology require consensus");
 
                             #[cfg(debug_assertions)]
                             if is_genesis_peer && self.debug_force_soft_fork {
                                 std::thread::sleep(self.pipeline_time() * 2);
-                            } else if current_view_change_index >= 1 {
-                                self.broadcast_packet(msg);
                             } else {
-                                self.broadcast_packet_to(msg, current_topology.voting_peers());
+                                self.broadcast_packet(msg);
                             }
 
                             #[cfg(not(debug_assertions))]
                             {
-                                if current_view_change_index >= 1 {
-                                    self.broadcast_packet(msg);
-                                } else {
-                                    self.broadcast_packet_to(
-                                        msg,
-                                        current_topology
-                                            .ordered_peers
-                                            .iter()
-                                            .take(current_topology.min_votes_for_commit()),
-                                    );
-                                }
+                                self.broadcast_packet(msg);
                             }
                             self.commit_block(committed_block, state_block);
                         }
