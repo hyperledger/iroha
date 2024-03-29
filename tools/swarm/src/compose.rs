@@ -170,8 +170,6 @@ impl DockerComposeServiceBuilder {
             chain_id,
             trusted_peers,
             genesis_public_key,
-            // TODO: FIX
-            genesis_public_key_algorithm: Algorithm::Ed25519,
             key_pair: peer.key_pair.clone(),
             p2p_addr: socket_addr!(0.0.0.0:peer.port_p2p),
             api_addr: socket_addr!(0.0.0.0:peer.port_api),
@@ -316,8 +314,6 @@ struct CompactPeerEnv {
     chain_id: ChainId,
     key_pair: KeyPair,
     genesis_public_key: PublicKey,
-    /// Genesis private key is only needed for a peer that is submitting the genesis block
-    genesis_public_key_algorithm: Algorithm,
     p2p_addr: SocketAddr,
     api_addr: SocketAddr,
     trusted_peers: BTreeSet<PeerId>,
@@ -349,8 +345,8 @@ impl From<CompactPeerEnv> for FullPeerEnv {
             public_key: value.key_pair.public_key().clone(),
             private_key_algorithm,
             private_key_payload,
+            genesis_public_key_algorithm: value.genesis_public_key.algorithm(),
             genesis_public_key: value.genesis_public_key,
-            genesis_public_key_algorithm: value.genesis_public_key_algorithm,
             genesis_file,
             p2p_address: value.p2p_addr,
             api_address: value.api_addr,
@@ -563,7 +559,7 @@ mod tests {
 
     use iroha_config::{
         base::{FromEnv, TestEnv, UnwrapPartial},
-        parameters::user::{CliContext, RootPartial},
+        parameters::user::RootPartial,
     };
     use iroha_crypto::KeyPair;
     use iroha_primitives::addr::{socket_addr, SocketAddr};
@@ -604,7 +600,6 @@ mod tests {
             chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
             genesis_public_key: keypair.public_key().clone(),
-            genesis_public_key_algorithm: keypair.algorithm(),
             p2p_addr: socket_addr!(127.0.0.1:1337),
             api_addr: socket_addr!(127.0.0.1:1338),
             trusted_peers: {
@@ -622,7 +617,7 @@ mod tests {
             .expect("valid env")
             .unwrap_partial()
             .expect("should not fail as input has all required fields")
-            .parse(CliContext {})
+            .parse()
             .expect("should not fail as input is valid");
 
         assert_eq!(env.unvisited(), HashSet::new());
@@ -655,7 +650,6 @@ mod tests {
                             chain_id,
                             key_pair: key_pair.clone(),
                             genesis_public_key: key_pair.public_key().clone(),
-                            genesis_public_key_algorithm: key_pair.algorithm(),
                             p2p_addr: SocketAddr::from_str("iroha1:1339").unwrap(),
                             api_addr: SocketAddr::from_str("iroha1:1338").unwrap(),
                             trusted_peers: BTreeSet::new(),
@@ -721,7 +715,6 @@ mod tests {
             chain_id,
             key_pair: key_pair.clone(),
             genesis_public_key: key_pair.public_key().clone(),
-            genesis_public_key_algorithm: key_pair.algorithm(),
             p2p_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             api_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             trusted_peers: BTreeSet::new(),

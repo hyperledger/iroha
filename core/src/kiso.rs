@@ -158,12 +158,10 @@ mod tests {
     use super::*;
 
     fn test_config() -> Root {
-        use iroha_config::parameters::user::CliContext;
 
         Root::load(
             // FIXME Specifying path here might break!
             Some("../config/iroha_test_config.toml"),
-            CliContext {},
         )
         .expect("test config should be valid, it is probably a bug")
     }

@@ -14,7 +14,7 @@ use iroha_config_base::{
     HumanBytes, HumanDuration, Merge, MissingFieldError, ParseEnvResult, ReadEnv, UnwrapPartial,
     UnwrapPartialResult, UserField,
 };
-use iroha_crypto::{Algorithm, PrivateKey, PublicKey};
+use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits,
     prelude::{ChainId, PeerId},
@@ -189,7 +189,6 @@ impl FromEnv for RootPartial {
 #[serde(deny_unknown_fields, default)]
 pub struct GenesisPartial {
     pub public_key: UserField<PublicKey>,
-    pub public_key_algorithm: UserField<Algorithm>,
     pub file: UserField<PathBuf>,
 }
 
@@ -226,13 +225,6 @@ impl FromEnv for GenesisPartial {
         )
         .into();
 
-        let public_key_algorithm = ParseEnvResult::parse_simple(
-            &mut emitter,
-            env,
-            "GENESIS_PUBLIC_KEY_ALGORITHM",
-            "genesis.public_key_algorithm",
-        )
-        .into();
         let file =
             ParseEnvResult::parse_simple(&mut emitter, env, "GENESIS_FILE", "genesis.file").into();
 
@@ -240,7 +232,6 @@ impl FromEnv for GenesisPartial {
 
         Ok(Self {
             public_key,
-            public_key_algorithm,
             file,
         })
     }

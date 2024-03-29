@@ -136,7 +136,7 @@ impl Root {
     ///
     /// # Errors
     /// If any invalidity found.
-    pub fn parse(self, cli: CliContext) -> Result<actual::Root, ErrorsCollection<Report>> {
+    pub fn parse(self) -> Result<actual::Root, ErrorsCollection<Report>> {
         let mut emitter = Emitter::new();
 
         let key_pair =
@@ -147,7 +147,7 @@ impl Root {
             None
         }, Some);
 
-        let genesis = self.genesis.parse(cli).map_or_else(
+        let genesis = self.genesis.parse().map_or_else(
             |err| {
                 // FIXME
                 emitter.emit(eyre!("{err}"));
@@ -350,7 +350,7 @@ pub struct Genesis {
 }
 
 impl Genesis {
-    fn parse(self, _cli: CliContext) -> Result<actual::Genesis, GenesisConfigError> {
+    fn parse(self) -> Result<actual::Genesis, GenesisConfigError> {
         match self.file {
             None => Ok(actual::Genesis::Partial {
                 public_key: self.public_key,

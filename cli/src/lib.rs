@@ -10,7 +10,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use iroha_config::parameters::{actual::Root as Config, user::CliContext};
+use iroha_config::parameters::actual::Root as Config;
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
@@ -637,7 +637,6 @@ mod tests {
             base.network.address.set(socket_addr!(127.0.0.1:1337));
 
             base.genesis.public_key.set(pubkey.clone());
-            base.genesis.public_key_algorithm.set(pubkey.algorithm());
 
             base.torii.address.set(socket_addr!(127.0.0.1:8080));
 

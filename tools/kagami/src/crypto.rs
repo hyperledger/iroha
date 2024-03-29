@@ -352,8 +352,7 @@ mod tests {
             .into_iter()
             .zip(
                 maybe_signed_genesis_from_file
-                    .into_transactions()
-                    .into_iter(),
+                    .into_transactions(),
             )
             .all(|(a, b)| {
                 a.0.metadata() == b.0.metadata()
