@@ -407,13 +407,17 @@ impl Drop for Peer {
 impl Peer {
     /// Returns per peer config with all addresses, keys, and id set up.
     fn get_config(&self, config: Config) -> Config {
-        use iroha_config::parameters::actual::{Common, Torii};
+        use iroha_config::parameters::actual::{Common, Network, Torii};
 
         Config {
             common: Common {
                 key_pair: self.key_pair.clone(),
-                p2p_address: self.p2p_address.clone(),
+                peer_id: PeerId::new(self.p2p_address.clone(), self.key_pair.public_key().clone()),
                 ..config.common
+            },
+            network: Network {
+                address: self.p2p_address.clone(),
+                ..config.network
             },
             torii: Torii {
                 address: self.api_address.clone(),

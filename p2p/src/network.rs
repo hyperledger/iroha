@@ -6,6 +6,7 @@ use std::{
 };
 
 use futures::{stream::FuturesUnordered, StreamExt};
+use iroha_config::parameters::actual::Network as Config;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::PeerId;
 use iroha_logger::prelude::*;
@@ -67,7 +68,13 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
     /// # Errors
     /// - If binding to address fail
     #[log(skip(key_pair))]
-    pub async fn start(listen_addr: SocketAddr, key_pair: KeyPair) -> Result<Self, Error> {
+    pub async fn start(
+        key_pair: KeyPair,
+        Config {
+            address: listen_addr,
+            idle_timeout,
+        }: Config,
+    ) -> Result<Self, Error> {
         let listener = TcpListener::bind(&listen_addr.to_string()).await?;
         iroha_logger::info!("Network bound to listener");
         let (online_peers_sender, online_peers_receiver) = watch::channel(HashSet::new());
@@ -95,6 +102,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             service_message_sender,
             current_conn_id: 0,
             current_topology: HashMap::new(),
+            idle_timeout,
             _key_exchange: core::marker::PhantomData::<K>,
             _encryptor: core::marker::PhantomData::<E>,
         };
@@ -192,6 +200,8 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
     /// Current topology
     /// Bool determines who is responsible for initiating connection
     current_topology: HashMap<PeerId, bool>,
+    /// Duration after which terminate connection with idle peer
+    idle_timeout: Duration,
     /// Key exchange used by network
     _key_exchange: core::marker::PhantomData<K>,
     /// Encryptor used by the network
@@ -278,6 +288,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             self.key_pair.clone(),
             Connection::new(conn_id, stream),
             service_message_sender,
+            self.idle_timeout,
         );
     }
 
@@ -341,6 +352,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             self.key_pair.clone(),
             conn_id,
             service_message_sender,
+            self.idle_timeout,
         );
     }
 
@@ -366,6 +378,8 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             disambiguator,
         }: Connected<T>,
     ) {
+        self.connecting_peers.remove(&connection_id);
+
         if !self.current_topology.contains_key(&peer_id) {
             iroha_logger::warn!(%peer_id, topology=?self.current_topology, "Peer not present in topology is trying to connect");
             return;
@@ -395,7 +409,6 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         };
         let _ = peer_message_sender.send(self.peer_message_sender.clone());
         self.peers.insert(peer_id.public_key().clone(), ref_peer);
-        self.connecting_peers.remove(&connection_id);
         Self::add_online_peer(&self.online_peers_sender, peer_id);
     }
 

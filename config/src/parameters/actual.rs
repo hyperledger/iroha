@@ -31,6 +31,7 @@ use crate::{
 #[allow(missing_docs)]
 pub struct Root {
     pub common: Common,
+    pub network: Network,
     pub genesis: Genesis,
     pub torii: Torii,
     pub kura: Kura,
@@ -71,14 +72,22 @@ impl Root {
 pub struct Common {
     pub chain_id: ChainId,
     pub key_pair: KeyPair,
-    pub p2p_address: SocketAddr,
+    pub peer_id: PeerId,
 }
 
 impl Common {
     /// Construct an id of this peer
     pub fn peer_id(&self) -> PeerId {
-        PeerId::new(self.p2p_address.clone(), self.key_pair.public_key().clone())
+        self.peer_id.clone()
     }
+}
+
+/// Network options
+#[allow(missing_docs)]
+#[derive(Debug, Clone)]
+pub struct Network {
+    pub address: SocketAddr,
+    pub idle_timeout: Duration,
 }
 
 /// Parsed genesis configuration

@@ -24,6 +24,7 @@
 # block_gossip_max_size = 4
 # transaction_gossip_period = "1s"
 # transaction_gossip_max_size = 500
+# idle_timeout = "60s"
 
 [torii]
 # address =
