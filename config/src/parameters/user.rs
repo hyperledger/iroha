@@ -186,7 +186,7 @@ impl Root {
             }
         }
 
-        let (p2p_address, block_sync, transaction_gossiper) = self.network.parse();
+        let (network, block_sync, transaction_gossiper) = self.network.parse();
 
         let logger = self.logger;
         let queue = self.queue;
@@ -216,7 +216,7 @@ impl Root {
 
         let chain_wide = self.chain_wide.parse();
 
-        if p2p_address == torii.address {
+        if network.address == torii.address {
             emitter.emit(eyre!(
                 "`iroha.p2p_address` and `torii.address` should not be the same"
             ))
@@ -224,10 +224,13 @@ impl Root {
 
         emitter.finish()?;
 
+        let key_pair = key_pair.unwrap();
+        let peer_id = PeerId::new(network.address.clone(), key_pair.public_key().clone());
+
         let peer = actual::Common {
             chain_id: self.chain_id,
-            key_pair: key_pair.unwrap(),
-            p2p_address,
+            key_pair,
+            peer_id,
         };
         let telemetry = telemetry.unwrap();
         let genesis = genesis.unwrap();
@@ -239,6 +242,7 @@ impl Root {
 
         Ok(actual::Root {
             common: peer,
+            network,
             genesis,
             torii,
             kura,
@@ -457,20 +461,32 @@ pub struct Network {
     pub block_gossip_period: Duration,
     pub transaction_gossip_max_size: NonZeroU32,
     pub transaction_gossip_period: Duration,
+    /// Duration of time after which connection with peer is terminated if peer is idle
+    pub idle_timeout: Duration,
 }
 
 impl Network {
-    fn parse(self) -> (SocketAddr, actual::BlockSync, actual::TransactionGossiper) {
+    fn parse(
+        self,
+    ) -> (
+        actual::Network,
+        actual::BlockSync,
+        actual::TransactionGossiper,
+    ) {
         let Self {
             address,
             block_gossip_max_size,
             block_gossip_period,
             transaction_gossip_max_size,
             transaction_gossip_period,
+            idle_timeout,
         } = self;
 
         (
-            address,
+            actual::Network {
+                address,
+                idle_timeout,
+            },
             actual::BlockSync {
                 gossip_period: block_gossip_period,
                 gossip_max_size: block_gossip_max_size,

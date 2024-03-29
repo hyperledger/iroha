@@ -3122,6 +3122,7 @@ dependencies = [
  "derive_more",
  "displaydoc",
  "futures",
+ "iroha_config",
  "iroha_config_base",
  "iroha_crypto",
  "iroha_data_model",

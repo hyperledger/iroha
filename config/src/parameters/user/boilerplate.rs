@@ -417,6 +417,7 @@ pub struct NetworkPartial {
     pub block_gossip_period: UserField<HumanDuration>,
     pub transaction_gossip_max_size: UserField<NonZeroU32>,
     pub transaction_gossip_period: UserField<HumanDuration>,
+    pub idle_timeout: UserField<HumanDuration>,
 }
 
 impl UnwrapPartial for NetworkPartial {
@@ -445,6 +446,10 @@ impl UnwrapPartial for NetworkPartial {
                 .block_gossip_max_size
                 .get()
                 .unwrap_or(DEFAULT_MAX_BLOCKS_PER_GOSSIP),
+            idle_timeout: self
+                .idle_timeout
+                .map(HumanDuration::get)
+                .unwrap_or(DEFAULT_IDLE_TIMEOUT),
         })
     }
 }

@@ -33,6 +33,8 @@ pub mod network {
 
     pub const DEFAULT_MAX_TRANSACTIONS_PER_GOSSIP: NonZeroU32 = nonzero!(500u32);
     pub const DEFAULT_MAX_BLOCKS_PER_GOSSIP: NonZeroU32 = nonzero!(4u32);
+
+    pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 }
 
 pub mod snapshot {
