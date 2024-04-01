@@ -21,6 +21,8 @@ pub mod must_use;
 pub mod numeric;
 pub mod riffle_iter;
 pub mod small;
+#[cfg(feature = "std")]
+pub mod time;
 pub mod unique_vec;
 
 mod ffi {
