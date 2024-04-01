@@ -3144,6 +3144,7 @@ dependencies = [
  "iroha_primitives_derive",
  "iroha_schema",
  "parity-scale-codec",
+ "parking_lot",
  "serde",
  "serde_json",
  "serde_with",

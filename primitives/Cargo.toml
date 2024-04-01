@@ -19,7 +19,7 @@ maintenance = { status = "actively-developed" }
 default = ["std"]
 # Enable static linkage of the rust standard library.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
-std = ["iroha_macro/std", "thiserror", "displaydoc/std", "iroha_numeric/std"]
+std = ["iroha_macro/std", "thiserror", "displaydoc/std", "iroha_numeric/std", "parking_lot"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
 #ffi_import = ["iroha_ffi", "iroha_numeric/ffi_import"]
 
@@ -41,6 +41,7 @@ smallvec = { version = "1.11.1", default-features = false, features = ["serde", 
 smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
 thiserror = { workspace = true, optional = true }
 displaydoc = { workspace = true }
+parking_lot = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true, features = ["alloc"] }
