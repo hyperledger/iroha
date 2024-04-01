@@ -12,6 +12,8 @@ use derive_more::{DebugCustom, Display};
 use iroha_crypto::SignaturesOf;
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
+#[cfg(feature = "std")]
+use iroha_primitives::time::TimeSource;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, version};
 use parity_scale_codec::{Decode, Encode};
@@ -626,19 +628,8 @@ mod http {
     }
 
     impl TransactionBuilder {
-        /// Construct [`Self`].
-        #[inline]
         #[cfg(feature = "std")]
-        pub fn new(chain_id: ChainId, authority: AccountId) -> Self {
-            use std::time::SystemTime;
-
-            let creation_time_ms = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get the current system time")
-                .as_millis()
-                .try_into()
-                .expect("Unix timestamp exceedes u64::MAX");
-
+        fn new_with_time(chain_id: ChainId, authority: AccountId, creation_time_ms: u64) -> Self {
             Self {
                 payload: TransactionPayload {
                     chain_id,
@@ -650,6 +641,40 @@ mod http {
                     metadata: UnlimitedMetadata::new(),
                 },
             }
+        }
+
+        /// Construct [`Self`], using the time from [`TimeSource`]
+        // we don't want to expose this to non-tests
+        #[inline]
+        #[cfg(all(feature = "std", feature = "transparent_api"))]
+        pub fn new_with_time_source(
+            chain_id: ChainId,
+            authority: AccountId,
+            time_source: &TimeSource,
+        ) -> Self {
+            let creation_time_ms = time_source
+                .get_unix_time()
+                .as_millis()
+                .try_into()
+                .expect("Unix timestamp exceedes u64::MAX");
+
+            Self::new_with_time(chain_id, authority, creation_time_ms)
+        }
+
+        /// Construct [`Self`].
+        #[inline]
+        #[cfg(feature = "std")]
+        pub fn new(chain_id: ChainId, authority: AccountId) -> Self {
+            use std::time::SystemTime;
+
+            // can't delegate to `new_with_time_source`, because it's gated behind "transparent_api"
+            let creation_time_ms = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Failed to get the current system time")
+                .as_millis()
+                .try_into()
+                .expect("Unix timestamp exceedes u64::MAX");
+            Self::new_with_time(chain_id, authority, creation_time_ms)
         }
     }
 
