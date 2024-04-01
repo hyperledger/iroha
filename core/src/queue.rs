@@ -675,7 +675,7 @@ pub mod tests {
         ));
         let state_view = state.view();
         let queue = Queue::test(Config {
-            transaction_time_to_live: Duration::from_millis(300),
+            transaction_time_to_live: Duration::from_millis(200),
             ..config_factory()
         });
         for _ in 0..(max_txs_in_block - 1) {
@@ -688,7 +688,7 @@ pub mod tests {
         queue
             .push(accepted_tx("alice@wonderland", &alice_key), &state_view)
             .expect("Failed to push tx into queue");
-        std::thread::sleep(Duration::from_millis(201));
+        std::thread::sleep(Duration::from_millis(101));
         assert_eq!(
             queue
                 .collect_transactions_for_block(&state_view, max_txs_in_block)
@@ -699,7 +699,7 @@ pub mod tests {
         queue
             .push(accepted_tx("alice@wonderland", &alice_key), &state_view)
             .expect("Failed to push tx into queue");
-        std::thread::sleep(Duration::from_millis(310));
+        std::thread::sleep(Duration::from_millis(210));
         assert_eq!(
             queue
                 .collect_transactions_for_block(&state_view, max_txs_in_block)
