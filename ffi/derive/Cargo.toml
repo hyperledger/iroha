@@ -24,7 +24,7 @@ manyhow = { workspace = true }
 darling = { workspace = true }
 rustc-hash = { workspace = true }
 
-parse-display = "0.8.2"
+strum = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 iroha_ffi = { workspace = true }

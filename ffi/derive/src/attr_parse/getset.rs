@@ -2,15 +2,15 @@
 
 use std::{collections::hash_map::Entry, str::FromStr};
 
-use parse_display::{Display, FromStr};
 use proc_macro2::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
+use strum::{Display, EnumString};
 use syn::{parse::ParseStream, punctuated::Punctuated, Attribute, Token};
 
 use crate::attr_parse::derive::{Derive, DeriveAttrs};
 
 /// Type of accessor method derived for a structure
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, FromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, EnumString)]
 pub enum GetSetDerive {
     Setters,
     Getters,
@@ -104,8 +104,8 @@ impl syn::parse::Parse for SpannedGetSetOptions {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone, Display, FromStr)]
-#[display(style = "snake_case")]
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone, Display, EnumString)]
+#[strum(serialize_all = "snake_case")]
 pub enum GetSetGenMode {
     Get,
     GetCopy,
