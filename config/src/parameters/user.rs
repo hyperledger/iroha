@@ -277,7 +277,6 @@ fn validate_directory_path(
 #[derive(Copy, Clone)]
 pub struct CliContext {}
 
-// TODO: FIX?
 pub(crate) fn private_key_from_env<E: Error>(
     emitter: &mut Emitter<Report>,
     env: &impl ReadEnv<E>,
@@ -350,32 +349,20 @@ pub struct Genesis {
 }
 
 impl Genesis {
-    fn parse(self) -> Result<actual::Genesis, GenesisConfigError> {
+    fn parse(self) -> actual::Genesis {
         match self.file {
-            None => Ok(actual::Genesis::Partial {
+            None => actual::Genesis::Partial {
                 public_key: self.public_key,
-            }),
-            Some(file) => Ok(actual::Genesis::Full {
+            },
+            Some(file) => actual::Genesis::Full {
                 public_key: self.public_key,
                 file,
-            }),
+            },
             // (Some(_), Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit),
             // (None, None, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
             // _ => Err(GenesisConfigError::Inconsistent),
         }
     }
-}
-
-#[derive(Debug, displaydoc::Display, thiserror::Error)]
-pub enum GenesisConfigError {
-    ///  `genesis.file` and `genesis.private_key` are presented, but `--submit-genesis` was not set
-    GenesisWithoutSubmit,
-    ///  `--submit-genesis` was set, but `genesis.file` and `genesis.private_key` are not presented
-    SubmitWithoutGenesis,
-    /// `genesis.file` and `genesis.private_key` should be set together
-    Inconsistent,
-    /// failed to construct the genesis's keypair using `genesis.public_key` and `genesis.private_key` configuration parameters
-    KeyPair(#[from] iroha_crypto::error::Error),
 }
 
 #[derive(Debug)]

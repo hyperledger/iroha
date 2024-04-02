@@ -16,7 +16,6 @@
 [genesis]
 # file =
 # public_key =
-# private_key = { algorithm = "", payload = "" }
 
 [network]
 # address =

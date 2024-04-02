@@ -21,6 +21,7 @@ import tomli_w
 
 SWARM_CONFIGS_DIRECTORY = pathlib.Path("configs/swarm")
 SHARED_CONFIG_FILE_NAME = "config.base.toml"
+CHAIN_ID = "00000000-0000-0000-0000-000000000000"
 
 class Network:
     """
@@ -38,9 +39,12 @@ class Network:
         logging.info("Generating shared configuration...")
         trusted_peers = [{"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key} for peer in self.peers]
         shared_config = {
-            "chain_id": "00000000-0000-0000-0000-000000000000",
+            "chain_id": CHAIN_ID,
             "genesis": {
-                "public_key": self.peers[0].public_key
+                "public_key": self.peers[0].public_key,
+                # At this moment the inclusion of file parameter causes all peers but one to crash because of a race condition
+                # More on that will be in #4388
+                # "file": "./signed_genesis.json"
             },
             "sumeragi": {
                 "trusted_peers": trusted_peers
@@ -77,7 +81,7 @@ class Network:
 
     def run(self):
         for i, peer in enumerate(self.peers):
-            peer.run(submit_genesis=(i == 0))
+            peer.run()
         self.wait_for_genesis(20)
 
 class _Peer:
@@ -99,19 +103,18 @@ class _Peer:
 
         logging.info(f"Peer {self.name} generating key pair...")
 
-        command = [self.out_dir / "kagami", "crypto", "-j"]
+        command = [self.out_dir / "kagami", "crypto", "generate-key-pair", "-j"]
         if args.peer_name_as_seed:
             command.extend(["-s", self.name])
-        kagami = subprocess.run(command, capture_output=True)
-        if kagami.returncode:
+        kagami_keypair = subprocess.run(command, capture_output=True)
+        if kagami_keypair.returncode:
             logging.error("Kagami failed to generate a key pair.")
             sys.exit(3)
-        str_keypair = kagami.stdout
+        str_keypair = kagami_keypair.stdout
         # dict with `{ public_key: string, private_key: { algorithm: string, payload: string } }`
         self.key_pair = json.loads(str_keypair)
 
         os.makedirs(self.peer_dir, exist_ok=True)
-
         config = {
             "extends": f"../{SHARED_CONFIG_FILE_NAME}",
             "public_key": self.public_key,
@@ -143,10 +146,24 @@ class _Peer:
                 logging.error(f"Some of the config files are missing. \
                                           Please provide them in the `{target}` directory")
                 sys.exit(1)
+
+            sign_command = [self.out_dir / "kagami", "crypto", "sign-transaction", "--chain-id", CHAIN_ID,
+                            "--genesis-file", self.peer_dir / "./genesis.json", "--out-file", self.peer_dir/ "./signed_genesis.json",
+                            "-a", self.private_key["algorithm"],
+                            "--private-key-string", self.private_key["payload"],
+                            "--public-key-string", self.public_key]
+
+            kagami_genesis = subprocess.run(sign_command, capture_output=True)
+            if kagami_genesis.returncode:
+                logging.error(kagami_genesis.stderr)
+                logging.error("Kagami failed to sign genesis block.")
+                sys.exit(5)
+
             config["genesis"] = {
-                "private_key": self.private_key,
-                "file": "./genesis.json"
+                "public_key": self.public_key,
+                "file": "./signed_genesis.json"
             }
+
         with open(self.config_path, "wb") as f:
             tomli_w.dump(config, f)
         logging.info(f"Peer {self.name} initialized")
@@ -159,14 +176,14 @@ class _Peer:
     def private_key(self):
         return self.key_pair["private_key"]
 
-    def run(self, submit_genesis: bool = False):
+    def run(self):
         logging.info(f"Running peer {self.name}...")
 
         # FD never gets closed
         stdout_file = open(self.peer_dir / ".stdout", "w")
         stderr_file = open(self.peer_dir / ".stderr", "w")
         # These processes are created detached from the parent process already
-        subprocess.Popen([self.name, "--config", self.config_path] + (["--submit-genesis"] if submit_genesis else []),
+        subprocess.Popen([self.name, "--config", self.config_path],
                     executable=self.out_dir / "peers/iroha", stdout=stdout_file, stderr=stderr_file)
 
 def pos_int(arg):
@@ -174,6 +191,7 @@ def pos_int(arg):
         return int(arg)
     else:
         raise argparse.ArgumentTypeError(f"Argument {arg} must be a positive integer")
+
 
 def copy_or_prompt_build_bin(bin_name: str, root_dir: pathlib.Path, target_dir: pathlib.Path):
     bin_path = root_dir / "target/debug" / bin_name
@@ -247,7 +265,6 @@ if __name__ == "__main__":
                         Defaults to 4. If setup was run with a custom number of peers, \
                         the same number doesn't need to be provided to cleanup as \
                         it kills all processes named `iroha`, so proper caution is advised")
-
     parser.add_argument("--out-dir", "-o", default="./test", type=pathlib.Path,
                         help="Directory to store config and log files. \
                         Defaults to `./test`. If setup was run with a custom directory, \

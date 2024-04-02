@@ -184,6 +184,7 @@ fn config_with_genesis() -> Result<()> {
 }
 
 #[test]
+#[ignore = "--submit-genesis was removed, more in #4225"]
 fn minimal_with_genesis_but_no_cli_arg_fails() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("minimal_alone_with_genesis.toml"))?
         .unwrap_partial()?
@@ -199,6 +200,7 @@ fn minimal_with_genesis_but_no_cli_arg_fails() -> Result<()> {
 }
 
 #[test]
+#[ignore = "--submit-genesis was removed, more in #4225"]
 fn minimal_without_genesis_but_with_submit_fails() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("minimal_with_trusted_peers.toml"))?
         .unwrap_partial()?
@@ -255,6 +257,7 @@ fn extra_fields() {
 }
 
 #[test]
+#[ignore = "temporarily, more in #4225"]
 fn inconsistent_genesis_config() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("inconsistent_genesis.toml"))?
         .unwrap_partial()
@@ -307,11 +310,6 @@ fn full_envs_set_is_consumed() -> Result<()> {
                         ed25519(
                             "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
                         ),
-                    ),
-                ),
-                private_key: Some(
-                    ed25519(
-                        "8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
                     ),
                 ),
                 file: None,
@@ -427,7 +425,6 @@ fn multiple_env_parsing_errors() {
 
     let expected = expect_test::expect![[r#"
         `PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_ALGORITHM` was not
-        failed to parse `genesis.private_key.algorithm` field from `GENESIS_PRIVATE_KEY_ALGORITHM` env variable
         failed to parse `kura.debug.output_new_blocks` field from `KURA_DEBUG_OUTPUT_NEW_BLOCKS` env variable
         failed to parse `logger.format` field from `LOG_FORMAT` env variable
         failed to parse `torii.address` field from `API_ADDRESS` env variable"#]];

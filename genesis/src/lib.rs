@@ -44,12 +44,31 @@ impl GenesisNetwork {
         chain_id: &ChainId,
         genesis_key_pair: &KeyPair,
     ) -> GenesisNetwork {
+        Self::new_with_executor_and_txs(raw_block.executor, raw_block.transactions, chain_id, genesis_key_pair)
+    }
+
+    /// Construct from configuration with only [`Executor`] from genesis block
+    pub fn new_without_transactions(
+        raw_block: RawGenesisBlock,
+        chain_id: &ChainId,
+        genesis_key_pair: &KeyPair,
+    ) -> GenesisNetwork {
+        Self::new_with_executor_and_txs(raw_block.executor, Vec::new(), chain_id, genesis_key_pair)
+    }
+
+    /// Construct from configuration with explicit separation between [`Executor`] and transactions
+    fn new_with_executor_and_txs(
+        executor: Executor,
+        transactions: Vec<GenesisTransactionBuilder>,
+        chain_id: &ChainId,
+        genesis_key_pair: &KeyPair,
+    ) -> GenesisNetwork {
         // The first instruction should be Executor upgrade.
         // This makes it possible to grant permissions to users in genesis.
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
-            isi: vec![Upgrade::new(raw_block.executor).into()],
+            isi: vec![Upgrade::new(executor).into()],
         })
-        .chain(raw_block.transactions);
+        .chain(transactions);
 
         let transactions = transactions_iter
             .map(|raw_transaction| raw_transaction.sign(chain_id.clone(), genesis_key_pair))

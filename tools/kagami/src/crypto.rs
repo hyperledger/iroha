@@ -151,7 +151,7 @@ impl<T: Write> RunArgs<T> for SignGenesisArgs {
         };
 
         let genesis_block = RawGenesisBlock::from_path(&self.genesis_file)?;
-        let genesis_network = GenesisNetwork::new(genesis_block, &self.chain_id, &key_pair);
+        let genesis_network = GenesisNetwork::new_without_transactions(genesis_block, &self.chain_id, &key_pair);
 
         let encoded_genesis_network = if self.scale {
             genesis_network.encode()
@@ -289,6 +289,7 @@ impl GenerateKeyPairArgs {
 
 #[cfg(test)]
 mod tests {
+    // use iroha_data_model::transaction::{SignedTransactionV1, TransactionPayload};
     use parity_scale_codec::Decode;
 
     use super::*;

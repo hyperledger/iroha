@@ -37,8 +37,6 @@ use tokio::{
     task,
 };
 
-use parity_scale_codec::Decode;
-
 // FIXME: move from CLI
 pub mod samples;
 
@@ -508,9 +506,9 @@ pub fn read_config_and_genesis(
     .wrap_err("failed to load configuration")?;
 
     let genesis = if let Genesis::Full { public_key: _, file } = &config.genesis {
-        let encoded_block = fs::read(file)?;
+        let signed_json_block = fs::read(file)?;
 
-        Some(GenesisNetwork::decode(&mut encoded_block.as_slice())?)
+        Some(serde_json::from_slice(signed_json_block.as_slice())?)
     } else {
         None
     };

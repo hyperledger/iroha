@@ -60,8 +60,8 @@ tracing = { workspace = true }
 tokio = { workspace = true, features = ["macros", "signal"] }
 once_cell = { workspace = true }
 owo-colors = { workspace = true, features = ["supports-colors"] }
-parity-scale-codec = { workspace = true }
 supports-color = { workspace = true }
+serde_json = { workspace = true }
 
 thread-local-panic-hook = { version = "0.1.0", optional = true }
 

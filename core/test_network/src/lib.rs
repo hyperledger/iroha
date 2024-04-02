@@ -130,16 +130,7 @@ impl TestGenesis for GenesisNetwork {
         GenesisNetwork::new(
             genesis.try_into().expect("genesis should load fine"),
             &cfg.common.chain_id,
-            // TODO: FIX
-            &KeyPair::random()
-            // {
-            //     use iroha_config::parameters::actual::Genesis;
-            //     if let Genesis::Full { key_pair, .. } = &cfg.genesis {
-            //         key_pair
-            //     } else {
-            //         unreachable!("test config should contain full genesis config (or it is a bug)")
-            //     }
-            // },
+            &cfg.common.key_pair,
         )
     }
 }
