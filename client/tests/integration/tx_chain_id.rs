@@ -9,7 +9,7 @@ use crate::integration::asset::asset_id_new;
 
 #[test]
 fn send_tx_with_different_chain_id() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_240).start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_250).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
     // Given
     let sender_account_id = AccountId::from_str("sender@wonderland").unwrap();
