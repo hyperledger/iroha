@@ -11,13 +11,13 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-iroha_config_base = { workspace = true, features = ["json"] }
+iroha_config_base = { workspace = true }
 iroha_data_model = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_crypto = { workspace = true }
 iroha_genesis = { workspace = true }
 
-eyre = { workspace = true }
+error-stack = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
 url = { workspace = true, features = ["serde"] }
@@ -33,8 +33,6 @@ derive_more = { workspace = true }
 cfg-if = { workspace = true }
 once_cell = { workspace = true }
 nonzero_ext = { workspace = true }
-toml = { workspace = true }
-merge = "0.1.0"
 
 [dev-dependencies]
 proptest = "1.4.0"
