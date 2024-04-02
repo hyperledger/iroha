@@ -349,3 +349,19 @@ pub(crate) fn accounts_permission_tokens() -> impl Iterator<Item = (AccountId, P
                 .map(move |token| (account.id().clone(), token))
         })
 }
+
+/// Iterator over all roles and theirs permission tokens
+pub(crate) fn roles_permission_tokens() -> impl Iterator<Item = (RoleId, PermissionToken)> {
+    FindAllRoles
+        .execute()
+        .dbg_expect("failed to query all accounts")
+        .into_iter()
+        .map(|role| role.dbg_expect("failed to retrieve account"))
+        .flat_map(|role| {
+            role.permissions()
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(move |token| (role.id().clone(), token))
+        })
+}

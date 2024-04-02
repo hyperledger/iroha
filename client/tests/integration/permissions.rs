@@ -7,7 +7,7 @@ use iroha_client::{
     data_model::prelude::*,
 };
 use iroha_data_model::{
-    permission::PermissionToken, transaction::error::TransactionRejectionReason,
+    permission::PermissionToken, role::RoleId, transaction::error::TransactionRejectionReason,
 };
 use iroha_genesis::GenesisNetwork;
 use serde_json::json;
@@ -421,4 +421,48 @@ fn associated_permission_tokens_removed_on_unregister() {
         .expect("failed to get permissions for bob")
         .into_iter()
         .all(|token| { token != bob_to_set_kv_in_domain_token }));
+}
+
+#[test]
+fn associated_permission_tokens_removed_from_role_on_unregister() {
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_255).start_with_runtime();
+    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+
+    let role_id: RoleId = "role".parse().expect("Valid");
+    let kingdom_id: DomainId = "kingdom".parse().expect("Valid");
+    let kingdom = Domain::new(kingdom_id.clone());
+
+    // register kingdom and give bob permissions in this domain
+    let register_domain = Register::domain(kingdom);
+    let set_kv_in_domain_token = PermissionToken::new(
+        "CanSetKeyValueInDomain".parse().unwrap(),
+        &json!({ "domain_id": kingdom_id }),
+    );
+    let role = Role::new(role_id.clone()).add_permission(set_kv_in_domain_token.clone());
+    let register_role = Register::role(role);
+
+    iroha_client
+        .submit_all_blocking([InstructionBox::from(register_domain), register_role.into()])
+        .expect("failed to register domain and grant permission");
+
+    // check that role indeed have permission
+    assert!(iroha_client
+        .request(client::role::by_id(role_id.clone()))
+        .map(|role| role.permissions().cloned().collect::<Vec<_>>())
+        .expect("failed to get permissions for role")
+        .into_iter()
+        .any(|token| { token == set_kv_in_domain_token }));
+
+    // unregister kingdom
+    iroha_client
+        .submit_blocking(Unregister::domain(kingdom_id))
+        .expect("failed to unregister domain");
+
+    // check that permission is removed from role
+    assert!(iroha_client
+        .request(client::role::by_id(role_id.clone()))
+        .map(|role| role.permissions().cloned().collect::<Vec<_>>())
+        .expect("failed to get permissions for role")
+        .into_iter()
+        .all(|token| { token != set_kv_in_domain_token }));
 }

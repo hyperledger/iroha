@@ -176,6 +176,7 @@ pub mod domain {
     use iroha_smart_contract::data_model::{domain::DomainId, permission::PermissionToken};
     use permission::{
         account::is_account_owner, accounts_permission_tokens, domain::is_domain_owner,
+        roles_permission_tokens,
     };
     use tokens::AnyPermissionToken;
 
@@ -211,6 +212,14 @@ pub mod domain {
             for (owner_id, permission) in accounts_permission_tokens() {
                 if is_token_domain_associated(&permission, domain_id) {
                     let isi = Revoke::permission(permission, owner_id.clone());
+                    if let Err(_err) = isi.execute() {
+                        deny!(executor, "Can't revoke associated permission token");
+                    }
+                }
+            }
+            for (role_id, permission) in roles_permission_tokens() {
+                if is_token_domain_associated(&permission, domain_id) {
+                    let isi = Revoke::role_permission(permission, role_id.clone());
                     if let Err(_err) = isi.execute() {
                         deny!(executor, "Can't revoke associated permission token");
                     }
@@ -416,7 +425,9 @@ pub mod domain {
 
 pub mod account {
     use iroha_smart_contract::data_model::permission::PermissionToken;
-    use permission::{account::is_account_owner, accounts_permission_tokens};
+    use permission::{
+        account::is_account_owner, accounts_permission_tokens, roles_permission_tokens,
+    };
     use tokens::AnyPermissionToken;
 
     use super::*;
@@ -469,6 +480,14 @@ pub mod account {
             for (owner_id, permission) in accounts_permission_tokens() {
                 if is_token_account_associated(&permission, account_id) {
                     let isi = Revoke::permission(permission, owner_id.clone());
+                    if let Err(_err) = isi.execute() {
+                        deny!(executor, "Can't revoke associated permission token");
+                    }
+                }
+            }
+            for (role_id, permission) in roles_permission_tokens() {
+                if is_token_account_associated(&permission, account_id) {
+                    let isi = Revoke::role_permission(permission, role_id.clone());
                     if let Err(_err) = isi.execute() {
                         deny!(executor, "Can't revoke associated permission token");
                     }
@@ -692,7 +711,7 @@ pub mod asset_definition {
     use iroha_smart_contract::data_model::{asset::AssetDefinitionId, permission::PermissionToken};
     use permission::{
         account::is_account_owner, accounts_permission_tokens,
-        asset_definition::is_asset_definition_owner,
+        asset_definition::is_asset_definition_owner, roles_permission_tokens,
     };
     use tokens::AnyPermissionToken;
 
@@ -748,6 +767,14 @@ pub mod asset_definition {
             for (owner_id, permission) in accounts_permission_tokens() {
                 if is_token_asset_definition_associated(&permission, asset_definition_id) {
                     let isi = Revoke::permission(permission, owner_id.clone());
+                    if let Err(_err) = isi.execute() {
+                        deny!(executor, "Can't revoke associated permission token");
+                    }
+                }
+            }
+            for (role_id, permission) in roles_permission_tokens() {
+                if is_token_asset_definition_associated(&permission, asset_definition_id) {
+                    let isi = Revoke::role_permission(permission, role_id.clone());
                     if let Err(_err) = isi.execute() {
                         deny!(executor, "Can't revoke associated permission token");
                     }
@@ -1405,7 +1432,9 @@ pub mod role {
 
 pub mod trigger {
     use iroha_smart_contract::data_model::{permission::PermissionToken, trigger::Trigger};
-    use permission::{accounts_permission_tokens, trigger::is_trigger_owner};
+    use permission::{
+        accounts_permission_tokens, roles_permission_tokens, trigger::is_trigger_owner,
+    };
     use tokens::AnyPermissionToken;
 
     use super::*;
@@ -1440,6 +1469,14 @@ pub mod trigger {
             for (owner_id, permission) in accounts_permission_tokens() {
                 if is_token_trigger_associated(&permission, trigger_id) {
                     let isi = Revoke::permission(permission, owner_id.clone());
+                    if let Err(_err) = isi.execute() {
+                        deny!(executor, "Can't revoke associated permission token");
+                    }
+                }
+            }
+            for (role_id, permission) in roles_permission_tokens() {
+                if is_token_trigger_associated(&permission, trigger_id) {
+                    let isi = Revoke::role_permission(permission, role_id.clone());
                     if let Err(_err) = isi.execute() {
                         deny!(executor, "Can't revoke associated permission token");
                     }
