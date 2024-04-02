@@ -2947,6 +2947,7 @@ dependencies = [
  "num-traits",
  "serde",
  "serde_with",
+ "strum 0.25.0",
  "thiserror",
  "toml 0.8.13",
 ]

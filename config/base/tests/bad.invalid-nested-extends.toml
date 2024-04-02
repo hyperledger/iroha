@@ -1,0 +1,1 @@
+extends = ["bad.invalid-nested-extends.base.toml"]

@@ -60,12 +60,12 @@ pub fn std_env(key: &str) -> Option<Cow<'static, str>> {
 
 /// An implementation of [`ReadEnv`] for testing convenience.
 #[derive(Default)]
-pub struct TestEnv {
+pub struct MockEnv {
     map: HashMap<String, String>,
     visited: RefCell<HashSet<String>>,
 }
 
-impl TestEnv {
+impl MockEnv {
     /// Create new empty environment
     pub fn new() -> Self {
         Self::default()
@@ -92,7 +92,23 @@ impl TestEnv {
     }
 }
 
-impl ReadEnv for TestEnv {
+impl<T, K, V> From<T> for MockEnv
+where
+    T: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    fn from(value: T) -> Self {
+        Self::with_map(
+            value
+                .into_iter()
+                .map(|(k, v)| (k.as_ref().to_string(), v.as_ref().to_string()))
+                .collect(),
+        )
+    }
+}
+
+impl ReadEnv for MockEnv {
     fn read_env(&self, key: &str) -> Option<Cow<'_, str>> {
         self.visited.borrow_mut().insert(key.to_string());
         self.map.get(key).map(Cow::from)

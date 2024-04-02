@@ -3,7 +3,7 @@
 #![warn(missing_docs)]
 
 use std::{
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
     path::PathBuf,
 };
 
@@ -12,7 +12,7 @@ pub mod reader;
 pub mod toml;
 pub mod util;
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct ParameterId {
     segments: Vec<String>,
 }
@@ -29,6 +29,12 @@ impl Display for ParameterId {
             write!(f, "{}", i)?;
         }
         Ok(())
+    }
+}
+
+impl Debug for ParameterId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ParameterId({self})")
     }
 }
 
