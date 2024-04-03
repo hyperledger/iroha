@@ -17,4 +17,5 @@ panic-halt.workspace = true
 lol_alloc.workspace = true
 getrandom.workspace = true
 parity-scale-codec.workspace = true
+nonzero_ext.workspace = true
 serde_json = { version = "1.0.108", default-features = false }

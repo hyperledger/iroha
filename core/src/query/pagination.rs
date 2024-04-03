@@ -45,9 +45,8 @@ impl<I: Iterator> Iterator for Paginated<I> {
 
 #[cfg(test)]
 mod tests {
-    use std::num::{NonZeroU32, NonZeroU64};
-
     use iroha_data_model::query::pagination::Pagination;
+    use nonzero_ext::nonzero;
 
     use super::*;
 
@@ -72,7 +71,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: None,
-                    start: NonZeroU64::new(1)
+                    start: Some(nonzero!(1_u64))
                 })
                 .collect::<Vec<_>>(),
             vec![2_i32, 3_i32]
@@ -82,7 +81,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: None,
-                    start: NonZeroU64::new(3)
+                    start: Some(nonzero!(3_u64))
                 })
                 .collect::<Vec<_>>(),
             Vec::<i32>::new()
@@ -95,7 +94,7 @@ mod tests {
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
                 .paginate(Pagination {
-                    limit: NonZeroU32::new(2),
+                    limit: Some(nonzero!(2_u32)),
                     start: None
                 })
                 .collect::<Vec<_>>(),
@@ -105,7 +104,7 @@ mod tests {
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
                 .paginate(Pagination {
-                    limit: NonZeroU32::new(4),
+                    limit: Some(nonzero!(4_u32)),
                     start: None
                 })
                 .collect::<Vec<_>>(),
@@ -119,8 +118,8 @@ mod tests {
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
                 .paginate(Pagination {
-                    limit: NonZeroU32::new(1),
-                    start: NonZeroU64::new(1),
+                    limit: Some(nonzero!(1_u32)),
+                    start: Some(nonzero!(1_u64)),
                 })
                 .collect::<Vec<_>>(),
             vec![2_i32]

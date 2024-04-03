@@ -8,7 +8,6 @@ extern crate panic_halt;
 extern crate alloc;
 
 use alloc::string::ToString as _;
-use core::num::NonZeroU32;
 
 use iroha_smart_contract::{
     data_model::{metadata::MetadataValueBox, query::cursor::ForwardCursor},
@@ -16,6 +15,7 @@ use iroha_smart_contract::{
     prelude::*,
 };
 use lol_alloc::{FreeListAllocator, LockedAllocator};
+use nonzero_ext::nonzero;
 use parity_scale_codec::{Decode, DecodeAll, Encode};
 
 #[global_allocator]
@@ -37,7 +37,7 @@ fn main(owner: AccountId) {
     // we guess the layout by encoding and then decoding
     let asset_cursor = QueryOutputCursor::decode_all(
         &mut &FindAllAssets
-            .fetch_size(FetchSize::new(Some(NonZeroU32::try_from(1).dbg_unwrap())))
+            .fetch_size(FetchSize::new(Some(nonzero!(1_u32))))
             .execute()
             .dbg_unwrap()
             .encode()[..],

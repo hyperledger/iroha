@@ -1,10 +1,9 @@
-use std::num::{NonZeroU32, NonZeroU64};
-
 use eyre::Result;
 use iroha_client::{
     client::{asset, Client, QueryResult},
     data_model::{asset::AssetDefinition, prelude::*, query::Pagination},
 };
+use nonzero_ext::nonzero;
 use test_network::*;
 
 #[test]
@@ -17,8 +16,8 @@ fn limits_should_work() -> Result<()> {
     let vec = &client
         .build_query(asset::all_definitions())
         .with_pagination(Pagination {
-            limit: NonZeroU32::new(5),
-            start: NonZeroU64::new(5),
+            limit: Some(nonzero!(5_u32)),
+            start: Some(nonzero!(5_u64)),
         })
         .execute()?
         .collect::<QueryResult<Vec<_>>>()?;
@@ -36,10 +35,10 @@ fn fetch_size_should_work() -> Result<()> {
     let iter = client
         .build_query(asset::all_definitions())
         .with_pagination(Pagination {
-            limit: NonZeroU32::new(20),
-            start: NonZeroU64::new(0),
+            limit: Some(nonzero!(20_u32)),
+            start: None,
         })
-        .with_fetch_size(FetchSize::new(Some(NonZeroU32::new(12).expect("Valid"))))
+        .with_fetch_size(FetchSize::new(Some(nonzero!(12_u32))))
         .execute()?;
     assert_eq!(iter.batch_len(), 12);
     Ok(())

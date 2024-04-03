@@ -18,6 +18,7 @@ use iroha_data_model_derive::{model, EnumRef};
 use iroha_primitives::{numeric::Numeric, small::SmallVec};
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
+use nonzero_ext::nonzero;
 pub use pagination::Pagination;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -47,14 +48,10 @@ pub mod sorting;
 const FETCH_SIZE: &str = "fetch_size";
 
 /// Default value for `fetch_size` parameter in queries.
-// SAFETY: `10` is greater than `0`
-#[allow(unsafe_code)]
-pub const DEFAULT_FETCH_SIZE: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(10) };
+pub const DEFAULT_FETCH_SIZE: NonZeroU32 = nonzero!(10_u32);
 
 /// Max value for `fetch_size` parameter in queries.
-// SAFETY: `10_000` is greater than `0`
-#[allow(unsafe_code)]
-pub const MAX_FETCH_SIZE: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(10_000) };
+pub const MAX_FETCH_SIZE: NonZeroU32 = nonzero!(10_000_u32);
 
 /// Structure for query fetch size parameter encoding/decoding
 #[derive(

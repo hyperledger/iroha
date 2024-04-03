@@ -53,6 +53,7 @@ getset = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 base64 = { workspace = true, features = ["alloc"] }
 once_cell = { workspace = true, optional = true }
+nonzero_ext = { workspace = true }
 
 [dev-dependencies]
 iroha_crypto = { workspace = true, features = ["rand"] }

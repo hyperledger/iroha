@@ -355,6 +355,7 @@ pub fn handle_status(
 pub mod profiling {
     use std::num::{NonZeroU16, NonZeroU64};
 
+    use nonzero_ext::nonzero;
     use pprof::protos::Message;
     use serde::{Deserialize, Serialize};
 
@@ -373,11 +374,11 @@ pub mod profiling {
 
     impl ProfileParams {
         fn default_frequency() -> NonZeroU16 {
-            NonZeroU16::new(99).unwrap()
+            nonzero!(99_u16)
         }
 
         fn default_seconds() -> NonZeroU64 {
-            NonZeroU64::new(10).unwrap()
+            nonzero!(10_u64)
         }
     }
 
