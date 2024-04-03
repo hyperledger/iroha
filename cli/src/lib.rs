@@ -10,7 +10,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use iroha_config::parameters::actual::Root as Config;
+use iroha_config::parameters::{actual::Root as Config, user::CliContext};
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     gossiper::{TransactionGossiper, TransactionGossiperHandle},

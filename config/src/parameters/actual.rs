@@ -22,7 +22,7 @@ use crate::{
     kura::InitMode,
     parameters::{
         defaults, user,
-        user::RootPartial,
+        user::{CliContext, RootPartial},
     },
 };
 
@@ -54,14 +54,14 @@ impl Root {
     /// - unable to load config from a TOML file
     /// - unable to parse config from envs
     /// - the config is invalid
-    pub fn load<P: AsRef<Path>>(path: Option<P>) -> Result<Self, eyre::Report> {
+    pub fn load<P: AsRef<Path>>(path: Option<P>, cli: CliContext) -> Result<Self, eyre::Report> {
         let from_file = path.map(RootPartial::from_toml).transpose()?;
         let from_env = RootPartial::from_env(&StdEnv)?;
         let merged = match from_file {
             Some(x) => x.merge(from_env),
             None => from_env,
         };
-        let config = merged.unwrap_partial()?.parse()?;
+        let config = merged.unwrap_partial()?.parse(cli)?;
         Ok(config)
     }
 }
@@ -100,10 +100,9 @@ pub enum Genesis {
     },
     /// The peer is responsible for submitting the genesis block
     Full {
-        /// Genesis account key pair
-        // key_pair: KeyPair,
+        /// Genesis account public key
         public_key: PublicKey,
-        /// Path to the [`RawGenesisBlock`]
+        /// Path to the signed genesis block
         file: PathBuf,
     },
 }

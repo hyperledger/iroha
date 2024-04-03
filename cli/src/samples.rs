@@ -5,7 +5,7 @@ use iroha_config::{
     base::{HumanDuration, UnwrapPartial},
     parameters::{
         actual::Root as Config,
-        user::RootPartial as UserConfig,
+        user::{CliContext, RootPartial as UserConfig},
     },
     snapshot::Mode as SnapshotMode,
 };
@@ -113,7 +113,9 @@ pub fn get_config(
     get_user_config(trusted_peers, chain_id, key_pair)
         .unwrap_partial()
         .expect("config should build as all required fields were provided")
-        .parse()
+        .parse(CliContext {
+            submit_genesis: true,
+        })
         .expect("config should finalize as the input is semantically valid (or there is a bug)")
 }
 

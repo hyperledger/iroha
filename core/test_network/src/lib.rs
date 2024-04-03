@@ -763,7 +763,7 @@ impl TestConfig for Config {
     fn test() -> Self {
         use iroha_config::{
             base::{FromEnv as _, StdEnv, UnwrapPartial as _},
-            parameters::user::RootPartial,
+            parameters::user::{CliContext, RootPartial},
         };
 
         let mut layer = iroha::samples::get_user_config(
@@ -780,7 +780,9 @@ impl TestConfig for Config {
         layer
             .unwrap_partial()
             .expect("should not fail as all fields are present")
-            .parse()
+            .parse(CliContext {
+                submit_genesis: true,
+            })
             .expect("Test Iroha config failed to build. This is likely to be a bug.")
     }
 

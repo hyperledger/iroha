@@ -20,6 +20,7 @@ use crate::{cli::SourceParsed, util::AbsolutePath};
 const DIR_CONFIG_IN_DOCKER: &str = "/config";
 const PATH_TO_GENESIS: &str = "/config/genesis.json";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
+const COMMAND_SUBMIT_GENESIS: &str = "iroha --submit-genesis";
 const DOCKER_COMPOSE_VERSION: &str = "3.8";
 const PLATFORM_ARCHITECTURE: &str = "linux/amd64";
 
@@ -91,6 +92,7 @@ pub struct DockerComposeServiceBuilder {
     volumes: Vec<(String, String)>,
     trusted_peers: BTreeSet<PeerId>,
     genesis_public_key: PublicKey,
+    signed_genesis_file: Option<PathBuf>,
     health_check: bool,
 }
 
@@ -103,6 +105,8 @@ pub struct DockerComposeService {
     ports: Vec<PairColon<u16, u16>>,
     volumes: Vec<PairColon<String, String>>,
     init: AlwaysTrue,
+    #[serde(skip_serializing_if = "ServiceCommand::is_none")]
+    command: ServiceCommand,
     #[serde(skip_serializing_if = "Option::is_none")]
     healthcheck: Option<HealthCheck>,
 }
@@ -115,6 +119,7 @@ impl DockerComposeServiceBuilder {
         volumes: Vec<(String, String)>,
         trusted_peers: BTreeSet<PeerId>,
         genesis_public_key: PublicKey,
+        signed_genesis_file: Option<PathBuf>,
     ) -> Self {
         Self {
             chain_id,
@@ -123,12 +128,20 @@ impl DockerComposeServiceBuilder {
             volumes,
             trusted_peers,
             genesis_public_key,
+            signed_genesis_file,
             health_check: false,
         }
     }
 
     pub fn set_health_check(mut self, flag: bool) -> Self {
         self.health_check = flag;
+        self
+    }
+
+    // TODO: Verify
+    #[allow(dead_code)]
+    pub fn submit_genesis_with(mut self, signed_genesis_file: PathBuf) -> Self {
+        self.signed_genesis_file = Some(signed_genesis_file);
         self
     }
 
@@ -140,6 +153,7 @@ impl DockerComposeServiceBuilder {
             volumes,
             trusted_peers,
             genesis_public_key,
+            signed_genesis_file,
             health_check,
         } = self;
 
@@ -147,6 +161,12 @@ impl DockerComposeServiceBuilder {
             PairColon(peer.port_p2p, peer.port_p2p),
             PairColon(peer.port_api, peer.port_api),
         ];
+
+        let command = if signed_genesis_file.is_some() {
+            ServiceCommand::SubmitGenesis
+        } else {
+            ServiceCommand::None
+        };
 
         let compact_env = CompactPeerEnv {
             chain_id,
@@ -160,6 +180,7 @@ impl DockerComposeServiceBuilder {
         DockerComposeService {
             source,
             platform: PlatformArchitecture,
+            command,
             init: AlwaysTrue,
             volumes: volumes.into_iter().map(|(a, b)| PairColon(a, b)).collect(),
             ports,
@@ -180,6 +201,30 @@ impl Serialize for AlwaysTrue {
         S: Serializer,
     {
         serializer.serialize_bool(true)
+    }
+}
+
+#[derive(Debug)]
+enum ServiceCommand {
+    SubmitGenesis,
+    None,
+}
+
+impl ServiceCommand {
+    fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+}
+
+impl Serialize for ServiceCommand {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::None => serializer.serialize_none(),
+            Self::SubmitGenesis => serializer.serialize_str(COMMAND_SUBMIT_GENESIS),
+        }
     }
 }
 
@@ -360,7 +405,10 @@ impl DockerComposeBuilder<'_> {
                     .cloned()
                     .collect(),
                 genesis_key_pair.public_key().clone(),
+                None
             )
+            // TODO: Verify
+            // .submit_genesis_with(genesis_key_pair.private_key().clone())
             .set_health_check(self.health_check)
             .build();
 
@@ -382,6 +430,7 @@ impl DockerComposeBuilder<'_> {
                         .cloned()
                         .collect(),
                     genesis_key_pair.public_key().clone(),
+                    None,
                 )
                 .set_health_check(self.health_check)
                 .build();
@@ -500,7 +549,7 @@ mod tests {
 
     use iroha_config::{
         base::{FromEnv, TestEnv, UnwrapPartial},
-        parameters::user::RootPartial,
+        parameters::user::{CliContext, RootPartial},
     };
     use iroha_crypto::KeyPair;
     use iroha_primitives::addr::{socket_addr, SocketAddr};
@@ -558,7 +607,9 @@ mod tests {
             .expect("valid env")
             .unwrap_partial()
             .expect("should not fail as input has all required fields")
-            .parse()
+            .parse(CliContext {
+                submit_genesis: true,
+            })
             .expect("should not fail as input is valid");
 
         assert_eq!(env.unvisited(), HashSet::new());
@@ -606,6 +657,7 @@ mod tests {
                             "/config".to_owned(),
                         )],
                         init: AlwaysTrue,
+                        command: ServiceCommand::SubmitGenesis,
                         healthcheck: None,
                     },
                 );
@@ -638,6 +690,7 @@ mod tests {
                 volumes:
                 - ./configs/peer/legacy_stable:/config
                 init: true
+                command: iroha --submit-genesis
         "#]];
         expected.assert_eq(&actual);
     }
@@ -719,6 +772,7 @@ mod tests {
                 volumes:
                 - ./config:/config
                 init: true
+                command: iroha --submit-genesis
                 healthcheck:
                   test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0
                   interval: 2s

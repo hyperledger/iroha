@@ -136,7 +136,7 @@ impl Root {
     ///
     /// # Errors
     /// If any invalidity found.
-    pub fn parse(self) -> Result<actual::Root, ErrorsCollection<Report>> {
+    pub fn parse(self, cli: CliContext) -> Result<actual::Root, ErrorsCollection<Report>> {
         let mut emitter = Emitter::new();
 
         let key_pair =
@@ -179,14 +179,14 @@ impl Root {
                 emitter.emit(eyre!("\
                     The network consists from this one peer only (no `sumeragi.trusted_peers` provided). \
                     Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
-                    Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
+                    Either provide the genesis by setting `--submit-genesis` argument, `genesis.public_key`, \
                     and `genesis.file` configuration parameters, or increase the number of trusted peers in \
                     the network using `sumeragi.trusted_peers` configuration parameter.\
                 "));
             }
         }
 
-        let (network, block_sync, transaction_gossiper) = self.network.parse();
+        let (p2p_address, block_sync, transaction_gossiper) = self.network.parse();
 
         let logger = self.logger;
         let queue = self.queue;
@@ -349,20 +349,41 @@ pub struct Genesis {
 }
 
 impl Genesis {
-    fn parse(self) -> actual::Genesis {
-        match self.file {
-            None => actual::Genesis::Partial {
+    // fn parse(self, cli: CliContext) -> actual::Genesis {
+    //     match self.file {
+    //         None => actual::Genesis::Partial {
+    //             public_key: self.public_key,
+    //         },
+    //         Some(file) => actual::Genesis::Full {
+    //             public_key: self.public_key,
+    //             file,
+    //         },
+    //         // (Some(_), Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit),
+    //         // (None, None, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
+    //         // _ => Err(GenesisConfigError::Inconsistent),
+    //     }
+    // }
+    fn parse(self, cli: CliContext) -> Result<actual::Genesis, GenesisConfigError> {
+        match (self.file, cli.submit_genesis) {
+            (None, false) => Ok(actual::Genesis::Partial {
                 public_key: self.public_key,
-            },
-            Some(file) => actual::Genesis::Full {
+            }),
+            (Some(file), true) => Ok(actual::Genesis::Full {
                 public_key: self.public_key,
                 file,
-            },
-            // (Some(_), Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit),
-            // (None, None, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
-            // _ => Err(GenesisConfigError::Inconsistent),
+            }),
+            (Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit),
+            (None, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
         }
     }
+}
+
+#[derive(Debug, displaydoc::Display, thiserror::Error)]
+pub enum GenesisConfigError {
+    ///  `genesis.file` and `genesis.public_key` are presented, but `--submit-genesis` was not set
+    GenesisWithoutSubmit,
+    ///  `--submit-genesis` was set, but `genesis.file` and `genesis.public_key` are not presented
+    SubmitWithoutGenesis,
 }
 
 #[derive(Debug)]

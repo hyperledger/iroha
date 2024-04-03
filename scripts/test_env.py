@@ -81,7 +81,7 @@ class Network:
 
     def run(self):
         for i, peer in enumerate(self.peers):
-            peer.run()
+            peer.run(submit_genesis=(i == 0))
         self.wait_for_genesis(20)
 
 class _Peer:
@@ -176,14 +176,14 @@ class _Peer:
     def private_key(self):
         return self.key_pair["private_key"]
 
-    def run(self):
+    def run(self, submit_genesis: bool = False):
         logging.info(f"Running peer {self.name}...")
 
         # FD never gets closed
         stdout_file = open(self.peer_dir / ".stdout", "w")
         stderr_file = open(self.peer_dir / ".stderr", "w")
         # These processes are created detached from the parent process already
-        subprocess.Popen([self.name, "--config", self.config_path],
+        subprocess.Popen([self.name, "--config", self.config_path] + (["--submit-genesis"] if submit_genesis else []),
                     executable=self.out_dir / "peers/iroha", stdout=stdout_file, stderr=stderr_file)
 
 def pos_int(arg):
