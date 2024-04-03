@@ -127,6 +127,8 @@ declare_tokens! {
     crate::default::tokens::trigger::{CanUnregisterUserTrigger},
     crate::default::tokens::trigger::{CanMintUserTrigger},
     crate::default::tokens::trigger::{CanBurnUserTrigger},
+    crate::default::tokens::trigger::{CanSetKeyValueInTrigger},
+    crate::default::tokens::trigger::{CanRemoveKeyValueInTrigger},
 
     crate::default::tokens::executor::{CanUpgradeExecutor},
 }
