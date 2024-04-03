@@ -180,7 +180,6 @@ pub mod action {
         }
     }
 
-    #[cfg(feature = "transparent_api")]
     impl crate::HasMetadata for Action {
         fn metadata(&self) -> &crate::metadata::Metadata {
             &self.metadata
