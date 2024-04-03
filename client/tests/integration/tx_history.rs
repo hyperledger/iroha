@@ -1,8 +1,4 @@
-use std::{
-    num::{NonZeroU32, NonZeroU64},
-    str::FromStr as _,
-    thread,
-};
+use std::{str::FromStr as _, thread};
 
 use eyre::Result;
 use iroha_client::{
@@ -10,6 +6,7 @@ use iroha_client::{
     data_model::{prelude::*, query::Pagination},
 };
 use iroha_config::parameters::actual::Root as Config;
+use nonzero_ext::nonzero;
 use test_network::*;
 
 #[ignore = "ignore, more in #2851"]
@@ -56,8 +53,8 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     let transactions = client
         .build_query(transaction::by_account_id(account_id.clone()))
         .with_pagination(Pagination {
-            limit: NonZeroU32::new(50),
-            start: NonZeroU64::new(1),
+            limit: Some(nonzero!(50_u32)),
+            start: Some(nonzero!(1_u64)),
         })
         .execute()?
         .collect::<QueryResult<Vec<_>>>()?;

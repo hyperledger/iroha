@@ -1,8 +1,4 @@
-use std::{
-    collections::HashSet,
-    num::{NonZeroU32, NonZeroU64},
-    str::FromStr as _,
-};
+use std::{collections::HashSet, str::FromStr as _};
 
 use eyre::{Result, WrapErr as _};
 use iroha_client::{
@@ -17,6 +13,7 @@ use iroha_client::{
     },
 };
 use iroha_data_model::isi::InstructionBox;
+use nonzero_ext::nonzero;
 use test_network::*;
 
 use crate::integration::new_account_with_random_public_key;
@@ -64,7 +61,7 @@ fn correct_pagination_assets_after_creating_new_one() {
     let res = test_client
         .build_query(client::asset::by_account_id(account_id.clone()))
         .with_pagination(Pagination {
-            limit: NonZeroU32::new(5),
+            limit: Some(nonzero!(5_u32)),
             start: None,
         })
         .with_sorting(sorting.clone())
@@ -107,8 +104,8 @@ fn correct_pagination_assets_after_creating_new_one() {
     let res = test_client
         .build_query(client::asset::by_account_id(account_id))
         .with_pagination(Pagination {
-            limit: NonZeroU32::new(13),
-            start: NonZeroU64::new(8),
+            limit: Some(nonzero!(13_u32)),
+            start: Some(nonzero!(8_u64)),
         })
         .with_sorting(sorting)
         .execute()
