@@ -307,9 +307,8 @@ impl LiveQueryStoreHandle {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU32;
-
     use iroha_data_model::metadata::MetadataValueBox;
+    use nonzero_ext::nonzero;
 
     use super::*;
 
@@ -322,7 +321,7 @@ mod tests {
         for i in 0..10_000 {
             let pagination = Pagination::default();
             let fetch_size = FetchSize {
-                fetch_size: NonZeroU32::new(1),
+                fetch_size: Some(nonzero!(1_u32)),
             };
             let sorting = Sorting::default();
 

@@ -394,6 +394,7 @@ pub mod tests {
     use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
     use iroha_data_model::{prelude::*, transaction::TransactionLimits};
+    use nonzero_ext::nonzero;
     use rand::Rng as _;
     use tokio::test;
 
@@ -497,7 +498,7 @@ pub mod tests {
 
     #[test]
     async fn push_tx_overflow() {
-        let capacity = NonZeroUsize::new(10).unwrap();
+        let capacity = nonzero!(10_usize);
 
         let key_pair = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();

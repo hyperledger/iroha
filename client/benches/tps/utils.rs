@@ -1,14 +1,4 @@
-use std::{
-    fmt,
-    fs::File,
-    io::BufReader,
-    num::NonZeroU32,
-    path::Path,
-    str::FromStr as _,
-    sync::mpsc,
-    thread::{self, JoinHandle},
-    time,
-};
+use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr as _, sync::mpsc, thread, time};
 
 use eyre::{Result, WrapErr};
 use iroha_client::{
@@ -19,6 +9,7 @@ use iroha_client::{
     },
 };
 use iroha_data_model::events::pipeline::{BlockEventFilter, BlockStatus};
+use nonzero_ext::nonzero;
 use serde::Deserialize;
 use test_network::*;
 
@@ -163,7 +154,7 @@ impl MeasurerUnit {
         let register_me = Register::account(Account::new(account_id, keypair.public_key().clone()));
         self.client.submit_blocking(register_me)?;
 
-        let mint_a_rose = Mint::asset_numeric(1u32, asset_id);
+        let mint_a_rose = Mint::asset_numeric(1_u32, asset_id);
         self.client.submit_blocking(mint_a_rose)?;
 
         Ok(self)
@@ -193,7 +184,10 @@ impl MeasurerUnit {
     }
 
     /// Spawn who periodically submits transactions
-    fn spawn_transaction_submitter(&self, shutdown_signal: mpsc::Receiver<()>) -> JoinHandle<()> {
+    fn spawn_transaction_submitter(
+        &self,
+        shutdown_signal: mpsc::Receiver<()>,
+    ) -> thread::JoinHandle<()> {
         let chain_id = ChainId::from("0");
 
         let submitter = self.client.clone();
@@ -201,7 +195,7 @@ impl MeasurerUnit {
         let instructions = self.instructions();
         let alice_id = AccountId::from_str("alice@wonderland").expect("Failed to parse account id");
 
-        let mut nonce = NonZeroU32::new(1).expect("Valid");
+        let mut nonce = nonzero!(1_u32);
 
         thread::spawn(move || {
             for instruction in instructions {
@@ -217,7 +211,7 @@ impl MeasurerUnit {
                             iroha_logger::error!(?error, "Failed to submit transaction");
                         }
 
-                        nonce = nonce.checked_add(1).or(NonZeroU32::new(1)).expect("Valid");
+                        nonce = nonce.checked_add(1).unwrap_or(nonzero!(1_u32));
                         thread::sleep(time::Duration::from_micros(interval_us_per_tx));
                     }
                     Err(mpsc::TryRecvError::Disconnected) => {
@@ -237,7 +231,7 @@ impl MeasurerUnit {
     }
 
     fn mint(&self) -> InstructionBox {
-        Mint::asset_numeric(1u32, asset_id(self.name)).into()
+        Mint::asset_numeric(1_u32, asset_id(self.name)).into()
     }
 }
 
