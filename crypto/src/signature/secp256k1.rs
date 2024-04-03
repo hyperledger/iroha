@@ -241,8 +241,9 @@ mod test {
 
             // serialize the key
             let mut res = Vec::new();
-            res.extend(r.to_vec());
-            res.extend(s.to_vec());
+            // padding because EcdsaSecp256k1Sha256::verify requires a slice of length 64
+            res.extend(r.to_vec_padded(32).expect("r fits into 32 bytes"));
+            res.extend(s.to_vec_padded(32).expect("s fits into 32 bytes"));
             res
         };
 
