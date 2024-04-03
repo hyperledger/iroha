@@ -5,8 +5,8 @@
 use std::str::FromStr;
 
 use darling::{error::Accumulator, util::SpannedValue, FromAttributes};
-use parse_display::{Display, FromStr};
 use proc_macro2::{Delimiter, Span};
+use strum::{Display, EnumString};
 use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
@@ -14,8 +14,8 @@ use syn::{
     Attribute, Meta, Token,
 };
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Display, FromStr)]
-#[display(style = "lowercase")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Display, EnumString)]
+#[strum(serialize_all = "lowercase")]
 pub enum ReprPrimitive {
     U8,
     U16,
