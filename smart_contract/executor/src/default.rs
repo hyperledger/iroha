@@ -395,6 +395,12 @@ pub mod domain {
             AnyPermissionToken::CanMintUserTrigger(permission) => {
                 permission.trigger_id.domain_id().as_ref() == Some(domain_id)
             }
+            AnyPermissionToken::CanSetKeyValueInTrigger(permission) => {
+                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
+            }
+            AnyPermissionToken::CanRemoveKeyValueInTrigger(permission) => {
+                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
+            }
             AnyPermissionToken::CanUnregisterAnyPeer(_)
             | AnyPermissionToken::CanGrantPermissionToCreateParameters(_)
             | AnyPermissionToken::CanRevokePermissionToCreateParameters(_)
@@ -654,6 +660,8 @@ pub mod account {
             | AnyPermissionToken::CanExecuteUserTrigger(_)
             | AnyPermissionToken::CanBurnUserTrigger(_)
             | AnyPermissionToken::CanMintUserTrigger(_)
+            | AnyPermissionToken::CanSetKeyValueInTrigger(_)
+            | AnyPermissionToken::CanRemoveKeyValueInTrigger(_)
             | AnyPermissionToken::CanUnregisterAnyPeer(_)
             | AnyPermissionToken::CanUnregisterDomain(_)
             | AnyPermissionToken::CanSetKeyValueInDomain(_)
@@ -899,6 +907,8 @@ pub mod asset_definition {
             | AnyPermissionToken::CanExecuteUserTrigger(_)
             | AnyPermissionToken::CanBurnUserTrigger(_)
             | AnyPermissionToken::CanMintUserTrigger(_)
+            | AnyPermissionToken::CanSetKeyValueInTrigger(_)
+            | AnyPermissionToken::CanRemoveKeyValueInTrigger(_)
             | AnyPermissionToken::CanUnregisterAnyPeer(_)
             | AnyPermissionToken::CanUnregisterDomain(_)
             | AnyPermissionToken::CanSetKeyValueInDomain(_)
@@ -1595,6 +1605,12 @@ pub mod trigger {
                 &permission.trigger_id == trigger_id
             }
             AnyPermissionToken::CanMintUserTrigger(permission) => {
+                &permission.trigger_id == trigger_id
+            }
+            AnyPermissionToken::CanSetKeyValueInTrigger(permission) => {
+                &permission.trigger_id == trigger_id
+            }
+            AnyPermissionToken::CanRemoveKeyValueInTrigger(permission) => {
                 &permission.trigger_id == trigger_id
             }
             AnyPermissionToken::CanUnregisterAnyPeer(_)
