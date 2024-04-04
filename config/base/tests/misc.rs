@@ -21,6 +21,7 @@ pub mod sample_config {
     #[derive(Debug)]
     pub struct Root {
         pub chain_id: String,
+        pub alt_chain_id: Option<String>,
         pub torii: Torii,
         pub kura: Kura,
         pub telemetry: Telemetry,
@@ -38,6 +39,11 @@ pub mod sample_config {
                 .value_required()
                 .finish();
 
+            let (alt_chain_id, reader) = reader
+                .parameter_env(["alt_chain_id"], "ALT_CHAIN_ID")
+                .value_optional()
+                .finish();
+
             let (torii, reader) = reader.read_nested("torii");
 
             let (kura, reader) = reader.read_nested("kura");
@@ -49,6 +55,7 @@ pub mod sample_config {
             (
                 OkAfterFinish::value_fn(move || Self {
                     chain_id: chain_id.unwrap(),
+                    alt_chain_id: alt_chain_id.unwrap(),
                     torii: torii.unwrap(),
                     kura: kura.unwrap(),
                     telemetry: telemetry.unwrap(),
@@ -78,7 +85,7 @@ pub mod sample_config {
 
             let (max_content_len, reader) = reader
                 .parameter::<u64>(["max_content_length"])
-                .value_or(1024)
+                .value_or_else(|| 1024)
                 .finish();
 
             (
@@ -270,7 +277,9 @@ fn error_reading_empty_config() {
     ));
 
     let (_, reader) = sample_config::Root::read(reader);
-    let report = reader.finish().expect_err("should miss required fields");
+    let report = reader
+        .into_result()
+        .expect_err("should miss required fields");
 
     expect![[r#"
             Failed to read configuration
@@ -301,7 +310,7 @@ fn error_extra_fields_in_multiple_files() {
         ));
 
     let (_, reader) = sample_config::Root::read(reader);
-    let report = reader.finish().expect_err("there are unknown fields");
+    let report = reader.into_result().expect_err("there are unknown fields");
 
     expect![[r#"
             Failed to read configuration
@@ -340,7 +349,7 @@ fn multiple_parsing_errors_in_multiple_sources() {
         ));
 
     let (_, reader) = sample_config::Root::read(reader);
-    let report = reader.finish().expect_err("invalid config");
+    let report = reader.into_result().expect_err("invalid config");
 
     expect![[r#"
             Failed to read configuration
@@ -371,7 +380,7 @@ fn minimal_config_ok() {
     ));
 
     let (value, reader) = sample_config::Root::read(reader);
-    reader.finish().expect("config is valid");
+    reader.into_result().expect("config is valid");
     let value = value.unwrap();
 
     expect![[r#"
@@ -429,7 +438,7 @@ fn full_config_ok() {
     ));
 
     let (value, reader) = sample_config::Root::read(reader);
-    reader.finish().expect("config is valid");
+    reader.into_result().expect("config is valid");
     let value = value.unwrap();
 
     expect![[r#"
@@ -485,7 +494,7 @@ fn env_overwrites_toml() {
         ));
 
     let (root, reader) = sample_config::Root::read(reader);
-    reader.finish().expect("config is valid");
+    reader.into_result().expect("config is valid");
 
     assert_eq!(root.unwrap().chain_id, "in env");
 }
@@ -505,7 +514,7 @@ fn multiple_env_parsing_errors() {
     ]));
 
     let (_, reader) = sample_config::Root::read(reader);
-    let report = reader.finish().expect_err("invalid config");
+    let report = reader.into_result().expect_err("invalid config");
 
     expect![[r#"
             Failed to read configuration
@@ -519,4 +528,45 @@ fn multiple_env_parsing_errors() {
              ╰▶ Error while reading `logger.level` parameter from `LOG_LEVEL` environment variable
                 │
                 ╰─▶ Matching variant not found"#]].assert_eq_report(&report);
+}
+
+#[test]
+fn alt_chain_id_is_not_recognised_in_file() {
+    let reader = ConfigReader::new().with_toml_source(TomlSource::new(
+        PathBuf::from("config.toml"),
+        toml! {
+            chain_id = "ok"
+            alt_chain_id = "in file"
+        },
+    ));
+
+    let (_, reader) = sample_config::Root::read(reader);
+    let report = reader.into_result().expect_err("invalid config");
+
+    expect![[r#"
+        Failed to read configuration
+        │
+        ├─▶ Errors occurred while reading from file
+        │   ╰╴in file `config.toml`
+        │
+        ╰─▶ Some parameters aren't recognised
+            ╰╴unknown parameter: `alt_chain_id`"#]]
+    .assert_eq_report(&report);
+}
+
+#[test]
+fn alt_chain_id_is_read_from_env() {
+    let reader = ConfigReader::new()
+        .with_env(MockEnv::from(vec![("ALT_CHAIN_ID", "in env")]))
+        .with_toml_source(TomlSource::new(
+            PathBuf::from("config.toml"),
+            toml! {
+                chain_id = "ok"
+            },
+        ));
+
+    let (root, reader) = sample_config::Root::read(reader);
+    reader.into_result().expect("config is valid");
+
+    assert_eq!(root.unwrap().alt_chain_id.unwrap(), "in env");
 }

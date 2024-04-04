@@ -2943,6 +2943,7 @@ dependencies = [
  "drop_bomb",
  "error-stack",
  "expect-test",
+ "iroha_config_base_derive",
  "log",
  "num-traits",
  "serde",
@@ -2950,6 +2951,20 @@ dependencies = [
  "strum 0.25.0",
  "thiserror",
  "toml 0.8.13",
+]
+
+[[package]]
+name = "iroha_config_base_derive"
+version = "2.0.0-pre-rc.20"
+dependencies = [
+ "darling",
+ "iroha_config_base",
+ "iroha_macro_utils",
+ "manyhow",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.41",
+ "trybuild",
 ]
 
 [[package]]

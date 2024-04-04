@@ -11,6 +11,8 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+iroha_config_base_derive = { workspace = true }
+
 drop_bomb = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true, features = ["macros", "std"] }

@@ -1,16 +1,18 @@
 //! Tools to work with file- and environment-based configuration.
 
-#![warn(missing_docs)]
+#![allow(missing_docs)]
+
+pub mod env;
+pub mod reader;
+pub mod toml;
+pub mod util;
 
 use std::{
     fmt::{Debug, Display, Formatter},
     path::PathBuf,
 };
 
-pub mod env;
-pub mod reader;
-pub mod toml;
-pub mod util;
+pub use iroha_config_base_derive::ReadConfig;
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct ParameterId {

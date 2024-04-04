@@ -1,0 +1,5 @@
+error: `nested` cannot be set with any other attributes
+ --> tests/ui_fail/nested_with_other_attrs.rs:5:14
+  |
+5 |     #[config(nested, env_only)]
+  |              ^^^^^^

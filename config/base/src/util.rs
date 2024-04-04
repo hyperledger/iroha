@@ -128,7 +128,7 @@ impl<C> Emitter<C> {
         }
     }
 
-    pub fn finish(mut self) -> error_stack::Result<(), C> {
+    pub fn into_result(mut self) -> error_stack::Result<(), C> {
         self.bomb.defuse();
         if let Some(report) = self.report {
             Err(report)

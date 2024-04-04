@@ -155,10 +155,21 @@ impl ConfigReader {
     where
         for<'de> T: Deserialize<'de>,
     {
-        let id = id.into();
-        let full_path: ParameterId = self.nesting.iter().chain(id.segments.iter()).into();
-        self.collect_parameter(&full_path);
-        ParameterReader::from_reader(self, full_path)
+        let id = self.full_id(id);
+        self.collect_parameter(&id);
+        ParameterReader::new(self, id).read_sources()
+    }
+
+    pub fn parameter_env<T>(
+        self,
+        id: impl Into<ParameterId>,
+        env_var: impl AsRef<str>,
+    ) -> ParameterReader<T>
+    where
+        T: FromEnvStr,
+    {
+        let id = self.full_id(id);
+        ParameterReader::new(self, id).env(env_var)
     }
 
     pub fn read_nested<T>(mut self, namespace: impl AsRef<str>) -> (OkAfterFinish<T>, Self)
@@ -171,7 +182,7 @@ impl ConfigReader {
         (value, reader)
     }
 
-    pub fn finish(mut self) -> Result<(), ReadConfigError> {
+    pub fn into_result(mut self) -> Result<(), ReadConfigError> {
         self.bomb.defuse();
         let mut emitter = Emitter::new();
 
@@ -205,7 +216,7 @@ impl ConfigReader {
                 local_emitter.emit(report);
             }
             let report = local_emitter
-                .finish()
+                .into_result()
                 .expect_err("there should be at least one error");
             emitter.emit(
                 report
@@ -221,12 +232,16 @@ impl ConfigReader {
                 local_emitter.emit(report);
             }
             let report = local_emitter
-                .finish()
+                .into_result()
                 .expect_err("there should be at least one error");
             emitter.emit(report.change_context(ReadConfigError::InEnvironment));
         }
 
-        emitter.finish().change_context(ReadConfigError::Root)
+        emitter.into_result().change_context(ReadConfigError::Root)
+    }
+
+    fn full_id(&self, id: impl Into<ParameterId>) -> ParameterId {
+        self.nesting.iter().chain(id.into().segments.iter()).into()
     }
 
     fn collect_deserialize_error<C: Context>(
@@ -270,46 +285,55 @@ pub struct ParameterReader<T> {
     errored: bool,
 }
 
+impl<T> ParameterReader<T> {
+    fn new(reader: ConfigReader, id: ParameterId) -> Self {
+        Self {
+            reader,
+            id,
+            value: None,
+            errored: false,
+        }
+    }
+}
+
 impl<T> ParameterReader<T>
 where
     for<'de> T: Deserialize<'de>,
 {
-    fn from_reader(mut reader: ConfigReader, id: ParameterId) -> Self {
+    fn read_sources(mut self) -> Self {
         // here we are reading from all the sources, overwriting, collecting deser errors,
         // and putting it all into the parameter reader for further processing
 
-        let mut final_value = None;
-        let mut errored = false;
-
         let mut deser_errors: Vec<_> = <_>::default();
 
-        for source in reader.sources.iter() {
-            if let Some(toml_value) = source.fetch(&id) {
+        for source in self.reader.sources.iter() {
+            if let Some(toml_value) = source.fetch(&self.id) {
                 let result: core::result::Result<T, _> = toml_value.try_into();
-                match (result, errored) {
+                match (result, self.errored) {
                     (Ok(value), false) => {
-                        if final_value.is_none() {
+                        if self.value.is_none() {
                             log::trace!(
                                 "found parameter `{}` in `{}`",
-                                id,
+                                self.id,
                                 source.path().display()
                             );
                         } else {
                             log::trace!(
                                 "overwriting parameter `{}` by value found in `{}`",
-                                id,
+                                self.id,
                                 source.path().display()
                             );
                         }
-                        final_value = Some(WithOrigin::new(
+                        self.value = Some(WithOrigin::new(
                             value,
-                            ParameterOrigin::file(id.clone(), source.path().clone()),
+                            ParameterOrigin::file(self.id.clone(), source.path().clone()),
                         ));
                     }
                     // we don't care if there was an error before
                     (Ok(_), true) => {}
                     (Err(error), _) => {
-                        errored = true;
+                        self.errored = true;
+                        self.value = None;
                         deser_errors.push((source.clone(), error));
                     }
                 }
@@ -317,15 +341,11 @@ where
         }
 
         for (source, error) in deser_errors {
-            reader.collect_deserialize_error(&source, &id, error.into());
+            self.reader
+                .collect_deserialize_error(&source, &self.id, error.into());
         }
 
-        Self {
-            reader,
-            id,
-            value: final_value,
-            errored,
-        }
+        self
     }
 }
 
@@ -412,6 +432,7 @@ impl<T> ParameterReader<T> {
 }
 
 impl<T: Default> ParameterReader<T> {
+    /// Equivalent of [`ParameterReader::value_or_else`] with [`Default::default`].
     pub fn value_or_default(self) -> ParameterWithValue<T> {
         self.value_or_else(Default::default)
     }
@@ -493,7 +514,10 @@ impl<T> ParameterWithValue<T, FinishRequired> {
     }
 }
 
-/// property: should unwrap ok after reader finishing ok
+/// A value that should be accessed only if overall configuration reading succeeded.
+///
+/// I.e. it is guaranteed that [`OkAfterFinish::unwrap`] will not panic after associated
+/// [`ConfigReader::into_result`] returns [`Ok`].
 pub enum OkAfterFinish<T> {
     Errored,
     Value(T),
@@ -518,7 +542,7 @@ impl<T> OkAfterFinish<T> {
 
     pub fn unwrap(self) -> T {
         match self {
-            Self::Errored => panic!("`OkAfterFinish::unwrap` is supposed to be called only after `ConfigReader::finish` returns OK; it is probably a bug"),
+            Self::Errored => panic!("`OkAfterFinish::unwrap` is supposed to be called only after `ConfigReader::into_result` returns OK; it is probably a bug"),
             Self::Value(value) => value,
             Self::ValueFn(fun) => fun()
         }
