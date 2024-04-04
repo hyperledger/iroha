@@ -274,7 +274,7 @@ mod ast {
 
                                     // parsing default as expr
 
-                                    let Some((lit, next)) = cursor.literal() else {
+                                    let Some((lit, next)) = next.literal() else {
                                         Err(LocalError::BadDefaultFormat(ident.span()))?
                                     };
 
@@ -379,6 +379,67 @@ mod ast {
             todo!()
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use syn::parse_quote;
+
+        use super::*;
+
+        #[test]
+        fn parse_default() {
+            let attrs: Attrs = syn::parse_quote!(default);
+
+            assert!(matches!(
+                attrs,
+                Attrs::Parameter {
+                    default: AttrDefault::Word,
+                    env: AttrEnv::None
+                }
+            ));
+        }
+
+        #[test]
+        fn parse_default_with_expr() {
+            let attrs: Attrs = syn::parse_quote!(default = "42 + 411");
+
+            assert!(matches!(
+                attrs,
+                Attrs::Parameter {
+                    default: AttrDefault::Expr(_),
+                    env: AttrEnv::None
+                }
+            ));
+        }
+
+        #[test]
+        fn parse_default_env_env_only() {
+            let attrs: Attrs = syn::parse_quote!(default, env = "$!@#", env_only);
+
+            let Attrs::Parameter {
+                default: AttrDefault::Word,
+                env: AttrEnv::Env { var, only: true },
+            } = attrs
+            else {
+                panic!("expectation failed")
+            };
+            assert_eq!(var.value().trim_matches('"'), "$!@#");
+        }
+
+        #[test]
+        #[should_panic(
+            expected = "attribute is not compatible with `nested` attribute set previously"
+        )]
+        fn conflict_env() {
+            let _: Attrs = syn::parse_quote!(nested, default);
+        }
+
+        #[test]
+        #[should_panic(expected = "duplicate attribute")]
+        fn duplicates() {
+            let _: Attrs = syn::parse_quote!(default, default);
+        }
+    }
 }
 
 /// Generating code based on [`model`]
@@ -451,23 +512,5 @@ mod codegen {
         OrElse(syn::Expr),
         OrDefault,
         Optional,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use syn::parse_quote;
-
-    use super::*;
-
-    #[test]
-    fn playground() {
-        let parsed = Input::from_derive_input(&parse_quote! {
-            struct Test {
-                #[config(env)]
-                foo: u64
-            }
-        })
-        .expect("be fine");
     }
 }
