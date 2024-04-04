@@ -134,10 +134,10 @@ mod ast {
         fn into_codegen(self, emitter: &mut Emitter) -> codegen::Entry {
             let Field { ident, ty, attrs } = self;
 
-            match attrs {
-                Attrs::Nested => codegen::Entry::Nested { ident },
+            let kind = match attrs {
+                Attrs::Nested => codegen::EntryKind::Nested,
                 Attrs::Parameter { default, env } => {
-                    let shape = ParameterTypeShape::parse(&ty);
+                    let shape = ParameterTypeShape::analyze(&ty);
                     let evaluation = match (shape.option, default) {
                         (false, AttrDefault::None) => codegen::Evaluation::Required,
                         (false, AttrDefault::Expr(expr)) => codegen::Evaluation::OrElse(expr),
@@ -159,14 +159,15 @@ mod ast {
                         }
                     };
 
-                    codegen::Entry::Parameter {
-                        ident,
+                    codegen::EntryKind::Parameter {
                         parse,
                         evaluation,
                         with_origin,
                     }
                 }
-            }
+            };
+
+            codegen::Entry { ident, kind }
         }
     }
 
@@ -369,14 +370,76 @@ mod ast {
         }
     }
 
+    #[derive(Debug, PartialEq)]
     struct ParameterTypeShape {
-        with_origin: bool,
         option: bool,
+        with_origin: bool,
     }
 
     impl ParameterTypeShape {
-        fn parse(ty: &syn::Type) -> Self {
-            todo!()
+        fn analyze(ty: &syn::Type) -> Self {
+            #[derive(Debug)]
+            enum Token {
+                Option,
+                WithOrigin,
+                Unknown,
+            }
+
+            fn parse_tokens(ty: &syn::Type, depth: u8) -> Vec<Token> {
+                if depth == 0 {
+                    return vec![];
+                }
+
+                let mut found = None;
+
+                if let syn::Type::Path(type_path) = ty {
+                    if let Some(last_segment) = type_path.path.segments.last() {
+                        match &last_segment.arguments {
+                            syn::PathArguments::AngleBracketed(args) if args.args.len() == 1 => {
+                                let Some(first) = args.args.first() else {
+                                    unreachable!()
+                                };
+                                if let syn::GenericArgument::Type(ty) = first {
+                                    found = Some((Some(ty), &last_segment.ident));
+                                }
+                            }
+                            syn::PathArguments::None => found = Some((None, &last_segment.ident)),
+                            _ => {}
+                        }
+                    }
+                }
+
+                if let Some((next, ident)) = found {
+                    let token = match ident.to_string().as_ref() {
+                        "Option" => Token::Option,
+                        "WithOrigin" => Token::WithOrigin,
+                        _ => Token::Unknown,
+                    };
+
+                    let mut chain = vec![token];
+
+                    if let Some(next) = next {
+                        chain.extend(parse_tokens(next, depth - 1));
+                    }
+                    chain
+                } else {
+                    vec![]
+                }
+            }
+
+            let chain = parse_tokens(ty, 3);
+
+            let (option, with_origin) = match (chain.get(0), chain.get(1)) {
+                (Some(Token::Option), Some(Token::WithOrigin)) => (true, true),
+                (Some(Token::Option), Some(_)) => (true, false),
+                (Some(Token::WithOrigin), _) => (false, true),
+                _ => (false, false),
+            };
+
+            Self {
+                option,
+                with_origin,
+            }
         }
     }
 
@@ -439,12 +502,37 @@ mod ast {
         fn duplicates() {
             let _: Attrs = syn::parse_quote!(default, default);
         }
+
+        #[test]
+        fn determine_shapes() {
+            macro_rules! case {
+                ($input:ty, $option:literal, $with_origin:literal) => {
+                    let ty: syn::Type = syn::parse_quote!($input);
+                    let shape = ParameterTypeShape::analyze(&ty);
+                    assert_eq!(
+                        shape,
+                        ParameterTypeShape {
+                            option: $option,
+                            with_origin: $with_origin
+                        }
+                    );
+                };
+            }
+
+            case!(Something, false, false);
+            case!(Option<Something>, true, false);
+            case!(Option<WithOrigin<Something>>, true, true);
+            case!(WithOrigin<Something>, false, true);
+            case!(WithOrigin<Option<Something>>, false, true);
+            case!(Option<Option<WithOrigin<Something>>>, true, false);
+        }
     }
 }
 
 /// Generating code based on [`model`]
 mod codegen {
     use proc_macro2::TokenStream;
+    use quote::quote;
 
     pub struct Ir {
         /// The type we are implementing `ReadConfig` for
@@ -454,57 +542,97 @@ mod codegen {
 
     impl Ir {
         pub fn generate(self) -> TokenStream {
-            todo!()
+            let (read_fields, unwrap_fields): (Vec<_>, Vec<_>) = self
+                .entries
+                .into_iter()
+                .map(|Entry { ident, kind }| {
+                    let read = match kind {
+                        EntryKind::Nested => quote! { let (#ident, __reader) = __reader.nested([stringify!(#ident)]); },
+                        EntryKind::Parameter {
+                            parse,
+                            evaluation,
+                            with_origin,
+                        } => {
+                            let mut read = quote! {
+                                let (#ident, __reader) = __reader
+                            };
+                            read.extend(
+                                match parse {
+                                    ParseParameter::FileOnly => {
+                                        quote! { .parameter([stringify!(#ident)]) }
+                                    }
+                                    ParseParameter::FileAndEnv { var } => {
+                                        quote! {
+                                            .parameter([stringify!(#ident)])
+                                            .env(#var)
+                                        }
+                                    }
+                                    ParseParameter::EnvOnly { var }=> {
+                                        quote! { .parameter_env(#var) }
+                                    }
+                                }
+
+                            );
+                            read.extend(match evaluation {
+                                Evaluation::Required => quote! { .value_required() },
+                                Evaluation::OrElse(expr) => quote! { .value_or_else(|| #expr) },
+                                Evaluation::OrDefault => quote! { .value_or_default() },
+                                Evaluation::Optional => quote! { .value_optional() }
+                            });
+                            read.extend(if with_origin { quote! { .finish_with_origin(); } } else { quote! { .finish(); } });
+                            read
+                        }
+                    };
+
+                    (read, quote! { #ident: #ident.unwrap() })
+                })
+                .unzip();
+
+            let ident = self.ident;
+
+            quote! {
+                impl ::iroha_config_base::reader::ReadConfig for #ident {
+                    fn read(
+                        __reader: ::iroha_config_base::reader::ConfigReader
+                    ) -> (
+                        ::iroha_config_base::reader::OkAfterFinish<Self>,
+                        ::iroha_config_base::reader::ConfigReader
+                    )
+                    where
+                        Self: Sized,
+                    {
+                        #(#read_fields)*
+
+                        (
+                            ::iroha_config_base::reader::OkAfterFinish::value_fn(|| Self {
+                                #(#unwrap_fields)*
+                            }),
+                            __reader
+                        )
+                    }
+                }
+            }
         }
     }
 
-    pub enum Entry {
+    pub struct Entry {
+        pub ident: syn::Ident,
+        pub kind: EntryKind,
+    }
+
+    pub enum EntryKind {
         Parameter {
-            ident: syn::Ident,
-            // ty: syn::Type,
             parse: ParseParameter,
             evaluation: Evaluation,
             with_origin: bool,
         },
-        Nested {
-            ident: syn::Ident,
-            // ty: syn::Type,
-        },
+        Nested,
     }
 
     pub enum ParseParameter {
         FileOnly,
         FileAndEnv { var: syn::LitStr },
         EnvOnly { var: syn::LitStr },
-    }
-
-    impl Entry {
-        fn bounds(&self) {
-            match self {
-                Self::Parameter {
-                    parse, evaluation, ..
-                } => {
-                    if let Evaluation::OrDefault = evaluation {
-                        // Default
-                    }
-
-                    match parse {
-                        ParseParameter::FileOnly => {
-                            // Deserialize
-                        }
-                        ParseParameter::FileAndEnv { .. } => {
-                            // Deserialize, FromEnvStr
-                        }
-                        ParseParameter::EnvOnly { .. } => {
-                            // FromEnvStr
-                        }
-                    }
-                }
-                Self::Nested { .. } => {
-                    // ReadConfig
-                }
-            }
-        }
     }
 
     pub enum Evaluation {
