@@ -117,6 +117,9 @@ enum Subcommand {
     Blocks(blocks::Args),
     /// The subcommand related to multi-instructions as Json or Json5
     Json(json::Args),
+    /// The subcommand related to public keys
+    #[clap(subcommand)]
+    Key(key::Args),
 }
 
 /// Context inside which command is executed
@@ -172,7 +175,7 @@ macro_rules! match_all {
 impl RunArgs for Subcommand {
     fn run(self, context: &mut dyn RunContext) -> Result<()> {
         use Subcommand::*;
-        match_all!((self, context), { Domain, Account, Asset, Peer, Events, Wasm, Blocks, Json })
+        match_all!((self, context), { Domain, Account, Asset, Peer, Events, Wasm, Blocks, Json, Key })
     }
 }
 
@@ -796,13 +799,13 @@ mod asset {
         }
     }
 
-    /// Command for minting asset in existing Iroha account
+    /// Command for burning asset in existing Iroha account
     #[derive(clap::Args, Debug)]
     pub struct Burn {
         /// Asset id for the asset (in form of `asset##account@domain_name`)
         #[arg(long)]
         pub asset_id: AssetId,
-        /// Quantity to mint
+        /// Quantity to burn
         #[arg(short, long)]
         pub quantity: Numeric,
         #[command(flatten)]
@@ -1100,6 +1103,44 @@ mod json {
         }
     }
 }
+
+mod key {
+    use super::*;
+
+    /// Arguments for the public key subcommand
+    #[derive(clap::Subcommand, Debug)]
+    pub enum Args {
+        /// Burn a public key from an account
+        Burn(Burn),
+    }
+
+    impl RunArgs for Args {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all!((self, context), { Args::Burn })
+        }
+    }
+
+    /// Command for burning a public key from an existing account
+    #[derive(clap::Args, Debug)]
+    pub struct Burn {
+        /// Account from which to burn the public key (in the format `name@domain_name')
+        #[arg(long)]
+        pub account: AccountId,
+        /// Public key to be burned
+        #[arg(short, long)]
+        pub key: PublicKey,
+    }
+
+    impl RunArgs for Burn {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let burn_public_key =
+                iroha_client::data_model::isi::Burn::account_public_key(self.key, self.account);
+            submit([burn_public_key], UnlimitedMetadata::new(), context)
+                .wrap_err("Failed to burn public key")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
