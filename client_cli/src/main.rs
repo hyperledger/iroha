@@ -517,6 +517,8 @@ mod account {
         Grant(Grant),
         /// List all account permissions
         ListPermissions(ListPermissions),
+        /// Add new signatory to the account
+        AddSignatory(AddSignatory),
     }
 
     impl RunArgs for Args {
@@ -527,6 +529,7 @@ mod account {
                 Args::List,
                 Args::Grant,
                 Args::ListPermissions,
+                Args::AddSignatory,
             })
         }
     }
@@ -693,6 +696,26 @@ mod account {
                 .wrap_err("Failed to get all account permissions")?;
             context.print_data(&permissions.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
+        }
+    }
+
+    /// Add new signatory to account
+    #[derive(clap::Args, Debug)]
+    pub struct AddSignatory {
+        /// Account id in the format `name@domain_name'
+        #[arg(short, long)]
+        pub id: AccountId,
+        /// Public key of the signatory
+        #[arg(short, long)]
+        pub key: PublicKey,
+    }
+
+    impl RunArgs for AddSignatory {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let mint_public_key =
+                iroha_client::data_model::isi::Mint::account_public_key(self.key, self.id);
+            submit([mint_public_key], UnlimitedMetadata::new(), context)
+                .wrap_err("Failed to add the signatory to the account")
         }
     }
 }
@@ -1124,7 +1147,7 @@ mod key {
     #[derive(clap::Args, Debug)]
     pub struct Burn {
         /// Account from which to burn the public key (in the format `name@domain_name')
-        #[arg(long)]
+        #[arg(short, long)]
         pub account: AccountId,
         /// Public key to be burned
         #[arg(short, long)]
