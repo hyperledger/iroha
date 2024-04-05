@@ -31,11 +31,14 @@ fn generate_genesis(num_domains: u32) -> (RawGenesisBlock, KeyPair) {
             .finish_domain();
     }
 
-    (builder
-        .executor_blob(
-            construct_executor("../default_executor").expect("Failed to construct executor"),
-        )
-        .build(), key_pair)
+    (
+        builder
+            .executor_blob(
+                construct_executor("../default_executor").expect("Failed to construct executor"),
+            )
+            .build(),
+        key_pair,
+    )
 }
 
 fn main_genesis() {
@@ -49,11 +52,7 @@ fn main_genesis() {
     );
     let rt = Runtime::test();
     let (genesis, key_pair) = generate_genesis(1_000_000_u32);
-    let genesis = GenesisNetwork::new(
-        genesis,
-        &chain_id,
-        &key_pair
-    );
+    let genesis = GenesisNetwork::new(genesis, &chain_id, &key_pair);
 
     let builder = PeerBuilder::new()
         .with_into_genesis(genesis)

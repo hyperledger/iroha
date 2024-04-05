@@ -321,6 +321,29 @@ impl SignedTransaction {
 }
 
 #[cfg(feature = "transparent_api")]
+impl TryFrom<(SignaturesOf<TransactionPayload>, TransactionPayload)> for SignedTransaction {
+    type Error = &'static str;
+
+    fn try_from(
+        value: (SignaturesOf<TransactionPayload>, TransactionPayload),
+    ) -> Result<Self, Self::Error> {
+        let (signatures, payload) = value;
+        if let Executable::Instructions(isi) = &payload.instructions {
+            if isi.is_empty() {
+                return Err("Transaction is empty");
+            }
+        }
+        signatures
+            .verify(&payload)
+            .map_err(|_| "Transaction contains invalid signatures")?;
+        Ok(SignedTransaction::V1(SignedTransactionV1 {
+            signatures,
+            payload,
+        }))
+    }
+}
+
+#[cfg(feature = "transparent_api")]
 impl From<SignedTransaction> for (AccountId, Executable) {
     fn from(source: SignedTransaction) -> Self {
         let SignedTransaction::V1(tx) = source;

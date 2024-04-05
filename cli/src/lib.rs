@@ -28,7 +28,7 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
+use iroha_genesis::{GenesisNetwork, RawGenesisBlock, SignedGenesisConfig};
 use iroha_logger::{actor::LoggerHandle, InitConfig as LoggerInitConfig};
 use iroha_torii::Torii;
 use tokio::{
@@ -505,10 +505,17 @@ pub fn read_config_and_genesis(
     )
     .wrap_err("failed to load configuration")?;
 
-    let genesis = if let Genesis::Full { public_key: _, file } = &config.genesis {
-        let signed_json_block = fs::read(file)?;
+    let genesis = if let Genesis::Full {
+        public_key: _,
+        file,
+        encoded_config: encoded_genesis_config,
+    } = &config.genesis
+    {
+        let raw_genesis = RawGenesisBlock::from_path(file)?;
 
-        Some(serde_json::from_slice(signed_json_block.as_slice())?)
+        let signed_genesis_config = SignedGenesisConfig::from_hex_string(encoded_genesis_config)?;
+
+        Some(signed_genesis_config.validate(raw_genesis)?)
     } else {
         None
     };

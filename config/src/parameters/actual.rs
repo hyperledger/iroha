@@ -102,8 +102,10 @@ pub enum Genesis {
     Full {
         /// Genesis account public key
         public_key: PublicKey,
-        /// Path to the signed genesis block
+        /// Path to the genesis file
         file: PathBuf,
+        /// Hex-encoded genesis config
+        encoded_config: String,
     },
 }
 
@@ -111,8 +113,7 @@ impl Genesis {
     /// Access the public key, which is always present in the genesis config
     pub fn public_key(&self) -> &PublicKey {
         match self {
-            Self::Partial { public_key } => public_key,
-            Self::Full { public_key, .. } => public_key,
+            Self::Full { public_key, .. } | Self::Partial { public_key } => public_key,
         }
     }
 }

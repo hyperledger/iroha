@@ -346,43 +346,31 @@ pub(crate) fn private_key_from_env<E: Error>(
 pub struct Genesis {
     pub public_key: PublicKey,
     pub file: Option<PathBuf>,
+    pub encoded_config: Option<String>,
 }
 
 impl Genesis {
-    // fn parse(self, cli: CliContext) -> actual::Genesis {
-    //     match self.file {
-    //         None => actual::Genesis::Partial {
-    //             public_key: self.public_key,
-    //         },
-    //         Some(file) => actual::Genesis::Full {
-    //             public_key: self.public_key,
-    //             file,
-    //         },
-    //         // (Some(_), Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit),
-    //         // (None, None, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
-    //         // _ => Err(GenesisConfigError::Inconsistent),
-    //     }
-    // }
     fn parse(self, cli: CliContext) -> Result<actual::Genesis, GenesisConfigError> {
-        match (self.file, cli.submit_genesis) {
-            (None, false) => Ok(actual::Genesis::Partial {
+        match (self.file, self.encoded_config, cli.submit_genesis) {
+            (None, None, false) => Ok(actual::Genesis::Partial {
                 public_key: self.public_key,
             }),
-            (Some(file), true) => Ok(actual::Genesis::Full {
+            (Some(file), Some(encoded_config), true) => Ok(actual::Genesis::Full {
                 public_key: self.public_key,
                 file,
+                encoded_config,
             }),
-            (Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit),
-            (None, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
+            (_, _, false) => Err(GenesisConfigError::GenesisWithoutSubmit),
+            (_, _, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
         }
     }
 }
 
-#[derive(Debug, displaydoc::Display, thiserror::Error)]
+#[derive(Copy, Clone, Debug, displaydoc::Display, thiserror::Error)]
 pub enum GenesisConfigError {
     ///  `genesis.file` and `genesis.public_key` are presented, but `--submit-genesis` was not set
     GenesisWithoutSubmit,
-    ///  `--submit-genesis` was set, but `genesis.file` and `genesis.public_key` are not presented
+    ///  `--submit-genesis` was set, but `genesis.file`, `genesis.public_key` and `genesis.encoded_config` are not presented
     SubmitWithoutGenesis,
 }
 

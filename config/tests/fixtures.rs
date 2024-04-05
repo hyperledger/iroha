@@ -9,7 +9,7 @@ use std::{
 use eyre::Result;
 use iroha_config::parameters::{
     actual::{Genesis, Root},
-    user::RootPartial,
+    user::{CliContext, RootPartial},
 };
 use iroha_config_base::{FromEnv, TestEnv, UnwrapPartial as _};
 
@@ -188,9 +188,7 @@ fn config_with_genesis() -> Result<()> {
     Ok(())
 }
 
-// TODO: Verify
 #[test]
-#[ignore = "--submit-genesis was removed, more in #4225"]
 fn minimal_with_genesis_but_no_cli_arg_fails() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("minimal_alone_with_genesis.toml"))?
         .unwrap_partial()?
@@ -208,7 +206,6 @@ fn minimal_with_genesis_but_no_cli_arg_fails() -> Result<()> {
 }
 
 #[test]
-#[ignore = "--submit-genesis was removed, more in #4225"]
 fn minimal_without_genesis_but_with_submit_fails() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("minimal_with_trusted_peers.toml"))?
         .unwrap_partial()?
@@ -269,7 +266,6 @@ fn extra_fields() {
 }
 
 #[test]
-#[ignore = "temporarily, more in #4225"]
 fn inconsistent_genesis_config() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("inconsistent_genesis.toml"))?
         .unwrap_partial()

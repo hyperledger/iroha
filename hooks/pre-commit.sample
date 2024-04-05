@@ -5,5 +5,5 @@ cargo +nightly lints clippy --workspace --benches --tests --examples --all-featu
 cargo run --bin kagami -- genesis >configs/swarm/genesis.json
 cargo run --bin kagami -- schema >docs/source/references/schema.json
 cargo run --bin kagami -- crypto generate-key-pair -j >configs/swarm/keypair.json
-cargo run --bin kagami -- crypto sign-transaction --keypair-file configs/swarm/keypair.json --genesis-file configs/swarm/genesis.json --chain-id 00000000-0000-0000-0000-000000000000 --out-file configs/swarm/signed_genesis.json
-git add configs/peer/genesis.json configs/swarm/keypair.json configs/swarm/signed_genesis.json docs/source/references/schema.json
+cargo run --bin kagami -- crypto sign-transaction --keypair-file configs/swarm/keypair.json --genesis-file configs/swarm/genesis.json --chain-id 00000000-0000-0000-0000-000000000000 --out-file configs/swarm/signed_genesis.txt
+git add configs/peer/genesis.json configs/swarm/keypair.json configs/swarm/signed_genesis.txt docs/source/references/schema.json

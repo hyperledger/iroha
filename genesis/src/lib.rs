@@ -9,12 +9,16 @@ use std::{
 };
 
 use eyre::{eyre, Report, Result, WrapErr};
-use iroha_crypto::{KeyPair, PublicKey};
+use iroha_crypto::{KeyPair, PublicKey, SignaturesOf};
 use iroha_data_model::{
-    asset::{AssetDefinition, AssetValueType}, executor::Executor, prelude::{Metadata, *}, ChainId
+    asset::{AssetDefinition, AssetValueType},
+    executor::Executor,
+    prelude::{Metadata, *},
+    transaction::TransactionPayload,
+    ChainId,
 };
-use parity_scale_codec::{Decode, Encode};
 use once_cell::sync::Lazy;
+use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 /// [`DomainId`] of the genesis account.
@@ -28,6 +32,75 @@ pub static GENESIS_ACCOUNT_ID: Lazy<AccountId> =
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 #[repr(transparent)]
 pub struct GenesisTransaction(pub SignedTransaction);
+
+impl GenesisTransaction {
+    /// Construct single genesis transaction with [`Executor`] and transactions unified under a single transaction
+    pub fn new_unified(
+        raw_block: RawGenesisBlock,
+        chain_id: &ChainId,
+        genesis_key_pair: &KeyPair,
+    ) -> GenesisTransaction {
+        Self(raw_block.unify().sign(chain_id.clone(), genesis_key_pair))
+    }
+}
+
+/// [`SignedGenesisConfig`] contains data that is used for loading signed genesis from config.
+#[derive(Debug, Clone, Deserialize, Serialize, Decode, Encode)]
+pub struct SignedGenesisConfig {
+    chain_id: ChainId,
+    creation_time_ms: u64,
+    signatures: SignaturesOf<TransactionPayload>,
+}
+
+impl SignedGenesisConfig {
+    /// Create [`SignedGenesisConfig`] from it's components
+    pub fn new(
+        chain_id: ChainId,
+        creation_time_ms: u64,
+        signatures: SignaturesOf<TransactionPayload>,
+    ) -> Self {
+        Self {
+            chain_id,
+            creation_time_ms,
+            signatures,
+        }
+    }
+
+    /// Checks that [`SignedGenesisConfig`] corresponds to [`RawGenesisBlock`] and produces [`GenesisNetwork`] if it does.
+    /// # Errors
+    /// Fails if [`RawGenesisBlock`] does not correspond to [`SignedGenesisConfig`] and it was unable to verify it's integrity
+    pub fn validate(self, genesis_block: RawGenesisBlock) -> Result<GenesisNetwork> {
+        let payload = TransactionPayload {
+            chain_id: self.chain_id,
+            creation_time_ms: self.creation_time_ms,
+            authority: GENESIS_ACCOUNT_ID.clone(),
+            instructions: Executable::Instructions(genesis_block.unify().isi),
+            time_to_live_ms: None,
+            nonce: None,
+            metadata: UnlimitedMetadata::new(),
+        };
+
+        let tmp = SignedTransaction::try_from((self.signatures, payload))
+            .map_err(|_| eyre!("Failed to"))?;
+        Ok(GenesisNetwork {
+            transactions: Vec::from([GenesisTransaction(tmp)]),
+        })
+    }
+
+    /// Serialize self to hex string
+    pub fn to_hex_string(&self) -> String {
+        hex::encode(self.encode())
+    }
+
+    /// Deserialize [`SignedGenesisConfig`] from hex representation
+    /// # Errors
+    /// Fails if it cannot either decode hex string or decode scale-encoded bytes
+    pub fn from_hex_string<S: AsRef<[u8]>>(hex: &S) -> Result<Self> {
+        let decoded_hex = hex::decode(hex).map_err(|_| eyre!("Failed to decode hex string"))?;
+        Decode::decode(&mut decoded_hex.as_slice())
+            .map_err(|_| eyre!("Failed to decode scale-encoded data"))
+    }
+}
 
 /// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
@@ -44,31 +117,12 @@ impl GenesisNetwork {
         chain_id: &ChainId,
         genesis_key_pair: &KeyPair,
     ) -> GenesisNetwork {
-        Self::new_with_executor_and_txs(raw_block.executor, raw_block.transactions, chain_id, genesis_key_pair)
-    }
-
-    /// Construct from configuration with only [`Executor`] from genesis block
-    pub fn new_without_transactions(
-        raw_block: RawGenesisBlock,
-        chain_id: &ChainId,
-        genesis_key_pair: &KeyPair,
-    ) -> GenesisNetwork {
-        Self::new_with_executor_and_txs(raw_block.executor, Vec::new(), chain_id, genesis_key_pair)
-    }
-
-    /// Construct from configuration with explicit separation between [`Executor`] and transactions
-    fn new_with_executor_and_txs(
-        executor: Executor,
-        transactions: Vec<GenesisTransactionBuilder>,
-        chain_id: &ChainId,
-        genesis_key_pair: &KeyPair,
-    ) -> GenesisNetwork {
         // The first instruction should be Executor upgrade.
         // This makes it possible to grant permissions to users in genesis.
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
-            isi: vec![Upgrade::new(executor).into()],
+            isi: vec![Upgrade::new(raw_block.executor).into()],
         })
-        .chain(transactions);
+        .chain(raw_block.transactions);
 
         let transactions = transactions_iter
             .map(|raw_transaction| raw_transaction.sign(chain_id.clone(), genesis_key_pair))
@@ -102,6 +156,14 @@ impl RawGenesisBlock {
     /// Refer to the original method
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         RawGenesisBlockFile::from_path(path)?.try_into()
+    }
+
+    fn unify(self) -> GenesisTransactionBuilder {
+        let mut unified_tx = GenesisTransactionBuilder {
+            isi: vec![Upgrade::new(self.executor).into()],
+        };
+        unified_tx.extend_instructions(self.transactions.iter().flat_map(|v| v.isi.clone()));
+        unified_tx
     }
 }
 
@@ -190,8 +252,16 @@ impl GenesisTransactionBuilder {
     }
 
     /// Add new instruction to the transaction.
-    pub fn append_instruction(&mut self, instruction: InstructionBox) {
+    pub fn push_instruction(&mut self, instruction: InstructionBox) {
         self.isi.push(instruction);
+    }
+
+    /// Add new instructions to the transaction
+    pub fn extend_instructions<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = InstructionBox>,
+    {
+        self.isi.extend(iter)
     }
 }
 

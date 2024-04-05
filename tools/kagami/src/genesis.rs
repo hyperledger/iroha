@@ -183,7 +183,7 @@ pub fn generate_default(
     .chain(parameter_defaults.into_iter())
     .chain(std::iter::once(register_user_metadata_access))
     {
-        first_tx.append_instruction(isi);
+        first_tx.push_instruction(isi);
     }
 
     Ok(genesis)
@@ -204,13 +204,12 @@ fn generate_synthetic(
 
     for domain in 0..domains {
         let domain_id: DomainId = format!("domain_{domain}").parse()?;
-        first_transaction
-            .append_instruction(Register::domain(Domain::new(domain_id.clone())).into());
+        first_transaction.push_instruction(Register::domain(Domain::new(domain_id.clone())).into());
 
         for account in 0..accounts_per_domain {
             let (public_key, _) = iroha_crypto::KeyPair::random().into_parts();
             let account_id: AccountId = format!("account_{account}@{domain_id}").parse()?;
-            first_transaction.append_instruction(
+            first_transaction.push_instruction(
                 Register::account(Account::new(account_id.clone(), public_key)).into(),
             );
         }
@@ -218,7 +217,7 @@ fn generate_synthetic(
         for asset in 0..assets_per_domain {
             let asset_definition_id: AssetDefinitionId =
                 format!("asset_{asset}#{domain_id}").parse()?;
-            first_transaction.append_instruction(
+            first_transaction.push_instruction(
                 Register::asset_definition(AssetDefinition::new(
                     asset_definition_id,
                     AssetValueType::Numeric(NumericSpec::default()),
@@ -241,7 +240,7 @@ fn generate_synthetic(
                     ),
                 )
                 .into();
-                first_transaction.append_instruction(mint);
+                first_transaction.push_instruction(mint);
             }
         }
     }

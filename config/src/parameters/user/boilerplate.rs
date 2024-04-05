@@ -190,6 +190,7 @@ impl FromEnv for RootPartial {
 pub struct GenesisPartial {
     pub public_key: UserField<PublicKey>,
     pub file: UserField<PathBuf>,
+    pub encoded_config: UserField<String>,
 }
 
 impl UnwrapPartial for GenesisPartial {
@@ -203,9 +204,12 @@ impl UnwrapPartial for GenesisPartial {
 
         let file = self.file.get();
 
+        let encoded_config = self.encoded_config.get();
+
         Ok(Genesis {
             public_key,
             file,
+            encoded_config,
         })
     }
 }
@@ -228,11 +232,20 @@ impl FromEnv for GenesisPartial {
         let file =
             ParseEnvResult::parse_simple(&mut emitter, env, "GENESIS_FILE", "genesis.file").into();
 
+        let encoded_config = ParseEnvResult::parse_simple(
+            &mut emitter,
+            env,
+            "ENCODED_CONFIG",
+            "genesis.encoded_config",
+        )
+        .into();
+
         emitter.finish()?;
 
         Ok(Self {
             public_key,
             file,
+            encoded_config,
         })
     }
 }

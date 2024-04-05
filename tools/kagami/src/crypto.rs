@@ -10,7 +10,7 @@ use color_eyre::{
 };
 use iroha_crypto::{Algorithm, KeyPair, PrivateKey};
 use iroha_data_model::ChainId;
-use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
+use iroha_genesis::{GenesisTransaction, RawGenesisBlock, SignedGenesisConfig};
 use parity_scale_codec::Encode;
 
 use super::*;
@@ -53,9 +53,9 @@ pub struct SignGenesisArgs {
     /// Path to genesis json file
     #[clap(long, short)]
     genesis_file: PathBuf,
-    /// Output signed genesis block in JSON format
-    #[clap(long, short, default_value_t = true, group = "format")]
-    json: bool,
+    /// Output signed genesis config as a hex string
+    #[clap(long, default_value_t = true, group = "format")]
+    hex: bool,
     /// Encode signed genesis block with SCALE (it is only supported with file output)
     #[clap(long, short, default_value_t = false, group = "format")]
     scale: bool,
@@ -151,26 +151,32 @@ impl<T: Write> RunArgs<T> for SignGenesisArgs {
         };
 
         let genesis_block = RawGenesisBlock::from_path(&self.genesis_file)?;
-        let genesis_network = GenesisNetwork::new_without_transactions(genesis_block, &self.chain_id, &key_pair);
+        let genesis_tx =
+            GenesisTransaction::new_unified(genesis_block, &self.chain_id, &key_pair).0;
+        let signed_genesis_config = SignedGenesisConfig::new(
+            genesis_tx.chain_id().clone(),
+            genesis_tx.creation_time().as_millis().try_into()?,
+            genesis_tx.signatures().clone(),
+        )
+        .to_hex_string();
 
-        let encoded_genesis_network = if self.scale {
-            genesis_network.encode()
+        let encoded_genesis_config = if self.scale {
+            signed_genesis_config.encode()
         } else {
             Vec::default()
         };
 
-        let json_genesis_network = if self.json {
-            serde_json::to_string_pretty(&genesis_network)
-                .wrap_err("Failed to serialise genesis network to JSON.")?
+        let hex_genesis_config = if self.hex {
+            signed_genesis_config
         } else {
             String::default()
         };
 
         if let Some(path) = self.out_file {
             if self.scale {
-                fs::write(&path, encoded_genesis_network)?;
+                fs::write(&path, encoded_genesis_config)?;
             } else {
-                fs::write(&path, json_genesis_network)?;
+                fs::write(&path, hex_genesis_config)?;
             }
 
             writeln!(
@@ -184,7 +190,7 @@ impl<T: Write> RunArgs<T> for SignGenesisArgs {
                 "SCALE encoded data is not supported for console outputs."
             )?;
         } else {
-            writeln!(writer, "{json_genesis_network}")?;
+            writeln!(writer, "{hex_genesis_config}")?;
         }
 
         Ok(())
@@ -290,7 +296,6 @@ impl GenerateKeyPairArgs {
 #[cfg(test)]
 mod tests {
     // use iroha_data_model::transaction::{SignedTransactionV1, TransactionPayload};
-    use parity_scale_codec::Decode;
 
     use super::*;
 
@@ -304,8 +309,6 @@ mod tests {
 
     const GENESIS_JSON_PATH: &str = "../../configs/swarm/genesis.json";
     const GEN_KEYPAIR_JSON_PATH: &str = "test_keypair_path_for_crypt0_genesis_kagami.json";
-    const GEN_SIGNED_ENCODED_GENESIS_PATH: &str =
-        "test_signed_encoded_genesis_path_for_crypt0_genesis_kagami";
 
     fn genesis_signing_works() -> Result<bool> {
         let keypair_config = GenerateKeyPairArgs {
@@ -332,45 +335,47 @@ mod tests {
             keypair_file: Some(PathBuf::from_str(GEN_KEYPAIR_JSON_PATH)?),
             chain_id: chain_id.clone(),
             genesis_file: PathBuf::from_str(GENESIS_JSON_PATH)?,
-            out_file: Some(PathBuf::from_str(GEN_SIGNED_ENCODED_GENESIS_PATH)?),
-            scale: true,
-            json: false,
+            out_file: None,
+            scale: false,
+            hex: true,
         };
 
         let mut genesis_buf_writer = BufWriter::new(Vec::new());
 
         crypto_genesis_config.run(&mut genesis_buf_writer)?;
 
+        let mut encoded_genesis_config = genesis_buf_writer.buffer().to_owned();
+        encoded_genesis_config.pop();
+
+        let decoded_signed_genesis_config =
+            SignedGenesisConfig::from_hex_string(&encoded_genesis_config)?;
+
         let raw_genesis = RawGenesisBlock::from_path(GENESIS_JSON_PATH)?;
-        let signed_genesis_manually = GenesisNetwork::new(raw_genesis, &chain_id, &keypair);
+        let signed_genesis_manually =
+            GenesisTransaction::new_unified(raw_genesis.clone(), &chain_id, &keypair);
+        let signed_genesis_from_config = &decoded_signed_genesis_config
+            .validate(raw_genesis)?
+            .into_transactions()[0];
 
-        let signed_genesis_from_file_encoded = fs::read(GEN_SIGNED_ENCODED_GENESIS_PATH)?;
-        let maybe_signed_genesis_from_file: GenesisNetwork =
-            GenesisNetwork::decode(&mut signed_genesis_from_file_encoded.as_slice())?;
-
-        Ok(signed_genesis_manually
-            .into_transactions()
-            .into_iter()
-            .zip(
-                maybe_signed_genesis_from_file
-                    .into_transactions(),
-            )
-            .all(|(a, b)| {
-                a.0.metadata() == b.0.metadata()
-                    && a.0.authority() == b.0.authority()
-                    && a.0.chain_id() == b.0.chain_id()
-                    && a.0.time_to_live() == b.0.time_to_live()
-                    && a.0.instructions() == b.0.instructions()
-                    && a.0.nonce() == b.0.nonce()
-                    && a.0.signatures() == b.0.signatures()
-            }))
+        let cmp = |a: &SignedTransaction, b: &SignedTransaction| {
+            a.metadata() == b.metadata()
+                && a.authority() == b.authority()
+                && a.chain_id() == b.chain_id()
+                && a.time_to_live() == b.time_to_live()
+                && a.instructions() == b.instructions()
+                && a.nonce() == b.nonce()
+                && a.signatures() == b.signatures()
+        };
+        Ok(cmp(
+            &signed_genesis_from_config.0,
+            &signed_genesis_manually.0,
+        ))
     }
 
     #[test]
     fn test_genesis_signing_works() {
         let result = genesis_signing_works();
         let _ = fs::remove_file(GEN_KEYPAIR_JSON_PATH);
-        let _ = fs::remove_file(GEN_SIGNED_ENCODED_GENESIS_PATH);
         assert!(result.is_ok_and(|result| result));
     }
 }
