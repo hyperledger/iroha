@@ -113,7 +113,7 @@ impl<C> Emitter<C> {
     pub fn new() -> Self {
         Self {
             report: None,
-            bomb: DropBomb::new("haven't called `finish()`, have you?"),
+            bomb: DropBomb::new("haven't called `Emitter::into_result()`, have you?"),
         }
     }
 
@@ -135,6 +135,22 @@ impl<C> Emitter<C> {
         } else {
             Ok(())
         }
+    }
+}
+
+pub trait EmitterResultExt<T, C> {
+    fn ok_or_emit(self, emitter: &mut Emitter<C>) -> Option<T>;
+}
+
+impl<T, C> EmitterResultExt<T, C> for error_stack::Result<T, C> {
+    fn ok_or_emit(self, emitter: &mut Emitter<C>) -> Option<T> {
+        self.map_or_else(
+            |report| {
+                emitter.emit(report);
+                None
+            },
+            Some,
+        )
     }
 }
 

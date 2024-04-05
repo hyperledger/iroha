@@ -10,6 +10,8 @@
 #![allow(missing_docs)]
 
 use std::{
+    borrow::Cow,
+    error::Error,
     fmt::Debug,
     fs::File,
     io::Read,
@@ -18,116 +20,73 @@ use std::{
     time::Duration,
 };
 
-pub use boilerplate::*;
-use eyre::{eyre, Report, WrapErr};
-use iroha_config_base::{Emitter, ErrorsCollection, HumanBytes, Merge};
-use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
+use error_stack::{FutureExt, Report, Result, ResultExt};
+use iroha_config_base::{
+    env::FromEnvStr,
+    util::{Emitter, EmitterResultExt, HumanBytes, HumanDuration},
+    ParameterOrigin, ReadConfig, WithOrigin,
+};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
-    LengthLimits, Level,
+    IdentifiableBox::Parameter, LengthLimits, Level,
 };
-use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
+use iroha_primitives::{addr::SocketAddr, unique_vec, unique_vec::UniqueVec};
+use serde::Deserialize;
 use url::Url;
 
 use crate::{
     kura::InitMode as KuraInitMode,
     logger::Format as LoggerFormat,
-    parameters::{actual, defaults::telemetry::*},
+    parameters::{
+        actual, defaults, util,
+        util::{PrivateKeyInConfig, PrivateKeyPayload},
+    },
     snapshot::Mode as SnapshotMode,
 };
 
-mod boilerplate;
-
-#[derive(Debug)]
+#[derive(Debug, ReadConfig)]
 pub struct Root {
+    #[config(env = "CHAIN_ID")]
     chain_id: ChainId,
-    public_key: PublicKey,
-    private_key: PrivateKey,
+    #[config(env = "PUBLIC_KEY")]
+    public_key: WithOrigin<iroha_crypto::PublicKey>,
+    #[config(env = "PRIVATE_KEY")]
+    private_key: WithOrigin<PrivateKeyInConfig>,
+    #[config(nested)]
     genesis: Genesis,
+    #[config(nested)]
     kura: Kura,
+    #[config(nested)]
     sumeragi: Sumeragi,
+    #[config(nested)]
     network: Network,
+    #[config(nested)]
     logger: Logger,
+    #[config(nested)]
     queue: Queue,
+    #[config(nested)]
     snapshot: Snapshot,
-    telemetry: Telemetry,
+    telemetry: Option<Telemetry>,
+    #[config(nested)]
     dev_telemetry: DevTelemetry,
+    #[config(nested)]
     torii: Torii,
+    #[config(nested)]
     chain_wide: ChainWide,
 }
 
-impl RootPartial {
-    /// Read the partial from TOML file
-    ///
-    /// # Errors
-    /// - If file is not found, or not a valid TOML
-    /// - If failed to parse data into a layer
-    /// - If failed to read other configurations specified in `extends`
-    pub fn from_toml(path: impl AsRef<Path>) -> eyre::Result<Self, eyre::Error> {
-        let contents = {
-            let mut file = File::open(path.as_ref()).wrap_err_with(|| {
-                eyre!("cannot open file at location `{}`", path.as_ref().display())
-            })?;
-            let mut contents = String::new();
-            file.read_to_string(&mut contents)?;
-            contents
-        };
-        let mut layer: Self = toml::from_str(&contents).wrap_err("failed to parse toml")?;
-
-        let base_path = path
-            .as_ref()
-            .parent()
-            .expect("the config file path could not be empty or root");
-
-        layer.normalise_paths(base_path);
-
-        if let Some(paths) = layer.extends.take() {
-            let base = paths
-                .iter()
-                .try_fold(None, |acc: Option<RootPartial>, extends_path| {
-                    // extends path is not normalised relative to the config file yet
-                    let full_path = base_path.join(extends_path);
-
-                    let base = Self::from_toml(&full_path)
-                        .wrap_err_with(|| eyre!("cannot extend from `{}`", full_path.display()))?;
-
-                    match acc {
-                        None => Ok::<Option<RootPartial>, Report>(Some(base)),
-                        Some(other_base) => Ok(Some(other_base.merge(base))),
-                    }
-                })?;
-            if let Some(base) = base {
-                layer = base.merge(layer)
-            };
-        }
-
-        Ok(layer)
-    }
-
-    /// **Note:** this function doesn't affect `extends`
-    fn normalise_paths(&mut self, relative_to: impl AsRef<Path>) {
-        let path = relative_to.as_ref();
-
-        macro_rules! patch {
-            ($value:expr) => {
-                $value.as_mut().map(|x| {
-                    *x = path.join(&x);
-                })
-            };
-        }
-
-        patch!(self.genesis.file);
-        patch!(self.snapshot.store_dir);
-        patch!(self.kura.store_dir);
-        patch!(self.dev_telemetry.out_file);
-    }
-
-    // FIXME workaround the inconvenient way `Merge::merge` works
-    #[must_use]
-    pub fn merge(mut self, other: Self) -> Self {
-        Merge::merge(&mut self, other);
-        self
-    }
+#[derive(thiserror::Error, Debug)]
+enum ParseError {
+    #[error("wtf")]
+    BadPrivateKey,
+    #[error("failed to construct the key pair")]
+    BadKeyPair,
+    #[error("wtf")]
+    BadGenesis,
+    #[error("wait")]
+    BadSumeragi,
+    #[error("wtf")]
+    InvalidDirPath,
 }
 
 impl Root {
@@ -135,25 +94,22 @@ impl Root {
     ///
     /// # Errors
     /// If any invalidity found.
-    pub fn parse(self, cli: CliContext) -> Result<actual::Root, ErrorsCollection<Report>> {
+    pub fn parse(self, cli: CliContext) -> Result<actual::Root, ParseError> {
         let mut emitter = Emitter::new();
 
-        let key_pair =
-            KeyPair::new(self.public_key, self.private_key)
-                .wrap_err("failed to construct a key pair from `iroha.public_key` and `iroha.private_key` configuration parameters")
-            .map_or_else(|err| {
-            emitter.emit(err);
-            None
-        }, Some);
+        let (private_key, private_key_origin) = self.private_key.into_tuple();
+        let (public_key, public_key_origin) = self.public_key.into_tuple();
+        let key_pair = iroha_crypto::KeyPair::new(public_key, private_key.0)
+            .change_context(ParseError::BadKeyPair)
+            .attach_printable_lazy(|| format!("got public key from: {}", public_key_origin))
+            .attach_printable_lazy(|| format!("got private key from: {}", private_key_origin))
+            .ok_or_emit(&mut emitter);
 
-        let genesis = self.genesis.parse(cli).map_or_else(
-            |err| {
-                // FIXME
-                emitter.emit(eyre!("{err}"));
-                None
-            },
-            Some,
-        );
+        let genesis = self
+            .genesis
+            .parse(cli)
+            .change_context(ParseError::BadGenesis)
+            .ok_or_emit(&mut emitter);
 
         // TODO: enable this check after fix of https://github.com/hyperledger/iroha/issues/4383
         // if let Some(actual::Genesis::Full { file, .. }) = &genesis {
@@ -163,15 +119,13 @@ impl Root {
         // }
 
         let kura = self.kura.parse();
-        validate_directory_path(&mut emitter, &kura.store_dir, "kura.store_dir");
+        validate_directory_path(&mut emitter, &kura.store_dir);
 
-        let sumeragi = self.sumeragi.parse().map_or_else(
-            |err| {
-                emitter.emit(err);
-                None
-            },
-            Some,
-        );
+        let sumeragi = self
+            .sumeragi
+            .parse()
+            .change_context(ParseError::BadSumeragi)
+            .ok_or_emit(&mut emitter);
 
         if let Some(ref config) = sumeragi {
             if !cli.submit_genesis && config.trusted_peers.len() == 0 {
@@ -191,11 +145,11 @@ impl Root {
         let queue = self.queue;
 
         let snapshot = self.snapshot;
-        validate_directory_path(&mut emitter, &snapshot.store_dir, "snapshot.store_dir");
+        validate_directory_path(&mut emitter, &snapshot.store_dir);
 
         let dev_telemetry = self.dev_telemetry;
         if let Some(path) = &dev_telemetry.out_file {
-            if path.parent().is_none() {
+            if path.parent().is_none() || path.is_dir() {
                 emitter.emit(eyre!("`dev_telemetry.out_file` is not a valid file path"))
             }
             if path.is_dir() {
@@ -259,17 +213,23 @@ impl Root {
     }
 }
 
-fn validate_directory_path(
-    emitter: &mut Emitter<Report>,
-    path: impl AsRef<Path>,
-    name: impl AsRef<str>,
-) {
-    if path.as_ref().is_file() {
-        emitter.emit(eyre!(
-            "`{}` is expected to be a directory path (existing or non-existing), but it points to an existing file: {}",
-            name.as_ref(),
-            path.as_ref().display()
-        ))
+fn validate_directory_path(emitter: &mut Emitter<ParseError>, path: &WithOrigin<PathBuf>) {
+    #[derive(Debug, thiserror::Error)]
+    #[error(
+        "expected path to be either non-existing or a directory, it points to an existing file: {path}"
+    )]
+    struct InvalidDirPathError {
+        path: PathBuf,
+    }
+
+    if path.is_file() {
+        emitter.emit(
+            Report::new(InvalidDirPathError {
+                path: path.as_ref().to_path_buf(),
+            })
+            .change_context(ParseError::InvalidDirPath)
+            .attach_printable(format!("comes from: {}", path.origin())),
+        );
     }
 }
 
@@ -278,11 +238,14 @@ pub struct CliContext {
     pub submit_genesis: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, ReadConfig)]
 pub struct Genesis {
-    pub public_key: PublicKey,
-    pub private_key: Option<PrivateKey>,
-    pub file: Option<PathBuf>,
+    #[config(env = "GENESIS_PUBLIC_KEY")]
+    pub public_key: iroha_crypto::PublicKey,
+    #[config(env = "GENESIS_PRIVATE_KEY")]
+    pub private_key: Option<WithOrigin<PrivateKeyInConfig>>,
+    #[config(env = "GENESIS_FILE")]
+    pub file: Option<WithOrigin<PathBuf>>,
 }
 
 impl Genesis {
@@ -315,10 +278,13 @@ pub enum GenesisConfigError {
     KeyPair(#[from] iroha_crypto::error::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, ReadConfig)]
 pub struct Kura {
+    #[config(env = "KURA_INIT_MODE", default)]
     pub init_mode: KuraInitMode,
-    pub store_dir: PathBuf,
+    #[config(env = "KURA_STORE_DIR", default = "defaults::KURA_STORE_DIR.clone()")]
+    pub store_dir: WithOrigin<PathBuf>,
+    #[config(nested)]
     pub debug: KuraDebug,
 }
 
@@ -326,7 +292,7 @@ impl Kura {
     fn parse(self) -> actual::Kura {
         let Self {
             init_mode,
-            store_dir: block_store_path,
+            store_dir,
             debug:
                 KuraDebug {
                     output_new_blocks: debug_output_new_blocks,
@@ -335,66 +301,79 @@ impl Kura {
 
         actual::Kura {
             init_mode,
-            store_dir: block_store_path,
+            store_dir,
             debug_output_new_blocks,
         }
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, ReadConfig)]
 pub struct KuraDebug {
+    #[config(env = "KURA_DEBUG_OUTPUT_NEW_BLOCKS", default)]
     output_new_blocks: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, ReadConfig)]
 pub struct Sumeragi {
-    pub trusted_peers: Option<Vec<PeerId>>,
+    #[config(env = "SUMERAGI_TRUSTED_PEERS", default)]
+    pub trusted_peers: TrustedPeers,
+    #[config(nested)]
     pub debug: SumeragiDebug,
 }
 
+#[derive(Debug, Deserialize)]
+struct TrustedPeers(UniqueVec<PeerId>);
+
+impl FromEnvStr for TrustedPeers {
+    type Error = serde_json::Error;
+
+    fn from_env_str(value: Cow<'_, str>) -> std::result::Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        Ok(Self(serde_json::from_str(value.as_ref())?))
+    }
+}
+
+impl Default for TrustedPeers {
+    fn default() -> Self {
+        Self(UniqueVec::new())
+    }
+}
+
 impl Sumeragi {
-    fn parse(self) -> Result<actual::Sumeragi, Report> {
+    fn parse(self) -> actual::Sumeragi {
         let Self {
             trusted_peers,
             debug: SumeragiDebug { force_soft_fork },
         } = self;
 
-        let trusted_peers = construct_unique_vec(trusted_peers.unwrap_or(vec![]))?;
-
-        Ok(actual::Sumeragi {
-            trusted_peers,
+        actual::Sumeragi {
+            trusted_peers: trusted_peers.0,
             debug_force_soft_fork: force_soft_fork,
-        })
+        }
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, ReadConfig)]
 pub struct SumeragiDebug {
+    #[config(default)]
     pub force_soft_fork: bool,
 }
 
-// FIXME: handle duplicates properly, not here, and with details
-fn construct_unique_vec<T: Debug + PartialEq>(
-    unchecked: Vec<T>,
-) -> Result<UniqueVec<T>, eyre::Report> {
-    let mut unique = UniqueVec::new();
-    for x in unchecked {
-        let pushed = unique.push(x);
-        if !pushed {
-            Err(eyre!("found duplicate"))?
-        }
-    }
-    Ok(unique)
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ReadConfig)]
 pub struct Network {
     /// Peer-to-peer address
+    #[config(env = "P2P_ADDRESS")]
     pub address: SocketAddr,
+    #[config(default = "DEFAULT_MAX_BLOCKS_PER_GOSSIP")]
     pub block_gossip_max_size: NonZeroU32,
-    pub block_gossip_period: Duration,
+    #[config(default = "DEFAULT_BLOCK_GOSSIP_PERIOD")]
+    pub block_gossip_period: HumanDuration,
+    #[config(default = "DEFAULT_MAX_TRANSACTIONS_PER_GOSSIP")]
     pub transaction_gossip_max_size: NonZeroU32,
-    pub transaction_gossip_period: Duration,
+    #[config(default = "DEFAULT_TRANSACTION_GOSSIP_PERIOD")]
+    pub transaction_gossip_period: HumanDuration,
     /// Duration of time after which connection with peer is terminated if peer is idle
     pub idle_timeout: Duration,
 }
@@ -422,109 +401,125 @@ impl Network {
                 idle_timeout,
             },
             actual::BlockSync {
-                gossip_period: block_gossip_period,
+                gossip_period: block_gossip_period.get(),
                 gossip_max_size: block_gossip_max_size,
             },
             actual::TransactionGossiper {
-                gossip_period: transaction_gossip_period,
+                gossip_period: transaction_gossip_period.get(),
                 gossip_max_size: transaction_gossip_max_size,
             },
         )
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, ReadConfig)]
 pub struct Queue {
     /// The upper limit of the number of transactions waiting in the queue.
+    #[config(default = "DEFAULT_MAX_TRANSACTIONS_IN_QUEUE")]
     pub capacity: NonZeroUsize,
     /// The upper limit of the number of transactions waiting in the queue for single user.
     /// Use this option to apply throttling.
+    #[config(default = "DEFAULT_MAX_TRANSACTIONS_IN_QUEUE")]
     pub capacity_per_user: NonZeroUsize,
     /// The transaction will be dropped after this time if it is still in the queue.
-    pub transaction_time_to_live: Duration,
+    #[config(default = "DEFAULT_TRANSACTION_TIME_TO_LIVE")]
+    pub transaction_time_to_live: HumanDuration,
     /// The threshold to determine if a transaction has been tampered to have a future timestamp.
-    pub future_threshold: Duration,
+    #[config(default = "DEFAULT_FUTURE_THRESHOLD")]
+    pub future_threshold: HumanDuration,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, ReadConfig)]
 pub struct Logger {
     /// Level of logging verbosity
     // TODO: parse user provided value in a case insensitive way,
     //       because `format` is set in lowercase, and `LOG_LEVEL=INFO` + `LOG_FORMAT=pretty`
     //       looks inconsistent
+    #[config(env = "LOG_LEVEL", default)]
     pub level: Level,
     /// Output format
+    #[config(env = "LOG_FORMAT", default)]
     pub format: LoggerFormat,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Telemetry {
     // Fields here are Options so that it is possible to warn the user if e.g. they provided `min_retry_period`, but haven't
     // provided `name` and `url`
-    pub name: Option<String>,
-    pub url: Option<Url>,
-    pub min_retry_period: Option<Duration>,
-    pub max_retry_delay_exponent: Option<u8>,
+    pub name: String,
+    pub url: Url,
+    #[serde(default)]
+    pub min_retry_period: TelemetryMinRetryPeriod,
+    #[serde(default)]
+    pub max_retry_delay_exponent: u8,
 }
 
-#[derive(Debug, Clone)]
-pub struct DevTelemetry {
-    pub out_file: Option<PathBuf>,
-}
+#[derive(Deserialize, Debug)]
+struct TelemetryMinRetryPeriod(HumanDuration);
 
-impl Telemetry {
-    fn parse(self) -> Result<Option<actual::Telemetry>, Report> {
-        let Self {
-            name,
-            url,
-            max_retry_delay_exponent,
-            min_retry_period,
-        } = self;
-
-        let regular = match (name, url) {
-            (Some(name), Some(url)) => Some(actual::Telemetry {
-                name,
-                url,
-                max_retry_delay_exponent: max_retry_delay_exponent
-                    .unwrap_or(DEFAULT_MAX_RETRY_DELAY_EXPONENT),
-                min_retry_period: min_retry_period.unwrap_or(DEFAULT_MIN_RETRY_PERIOD),
-            }),
-            // TODO warn user if they provided retry parameters while not providing essential ones
-            (None, None) => None,
-            _ => {
-                // TODO improve error detail
-                return Err(eyre!(
-                    "telemetry.name and telemetry.file should be set together"
-                ))?;
-            }
-        };
-
-        Ok(regular)
+impl Default for TelemetryMinRetryPeriod {
+    fn default() -> Self {
+        Self(HumanDuration(defaults::telemetry::DEFAULT_MIN_RETRY_PERIOD))
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Snapshot {
-    pub mode: SnapshotMode,
-    pub create_every: Duration,
-    pub store_dir: PathBuf,
+#[derive(Deserialize, Debug)]
+struct TelemetryMaxRetryDelayExponent(u8);
+
+impl Default for TelemetryMaxRetryDelayExponent {
+    fn default() -> Self {
+        Self(defaults::telemetry::DEFAULT_MAX_RETRY_DELAY_EXPONENT)
+    }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone, ReadConfig)]
+pub struct DevTelemetry {
+    pub out_file: Option<WithOrigin<PathBuf>>,
+}
+
+#[derive(Debug, Clone, ReadConfig)]
+pub struct Snapshot {
+    #[config(default, env = "SNAPSHOT_MODE")]
+    pub mode: SnapshotMode,
+    #[config(default = "defaults::snapshot::DEFAULT_CREATE_EVERY")]
+    pub create_every: HumanDuration,
+    #[config(
+        default = "PathBuf::from(defaults::snapshot::DEFAULT_STORE_DIR)",
+        env = "SNAPSHOT_STORE_DIR"
+    )]
+    pub store_dir: WithOrigin<PathBuf>,
+}
+
+#[derive(Debug, Copy, Clone, ReadConfig)]
 pub struct ChainWide {
+    #[config(default = "DEFAULT_MAX_TXS")]
     pub max_transactions_in_block: NonZeroU32,
-    pub block_time: Duration,
-    pub commit_time: Duration,
+    #[config(default = "DEFAULT_BLOCK_TIME")]
+    pub block_time: HumanDuration,
+    #[config(default = "DEFAULT_COMMIT_TIME")]
+    pub commit_time: HumanDuration,
+    #[config(default = "DEFAULT_TRANSACTION_LIMITS")]
     pub transaction_limits: TransactionLimits,
+    #[config(default = "DEFAULT_METADATA_LIMITS")]
     pub domain_metadata_limits: MetadataLimits,
+    #[config(default = "DEFAULT_METADATA_LIMITS")]
     pub asset_definition_metadata_limits: MetadataLimits,
+    #[config(default = "DEFAULT_METADATA_LIMITS")]
     pub account_metadata_limits: MetadataLimits,
+    #[config(default = "DEFAULT_METADATA_LIMITS")]
     pub asset_metadata_limits: MetadataLimits,
+    #[config(default = "DEFAULT_METADATA_LIMITS")]
     pub trigger_metadata_limits: MetadataLimits,
+    #[config(default = "DEFAULT_IDENT_LENGTH_LIMITS")]
     pub ident_length_limits: LengthLimits,
+    #[config(default = "DEFAULT_WASM_FUEL_LIMIT")]
     pub executor_fuel_limit: u64,
+    #[config(default = "DEFAULT_WASM_MAX_MEMORY_BYTES")]
     pub executor_max_memory: HumanBytes<u32>,
+    #[config(default = "DEFAULT_WASM_FUEL_LIMIT")]
     pub wasm_fuel_limit: u64,
+    #[config(default = "DEFAULT_WASM_MAX_MEMORY_BYTES")]
     pub wasm_max_memory: HumanBytes<u32>,
 }
 
@@ -549,8 +544,8 @@ impl ChainWide {
 
         actual::ChainWide {
             max_transactions_in_block,
-            block_time,
-            commit_time,
+            block_time: block_time.get(),
+            commit_time: commit_time.get(),
             transaction_limits,
             asset_metadata_limits,
             trigger_metadata_limits,

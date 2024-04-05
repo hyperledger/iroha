@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use iroha_config_base::{FromEnv, StdEnv, UnwrapPartial};
+use iroha_config_base::{FromEnv, StdEnv, UnwrapPartial, WithOrigin};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
@@ -129,7 +129,7 @@ impl Genesis {
 #[derive(Debug, Clone)]
 pub struct Kura {
     pub init_mode: InitMode,
-    pub store_dir: PathBuf,
+    pub store_dir: WithOrigin<PathBuf>,
     pub debug_output_new_blocks: bool,
 }
 

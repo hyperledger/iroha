@@ -9,6 +9,7 @@ pub mod util;
 
 use std::{
     fmt::{Debug, Display, Formatter},
+    ops::Deref,
     path::PathBuf,
 };
 
@@ -52,11 +53,13 @@ where
     }
 }
 
+// TODO: handle anon env
 #[derive(Debug, Clone)]
 pub enum ParameterOrigin {
     File { path: PathBuf, id: ParameterId },
     Env { var: String, id: ParameterId },
     Default { id: ParameterId },
+    Custom { message: String },
 }
 
 impl ParameterOrigin {
@@ -71,6 +74,10 @@ impl ParameterOrigin {
     pub fn default(id: ParameterId) -> Self {
         Self::Default { id }
     }
+
+    pub fn custom(message: String) -> Self {
+        Self::Custom { message }
+    }
 }
 
 impl Display for ParameterOrigin {
@@ -83,6 +90,7 @@ impl Display for ParameterOrigin {
             Self::Env { var, id } => {
                 write!(f, "parameter `{}` from environment variable `{}`", id, var)
             }
+            Self::Custom { message } => write!(f, "{message}"),
         }
     }
 }
@@ -94,7 +102,7 @@ pub struct WithOrigin<T> {
 }
 
 impl<T> WithOrigin<T> {
-    fn new(value: T, origin: ParameterOrigin) -> Self {
+    pub fn new(value: T, origin: ParameterOrigin) -> Self {
         Self { value, origin }
     }
 
@@ -104,6 +112,18 @@ impl<T> WithOrigin<T> {
 
     pub fn into_tuple(self) -> (T, ParameterOrigin) {
         (self.value, self.origin)
+    }
+
+    pub fn origin(&self) -> ParameterOrigin {
+        self.origin.clone()
+    }
+}
+
+impl<T> Deref for WithOrigin<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
     }
 }
 

@@ -160,6 +160,7 @@ impl ConfigReader {
         ParameterReader::new(self, id).read_sources()
     }
 
+    // TODO: remove
     pub fn parameter_env<T>(
         self,
         id: impl Into<ParameterId>,

@@ -16,6 +16,8 @@ struct Test {
     from_env_only: String,
     #[config(nested)]
     nested: Nested,
+    #[config(env = "TEST", default = "true")]
+    with_default_expr_and_env: bool,
 }
 
 #[derive(ReadConfig)]
