@@ -231,11 +231,9 @@ mod ast {
                     IncompatibleWithNested(Span),
                     NestedOnlyAlone(Span),
                     Duplicate(Span),
-                    BadEnvFormat(Span),
+                    EnvExpectedFormat(Span),
                     EnvOnlyWithoutEnv(Span),
-                    BadDefaultFormat(Span),
                     BadDefaultExpr(Span, syn::Error),
-                    UnexpectedIdent(Span),
                     UnexpectedToken(Span)
                 }
 
@@ -245,12 +243,10 @@ mod ast {
                             LocalError::IncompatibleWithNested(span) => Self::new(span, "attribute is not compatible with `nested` attribute set previously"),
                             LocalError::NestedOnlyAlone(span) => Self::new(span, "`nested` attribute cannot be set with any other attributes"),
                             LocalError::Duplicate(span) => Self::new(span, "duplicate attribute"),
-                            LocalError::BadDefaultFormat(span) => Self::new(span, "supported `default` formats: `default`, `default = \"<expr>\"`"),
-                            LocalError::BadDefaultExpr(span, error) => Self::new(span, format!("couldn't parse expression: {error}")),
-                            LocalError::BadEnvFormat(span) => Self::new(span, "`env` should be set as `env = \"VARIABLE_NAME\""),
+                            LocalError::BadDefaultExpr(span, error) => Self::new(span, format!("expected a valid expression within `default = \"<expr>\"`, but couldn't parse it: {error}")),
+                            LocalError::EnvExpectedFormat(span) => Self::new(span, "expected `env` to be set as `env = \"VARIABLE_NAME\""),
                             LocalError::EnvOnlyWithoutEnv(span) => Self::new(span, "`env_only` cannot be set without `env`"),
-                            LocalError::UnexpectedToken(span) => Self::new(span, "unexpected token; expected a word or a comma"),
-                            LocalError::UnexpectedIdent(span) => Self::new(span, "unexpected attribute; expected `default`, `env`, `env_only`, or `nested`")
+                            LocalError::UnexpectedToken(span) => Self::new(span, "unexpected token; expected `default`, `env`, `env_only`, or `nested`"),
                         }
                     }
                 }
@@ -268,44 +264,30 @@ mod ast {
                                         Err(LocalError::Duplicate(ident.span()))?
                                     }
 
-                                    rest = next;
-                                    let next = match next.punct() {
-                                        Some((punct, next)) if punct.as_char() == '=' => next,
-                                        None => {
-                                            attr_default = Some(AttrDefault::Word);
-                                            continue;
-                                        }
-                                        Some((punct, next)) if punct.as_char() == ',' => {
+                                    let (lit, next) = match expect_comma_or_eq_with_lit_str(next)? {
+                                        (None, next) => {
                                             attr_default = Some(AttrDefault::Word);
                                             rest = next;
                                             continue;
                                         }
-                                        Some(_) => Err(LocalError::BadDefaultFormat(ident.span()))?,
+                                        (Some(lit), next) => {
+                                            (lit, next)
+                                        },
                                     };
-
-                                    // parsing default as expr
-
-                                    let Some((lit, next)) = next.literal() else {
-                                        Err(LocalError::BadDefaultFormat(ident.span()))?
-                                    };
-
-                                    // FIXME: how to extract an expression from the literal properly?
-                                    let lit = syn::LitStr::new(lit.to_string().trim_matches('"'), lit.span());
                                     let expr: syn::Expr = lit
                                         .parse()
                                         .map_err(|err| LocalError::BadDefaultExpr(lit.span(), err))?;
-
                                     attr_default = Some(AttrDefault::Expr(expr));
                                     rest = next;
                                 }
                                 "nested" => {
-                                    // err if default/env/nested was set
                                     if attr_default.is_some() || attr_env.is_some() {
                                         Err(LocalError::NestedOnlyAlone(ident.span()))?
                                     }
                                     if attr_nested {
                                         Err(LocalError::Duplicate(ident.span()))?
                                     }
+                                    let next = expect_comma_or_none(next)?;
                                     attr_nested = true;
                                     rest = next;
                                 }
@@ -317,18 +299,10 @@ mod ast {
                                     if attr_env.is_some() {
                                         Err(LocalError::Duplicate(ident.span()))?
                                     }
-
-                                    let next = match next.punct() {
-                                        Some((punct, next)) if punct.as_char() == '=' => next,
-                                        _ => Err(LocalError::BadEnvFormat(ident.span()))?,
+                                    let (Some(lit_str), next) = expect_comma_or_eq_with_lit_str(next)? else {
+                                        Err(LocalError::EnvExpectedFormat(ident.span()))?
                                     };
-
-                                    let Some((lit, next)) = next.literal() else {
-                                        Err(LocalError::BadEnvFormat(ident.span()))?
-                                    };
-
-                                    let lit = syn::LitStr::new(&lit.to_string().trim_matches('"'), lit.span());
-                                    attr_env = Some(lit);
+                                    attr_env = Some(lit_str);
                                     rest = next;
                                 }
                                 "env_only" => {
@@ -338,17 +312,14 @@ mod ast {
                                     if attr_env_only.is_some() {
                                         Err(LocalError::Duplicate(ident.span()))?
                                     }
-
+                                    let next = expect_comma_or_none(next)?;
                                     attr_env_only = Some((ident.span()));
                                     rest = next;
                                 }
                                 other => {
-                                    Err(LocalError::UnexpectedIdent(ident.span()))?
+                                    Err(LocalError::UnexpectedToken(ident.span()))?
                                 }
                             }
-                        }
-                        TokenTree::Punct(punct) if punct.as_char() == ',' => {
-                            rest = next;
                         }
                         other => {
                             Err(LocalError::UnexpectedToken(other.span()))?
@@ -379,6 +350,45 @@ mod ast {
                 Ok((combined, rest))
             })
         }
+    }
+
+    fn expect_comma_or_none(cursor: syn::buffer::Cursor) -> syn::Result<syn::buffer::Cursor> {
+        match cursor.token_tree() {
+            Some((TokenTree::Punct(punct), next)) if punct.as_char() == ',' => Ok(next),
+            Some((other, next)) => Err(syn::Error::new(other.span(), "expected a comma")),
+            None => Ok(cursor),
+        }
+    }
+
+    fn expect_comma_or_eq_with_lit_str(
+        cursor: syn::buffer::Cursor,
+    ) -> syn::Result<(Option<syn::LitStr>, syn::buffer::Cursor)> {
+        let next = match cursor.token_tree() {
+            Some((TokenTree::Punct(punct), next)) if punct.as_char() == '=' => next,
+            Some((TokenTree::Punct(punct), next)) if punct.as_char() == ',' => {
+                return Ok((None, next))
+            }
+            None => return Ok((None, cursor)),
+            Some((other, _)) => Err(syn::Error::new(other.span(), "expected ',' or '='"))?,
+        };
+
+        const EXPECTED_STR_LIT: &str = r#"expected a string literal, e.g. "...""#;
+
+        let (lit, next) = match next.token_tree() {
+            Some((TokenTree::Literal(lit), next)) => (lit, next),
+            Some((other, _)) => Err(syn::Error::new(other.span(), EXPECTED_STR_LIT))?,
+            None => Err(syn::Error::new(next.span(), EXPECTED_STR_LIT))?,
+        };
+
+        let string = lit.to_string();
+        let trimmed = string.trim_matches('"');
+        if &string == trimmed {
+            // not a string literal
+            Err(syn::Error::new(lit.span(), EXPECTED_STR_LIT))?;
+        }
+
+        let lit_str = syn::LitStr::new(trimmed, lit.span());
+        Ok((Some(lit_str), next))
     }
 
     #[derive(Debug, PartialEq)]

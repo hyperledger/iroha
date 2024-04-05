@@ -1,5 +1,0 @@
-error: attribute is not compatible with `nested` attribute set previously
- --> tests/ui_fail/nested_with_other_attrs.rs:5:22
-  |
-5 |     #[config(nested, env_only)]
-  |                      ^^^^^^^^

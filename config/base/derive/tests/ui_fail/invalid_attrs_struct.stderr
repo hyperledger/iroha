@@ -1,0 +1,5 @@
+error: Unknown field: `whatever`
+ --> tests/ui_fail/invalid_attrs_struct.rs:4:10
+  |
+4 | #[config(whatever)] // not supported on structs
+  |          ^^^^^^^^

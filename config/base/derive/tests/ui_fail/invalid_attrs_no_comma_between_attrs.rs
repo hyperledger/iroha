@@ -1,8 +1,8 @@
 use iroha_config_base::ReadConfig;
 
 #[derive(ReadConfig)]
-#[config(whatever, a, b, c)]
 struct Test {
+    #[config(default env_only)]
     foo: u64,
 }
 

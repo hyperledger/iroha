@@ -1,0 +1,11 @@
+error: attribute is not compatible with `nested` attribute set previously
+ --> tests/ui_fail/invalid_attrs_nested_with_others.rs:5:22
+  |
+5 |     #[config(nested, env_only)] // nested with other attrs
+  |                      ^^^^^^^^
+
+error: `nested` attribute cannot be set with any other attributes
+  --> tests/ui_fail/invalid_attrs_nested_with_others.rs:11:23
+   |
+11 |     #[config(default, nested)] // nested with other attrs (different order)
+   |                       ^^^^^^

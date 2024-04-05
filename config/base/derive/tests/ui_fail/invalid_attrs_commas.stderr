@@ -1,0 +1,5 @@
+error: unexpected token; expected `default`, `env`, `env_only`, or `nested`
+ --> tests/ui_fail/invalid_attrs_commas.rs:5:14
+  |
+5 |     #[config(,,,)]
+  |              ^
