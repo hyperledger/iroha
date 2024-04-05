@@ -106,6 +106,10 @@ impl<T> WithOrigin<T> {
         Self { value, origin }
     }
 
+    pub fn value(&self) -> &T {
+        &self.value
+    }
+
     pub fn into_value(self) -> T {
         self.value
     }
@@ -119,6 +123,7 @@ impl<T> WithOrigin<T> {
     }
 }
 
+// TODO: remove deref, add `value() -> &T` to avoid confusion for paths
 impl<T> Deref for WithOrigin<T> {
     type Target = T;
 

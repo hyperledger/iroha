@@ -17,6 +17,12 @@ impl HumanDuration {
     }
 }
 
+impl From<Duration> for HumanDuration {
+    fn from(value: Duration) -> Self {
+        Self(value)
+    }
+}
+
 /// Representation of number of bytes, parseable from a human-readable string.
 #[derive(Debug, Copy, Clone, Deserialize, Serialize)]
 pub struct HumanBytes<T: num_traits::int::PrimInt>(pub T);
@@ -25,6 +31,12 @@ impl<T: num_traits::int::PrimInt> HumanBytes<T> {
     /// Get the number of bytes
     pub fn get(self) -> T {
         self.0
+    }
+}
+
+impl<T: num_traits::int::PrimInt> From<T> for HumanBytes<T> {
+    fn from(value: T) -> Self {
+        Self(value)
     }
 }
 

@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use iroha_config_base::{FromEnv, StdEnv, UnwrapPartial, WithOrigin};
+use iroha_config_base::WithOrigin;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
@@ -20,10 +20,7 @@ pub use user::{DevTelemetry, Logger, Queue, Snapshot};
 
 use crate::{
     kura::InitMode,
-    parameters::{
-        defaults, user,
-        user::{CliContext, RootPartial},
-    },
+    parameters::{defaults, user, user::CliContext},
 };
 
 /// Parsed configuration root
@@ -86,7 +83,7 @@ impl Common {
 #[allow(missing_docs)]
 #[derive(Debug, Clone)]
 pub struct Network {
-    pub address: SocketAddr,
+    pub address: WithOrigin<SocketAddr>,
     pub idle_timeout: Duration,
 }
 
@@ -103,7 +100,7 @@ pub enum Genesis {
         /// Genesis account key pair
         key_pair: KeyPair,
         /// Path to the [`RawGenesisBlock`]
-        file: PathBuf,
+        file: WithOrigin<PathBuf>,
     },
 }
 
@@ -133,13 +130,14 @@ pub struct Kura {
     pub debug_output_new_blocks: bool,
 }
 
+// FIXME: add _actual_ Queue
 impl Default for Queue {
     fn default() -> Self {
         Self {
-            transaction_time_to_live: defaults::queue::DEFAULT_TRANSACTION_TIME_TO_LIVE,
-            future_threshold: defaults::queue::DEFAULT_FUTURE_THRESHOLD,
-            capacity: defaults::queue::DEFAULT_MAX_TRANSACTIONS_IN_QUEUE,
-            capacity_per_user: defaults::queue::DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER,
+            transaction_time_to_live: defaults::queue::TRANSACTION_TIME_TO_LIVE,
+            future_threshold: defaults::queue::FUTURE_THRESHOLD,
+            capacity: defaults::queue::MAX_TRANSACTIONS_IN_QUEUE,
+            capacity_per_user: defaults::queue::MAX_TRANSACTIONS_IN_QUEUE_PER_USER,
         }
     }
 }
@@ -160,7 +158,7 @@ pub struct LiveQueryStore {
 impl Default for LiveQueryStore {
     fn default() -> Self {
         Self {
-            idle_time: defaults::torii::DEFAULT_QUERY_IDLE_TIME,
+            idle_time: defaults::torii::QUERY_IDLE_TIME,
         }
     }
 }
@@ -206,16 +204,16 @@ impl ChainWide {
 impl Default for ChainWide {
     fn default() -> Self {
         Self {
-            max_transactions_in_block: defaults::chain_wide::DEFAULT_MAX_TXS,
-            block_time: defaults::chain_wide::DEFAULT_BLOCK_TIME,
-            commit_time: defaults::chain_wide::DEFAULT_COMMIT_TIME,
-            transaction_limits: defaults::chain_wide::DEFAULT_TRANSACTION_LIMITS,
-            domain_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            account_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            asset_definition_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            asset_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            trigger_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            ident_length_limits: defaults::chain_wide::DEFAULT_IDENT_LENGTH_LIMITS,
+            max_transactions_in_block: defaults::chain_wide::MAX_TXS,
+            block_time: defaults::chain_wide::BLOCK_TIME,
+            commit_time: defaults::chain_wide::COMMIT_TIME,
+            transaction_limits: defaults::chain_wide::TRANSACTION_LIMITS,
+            domain_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
+            account_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
+            asset_definition_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
+            asset_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
+            trigger_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
+            ident_length_limits: defaults::chain_wide::IDENT_LENGTH_LIMITS,
             executor_runtime: WasmRuntime::default(),
             wasm_runtime: WasmRuntime::default(),
         }
@@ -233,8 +231,8 @@ pub struct WasmRuntime {
 impl Default for WasmRuntime {
     fn default() -> Self {
         Self {
-            fuel_limit: defaults::chain_wide::DEFAULT_WASM_FUEL_LIMIT,
-            max_memory_bytes: defaults::chain_wide::DEFAULT_WASM_MAX_MEMORY_BYTES,
+            fuel_limit: defaults::chain_wide::WASM_FUEL_LIMIT,
+            max_memory_bytes: defaults::chain_wide::WASM_MAX_MEMORY_BYTES,
         }
     }
 }
@@ -242,7 +240,7 @@ impl Default for WasmRuntime {
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct Torii {
-    pub address: SocketAddr,
+    pub address: WithOrigin<SocketAddr>,
     pub max_content_len_bytes: u64,
 }
 

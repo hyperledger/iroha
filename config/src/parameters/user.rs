@@ -11,43 +11,53 @@
 
 use std::{
     borrow::Cow,
-    error::Error,
+    convert::Infallible,
     fmt::Debug,
-    fs::File,
-    io::Read,
     num::{NonZeroU32, NonZeroUsize},
-    path::{Path, PathBuf},
+    ops::Deref,
+    path::PathBuf,
     time::Duration,
 };
 
-use error_stack::{FutureExt, Report, Result, ResultExt};
+use error_stack::{Report, Result, ResultExt};
 use iroha_config_base::{
     env::FromEnvStr,
     util::{Emitter, EmitterResultExt, HumanBytes, HumanDuration},
-    ParameterOrigin, ReadConfig, WithOrigin,
+    ReadConfig, WithOrigin,
 };
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
-    IdentifiableBox::Parameter, LengthLimits, Level,
+    LengthLimits, Level,
 };
-use iroha_primitives::{addr::SocketAddr, unique_vec, unique_vec::UniqueVec};
+use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::Deserialize;
 use url::Url;
 
 use crate::{
     kura::InitMode as KuraInitMode,
     logger::Format as LoggerFormat,
-    parameters::{
-        actual, defaults, util,
-        util::{PrivateKeyInConfig, PrivateKeyPayload},
-    },
+    parameters::{actual, defaults, util::PrivateKeyInConfig},
     snapshot::Mode as SnapshotMode,
 };
+
+#[derive(Deserialize, Debug)]
+struct ChainIdInConfig(ChainId);
+
+impl FromEnvStr for ChainIdInConfig {
+    type Error = Infallible;
+
+    fn from_env_str(value: Cow<'_, str>) -> std::result::Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        Ok(Self(ChainId::from(value)))
+    }
+}
 
 #[derive(Debug, ReadConfig)]
 pub struct Root {
     #[config(env = "CHAIN_ID")]
-    chain_id: ChainId,
+    chain_id: ChainIdInConfig,
     #[config(env = "PUBLIC_KEY")]
     public_key: WithOrigin<iroha_crypto::PublicKey>,
     #[config(env = "PRIVATE_KEY")]
@@ -87,6 +97,12 @@ enum ParseError {
     BadSumeragi,
     #[error("wtf")]
     InvalidDirPath,
+    #[error("dev telemetry output file should be a file path")]
+    BadTelemetryOutFile,
+    #[error("the peer is alone")]
+    LonePeer,
+    #[error("same address specified for peer-to-peer network and Torii")]
+    SameNetworkAndToriiAddrs,
 }
 
 impl Root {
@@ -121,22 +137,16 @@ impl Root {
         let kura = self.kura.parse();
         validate_directory_path(&mut emitter, &kura.store_dir);
 
-        let sumeragi = self
-            .sumeragi
-            .parse()
-            .change_context(ParseError::BadSumeragi)
-            .ok_or_emit(&mut emitter);
+        let mut sumeragi = self.sumeragi.parse();
 
-        if let Some(ref config) = sumeragi {
-            if !cli.submit_genesis && config.trusted_peers.len() == 0 {
-                emitter.emit(eyre!("\
-                    The network consists from this one peer only (no `sumeragi.trusted_peers` provided). \
-                    Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
-                    Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
-                    and `genesis.file` configuration parameters, or increase the number of trusted peers in \
-                    the network using `sumeragi.trusted_peers` configuration parameter.\
-                "));
-            }
+        if !cli.submit_genesis && sumeragi.trusted_peers.len() == 0 {
+            emitter.emit(Report::new(ParseError::LonePeer).attach_printable("\
+                The network consists from this one peer only (no `sumeragi.trusted_peers` provided). \
+                Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
+                Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
+                and `genesis.file` configuration parameters, or increase the number of trusted peers in \
+                the network using `sumeragi.trusted_peers` configuration parameter.\
+            "));
         }
 
         let (network, block_sync, transaction_gossiper) = self.network.parse();
@@ -149,49 +159,56 @@ impl Root {
 
         let dev_telemetry = self.dev_telemetry;
         if let Some(path) = &dev_telemetry.out_file {
-            if path.parent().is_none() || path.is_dir() {
-                emitter.emit(eyre!("`dev_telemetry.out_file` is not a valid file path"))
+            if path.parent().is_none() {
+                emitter.emit(
+                    Report::new(ParseError::BadTelemetryOutFile)
+                        .attach_printable(format!("actual path: \"{}\"", path.display()))
+                        .attach_printable(format!("comes from: {}", path.origin())),
+                );
             }
             if path.is_dir() {
-                emitter.emit(eyre!("`dev_telemetry.out_file` is expected to be a file path, but it is a directory: {}", path.display()))
+                emitter.emit(
+                    Report::new(ParseError::BadTelemetryOutFile)
+                        .attach_printable(format!("the path is a directory: {}", path.display()))
+                        .attach_printable(format!("comes from: {}", path.origin())),
+                );
             }
         }
 
         let (torii, live_query_store) = self.torii.parse();
 
-        let telemetry = self.telemetry.parse().map_or_else(
-            |err| {
-                emitter.emit(err);
-                None
-            },
-            Some,
-        );
+        let telemetry = self.telemetry.map(actual::Telemetry::from);
 
         let chain_wide = self.chain_wide.parse();
 
-        if network.address == torii.address {
-            emitter.emit(eyre!(
-                "`iroha.p2p_address` and `torii.address` should not be the same"
-            ))
+        if network.address.value() == torii.address.value() {
+            emitter.emit(
+                Report::new(ParseError::SameNetworkAndToriiAddrs)
+                    .attach_printable(format!(
+                        "network address comes from: {}",
+                        network.address.origin()
+                    ))
+                    .attach_printable(format!(
+                        "Torii address comes from: {}",
+                        torii.address.origin()
+                    ))
+                    .attach_printable(format!("they both have value: {}", network.address.deref())),
+            );
         }
 
-        emitter.finish()?;
+        emitter.into_result()?;
 
         let key_pair = key_pair.unwrap();
         let peer_id = PeerId::new(network.address.clone(), key_pair.public_key().clone());
 
         let peer = actual::Common {
-            chain_id: self.chain_id,
+            chain_id: self.chain_id.0,
             key_pair,
             peer_id,
         };
-        let telemetry = telemetry.unwrap();
         let genesis = genesis.unwrap();
-        let sumeragi = {
-            let mut x = sumeragi.unwrap();
-            x.trusted_peers.push(peer.peer_id());
-            x
-        };
+
+        sumeragi.trusted_peers.push(peer.peer_id());
 
         Ok(actual::Root {
             common: peer,
@@ -225,7 +242,7 @@ fn validate_directory_path(emitter: &mut Emitter<ParseError>, path: &WithOrigin<
     if path.is_file() {
         emitter.emit(
             Report::new(InvalidDirPathError {
-                path: path.as_ref().to_path_buf(),
+                path: path.value().to_path_buf(),
             })
             .change_context(ParseError::InvalidDirPath)
             .attach_printable(format!("comes from: {}", path.origin())),
@@ -241,7 +258,7 @@ pub struct CliContext {
 #[derive(Debug, ReadConfig)]
 pub struct Genesis {
     #[config(env = "GENESIS_PUBLIC_KEY")]
-    pub public_key: iroha_crypto::PublicKey,
+    pub public_key: WithOrigin<iroha_crypto::PublicKey>,
     #[config(env = "GENESIS_PRIVATE_KEY")]
     pub private_key: Option<WithOrigin<PrivateKeyInConfig>>,
     #[config(env = "GENESIS_FILE")]
@@ -252,16 +269,22 @@ impl Genesis {
     fn parse(self, cli: CliContext) -> Result<actual::Genesis, GenesisConfigError> {
         match (self.private_key, self.file, cli.submit_genesis) {
             (None, None, false) => Ok(actual::Genesis::Partial {
-                public_key: self.public_key,
+                public_key: self.public_key.into_value(),
             }),
-            (Some(private_key), Some(file), true) => Ok(actual::Genesis::Full {
-                key_pair: KeyPair::new(self.public_key, private_key)
-                    .map_err(GenesisConfigError::from)?,
-                file,
-            }),
-            (Some(_), Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit),
-            (None, None, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
-            _ => Err(GenesisConfigError::Inconsistent),
+            (Some(private_key), Some(file), true) => {
+                let (PrivateKeyInConfig(private_key), priv_key_origin) = private_key.into_tuple();
+                let (public_key, pub_key_origin) = self.public_key.into_tuple();
+                let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
+                    .change_context(GenesisConfigError::KeyPair)
+                    .attach_printable_lazy(|| format!("got public key from: {}", pub_key_origin))
+                    .attach_printable_lazy(|| {
+                        format!("got private key from: {}", priv_key_origin)
+                    })?;
+                Ok(actual::Genesis::Full { key_pair, file })
+            }
+            (Some(_), Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit)?,
+            (None, None, true) => Err(GenesisConfigError::SubmitWithoutGenesis)?,
+            _ => Err(GenesisConfigError::Inconsistent)?,
         }
     }
 }
@@ -274,15 +297,18 @@ pub enum GenesisConfigError {
     SubmitWithoutGenesis,
     /// `genesis.file` and `genesis.private_key` should be set together
     Inconsistent,
-    /// failed to construct the genesis's keypair using `genesis.public_key` and `genesis.private_key` configuration parameters
-    KeyPair(#[from] iroha_crypto::error::Error),
+    /// failed to construct the genesis's keypair from public and private keys
+    KeyPair,
 }
 
 #[derive(Debug, ReadConfig)]
 pub struct Kura {
     #[config(env = "KURA_INIT_MODE", default)]
     pub init_mode: KuraInitMode,
-    #[config(env = "KURA_STORE_DIR", default = "defaults::KURA_STORE_DIR.clone()")]
+    #[config(
+        env = "KURA_STORE_DIR",
+        default = "PathBuf::from(defaults::kura::STORE_DIR)"
+    )]
     pub store_dir: WithOrigin<PathBuf>,
     #[config(nested)]
     pub debug: KuraDebug,
@@ -365,14 +391,14 @@ pub struct SumeragiDebug {
 pub struct Network {
     /// Peer-to-peer address
     #[config(env = "P2P_ADDRESS")]
-    pub address: SocketAddr,
-    #[config(default = "DEFAULT_MAX_BLOCKS_PER_GOSSIP")]
+    pub address: WithOrigin<SocketAddr>,
+    #[config(default = "defaults::network::BLOCK_GOSSIP_MAX_SIZE")]
     pub block_gossip_max_size: NonZeroU32,
-    #[config(default = "DEFAULT_BLOCK_GOSSIP_PERIOD")]
+    #[config(default = "defaults::network::BLOCK_GOSSIP_PERIOD.into()")]
     pub block_gossip_period: HumanDuration,
-    #[config(default = "DEFAULT_MAX_TRANSACTIONS_PER_GOSSIP")]
+    #[config(default = "defaults::network::TRANSACTION_GOSSIP_MAX_SIZE")]
     pub transaction_gossip_max_size: NonZeroU32,
-    #[config(default = "DEFAULT_TRANSACTION_GOSSIP_PERIOD")]
+    #[config(default = "defaults::network::TRANSACTION_GOSSIP_PERIOD.into()")]
     pub transaction_gossip_period: HumanDuration,
     /// Duration of time after which connection with peer is terminated if peer is idle
     pub idle_timeout: Duration,
@@ -415,17 +441,17 @@ impl Network {
 #[derive(Debug, Clone, Copy, ReadConfig)]
 pub struct Queue {
     /// The upper limit of the number of transactions waiting in the queue.
-    #[config(default = "DEFAULT_MAX_TRANSACTIONS_IN_QUEUE")]
+    #[config(default = "defaults::queue::CAPACITY")]
     pub capacity: NonZeroUsize,
     /// The upper limit of the number of transactions waiting in the queue for single user.
     /// Use this option to apply throttling.
-    #[config(default = "DEFAULT_MAX_TRANSACTIONS_IN_QUEUE")]
+    #[config(default = "defaults::queue::CAPACITY_PER_USER")]
     pub capacity_per_user: NonZeroUsize,
     /// The transaction will be dropped after this time if it is still in the queue.
-    #[config(default = "DEFAULT_TRANSACTION_TIME_TO_LIVE")]
+    #[config(default = "defaults::queue::TRANSACTION_TIME_TO_LIVE.into()")]
     pub transaction_time_to_live: HumanDuration,
     /// The threshold to determine if a transaction has been tampered to have a future timestamp.
-    #[config(default = "DEFAULT_FUTURE_THRESHOLD")]
+    #[config(default = "defaults::queue::FUTURE_THRESHOLD.into()")]
     pub future_threshold: HumanDuration,
 }
 
@@ -452,7 +478,7 @@ pub struct Telemetry {
     #[serde(default)]
     pub min_retry_period: TelemetryMinRetryPeriod,
     #[serde(default)]
-    pub max_retry_delay_exponent: u8,
+    pub max_retry_delay_exponent: TelemetryMaxRetryDelayExponent,
 }
 
 #[derive(Deserialize, Debug)]
@@ -460,7 +486,7 @@ struct TelemetryMinRetryPeriod(HumanDuration);
 
 impl Default for TelemetryMinRetryPeriod {
     fn default() -> Self {
-        Self(HumanDuration(defaults::telemetry::DEFAULT_MIN_RETRY_PERIOD))
+        Self(HumanDuration(defaults::telemetry::MIN_RETRY_PERIOD))
     }
 }
 
@@ -469,7 +495,25 @@ struct TelemetryMaxRetryDelayExponent(u8);
 
 impl Default for TelemetryMaxRetryDelayExponent {
     fn default() -> Self {
-        Self(defaults::telemetry::DEFAULT_MAX_RETRY_DELAY_EXPONENT)
+        Self(defaults::telemetry::MAX_RETRY_DELAY_EXPONENT)
+    }
+}
+
+impl From<Telemetry> for actual::Telemetry {
+    fn from(
+        Telemetry {
+            name,
+            url,
+            min_retry_period: TelemetryMinRetryPeriod(HumanDuration(min_retry_period)),
+            max_retry_delay_exponent: TelemetryMaxRetryDelayExponent(max_retry_delay_exponent),
+        }: Telemetry,
+    ) -> Self {
+        Self {
+            name,
+            url,
+            min_retry_period,
+            max_retry_delay_exponent,
+        }
     }
 }
 
@@ -482,45 +526,46 @@ pub struct DevTelemetry {
 pub struct Snapshot {
     #[config(default, env = "SNAPSHOT_MODE")]
     pub mode: SnapshotMode,
-    #[config(default = "defaults::snapshot::DEFAULT_CREATE_EVERY")]
+    #[config(default = "defaults::snapshot::CREATE_EVERY.into()")]
     pub create_every: HumanDuration,
     #[config(
-        default = "PathBuf::from(defaults::snapshot::DEFAULT_STORE_DIR)",
+        default = "PathBuf::from(defaults::snapshot::STORE_DIR)",
         env = "SNAPSHOT_STORE_DIR"
     )]
     pub store_dir: WithOrigin<PathBuf>,
 }
 
+// TODO: make serde
 #[derive(Debug, Copy, Clone, ReadConfig)]
 pub struct ChainWide {
-    #[config(default = "DEFAULT_MAX_TXS")]
+    #[config(default = "defaults::chain_wide::MAX_TXS")]
     pub max_transactions_in_block: NonZeroU32,
-    #[config(default = "DEFAULT_BLOCK_TIME")]
-    pub block_time: HumanDuration,
-    #[config(default = "DEFAULT_COMMIT_TIME")]
-    pub commit_time: HumanDuration,
-    #[config(default = "DEFAULT_TRANSACTION_LIMITS")]
+    #[config(default = "defaults::chain_wide::BLOCK_TIME")]
+    pub block_time: Duration,
+    #[config(default = "defaults::chain_wide::COMMIT_TIME")]
+    pub commit_time: Duration,
+    #[config(default = "defaults::chain_wide::TRANSACTION_LIMITS")]
     pub transaction_limits: TransactionLimits,
-    #[config(default = "DEFAULT_METADATA_LIMITS")]
+    #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
     pub domain_metadata_limits: MetadataLimits,
-    #[config(default = "DEFAULT_METADATA_LIMITS")]
+    #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
     pub asset_definition_metadata_limits: MetadataLimits,
-    #[config(default = "DEFAULT_METADATA_LIMITS")]
+    #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
     pub account_metadata_limits: MetadataLimits,
-    #[config(default = "DEFAULT_METADATA_LIMITS")]
+    #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
     pub asset_metadata_limits: MetadataLimits,
-    #[config(default = "DEFAULT_METADATA_LIMITS")]
+    #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
     pub trigger_metadata_limits: MetadataLimits,
-    #[config(default = "DEFAULT_IDENT_LENGTH_LIMITS")]
+    #[config(default = "defaults::chain_wide::IDENT_LENGTH_LIMITS")]
     pub ident_length_limits: LengthLimits,
-    #[config(default = "DEFAULT_WASM_FUEL_LIMIT")]
+    #[config(default = "defaults::chain_wide::WASM_FUEL_LIMIT")]
     pub executor_fuel_limit: u64,
-    #[config(default = "DEFAULT_WASM_MAX_MEMORY_BYTES")]
-    pub executor_max_memory: HumanBytes<u32>,
-    #[config(default = "DEFAULT_WASM_FUEL_LIMIT")]
+    #[config(default = "defaults::chain_wide::WASM_MAX_MEMORY_BYTES")]
+    pub executor_max_memory: u32,
+    #[config(default = "defaults::chain_wide::WASM_FUEL_LIMIT")]
     pub wasm_fuel_limit: u64,
-    #[config(default = "DEFAULT_WASM_MAX_MEMORY_BYTES")]
-    pub wasm_max_memory: HumanBytes<u32>,
+    #[config(default = "defaults::chain_wide::WASM_MAX_MEMORY_BYTES")]
+    pub wasm_max_memory: u32,
 }
 
 impl ChainWide {
@@ -555,32 +600,35 @@ impl ChainWide {
             ident_length_limits,
             executor_runtime: actual::WasmRuntime {
                 fuel_limit: executor_fuel_limit,
-                max_memory_bytes: executor_max_memory.get(),
+                max_memory_bytes: executor_max_memory,
             },
             wasm_runtime: actual::WasmRuntime {
                 fuel_limit: wasm_fuel_limit,
-                max_memory_bytes: wasm_max_memory.get(),
+                max_memory_bytes: wasm_max_memory,
             },
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, ReadConfig)]
 pub struct Torii {
-    pub address: SocketAddr,
-    pub max_content_len: HumanBytes<u64>,
-    pub query_idle_time: Duration,
+    #[config(env = "API_ADDRESS")]
+    pub address: WithOrigin<SocketAddr>,
+    #[config(default = "defaults::torii::MAX_CONTENT_LENGTH.into()")]
+    pub max_content_length: HumanBytes<u64>,
+    #[config(default = "defaults::torii::QUERY_IDLE_TIME.into()")]
+    pub query_idle_time: HumanDuration,
 }
 
 impl Torii {
     fn parse(self) -> (actual::Torii, actual::LiveQueryStore) {
         let torii = actual::Torii {
             address: self.address,
-            max_content_len_bytes: self.max_content_len.get(),
+            max_content_len_bytes: self.max_content_length.get(),
         };
 
         let query = actual::LiveQueryStore {
-            idle_time: self.query_idle_time,
+            idle_time: self.query_idle_time.get(),
         };
 
         (torii, query)
