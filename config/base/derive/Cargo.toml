@@ -24,3 +24,4 @@ iroha_macro_utils = { workspace = true }
 [dev-dependencies]
 trybuild = { workspace = true }
 iroha_config_base = { workspace = true }
+expect-test = { workspace = true }

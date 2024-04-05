@@ -60,7 +60,9 @@ pub fn derive_read_config(input: TokenStream) -> TokenStream {
     let Some(parsed) = emitter.handle(Input::from_derive_input(&input)) else {
         return emitter.finish_token_stream();
     };
-    let ir = parsed.lower(&mut emitter);
+    let Some(ir) = parsed.lower(&mut emitter) else {
+        return emitter.finish_token_stream();
+    };
 
     emitter.finish_token_stream_with(ir.generate())
 }
@@ -85,9 +87,13 @@ mod ast {
     }
 
     impl Input {
-        pub fn lower(self, emitter: &mut Emitter) -> codegen::Ir {
+        pub fn lower(self, emitter: &mut Emitter) -> Option<codegen::Ir> {
+            let mut halt_codegen = false;
+
             for i in self.generics.params {
-                emit!(emitter, i, "generics are not supported")
+                emit!(emitter, i, "generics are not supported");
+                // proceeding to codegen with these errors will produce a mess
+                halt_codegen = true;
             }
 
             let entries = self
@@ -99,9 +105,13 @@ mod ast {
                 .map(|field| field.into_codegen(emitter))
                 .collect();
 
-            codegen::Ir {
-                ident: self.ident,
-                entries,
+            if halt_codegen {
+                None
+            } else {
+                Some(codegen::Ir {
+                    ident: self.ident,
+                    entries,
+                })
             }
         }
     }
@@ -279,10 +289,11 @@ mod ast {
                                         Err(LocalError::BadDefaultFormat(ident.span()))?
                                     };
 
-                                    let expr: syn::Expr = syn::parse_str(
-                                        lit.to_string().trim_matches('"'),
-                                    )
-                                    .map_err(|err| LocalError::BadDefaultExpr(lit.span(), err))?;
+                                    // FIXME: how to extract an expression from the literal properly?
+                                    let lit = syn::LitStr::new(lit.to_string().trim_matches('"'), lit.span());
+                                    let expr: syn::Expr = lit
+                                        .parse()
+                                        .map_err(|err| LocalError::BadDefaultExpr(lit.span(), err))?;
 
                                     attr_default = Some(AttrDefault::Expr(expr));
                                     rest = next;
@@ -316,7 +327,7 @@ mod ast {
                                         Err(LocalError::BadEnvFormat(ident.span()))?
                                     };
 
-                                    let lit = syn::LitStr::new(&lit.to_string(), lit.span());
+                                    let lit = syn::LitStr::new(&lit.to_string().trim_matches('"'), lit.span());
                                     attr_env = Some(lit);
                                     rest = next;
                                 }
@@ -396,10 +407,9 @@ mod ast {
                     if let Some(last_segment) = type_path.path.segments.last() {
                         match &last_segment.arguments {
                             syn::PathArguments::AngleBracketed(args) if args.args.len() == 1 => {
-                                let Some(first) = args.args.first() else {
-                                    unreachable!()
-                                };
-                                if let syn::GenericArgument::Type(ty) = first {
+                                if let syn::GenericArgument::Type(ty) =
+                                    args.args.first().expect("should be exactly 1")
+                                {
                                     found = Some((Some(ty), &last_segment.ident));
                                 }
                             }
@@ -486,7 +496,7 @@ mod ast {
             else {
                 panic!("expectation failed")
             };
-            assert_eq!(var.value().trim_matches('"'), "$!@#");
+            assert_eq!(var.value(), "$!@#");
         }
 
         #[test]
@@ -525,6 +535,11 @@ mod ast {
             case!(WithOrigin<Something>, false, true);
             case!(WithOrigin<Option<Something>>, false, true);
             case!(Option<Option<WithOrigin<Something>>>, true, false);
+            case!(
+                std::option::Option<whatever::WithOrigin<Something>>,
+                true,
+                true
+            );
         }
     }
 }
@@ -545,47 +560,8 @@ mod codegen {
             let (read_fields, unwrap_fields): (Vec<_>, Vec<_>) = self
                 .entries
                 .into_iter()
-                .map(|Entry { ident, kind }| {
-                    let read = match kind {
-                        EntryKind::Nested => quote! { let (#ident, __reader) = __reader.nested([stringify!(#ident)]); },
-                        EntryKind::Parameter {
-                            parse,
-                            evaluation,
-                            with_origin,
-                        } => {
-                            let mut read = quote! {
-                                let (#ident, __reader) = __reader
-                            };
-                            read.extend(
-                                match parse {
-                                    ParseParameter::FileOnly => {
-                                        quote! { .parameter([stringify!(#ident)]) }
-                                    }
-                                    ParseParameter::FileAndEnv { var } => {
-                                        quote! {
-                                            .parameter([stringify!(#ident)])
-                                            .env(#var)
-                                        }
-                                    }
-                                    ParseParameter::EnvOnly { var }=> {
-                                        quote! { .parameter_env(#var) }
-                                    }
-                                }
-
-                            );
-                            read.extend(match evaluation {
-                                Evaluation::Required => quote! { .value_required() },
-                                Evaluation::OrElse(expr) => quote! { .value_or_else(|| #expr) },
-                                Evaluation::OrDefault => quote! { .value_or_default() },
-                                Evaluation::Optional => quote! { .value_optional() }
-                            });
-                            read.extend(if with_origin { quote! { .finish_with_origin(); } } else { quote! { .finish(); } });
-                            read
-                        }
-                    };
-
-                    (read, quote! { #ident: #ident.unwrap() })
-                })
+                .map(Entry::generate)
+                .map(|EntryParts { read, unwrap }| (read, unwrap))
                 .unzip();
 
             let ident = self.ident;
@@ -605,7 +581,7 @@ mod codegen {
 
                         (
                             ::iroha_config_base::reader::OkAfterFinish::value_fn(|| Self {
-                                #(#unwrap_fields)*
+                                #(#unwrap_fields),*
                             }),
                             __reader
                         )
@@ -618,6 +594,63 @@ mod codegen {
     pub struct Entry {
         pub ident: syn::Ident,
         pub kind: EntryKind,
+    }
+
+    impl Entry {
+        fn generate(self) -> EntryParts {
+            let Self { kind, ident } = self;
+
+            let read = match kind {
+                EntryKind::Nested => {
+                    quote! { let (#ident, __reader) = __reader.read_nested(stringify!(#ident)); }
+                }
+                EntryKind::Parameter {
+                    parse,
+                    evaluation,
+                    with_origin,
+                } => {
+                    let mut read = quote! {
+                        let (#ident, __reader) = __reader
+                    };
+                    read.extend(match parse {
+                        ParseParameter::FileOnly => {
+                            quote! { .parameter([stringify!(#ident)]) }
+                        }
+                        ParseParameter::FileAndEnv { var } => {
+                            quote! {
+                                .parameter([stringify!(#ident)])
+                                .env(#var)
+                            }
+                        }
+                        ParseParameter::EnvOnly { var } => {
+                            quote! { .parameter_env([stringify!(#ident)], #var) }
+                        }
+                    });
+                    read.extend(match evaluation {
+                        Evaluation::Required => quote! { .value_required() },
+                        Evaluation::OrElse(expr) => quote! { .value_or_else(|| #expr) },
+                        Evaluation::OrDefault => quote! { .value_or_default() },
+                        Evaluation::Optional => quote! { .value_optional() },
+                    });
+                    read.extend(if with_origin {
+                        quote! { .finish_with_origin(); }
+                    } else {
+                        quote! { .finish(); }
+                    });
+                    read
+                }
+            };
+
+            EntryParts {
+                read,
+                unwrap: quote! { #ident: #ident.unwrap() },
+            }
+        }
+    }
+
+    struct EntryParts {
+        read: TokenStream,
+        unwrap: TokenStream,
     }
 
     pub enum EntryKind {
@@ -640,5 +673,31 @@ mod codegen {
         OrElse(syn::Expr),
         OrDefault,
         Optional,
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use expect_test::expect;
+        use syn::parse_quote;
+
+        use super::*;
+
+        #[test]
+        fn entry_with_env_reading() {
+            let entry = Entry {
+                ident: parse_quote!(test),
+                kind: EntryKind::Parameter {
+                    parse: ParseParameter::FileAndEnv {
+                        var: parse_quote!("TEST_ENV"),
+                    },
+                    evaluation: Evaluation::Required,
+                    with_origin: false,
+                },
+            };
+
+            let actual = entry.generate().read.to_string();
+
+            expect![[r#"let (test , __reader) = __reader . parameter ([stringify ! (test)]) . env ("TEST_ENV") . value_required () . finish () ;"#]].assert_eq(&actual);
+        }
     }
 }

@@ -386,6 +386,7 @@ fn minimal_config_ok() {
     expect![[r#"
         Root {
             chain_id: "whatever",
+            alt_chain_id: None,
             torii: Torii {
                 address: WithOrigin {
                     value: 128.0.0.1:8080,
@@ -444,6 +445,7 @@ fn full_config_ok() {
     expect![[r#"
         Root {
             chain_id: "whatever",
+            alt_chain_id: None,
             torii: Torii {
                 address: WithOrigin {
                     value: 127.0.0.2:1337,

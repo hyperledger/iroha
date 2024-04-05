@@ -87,7 +87,7 @@ impl Display for ParameterOrigin {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WithOrigin<T> {
     value: T,
     origin: ParameterOrigin,

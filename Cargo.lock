@@ -2958,6 +2958,7 @@ name = "iroha_config_base_derive"
 version = "2.0.0-pre-rc.20"
 dependencies = [
  "darling",
+ "expect-test",
  "iroha_config_base",
  "iroha_macro_utils",
  "manyhow",
