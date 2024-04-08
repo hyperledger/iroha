@@ -24,7 +24,7 @@ use iroha_core::{
         try_read_snapshot, SnapshotMaker, SnapshotMakerHandle, TryReadError as TryReadSnapshotError,
     },
     state::{State, StateReadOnly, World},
-    sumeragi::{SumeragiHandle, SumeragiStartArgs},
+    sumeragi::{GenesisWithPubKey, SumeragiHandle, SumeragiStartArgs},
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
@@ -264,7 +264,10 @@ impl Iroha {
             queue: Arc::clone(&queue),
             kura: Arc::clone(&kura),
             network: network.clone(),
-            genesis_network: genesis,
+            genesis_network: GenesisWithPubKey {
+                genesis,
+                public_key: config.genesis.public_key().clone(),
+            },
             block_count,
         };
         // Starting Sumeragi requires no async context enabled

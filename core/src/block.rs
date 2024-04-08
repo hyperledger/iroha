@@ -271,10 +271,12 @@ mod valid {
         /// - Block header transaction hashes don't match with computed transaction hashes
         /// - Error during validation of individual transactions
         /// - Topology field is incorrect
+        /// - Transaction in the genesis block is not signed by the genesis public key
         pub fn validate(
             block: SignedBlock,
             topology: &Topology,
             expected_chain_id: &ChainId,
+            genesis_public_key: &PublicKey,
             state_block: &mut StateBlock<'_>,
         ) -> WithEvents<Result<ValidBlock, (SignedBlock, BlockValidationError)>> {
             let expected_block_height = state_block.height() + 1;
@@ -341,8 +343,12 @@ mod valid {
                 )));
             }
 
-            if let Err(error) = Self::validate_transactions(&block, expected_chain_id, state_block)
-            {
+            if let Err(error) = Self::validate_transactions(
+                &block,
+                expected_chain_id,
+                genesis_public_key,
+                state_block,
+            ) {
                 return WithEvents::new(Err((block, error.into())));
             }
 
@@ -359,6 +365,7 @@ mod valid {
         fn validate_transactions(
             block: &SignedBlock,
             expected_chain_id: &ChainId,
+            genesis_public_key: &PublicKey,
             state_block: &mut StateBlock<'_>,
         ) -> Result<(), TransactionValidationError> {
             let is_genesis = block.header().is_genesis();
@@ -371,7 +378,7 @@ mod valid {
                     let limits = &transaction_executor.transaction_limits;
 
                     let tx = if is_genesis {
-                            AcceptedTransaction::accept_genesis(GenesisTransaction(value), expected_chain_id)
+                            AcceptedTransaction::accept_genesis(GenesisTransaction(value), expected_chain_id, genesis_public_key)
                     } else {
                             AcceptedTransaction::accept(value, expected_chain_id, limits)
                     }?;
@@ -787,7 +794,9 @@ mod event {
 mod tests {
     use std::str::FromStr as _;
 
+    use iroha_crypto::SignatureVerificationFail;
     use iroha_data_model::prelude::*;
+    use iroha_genesis::{GENESIS_ACCOUNT_ID, GENESIS_DOMAIN_ID};
 
     use super::*;
     use crate::{
@@ -1014,5 +1023,73 @@ mod tests {
                 .is_none(),
             "The second transaction should be accepted."
         );
+    }
+
+    #[tokio::test]
+    async fn genesis_public_key_is_checked() {
+        let chain_id = ChainId::from("0");
+
+        // Predefined world state
+        let genesis_correct_key = KeyPair::random();
+        let genesis_wrong_key = KeyPair::random();
+        let mut genesis_domain = Domain::new(GENESIS_DOMAIN_ID.clone()).build(&GENESIS_ACCOUNT_ID);
+        let genesis_account = Account::new(
+            GENESIS_ACCOUNT_ID.clone(),
+            genesis_wrong_key.public_key().clone(),
+        )
+        .build(&GENESIS_ACCOUNT_ID);
+        assert!(genesis_domain.add_account(genesis_account).is_none(),);
+        let world = World::with([genesis_domain], UniqueVec::new());
+        let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
+        let state = State::new(world, kura, query_handle);
+        let mut state_block = state.block();
+
+        // Creating an instruction
+        let isi = Log::new(
+            iroha_data_model::Level::DEBUG,
+            "instruction itself doesn't matter here".to_string(),
+        );
+
+        // Create genesis transaction
+        // Sign with `genesis_wrong_key` as peer which has incorrect genesis key pair
+        let tx = TransactionBuilder::new(chain_id.clone(), GENESIS_ACCOUNT_ID.clone())
+            .with_instructions([isi])
+            .sign(&genesis_wrong_key);
+        let tx = AcceptedTransaction::accept_genesis(
+            iroha_genesis::GenesisTransaction(tx),
+            &chain_id,
+            genesis_wrong_key.public_key(),
+        )
+        .expect("Valid");
+
+        // Create genesis block
+        let transactions = vec![tx];
+        let topology = Topology::new(UniqueVec::new());
+        let valid_block = BlockBuilder::new(transactions, topology.clone(), Vec::new())
+            .chain(0, &mut state_block)
+            .sign(&KeyPair::random())
+            .unpack(|_| {});
+
+        // Validate genesis block
+        // Use correct genesis key and check if transaction is rejected
+        let block: SignedBlock = valid_block.into();
+        let (_, error) = ValidBlock::validate(
+            block,
+            &topology,
+            &chain_id,
+            genesis_correct_key.public_key(),
+            &mut state_block,
+        )
+        .unpack(|_| {})
+        .unwrap_err();
+
+        // The first transaction should be rejected
+        assert!(matches!(
+            error,
+            BlockValidationError::TransactionValidation(TransactionValidationError::Accept(
+                AcceptTransactionFail::SignatureVerification(SignatureVerificationFail { reason, .. })
+            )) if reason == "Signature doesn't correspond to genesis public key"
+        ));
     }
 }
