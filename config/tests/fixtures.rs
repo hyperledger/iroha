@@ -76,13 +76,24 @@ fn minimal_config_snapshot() {
                     ),
                     private_key: "[REDACTED PrivateKey]",
                 },
-                p2p_address: WithOrigin {
+                peer_id: PeerId {
+                    address: 127.0.0.1:1337,
+                    public_key: PublicKey(
+                        ed25519(
+                            "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                        ),
+                    ),
+                },
+            },
+            network: Network {
+                address: WithOrigin {
                     value: 127.0.0.1:1337,
                     origin: File {
                         path: "tests/fixtures/base.toml",
                         id: ParameterId(network.address),
                     },
                 },
+                idle_timeout: 60s,
             },
             genesis: Partial {
                 public_key: PublicKey(

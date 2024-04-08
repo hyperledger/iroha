@@ -210,7 +210,10 @@ impl Root {
         emitter.into_result()?;
 
         let key_pair = key_pair.unwrap();
-        let peer_id = PeerId::new(network.address.clone(), key_pair.public_key().clone());
+        let peer_id = PeerId::new(
+            network.address.value().clone(),
+            key_pair.public_key().clone(),
+        );
 
         let peer = actual::Common {
             chain_id: self.chain_id.0,
@@ -429,7 +432,8 @@ pub struct Network {
     #[config(default = "defaults::network::TRANSACTION_GOSSIP_PERIOD.into()")]
     pub transaction_gossip_period: HumanDuration,
     /// Duration of time after which connection with peer is terminated if peer is idle
-    pub idle_timeout: Duration,
+    #[config(default = "defaults::network::IDLE_TIMEOUT.into()")]
+    pub idle_timeout: HumanDuration,
 }
 
 impl Network {
@@ -452,7 +456,7 @@ impl Network {
         (
             actual::Network {
                 address,
-                idle_timeout,
+                idle_timeout: idle_timeout.get(),
             },
             actual::BlockSync {
                 gossip_period: block_gossip_period.get(),
