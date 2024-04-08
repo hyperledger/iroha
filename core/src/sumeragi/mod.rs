@@ -195,6 +195,7 @@ impl SumeragiHandle {
 
     fn replay_block(
         chain_id: &ChainId,
+        genesis_public_key: &PublicKey,
         block: &SignedBlock,
         state_block: &mut StateBlock<'_>,
         events_sender: &EventsSender,
@@ -203,16 +204,22 @@ impl SumeragiHandle {
         // NOTE: topology need to be updated up to block's view_change_index
         current_topology.rotate_all_n(block.header().view_change_index);
 
-        let block = ValidBlock::validate(block.clone(), &current_topology, chain_id, state_block)
-            .unpack(|e| {
-                let _ = events_sender.send(e.into());
-            })
-            .expect("Kura: Invalid block")
-            .commit(&current_topology)
-            .unpack(|e| {
-                let _ = events_sender.send(e.into());
-            })
-            .expect("Kura: Invalid block");
+        let block = ValidBlock::validate(
+            block.clone(),
+            &current_topology,
+            chain_id,
+            genesis_public_key,
+            state_block,
+        )
+        .unpack(|e| {
+            let _ = events_sender.send(e.into());
+        })
+        .expect("Kura: Invalid block")
+        .commit(&current_topology)
+        .unpack(|e| {
+            let _ = events_sender.send(e.into());
+        })
+        .expect("Kura: Invalid block");
 
         if block.as_ref().header().is_genesis() {
             *state_block.world.trusted_peers_ids = block.as_ref().commit_topology().clone();
@@ -289,6 +296,7 @@ impl SumeragiHandle {
             let mut state_block = state.block();
             current_topology = Self::replay_block(
                 &common_config.chain_id,
+                &genesis_network.public_key,
                 &block,
                 &mut state_block,
                 &events_sender,
@@ -418,6 +426,13 @@ pub struct SumeragiStartArgs {
     pub queue: Arc<Queue>,
     pub kura: Arc<Kura>,
     pub network: IrohaNetwork,
-    pub genesis_network: Option<GenesisNetwork>,
+    pub genesis_network: GenesisWithPubKey,
     pub block_count: BlockCount,
+}
+
+/// Optional genesis paired with genesis public key for verification
+#[allow(missing_docs)]
+pub struct GenesisWithPubKey {
+    pub genesis: Option<GenesisNetwork>,
+    pub public_key: PublicKey,
 }
