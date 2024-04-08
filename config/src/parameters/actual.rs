@@ -7,7 +7,11 @@ use std::{
     time::Duration,
 };
 
-use iroha_config_base::WithOrigin;
+use error_stack::{Result, ResultExt};
+use iroha_config_base::{
+    read::{ConfigReader, ReadConfig},
+    WithOrigin,
+};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
@@ -44,6 +48,11 @@ pub struct Root {
     pub chain_wide: ChainWide,
 }
 
+/// TODO
+#[derive(thiserror::Error, Debug, Copy, Clone)]
+#[error("Failed to read & validate Iroha configuration")]
+pub struct LoadError;
+
 impl Root {
     /// Loads configuration from a file and environment variables
     ///
@@ -51,15 +60,19 @@ impl Root {
     /// - unable to load config from a TOML file
     /// - unable to parse config from envs
     /// - the config is invalid
-    pub fn load<P: AsRef<Path>>(path: Option<P>, cli: CliContext) -> Result<Self, eyre::Report> {
-        let from_file = path.map(RootPartial::from_toml).transpose()?;
-        let from_env = RootPartial::from_env(&StdEnv)?;
-        let merged = match from_file {
-            Some(x) => x.merge(from_env),
-            None => from_env,
-        };
-        let config = merged.unwrap_partial()?.parse(cli)?;
-        Ok(config)
+    pub fn load<P: AsRef<Path>>(path: Option<P>, cli: CliContext) -> Result<Self, LoadError> {
+        let mut reader = ConfigReader::new();
+        if let Some(path) = path {
+            reader = reader
+                .read_toml_with_extends(path)
+                .change_context(LoadError)?;
+        }
+        let (root, reader) = user::Root::read(reader);
+        reader.into_result().change_context(LoadError)?;
+        let root = root.unwrap();
+        let parsed = root.parse(cli).change_context(LoadError)?;
+
+        Ok(parsed)
     }
 }
 
@@ -130,14 +143,13 @@ pub struct Kura {
     pub debug_output_new_blocks: bool,
 }
 
-// FIXME: add _actual_ Queue
 impl Default for Queue {
     fn default() -> Self {
         Self {
-            transaction_time_to_live: defaults::queue::TRANSACTION_TIME_TO_LIVE,
-            future_threshold: defaults::queue::FUTURE_THRESHOLD,
-            capacity: defaults::queue::MAX_TRANSACTIONS_IN_QUEUE,
-            capacity_per_user: defaults::queue::MAX_TRANSACTIONS_IN_QUEUE_PER_USER,
+            transaction_time_to_live: defaults::queue::TRANSACTION_TIME_TO_LIVE.into(),
+            future_threshold: defaults::queue::FUTURE_THRESHOLD.into(),
+            capacity: defaults::queue::CAPACITY,
+            capacity_per_user: defaults::queue::CAPACITY_PER_USER,
         }
     }
 }

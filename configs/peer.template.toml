@@ -28,7 +28,7 @@
 
 [torii]
 # address =
-# max_content_len = "16mb"
+# max_content_length = "16mb"
 # query_idle_time = "30s"
 
 [kura]

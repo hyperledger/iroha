@@ -33,10 +33,11 @@ derive_more = { workspace = true }
 cfg-if = { workspace = true }
 once_cell = { workspace = true }
 nonzero_ext = { workspace = true }
+hex = { workspace = true, features = ["std"] }
+
+# for tracing
+stderrlog = "0.6.0"
 
 [dev-dependencies]
-proptest = "1.4.0"
-stacker = "0.1.15"
 expect-test = { workspace = true }
-trybuild = { workspace = true }
-hex = { workspace = true }
+assertables = { workspace = true }

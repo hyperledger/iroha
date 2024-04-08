@@ -71,7 +71,7 @@ toml = { workspace = true }
 json5 = { workspace = true }
 futures = { workspace = true }
 path-absolutize = { workspace = true }
-assertables = "7"
+assertables = { workspace = true }
 
 [build-dependencies]
 iroha_wasm_builder = { workspace = true }

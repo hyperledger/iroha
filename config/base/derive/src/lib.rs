@@ -34,15 +34,15 @@ use crate::ast::Input;
 /// Supported field attributes:
 ///
 /// - `env = "<env var name>"` - read parameter from env (bound: `T: FromEnvStr`)
-/// - `env_only` - skip reading from file (removes `T: Deserialize` bound)
 /// - `default` - fallback to default value (bound: `T: Default`)
 /// - `default = "<expr>"` - fallback to a default value specified as an expression
 /// - `nested` - delegates further reading (bound: `T: ReadConfig`).
-///   It uses the field name as a namespace.
+///   It uses the field name as a namespace. Conflicts with others.
+/// - `custom` - for a type that implements `CustomValueRead`. Conflicts with others.
 ///
 /// A bound of `T: Deserialize` is required unless `env_only` is set.
 ///
-/// Supported field shapes:
+/// Supported field shapes (if `nested` and `custom` are not specified):
 ///
 /// - `T` - required parameter
 /// - `WithOrigin<T>` - required parameter with origin data
@@ -150,6 +150,7 @@ mod ast {
 
             let kind = match attrs {
                 Attrs::Nested => codegen::EntryKind::Nested,
+                Attrs::Custom => codegen::EntryKind::Custom,
                 Attrs::Parameter { default, env } => {
                     let shape = ParameterTypeShape::analyze(&ty);
                     let evaluation = match (shape.option, default) {
@@ -162,21 +163,11 @@ mod ast {
                             codegen::Evaluation::Optional
                         }
                     };
-                    let with_origin = shape.with_origin;
-                    let parse = match env {
-                        AttrEnv::None => codegen::ParseParameter::FileOnly,
-                        AttrEnv::Env { var, only: false } => {
-                            codegen::ParseParameter::FileAndEnv { var }
-                        }
-                        AttrEnv::Env { var, only: true } => {
-                            codegen::ParseParameter::EnvOnly { var }
-                        }
-                    };
 
                     codegen::EntryKind::Parameter {
-                        parse,
+                        env,
                         evaluation,
-                        with_origin,
+                        with_origin: shape.with_origin,
                     }
                 }
             };
@@ -188,7 +179,11 @@ mod ast {
     #[derive(Debug)]
     enum Attrs {
         Nested,
-        Parameter { default: AttrDefault, env: AttrEnv },
+        Custom,
+        Parameter {
+            default: AttrDefault,
+            env: Option<syn::LitStr>,
+        },
     }
 
     impl Default for Attrs {
@@ -211,29 +206,18 @@ mod ast {
         Expr(syn::Expr),
     }
 
-    #[derive(Debug, Default)]
-    enum AttrEnv {
-        #[default]
-        None,
-        Env {
-            var: syn::LitStr,
-            only: bool,
-        },
-    }
-
     impl syn::parse::Parse for Attrs {
         fn parse(input: ParseStream) -> syn::Result<Self> {
             input.step(|cursor| {
                 let mut attr_default = None;
                 let mut attr_env = None;
-                let mut attr_env_only = None;
+                let mut attr_custom = false;
                 let mut attr_nested = false;
 
                 let mut rest = *cursor;
 
                 enum LocalError {
-                    IncompatibleWithNested(Span),
-                    NestedOnlyAlone(Span),
+                    Conflict(Span),
                     Duplicate(Span),
                     EnvExpectedFormat(Span),
                     EnvOnlyWithoutEnv(Span),
@@ -244,8 +228,7 @@ mod ast {
                 impl From<LocalError> for syn::Error {
                     fn from(value: LocalError) -> Self {
                         match value {
-                            LocalError::IncompatibleWithNested(span) => Self::new(span, "attribute is not compatible with `nested` attribute set previously"),
-                            LocalError::NestedOnlyAlone(span) => Self::new(span, "`nested` attribute cannot be set with any other attributes"),
+                            LocalError::Conflict(span) => Self::new(span, "attributes conflict: `nested`/`custom` cannot be set with other attributes"),
                             LocalError::Duplicate(span) => Self::new(span, "duplicate attribute"),
                             LocalError::BadDefaultExpr(span, error) => Self::new(span, format!("expected a valid expression within `default = \"<expr>\"`, but couldn't parse it: {error}")),
                             LocalError::EnvExpectedFormat(span) => Self::new(span, "expected `env` to be set as `env = \"VARIABLE_NAME\""),
@@ -261,8 +244,8 @@ mod ast {
                             let token = ident.to_string();
                             match token.as_str() {
                                 "default" => {
-                                    if attr_nested {
-                                        Err(LocalError::IncompatibleWithNested(ident.span()))?
+                                    if attr_nested || attr_custom {
+                                        Err(LocalError::Conflict(ident.span()))?
                                     }
                                     if attr_default.is_some() {
                                         Err(LocalError::Duplicate(ident.span()))?
@@ -285,8 +268,8 @@ mod ast {
                                     rest = expect_comma_or_none(next)?;
                                 }
                                 "nested" => {
-                                    if attr_default.is_some() || attr_env.is_some() {
-                                        Err(LocalError::NestedOnlyAlone(ident.span()))?
+                                    if attr_default.is_some() || attr_env.is_some() || attr_custom {
+                                        Err(LocalError::Conflict(ident.span()))?
                                     }
                                     if attr_nested {
                                         Err(LocalError::Duplicate(ident.span()))?
@@ -294,10 +277,20 @@ mod ast {
                                     attr_nested = true;
                                     rest = expect_comma_or_none(next)?;
                                 }
+                                "custom" => {
+                                    if attr_default.is_some() || attr_env.is_some() || attr_nested {
+                                        Err(LocalError::Conflict(ident.span()))?
+                                    }
+                                    if attr_custom {
+                                        Err(LocalError::Duplicate(ident.span()))?
+                                    }
+                                    attr_custom = true;
+                                    rest = expect_comma_or_none(next)?;
+                                }
                                 "env" => {
                                     // err if nested was set
-                                    if attr_nested {
-                                        Err(LocalError::IncompatibleWithNested(ident.span()))?
+                                    if attr_nested || attr_custom {
+                                        Err(LocalError::Conflict(ident.span()))?
                                     }
                                     if attr_env.is_some() {
                                         Err(LocalError::Duplicate(ident.span()))?
@@ -306,16 +299,6 @@ mod ast {
                                         Err(LocalError::EnvExpectedFormat(ident.span()))?
                                     };
                                     attr_env = Some(lit_str);
-                                    rest = expect_comma_or_none(next)?;
-                                }
-                                "env_only" => {
-                                    if attr_nested {
-                                        Err(LocalError::IncompatibleWithNested(ident.span()))?
-                                    }
-                                    if attr_env_only.is_some() {
-                                        Err(LocalError::Duplicate(ident.span()))?
-                                    }
-                                    attr_env_only = Some((ident.span()));
                                     rest = expect_comma_or_none(next)?;
                                 }
                                 other => {
@@ -331,21 +314,12 @@ mod ast {
 
                 let combined = if attr_nested {
                     Self::Nested
+                } else if attr_custom {
+                    Self::Custom
                 } else {
                     Self::Parameter {
                         default: attr_default.unwrap_or_default(),
-                        env: match (attr_env, attr_env_only) {
-                            (Some(lit), Some(_span)) => AttrEnv::Env {
-                                var: lit,
-                                only: true,
-                            },
-                            (Some(lit), None) => AttrEnv::Env {
-                                var: lit,
-                                only: false,
-                            },
-                            (None, None) => AttrEnv::None,
-                            (None, Some(span)) => Err(LocalError::EnvOnlyWithoutEnv(span))?,
-                        },
+                        env: attr_env,
                     }
                 };
 
@@ -479,7 +453,7 @@ mod ast {
                 attrs,
                 Attrs::Parameter {
                     default: AttrDefault::Word,
-                    env: AttrEnv::None
+                    env: None
                 }
             ));
         }
@@ -492,18 +466,18 @@ mod ast {
                 attrs,
                 Attrs::Parameter {
                     default: AttrDefault::Expr(_),
-                    env: AttrEnv::None
+                    env: None
                 }
             ));
         }
 
         #[test]
-        fn parse_default_env_env_only() {
-            let attrs: Attrs = syn::parse_quote!(default, env = "$!@#", env_only);
+        fn parse_default_env() {
+            let attrs: Attrs = syn::parse_quote!(default, env = "$!@#");
 
             let Attrs::Parameter {
                 default: AttrDefault::Word,
-                env: AttrEnv::Env { var, only: true },
+                env: Some(var),
             } = attrs
             else {
                 panic!("expectation failed")
@@ -512,10 +486,15 @@ mod ast {
         }
 
         #[test]
-        #[should_panic(
-            expected = "attribute is not compatible with `nested` attribute set previously"
-        )]
-        fn conflict_env() {
+        fn parse_custom() {
+            let attrs: Attrs = syn::parse_quote!(custom);
+
+            assert!(matches!(dbg!(attrs), Attrs::Custom));
+        }
+
+        #[test]
+        #[should_panic(expected = "`nested`/`custom` cannot be set with other attributes")]
+        fn conflict() {
             let _: Attrs = syn::parse_quote!(nested, default);
         }
 
@@ -579,20 +558,17 @@ mod codegen {
             let ident = self.ident;
 
             quote! {
-                impl ::iroha_config_base::reader::ReadConfig for #ident {
+                impl ::iroha_config_base::read::ReadConfig for #ident {
                     fn read(
-                        __reader: ::iroha_config_base::reader::ConfigReader
+                        __reader: ::iroha_config_base::read::ConfigReader
                     ) -> (
-                        ::iroha_config_base::reader::OkAfterFinish<Self>,
-                        ::iroha_config_base::reader::ConfigReader
-                    )
-                    where
-                        Self: Sized,
-                    {
+                        ::iroha_config_base::read::OkAfterFinish<Self>,
+                        ::iroha_config_base::read::ConfigReader
+                    ) {
                         #(#read_fields)*
 
                         (
-                            ::iroha_config_base::reader::OkAfterFinish::value_fn(|| Self {
+                            ::iroha_config_base::read::OkAfterFinish::value_fn(|| Self {
                                 #(#unwrap_fields),*
                             }),
                             __reader
@@ -617,27 +593,16 @@ mod codegen {
                     quote! { let (#ident, __reader) = __reader.read_nested(stringify!(#ident)); }
                 }
                 EntryKind::Parameter {
-                    parse,
+                    env,
                     evaluation,
                     with_origin,
                 } => {
                     let mut read = quote! {
-                        let (#ident, __reader) = __reader
+                        let (#ident, __reader) = __reader.read_parameter([stringify!(#ident)])
                     };
-                    read.extend(match parse {
-                        ParseParameter::FileOnly => {
-                            quote! { .parameter([stringify!(#ident)]) }
-                        }
-                        ParseParameter::FileAndEnv { var } => {
-                            quote! {
-                                .parameter([stringify!(#ident)])
-                                .env(#var)
-                            }
-                        }
-                        ParseParameter::EnvOnly { var } => {
-                            quote! { .parameter_env([stringify!(#ident)], #var) }
-                        }
-                    });
+                    if let Some(var) = env {
+                        read.extend(quote! { .env(#var) });
+                    }
                     read.extend(match evaluation {
                         Evaluation::Required => quote! { .value_required() },
                         Evaluation::OrElse(expr) => quote! { .value_or_else(|| #expr) },
@@ -651,6 +616,9 @@ mod codegen {
                     });
                     read
                 }
+                EntryKind::Custom => quote! {
+                    let (#ident, __reader) = __reader.read_custom();
+                },
             };
 
             EntryParts {
@@ -667,17 +635,12 @@ mod codegen {
 
     pub enum EntryKind {
         Parameter {
-            parse: ParseParameter,
+            env: Option<syn::LitStr>,
             evaluation: Evaluation,
             with_origin: bool,
         },
         Nested,
-    }
-
-    pub enum ParseParameter {
-        FileOnly,
-        FileAndEnv { var: syn::LitStr },
-        EnvOnly { var: syn::LitStr },
+        Custom,
     }
 
     pub enum Evaluation {
@@ -699,9 +662,7 @@ mod codegen {
             let entry = Entry {
                 ident: parse_quote!(test),
                 kind: EntryKind::Parameter {
-                    parse: ParseParameter::FileAndEnv {
-                        var: parse_quote!("TEST_ENV"),
-                    },
+                    env: Some(parse_quote!("TEST_ENV")),
                     evaluation: Evaluation::Required,
                     with_origin: false,
                 },
@@ -709,7 +670,7 @@ mod codegen {
 
             let actual = entry.generate().read.to_string();
 
-            expect![[r#"let (test , __reader) = __reader . parameter ([stringify ! (test)]) . env ("TEST_ENV") . value_required () . finish () ;"#]].assert_eq(&actual);
+            expect![[r#"let (test , __reader) = __reader . read_parameter ([stringify ! (test)]) . env ("TEST_ENV") . value_required () . finish () ;"#]].assert_eq(&actual);
         }
     }
 }

@@ -3,7 +3,7 @@
 #![allow(missing_docs)]
 
 pub mod env;
-pub mod reader;
+pub mod read;
 pub mod toml;
 pub mod util;
 
@@ -56,19 +56,29 @@ where
 // TODO: handle anon env
 #[derive(Debug, Clone)]
 pub enum ParameterOrigin {
-    File { path: PathBuf, id: ParameterId },
-    Env { var: String, id: ParameterId },
-    Default { id: ParameterId },
-    Custom { message: String },
+    File {
+        path: PathBuf,
+        id: ParameterId,
+    },
+    Env {
+        var: String,
+        id: Option<ParameterId>,
+    },
+    Default {
+        id: ParameterId,
+    },
+    Custom {
+        message: String,
+    },
 }
 
 impl ParameterOrigin {
     pub fn file(id: ParameterId, path: PathBuf) -> Self {
-        Self::File { id, path }
+        Self::File { path, id }
     }
 
-    pub fn env(id: ParameterId, var: String) -> Self {
-        Self::Env { id, var }
+    pub fn env(var: String, id: Option<ParameterId>) -> Self {
+        Self::Env { var, id }
     }
 
     pub fn default(id: ParameterId) -> Self {
@@ -87,8 +97,11 @@ impl Display for ParameterOrigin {
             Self::File { path, id } => {
                 write!(f, "parameter `{}` from file `{}`", id, path.display())
             }
-            Self::Env { var, id } => {
+            Self::Env { var, id: Some(id) } => {
                 write!(f, "parameter `{}` from environment variable `{}`", id, var)
+            }
+            Self::Env { var, id: None } => {
+                write!(f, "from environment variable `{}`", var)
             }
             Self::Custom { message } => write!(f, "{message}"),
         }

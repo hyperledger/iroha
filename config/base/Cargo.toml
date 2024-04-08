@@ -25,3 +25,5 @@ log = "0.4"
 [dev-dependencies]
 expect-test = { workspace = true }
 strum = { workspace = true, features = ["derive", "std"] }
+hex = { workspace = true, features = ["std"] }
+serde_with = { workspace = true, features = ["hex"] }

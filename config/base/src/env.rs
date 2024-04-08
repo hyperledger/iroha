@@ -3,6 +3,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     ops::Sub,
+    rc::Rc,
     str::FromStr,
 };
 
@@ -59,10 +60,10 @@ pub fn std_env(key: &str) -> Option<Cow<'static, str>> {
 }
 
 /// An implementation of [`ReadEnv`] for testing convenience.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MockEnv {
     map: HashMap<String, String>,
-    visited: RefCell<HashSet<String>>,
+    visited: Rc<RefCell<HashSet<String>>>,
 }
 
 impl MockEnv {
@@ -76,15 +77,9 @@ impl MockEnv {
         Self { map, ..Self::new() }
     }
 
-    /// Set a key-value pair
-    #[must_use]
-    pub fn set(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
-        self.map
-            .insert(key.as_ref().to_string(), value.as_ref().to_string());
-        self
-    }
-
     /// Get a set of keys not visited yet by [`ReadEnv::read_env`]
+    ///
+    /// Since [`Rc`] is used under the hood, should work on clones as well.
     pub fn unvisited(&self) -> HashSet<String> {
         let all_keys: HashSet<_> = self.map.keys().map(ToOwned::to_owned).collect();
         let visited: HashSet<_> = self.visited.borrow().clone();

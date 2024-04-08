@@ -18,7 +18,7 @@ transaction_gossip_max_size = 500
 
 [torii]
 address = "localhost:5000"
-max_content_len = 16
+max_content_length = 16
 query_idle_time = 30_000
 
 [kura]

@@ -1,5 +1,0 @@
-# sets level
-extends = "multiple_extends.2a.toml"
-
-[logger]
-format = "compact"

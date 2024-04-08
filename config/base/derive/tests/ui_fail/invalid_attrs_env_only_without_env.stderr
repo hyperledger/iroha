@@ -1,5 +1,0 @@
-error: `env_only` cannot be set without `env`
- --> tests/ui_fail/invalid_attrs_env_only_without_env.rs:5:14
-  |
-5 |     #[config(env_only)]
-  |              ^^^^^^^^

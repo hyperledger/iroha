@@ -1,4 +1,7 @@
-use iroha_config_base::{ReadConfig, WithOrigin};
+use iroha_config_base::{
+    read::{ConfigValueFetcher, CustomValueRead, CustomValueReadError},
+    ReadConfig, WithOrigin,
+};
 
 #[derive(ReadConfig)]
 struct Test {
@@ -12,17 +15,25 @@ struct Test {
     with_default_expr: bool,
     #[config(env = "FROM_ENV")]
     from_env: String,
-    #[config(env_only, env = "ENV_ONLY")]
-    from_env_only: String,
     #[config(nested)]
     nested: Nested,
     #[config(env = "TEST", default = "true")]
     with_default_expr_and_env: bool,
+    #[config(custom)]
+    custom: Custom,
 }
 
 #[derive(ReadConfig)]
 struct Nested {
     foo: Option<u32>,
+}
+
+struct Custom;
+
+impl CustomValueRead for Custom {
+    fn read(_fetcher: &mut ConfigValueFetcher) -> Result<Self, CustomValueReadError> {
+        todo!();
+    }
 }
 
 pub fn main() {}

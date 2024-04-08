@@ -4,28 +4,32 @@ use error_stack::{fmt::ColorMode, Context, Report};
 use expect_test::expect;
 use iroha_config_base::{
     env::MockEnv,
-    reader::{ConfigReader, ReadConfig},
+    read::{ConfigReader, ReadConfig},
     toml::TomlSource,
 };
 use toml::toml;
 
 pub mod sample_config {
-    use std::{net::SocketAddr, path::PathBuf};
+    use std::{net::SocketAddr, path::PathBuf, str::FromStr};
 
+    use error_stack::ResultExt;
     use iroha_config_base::{
-        reader::{ConfigReader, OkAfterFinish, ReadConfig},
-        WithOrigin,
+        read::{
+            ConfigReader, ConfigValueFetcher, CustomValueRead, CustomValueReadError,
+            Error as ReadError, OkAfterFinish, ReadConfig,
+        },
+        ParameterId, WithOrigin,
     };
     use serde::Deserialize;
 
     #[derive(Debug)]
     pub struct Root {
         pub chain_id: String,
-        pub alt_chain_id: Option<String>,
         pub torii: Torii,
         pub kura: Kura,
         pub telemetry: Telemetry,
         pub logger: Logger,
+        pub private_key: RootPrivateKey,
     }
 
     impl ReadConfig for Root {
@@ -34,14 +38,9 @@ pub mod sample_config {
             Self: Sized,
         {
             let (chain_id, reader) = reader
-                .parameter::<String>(["chain_id"])
+                .read_parameter::<String>(["chain_id"])
                 .env("CHAIN_ID")
                 .value_required()
-                .finish();
-
-            let (alt_chain_id, reader) = reader
-                .parameter_env(["alt_chain_id"], "ALT_CHAIN_ID")
-                .value_optional()
                 .finish();
 
             let (torii, reader) = reader.read_nested("torii");
@@ -52,14 +51,16 @@ pub mod sample_config {
 
             let (logger, reader) = reader.read_nested("logger");
 
+            let (private_key, reader) = reader.read_custom();
+
             (
                 OkAfterFinish::value_fn(move || Self {
                     chain_id: chain_id.unwrap(),
-                    alt_chain_id: alt_chain_id.unwrap(),
                     torii: torii.unwrap(),
                     kura: kura.unwrap(),
                     telemetry: telemetry.unwrap(),
                     logger: logger.unwrap(),
+                    private_key: private_key.unwrap(),
                 }),
                 reader,
             )
@@ -78,13 +79,13 @@ pub mod sample_config {
             Self: Sized,
         {
             let (address, reader) = reader
-                .parameter::<SocketAddr>(["address"])
+                .read_parameter::<SocketAddr>(["address"])
                 .env("API_ADDRESS")
                 .value_or_else(|| "128.0.0.1:8080".parse().unwrap())
                 .finish_with_origin();
 
             let (max_content_len, reader) = reader
-                .parameter::<u64>(["max_content_length"])
+                .read_parameter::<u64>(["max_content_length"])
                 .value_or_else(|| 1024)
                 .finish();
 
@@ -111,13 +112,13 @@ pub mod sample_config {
         {
             // origin needed so that we can resolve the path relative to the origin
             let (store_dir, reader) = reader
-                .parameter::<PathBuf>(["store_dir"])
+                .read_parameter::<PathBuf>(["store_dir"])
                 .env("KURA_STORE_DIR")
                 .value_or_else(|| PathBuf::from("./storage"))
                 .finish_with_origin();
 
             let (debug_force, reader) = reader
-                .parameter::<bool>(["debug_force"])
+                .read_parameter::<bool>(["debug_force"])
                 .value_or(false)
                 .finish();
 
@@ -143,7 +144,7 @@ pub mod sample_config {
         {
             // origin needed so that we can resolve the path relative to the origin
             let (out_file, reader) = reader
-                .parameter::<PathBuf>(["dev", "out_file"])
+                .read_parameter::<PathBuf>(["dev", "out_file"])
                 .value_optional()
                 .finish_with_origin();
 
@@ -167,7 +168,7 @@ pub mod sample_config {
             Self: Sized,
         {
             let (level, reader) = reader
-                .parameter::<LogLevel>(["level"])
+                .read_parameter::<LogLevel>(["level"])
                 .env("LOG_LEVEL")
                 .value_or_default()
                 .finish();
@@ -189,9 +190,67 @@ pub mod sample_config {
         Warning,
         Error,
     }
-}
 
-// use iroha_config_base::*;
+    #[derive(Debug)]
+    pub struct RootPrivateKey(pub Option<PrivateKey>);
+
+    impl CustomValueRead for RootPrivateKey {
+        fn read(reader: &mut ConfigValueFetcher) -> Result<Self, CustomValueReadError> {
+            #[derive(thiserror::Error, Debug)]
+            enum LocalError {
+                #[error("inconsistent environment variables for private key: _ALGORITHM and _PAYLOAD should be set together.")]
+                InconsistentEnvs,
+            }
+
+            let from_sources =
+                reader.fetch_parameter::<PrivateKey>(&ParameterId::from(["private_key"]))?;
+
+            let from_env = {
+                let algorithm = reader.fetch_env::<String>("PRIVATE_KEY_ALGORITHM")?;
+                let payload = reader.fetch_env::<Hex>("PRIVATE_KEY_PAYLOAD")?;
+                match (algorithm, payload) {
+                    (Some(algorithm), Some(payload)) => Some(PrivateKey {
+                        algorithm: algorithm.into_value(),
+                        payload: payload.into_value(),
+                    }),
+                    (None, None) => None,
+                    (Some(_), None) => Err(LocalError::InconsistentEnvs)
+                        .attach_printable("missing payload")
+                        .change_context(ReadError::custom(
+                            "Failed to read `private_key` from env",
+                        ))?,
+                    (None, Some(_)) => Err(LocalError::InconsistentEnvs)
+                        .attach_printable("missing algorithm")
+                        .change_context(ReadError::custom(
+                            "Failed to read `private_key` from env",
+                        ))?,
+                }
+            };
+
+            let final_value = from_env.or(from_sources.map(|x| x.into_value()));
+            Ok(Self(final_value))
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct PrivateKey {
+        pub algorithm: String,
+        pub payload: Hex,
+    }
+
+    #[serde_with::serde_as]
+    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    pub struct Hex(#[serde_as(as = "serde_with::hex::Hex")] pub Vec<u8>);
+
+    impl FromStr for Hex {
+        type Err = hex::FromHexError;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let bytes = hex::decode(s)?;
+            Ok(Self(bytes))
+        }
+    }
+}
 
 fn format_report<C>(report: &Report<C>) -> String {
     Report::install_debug_hook::<Backtrace>(|_value, _context| {
@@ -386,7 +445,6 @@ fn minimal_config_ok() {
     expect![[r#"
         Root {
             chain_id: "whatever",
-            alt_chain_id: None,
             torii: Torii {
                 address: WithOrigin {
                     value: 128.0.0.1:8080,
@@ -411,6 +469,9 @@ fn minimal_config_ok() {
             logger: Logger {
                 level: Info,
             },
+            private_key: RootPrivateKey(
+                None,
+            ),
         }"#]]
     .assert_eq(&format!("{value:#?}"));
 }
@@ -445,7 +506,6 @@ fn full_config_ok() {
     expect![[r#"
         Root {
             chain_id: "whatever",
-            alt_chain_id: None,
             torii: Torii {
                 address: WithOrigin {
                     value: 127.0.0.2:1337,
@@ -480,6 +540,9 @@ fn full_config_ok() {
             logger: Logger {
                 level: Error,
             },
+            private_key: RootPrivateKey(
+                None,
+            ),
         }"#]]
     .assert_eq(&format!("{value:#?}"));
 }
@@ -533,14 +596,50 @@ fn multiple_env_parsing_errors() {
 }
 
 #[test]
-fn alt_chain_id_is_not_recognised_in_file() {
+fn private_key_is_read_from_file() {
     let reader = ConfigReader::new().with_toml_source(TomlSource::new(
         PathBuf::from("config.toml"),
         toml! {
             chain_id = "ok"
-            alt_chain_id = "in file"
+
+            [private_key]
+            algorithm = "algalg"
+            payload = "112233"
         },
     ));
+
+    let (value, reader) = sample_config::Root::read(reader);
+    reader.into_result().expect("config is valid");
+    let value = value.unwrap();
+
+    let pk = value.private_key.0.unwrap();
+    assert_eq!(pk.algorithm, "algalg");
+    assert_eq!(pk.payload.0, vec![0x11u8, 0x22, 0x33]);
+}
+
+#[test]
+fn private_key_is_read_from_env() {
+    let reader = ConfigReader::new().with_env(MockEnv::from(vec![
+        ("PRIVATE_KEY_ALGORITHM", "algo"),
+        ("PRIVATE_KEY_PAYLOAD", "deadbeef"),
+        ("CHAIN_ID", "whatever"),
+    ]));
+
+    let (value, reader) = sample_config::Root::read(reader);
+    reader.into_result().expect("config is valid");
+    let value = value.unwrap();
+
+    let pk = value.private_key.0.unwrap();
+    assert_eq!(pk.algorithm, "algo");
+    assert_eq!(pk.payload.0, vec![0xdeu8, 0xad, 0xbe, 0xef]);
+}
+
+#[test]
+fn private_key_inconsistent_env() {
+    let reader = ConfigReader::new().with_env(MockEnv::from(vec![
+        ("PRIVATE_KEY_ALGORITHM", "algo"),
+        ("CHAIN_ID", "whatever"),
+    ]));
 
     let (_, reader) = sample_config::Root::read(reader);
     let report = reader.into_result().expect_err("invalid config");
@@ -548,27 +647,8 @@ fn alt_chain_id_is_not_recognised_in_file() {
     expect![[r#"
         Failed to read configuration
         │
-        ├─▶ Errors occurred while reading from file
-        │   ╰╴in file `config.toml`
+        ├─▶ Failed to read `private_key` from env
         │
-        ╰─▶ Some parameters aren't recognised
-            ╰╴unknown parameter: `alt_chain_id`"#]]
-    .assert_eq_report(&report);
-}
-
-#[test]
-fn alt_chain_id_is_read_from_env() {
-    let reader = ConfigReader::new()
-        .with_env(MockEnv::from(vec![("ALT_CHAIN_ID", "in env")]))
-        .with_toml_source(TomlSource::new(
-            PathBuf::from("config.toml"),
-            toml! {
-                chain_id = "ok"
-            },
-        ));
-
-    let (root, reader) = sample_config::Root::read(reader);
-    reader.into_result().expect("config is valid");
-
-    assert_eq!(root.unwrap().alt_chain_id.unwrap(), "in env");
+        ╰─▶ inconsistent environment variables for private key: _ALGORITHM and _PAYLOAD should be set together.
+            ╰╴missing payload"#]].assert_eq_report(&report);
 }

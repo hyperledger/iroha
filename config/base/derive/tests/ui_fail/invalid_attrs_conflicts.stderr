@@ -1,0 +1,17 @@
+error: attributes conflict: `nested`/`custom` cannot be set with other attributes
+ --> tests/ui_fail/invalid_attrs_conflicts.rs:5:22
+  |
+5 |     #[config(nested, custom)]
+  |                      ^^^^^^
+
+error: attributes conflict: `nested`/`custom` cannot be set with other attributes
+  --> tests/ui_fail/invalid_attrs_conflicts.rs:11:23
+   |
+11 |     #[config(default, nested)]
+   |                       ^^^^^^
+
+error: attributes conflict: `nested`/`custom` cannot be set with other attributes
+  --> tests/ui_fail/invalid_attrs_conflicts.rs:17:22
+   |
+17 |     #[config(custom, default)]
+   |                      ^^^^^^^

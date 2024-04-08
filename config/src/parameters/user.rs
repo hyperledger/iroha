@@ -16,15 +16,16 @@ use std::{
     num::{NonZeroU32, NonZeroUsize},
     ops::Deref,
     path::PathBuf,
-    time::Duration,
 };
 
 use error_stack::{Report, Result, ResultExt};
 use iroha_config_base::{
     env::FromEnvStr,
+    read::{ConfigValueFetcher, CustomValueRead, CustomValueReadError},
     util::{Emitter, EmitterResultExt, HumanBytes, HumanDuration},
     ReadConfig, WithOrigin,
 };
+use iroha_crypto::PrivateKey;
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
     LengthLimits, Level,
@@ -36,7 +37,7 @@ use url::Url;
 use crate::{
     kura::InitMode as KuraInitMode,
     logger::Format as LoggerFormat,
-    parameters::{actual, defaults, util::PrivateKeyInConfig},
+    parameters::{actual, defaults, util::ReadPrivateKey},
     snapshot::Mode as SnapshotMode,
 };
 
@@ -60,8 +61,8 @@ pub struct Root {
     chain_id: ChainIdInConfig,
     #[config(env = "PUBLIC_KEY")]
     public_key: WithOrigin<iroha_crypto::PublicKey>,
-    #[config(env = "PRIVATE_KEY")]
-    private_key: WithOrigin<PrivateKeyInConfig>,
+    #[config(custom)]
+    private_key: RootPrivateKey,
     #[config(nested)]
     genesis: Genesis,
     #[config(nested)]
@@ -85,23 +86,31 @@ pub struct Root {
     chain_wide: ChainWide,
 }
 
-#[derive(thiserror::Error, Debug)]
-enum ParseError {
-    #[error("wtf")]
-    BadPrivateKey,
-    #[error("failed to construct the key pair")]
+#[derive(Debug)]
+struct RootPrivateKey(WithOrigin<PrivateKey>);
+
+impl CustomValueRead for RootPrivateKey {
+    fn read<'a>(
+        fetcher: &'a mut ConfigValueFetcher<'a>,
+    ) -> std::result::Result<Self, CustomValueReadError> {
+        let key = ReadPrivateKey::new(fetcher, "PRIVATE_KEY_", ["private_key"]).required()?;
+        Ok(Self(key))
+    }
+}
+
+#[derive(thiserror::Error, Debug, Copy, Clone)]
+pub enum ParseError {
+    #[error("Failed to construct the key pair")]
     BadKeyPair,
-    #[error("wtf")]
+    #[error("Invalid genesis configuration")]
     BadGenesis,
-    #[error("wait")]
-    BadSumeragi,
-    #[error("wtf")]
+    #[error("Invalid directory path found")]
     InvalidDirPath,
-    #[error("dev telemetry output file should be a file path")]
+    #[error("Dev telemetry output path should be a file path")]
     BadTelemetryOutFile,
-    #[error("the peer is alone")]
+    #[error("The network consists from this one peer only")]
     LonePeer,
-    #[error("same address specified for peer-to-peer network and Torii")]
+    #[error("Torii and Network addresses are the same, but should be different")]
     SameNetworkAndToriiAddrs,
 }
 
@@ -113,9 +122,9 @@ impl Root {
     pub fn parse(self, cli: CliContext) -> Result<actual::Root, ParseError> {
         let mut emitter = Emitter::new();
 
-        let (private_key, private_key_origin) = self.private_key.into_tuple();
+        let (private_key, private_key_origin) = self.private_key.0.into_tuple();
         let (public_key, public_key_origin) = self.public_key.into_tuple();
-        let key_pair = iroha_crypto::KeyPair::new(public_key, private_key.0)
+        let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
             .change_context(ParseError::BadKeyPair)
             .attach_printable_lazy(|| format!("got public key from: {}", public_key_origin))
             .attach_printable_lazy(|| format!("got private key from: {}", private_key_origin))
@@ -141,10 +150,10 @@ impl Root {
 
         if !cli.submit_genesis && sumeragi.trusted_peers.len() == 0 {
             emitter.emit(Report::new(ParseError::LonePeer).attach_printable("\
-                The network consists from this one peer only (no `sumeragi.trusted_peers` provided). \
-                Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
-                Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
-                and `genesis.file` configuration parameters, or increase the number of trusted peers in \
+                The network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
+                Since `--submit-genesis` is not set, there is no way to receive the genesis block.\n\
+                Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`,\n\
+                and `genesis.file` configuration parameters, or increase the number of trusted peers in\n\
                 the network using `sumeragi.trusted_peers` configuration parameter.\
             "));
         }
@@ -185,14 +194,14 @@ impl Root {
             emitter.emit(
                 Report::new(ParseError::SameNetworkAndToriiAddrs)
                     .attach_printable(format!(
-                        "network address comes from: {}",
+                        "Network (peer-to-peer) address comes from: {}",
                         network.address.origin()
                     ))
                     .attach_printable(format!(
-                        "Torii address comes from: {}",
+                        "Torii (API Gateway) address comes from: {}",
                         torii.address.origin()
                     ))
-                    .attach_printable(format!("they both have value: {}", network.address.deref())),
+                    .attach_printable(format!("Value provided: `{}`", network.address.deref())),
             );
         }
 
@@ -259,20 +268,33 @@ pub struct CliContext {
 pub struct Genesis {
     #[config(env = "GENESIS_PUBLIC_KEY")]
     pub public_key: WithOrigin<iroha_crypto::PublicKey>,
-    #[config(env = "GENESIS_PRIVATE_KEY")]
-    pub private_key: Option<WithOrigin<PrivateKeyInConfig>>,
+    #[config(custom)]
+    pub private_key: GenesisPrivateKey,
     #[config(env = "GENESIS_FILE")]
     pub file: Option<WithOrigin<PathBuf>>,
 }
 
+#[derive(Debug)]
+pub struct GenesisPrivateKey(Option<WithOrigin<PrivateKey>>);
+
+impl CustomValueRead for GenesisPrivateKey {
+    fn read<'a>(
+        fetcher: &'a mut ConfigValueFetcher<'a>,
+    ) -> std::result::Result<Self, CustomValueReadError> {
+        let key = ReadPrivateKey::new(fetcher, "GENESIS_PRIVATE_KEY_", ["genesis", "private_key"])
+            .optional()?;
+        Ok(Self(key))
+    }
+}
+
 impl Genesis {
     fn parse(self, cli: CliContext) -> Result<actual::Genesis, GenesisConfigError> {
-        match (self.private_key, self.file, cli.submit_genesis) {
+        match (self.private_key.0, self.file, cli.submit_genesis) {
             (None, None, false) => Ok(actual::Genesis::Partial {
                 public_key: self.public_key.into_value(),
             }),
             (Some(private_key), Some(file), true) => {
-                let (PrivateKeyInConfig(private_key), priv_key_origin) = private_key.into_tuple();
+                let (private_key, priv_key_origin) = private_key.into_tuple();
                 let (public_key, pub_key_origin) = self.public_key.into_tuple();
                 let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
                     .change_context(GenesisConfigError::KeyPair)
@@ -282,20 +304,26 @@ impl Genesis {
                     })?;
                 Ok(actual::Genesis::Full { key_pair, file })
             }
-            (Some(_), Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit)?,
-            (None, None, true) => Err(GenesisConfigError::SubmitWithoutGenesis)?,
-            _ => Err(GenesisConfigError::Inconsistent)?,
+            (Some(_), Some(_), false) => Err(GenesisConfigError::Inconsistent).attach_printable(
+                "`genesis.file` and `genesis.private_key` are set, but `--submit-genesis` is not",
+            )?,
+            (None, None, true) => Err(GenesisConfigError::Inconsistent).attach_printable(
+                "`--submit-genesis` is set, but `genesis.file` and `genesis.private_key` are not",
+            )?,
+            (key, _, _) => {
+                Err(GenesisConfigError::Inconsistent).attach_printable(if key.is_some() {
+                    "`genesis.private_key` is set, but `genesis.file` is not"
+                } else {
+                    "`genesis.file` is set, but `genesis.private_key` is not"
+                })?
+            }
         }
     }
 }
 
-#[derive(Debug, displaydoc::Display, thiserror::Error)]
+#[derive(Debug, displaydoc::Display, thiserror::Error, Copy, Clone)]
 pub enum GenesisConfigError {
-    ///  `genesis.file` and `genesis.private_key` are presented, but `--submit-genesis` was not set
-    GenesisWithoutSubmit,
-    ///  `--submit-genesis` was set, but `genesis.file` and `genesis.private_key` are not presented
-    SubmitWithoutGenesis,
-    /// `genesis.file` and `genesis.private_key` should be set together
+    /// Invalid combination of provided parameters
     Inconsistent,
     /// failed to construct the genesis's keypair from public and private keys
     KeyPair,
@@ -348,16 +376,16 @@ pub struct Sumeragi {
 }
 
 #[derive(Debug, Deserialize)]
-struct TrustedPeers(UniqueVec<PeerId>);
+pub struct TrustedPeers(UniqueVec<PeerId>);
 
 impl FromEnvStr for TrustedPeers {
-    type Error = serde_json::Error;
+    type Error = json5::Error;
 
     fn from_env_str(value: Cow<'_, str>) -> std::result::Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        Ok(Self(serde_json::from_str(value.as_ref())?))
+        Ok(Self(json5::from_str(value.as_ref())?))
     }
 }
 
@@ -473,15 +501,15 @@ pub struct Logger {
 pub struct Telemetry {
     // Fields here are Options so that it is possible to warn the user if e.g. they provided `min_retry_period`, but haven't
     // provided `name` and `url`
-    pub name: String,
-    pub url: Url,
+    name: String,
+    url: Url,
     #[serde(default)]
-    pub min_retry_period: TelemetryMinRetryPeriod,
+    min_retry_period: TelemetryMinRetryPeriod,
     #[serde(default)]
-    pub max_retry_delay_exponent: TelemetryMaxRetryDelayExponent,
+    max_retry_delay_exponent: TelemetryMaxRetryDelayExponent,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Copy, Clone)]
 struct TelemetryMinRetryPeriod(HumanDuration);
 
 impl Default for TelemetryMinRetryPeriod {
@@ -490,7 +518,7 @@ impl Default for TelemetryMinRetryPeriod {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Copy, Clone)]
 struct TelemetryMaxRetryDelayExponent(u8);
 
 impl Default for TelemetryMaxRetryDelayExponent {
@@ -540,10 +568,10 @@ pub struct Snapshot {
 pub struct ChainWide {
     #[config(default = "defaults::chain_wide::MAX_TXS")]
     pub max_transactions_in_block: NonZeroU32,
-    #[config(default = "defaults::chain_wide::BLOCK_TIME")]
-    pub block_time: Duration,
-    #[config(default = "defaults::chain_wide::COMMIT_TIME")]
-    pub commit_time: Duration,
+    #[config(default = "defaults::chain_wide::BLOCK_TIME.into()")]
+    pub block_time: HumanDuration,
+    #[config(default = "defaults::chain_wide::COMMIT_TIME.into()")]
+    pub commit_time: HumanDuration,
     #[config(default = "defaults::chain_wide::TRANSACTION_LIMITS")]
     pub transaction_limits: TransactionLimits,
     #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
@@ -632,53 +660,5 @@ impl Torii {
         };
 
         (torii, query)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use iroha_config_base::{FromEnv, TestEnv};
-
-    use super::super::user::boilerplate::RootPartial;
-
-    #[test]
-    fn parses_private_key_from_env() {
-        let env = TestEnv::new()
-            .set("PRIVATE_KEY", "8026408F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB");
-
-        let private_key = RootPartial::from_env(&env)
-            .expect("input is valid, should not fail")
-            .private_key
-            .get()
-            .expect("private key is provided, should not fail");
-
-        let (algorithm, payload) = private_key.to_bytes();
-        assert_eq!(algorithm, "ed25519".parse().unwrap());
-        assert_eq!(hex::encode(payload), "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
-    }
-
-    #[test]
-    fn fails_to_parse_private_key_from_env_with_invalid_value() {
-        let env = TestEnv::new().set("PRIVATE_KEY", "foo");
-        let error = RootPartial::from_env(&env).expect_err("input is invalid, should fail");
-        let expected = expect_test::expect![
-            "failed to parse `iroha.private_key` field from `PRIVATE_KEY` env variable"
-        ];
-        expected.assert_eq(&format!("{error:#}"));
-    }
-
-    #[test]
-    fn deserialize_empty_input_works() {
-        let _layer: RootPartial = toml::from_str("").unwrap();
-    }
-
-    #[test]
-    fn deserialize_network_namespace_with_not_all_fields_works() {
-        let _layer: RootPartial = toml::toml! {
-            [network]
-            address = "127.0.0.1:8080"
-        }
-        .try_into()
-        .expect("should not fail when not all fields in `network` are presented at a time");
     }
 }
