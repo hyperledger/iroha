@@ -86,7 +86,7 @@ mod model {
     )]
     #[display(fmt = "({header})")]
     #[allow(missing_docs)]
-    pub(crate) struct BlockPayload {
+    pub struct BlockPayload {
         /// Block header
         pub header: BlockHeader,
         /// Topology of the network at the time of block commit.
