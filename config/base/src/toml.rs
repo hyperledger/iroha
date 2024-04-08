@@ -24,10 +24,11 @@ impl TomlSource {
 
         let mut value = TableOrValue::Table(&self.table);
 
-        for segment in path.segments.iter() {
+        for segment in &path.segments {
             let table = match value {
-                TableOrValue::Table(table) => table,
-                TableOrValue::Value(toml::Value::Table(table)) => table,
+                TableOrValue::Table(table) | TableOrValue::Value(toml::Value::Table(table)) => {
+                    table
+                }
                 _ => return None,
             };
             value = TableOrValue::Value(table.get(segment)?);
@@ -70,7 +71,7 @@ where
         let mut tree = Self(<_>::default());
         for path in value {
             let mut tree_tmp = &mut tree;
-            for segment in path.segments.iter() {
+            for segment in &path.segments {
                 tree_tmp = tree_tmp.0.entry(segment).or_default();
             }
         }
@@ -87,10 +88,10 @@ fn find_unknown_parameters(table: &toml::Table, known: &ParamTree) -> BTreeSet<P
 
     impl<'a> Traverse<'a> {
         fn run(mut self, table: &'a toml::Table, known: &ParamTree) -> Self {
-            for (key, value) in table.iter() {
+            for (key, value) in table {
                 if let Some(known) = known.0.get(key.as_str()) {
                     // we are in the "known"
-                    if known.0.len() == 0 {
+                    if known.0.is_empty() {
                         // we reached the boundary of explicit "known".
                         // everything below is implied to be known
                     } else if let toml::Value::Table(nested) = value {

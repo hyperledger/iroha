@@ -9,7 +9,6 @@ pub mod util;
 
 use std::{
     fmt::{Debug, Display, Formatter},
-    ops::Deref,
     path::PathBuf,
 };
 
@@ -23,13 +22,13 @@ pub struct ParameterId {
 impl Display for ParameterId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut print_dot = false;
-        for i in self.segments.iter() {
+        for i in &self.segments {
             if print_dot {
                 write!(f, ".")?;
             } else {
                 print_dot = true;
             }
-            write!(f, "{}", i)?;
+            write!(f, "{i}")?;
         }
         Ok(())
     }
@@ -93,15 +92,15 @@ impl ParameterOrigin {
 impl Display for ParameterOrigin {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Default { id } => write!(f, "default value for parameter `{}`", id),
+            Self::Default { id } => write!(f, "default value for parameter `{id}`"),
             Self::File { path, id } => {
-                write!(f, "parameter `{}` from file `{}`", id, path.display())
+                write!(f, "parameter `{id}` from file `{}`", path.display())
             }
             Self::Env { var, id: Some(id) } => {
-                write!(f, "parameter `{}` from environment variable `{}`", id, var)
+                write!(f, "parameter `{id}` from environment variable `{var}`")
             }
             Self::Env { var, id: None } => {
-                write!(f, "from environment variable `{}`", var)
+                write!(f, "from environment variable `{var}`")
             }
             Self::Custom { message } => write!(f, "{message}"),
         }
@@ -133,15 +132,6 @@ impl<T> WithOrigin<T> {
 
     pub fn origin(&self) -> ParameterOrigin {
         self.origin.clone()
-    }
-}
-
-// TODO: remove deref, add `value() -> &T` to avoid confusion for paths
-impl<T> Deref for WithOrigin<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.value
     }
 }
 

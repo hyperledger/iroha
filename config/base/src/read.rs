@@ -78,6 +78,12 @@ impl std::fmt::Debug for ConfigReader {
     }
 }
 
+impl Default for ConfigReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConfigReader {
     /// Create a new config reader
     pub fn new() -> Self {
@@ -95,12 +101,14 @@ impl ConfigReader {
     }
 
     /// Replace default environment reader ([`std::env::var`]) with a custom one
+    #[must_use]
     pub fn with_env(mut self, env: impl ReadEnv + 'static) -> Self {
         self.env = Box::new(env);
         self
     }
 
     /// Add a data source to read parameters from.
+    #[must_use]
     pub fn with_toml_source(mut self, source: TomlSource) -> Self {
         self.sources.push(source);
         self
@@ -128,7 +136,7 @@ impl ConfigReader {
                 let parsed: ExtendsPaths = extends.clone()
                     .try_into()
                     .attach_printable(r#"expected: a single path ("./file.toml") or an array of paths (["a.toml", "b.toml", "c.toml"])"#)
-                    .attach_printable_lazy(|| format!("actual: {}", extends.to_string()))
+                    .attach_printable_lazy(|| format!("actual: {extends}"))
                     .change_context(Error::InvalidExtends)?;
                 log::trace!("found `extends`: {:?}", parsed);
                 for extends_path in parsed.iter() {
@@ -136,7 +144,7 @@ impl ConfigReader {
                         .as_ref()
                         .parent()
                         .expect("it cannot be root or empty")
-                        .join(&extends_path);
+                        .join(extends_path);
 
                     recursion(reader, &full_path)
                         .change_context(Error::CannotExtend)
@@ -165,6 +173,7 @@ impl ConfigReader {
     }
 
     /// Instantiate a parameter reading pipeline.
+    #[must_use]
     pub fn read_parameter<T>(mut self, id: impl Into<ParameterId>) -> ParameterReader<T>
     where
         for<'de> T: Deserialize<'de>,
@@ -176,6 +185,7 @@ impl ConfigReader {
 
     /// Delegates reading to another implementor of [`ReadConfig`] under a certain namespace.
     /// All parameter IDs in it will be resolved within that namespace.
+    #[must_use]
     pub fn read_nested<T: ReadConfig>(
         mut self,
         namespace: impl AsRef<str>,
@@ -187,6 +197,7 @@ impl ConfigReader {
     }
 
     /// A custom reading pipeline. See [`CustomValueRead`].
+    #[must_use]
     pub fn read_custom<T: CustomValueRead>(mut self) -> (OkAfterFinish<T>, Self) {
         let mut fetcher = ConfigValueFetcher::new(&mut self);
         let result = T::read(&mut fetcher);
@@ -207,21 +218,21 @@ impl ConfigReader {
         self.bomb.defuse();
         let mut emitter = Emitter::new();
 
-        if self.missing_parameters.len() > 0 {
+        if !self.missing_parameters.is_empty() {
             let mut report = Report::new(Error::MissingParameters);
-            for i in self.missing_parameters.iter() {
-                report = report.attach_printable(format!("missing parameter: `{}`", i));
+            for i in self.missing_parameters {
+                report = report.attach_printable(format!("missing parameter: `{i}`"));
             }
             emitter.emit(report);
         }
 
         // looking for unknown parameters
-        for source in self.sources.iter() {
+        for source in &self.sources {
             let unknown_parameters = source.find_unknown(self.existing_parameters.iter());
-            if unknown_parameters.len() > 0 {
+            if !unknown_parameters.is_empty() {
                 let mut report = Report::new(Error::UnknownParameters);
                 for i in unknown_parameters {
-                    report = report.attach_printable(format!("unknown parameter: `{}`", i));
+                    report = report.attach_printable(format!("unknown parameter: `{i}`"));
                 }
                 self.errors_by_source
                     .entry(source.path().clone())
@@ -247,7 +258,7 @@ impl ConfigReader {
         }
 
         // environment parsing errors
-        if self.errors_in_env.len() > 0 {
+        if !self.errors_in_env.is_empty() {
             let mut local_emitter = Emitter::new();
             for report in self.errors_in_env {
                 local_emitter.emit(report);
@@ -331,21 +342,16 @@ impl<'a> ConfigValueFetcher<'a> {
         let mut value = None;
         let mut deser_errors = Vec::default();
 
-        for source in self.reader.sources.iter() {
-            if let Some(toml_value) = source.fetch(&id) {
+        for source in &self.reader.sources {
+            if let Some(toml_value) = source.fetch(id) {
                 let result: core::result::Result<T, _> = toml_value.try_into();
                 match (result, errored) {
                     (Ok(v), false) => {
                         if value.is_none() {
-                            log::trace!(
-                                "found parameter `{}` in `{}`",
-                                id,
-                                source.path().display()
-                            );
+                            log::trace!("parameter `{id}`: found in `{}`", source.path().display());
                         } else {
                             log::trace!(
-                                "overwriting parameter `{}` by value found in `{}`",
-                                id,
+                                "parameter `{id}`: overwriting by value found in `{}`",
                                 source.path().display()
                             );
                         }
@@ -362,12 +368,17 @@ impl<'a> ConfigValueFetcher<'a> {
                         deser_errors.push((error, source.clone()));
                     }
                 }
+            } else {
+                log::trace!(
+                    "parameter `{id}`: haven't found in `{}`",
+                    source.path().display()
+                )
             }
         }
 
         for (error, source) in deser_errors {
             self.reader
-                .collect_deserialize_error(&source, &id, error.into());
+                .collect_deserialize_error(&source, id, error.into());
         }
 
         if errored {
@@ -384,22 +395,24 @@ impl<'a> ConfigValueFetcher<'a> {
     where
         T: FromEnvStr,
     {
-        if let Some(raw_str) = self.reader.env.read_env(var.as_ref()) {
+        let var = var.as_ref();
+        if let Some(raw_str) = self.reader.env.read_env(var) {
             match T::from_env_str(raw_str) {
                 Ok(value) => {
-                    log::trace!("Read & parse {} environment variable", var.as_ref());
+                    log::trace!("read & parse `{var}` environment variable");
                     Ok(Some(WithOrigin::new(
                         value,
-                        ParameterOrigin::env(var.as_ref().to_string(), None),
+                        ParameterOrigin::env(var.to_string(), None),
                     )))
                 }
                 Err(error) => {
                     self.reader
-                        .collect_env_error(var.as_ref().to_string(), error.into(), None);
+                        .collect_env_error(var.to_string(), error.into(), None);
                     Err(FetchConsumedError)
                 }
             }
         } else {
+            log::trace!("haven't found `{var}` environment variable");
             Ok(None)
         }
     }
@@ -446,12 +459,6 @@ impl From<Report<Error>> for CustomValueReadError {
     }
 }
 
-// impl<C: Context> From<Report<C>> for CustomValueReadError {
-//     fn from(value: Report<C>) -> Self {
-//         todo!()
-//     }
-// }
-
 pub struct ParameterReader<T> {
     reader: ConfigReader,
     id: ParameterId,
@@ -474,6 +481,7 @@ impl<T> ParameterReader<T>
 where
     for<'de> T: Deserialize<'de>,
 {
+    #[must_use]
     fn fetch(mut self) -> Self {
         match ConfigValueFetcher::new(&mut self.reader).fetch_parameter(&self.id) {
             Ok(value) => {
@@ -492,13 +500,15 @@ impl<T> ParameterReader<T>
 where
     T: FromEnvStr,
 {
-    pub fn env(mut self, key: impl AsRef<str>) -> Self {
-        if let Some(raw_str) = self.reader.env.read_env(key.as_ref()) {
+    #[must_use]
+    pub fn env(mut self, var: impl AsRef<str>) -> Self {
+        let var = var.as_ref();
+        if let Some(raw_str) = self.reader.env.read_env(var) {
             match (T::from_env_str(raw_str), self.errored) {
                 (Err(error), _) => {
                     self.errored = true;
                     self.reader.collect_env_error(
-                        key.as_ref().to_string(),
+                        var.to_string(),
                         Report::new(error),
                         Some(self.id.clone()),
                     );
@@ -506,20 +516,18 @@ where
                 (Ok(value), false) => {
                     if self.value.is_none() {
                         log::trace!(
-                            "found parameter `{}` in `{}` environment variable",
+                            "parameter `{}`: read value from environment variable `{var}`",
                             self.id,
-                            key.as_ref()
                         );
                     } else {
                         log::trace!(
-                                "overwriting parameter `{}` by value found in `{}` environment variable",
+                                "parameter `{}`: overwriting by value found in `{var}` environment variable",
                                 self.id,
-                                key.as_ref()
                             );
                     }
                     self.value = Some(WithOrigin::new(
                         value,
-                        ParameterOrigin::env(key.as_ref().to_string(), Some(self.id.clone())),
+                        ParameterOrigin::env(var.to_string(), Some(self.id.clone())),
                     ));
                 }
                 (Ok(_ignore), true) => {}
@@ -532,6 +540,7 @@ where
 
 impl<T> ParameterReader<T> {
     /// [`None`] here means that the error of the parameter absense is stored in the reader.
+    #[must_use]
     pub fn value_required(mut self) -> ParameterWithValue<T> {
         match (self.errored, self.value) {
             (false, Some(value)) => ParameterWithValue::with_value(self.reader, value),
@@ -543,11 +552,7 @@ impl<T> ParameterReader<T> {
         }
     }
 
-    pub fn value_or(self, value: T) -> ParameterWithValue<T> {
-        // FIXME: probably not optimal, unless inlined
-        self.value_or_else(|| value)
-    }
-
+    #[must_use]
     pub fn value_or_else<F: FnOnce() -> T>(self, fun: F) -> ParameterWithValue<T> {
         match (self.errored, self.value) {
             (false, Some(value)) => ParameterWithValue::with_value(self.reader, value),
@@ -562,6 +567,7 @@ impl<T> ParameterReader<T> {
         }
     }
 
+    #[must_use]
     pub fn value_optional(self) -> ParameterWithValue<T, FinishOptional> {
         match (self.errored, self.value) {
             (false, value) => ParameterWithValue::with_optional_value(self.reader, value),
@@ -572,6 +578,7 @@ impl<T> ParameterReader<T> {
 
 impl<T: Default> ParameterReader<T> {
     /// Equivalent of [`ParameterReader::value_or_else`] with [`Default::default`].
+    #[must_use]
     pub fn value_or_default(self) -> ParameterWithValue<T> {
         self.value_or_else(Default::default)
     }
@@ -602,7 +609,7 @@ impl<T, Finish> ParameterWithValue<T, Finish> {
     fn errored(reader: ConfigReader) -> Self {
         Self::Errored {
             reader,
-            _f: PhantomData::default(),
+            _f: PhantomData,
         }
     }
 }
@@ -612,16 +619,19 @@ impl<T> ParameterWithValue<T, FinishOptional> {
         Self::WithOptionalValue { reader, value }
     }
 
+    #[must_use]
     pub fn finish(self) -> (OkAfterFinish<Option<T>>, ConfigReader) {
         match self {
             Self::Errored { reader, .. } => (OkAfterFinish::errored(), reader),
-            Self::WithOptionalValue { reader, value } => {
-                (OkAfterFinish::value(value.map(|x| x.into_value())), reader)
-            }
+            Self::WithOptionalValue { reader, value } => (
+                OkAfterFinish::value(value.map(WithOrigin::into_value)),
+                reader,
+            ),
             Self::WithValue { .. } => unreachable!(),
         }
     }
 
+    #[must_use]
     pub fn finish_with_origin(self) -> (OkAfterFinish<Option<WithOrigin<T>>>, ConfigReader) {
         match self {
             Self::Errored { reader, .. } => (OkAfterFinish::errored(), reader),
@@ -636,6 +646,7 @@ impl<T> ParameterWithValue<T, FinishRequired> {
         Self::WithValue { reader, value }
     }
 
+    #[must_use]
     pub fn finish(self) -> (OkAfterFinish<T>, ConfigReader) {
         match self {
             Self::Errored { reader, .. } => (OkAfterFinish::errored(), reader),
@@ -644,6 +655,7 @@ impl<T> ParameterWithValue<T, FinishRequired> {
         }
     }
 
+    #[must_use]
     pub fn finish_with_origin(self) -> (OkAfterFinish<WithOrigin<T>>, ConfigReader) {
         match self {
             Self::Errored { reader, .. } => (OkAfterFinish::errored(), reader),

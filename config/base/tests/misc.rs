@@ -119,7 +119,7 @@ pub mod sample_config {
 
             let (debug_force, reader) = reader
                 .read_parameter::<bool>(["debug_force"])
-                .value_or(false)
+                .value_or_else(|| false)
                 .finish();
 
             (

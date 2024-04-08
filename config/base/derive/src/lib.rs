@@ -207,15 +207,9 @@ mod ast {
     }
 
     impl syn::parse::Parse for Attrs {
+        #[allow(clippy::too_many_lines)]
         fn parse(input: ParseStream) -> syn::Result<Self> {
             input.step(|cursor| {
-                let mut attr_default = None;
-                let mut attr_env = None;
-                let mut attr_custom = false;
-                let mut attr_nested = false;
-
-                let mut rest = *cursor;
-
                 enum LocalError {
                     Conflict(Span),
                     Duplicate(Span),
@@ -237,6 +231,13 @@ mod ast {
                         }
                     }
                 }
+
+                let mut attr_default = None;
+                let mut attr_env = None;
+                let mut attr_custom = false;
+                let mut attr_nested = false;
+
+                let mut rest = *cursor;
 
                 while let Some((tt, next)) = rest.token_tree() {
                     match &tt {
@@ -339,6 +340,8 @@ mod ast {
     fn expect_comma_or_eq_with_lit_str(
         cursor: syn::buffer::Cursor,
     ) -> syn::Result<(Option<syn::LitStr>, syn::buffer::Cursor)> {
+        const EXPECTED_STR_LIT: &str = r#"expected a string literal, e.g. "...""#;
+
         let next = match cursor.token_tree() {
             Some((TokenTree::Punct(punct), next)) if punct.as_char() == '=' => next,
             Some((TokenTree::Punct(punct), next)) if punct.as_char() == ',' => {
@@ -348,8 +351,6 @@ mod ast {
             Some((other, _)) => Err(syn::Error::new(other.span(), "expected ',' or '='"))?,
         };
 
-        const EXPECTED_STR_LIT: &str = r#"expected a string literal, e.g. "...""#;
-
         let (lit, next) = match next.token_tree() {
             Some((TokenTree::Literal(lit), next)) => (lit, next),
             Some((other, _)) => Err(syn::Error::new(other.span(), EXPECTED_STR_LIT))?,
@@ -358,7 +359,7 @@ mod ast {
 
         let string = lit.to_string();
         let trimmed = string.trim_matches('"');
-        if &string == trimmed {
+        if string == trimmed {
             // not a string literal
             Err(syn::Error::new(lit.span(), EXPECTED_STR_LIT))?;
         }
@@ -425,7 +426,7 @@ mod ast {
 
             let chain = parse_tokens(ty, 3);
 
-            let (option, with_origin) = match (chain.get(0), chain.get(1)) {
+            let (option, with_origin) = match (chain.first(), chain.get(1)) {
                 (Some(Token::Option), Some(Token::WithOrigin)) => (true, true),
                 (Some(Token::Option), Some(_)) => (true, false),
                 (Some(Token::WithOrigin), _) => (false, true),

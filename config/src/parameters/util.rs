@@ -7,7 +7,7 @@ use iroha_config_base::{
 };
 use iroha_crypto::{Algorithm, PrivateKey};
 
-pub(crate) struct ReadPrivateKey<'a> {
+pub struct ReadPrivateKey<'a> {
     fetcher: &'a mut ConfigValueFetcher<'a>,
     env_prefix: &'static str,
     id: ParameterId,
@@ -39,8 +39,7 @@ impl<'a> ReadPrivateKey<'a> {
             match (algorithm, payload) {
                 (Some(alg), Some(payload)) => {
                     let origin = ParameterOrigin::custom(format!(
-                        "env vars `{}` and `{}`",
-                        env_algorithm, env_payload
+                        "env vars `{env_algorithm}` and `{env_payload}`",
                     ));
 
                     let private_key =

@@ -14,7 +14,6 @@ use std::{
     convert::Infallible,
     fmt::Debug,
     num::{NonZeroU32, NonZeroUsize},
-    ops::Deref,
     path::PathBuf,
 };
 
@@ -126,8 +125,8 @@ impl Root {
         let (public_key, public_key_origin) = self.public_key.into_tuple();
         let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
             .change_context(ParseError::BadKeyPair)
-            .attach_printable_lazy(|| format!("got public key from: {}", public_key_origin))
-            .attach_printable_lazy(|| format!("got private key from: {}", private_key_origin))
+            .attach_printable_lazy(|| format!("got public key from: {public_key_origin}"))
+            .attach_printable_lazy(|| format!("got private key from: {private_key_origin}"))
             .ok_or_emit(&mut emitter);
 
         let genesis = self
@@ -168,17 +167,20 @@ impl Root {
 
         let dev_telemetry = self.dev_telemetry;
         if let Some(path) = &dev_telemetry.out_file {
-            if path.parent().is_none() {
+            if path.value().parent().is_none() {
                 emitter.emit(
                     Report::new(ParseError::BadTelemetryOutFile)
-                        .attach_printable(format!("actual path: \"{}\"", path.display()))
+                        .attach_printable(format!("actual path: \"{}\"", path.value().display()))
                         .attach_printable(format!("comes from: {}", path.origin())),
                 );
             }
-            if path.is_dir() {
+            if path.value().is_dir() {
                 emitter.emit(
                     Report::new(ParseError::BadTelemetryOutFile)
-                        .attach_printable(format!("the path is a directory: {}", path.display()))
+                        .attach_printable(format!(
+                            "the path is a directory: {}",
+                            path.value().display()
+                        ))
                         .attach_printable(format!("comes from: {}", path.origin())),
                 );
             }
@@ -201,7 +203,7 @@ impl Root {
                         "Torii (API Gateway) address comes from: {}",
                         torii.address.origin()
                     ))
-                    .attach_printable(format!("Value provided: `{}`", network.address.deref())),
+                    .attach_printable(format!("Value provided: `{}`", network.address.value())),
             );
         }
 
@@ -248,10 +250,10 @@ fn validate_directory_path(emitter: &mut Emitter<ParseError>, path: &WithOrigin<
         path: PathBuf,
     }
 
-    if path.is_file() {
+    if path.value().is_file() {
         emitter.emit(
             Report::new(InvalidDirPathError {
-                path: path.value().to_path_buf(),
+                path: path.value().clone(),
             })
             .change_context(ParseError::InvalidDirPath)
             .attach_printable(format!("comes from: {}", path.origin())),
@@ -298,10 +300,8 @@ impl Genesis {
                 let (public_key, pub_key_origin) = self.public_key.into_tuple();
                 let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
                     .change_context(GenesisConfigError::KeyPair)
-                    .attach_printable_lazy(|| format!("got public key from: {}", pub_key_origin))
-                    .attach_printable_lazy(|| {
-                        format!("got private key from: {}", priv_key_origin)
-                    })?;
+                    .attach_printable_lazy(|| format!("got public key from: {pub_key_origin}"))
+                    .attach_printable_lazy(|| format!("got private key from: {priv_key_origin}"))?;
                 Ok(actual::Genesis::Full { key_pair, file })
             }
             (Some(_), Some(_), false) => Err(GenesisConfigError::Inconsistent).attach_printable(

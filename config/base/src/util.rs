@@ -142,11 +142,7 @@ impl<C> Emitter<C> {
 
     pub fn into_result(mut self) -> error_stack::Result<(), C> {
         self.bomb.defuse();
-        if let Some(report) = self.report {
-            Err(report)
-        } else {
-            Ok(())
-        }
+        self.report.map_or_else(|| Ok(()), Err)
     }
 }
 
