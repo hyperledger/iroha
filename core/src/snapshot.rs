@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use iroha_config::{parameters::actual::Snapshot as Config, snapshot::Mode};
+use iroha_config::{base::WithOrigin, parameters::actual::Snapshot as Config, snapshot::Mode};
 use iroha_crypto::HashOf;
 use iroha_data_model::block::SignedBlock;
 use iroha_logger::prelude::*;
@@ -40,7 +40,7 @@ pub struct SnapshotMaker {
     /// Frequency at which snapshot is made
     create_every: Duration,
     /// Path to the directory where snapshots are stored
-    store_dir: PathBuf,
+    store_dir: WithOrigin<PathBuf>,
     /// Hash of the latest block stored in the state
     latest_block_hash: Option<HashOf<SignedBlock>>,
 }
@@ -92,7 +92,8 @@ impl SnapshotMaker {
         if latest_block_hash != self.latest_block_hash {
             let state = self.state.clone();
             let handle = tokio::task::spawn_blocking(move || -> Result<(), TryWriteError> {
-                try_write_snapshot(&state, &store_dir)
+                // TODO: enhance error by attaching `store_dir` parameter origin
+                try_write_snapshot(&state, store_dir.value())
             });
 
             match handle.await {
@@ -118,7 +119,7 @@ impl SnapshotMaker {
             let latest_block_hash = state.view().latest_block_hash();
             Some(Self {
                 state,
-                create_every: config.create_every,
+                create_every: config.create_every.get(),
                 store_dir: config.store_dir.clone(),
                 latest_block_hash,
             })
