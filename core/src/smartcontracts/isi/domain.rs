@@ -23,7 +23,6 @@ impl Registrable for iroha_data_model::domain::NewDomain {
             asset_definitions: AssetDefinitionsMap::default(),
             asset_total_quantities: AssetTotalQuantityMap::default(),
             metadata: self.metadata,
-            logo: self.logo,
             owned_by: authority.clone(),
         }
     }

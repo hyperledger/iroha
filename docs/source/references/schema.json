@@ -947,10 +947,6 @@
         "type": "SortedMap<AssetDefinitionId, Numeric>"
       },
       {
-        "name": "logo",
-        "type": "Option<IpfsPath>"
-      },
-      {
         "name": "metadata",
         "type": "Metadata"
       },
@@ -2411,10 +2407,6 @@
       {
         "name": "id",
         "type": "DomainId"
-      },
-      {
-        "name": "logo",
-        "type": "Option<IpfsPath>"
       },
       {
         "name": "metadata",

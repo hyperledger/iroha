@@ -16,7 +16,6 @@ pub use self::model::*;
 use crate::{
     account::{Account, AccountsMap},
     asset::{AssetDefinition, AssetDefinitionsMap, AssetTotalQuantityMap},
-    ipfs::IpfsPath,
     metadata::Metadata,
     prelude::*,
     HasMetadata, Name, Registered,
@@ -79,9 +78,6 @@ mod model {
         pub asset_definitions: AssetDefinitionsMap,
         /// Total amount of [`Asset`].
         pub asset_total_quantities: AssetTotalQuantityMap,
-        /// IPFS link to the [`Domain`] logo.
-        #[getset(get = "pub")]
-        pub logo: Option<IpfsPath>,
         /// [`Metadata`] of this `Domain` as a key-value store.
         pub metadata: Metadata,
         /// The account that owns this domain. Usually the [`Account`] that registered it.
@@ -98,8 +94,6 @@ mod model {
     pub struct NewDomain {
         /// The identification associated with the domain builder.
         pub id: DomainId,
-        /// The (IPFS) link to the logo of this domain.
-        pub logo: Option<IpfsPath>,
         /// Metadata associated with the domain builder.
         pub metadata: Metadata,
     }
@@ -118,16 +112,8 @@ impl NewDomain {
     fn new(id: DomainId) -> Self {
         Self {
             id,
-            logo: None,
             metadata: Metadata::default(),
         }
-    }
-
-    /// Add [`logo`](IpfsPath) to the domain replacing previously defined value
-    #[must_use]
-    pub fn with_logo(mut self, logo: IpfsPath) -> Self {
-        self.logo = Some(logo);
-        self
     }
 
     /// Add [`Metadata`] to the domain replacing previously defined value

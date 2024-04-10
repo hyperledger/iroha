@@ -5,7 +5,6 @@
         "Register": {
           "Domain": {
             "id": "wonderland",
-            "logo": null,
             "metadata": {
               "key": {
                 "String": "value"
@@ -59,7 +58,6 @@
         "Register": {
           "Domain": {
             "id": "garden_of_live_flowers",
-            "logo": null,
             "metadata": {}
           }
         }

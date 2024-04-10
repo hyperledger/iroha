@@ -764,7 +764,6 @@ mod tests {
             accounts: AccountsMap::default(),
             asset_definitions: AssetDefinitionsMap::default(),
             asset_total_quantities: AssetTotalQuantityMap::default(),
-            logo: None,
             metadata: Metadata::default(),
             owned_by: domain_owner_id,
         };

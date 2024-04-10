@@ -223,7 +223,7 @@ fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> 
 mod tests {
     use std::str::FromStr as _;
 
-    use iroha_data_model::{ipfs::IpfsPath, prelude::*};
+    use iroha_data_model::prelude::*;
 
     use super::*;
 
@@ -255,12 +255,7 @@ mod tests {
         metadata
             .insert_with_limits("Is_Jabberwocky_alive".parse().expect("Valid"), true, limits)
             .expect("Valid");
-        let domain = Domain::new("wonderland".parse().expect("Valid"))
-            .with_logo(
-                IpfsPath::from_str("/ipfs/Qme7ss3ARVgxv6rXqVPiikMJ8u2NLgmgszg13pYrDKEoiu")
-                    .expect("Valid"),
-            )
-            .with_metadata(metadata);
+        let domain = Domain::new("wonderland".parse().expect("Valid")).with_metadata(metadata);
 
         decode_sample("domain.bin", String::from("NewDomain"), &domain);
     }
