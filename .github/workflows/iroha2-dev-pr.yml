@@ -40,36 +40,30 @@ jobs:
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
-      - uses: actions/checkout@v3
-      # TODO Remove this step #2165
-      # - name: Adjust toolchain
-      #   run: |
-      #     rustup component add llvm-tools-preview
+      - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Run tests, with coverage
-        run: |
-          mold --run cargo llvm-cov clean --workspace
-          mold --run cargo llvm-cov --doc --no-report --all-features --workspace --no-fail-fast --ignore-filename-regex='(^client_cli/|main\.rs)'
-          mold --run cargo llvm-cov --no-report --ignore-filename-regex='(^client_cli/|main\.rs)' --all-features --workspace --no-fail-fast
+        run: mold --run cargo test --all-features --workspace --no-fail-fast
+        env:
+          RUSTFLAGS: "-C instrument-coverage"
+          LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate lcov report
-        run: |
-          # generate report without tests
-          # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
-          mold --run cargo llvm-cov --doctests --no-run --all-features --workspace --lcov --output-path lcov.info
+        if: always()
+        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/client_cli/*|**/main.rs" -o lcov.info
       - name: Upload coverage to coveralls.io
+        if: always()
         uses: coverallsapp/github-action@v2
         with:
           file: lcov.info
           compare-ref: ${{ github.base_ref }}
           compare-sha: ${{ github.event.pull_request.base.sha}}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      # (Temporally) Add the parallel coverage upload to Codecov to compare the results with Coveralls
-      # - name: Upload coverage to codecov.io
-      #   uses: codecov/codecov-action@v3.1.4
-      #   with:
-      #     files: lcov.info
-      #     commit_parent: ${{ github.event.pull_request.base.sha }}
-      #     fail_ci_if_error: false
+      - name: Upload lcov report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov.info
+          path: lcov.info
 
   integration:
     runs-on: [self-hosted, Linux, iroha2]
@@ -77,7 +71,7 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Run tests, with no-default-features
         run: |

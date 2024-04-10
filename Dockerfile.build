@@ -9,7 +9,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 
 ENV PATH=$POETRY_HOME/bin:$PATH
 
-RUN pacman -Syu rustup mold musl rust-musl openssl libgit2 \
+RUN pacman -Syu rustup mold musl rust-musl openssl libgit2 jq \
     git docker docker-buildx docker-compose \
     python python-pip --noconfirm --disable-download-timeout && \
     curl -sSL https://install.python-poetry.org | python3 -
@@ -20,11 +20,11 @@ RUN poetry install
 
 RUN rustup toolchain install nightly-2024-01-12-x86_64-unknown-linux-gnu
 RUN rustup default nightly-2024-01-12-x86_64-unknown-linux-gnu
-RUN rustup component add llvm-tools-preview clippy
+RUN rustup component add clippy
 RUN rustup component add rust-src
 RUN rustup component add rustfmt
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install cargo-llvm-cov
+RUN cargo install grcov
 
 # TODO: Figure out a way to pull in libgit2, which doesn't crash if this useless variable is gone.
 RUN git config --global --add safe.directory .
