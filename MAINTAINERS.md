@@ -32,3 +32,4 @@ This is the list of maintainers, including their email addresses for direct comm
 | Bogdan Yamkovoy       | [@yamkovoy](https://github.com/yamkovoy)             | yamkovoy@soramitsu.co.jp        | Documentation                                                                 |
 | Vladislav Amuzinski   | [@VAmuzing](https://github.com/VAmuzing)             | amuzinski@soramitsu.co.jp       | Development: Rust                                                             |
 | Artem Stukalov        | [@Stukalov-A-M](https://github.com/Stukalov-A-M)     | stukalov@soramitsu.co.jp        | Documentation: examples                                                       |
+| Dmitry Murzin         | [@dima74](https://github.com/dima74)                 | murzin@soramitsu.co.jp          | Development: Rust                                                             |
