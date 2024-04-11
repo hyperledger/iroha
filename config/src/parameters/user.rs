@@ -147,7 +147,7 @@ impl Root {
             None
         }, Some);
 
-        let genesis = self.genesis.parse().map_or_else(
+        let genesis = self.genesis.parse(cli).map_or_else(
             |err| {
                 // FIXME
                 emitter.emit(eyre!("{err}"));
@@ -186,7 +186,7 @@ impl Root {
             }
         }
 
-        let (p2p_address, block_sync, transaction_gossiper) = self.network.parse();
+        let (network, block_sync, transaction_gossiper) = self.network.parse();
 
         let logger = self.logger;
         let queue = self.queue;
@@ -275,7 +275,9 @@ fn validate_directory_path(
 }
 
 #[derive(Copy, Clone)]
-pub struct CliContext {}
+pub struct CliContext {
+    pub submit_genesis: bool,
+}
 
 pub(crate) fn private_key_from_env<E: Error>(
     emitter: &mut Emitter<Report>,
