@@ -179,8 +179,8 @@ impl Root {
                 emitter.emit(eyre!("\
                     The network consists from this one peer only (no `sumeragi.trusted_peers` provided). \
                     Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
-                    Either provide the genesis by setting `--submit-genesis` argument, `genesis.public_key`, \
-                    and `genesis.file` configuration parameters, or increase the number of trusted peers in \
+                    Either provide the genesis by setting `--submit-genesis` argument, `genesis.encoded_config`, \
+                    `genesis.file` and `genesis.public_key` configuration parameters, or increase the number of trusted peers in \
                     the network using `sumeragi.trusted_peers` configuration parameter.\
                 "));
             }
@@ -370,9 +370,9 @@ impl Genesis {
 
 #[derive(Copy, Clone, Debug, displaydoc::Display, thiserror::Error)]
 pub enum GenesisConfigError {
-    ///  `genesis.file` and `genesis.public_key` are presented, but `--submit-genesis` was not set
+    ///  `genesis.encoded_config`, `genesis.file` and `genesis.public_key` are presented, but `--submit-genesis` was not set
     GenesisWithoutSubmit,
-    ///  `--submit-genesis` was set, but `genesis.file`, `genesis.public_key` and `genesis.encoded_config` are not presented
+    ///  `--submit-genesis` was set, but `genesis.encoded_config`, `genesis.file` and `genesis.public_key` are not presented
     SubmitWithoutGenesis,
 }
 

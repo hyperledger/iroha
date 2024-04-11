@@ -67,7 +67,18 @@ fn minimal_config_snapshot() -> Result<()> {
                         "8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
                     ),
                 },
-                p2p_address: 127.0.0.1:1337,
+                peer_id: PeerId {
+                    address: 127.0.0.1:1337,
+                    public_key: PublicKey(
+                        ed25519(
+                            "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                        ),
+                    ),
+                },
+            },
+            network: Network {
+                address: 127.0.0.1:1337,
+                idle_timeout: 60s,
             },
             genesis: Partial {
                 public_key: PublicKey(
@@ -198,8 +209,8 @@ fn minimal_with_genesis_but_no_cli_arg_fails() -> Result<()> {
         .expect_err("should fail since `--submit-genesis=false`");
 
     let expected = expect_test::expect![[r#"
-        `genesis.file` and `genesis.private_key` are presented, but `--submit-genesis` was not set
-        The network consists from this one peer only (no `sumeragi.trusted_peers` provided). Since `--submit-genesis` is not set, there is no way to receive the genesis block. Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, and `genesis.file` configuration parameters, or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter."#]];
+        `genesis.encoded_config`, `genesis.file` and `genesis.public_key` are presented, but `--submit-genesis` was not set
+        The network consists from this one peer only (no `sumeragi.trusted_peers` provided). Since `--submit-genesis` is not set, there is no way to receive the genesis block. Either provide the genesis by setting `--submit-genesis` argument, `genesis.encoded_config`, `genesis.file` and `genesis.public_key` configuration parameters, or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter."#]];
     expected.assert_eq(&format!("{error:#}"));
 
     Ok(())
@@ -216,7 +227,7 @@ fn minimal_without_genesis_but_with_submit_fails() -> Result<()> {
             "should fail since there is no genesis in the config, but `--submit-genesis=true`",
         );
 
-    let expected = expect_test::expect!["`--submit-genesis` was set, but `genesis.file` and `genesis.private_key` are not presented"];
+    let expected = expect_test::expect!["`--submit-genesis` was set, but `genesis.encoded_config`, `genesis.file` and `genesis.public_key` are not presented"];
     expected.assert_eq(&format!("{error:#}"));
 
     Ok(())
@@ -276,8 +287,7 @@ fn inconsistent_genesis_config() -> Result<()> {
         .expect_err("should fail with bad genesis config");
 
     let expected = expect_test::expect![[r#"
-        `genesis.file` and `genesis.private_key` should be set together
-        The network consists from this one peer only (no `sumeragi.trusted_peers` provided). Since `--submit-genesis` is not set, there is no way to receive the genesis block. Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, and `genesis.file` configuration parameters, or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter."#]];
+        The network consists from this one peer only (no `sumeragi.trusted_peers` provided). Since `--submit-genesis` is not set, there is no way to receive the genesis block. Either provide the genesis by setting `--submit-genesis` argument, `genesis.encoded_config`, `genesis.file` and `genesis.public_key` configuration parameters, or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter."#]];
     expected.assert_eq(&format!("{error:#}"));
 
     Ok(())
@@ -323,6 +333,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                     ),
                 ),
                 file: None,
+                encoded_config: None,
             },
             kura: KuraPartial {
                 init_mode: Some(
@@ -365,6 +376,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 block_gossip_period: None,
                 transaction_gossip_max_size: None,
                 transaction_gossip_period: None,
+                idle_timeout: None,
             },
             logger: LoggerPartial {
                 level: Some(
