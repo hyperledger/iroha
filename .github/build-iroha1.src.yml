@@ -549,7 +549,7 @@ jobs:
           _os=${OS:+-$OS}  _cc=${cc:+-$cc}  _build_type=${build_type:+-$build_type}  _uses=${uses:+-$uses}
           echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=$_os$_cc$_build_type$_uses
           echo >>$GITHUB_ENV  _uses_suffix=$_uses
-          echo >>$GITHUB_ENV  _compiler_suffix=$(test $cc != gcc9 && echo $_cc)
+          echo >>$GITHUB_ENV  _compiler_suffix=$(test $cc != gcc10 && echo $_cc)
           echo >>$GITHUB_ENV  _debug_suffix=$(test "$build_type" = dbg && echo -debug || true)
       - &step_artifact_irohad
         name: Upload artifact irohad
