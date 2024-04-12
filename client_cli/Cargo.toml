@@ -27,9 +27,10 @@ iroha_client = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_config_base = { workspace = true }
 
-color-eyre = { workspace = true }
+thiserror = { workspace = true }
+error-stack = { workspace = true, features = ["eyre"] }
+eyre = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-dialoguer = { version = "0.11.0", default-features = false }
 json5 = { workspace = true }
 once_cell = { workspace = true }
 serde_json = { workspace = true }

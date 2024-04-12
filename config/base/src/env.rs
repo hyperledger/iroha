@@ -81,9 +81,17 @@ impl MockEnv {
     ///
     /// Since [`Rc`] is used under the hood, should work on clones as well.
     pub fn unvisited(&self) -> HashSet<String> {
-        let all_keys: HashSet<_> = self.map.keys().map(ToOwned::to_owned).collect();
-        let visited: HashSet<_> = self.visited.borrow().clone();
-        all_keys.sub(&visited)
+        self.known_keys().sub(&*self.visited.borrow())
+    }
+
+    /// Similar to [`Self::unvisited`], but gives requested entries
+    /// that don't exist within the set of variables
+    pub fn unknown(&self) -> HashSet<String> {
+        self.visited.borrow().sub(&self.known_keys())
+    }
+
+    fn known_keys(&self) -> HashSet<String> {
+        self.map.keys().map(ToOwned::to_owned).collect()
     }
 }
 

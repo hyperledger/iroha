@@ -544,8 +544,8 @@ mod tests {
     };
 
     use iroha_config::{
-        base::{FromEnv, TestEnv, UnwrapPartial},
-        parameters::user::{CliContext, RootPartial},
+        base::{env::MockEnv, read::ConfigReader},
+        parameters::user::Root as UserConfig,
     };
     use iroha_crypto::KeyPair;
     use iroha_primitives::addr::{socket_addr, SocketAddr};
@@ -563,7 +563,7 @@ mod tests {
         }
     }
 
-    impl From<FullPeerEnv> for TestEnv {
+    impl From<FullPeerEnv> for MockEnv {
         fn from(peer_env: FullPeerEnv) -> Self {
             let json = serde_json::to_string(&peer_env).expect("Must be serializable");
             let env: HashMap<_, String> =
@@ -572,7 +572,7 @@ mod tests {
         }
     }
 
-    impl From<CompactPeerEnv> for TestEnv {
+    impl From<CompactPeerEnv> for MockEnv {
         fn from(value: CompactPeerEnv) -> Self {
             let full: FullPeerEnv = value.into();
             full.into()
@@ -582,7 +582,7 @@ mod tests {
     #[test]
     fn default_config_with_swarm_env_is_exhaustive() {
         let keypair = KeyPair::random();
-        let env: TestEnv = CompactPeerEnv {
+        let env: MockEnv = CompactPeerEnv {
             chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
             genesis_public_key: keypair.public_key().clone(),
@@ -600,14 +600,10 @@ mod tests {
         }
         .into();
 
-        let _cfg = RootPartial::from_env(&env)
-            .expect("valid env")
-            .unwrap_partial()
-            .expect("should not fail as input has all required fields")
-            .parse(CliContext {
-                submit_genesis: true,
-            })
-            .expect("should not fail as input is valid");
+        let _ = ConfigReader::new()
+            .with_env(env.clone())
+            .read_and_complete::<UserConfig>()
+            .expect("config in env should be exhaustive");
 
         assert_eq!(env.unvisited(), HashSet::new());
     }

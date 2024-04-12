@@ -1,57 +1,39 @@
 //! User configuration view.
 
-mod boilerplate;
+use std::str::FromStr;
 
-use std::{fs::File, io::Read, path::Path, str::FromStr, time::Duration};
-
-pub use boilerplate::*;
-use eyre::{eyre, Context, Report};
-use iroha_config::base::{Emitter, ErrorsCollection};
+use error_stack::{Report, ResultExt};
+use iroha_config_base::{
+    util::{Emitter, EmitterResultExt, HumanDuration},
+    ReadConfig, WithOrigin,
+};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::prelude::{AccountId, ChainId, DomainId};
-use merge::Merge;
 use serde_with::DeserializeFromStr;
 use url::Url;
 
 use crate::config::BasicAuth;
 
-impl RootPartial {
-    /// Reads the partial layer from TOML
-    ///
-    /// # Errors
-    /// - File not found
-    /// - Not valid TOML or content
-    pub fn from_toml(path: impl AsRef<Path>) -> eyre::Result<Self> {
-        let contents = {
-            let mut contents = String::new();
-            File::open(path.as_ref())
-                .wrap_err_with(|| {
-                    eyre!("cannot open file at location `{}`", path.as_ref().display())
-                })?
-                .read_to_string(&mut contents)?;
-            contents
-        };
-        let layer: Self = toml::from_str(&contents).wrap_err("failed to parse toml")?;
-        Ok(layer)
-    }
-
-    /// Merge other into self
-    #[must_use]
-    pub fn merge(mut self, other: Self) -> Self {
-        Merge::merge(&mut self, other);
-        self
-    }
-}
-
 /// Root of the user configuration
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, ReadConfig)]
 #[allow(missing_docs)]
 pub struct Root {
     pub chain_id: ChainId,
+    #[config(env = "TORII_URL")]
     pub torii_url: OnlyHttpUrl,
     pub basic_auth: Option<BasicAuth>,
+    #[config(nested)]
     pub account: Account,
+    #[config(nested)]
     pub transaction: Transaction,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum ParseError {
+    #[error("Transaction status timeout should be smaller than its time-to-live")]
+    TxTimeoutVsTtl,
+    #[error("Failed to construct a key pair from provided public and private keys")]
+    KeyPair,
 }
 
 impl Root {
@@ -60,14 +42,14 @@ impl Root {
     ///
     /// # Errors
     /// If a set of validity errors occurs.
-    pub fn parse(self) -> Result<super::Config, ErrorsCollection<Report>> {
+    pub fn parse(self) -> error_stack::Result<super::Config, ParseError> {
         let Self {
             chain_id,
             torii_url,
             basic_auth,
             account:
                 Account {
-                    domian_id,
+                    domain_id,
                     public_key,
                     private_key,
                 },
@@ -83,29 +65,26 @@ impl Root {
 
         // TODO: validate if TTL is too small?
 
-        if tx_timeout > tx_ttl {
-            // TODO:
-            //      would be nice to provide a nice report with spans in the input
-            //      pointing out source data in provided config files
-            // FIXME: explain why it should be smaller
-            emitter.emit(eyre!(
-                "transaction status timeout should be smaller than its time-to-live"
-            ))
+        if tx_timeout.value() > tx_ttl.value() {
+            emitter.emit(
+                Report::new(ParseError::TxTimeoutVsTtl)
+                    .attach_printable(format!("{}: {:?}", tx_timeout.origin(), tx_timeout.value()))
+                    .attach_printable(format!("{}: {:?}", tx_ttl.origin(), tx_ttl.value()))
+                    // FIXME: is this correct?
+                    .attach_printable("Note: it doesn't make sense to set the timeout longer than the possible transaction lifetime"),
+            )
         }
 
-        let account_id = AccountId::new(domian_id, public_key.clone());
-
+        let (public_key, public_key_origin) = public_key.into_tuple();
+        let (private_key, private_key_origin) = private_key.into_tuple();
+        let account_id = AccountId::new(domain_id, public_key.clone());
         let key_pair = KeyPair::new(public_key, private_key)
-            .wrap_err("failed to construct a key pair")
-            .map_or_else(
-                |err| {
-                    emitter.emit(err);
-                    None
-                },
-                Some,
-            );
+            .change_context(ParseError::KeyPair)
+            .attach_printable_lazy(|| format!("got public key from: {}", public_key_origin))
+            .attach_printable_lazy(|| format!("got private key from: {}", private_key_origin))
+            .ok_or_emit(&mut emitter);
 
-        emitter.finish()?;
+        emitter.into_result()?;
 
         Ok(super::Config {
             chain_id,
@@ -113,26 +92,29 @@ impl Root {
             key_pair: key_pair.unwrap(),
             torii_api_url: torii_url.0,
             basic_auth,
-            transaction_ttl: tx_ttl,
-            transaction_status_timeout: tx_timeout,
+            transaction_ttl: tx_ttl.into_value().get(),
+            transaction_status_timeout: tx_timeout.into_value().get(),
             transaction_add_nonce: tx_add_nonce,
         })
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ReadConfig)]
 #[allow(missing_docs)]
 pub struct Account {
-    pub domian_id: DomainId,
-    pub public_key: PublicKey,
-    pub private_key: PrivateKey,
+    pub domain_id: DomainId,
+    pub public_key: WithOrigin<PublicKey>,
+    pub private_key: WithOrigin<PrivateKey>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, ReadConfig)]
 #[allow(missing_docs)]
 pub struct Transaction {
-    pub time_to_live: Duration,
-    pub status_timeout: Duration,
+    #[config(default = "super::DEFAULT_TRANSACTION_TIME_TO_LIVE.into()")]
+    pub time_to_live: WithOrigin<HumanDuration>,
+    #[config(default = "super::DEFAULT_TRANSACTION_STATUS_TIMEOUT.into()")]
+    pub status_timeout: WithOrigin<HumanDuration>,
+    #[config(default = "super::DEFAULT_TRANSACTION_NONCE")]
     pub nonce: bool,
 }
 
@@ -173,17 +155,21 @@ pub enum ParseHttpUrlError {
 mod tests {
     use std::collections::HashSet;
 
-    use iroha_config::base::{FromEnv as _, TestEnv};
+    use iroha_config_base::{env::MockEnv, read::ConfigReader};
 
     use super::*;
 
     #[test]
     fn parses_all_envs() {
-        let env = TestEnv::new().set("TORII_URL", "http://localhost:8080");
+        let env = MockEnv::from([("TORII_URL", "http://localhost:8080")]);
 
-        let _layer = RootPartial::from_env(&env).expect("should not fail since env is valid");
+        let _ = ConfigReader::new()
+            .with_env(env.clone())
+            .read_and_complete::<Root>()
+            .expect_err("there are missing fields, but that of no concern");
 
-        assert_eq!(env.unvisited(), HashSet::new())
+        assert_eq!(env.unvisited(), HashSet::new());
+        assert_eq!(env.unknown(), HashSet::new());
     }
 
     #[test]

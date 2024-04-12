@@ -873,19 +873,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "console"
-version = "0.15.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e1f83fc076bd6dd27517eacdf25fef6c4dfe5f1d7448bafaaf3a26f13b5e4eb"
-dependencies = [
- "encode_unicode",
- "lazy_static",
- "libc",
- "unicode-width",
- "windows-sys 0.52.0",
-]
-
-[[package]]
 name = "console-api"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1431,17 +1418,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dialoguer"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "658bce805d770f407bc62102fca7c2c64ceef2fbcb2b8bd19d2765ce093980de"
-dependencies = [
- "console",
- "shell-words",
- "thiserror",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1574,12 +1550,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "encode_unicode"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
-
-[[package]]
 name = "encoding_rs"
 version = "0.8.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1621,6 +1591,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27a72baa257b5e0e2de241967bc5ee8f855d6072351042688621081d66b2a76b"
 dependencies = [
  "anyhow",
+ "eyre",
  "rustc_version",
 ]
 
@@ -2798,7 +2769,7 @@ version = "2.0.0-pre-rc.21"
 dependencies = [
  "assertables",
  "clap",
- "color-eyre",
+ "error-stack",
  "eyre",
  "futures",
  "iroha_config",
@@ -2820,6 +2791,7 @@ dependencies = [
  "serial_test",
  "supports-color 2.1.0",
  "tempfile",
+ "thiserror",
  "thread-local-panic-hook",
  "tokio",
  "toml 0.8.13",
@@ -2837,12 +2809,14 @@ dependencies = [
  "criterion",
  "derive_more",
  "displaydoc",
+ "error-stack",
  "eyre",
  "futures-util",
  "hex",
  "http 1.1.0",
  "iroha",
  "iroha_config",
+ "iroha_config_base",
  "iroha_crypto",
  "iroha_data_model",
  "iroha_genesis",
@@ -2852,7 +2826,6 @@ dependencies = [
  "iroha_torii_const",
  "iroha_version",
  "iroha_wasm_builder",
- "merge",
  "nonzero_ext",
  "once_cell",
  "parity-scale-codec",
@@ -2879,14 +2852,16 @@ version = "2.0.0-pre-rc.21"
 dependencies = [
  "clap",
  "color-eyre",
- "dialoguer",
  "erased-serde",
+ "error-stack",
+ "eyre",
  "iroha_client",
  "iroha_config_base",
  "iroha_primitives",
  "json5",
  "once_cell",
  "serde_json",
+ "thiserror",
  "vergen",
 ]
 
@@ -2949,7 +2924,7 @@ dependencies = [
  "manyhow",
  "proc-macro2",
  "quote",
- "syn 2.0.60",
+ "syn 2.0.63",
  "trybuild",
 ]
 
@@ -3922,28 +3897,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "merge"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10bbef93abb1da61525bbc45eeaff6473a41907d19f8f9aa5168d214e10693e9"
-dependencies = [
- "merge_derive",
- "num-traits",
-]
-
-[[package]]
-name = "merge_derive"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "209d075476da2e63b4b29e72a2ef627b840589588e71400a25e3565c4f849d07"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -5315,12 +5268,6 @@ checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
 ]
-
-[[package]]
-name = "shell-words"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24188a676b6ae68c3b2cb3a01be17fbf7240ce009799bb56d5b1409051e78fde"
 
 [[package]]
 name = "signal-hook"

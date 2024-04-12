@@ -114,7 +114,7 @@ impl Config {
             .iroha
             .as_ref()
             .expect("Must be some")
-            .state
+            .state()
             .view();
         let mut blocks = state_view.all_blocks().skip(blocks_out_of_measure as usize);
         let (txs_accepted, txs_rejected) = (0..self.blocks)

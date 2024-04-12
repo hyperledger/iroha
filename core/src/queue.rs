@@ -109,8 +109,8 @@ impl Queue {
             capacity,
             capacity_per_user,
             time_source: TimeSource::new_system(),
-            tx_time_to_live: transaction_time_to_live.get(),
-            future_threshold: future_threshold.get(),
+            tx_time_to_live: transaction_time_to_live,
+            future_threshold,
         }
     }
 

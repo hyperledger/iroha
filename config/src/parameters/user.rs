@@ -163,7 +163,12 @@ impl Root {
         let queue = self.queue;
 
         let snapshot = self.snapshot;
-        validate_directory_path(&mut emitter, &snapshot.store_dir);
+        match snapshot.mode {
+            SnapshotMode::Disabled => {}
+            _ => {
+                validate_directory_path(&mut emitter, &snapshot.store_dir);
+            }
+        }
 
         let dev_telemetry = self.dev_telemetry;
         if let Some(path) = &dev_telemetry.out_file {
@@ -235,7 +240,7 @@ impl Root {
             transaction_gossiper,
             live_query_store,
             logger,
-            queue,
+            queue: queue.parse(),
             snapshot,
             telemetry,
             dev_telemetry,
@@ -485,6 +490,23 @@ pub struct Queue {
     /// The threshold to determine if a transaction has been tampered to have a future timestamp.
     #[config(default = "defaults::queue::FUTURE_THRESHOLD.into()")]
     pub future_threshold: HumanDuration,
+}
+
+impl Queue {
+    pub fn parse(self) -> actual::Queue {
+        let Self {
+            capacity,
+            capacity_per_user,
+            transaction_time_to_live,
+            future_threshold,
+        } = self;
+        actual::Queue {
+            capacity,
+            capacity_per_user,
+            transaction_time_to_live: transaction_time_to_live.0,
+            future_threshold: future_threshold.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, ReadConfig)]

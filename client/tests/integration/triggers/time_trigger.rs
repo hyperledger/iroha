@@ -5,7 +5,7 @@ use iroha_client::{
     client::{self, Client, QueryResult},
     data_model::{prelude::*, transaction::WasmSmartContract},
 };
-use iroha_config::parameters::defaults::chain_wide::DEFAULT_CONSENSUS_ESTIMATION;
+use iroha_config::parameters::defaults::chain_wide::CONSENSUS_ESTIMATION as DEFAULT_CONSENSUS_ESTIMATION;
 use iroha_data_model::events::pipeline::{BlockEventFilter, BlockStatus};
 use iroha_logger::info;
 use test_network::*;

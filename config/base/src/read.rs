@@ -1,10 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::File,
-    io::Read,
     marker::PhantomData,
     path::{Path, PathBuf},
-    str::FromStr,
 };
 
 use drop_bomb::DropBomb;
@@ -26,10 +23,8 @@ pub trait ReadConfig: Sized {
 pub enum Error {
     #[error("Failed to read configuration")]
     Root,
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error("Failed to parse file contents as TOML")]
-    ParseToml,
+    #[error("Unable to read TOML from file")]
+    TomlFromFile,
     #[error("Invalid `extends` field")]
     InvalidExtends,
     #[error("Failed to extend from another file")]
@@ -120,17 +115,10 @@ impl ConfigReader {
     ///
     /// If files reading error occurs
     pub fn read_toml_with_extends<P: AsRef<Path>>(mut self, path: P) -> Result<Self, Error> {
-        fn read_file(path: impl AsRef<Path>) -> std::result::Result<String, Error> {
-            let mut raw_toml = String::new();
-            File::open(path.as_ref())?.read_to_string(&mut raw_toml)?;
-            Ok(raw_toml)
-        }
-
         fn recursion(reader: &mut ConfigReader, path: impl AsRef<Path>) -> Result<(), Error> {
-            log::trace!("reading {}", path.as_ref().display());
-            let raw_toml = read_file(path.as_ref())?;
-
-            let mut table = toml::Table::from_str(&raw_toml).change_context(Error::ParseToml)?;
+            let mut source =
+                TomlSource::from_file(path.as_ref()).change_context(Error::TomlFromFile)?;
+            let table = source.table_mut();
 
             if let Some(extends) = table.remove("extends") {
                 let parsed: ExtendsPaths = extends.clone()
@@ -154,17 +142,15 @@ impl ConfigReader {
                 }
             };
 
-            reader
-                .sources
-                .push(TomlSource::new(path.as_ref().to_path_buf(), table));
+            reader.sources.push(source);
 
             Ok(())
         }
 
         recursion(&mut self, path.as_ref())
             .change_context(Error::Root)
-            .attach_printable_lazy(|| format!("config path: `{}`", path.as_ref().display()))
             .map_err(|err| {
+                // error doesn't mean we need to panic
                 self.bomb.defuse();
                 err
             })?;
@@ -274,6 +260,12 @@ impl ConfigReader {
         }
 
         emitter.into_result().change_context(Error::Root)
+    }
+
+    pub fn read_and_complete<T: ReadConfig>(self) -> Result<T, Error> {
+        let (value, reader) = T::read(self);
+        reader.into_result()?;
+        Ok(value.unwrap())
     }
 
     fn full_id(&self, id: impl Into<ParameterId>) -> ParameterId {

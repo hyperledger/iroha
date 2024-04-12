@@ -6,18 +6,16 @@ use std::{
     str::FromStr,
 };
 
-use color_eyre::{
-    eyre::{eyre, Error, WrapErr},
-    Result,
-};
-// FIXME: sync with `kagami` (it uses `inquiry`, migrate both to something single)
 use erased_serde::Serialize;
+use error_stack::{IntoReportCompat as _, ResultExt as _};
+use eyre::{eyre, Error, Result, WrapErr};
 use iroha_client::{
     client::{Client, QueryResult},
     config::Config,
     data_model::{metadata::MetadataValueBox, prelude::*},
 };
 use iroha_primitives::addr::SocketAddr;
+use thiserror::Error;
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
 /// Should be combined with `#[command(flatten)]` attr.
@@ -45,7 +43,7 @@ impl MetadataArgs {
                             path.display()
                         )
                     })?;
-                Ok::<_, color_eyre::Report>(metadata)
+                Ok::<_, eyre::Report>(metadata)
             })
             .transpose()?;
 
@@ -158,6 +156,7 @@ trait RunArgs {
     ///
     /// # Errors
     /// if inner command errors
+    // TODO: replace `eyre::Result` with `error_stack::Result`
     fn run(self, context: &mut dyn RunContext) -> Result<()>;
 }
 
@@ -176,22 +175,25 @@ impl RunArgs for Subcommand {
     }
 }
 
-fn main() -> Result<()> {
-    color_eyre::install()?;
+#[derive(Error, Debug)]
+#[error("Failure occurred while running Iroha Client CLI")]
+struct MainError;
 
+fn main() -> error_stack::Result<(), MainError> {
     let Args {
         config: config_path,
         subcommand,
         verbose,
     } = clap::Parser::parse();
 
-    let config = Config::load(config_path)?;
+    let config = Config::load(config_path).change_context(MainError)?;
 
     if verbose {
         eprintln!(
             "Configuration: {}",
             &serde_json::to_string_pretty(&config)
-                .wrap_err("Failed to serialize configuration.")?
+                .change_context(MainError)
+                .attach_printable("failed to serialize configuration")?
         );
     }
 
@@ -200,7 +202,10 @@ fn main() -> Result<()> {
         config,
     };
 
-    subcommand.run(&mut context)
+    subcommand
+        .run(&mut context)
+        .into_report()
+        .map_err(|report| report.change_context(MainError))
 }
 
 /// Submit instruction with metadata to network.

@@ -2,16 +2,13 @@
 //! structures in a way that is efficient for Iroha internally.
 
 use std::{
-    num::NonZeroU32,
+    num::{NonZeroU32, NonZeroUsize},
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use error_stack::{Result, ResultExt};
-use iroha_config_base::{
-    read::{ConfigReader, ReadConfig},
-    WithOrigin,
-};
+use iroha_config_base::{read::ConfigReader, toml::TomlSource, WithOrigin};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
@@ -20,7 +17,7 @@ use iroha_data_model::{
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::{Deserialize, Serialize};
 use url::Url;
-pub use user::{DevTelemetry, Logger, Queue, Snapshot};
+pub use user::{DevTelemetry, Logger, Snapshot};
 
 use crate::{
     kura::InitMode,
@@ -50,7 +47,7 @@ pub struct Root {
 
 /// TODO
 #[derive(thiserror::Error, Debug, Copy, Clone)]
-#[error("Failed to read & validate Iroha configuration")]
+#[error("Unable to read or validate Iroha configuration")]
 pub struct LoadError;
 
 impl Root {
@@ -67,12 +64,24 @@ impl Root {
                 .read_toml_with_extends(path)
                 .change_context(LoadError)?;
         }
-        let (root, reader) = user::Root::read(reader);
-        reader.into_result().change_context(LoadError)?;
-        let root = root.unwrap();
-        let parsed = root.parse(cli).change_context(LoadError)?;
+        let parsed = reader
+            .read_and_complete::<user::Root>()
+            .change_context(LoadError)?
+            .parse(cli)
+            .change_context(LoadError)?;
 
         Ok(parsed)
+    }
+
+    /// A shorthand to read config from a single provided TOML.
+    /// For testing purposes.
+    pub fn from_toml_source(src: TomlSource, cli: CliContext) -> Result<Self, LoadError> {
+        Ok(ConfigReader::new()
+            .with_toml_source(src)
+            .read_and_complete::<user::Root>()
+            .change_context(LoadError)?
+            .parse(cli)
+            .change_context(LoadError)?)
     }
 }
 
@@ -112,7 +121,7 @@ pub enum Genesis {
     Full {
         /// Genesis account key pair
         key_pair: KeyPair,
-        /// Path to the [`RawGenesisBlock`]
+        /// Path to `RawGenesisBlock`
         file: WithOrigin<PathBuf>,
     },
 }
@@ -136,6 +145,15 @@ impl Genesis {
 }
 
 #[allow(missing_docs)]
+#[derive(Debug, Clone, Copy)]
+pub struct Queue {
+    pub capacity: NonZeroUsize,
+    pub capacity_per_user: NonZeroUsize,
+    pub transaction_time_to_live: Duration,
+    pub future_threshold: Duration,
+}
+
+#[allow(missing_docs)]
 #[derive(Debug, Clone)]
 pub struct Kura {
     pub init_mode: InitMode,
@@ -146,8 +164,8 @@ pub struct Kura {
 impl Default for Queue {
     fn default() -> Self {
         Self {
-            transaction_time_to_live: defaults::queue::TRANSACTION_TIME_TO_LIVE.into(),
-            future_threshold: defaults::queue::FUTURE_THRESHOLD.into(),
+            transaction_time_to_live: defaults::queue::TRANSACTION_TIME_TO_LIVE,
+            future_threshold: defaults::queue::FUTURE_THRESHOLD,
             capacity: defaults::queue::CAPACITY,
             capacity_per_user: defaults::queue::CAPACITY_PER_USER,
         }

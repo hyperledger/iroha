@@ -107,6 +107,7 @@ impl Display for ParameterOrigin {
     }
 }
 
+/// A container with information on where the value came from, in terms of [`ParameterOrigin`]
 #[derive(Debug, Clone)]
 pub struct WithOrigin<T> {
     value: T,
@@ -118,8 +119,20 @@ impl<T> WithOrigin<T> {
         Self { value, origin }
     }
 
+    #[track_caller]
+    pub fn inline(value: T) -> Self {
+        Self::new(
+            value,
+            ParameterOrigin::custom(format!("inlined at `{}`", std::panic::Location::caller())),
+        )
+    }
+
     pub fn value(&self) -> &T {
         &self.value
+    }
+
+    pub fn value_mut(&mut self) -> &mut T {
+        &mut self.value
     }
 
     pub fn into_value(self) -> T {
@@ -139,6 +152,12 @@ impl WithOrigin<PathBuf> {
     /// If it is [`Self::File`], will resolve the contained value relative to the origin.
     /// Otherwise, will return the value as-is.
     pub fn resolve_relative_path(&self) -> PathBuf {
-        todo!()
+        match &self.origin {
+            ParameterOrigin::File { path, .. } => path
+                .parent()
+                .expect("if it is a file, it should have a parent path")
+                .join(&self.value),
+            _ => self.value.clone(),
+        }
     }
 }

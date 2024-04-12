@@ -1,13 +1,9 @@
 //! This module contains the sample configurations used for testing and benchmarking throughout Iroha.
-use std::{collections::HashSet, path::Path, str::FromStr, time::Duration};
+use std::{collections::HashSet, path::Path, str::FromStr};
 
 use iroha_config::{
-    base::{HumanDuration, UnwrapPartial},
-    parameters::{
-        actual::Root as Config,
-        user::{CliContext, RootPartial as UserConfig},
-    },
-    snapshot::Mode as SnapshotMode,
+    base::toml::TomlSource,
+    parameters::{actual::Root as Config, user::CliContext},
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{peer::PeerId, prelude::*, ChainId};
@@ -52,79 +48,66 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
 }
 
 #[allow(clippy::implicit_hasher)]
-/// Get a sample Iroha configuration on user-layer level. Trusted peers must be
-/// specified in this function, including the current peer. Use [`get_trusted_peers`]
-/// to populate `trusted_peers` if in doubt. Almost equivalent to the [`get_config`]
-/// function, except the proxy is left unbuilt.
+/// Sample Iroha configuration in an unparsed format.
 ///
-/// # Panics
-/// - when [`KeyPair`] generation fails (rare case).
-pub fn get_user_config(
-    peers: &UniqueVec<PeerId>,
-    chain_id: Option<ChainId>,
-    peer_key_pair: Option<KeyPair>,
-    genesis_key_pair: Option<KeyPair>,
-) -> UserConfig {
-    let chain_id = chain_id.unwrap_or_else(|| ChainId::from("0"));
+/// [`get_config`] gives the parsed, complete version of it.
+///
+/// Trusted peers must either be specified in this function, including the current peer. Use [`get_trusted_peers`]
+/// to populate `trusted_peers` if in doubt.
+pub fn get_config_toml(
+    peers: UniqueVec<PeerId>,
+    chain_id: ChainId,
+    peer_key_pair: KeyPair,
+    genesis_key_pair: KeyPair,
+) -> toml::Table {
+    let (public_key, private_key) = peer_key_pair.clone().into_parts();
+    let (genesis_public_key, genesis_private_key) = genesis_key_pair.into_parts();
 
-    let (peer_public_key, peer_private_key) =
-        peer_key_pair.unwrap_or_else(KeyPair::random).into_parts();
-    iroha_logger::info!(%peer_public_key);
-    let (genesis_public_key, genesis_private_key) = genesis_key_pair
-        .unwrap_or_else(KeyPair::random)
-        .into_parts();
-    iroha_logger::info!(%genesis_public_key);
+    iroha_logger::info!(%public_key, "sample configuration public key");
 
-    let mut config = UserConfig::new();
+    let mut raw = toml::Table::new();
+    iroha_config::base::toml::Writer::new(&mut raw)
+        .write("chain_id", chain_id)
+        .write("public_key", public_key)
+        .write("private_key", private_key)
+        .write(["sumeragi", "trusted_peers"], peers)
+        .write(["network", "address"], DEFAULT_P2P_ADDR)
+        .write(["network", "block_gossip_period"], 500)
+        .write(["network", "block_gossip_max_size"], 1)
+        .write(["torii", "address"], DEFAULT_TORII_ADDR)
+        .write(["chain_wide", "max_transactions_in_block"], 2)
+        .write(["genesis", "public_key"], genesis_public_key)
+        .write(["genesis", "private_key"], genesis_private_key)
+        .write(["genesis", "file"], "NEVER READ ME; YOU FOUND A BUG!")
+        // There is no need in persistence in tests.
+        // If required to should be set explicitly not to overlap with other existing tests
+        .write(["snapshot", "mode"], "disabled");
 
-    config.chain_id.set(chain_id);
-    config.public_key.set(peer_public_key);
-    config.private_key.set(peer_private_key);
-    config.network.address.set(DEFAULT_P2P_ADDR);
-    config
-        .chain_wide
-        .max_transactions_in_block
-        .set(2.try_into().unwrap());
-    config.sumeragi.trusted_peers.set(peers.to_vec());
-    config.torii.address.set(DEFAULT_TORII_ADDR);
-    config
-        .network
-        .block_gossip_max_size
-        .set(1.try_into().unwrap());
-    config
-        .network
-        .block_gossip_period
-        .set(HumanDuration(Duration::from_millis(500)));
-    config.genesis.private_key.set(genesis_private_key);
-    config.genesis.public_key.set(genesis_public_key);
-    config.genesis.file.set("./genesis.json".into());
-    // There is no need in persistency in tests
-    // If required to should be set explicitly not to overlap with other existing tests
-    config.snapshot.mode.set(SnapshotMode::Disabled);
-
-    config
+    raw
 }
 
 #[allow(clippy::implicit_hasher)]
 /// Get a sample Iroha configuration. Trusted peers must either be
 /// specified in this function, including the current peer. Use [`get_trusted_peers`]
 /// to populate `trusted_peers` if in doubt.
-///
-/// # Panics
-/// - when [`KeyPair`] generation fails (rare case).
 pub fn get_config(
-    trusted_peers: &UniqueVec<PeerId>,
-    chain_id: Option<ChainId>,
-    peer_key_pair: Option<KeyPair>,
-    genesis_key_pair: Option<KeyPair>,
+    trusted_peers: UniqueVec<PeerId>,
+    chain_id: ChainId,
+    peer_key_pair: KeyPair,
+    genesis_key_pair: KeyPair,
 ) -> Config {
-    get_user_config(trusted_peers, chain_id, peer_key_pair, genesis_key_pair)
-        .unwrap_partial()
-        .expect("config should build as all required fields were provided")
-        .parse(CliContext {
+    Config::from_toml_source(
+        TomlSource::inline(get_config_toml(
+            trusted_peers,
+            chain_id,
+            peer_key_pair,
+            genesis_key_pair,
+        )),
+        CliContext {
             submit_genesis: true,
-        })
-        .expect("config should finalize as the input is semantically valid (or there is a bug)")
+        },
+    )
+    .expect("should be a valid config")
 }
 
 /// Construct executor from path.
@@ -136,7 +119,7 @@ pub fn get_config(
 /// - Failed to create temp dir for executor output
 /// - Failed to build executor
 /// - Failed to optimize executor
-pub fn construct_executor<P>(relative_path: &P) -> color_eyre::Result<Executor>
+pub fn construct_executor<P>(relative_path: &P) -> eyre::Result<Executor>
 where
     P: AsRef<Path> + ?Sized,
 {

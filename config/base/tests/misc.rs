@@ -2,11 +2,7 @@ use std::{backtrace::Backtrace, panic::Location, path::PathBuf};
 
 use error_stack::{fmt::ColorMode, Context, Report};
 use expect_test::expect;
-use iroha_config_base::{
-    env::MockEnv,
-    read::{ConfigReader, ReadConfig},
-    toml::TomlSource,
-};
+use iroha_config_base::{env::MockEnv, read::ConfigReader, toml::TomlSource};
 use toml::toml;
 
 pub mod sample_config {
@@ -330,14 +326,12 @@ fn error_extends_depth_2_leads_to_nowhere() {
 
 #[test]
 fn error_reading_empty_config() {
-    let reader = ConfigReader::new().with_toml_source(TomlSource::new(
-        PathBuf::from("./config.toml"),
-        toml::Table::new(),
-    ));
-
-    let (_, reader) = sample_config::Root::read(reader);
-    let report = reader
-        .into_result()
+    let report = ConfigReader::new()
+        .with_toml_source(TomlSource::new(
+            PathBuf::from("./config.toml"),
+            toml::Table::new(),
+        ))
+        .read_and_complete::<sample_config::Root>()
         .expect_err("should miss required fields");
 
     expect![[r#"
@@ -350,7 +344,7 @@ fn error_reading_empty_config() {
 
 #[test]
 fn error_extra_fields_in_multiple_files() {
-    let reader = ConfigReader::new()
+    let report = ConfigReader::new()
         .with_toml_source(TomlSource::new(
             PathBuf::from("./config.toml"),
             toml! {
@@ -366,10 +360,9 @@ fn error_extra_fields_in_multiple_files() {
                 [torii]
                 bar = false
             },
-        ));
-
-    let (_, reader) = sample_config::Root::read(reader);
-    let report = reader.into_result().expect_err("there are unknown fields");
+        ))
+        .read_and_complete::<sample_config::Root>()
+        .expect_err("there are unknown fields");
 
     expect![[r#"
             Failed to read configuration
@@ -391,7 +384,7 @@ fn error_extra_fields_in_multiple_files() {
 
 #[test]
 fn multiple_parsing_errors_in_multiple_sources() {
-    let reader = ConfigReader::new()
+    let report = ConfigReader::new()
         .with_toml_source(TomlSource::new(
             PathBuf::from("./base.toml"),
             toml! {
@@ -405,10 +398,9 @@ fn multiple_parsing_errors_in_multiple_sources() {
                 [torii]
                 address = false
             },
-        ));
-
-    let (_, reader) = sample_config::Root::read(reader);
-    let report = reader.into_result().expect_err("invalid config");
+        ))
+        .read_and_complete::<sample_config::Root>()
+        .expect_err("invalid config");
 
     expect![[r#"
             Failed to read configuration
@@ -431,16 +423,15 @@ fn multiple_parsing_errors_in_multiple_sources() {
 
 #[test]
 fn minimal_config_ok() {
-    let reader = ConfigReader::new().with_toml_source(TomlSource::new(
-        PathBuf::from("./config.toml"),
-        toml! {
-            chain_id = "whatever"
-        },
-    ));
-
-    let (value, reader) = sample_config::Root::read(reader);
-    reader.into_result().expect("config is valid");
-    let value = value.unwrap();
+    let value = ConfigReader::new()
+        .with_toml_source(TomlSource::new(
+            PathBuf::from("./config.toml"),
+            toml! {
+                chain_id = "whatever"
+            },
+        ))
+        .read_and_complete::<sample_config::Root>()
+        .expect("config is valid");
 
     expect![[r#"
         Root {
@@ -478,30 +469,29 @@ fn minimal_config_ok() {
 
 #[test]
 fn full_config_ok() {
-    let reader = ConfigReader::new().with_toml_source(TomlSource::new(
-        PathBuf::from("./config.toml"),
-        toml! {
-            chain_id = "whatever"
+    let value = ConfigReader::new()
+        .with_toml_source(TomlSource::new(
+            PathBuf::from("./config.toml"),
+            toml! {
+                chain_id = "whatever"
 
-            [torii]
-            address = "127.0.0.2:1337"
-            max_content_length = 19
+                [torii]
+                address = "127.0.0.2:1337"
+                max_content_length = 19
 
-            [kura]
-            store_dir = "./my-storage"
-            debug_force = true
+                [kura]
+                store_dir = "./my-storage"
+                debug_force = true
 
-            [telemetry.dev]
-            out_file = "./telemetry.json"
+                [telemetry.dev]
+                out_file = "./telemetry.json"
 
-            [logger]
-            level = "Error"
-        },
-    ));
-
-    let (value, reader) = sample_config::Root::read(reader);
-    reader.into_result().expect("config is valid");
-    let value = value.unwrap();
+                [logger]
+                level = "Error"
+            },
+        ))
+        .read_and_complete::<sample_config::Root>()
+        .expect("config is valid");
 
     expect![[r#"
         Root {
@@ -549,19 +539,18 @@ fn full_config_ok() {
 
 #[test]
 fn env_overwrites_toml() {
-    let reader = ConfigReader::new()
+    let root = ConfigReader::new()
         .with_env(MockEnv::from(vec![("CHAIN_ID", "in env")]))
         .with_toml_source(TomlSource::new(
             PathBuf::from("config.toml"),
             toml! {
                 chain_id = "in file"
             },
-        ));
+        ))
+        .read_and_complete::<sample_config::Root>()
+        .expect("config is valid");
 
-    let (root, reader) = sample_config::Root::read(reader);
-    reader.into_result().expect("config is valid");
-
-    assert_eq!(root.unwrap().chain_id, "in env");
+    assert_eq!(root.chain_id, "in env");
 }
 
 #[test]
@@ -572,14 +561,14 @@ fn full_from_env() {
 
 #[test]
 fn multiple_env_parsing_errors() {
-    let reader = ConfigReader::new().with_env(MockEnv::from(vec![
-        ("CHAIN_ID", "just to set"),
-        ("API_ADDRESS", "i am not socket addr"),
-        ("LOG_LEVEL", "error or whatever"),
-    ]));
-
-    let (_, reader) = sample_config::Root::read(reader);
-    let report = reader.into_result().expect_err("invalid config");
+    let report = ConfigReader::new()
+        .with_env(MockEnv::from([
+            ("CHAIN_ID", "just to set"),
+            ("API_ADDRESS", "i am not socket addr"),
+            ("LOG_LEVEL", "error or whatever"),
+        ]))
+        .read_and_complete::<sample_config::Root>()
+        .expect_err("invalid config");
 
     expect![[r#"
             Failed to read configuration
@@ -597,20 +586,19 @@ fn multiple_env_parsing_errors() {
 
 #[test]
 fn private_key_is_read_from_file() {
-    let reader = ConfigReader::new().with_toml_source(TomlSource::new(
-        PathBuf::from("config.toml"),
-        toml! {
-            chain_id = "ok"
+    let value = ConfigReader::new()
+        .with_toml_source(TomlSource::new(
+            PathBuf::from("config.toml"),
+            toml! {
+                chain_id = "ok"
 
-            [private_key]
-            algorithm = "algalg"
-            payload = "112233"
-        },
-    ));
-
-    let (value, reader) = sample_config::Root::read(reader);
-    reader.into_result().expect("config is valid");
-    let value = value.unwrap();
+                [private_key]
+                algorithm = "algalg"
+                payload = "112233"
+            },
+        ))
+        .read_and_complete::<sample_config::Root>()
+        .expect("config is valid");
 
     let pk = value.private_key.0.unwrap();
     assert_eq!(pk.algorithm, "algalg");
@@ -619,15 +607,14 @@ fn private_key_is_read_from_file() {
 
 #[test]
 fn private_key_is_read_from_env() {
-    let reader = ConfigReader::new().with_env(MockEnv::from(vec![
-        ("PRIVATE_KEY_ALGORITHM", "algo"),
-        ("PRIVATE_KEY_PAYLOAD", "deadbeef"),
-        ("CHAIN_ID", "whatever"),
-    ]));
-
-    let (value, reader) = sample_config::Root::read(reader);
-    reader.into_result().expect("config is valid");
-    let value = value.unwrap();
+    let value = ConfigReader::new()
+        .with_env(MockEnv::from([
+            ("PRIVATE_KEY_ALGORITHM", "algo"),
+            ("PRIVATE_KEY_PAYLOAD", "deadbeef"),
+            ("CHAIN_ID", "whatever"),
+        ]))
+        .read_and_complete::<sample_config::Root>()
+        .expect("config is valid");
 
     let pk = value.private_key.0.unwrap();
     assert_eq!(pk.algorithm, "algo");
@@ -636,13 +623,13 @@ fn private_key_is_read_from_env() {
 
 #[test]
 fn private_key_inconsistent_env() {
-    let reader = ConfigReader::new().with_env(MockEnv::from(vec![
-        ("PRIVATE_KEY_ALGORITHM", "algo"),
-        ("CHAIN_ID", "whatever"),
-    ]));
-
-    let (_, reader) = sample_config::Root::read(reader);
-    let report = reader.into_result().expect_err("invalid config");
+    let report = ConfigReader::new()
+        .with_env(MockEnv::from([
+            ("PRIVATE_KEY_ALGORITHM", "algo"),
+            ("CHAIN_ID", "whatever"),
+        ]))
+        .read_and_complete::<sample_config::Root>()
+        .expect_err("invalid config");
 
     expect![[r#"
         Failed to read configuration

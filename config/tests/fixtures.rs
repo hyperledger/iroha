@@ -12,10 +12,7 @@ use iroha_config::parameters::{
     actual::Root as Config,
     user::{CliContext, Root as UserConfig},
 };
-use iroha_config_base::{
-    env::MockEnv,
-    read::{ConfigReader, ReadConfig},
-};
+use iroha_config_base::{env::MockEnv, read::ConfigReader};
 
 fn fixtures_dir() -> PathBuf {
     // CWD is the crate's root
@@ -155,12 +152,8 @@ fn minimal_config_snapshot() {
             queue: Queue {
                 capacity: 65536,
                 capacity_per_user: 65536,
-                transaction_time_to_live: HumanDuration(
-                    86400s,
-                ),
-                future_threshold: HumanDuration(
-                    1s,
-                ),
+                transaction_time_to_live: 86400s,
+                future_threshold: 1s,
             },
             snapshot: Snapshot {
                 mode: ReadWrite,
@@ -299,24 +292,25 @@ fn inconsistent_genesis_config() {
 fn full_envs_set_is_consumed() {
     let env = test_env_from_file(fixtures_dir().join("full.env"));
 
-    let reader = ConfigReader::new().with_env(env.clone());
-    let (_config, reader) = UserConfig::read(reader);
-    reader.into_result().expect("should be fine");
+    ConfigReader::new()
+        .with_env(env.clone())
+        .read_and_complete::<UserConfig>()
+        .expect("should be fine");
 
     assert_eq!(env.unvisited(), HashSet::new());
+    assert_eq!(env.unknown(), HashSet::new());
 }
 
 #[test]
 fn config_from_file_and_env() {
     let env = test_env_from_file(fixtures_dir().join("minimal_file_and_env.env"));
-    let reader = ConfigReader::new()
+
+    ConfigReader::new()
         .with_env(env)
         .read_toml_with_extends(fixtures_dir().join("minimal_file_and_env.toml"))
-        .expect("files are fine");
-    let (config, reader) = UserConfig::read(reader);
-    reader.into_result().expect("should be fine");
-    let _config = config
-        .unwrap()
+        .expect("files are fine")
+        .read_and_complete::<UserConfig>()
+        .expect("should be fine")
         .parse(CliContext {
             submit_genesis: false,
         })

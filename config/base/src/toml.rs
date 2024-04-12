@@ -1,24 +1,76 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
+    fs::File,
+    io::Read,
+    path::{Path, PathBuf},
+    str::FromStr,
 };
+
+use error_stack::ResultExt;
+use serde::Serialize;
+use thiserror::Error;
+use toml::Table;
 
 use crate::ParameterId;
 
 #[derive(Debug, Clone)]
 pub struct TomlSource {
     path: PathBuf,
-    table: toml::Table,
+    table: Table,
+}
+
+#[derive(Error, Debug, Copy, Clone)]
+pub enum FromFileError {
+    #[error("Failed to read the TOML source file")]
+    Read,
+    #[error("Failed to parse the content of a file")]
+    Parse,
 }
 
 impl TomlSource {
-    pub fn new(path: PathBuf, table: toml::Table) -> Self {
+    pub fn new(path: PathBuf, table: Table) -> Self {
         Self { path, table }
     }
 
+    pub fn from_file<P: AsRef<Path>>(path: P) -> error_stack::Result<Self, FromFileError> {
+        fn scoped(path: PathBuf) -> error_stack::Result<TomlSource, FromFileError> {
+            log::trace!("reading TOML source: `{}`", path.display());
+
+            let mut raw_string = String::new();
+            File::open(&path)
+                .change_context(FromFileError::Read)?
+                .read_to_string(&mut raw_string)
+                .change_context(FromFileError::Read)?;
+
+            let table = Table::from_str(&raw_string).change_context(FromFileError::Parse)?;
+
+            Ok(TomlSource::new(path, table))
+        }
+
+        // FIXME: a better way to attach to all errors at once?
+        scoped(path.as_ref().to_path_buf()).attach_printable_lazy(|| {
+            format!("occurred while reading `{}`", path.as_ref().display())
+        })
+    }
+
+    /// Primarily for testing purposes, creates a source which will contain debug information
+    /// about where this source was defined.
+    #[track_caller]
+    pub fn inline(table: Table) -> Self {
+        Self::new(
+            PathBuf::from(format!("inline:{}", std::panic::Location::caller())),
+            table,
+        )
+    }
+
+    pub fn table_mut(&mut self) -> &mut Table {
+        &mut self.table
+    }
+
+    // FIXME: not optimal code
     pub fn fetch(&self, path: &ParameterId) -> Option<toml::Value> {
         enum TableOrValue<'a> {
-            Table(&'a toml::Table),
+            Table(&'a Table),
             Value(&'a toml::Value),
         }
 
@@ -115,6 +167,81 @@ fn find_unknown_parameters(table: &toml::Table, known: &ParamTree) -> BTreeSet<P
     }
 
     Traverse::default().run(table, known).unknown
+}
+
+/// A utility, primarily for tests, to conveniently write content into the toml
+#[derive(Debug)]
+pub struct Writer<'a> {
+    table: &'a mut Table,
+}
+
+impl<'a> Writer<'a> {
+    pub fn new(table: &'a mut Table) -> Self {
+        Self { table }
+    }
+
+    /// # Panics
+    ///
+    /// - If there is existing non-table value along the path
+    /// - If value cannot serialize into [`toml::Value`]
+    pub fn write<P: WritePath, T: Serialize>(&'a mut self, path: P, value: T) -> &'a mut Self {
+        let mut current: Option<(&mut Table, &str)> = None;
+
+        for i in path.path() {
+            if let Some((table, key)) = current {
+                let table = table
+                    .entry(key)
+                    .or_insert(toml::Value::Table(<_>::default()))
+                    .as_table_mut()
+                    .expect("expected a table");
+                current = Some((table, i))
+            } else {
+                // IDK why Rust allows it
+                current = Some((self.table, i))
+            }
+        }
+
+        if let Some((table, key)) = current {
+            let value_toml = toml::Value::try_from(value).expect("value should be a valid TOML");
+            table.insert(key.to_string(), value_toml);
+        }
+
+        self
+    }
+}
+
+/// Allows polymorphism for a field path in [`Writer::write`]:
+///
+/// ```
+/// use iroha_config_base::toml::Writer;
+/// let mut table = toml::Table::new();
+///
+/// Writer::new(&mut table)
+///     // path: <root>.fine
+///     .write("fine", 0)
+///     // path: <root>.also.fine
+///     .write(["also", "fine"], 1);
+/// ```
+pub trait WritePath {
+    fn path(self) -> impl IntoIterator<Item = &'static str>;
+}
+
+impl WritePath for &'static str {
+    fn path(self) -> impl IntoIterator<Item = &'static str> {
+        [self]
+    }
+}
+
+impl<const N: usize> WritePath for [&'static str; N] {
+    fn path(self) -> impl IntoIterator<Item = &'static str> {
+        self
+    }
+}
+
+impl<'a> From<&'a mut Table> for Writer<'a> {
+    fn from(value: &'a mut Table) -> Self {
+        Self::new(value)
+    }
 }
 
 #[cfg(test)]
@@ -222,5 +349,39 @@ mod tests {
         let unknown = find_unknown_parameters(&table, &known);
 
         assert_eq!(unknown, <_>::default());
+    }
+
+    #[test]
+    fn writing_into_toml_works() {
+        #[derive(Serialize)]
+        struct Complex {
+            foo: bool,
+            bar: bool,
+        }
+
+        let mut table = Table::new();
+
+        Writer::new(&mut table)
+            .write("foo", "test")
+            .write(["bar", "foo"], 42)
+            .write(
+                ["bar", "complex"],
+                &Complex {
+                    foo: false,
+                    bar: true,
+                },
+            );
+
+        expect![[r#"
+            foo = "test"
+
+            [bar]
+            foo = 42
+
+            [bar.complex]
+            bar = true
+            foo = false
+        "#]]
+        .assert_eq(&toml::to_string_pretty(&table).unwrap());
     }
 }

@@ -4,19 +4,15 @@ use core::str::FromStr;
 use std::{path::Path, time::Duration};
 
 use derive_more::Display;
+use error_stack::ResultExt;
 use eyre::Result;
-use iroha_config::{
-    base,
-    base::{FromEnv, StdEnv, UnwrapPartial},
-};
+use iroha_config_base::{read::ConfigReader, toml::TomlSource};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{prelude::*, ChainId};
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use url::Url;
-
-use crate::config::user::RootPartial;
 
 mod user;
 
@@ -71,21 +67,32 @@ pub struct Config {
     pub transaction_add_nonce: bool,
 }
 
+/// An error type for [`Config::load`]
+#[derive(thiserror::Error, Debug, Copy, Clone)]
+#[error("Unable to load Iroha Client configuration")]
+pub struct LoadError;
+
 impl Config {
     /// Loads configuration from a file
     ///
     /// # Errors
     /// - unable to load config from a TOML file
     /// - the config is invalid
-    pub fn load(path: impl AsRef<Path>) -> std::result::Result<Self, eyre::Report> {
-        let config = RootPartial::from_toml(path)?;
-        let config = config.merge(RootPartial::from_env(&StdEnv)?);
-        Ok(config.unwrap_partial()?.parse()?)
+    pub fn load(path: impl AsRef<Path>) -> error_stack::Result<Self, LoadError> {
+        let config = ConfigReader::new()
+            .with_toml_source(TomlSource::from_file(path).change_context(LoadError)?)
+            .read_and_complete::<user::Root>()
+            .change_context(LoadError)?
+            .parse()
+            .change_context(LoadError)?;
+        Ok(config)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     #[test]
@@ -100,7 +107,7 @@ mod tests {
 
     #[test]
     fn parse_full_toml_config() {
-        let _: RootPartial = toml::toml! {
+        let input = toml::toml! {
             chain_id = "00000000-0000-0000-0000-000000000000"
             torii_url = "http://127.0.0.1:8080/"
 
@@ -117,6 +124,11 @@ mod tests {
             time_to_live = 100_000
             status_timeout = 100_000
             nonce = false
-        }.try_into().unwrap();
+        };
+
+        ConfigReader::new()
+            .with_toml_source(TomlSource::inline(input))
+            .read_and_complete::<user::Root>()
+            .unwrap();
     }
 }

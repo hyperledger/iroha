@@ -1051,7 +1051,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         Kura::new(&Config {
             init_mode: InitMode::Strict,
-            store_dir: temp_dir.path().to_str().unwrap().into(),
+            store_dir: iroha_config::base::WithOrigin::inline(
+                temp_dir.path().to_str().unwrap().into(),
+            ),
             debug_output_new_blocks: false,
         })
         .unwrap()
