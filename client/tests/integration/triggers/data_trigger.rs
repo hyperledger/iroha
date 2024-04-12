@@ -1,5 +1,6 @@
 use eyre::Result;
 use iroha_client::{client, data_model::prelude::*};
+use iroha_data_model::{trigger::Trigger, Level};
 use test_network::*;
 
 #[test]
@@ -104,6 +105,43 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
 
     let new_value = get_asset_value(&test_client, asset_id)?;
     assert_eq!(new_value, prev_value + 1);
+
+    Ok(())
+}
+
+#[test]
+fn trigger_call_chain() -> Result<()> {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_245).start_with_runtime();
+    wait_for_genesis_committed(&[test_client.clone()], 0);
+
+    let account_id: AccountId = "alice@wonderland".parse()?;
+    let asset_definition_id = "rose#wonderland".parse()?;
+    let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+
+    let prev_value = get_asset_value(&test_client, asset_id.clone())?;
+
+    let instruction = MintExpr::new(1u32, asset_id.clone());
+    // Trigger produce 5 events
+    let register_trigger = RegisterExpr::new(Trigger::new(
+        "mint_rose".parse()?,
+        Action::new(
+            [instruction.clone()],
+            Repeats::Indefinitely,
+            account_id.clone(),
+            DataEventFilter::AcceptAll.into(),
+        ),
+    ));
+    // Trigger is triggered on it's own registration
+    test_client.submit_blocking(register_trigger)?;
+
+    // Every block x5 events would be produced
+    for _ in 0..3 {
+        test_client.submit_blocking(LogExpr::new(Level::INFO, "just message".to_string()))?;
+    }
+
+    let new_value = get_asset_value(&test_client, asset_id)?;
+    // 1 + 5 + 25 + 125 = 156
+    assert_eq!(new_value, prev_value + 156);
 
     Ok(())
 }
