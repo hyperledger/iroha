@@ -182,11 +182,11 @@ json_include(){
 MATRIX="$(echo "$MATRIX" | sed '/^$/d' | sort -uV)"
 echo "$MATRIX"
 
-echo "$MATRIX"                                                          | json_include >matrix
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'                         | json_include >matrix_ubuntu
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/'            | json_include >matrix_ubuntu_release
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/'              | json_include >matrix_ubuntu_debug
-echo "$MATRIX" | awk -v IGNORECASE=1 '/macos/'                          | json_include >matrix_macos
-echo "$MATRIX" | awk -v IGNORECASE=1 '/windows/'                        | json_include >matrix_windows
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/ && /gcc-9/' | json_include >matrix_dockerimage_release
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/   && /gcc-9/' | json_include >matrix_dockerimage_debug
+echo "$MATRIX"                                                           | json_include >matrix
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'                          | json_include >matrix_ubuntu
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/'             | json_include >matrix_ubuntu_release
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/'               | json_include >matrix_ubuntu_debug
+echo "$MATRIX" | awk -v IGNORECASE=1 '/macos/'                           | json_include >matrix_macos
+echo "$MATRIX" | awk -v IGNORECASE=1 '/windows/'                         | json_include >matrix_windows
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/ && /gcc-10/' | json_include >matrix_dockerimage_release
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/   && /gcc-10/' | json_include >matrix_dockerimage_debug
