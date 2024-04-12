@@ -19,7 +19,7 @@ impl Registrable for NewRole {
 pub mod isi {
     use eyre::Result;
     use iroha_data_model::{
-        isi::error::{InvalidParameterError, RepetitionError},
+        isi::error::{InstructionExecutionError, InvalidParameterError, RepetitionError},
         prelude::*,
         query::error::FindError,
         Level,
@@ -86,6 +86,12 @@ pub mod isi {
                 .name
                 .validate_len(state_transaction.config.ident_length_limits)
                 .map_err(Error::from)?;
+
+            if domain_id == *iroha_genesis::GENESIS_DOMAIN_ID {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    "Not allowed to register `genesis` domain".to_owned(),
+                ));
+            }
 
             let world = &mut state_transaction.world;
             if world.domains.get(&domain_id).is_some() {

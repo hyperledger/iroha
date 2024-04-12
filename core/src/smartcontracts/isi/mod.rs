@@ -256,6 +256,7 @@ mod tests {
 
     use iroha_crypto::KeyPair;
     use iroha_data_model::metadata::MetadataValueBox;
+    use iroha_genesis::GENESIS_ACCOUNT_ID;
     use tokio::test;
 
     use super::*;
@@ -263,6 +264,7 @@ mod tests {
         kura::Kura,
         query::store::LiveQueryStore,
         state::{State, World},
+        tx::AcceptTransactionFail,
         PeersIds,
     };
 
@@ -472,6 +474,53 @@ mod tests {
             Error::InvariantViolation(_)
         ));
 
+        Ok(())
+    }
+
+    #[test]
+    async fn not_allowed_to_register_genesis_domain_or_account() -> Result<()> {
+        let kura = Kura::blank_kura_for_testing();
+        let state = state_with_test_domains(&kura)?;
+        let mut staet_block = state.block();
+        let mut state_transaction = staet_block.transaction();
+        let account_id = AccountId::from_str("alice@wonderland")?;
+        assert!(matches!(
+            Register::domain(Domain::new(DomainId::from_str("genesis")?))
+                .execute(&account_id, &mut state_transaction)
+                .expect_err("Error expected"),
+            Error::InvariantViolation(_)
+        ));
+        let (public_key, _) = KeyPair::random().into_parts();
+        let register_account = Register::account(Account::new(
+            AccountId::from_str("genesis@genesis")?,
+            public_key,
+        ));
+        assert!(matches!(
+            register_account
+                .execute(&account_id, &mut state_transaction)
+                .expect_err("Error expected"),
+            Error::InvariantViolation(_)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    async fn transaction_signed_by_genesis_account_should_be_rejected() -> Result<()> {
+        let chain_id = ChainId::from("0");
+        let kura = Kura::blank_kura_for_testing();
+        let state = state_with_test_domains(&kura)?;
+        let state_block = state.block();
+
+        let instructions: [InstructionBox; 0] = [];
+        let genesis_keys = KeyPair::random();
+        let tx = TransactionBuilder::new(chain_id.clone(), GENESIS_ACCOUNT_ID.clone())
+            .with_instructions(instructions)
+            .sign(&genesis_keys);
+        let tx_limits = &state_block.transaction_executor().transaction_limits;
+        assert!(matches!(
+            AcceptedTransaction::accept(tx, &chain_id, tx_limits),
+            Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature)
+        ));
         Ok(())
     }
 }
