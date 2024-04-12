@@ -555,6 +555,7 @@ impl Iroha<ToriiNotStarted> {
 
 impl<T> Iroha<T> {
     #[allow(missing_docs)]
+    #[cfg(debug_assertions)]
     pub fn freeze_status(&self) -> &Arc<AtomicBool> {
         &self.main_state.freeze_status
     }
