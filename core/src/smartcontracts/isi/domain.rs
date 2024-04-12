@@ -35,7 +35,7 @@ impl Registrable for iroha_data_model::domain::NewDomain {
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
-    use iroha_data_model::isi::error::RepetitionError;
+    use iroha_data_model::isi::error::{InstructionExecutionError, RepetitionError};
     use iroha_logger::prelude::*;
 
     use super::*;
@@ -54,6 +54,12 @@ pub mod isi {
                 .name
                 .validate_len(state_transaction.config.ident_length_limits)
                 .map_err(Error::from)?;
+
+            if account_id == *iroha_genesis::GENESIS_ACCOUNT_ID {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    "Not allowed to register `genesis@genesis` account".to_owned(),
+                ));
+            }
 
             let domain = state_transaction.world.domain_mut(&account_id.domain_id)?;
             if domain.accounts.get(&account_id).is_some() {
