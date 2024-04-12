@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn create_param_tree() {
-        let params = vec![
+        let params = [
             ParameterId::from(["a", "b", "c"]),
             ParameterId::from(["a", "b", "d"]),
             ParameterId::from(["b", "a", "c"]),
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn unknown_params_in_empty_are_empty() {
-        let known = vec![
+        let known = [
             ParameterId::from(["foo", "bar"]),
             ParameterId::from(["foo", "baz"]),
         ];
@@ -308,7 +308,7 @@ mod tests {
 
         let unknown = find_unknown_parameters(&table, &<_>::default());
 
-        let expected = vec![ParameterId::from(["foo"]), ParameterId::from(["baz"])]
+        let expected = [ParameterId::from(["foo"]), ParameterId::from(["baz"])]
             .into_iter()
             .collect();
         assert_eq!(unknown, expected);
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn unknown_depth_2() {
-        let known = vec![
+        let known = [
             ParameterId::from(["foo", "bar"]),
             ParameterId::from(["foo", "baz"]),
         ];
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn nested_into_known_are_ok() {
-        let known = vec![ParameterId::from(["a"])];
+        let known = [ParameterId::from(["a"])];
         let known = ParamTree::from(known.iter());
         let table = toml! {
             [a]

@@ -1,3 +1,5 @@
+#![allow(clippy::needless_raw_string_hashes)]
+
 use std::{backtrace::Backtrace, panic::Location, path::PathBuf};
 
 use error_stack::{fmt::ColorMode, Context, Report};
@@ -223,7 +225,7 @@ pub mod sample_config {
                 }
             };
 
-            let final_value = from_env.or(from_sources.map(|x| x.into_value()));
+            let final_value = from_env.or_else(|| from_sources.map(WithOrigin::into_value));
             Ok(Self(final_value))
         }
     }

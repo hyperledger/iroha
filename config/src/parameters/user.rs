@@ -118,6 +118,7 @@ impl Root {
     ///
     /// # Errors
     /// If any invalidity found.
+    #[allow(clippy::too_many_lines)]
     pub fn parse(self, cli: CliContext) -> Result<actual::Root, ParseError> {
         let mut emitter = Emitter::new();
 

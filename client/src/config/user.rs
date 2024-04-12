@@ -29,7 +29,7 @@ pub struct Root {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub(crate) enum ParseError {
+pub enum ParseError {
     #[error("Transaction status timeout should be smaller than its time-to-live")]
     TxTimeoutVsTtl,
     #[error("Failed to construct a key pair from provided public and private keys")]
@@ -80,8 +80,8 @@ impl Root {
         let account_id = AccountId::new(domain_id, public_key.clone());
         let key_pair = KeyPair::new(public_key, private_key)
             .change_context(ParseError::KeyPair)
-            .attach_printable_lazy(|| format!("got public key from: {}", public_key_origin))
-            .attach_printable_lazy(|| format!("got private key from: {}", private_key_origin))
+            .attach_printable_lazy(|| format!("got public key from: {public_key_origin}"))
+            .attach_printable_lazy(|| format!("got private key from: {private_key_origin}"))
             .ok_or_emit(&mut emitter);
 
         emitter.into_result()?;

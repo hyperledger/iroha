@@ -76,12 +76,12 @@ impl Root {
     /// A shorthand to read config from a single provided TOML.
     /// For testing purposes.
     pub fn from_toml_source(src: TomlSource, cli: CliContext) -> Result<Self, LoadError> {
-        Ok(ConfigReader::new()
+        ConfigReader::new()
             .with_toml_source(src)
             .read_and_complete::<user::Root>()
             .change_context(LoadError)?
             .parse(cli)
-            .change_context(LoadError)?)
+            .change_context(LoadError)
     }
 }
 
