@@ -156,7 +156,7 @@ type WasmSmartContractMap = IndexMap<HashOf<WasmSmartContract>, (WasmSmartContra
 /// Specialized structure that maps event filters to Triggers.
 // NB: `Set` has custom `Serialize` and `DeserializeSeed` implementations
 // which need to be manually updated when changing the struct
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Set {
     /// Triggers using [`DataEventFilter`]
     data_triggers: IndexMap<TriggerId, LoadedAction<DataEventFilter>>,
@@ -315,20 +315,6 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
         }
 
         deserializer.deserialize_map(SetVisitor { loader: self })
-    }
-}
-
-impl Clone for Set {
-    fn clone(&self) -> Self {
-        Self {
-            data_triggers: self.data_triggers.clone(),
-            pipeline_triggers: self.pipeline_triggers.clone(),
-            time_triggers: self.time_triggers.clone(),
-            by_call_triggers: self.by_call_triggers.clone(),
-            ids: self.ids.clone(),
-            original_contracts: self.original_contracts.clone(),
-            matched_ids: Vec::default(),
-        }
     }
 }
 
