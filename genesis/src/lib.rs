@@ -2,10 +2,9 @@
 //! `RawGenesisBlock` and the `RawGenesisBlockBuilder` structures.
 use std::{
     fmt::Debug,
-    fs,
-    fs::File,
+    fs::{self, File},
     io::BufReader,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, time::Duration,
 };
 
 use eyre::{eyre, Report, Result, WrapErr};
@@ -45,18 +44,18 @@ impl GenesisTransaction {
 }
 
 /// [`SignedGenesisConfig`] contains data that is used for loading signed genesis from config.
-#[derive(Debug, Clone, Deserialize, Serialize, Decode, Encode)]
-pub struct SignedGenesisConfig {
+#[derive(Debug, Clone, Decode, Encode)]
+pub struct GenesisSignature {
     chain_id: ChainId,
-    creation_time_ms: u64,
+    creation_time_ms: Duration,
     signatures: SignaturesOf<TransactionPayload>,
 }
 
-impl SignedGenesisConfig {
+impl GenesisSignature {
     /// Create [`SignedGenesisConfig`] from it's components
     pub fn new(
         chain_id: ChainId,
-        creation_time_ms: u64,
+        creation_time_ms: Duration,
         signatures: SignaturesOf<TransactionPayload>,
     ) -> Self {
         Self {
@@ -64,27 +63,6 @@ impl SignedGenesisConfig {
             creation_time_ms,
             signatures,
         }
-    }
-
-    /// Checks that [`SignedGenesisConfig`] corresponds to [`RawGenesisBlock`] and produces [`GenesisNetwork`] if it does.
-    /// # Errors
-    /// Fails if [`RawGenesisBlock`] does not correspond to [`SignedGenesisConfig`] and it was unable to verify it's integrity
-    pub fn validate(self, genesis_block: RawGenesisBlock) -> Result<GenesisNetwork> {
-        let payload = TransactionPayload {
-            chain_id: self.chain_id,
-            creation_time_ms: self.creation_time_ms,
-            authority: GENESIS_ACCOUNT_ID.clone(),
-            instructions: Executable::Instructions(genesis_block.unify().isi),
-            time_to_live_ms: None,
-            nonce: None,
-            metadata: UnlimitedMetadata::new(),
-        };
-
-        let tmp = SignedTransaction::try_from((self.signatures, payload))
-            .map_err(|_| eyre!("Failed to"))?;
-        Ok(GenesisNetwork {
-            transactions: Vec::from([GenesisTransaction(tmp)]),
-        })
     }
 
     /// Serialize self to hex string
@@ -130,6 +108,43 @@ impl GenesisNetwork {
             .collect();
 
         GenesisNetwork { transactions }
+    }
+
+    /// Construct `GenesisSignature` from config
+    /// # Errors
+    /// Fails if the
+    pub fn new_genesis_signature(
+        raw_block: RawGenesisBlock,
+        chain_id: &ChainId,
+        genesis_key_pair: &KeyPair,
+    ) -> GenesisSignature {
+        let genesis_tx = GenesisTransaction::new_unified(raw_block, chain_id, genesis_key_pair).0;
+        GenesisSignature::new(
+            genesis_tx.chain_id().clone(),
+            genesis_tx.creation_time(),
+            genesis_tx.signatures().clone(),
+        )
+    }
+
+    /// Checks that [`SignedGenesisConfig`] corresponds to [`RawGenesisBlock`] and produces [`GenesisNetwork`] if it does.
+    /// # Errors
+    /// Fails if [`RawGenesisBlock`] does not correspond to [`SignedGenesisConfig`] and it was unable to verify it's integrity
+    pub fn try_parse(genesis_block: RawGenesisBlock, signature: GenesisSignature) -> Result<GenesisNetwork> {
+        let payload = TransactionPayload {
+            chain_id: signature.chain_id,
+            creation_time_ms: signature.creation_time_ms.as_millis().try_into()?,
+            authority: GENESIS_ACCOUNT_ID.clone(),
+            instructions: Executable::Instructions(genesis_block.unify().isi),
+            time_to_live_ms: None,
+            nonce: None,
+            metadata: UnlimitedMetadata::new(),
+        };
+
+        let tmp = SignedTransaction::try_from((signature.signatures, payload))
+            .map_err(|_| eyre!("Failed to"))?;
+        Ok(GenesisNetwork {
+            transactions: Vec::from([GenesisTransaction(tmp)]),
+        })
     }
 
     /// Transform into genesis transactions

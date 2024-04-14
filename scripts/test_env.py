@@ -103,7 +103,7 @@ class _Peer:
 
         logging.info(f"Peer {self.name} generating key pair...")
 
-        command = [self.out_dir / "kagami", "crypto", "generate-key-pair", "-j"]
+        command = [self.out_dir / "kagami", "crypto", "-j"]
         if args.peer_name_as_seed:
             command.extend(["-s", self.name])
         kagami_keypair = subprocess.run(command, capture_output=True)
@@ -147,7 +147,7 @@ class _Peer:
                                           Please provide them in the `{target}` directory")
                 sys.exit(1)
 
-            sign_command = [self.out_dir / "kagami", "crypto", "sign-transaction", "--chain-id", CHAIN_ID,
+            sign_command = [self.out_dir / "kagami", "genesis", "sign", "--chain-id", CHAIN_ID,
                             "--genesis-file", self.peer_dir / "./genesis.json",
                             "-a", self.private_key["algorithm"],
                             "--private-key-string", self.private_key["payload"],
@@ -162,7 +162,7 @@ class _Peer:
             config["genesis"] = {
                 "public_key": self.public_key,
                 "file": "./genesis.json",
-                "encoded_config": kagami_genesis.stdout.decode("utf-8").rstrip('\n'),
+                "signature": kagami_genesis.stdout.decode("utf-8").rstrip('\n'),
             }
 
         with open(self.config_path, "wb") as f:

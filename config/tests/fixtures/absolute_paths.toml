@@ -12,4 +12,4 @@ out_file = "/telemetry/file.json"
 [genesis]
 file = "/oh/my/genesis.json"
 public_key = "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB"
-encoded_config = "ABCDEFG"
+signature = "ABCDEFG"

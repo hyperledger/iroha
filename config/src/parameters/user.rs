@@ -179,8 +179,8 @@ impl Root {
                 emitter.emit(eyre!("\
                     The network consists from this one peer only (no `sumeragi.trusted_peers` provided). \
                     Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
-                    Either provide the genesis by setting `--submit-genesis` argument, `genesis.encoded_config`, \
-                    `genesis.file` and `genesis.public_key` configuration parameters, or increase the number of trusted peers in \
+                    Either provide the genesis by setting `--submit-genesis` argument, `genesis.file`, \
+                    `genesis.public_key` and `genesis.signature` configuration parameters, or increase the number of trusted peers in \
                     the network using `sumeragi.trusted_peers` configuration parameter.\
                 "));
             }
@@ -348,19 +348,19 @@ pub(crate) fn private_key_from_env<E: Error>(
 pub struct Genesis {
     pub public_key: PublicKey,
     pub file: Option<PathBuf>,
-    pub encoded_config: Option<String>,
+    pub signature: Option<String>,
 }
 
 impl Genesis {
     fn parse(self, cli: CliContext) -> Result<actual::Genesis, GenesisConfigError> {
-        match (self.file, self.encoded_config, cli.submit_genesis) {
+        match (self.file, self.signature, cli.submit_genesis) {
             (None, None, false) => Ok(actual::Genesis::Partial {
                 public_key: self.public_key,
             }),
-            (Some(file), Some(encoded_config), true) => Ok(actual::Genesis::Full {
+            (Some(file), Some(signature), true) => Ok(actual::Genesis::Full {
                 public_key: self.public_key,
                 file,
-                encoded_config,
+                signature,
             }),
             (_, _, false) => Err(GenesisConfigError::GenesisWithoutSubmit),
             (_, _, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
@@ -370,9 +370,9 @@ impl Genesis {
 
 #[derive(Copy, Clone, Debug, displaydoc::Display, thiserror::Error)]
 pub enum GenesisConfigError {
-    ///  `genesis.encoded_config`, `genesis.file` and `genesis.public_key` are presented, but `--submit-genesis` was not set
+    ///  `genesis.file`, `genesis.public_key` and `genesis.signature` are presented, but `--submit-genesis` was not set
     GenesisWithoutSubmit,
-    ///  `--submit-genesis` was set, but `genesis.encoded_config`, `genesis.file` and `genesis.public_key` are not presented
+    ///  `--submit-genesis` was set, but `genesis.file`, `genesis.public_key` and `genesis.signature` are not presented
     SubmitWithoutGenesis,
 }
 

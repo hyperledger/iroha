@@ -45,12 +45,12 @@ trait RunArgs<T: Write> {
 #[command(name = "kagami", version, author)]
 enum Args {
     /// Generate cryptographic key pairs using the given algorithm and either private key or seed
-    /// Or sign genesis block offline
-    #[clap(subcommand)]
     Crypto(crypto::Args),
     /// Generate the schema used for code generation in Iroha SDKs
     Schema(schema::Args),
     /// Generate the genesis block that is used in tests
+    /// or sign genesis block offline
+    #[clap(subcommand)]
     Genesis(genesis::Args),
 }
 
@@ -59,12 +59,12 @@ impl<T: Write> RunArgs<T> for Args {
         use Args::*;
 
         match self {
-            Crypto(args) => match args {
-                crypto::Args::SignTransaction(args) => args.run(writer),
-                crypto::Args::GenerateKeyPair(args) => args.run(writer),
-            },
+            Crypto(args) => args.run(writer),
             Schema(args) => args.run(writer),
-            Genesis(args) => args.run(writer),
+            Genesis(args) => match args {
+                genesis::Args::Generate(args) => args.run(writer),
+                genesis::Args::Sign(args) => args.run(writer),
+            },
         }
     }
 }

@@ -209,8 +209,8 @@ fn minimal_with_genesis_but_no_cli_arg_fails() -> Result<()> {
         .expect_err("should fail since `--submit-genesis=false`");
 
     let expected = expect_test::expect![[r#"
-        `genesis.encoded_config`, `genesis.file` and `genesis.public_key` are presented, but `--submit-genesis` was not set
-        The network consists from this one peer only (no `sumeragi.trusted_peers` provided). Since `--submit-genesis` is not set, there is no way to receive the genesis block. Either provide the genesis by setting `--submit-genesis` argument, `genesis.encoded_config`, `genesis.file` and `genesis.public_key` configuration parameters, or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter."#]];
+        `genesis.file`, `genesis.public_key` and `genesis.signature` are presented, but `--submit-genesis` was not set
+        The network consists from this one peer only (no `sumeragi.trusted_peers` provided). Since `--submit-genesis` is not set, there is no way to receive the genesis block. Either provide the genesis by setting `--submit-genesis` argument, `genesis.file`, `genesis.public_key` and `genesis.signature` configuration parameters, or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter."#]];
     expected.assert_eq(&format!("{error:#}"));
 
     Ok(())
@@ -227,7 +227,7 @@ fn minimal_without_genesis_but_with_submit_fails() -> Result<()> {
             "should fail since there is no genesis in the config, but `--submit-genesis=true`",
         );
 
-    let expected = expect_test::expect!["`--submit-genesis` was set, but `genesis.encoded_config`, `genesis.file` and `genesis.public_key` are not presented"];
+    let expected = expect_test::expect!["`--submit-genesis` was set, but `genesis.file`, `genesis.public_key` and `genesis.signature` are not presented"];
     expected.assert_eq(&format!("{error:#}"));
 
     Ok(())
@@ -287,7 +287,7 @@ fn inconsistent_genesis_config() -> Result<()> {
         .expect_err("should fail with bad genesis config");
 
     let expected = expect_test::expect![[r#"
-        The network consists from this one peer only (no `sumeragi.trusted_peers` provided). Since `--submit-genesis` is not set, there is no way to receive the genesis block. Either provide the genesis by setting `--submit-genesis` argument, `genesis.encoded_config`, `genesis.file` and `genesis.public_key` configuration parameters, or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter."#]];
+        The network consists from this one peer only (no `sumeragi.trusted_peers` provided). Since `--submit-genesis` is not set, there is no way to receive the genesis block. Either provide the genesis by setting `--submit-genesis` argument, `genesis.file`, `genesis.public_key` and `genesis.signature` configuration parameters, or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter."#]];
     expected.assert_eq(&format!("{error:#}"));
 
     Ok(())
@@ -333,7 +333,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                     ),
                 ),
                 file: None,
-                encoded_config: None,
+                signature: None,
             },
             kura: KuraPartial {
                 init_mode: Some(

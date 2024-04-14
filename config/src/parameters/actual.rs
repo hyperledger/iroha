@@ -105,7 +105,7 @@ pub enum Genesis {
         /// Path to the genesis file
         file: PathBuf,
         /// Hex-encoded genesis config
-        encoded_config: String,
+        signature: String,
     },
 }
 

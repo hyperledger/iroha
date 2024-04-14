@@ -12,7 +12,7 @@ use iroha_client::{
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use iroha_version::Encode;
-use test_network::{get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
+use test_network::{get_chain_id, get_genesis_encoded_signature, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
 
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
@@ -25,6 +25,7 @@ fn query_requests(criterion: &mut Criterion) {
         &unique_vec![peer.id.clone()],
         Some(chain_id.clone()),
         Some(get_key_pair()),
+        get_genesis_encoded_signature(),
     );
 
     let rt = Runtime::test();
@@ -130,6 +131,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         &unique_vec![peer.id.clone()],
         Some(chain_id.clone()),
         Some(get_key_pair()),
+        get_genesis_encoded_signature(),
     );
     let genesis = GenesisNetwork::new(
         RawGenesisBlockBuilder::default()

@@ -7,7 +7,7 @@ private_key = { algorithm = "ed25519", payload = "8f4c15e5d664da3f13778801d23d4e
 [genesis]
 file = "genesis.json"
 public_key = "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB"
-encoded_config = "ABCDEFG"
+signature = "ABCDEFG"
 
 [network]
 address = "localhost:3840"

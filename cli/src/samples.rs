@@ -63,6 +63,7 @@ pub fn get_user_config(
     peers: &UniqueVec<PeerId>,
     chain_id: Option<ChainId>,
     key_pair: Option<KeyPair>,
+    encoded_signature: String,
 ) -> UserConfig {
     let chain_id = chain_id.unwrap_or_else(|| ChainId::from("0"));
 
@@ -91,6 +92,7 @@ pub fn get_user_config(
         .set(HumanDuration(Duration::from_millis(500)));
     config.genesis.public_key.set(public_key);
     config.genesis.file.set("./genesis.json".into());
+    config.genesis.signature.set(encoded_signature);
     // There is no need in persistency in tests
     // If required to should be set explicitly not to overlap with other existing tests
     config.snapshot.mode.set(SnapshotMode::Disabled);
@@ -109,8 +111,9 @@ pub fn get_config(
     trusted_peers: &UniqueVec<PeerId>,
     chain_id: Option<ChainId>,
     key_pair: Option<KeyPair>,
+    encoded_signature: String,
 ) -> Config {
-    get_user_config(trusted_peers, chain_id, key_pair)
+    get_user_config(trusted_peers, chain_id, key_pair, encoded_signature)
         .unwrap_partial()
         .expect("config should build as all required fields were provided")
         .parse(CliContext {
