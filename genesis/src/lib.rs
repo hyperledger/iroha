@@ -4,7 +4,8 @@ use std::{
     fmt::Debug,
     fs::{self, File},
     io::BufReader,
-    path::{Path, PathBuf}, time::Duration,
+    path::{Path, PathBuf},
+    time::Duration,
 };
 
 use eyre::{eyre, Report, Result, WrapErr};
@@ -28,7 +29,7 @@ pub static GENESIS_ACCOUNT_ID: Lazy<AccountId> =
     Lazy::new(|| AccountId::new(GENESIS_DOMAIN_ID.clone(), "genesis".parse().expect("Valid")));
 
 /// Genesis transaction
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
+#[derive(Debug, Clone, Decode, Encode)]
 #[repr(transparent)]
 pub struct GenesisTransaction(pub SignedTransaction);
 
@@ -81,11 +82,10 @@ impl GenesisSignature {
 }
 
 /// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
+#[derive(Debug, Clone, Decode, Encode)]
 pub struct GenesisNetwork {
-    /// Transactions from [`RawGenesisBlock`]. This vector is guaranteed to be non-empty,
-    /// unless [`GenesisNetwork::transactions_mut()`] is used.
-    transactions: Vec<GenesisTransaction>,
+    /// Transactions from [`RawGenesisBlock`] packed into a single one.
+    transaction: GenesisTransaction,
 }
 
 impl GenesisNetwork {
@@ -95,19 +95,12 @@ impl GenesisNetwork {
         chain_id: &ChainId,
         genesis_key_pair: &KeyPair,
     ) -> GenesisNetwork {
-        // The first instruction should be Executor upgrade.
-        // This makes it possible to grant permissions to users in genesis.
-        let transactions_iter = std::iter::once(GenesisTransactionBuilder {
-            isi: vec![Upgrade::new(raw_block.executor).into()],
-        })
-        .chain(raw_block.transactions);
+        let unified_transaction =
+            GenesisTransaction::new_unified(raw_block, chain_id, genesis_key_pair);
 
-        let transactions = transactions_iter
-            .map(|raw_transaction| raw_transaction.sign(chain_id.clone(), genesis_key_pair))
-            .map(GenesisTransaction)
-            .collect();
-
-        GenesisNetwork { transactions }
+        GenesisNetwork {
+            transaction: unified_transaction,
+        }
     }
 
     /// Construct `GenesisSignature` from config
@@ -129,7 +122,10 @@ impl GenesisNetwork {
     /// Checks that [`SignedGenesisConfig`] corresponds to [`RawGenesisBlock`] and produces [`GenesisNetwork`] if it does.
     /// # Errors
     /// Fails if [`RawGenesisBlock`] does not correspond to [`SignedGenesisConfig`] and it was unable to verify it's integrity
-    pub fn try_parse(genesis_block: RawGenesisBlock, signature: GenesisSignature) -> Result<GenesisNetwork> {
+    pub fn try_parse(
+        genesis_block: RawGenesisBlock,
+        signature: GenesisSignature,
+    ) -> Result<GenesisNetwork> {
         let payload = TransactionPayload {
             chain_id: signature.chain_id,
             creation_time_ms: signature.creation_time_ms.as_millis().try_into()?,
@@ -140,16 +136,17 @@ impl GenesisNetwork {
             metadata: UnlimitedMetadata::new(),
         };
 
-        let tmp = SignedTransaction::try_from((signature.signatures, payload))
-            .map_err(|_| eyre!("Failed to"))?;
+        let genesis_signed_transaction =
+            SignedTransaction::try_from((signature.signatures, payload))
+                .map_err(|e| eyre!("{}", e))?;
         Ok(GenesisNetwork {
-            transactions: Vec::from([GenesisTransaction(tmp)]),
+            transaction: GenesisTransaction(genesis_signed_transaction),
         })
     }
 
     /// Transform into genesis transactions
-    pub fn into_transactions(self) -> Vec<GenesisTransaction> {
-        self.transactions
+    pub fn into_transaction(self) -> GenesisTransaction {
+        self.transaction
     }
 }
 
@@ -174,6 +171,7 @@ impl RawGenesisBlock {
     }
 
     fn unify(self) -> GenesisTransactionBuilder {
+        // Putting executor upgrade as a first instruction
         let mut unified_tx = GenesisTransactionBuilder {
             isi: vec![Upgrade::new(self.executor).into()],
         };

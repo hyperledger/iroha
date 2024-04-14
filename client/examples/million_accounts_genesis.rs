@@ -8,7 +8,8 @@ use iroha_data_model::isi::InstructionBox;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use test_network::{
-    get_chain_id, get_genesis_encoded_signature, get_key_pair, wait_for_genesis_committed, Peer as TestPeer, PeerBuilder, TestRuntime
+    get_chain_id, get_genesis_encoded_signature, get_key_pair, wait_for_genesis_committed,
+    Peer as TestPeer, PeerBuilder, TestRuntime,
 };
 use tokio::runtime::Runtime;
 

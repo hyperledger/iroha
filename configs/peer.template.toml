@@ -16,6 +16,7 @@
 [genesis]
 # file =
 # public_key =
+# signature = 
 
 [network]
 # address =

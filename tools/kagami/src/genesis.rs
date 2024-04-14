@@ -22,15 +22,12 @@ use iroha_data_model::{
     ChainId,
 };
 use iroha_genesis::{
-    executor_state, GenesisNetwork, RawGenesisBlock,
-    RawGenesisBlockBuilder, RawGenesisBlockFile,
+    executor_state, GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder, RawGenesisBlockFile,
 };
 use parity_scale_codec::Encode;
 use serde_json::json;
 
 use super::*;
-
-const ED25519_PREFIX: &str = "ed0120";
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Args {
@@ -367,23 +364,13 @@ impl SignArgs {
                     )
                 })
             }
-            KeyStorage::FromCLI(hex) => {
-                if hex.starts_with(ED25519_PREFIX) {
-                    PublicKey::from_str(hex).wrap_err_with(|| {
-                        eyre!(
-                            "Failed to deserialize public key from hex for algorithm `{}`",
-                            self.algorithm
-                        )
-                    })
-                } else {
-                    PublicKey::from_hex(self.algorithm.0, hex).wrap_err_with(|| {
-                        eyre!(
-                            "Failed to parse public key from hex for algorithm `{}`",
-                            self.algorithm
-                        )
-                    })
-                }
-            }
+            KeyStorage::FromCLI(multihash_string) => PublicKey::from_str(multihash_string)
+                .wrap_err_with(|| {
+                    eyre!(
+                        "Failed to deserialize public key from multihash string for algorithm `{}`",
+                        self.algorithm
+                    )
+                }),
         }
     }
 }
@@ -441,11 +428,15 @@ impl<T: Write> RunArgs<T> for SignArgs {
 
 #[cfg(test)]
 mod tests {
+    use iroha_genesis::{GenesisSignature, GenesisTransaction};
+
+    use super::*;
+    use crate::crypto::AlgorithmArg;
+
     const GENESIS_JSON_PATH: &str = "../../configs/swarm/genesis.json";
-    const GEN_KEYPAIR_JSON_PATH: &str = "test_keypair_path_for_crypt0_genesis_kagami.json";
 
     fn genesis_signing_works() -> Result<bool> {
-        let keypair_config = Args {
+        let keypair_config = crypto::Args {
             algorithm: AlgorithmArg::default(),
             private_key: None,
             seed: None,
@@ -457,16 +448,17 @@ mod tests {
         keypair_config.run(&mut keypair_json)?;
         let keypair: KeyPair = serde_json::from_slice(keypair_json.buffer())?;
 
-        fs::write(GEN_KEYPAIR_JSON_PATH, keypair_json.buffer())?;
+        let tmp_keypair_json_file = tempfile::NamedTempFile::new()?;
+        fs::write(tmp_keypair_json_file.path(), keypair_json.buffer())?;
 
         let chain_id = ChainId::from("0123456");
-        let crypto_genesis_config = SignGenesisArgs {
+        let crypto_genesis_config = SignArgs {
             algorithm: AlgorithmArg::default(),
             private_key_string: None,
             private_key_file: None,
             public_key_string: None,
             public_key_file: None,
-            keypair_file: Some(PathBuf::from_str(GEN_KEYPAIR_JSON_PATH)?),
+            keypair_file: Some(PathBuf::from(tmp_keypair_json_file.path())),
             chain_id: chain_id.clone(),
             genesis_file: PathBuf::from_str(GENESIS_JSON_PATH)?,
             out_file: None,
@@ -489,7 +481,7 @@ mod tests {
             GenesisTransaction::new_unified(raw_genesis.clone(), &chain_id, &keypair);
         let signed_genesis_from_config =
             &GenesisNetwork::try_parse(raw_genesis, decoded_signed_genesis_config)?
-                .into_transactions()[0];
+                .into_transaction();
 
         let cmp = |a: &SignedTransaction, b: &SignedTransaction| {
             a.metadata() == b.metadata()
@@ -509,7 +501,6 @@ mod tests {
     #[test]
     fn test_genesis_signing_works() {
         let result = genesis_signing_works();
-        let _ = fs::remove_file(GEN_KEYPAIR_JSON_PATH);
         assert!(result.is_ok_and(|result| result));
     }
 }

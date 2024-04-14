@@ -320,9 +320,18 @@ impl SignedTransaction {
     }
 }
 
+/// Different errors as a result of payload and signatures verification for `SignedTransaction`
+#[derive(Copy, Clone, Debug, displaydoc::Display)]
+pub enum SignedTransactionParsingError {
+    ///  There are no instructions in the transaction
+    EmptyTransaction,
+    ///  The signature does not match with the given payload
+    InvalidSignature,
+}
+
 #[cfg(feature = "transparent_api")]
 impl TryFrom<(SignaturesOf<TransactionPayload>, TransactionPayload)> for SignedTransaction {
-    type Error = &'static str;
+    type Error = SignedTransactionParsingError;
 
     fn try_from(
         value: (SignaturesOf<TransactionPayload>, TransactionPayload),
@@ -330,12 +339,12 @@ impl TryFrom<(SignaturesOf<TransactionPayload>, TransactionPayload)> for SignedT
         let (signatures, payload) = value;
         if let Executable::Instructions(isi) = &payload.instructions {
             if isi.is_empty() {
-                return Err("Transaction is empty");
+                return Err(SignedTransactionParsingError::EmptyTransaction);
             }
         }
         signatures
             .verify(&payload)
-            .map_err(|_| "Transaction contains invalid signatures")?;
+            .map_err(|_| SignedTransactionParsingError::InvalidSignature)?;
         Ok(SignedTransaction::V1(SignedTransactionV1 {
             signatures,
             payload,

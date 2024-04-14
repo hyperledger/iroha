@@ -11,26 +11,26 @@ use super::*;
 pub struct Args {
     /// An algorithm to use for the key-pair generation
     #[clap(default_value_t, long, short)]
-    algorithm: AlgorithmArg,
+    pub algorithm: AlgorithmArg,
     /// A private key to generate the key-pair from
     ///
     /// `--private-key` specifies the payload of the private key, while `--algorithm`
     /// specifies its algorithm.
     #[clap(long, short, group = "generate_from")]
-    private_key: Option<String>,
+    pub private_key: Option<String>,
     /// The Unicode `seed` string to generate the key-pair from
     #[clap(long, short, group = "generate_from")]
-    seed: Option<String>,
+    pub seed: Option<String>,
     /// Output the key-pair in JSON format
     #[clap(long, short, group = "format")]
-    json: bool,
+    pub json: bool,
     /// Output the key-pair without additional text
     #[clap(long, short, group = "format")]
-    compact: bool,
+    pub compact: bool,
 }
 
 #[derive(Clone, Debug, Default, derive_more::Display)]
-pub(crate) struct AlgorithmArg(pub(crate) Algorithm);
+pub struct AlgorithmArg(pub Algorithm);
 
 impl ValueEnum for AlgorithmArg {
     fn value_variants<'a>() -> &'a [Self] {
