@@ -23,6 +23,7 @@ This is the list of maintainers, including their email addresses for direct comm
 | Timur Guskov          | [@gv-timur](https://github.com/gv-timur)             | guskov@soramitsu.co.jp          | Development: Java                                                             |
 | Dmitriy Creed         | [@Cre-eD](https://github.com/Cre-eD)                 | creed@soramitsu.co.jp           | DevSecOps                                                                     |
 | Vasily Zyabkin        | [@BAStos525](https://github.com/BAStos525)           | zyabkin@soramitsu.co.jp         | DevOps                                                                        |
+| Insaf Safin           | [@safinsaf](https://github.com/safinsaf)             | safin@soramitsu.co.jp           | DevOps                                                                        |
 | Ekaterina Mekhnetsova | [@outoftardis](https://github.com/outoftardis)       | mekhnetsova@soramitsu.co.jp     | Documentation                                                                 |
 | William Richter       | [@WRRicht3r](https://github.com/WRRicht3r)           | richter@soramitsu.co.jp         | Documentation                                                                 |
 | Nurzhan Sakén         | [@nxsaken](https://github.com/nxsaken)               | sakenov@soramitsu.co.jp         | Community manager, documentation, development: Rust, Kotlin                   |
