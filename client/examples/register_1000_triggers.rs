@@ -1,4 +1,5 @@
 //! Example of registering multiple triggers
+//! Used to show iroha's trigger deduplication capabilities
 use std::str::FromStr;
 
 use iroha::samples::{construct_executor, get_config};
