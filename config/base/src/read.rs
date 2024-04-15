@@ -343,7 +343,7 @@ impl<'a> ConfigValueFetcher<'a> {
                             log::trace!("parameter `{id}`: found in `{}`", source.path().display());
                         } else {
                             log::trace!(
-                                "parameter `{id}`: overwriting by value found in `{}`",
+                                "parameter `{id}`: found in `{}`, overwriting previous value",
                                 source.path().display()
                             );
                         }
@@ -362,7 +362,7 @@ impl<'a> ConfigValueFetcher<'a> {
                 }
             } else {
                 log::trace!(
-                    "parameter `{id}`: haven't found in `{}`",
+                    "parameter `{id}`: not found in `{}`",
                     source.path().display()
                 )
             }
@@ -391,7 +391,7 @@ impl<'a> ConfigValueFetcher<'a> {
         if let Some(raw_str) = self.reader.env.read_env(var) {
             match T::from_env_str(raw_str) {
                 Ok(value) => {
-                    log::trace!("read & parse `{var}` environment variable");
+                    log::trace!("parameterless environment read: `{var}` found and parsed");
                     Ok(Some(WithOrigin::new(
                         value,
                         ParameterOrigin::env(var.to_string(), None),
@@ -404,7 +404,7 @@ impl<'a> ConfigValueFetcher<'a> {
                 }
             }
         } else {
-            log::trace!("haven't found `{var}` environment variable");
+            log::trace!("parameterless environment read: `{var}` not found");
             Ok(None)
         }
     }
@@ -507,23 +507,27 @@ where
                 }
                 (Ok(value), false) => {
                     if self.value.is_none() {
-                        log::trace!(
-                            "parameter `{}`: read value from environment variable `{var}`",
-                            self.id,
-                        );
+                        log::trace!("parameter `{}`: found `{var}` env var", self.id,);
                     } else {
                         log::trace!(
-                                "parameter `{}`: overwriting by value found in `{var}` environment variable",
-                                self.id,
-                            );
+                            "parameter `{}`: found `{var}` env var, overwriting previous value",
+                            self.id,
+                        );
                     }
                     self.value = Some(WithOrigin::new(
                         value,
                         ParameterOrigin::env(var.to_string(), Some(self.id.clone())),
                     ));
                 }
-                (Ok(_ignore), true) => {}
+                (Ok(_ignore), true) => {
+                    log::trace!(
+                        "parameter `{}`: found `{var}` env var, ignore due to previous errors",
+                        self.id,
+                    );
+                }
             }
+        } else {
+            log::trace!("parameter `{}`: not found `{var}` env var", self.id)
         }
 
         self
@@ -549,7 +553,7 @@ impl<T> ParameterReader<T> {
         match (self.errored, self.value) {
             (false, Some(value)) => ParameterWithValue::with_value(self.reader, value),
             (false, None) => {
-                log::trace!("parameter `{}` was not set, using default value", self.id);
+                log::trace!("parameter `{}`: fallback to default value", self.id);
                 ParameterWithValue::with_value(
                     self.reader,
                     WithOrigin::new(fun(), ParameterOrigin::default(self.id.clone())),
