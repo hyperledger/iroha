@@ -25,3 +25,4 @@ iroha_macro_utils = { workspace = true }
 trybuild = { workspace = true }
 iroha_config_base = { workspace = true }
 expect-test = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

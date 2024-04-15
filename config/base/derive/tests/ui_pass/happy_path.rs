@@ -1,5 +1,7 @@
+use std::convert::Infallible;
+
 use iroha_config_base::{
-    read::{ConfigValueFetcher, CustomValueRead, CustomValueReadError},
+    read::{CustomEnvFetcher, CustomEnvRead, CustomEnvReadError},
     ReadConfig, WithOrigin,
 };
 
@@ -19,8 +21,8 @@ struct Test {
     nested: Nested,
     #[config(env = "TEST", default = "true")]
     with_default_expr_and_env: bool,
-    #[config(custom)]
-    custom: Custom,
+    #[config(env_custom)]
+    foo_bar: FooBar,
 }
 
 #[derive(ReadConfig)]
@@ -28,10 +30,15 @@ struct Nested {
     foo: Option<u32>,
 }
 
-struct Custom;
+#[derive(serde::Deserialize)]
+struct FooBar(u32);
 
-impl CustomValueRead for Custom {
-    fn read(_fetcher: &mut ConfigValueFetcher) -> Result<Self, CustomValueReadError> {
+impl CustomEnvRead for FooBar {
+    type Context = Infallible;
+
+    fn read(
+        _fetcher: &mut CustomEnvFetcher,
+    ) -> Result<Option<Self>, CustomEnvReadError<Self::Context>> {
         todo!();
     }
 }

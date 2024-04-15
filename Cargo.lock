@@ -2924,6 +2924,7 @@ dependencies = [
  "manyhow",
  "proc-macro2",
  "quote",
+ "serde",
  "syn 2.0.63",
  "trybuild",
 ]

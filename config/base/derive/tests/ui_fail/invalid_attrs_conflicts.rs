@@ -2,7 +2,7 @@ use iroha_config_base::ReadConfig;
 
 #[derive(ReadConfig)]
 struct Test {
-    #[config(nested, custom)]
+    #[config(nested, env_custom)]
     foo: u64,
 }
 
@@ -14,7 +14,7 @@ struct Test2 {
 
 #[derive(ReadConfig)]
 struct Test3 {
-    #[config(custom, default)]
+    #[config(env = "FASDF", env_custom)]
     foo: u64,
 }
 

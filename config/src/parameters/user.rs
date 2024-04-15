@@ -20,7 +20,7 @@ use std::{
 use error_stack::{Result, ResultExt};
 use iroha_config_base::{
     env::FromEnvStr,
-    read::{ConfigValueFetcher, CustomValueRead, CustomValueReadError},
+    read::{CustomEnvFetcher, CustomEnvRead, CustomEnvReadError},
     util::{Emitter, EmitterResultExt, HumanBytes, HumanDuration},
     ReadConfig, WithOrigin,
 };
@@ -36,7 +36,10 @@ use url::Url;
 use crate::{
     kura::InitMode as KuraInitMode,
     logger::Format as LoggerFormat,
-    parameters::{actual, defaults, util::ReadPrivateKey},
+    parameters::{
+        actual, defaults,
+        util::{read_private_key_from_env, PrivateKeyFromEnvError},
+    },
     snapshot::Mode as SnapshotMode,
 };
 
@@ -60,8 +63,8 @@ pub struct Root {
     chain_id: ChainIdInConfig,
     #[config(env = "PUBLIC_KEY")]
     public_key: WithOrigin<iroha_crypto::PublicKey>,
-    #[config(custom)]
-    private_key: RootPrivateKey,
+    #[config(env_custom)]
+    private_key: WithOrigin<RootPrivateKey>,
     #[config(nested)]
     genesis: Genesis,
     #[config(nested)]
@@ -85,15 +88,16 @@ pub struct Root {
     chain_wide: ChainWide,
 }
 
-#[derive(Debug)]
-struct RootPrivateKey(WithOrigin<PrivateKey>);
+#[derive(Debug, Deserialize)]
+struct RootPrivateKey(PrivateKey);
 
-impl CustomValueRead for RootPrivateKey {
+impl CustomEnvRead for RootPrivateKey {
+    type Context = PrivateKeyFromEnvError;
+
     fn read<'a>(
-        fetcher: &'a mut ConfigValueFetcher<'a>,
-    ) -> std::result::Result<Self, CustomValueReadError> {
-        let key = ReadPrivateKey::new(fetcher, "PRIVATE_KEY_", ["private_key"]).required()?;
-        Ok(Self(key))
+        fetcher: &'a mut CustomEnvFetcher<'a>,
+    ) -> std::result::Result<Option<Self>, CustomEnvReadError<Self::Context>> {
+        read_private_key_from_env(fetcher, "PRIVATE_KEY_").map(|x| x.map(RootPrivateKey))
     }
 }
 
@@ -114,9 +118,9 @@ impl Root {
     pub fn parse(self) -> Result<actual::Root, ParseError> {
         let mut emitter = Emitter::new();
 
-        let (private_key, private_key_origin) = self.private_key.0.into_tuple();
+        let (private_key, private_key_origin) = self.private_key.into_tuple();
         let (public_key, public_key_origin) = self.public_key.into_tuple();
-        let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
+        let key_pair = iroha_crypto::KeyPair::new(public_key, private_key.0)
             .change_context(ParseError::BadKeyPair)
             .attach_printable_lazy(|| format!("got public key from: {public_key_origin}"))
             .attach_printable_lazy(|| format!("got private key from: {private_key_origin}"))
@@ -180,35 +184,35 @@ impl Root {
 pub struct Genesis {
     #[config(env = "GENESIS_PUBLIC_KEY")]
     pub public_key: WithOrigin<iroha_crypto::PublicKey>,
-    #[config(custom)]
-    pub private_key: GenesisPrivateKey,
+    #[config(env_custom)]
+    pub private_key: Option<WithOrigin<GenesisPrivateKey>>,
     #[config(env = "GENESIS_FILE")]
     pub file: Option<WithOrigin<PathBuf>>,
 }
 
-#[derive(Debug)]
-pub struct GenesisPrivateKey(Option<WithOrigin<PrivateKey>>);
+#[derive(Debug, Deserialize)]
+pub struct GenesisPrivateKey(PrivateKey);
 
-impl CustomValueRead for GenesisPrivateKey {
+impl CustomEnvRead for GenesisPrivateKey {
+    type Context = PrivateKeyFromEnvError;
+
     fn read<'a>(
-        fetcher: &'a mut ConfigValueFetcher<'a>,
-    ) -> std::result::Result<Self, CustomValueReadError> {
-        let key = ReadPrivateKey::new(fetcher, "GENESIS_PRIVATE_KEY_", ["genesis", "private_key"])
-            .optional()?;
-        Ok(Self(key))
+        fetcher: &'a mut CustomEnvFetcher<'a>,
+    ) -> std::result::Result<Option<Self>, CustomEnvReadError<Self::Context>> {
+        read_private_key_from_env(fetcher, "GENESIS_PRIVATE_KEY_").map(|x| x.map(GenesisPrivateKey))
     }
 }
 
 impl Genesis {
     fn parse(self) -> Result<actual::Genesis, GenesisConfigError> {
-        match (self.private_key.0, self.file) {
+        match (self.private_key, self.file) {
             (None, None) => Ok(actual::Genesis::Partial {
                 public_key: self.public_key.into_value(),
             }),
             (Some(private_key), Some(file)) => {
                 let (private_key, priv_key_origin) = private_key.into_tuple();
                 let (public_key, pub_key_origin) = self.public_key.into_tuple();
-                let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
+                let key_pair = iroha_crypto::KeyPair::new(public_key, private_key.0)
                     .change_context(GenesisConfigError::KeyPair)
                     .attach_printable_lazy(|| format!("got public key from: {pub_key_origin}"))
                     .attach_printable_lazy(|| format!("got private key from: {priv_key_origin}"))?;

@@ -93,8 +93,8 @@ fn minimal_config_snapshot() {
                 address: WithOrigin {
                     value: 127.0.0.1:1337,
                     origin: File {
-                        path: "tests/fixtures/base.toml",
                         id: ParameterId(network.address),
+                        path: "tests/fixtures/base.toml",
                     },
                 },
                 idle_timeout: 60s,
@@ -110,8 +110,8 @@ fn minimal_config_snapshot() {
                 address: WithOrigin {
                     value: 127.0.0.1:8080,
                     origin: File {
-                        path: "tests/fixtures/base.toml",
                         id: ParameterId(torii.address),
+                        path: "tests/fixtures/base.toml",
                     },
                 },
                 max_content_len_bytes: 16777216,

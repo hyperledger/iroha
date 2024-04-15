@@ -52,32 +52,26 @@ where
     }
 }
 
-// TODO: handle anon env
 #[derive(Debug, Clone)]
 pub enum ParameterOrigin {
-    File {
-        path: PathBuf,
-        id: ParameterId,
-    },
-    Env {
-        var: String,
-        id: Option<ParameterId>,
-    },
-    Default {
-        id: ParameterId,
-    },
-    Custom {
-        message: String,
-    },
+    File { id: ParameterId, path: PathBuf },
+    Env { id: ParameterId, var: String },
+    EnvUnknown { id: ParameterId },
+    Default { id: ParameterId },
+    Custom { message: String },
 }
 
 impl ParameterOrigin {
     pub fn file(id: ParameterId, path: PathBuf) -> Self {
-        Self::File { path, id }
+        Self::File { id, path }
     }
 
-    pub fn env(var: String, id: Option<ParameterId>) -> Self {
+    pub fn env(id: ParameterId, var: String) -> Self {
         Self::Env { var, id }
+    }
+
+    pub fn env_unknown(id: ParameterId) -> Self {
+        Self::EnvUnknown { id }
     }
 
     pub fn default(id: ParameterId) -> Self {
@@ -96,11 +90,11 @@ impl Display for ParameterOrigin {
             Self::File { path, id } => {
                 write!(f, "parameter `{id}` from file `{}`", path.display())
             }
-            Self::Env { var, id: Some(id) } => {
+            Self::Env { var, id } => {
                 write!(f, "parameter `{id}` from environment variable `{var}`")
             }
-            Self::Env { var, id: None } => {
-                write!(f, "from environment variable `{var}`")
+            Self::EnvUnknown { id } => {
+                write!(f, "parameter `{id}` from environment variables")
             }
             Self::Custom { message } => write!(f, "{message}"),
         }

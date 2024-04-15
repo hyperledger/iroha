@@ -13,10 +13,10 @@ pub mod sample_config {
     use error_stack::ResultExt;
     use iroha_config_base::{
         read::{
-            ConfigReader, ConfigValueFetcher, CustomValueRead, CustomValueReadError,
-            Error as ReadError, OkAfterFinish, ReadConfig,
+            ConfigReader, CustomEnvFetcher, CustomEnvRead, CustomEnvReadError, OkAfterFinish,
+            ReadConfig,
         },
-        ParameterId, WithOrigin,
+        WithOrigin,
     };
     use serde::Deserialize;
 
@@ -27,7 +27,7 @@ pub mod sample_config {
         pub kura: Kura,
         pub telemetry: Telemetry,
         pub logger: Logger,
-        pub private_key: RootPrivateKey,
+        pub private_key: Option<RootPrivateKey>,
     }
 
     impl ReadConfig for Root {
@@ -49,7 +49,11 @@ pub mod sample_config {
 
             let (logger, reader) = reader.read_nested("logger");
 
-            let (private_key, reader) = reader.read_custom();
+            let (private_key, reader) = reader
+                .read_parameter(["private_key"])
+                .env_custom()
+                .value_optional()
+                .finish();
 
             (
                 OkAfterFinish::value_fn(move || Self {
@@ -189,44 +193,34 @@ pub mod sample_config {
         Error,
     }
 
-    #[derive(Debug)]
-    pub struct RootPrivateKey(pub Option<PrivateKey>);
+    #[derive(Debug, Deserialize)]
+    pub struct RootPrivateKey(pub PrivateKey);
 
-    impl CustomValueRead for RootPrivateKey {
-        fn read(reader: &mut ConfigValueFetcher) -> Result<Self, CustomValueReadError> {
-            #[derive(thiserror::Error, Debug)]
-            enum LocalError {
-                #[error("inconsistent environment variables for private key: _ALGORITHM and _PAYLOAD should be set together.")]
-                InconsistentEnvs,
+    #[derive(thiserror::Error, Debug, Copy, Clone)]
+    pub enum PrivateKeyFromEnvError {
+        #[error("inconsistent environment variables for private key: _ALGORITHM and _PAYLOAD should be set together.")]
+        InconsistentEnvs,
+    }
+
+    impl CustomEnvRead for RootPrivateKey {
+        type Context = PrivateKeyFromEnvError;
+
+        fn read<'a>(
+            fetcher: &'a mut CustomEnvFetcher<'a>,
+        ) -> Result<Option<Self>, CustomEnvReadError<Self::Context>> {
+            let algorithm = fetcher.fetch_env::<String>("PRIVATE_KEY_ALGORITHM")?;
+            let payload = fetcher.fetch_env::<Hex>("PRIVATE_KEY_PAYLOAD")?;
+            match (algorithm, payload) {
+                (Some(algorithm), Some(payload)) => Ok(Some(Self(PrivateKey {
+                    algorithm: algorithm.into_value(),
+                    payload: payload.into_value(),
+                }))),
+                (None, None) => Ok(None),
+                (Some(_), None) => Err(PrivateKeyFromEnvError::InconsistentEnvs)
+                    .attach_printable("missing payload")?,
+                (None, Some(_)) => Err(PrivateKeyFromEnvError::InconsistentEnvs)
+                    .attach_printable("missing algorithm")?,
             }
-
-            let from_sources =
-                reader.fetch_parameter::<PrivateKey>(&ParameterId::from(["private_key"]))?;
-
-            let from_env = {
-                let algorithm = reader.fetch_env::<String>("PRIVATE_KEY_ALGORITHM")?;
-                let payload = reader.fetch_env::<Hex>("PRIVATE_KEY_PAYLOAD")?;
-                match (algorithm, payload) {
-                    (Some(algorithm), Some(payload)) => Some(PrivateKey {
-                        algorithm: algorithm.into_value(),
-                        payload: payload.into_value(),
-                    }),
-                    (None, None) => None,
-                    (Some(_), None) => Err(LocalError::InconsistentEnvs)
-                        .attach_printable("missing payload")
-                        .change_context(ReadError::custom(
-                            "Failed to read `private_key` from env",
-                        ))?,
-                    (None, Some(_)) => Err(LocalError::InconsistentEnvs)
-                        .attach_printable("missing algorithm")
-                        .change_context(ReadError::custom(
-                            "Failed to read `private_key` from env",
-                        ))?,
-                }
-            };
-
-            let final_value = from_env.or_else(|| from_sources.map(WithOrigin::into_value));
-            Ok(Self(final_value))
         }
     }
 
@@ -281,10 +275,14 @@ fn error_when_no_file() {
         .expect_err("the path doesn't exist");
 
     expect![[r#"
-            Failed to read configuration
-            ├╴config path: `/path/to/non/existing...`
-            │
-            ╰─▶ No such file or directory (os error 2)"#]]
+        Failed to read configuration
+        │
+        ├─▶ Unable to read TOML from file
+        │
+        ├─▶ Failed to read the TOML source file
+        │   ╰╴occurred while reading `/path/to/non/existing...`
+        │
+        ╰─▶ No such file or directory (os error 2)"#]]
     .assert_eq_report(&report);
 }
 
@@ -295,14 +293,13 @@ fn error_invalid_extends() {
         .expect_err("extends is invalid, should fail");
 
     expect![[r#"
-            Failed to read configuration
-            ├╴config path: `./tests/bad.invalid-extends.toml`
-            │
-            ├─▶ Invalid `extends` field
-            │
-            ╰─▶ data did not match any variant of untagged enum ExtendsPaths
-                ├╴expected: a single path ("./file.toml") or an array of paths (["a.toml", "b.toml", "c.toml"])
-                ╰╴actual: 1234"#]]
+        Failed to read configuration
+        │
+        ├─▶ Invalid `extends` field
+        │
+        ╰─▶ data did not match any variant of untagged enum ExtendsPaths
+            ├╴expected: a single path ("./file.toml") or an array of paths (["a.toml", "b.toml", "c.toml"])
+            ╰╴actual: 1234"#]]
         .assert_eq_report(&report);
 }
 
@@ -313,16 +310,20 @@ fn error_extends_depth_2_leads_to_nowhere() {
         .expect_err("extends is invalid, should fail");
 
     expect![[r#"
-            Failed to read configuration
-            ├╴config path: `./tests/bad.invalid-nested-extends.toml`
-            │
-            ├─▶ Failed to extend from another file
-            │   ╰╴extending from: `./tests/bad.invalid-nested-extends.base.toml`
-            │
-            ├─▶ Failed to extend from another file
-            │   ╰╴extending from: `./tests/non-existing.toml`
-            │
-            ╰─▶ No such file or directory (os error 2)"#]]
+        Failed to read configuration
+        │
+        ├─▶ Failed to extend from another file
+        │   ╰╴extending from: `./tests/bad.invalid-nested-extends.base.toml`
+        │
+        ├─▶ Failed to extend from another file
+        │   ╰╴extending from: `./tests/non-existing.toml`
+        │
+        ├─▶ Unable to read TOML from file
+        │
+        ├─▶ Failed to read the TOML source file
+        │   ╰╴occurred while reading `./tests/non-existing.toml`
+        │
+        ╰─▶ No such file or directory (os error 2)"#]]
     .assert_eq_report(&report);
 }
 
@@ -462,9 +463,7 @@ fn minimal_config_ok() {
             logger: Logger {
                 level: Info,
             },
-            private_key: RootPrivateKey(
-                None,
-            ),
+            private_key: None,
         }"#]]
     .assert_eq(&format!("{value:#?}"));
 }
@@ -502,8 +501,8 @@ fn full_config_ok() {
                 address: WithOrigin {
                     value: 127.0.0.2:1337,
                     origin: File {
-                        path: "./config.toml",
                         id: ParameterId(torii.address),
+                        path: "./config.toml",
                     },
                 },
                 max_content_len: 19,
@@ -512,8 +511,8 @@ fn full_config_ok() {
                 store_dir: WithOrigin {
                     value: "./my-storage",
                     origin: File {
-                        path: "./config.toml",
                         id: ParameterId(kura.store_dir),
+                        path: "./config.toml",
                     },
                 },
                 debug_force: true,
@@ -523,8 +522,8 @@ fn full_config_ok() {
                     WithOrigin {
                         value: "./telemetry.json",
                         origin: File {
-                            path: "./config.toml",
                             id: ParameterId(telemetry.dev.out_file),
+                            path: "./config.toml",
                         },
                     },
                 ),
@@ -532,9 +531,7 @@ fn full_config_ok() {
             logger: Logger {
                 level: Error,
             },
-            private_key: RootPrivateKey(
-                None,
-            ),
+            private_key: None,
         }"#]]
     .assert_eq(&format!("{value:#?}"));
 }
@@ -573,17 +570,20 @@ fn multiple_env_parsing_errors() {
         .expect_err("invalid config");
 
     expect![[r#"
-            Failed to read configuration
+        Failed to read configuration
+        │
+        ├─▶ Errors occurred while reading from environment variables
+        │
+        ╰┬▶ Failed to parse parameter `torii.address` from `API_ADDRESS`
+         │  │
+         │  ╰─▶ invalid socket address syntax
+         │      ╰╴input: API_ADDRESS=i am not socket addr
+         │
+         ╰▶ Failed to parse parameter `logger.level` from `LOG_LEVEL`
             │
-            ├─▶ Errors occurred while reading from environment variables
-            │
-            ╰┬▶ Error while reading `torii.address` parameter from `API_ADDRESS` environment variable
-             │  │
-             │  ╰─▶ invalid socket address syntax
-             │
-             ╰▶ Error while reading `logger.level` parameter from `LOG_LEVEL` environment variable
-                │
-                ╰─▶ Matching variant not found"#]].assert_eq_report(&report);
+            ╰─▶ Matching variant not found
+                ╰╴input: LOG_LEVEL=error or whatever"#]]
+    .assert_eq_report(&report);
 }
 
 #[test]
@@ -602,7 +602,7 @@ fn private_key_is_read_from_file() {
         .read_and_complete::<sample_config::Root>()
         .expect("config is valid");
 
-    let pk = value.private_key.0.unwrap();
+    let pk = value.private_key.unwrap().0;
     assert_eq!(pk.algorithm, "algalg");
     assert_eq!(pk.payload.0, vec![0x11u8, 0x22, 0x33]);
 }
@@ -618,9 +618,9 @@ fn private_key_is_read_from_env() {
         .read_and_complete::<sample_config::Root>()
         .expect("config is valid");
 
-    let pk = value.private_key.0.unwrap();
+    let pk = value.private_key.unwrap().0;
     assert_eq!(pk.algorithm, "algo");
-    assert_eq!(pk.payload.0, vec![0xdeu8, 0xad, 0xbe, 0xef]);
+    assert_eq!(pk.payload.0, vec![0xde_u8, 0xad, 0xbe, 0xef]);
 }
 
 #[test]
@@ -636,7 +636,9 @@ fn private_key_inconsistent_env() {
     expect![[r#"
         Failed to read configuration
         │
-        ├─▶ Failed to read `private_key` from env
+        ├─▶ Errors occurred while reading from environment variables
+        │
+        ├─▶ Failed to parse parameter `private_key`
         │
         ╰─▶ inconsistent environment variables for private key: _ALGORITHM and _PAYLOAD should be set together.
             ╰╴missing payload"#]].assert_eq_report(&report);
