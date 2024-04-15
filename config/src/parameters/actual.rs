@@ -3,7 +3,7 @@
 
 use std::{
     num::{NonZeroU32, NonZeroUsize},
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::Duration,
 };
 
@@ -21,7 +21,7 @@ pub use user::{DevTelemetry, Logger, Snapshot};
 
 use crate::{
     kura::InitMode,
-    parameters::{defaults, user, user::CliContext},
+    parameters::{defaults, user},
 };
 
 /// Parsed configuration root
@@ -45,43 +45,21 @@ pub struct Root {
     pub chain_wide: ChainWide,
 }
 
-/// TODO
+/// See [`Root::from_toml_source`]
 #[derive(thiserror::Error, Debug, Copy, Clone)]
-#[error("Unable to read or validate Iroha configuration")]
-pub struct LoadError;
+#[error("Failed to read configuration from a given TOML source")]
+pub struct FromTomlSourceError;
 
 impl Root {
-    /// Loads configuration from a file and environment variables
-    ///
-    /// # Errors
-    /// - unable to load config from a TOML file
-    /// - unable to parse config from envs
-    /// - the config is invalid
-    pub fn load<P: AsRef<Path>>(path: Option<P>, cli: CliContext) -> Result<Self, LoadError> {
-        let mut reader = ConfigReader::new();
-        if let Some(path) = path {
-            reader = reader
-                .read_toml_with_extends(path)
-                .change_context(LoadError)?;
-        }
-        let parsed = reader
-            .read_and_complete::<user::Root>()
-            .change_context(LoadError)?
-            .parse(cli)
-            .change_context(LoadError)?;
-
-        Ok(parsed)
-    }
-
     /// A shorthand to read config from a single provided TOML.
     /// For testing purposes.
-    pub fn from_toml_source(src: TomlSource, cli: CliContext) -> Result<Self, LoadError> {
+    pub fn from_toml_source(src: TomlSource) -> Result<Self, FromTomlSourceError> {
         ConfigReader::new()
             .with_toml_source(src)
             .read_and_complete::<user::Root>()
-            .change_context(LoadError)?
-            .parse(cli)
-            .change_context(LoadError)
+            .change_context(FromTomlSourceError)?
+            .parse()
+            .change_context(FromTomlSourceError)
     }
 }
 

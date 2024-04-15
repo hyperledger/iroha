@@ -148,26 +148,29 @@ impl Actor {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{path::PathBuf, time::Duration};
 
     use iroha_config::{
+        base::{read::ConfigReader, toml::TomlSource},
         client_api::{ConfigDTO, Logger as LoggerDTO},
-        parameters::actual::Root,
+        parameters::{actual::Root, user::Root as UserConfig},
     };
 
     use super::*;
 
     fn test_config() -> Root {
-        use iroha_config::parameters::user::CliContext;
-
-        Root::load(
-            // FIXME Specifying path here might break!
-            Some("../config/iroha_test_config.toml"),
-            CliContext {
-                submit_genesis: true,
-            },
-        )
-        .expect("test config should be valid, it is probably a bug")
+        // if it fails, it is probably a bug
+        ConfigReader::new()
+            .with_toml_source(
+                TomlSource::from_file(
+                    PathBuf::from(file!()).join("../../config/iroha_test_config.toml"),
+                )
+                .unwrap(),
+            )
+            .read_and_complete::<UserConfig>()
+            .unwrap()
+            .parse()
+            .unwrap()
     }
 
     #[tokio::test]

@@ -17,7 +17,7 @@ use std::{
     path::PathBuf,
 };
 
-use error_stack::{Report, Result, ResultExt};
+use error_stack::{Result, ResultExt};
 use iroha_config_base::{
     env::FromEnvStr,
     read::{ConfigValueFetcher, CustomValueRead, CustomValueReadError},
@@ -103,14 +103,6 @@ pub enum ParseError {
     BadKeyPair,
     #[error("Invalid genesis configuration")]
     BadGenesis,
-    #[error("Invalid directory path found")]
-    InvalidDirPath,
-    #[error("Dev telemetry output path should be a file path")]
-    BadTelemetryOutFile,
-    #[error("The network consists from this one peer only")]
-    LonePeer,
-    #[error("Torii and Network addresses are the same, but should be different")]
-    SameNetworkAndToriiAddrs,
 }
 
 impl Root {
@@ -119,7 +111,7 @@ impl Root {
     /// # Errors
     /// If any invalidity found.
     #[allow(clippy::too_many_lines)]
-    pub fn parse(self, cli: CliContext) -> Result<actual::Root, ParseError> {
+    pub fn parse(self) -> Result<actual::Root, ParseError> {
         let mut emitter = Emitter::new();
 
         let (private_key, private_key_origin) = self.private_key.0.into_tuple();
@@ -132,86 +124,20 @@ impl Root {
 
         let genesis = self
             .genesis
-            .parse(cli)
+            .parse()
             .change_context(ParseError::BadGenesis)
             .ok_or_emit(&mut emitter);
 
-        // TODO: enable this check after fix of https://github.com/hyperledger/iroha/issues/4383
-        // if let Some(actual::Genesis::Full { file, .. }) = &genesis {
-        //     if !file.is_file() {
-        //         emitter.emit(eyre!("unable to access `genesis.file`: {}", file.display()))
-        //     }
-        // }
-
         let kura = self.kura.parse();
-        validate_directory_path(&mut emitter, &kura.store_dir);
-
         let mut sumeragi = self.sumeragi.parse();
-
-        if !cli.submit_genesis && sumeragi.trusted_peers.len() == 0 {
-            emitter.emit(Report::new(ParseError::LonePeer).attach_printable("\
-                The network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
-                Since `--submit-genesis` is not set, there is no way to receive the genesis block.\n\
-                Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`,\n\
-                and `genesis.file` configuration parameters, or increase the number of trusted peers in\n\
-                the network using `sumeragi.trusted_peers` configuration parameter.\
-            "));
-        }
-
         let (network, block_sync, transaction_gossiper) = self.network.parse();
-
         let logger = self.logger;
         let queue = self.queue;
-
         let snapshot = self.snapshot;
-        match snapshot.mode {
-            SnapshotMode::Disabled => {}
-            _ => {
-                validate_directory_path(&mut emitter, &snapshot.store_dir);
-            }
-        }
-
         let dev_telemetry = self.dev_telemetry;
-        if let Some(path) = &dev_telemetry.out_file {
-            if path.value().parent().is_none() {
-                emitter.emit(
-                    Report::new(ParseError::BadTelemetryOutFile)
-                        .attach_printable(format!("actual path: \"{}\"", path.value().display()))
-                        .attach_printable(format!("comes from: {}", path.origin())),
-                );
-            }
-            if path.value().is_dir() {
-                emitter.emit(
-                    Report::new(ParseError::BadTelemetryOutFile)
-                        .attach_printable(format!(
-                            "the path is a directory: {}",
-                            path.value().display()
-                        ))
-                        .attach_printable(format!("comes from: {}", path.origin())),
-                );
-            }
-        }
-
         let (torii, live_query_store) = self.torii.parse();
-
         let telemetry = self.telemetry.map(actual::Telemetry::from);
-
         let chain_wide = self.chain_wide.parse();
-
-        if network.address.value() == torii.address.value() {
-            emitter.emit(
-                Report::new(ParseError::SameNetworkAndToriiAddrs)
-                    .attach_printable(format!(
-                        "Network (peer-to-peer) address comes from: {}",
-                        network.address.origin()
-                    ))
-                    .attach_printable(format!(
-                        "Torii (API Gateway) address comes from: {}",
-                        torii.address.origin()
-                    ))
-                    .attach_printable(format!("Value provided: `{}`", network.address.value())),
-            );
-        }
 
         emitter.into_result()?;
 
@@ -250,31 +176,6 @@ impl Root {
     }
 }
 
-fn validate_directory_path(emitter: &mut Emitter<ParseError>, path: &WithOrigin<PathBuf>) {
-    #[derive(Debug, thiserror::Error)]
-    #[error(
-        "expected path to be either non-existing or a directory, it points to an existing file: {path}"
-    )]
-    struct InvalidDirPathError {
-        path: PathBuf,
-    }
-
-    if path.value().is_file() {
-        emitter.emit(
-            Report::new(InvalidDirPathError {
-                path: path.value().clone(),
-            })
-            .change_context(ParseError::InvalidDirPath)
-            .attach_printable(format!("comes from: {}", path.origin())),
-        );
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct CliContext {
-    pub submit_genesis: bool,
-}
-
 #[derive(Debug, ReadConfig)]
 pub struct Genesis {
     #[config(env = "GENESIS_PUBLIC_KEY")]
@@ -299,12 +200,12 @@ impl CustomValueRead for GenesisPrivateKey {
 }
 
 impl Genesis {
-    fn parse(self, cli: CliContext) -> Result<actual::Genesis, GenesisConfigError> {
-        match (self.private_key.0, self.file, cli.submit_genesis) {
-            (None, None, false) => Ok(actual::Genesis::Partial {
+    fn parse(self) -> Result<actual::Genesis, GenesisConfigError> {
+        match (self.private_key.0, self.file) {
+            (None, None) => Ok(actual::Genesis::Partial {
                 public_key: self.public_key.into_value(),
             }),
-            (Some(private_key), Some(file), true) => {
+            (Some(private_key), Some(file)) => {
                 let (private_key, priv_key_origin) = private_key.into_tuple();
                 let (public_key, pub_key_origin) = self.public_key.into_tuple();
                 let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
@@ -313,13 +214,7 @@ impl Genesis {
                     .attach_printable_lazy(|| format!("got private key from: {priv_key_origin}"))?;
                 Ok(actual::Genesis::Full { key_pair, file })
             }
-            (Some(_), Some(_), false) => Err(GenesisConfigError::Inconsistent).attach_printable(
-                "`genesis.file` and `genesis.private_key` are set, but `--submit-genesis` is not",
-            )?,
-            (None, None, true) => Err(GenesisConfigError::Inconsistent).attach_printable(
-                "`--submit-genesis` is set, but `genesis.file` and `genesis.private_key` are not",
-            )?,
-            (key, _, _) => {
+            (key, _) => {
                 Err(GenesisConfigError::Inconsistent).attach_printable(if key.is_some() {
                     "`genesis.private_key` is set, but `genesis.file` is not"
                 } else {

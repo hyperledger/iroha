@@ -1,4 +1,4 @@
-#![allow(clippy::needless_raw_string_hashes)] // triggered by `expect_test` snapshots
+#![allow(clippy::needless_raw_string_hashes)] // triggered by `expect!` snapshots
 
 use std::{
     collections::{HashMap, HashSet},
@@ -7,12 +7,11 @@ use std::{
 };
 
 use assertables::{assert_contains, assert_contains_as_result};
+use error_stack::ResultExt;
 use expect_test::expect;
-use iroha_config::parameters::{
-    actual::Root as Config,
-    user::{CliContext, Root as UserConfig},
-};
+use iroha_config::parameters::{actual::Root as Config, user::Root as UserConfig};
 use iroha_config_base::{env::MockEnv, read::ConfigReader};
+use thiserror::Error;
 
 fn fixtures_dir() -> PathBuf {
     // CWD is the crate's root
@@ -41,14 +40,22 @@ fn test_env_from_file(p: impl AsRef<Path>) -> MockEnv {
     MockEnv::with_map(map)
 }
 
+#[derive(Error, Debug)]
+#[error("failed to load config from fixtures")]
+struct FixtureConfigLoadError;
+
 fn load_config_from_fixtures(
     path: impl AsRef<Path>,
-    submit_genesis: bool,
-) -> error_stack::Result<Config, iroha_config::parameters::actual::LoadError> {
-    Config::load(
-        Some(fixtures_dir().join(path)),
-        CliContext { submit_genesis },
-    )
+) -> error_stack::Result<Config, FixtureConfigLoadError> {
+    let config = ConfigReader::new()
+        .read_toml_with_extends(fixtures_dir().join(path))
+        .change_context(FixtureConfigLoadError)?
+        .read_and_complete::<UserConfig>()
+        .change_context(FixtureConfigLoadError)?
+        .parse()
+        .change_context(FixtureConfigLoadError)?;
+
+    Ok(config)
 }
 
 /// This test not only asserts that the minimal set of fields is enough;
@@ -56,7 +63,7 @@ fn load_config_from_fixtures(
 #[test]
 #[allow(clippy::too_many_lines)]
 fn minimal_config_snapshot() {
-    let config = load_config_from_fixtures("minimal_with_trusted_peers.toml", false)
+    let config = load_config_from_fixtures("minimal_with_trusted_peers.toml")
         .expect("config should be valid");
 
     expect![[r#"
@@ -217,37 +224,14 @@ fn minimal_config_snapshot() {
 
 #[test]
 fn config_with_genesis() {
-    let _config = load_config_from_fixtures("minimal_alone_with_genesis.toml", true)
-        .expect("should be valid");
-}
-
-#[test]
-fn minimal_with_genesis_but_no_cli_arg_fails() {
-    let error = load_config_from_fixtures("minimal_alone_with_genesis.toml", false)
-        .expect_err("should fail since `--submit-genesis=false`");
-
-    assert_contains!(
-        format!("{error:?}"),
-        "`genesis.file` and `genesis.private_key` are set, but `--submit-genesis` is not"
-    );
-}
-
-#[test]
-fn minimal_without_genesis_but_with_submit_fails() {
-    let error = load_config_from_fixtures("minimal_with_trusted_peers.toml", true).expect_err(
-        "should fail since there is no genesis in the config, but `--submit-genesis=true`",
-    );
-
-    assert_contains!(
-        format!("{error:?}"),
-        "`--submit-genesis` is set, but `genesis.file` and `genesis.private_key` are not"
-    )
+    let _config =
+        load_config_from_fixtures("minimal_alone_with_genesis.toml").expect("should be valid");
 }
 
 #[test]
 fn self_is_presented_in_trusted_peers() {
     let config =
-        load_config_from_fixtures("minimal_alone_with_genesis.toml", true).expect("valid config");
+        load_config_from_fixtures("minimal_alone_with_genesis.toml").expect("valid config");
 
     assert!(config
         .sumeragi
@@ -257,7 +241,7 @@ fn self_is_presented_in_trusted_peers() {
 
 #[test]
 fn missing_fields() {
-    let error = load_config_from_fixtures("bad.missing_fields.toml", false)
+    let error = load_config_from_fixtures("bad.missing_fields.toml")
         .expect_err("should fail without missing fields");
 
     assert_contains!(format!("{error:?}"), "missing parameter: `chain_id`");
@@ -267,7 +251,7 @@ fn missing_fields() {
 
 #[test]
 fn extra_fields() {
-    let error = load_config_from_fixtures("bad.extra_fields.toml", false)
+    let error = load_config_from_fixtures("bad.extra_fields.toml")
         .expect_err("should fail with extra field");
 
     assert_contains!(format!("{error:?}"), "Some parameters aren't recognised");
@@ -277,7 +261,7 @@ fn extra_fields() {
 
 #[test]
 fn inconsistent_genesis_config() {
-    let error = load_config_from_fixtures("inconsistent_genesis.toml", false)
+    let error = load_config_from_fixtures("inconsistent_genesis.toml")
         .expect_err("should fail with bad genesis config");
 
     assert_contains!(
@@ -311,24 +295,11 @@ fn config_from_file_and_env() {
         .expect("files are fine")
         .read_and_complete::<UserConfig>()
         .expect("should be fine")
-        .parse(CliContext {
-            submit_genesis: false,
-        })
+        .parse()
         .expect("should be fine, again");
 }
 
 #[test]
-fn fails_if_torii_address_and_p2p_address_are_equal() {
-    let error = load_config_from_fixtures("bad.torii_addr_eq_p2p_addr.toml", false)
-        .expect_err("should fail because of bad input");
-
-    assert_contains!(
-        format!("{error:?}"),
-        "Torii and Network addresses are the same, but should be different"
-    );
-}
-
-#[test]
 fn full_config_parses_fine() {
-    let _cfg = load_config_from_fixtures("full.toml", true).expect("should be fine");
+    let _cfg = load_config_from_fixtures("full.toml").expect("should be fine");
 }

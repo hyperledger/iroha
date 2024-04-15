@@ -787,7 +787,7 @@ impl TestRuntime for Runtime {
 
 impl TestConfig for Config {
     fn test() -> Self {
-        use iroha_config::{base::toml::TomlSource, parameters::user::CliContext};
+        use iroha_config::base::toml::TomlSource;
 
         let mut raw = iroha::samples::get_config_toml(
             <_>::default(),
@@ -801,13 +801,8 @@ impl TestConfig for Config {
             .write("public_key", public_key)
             .write("private_key", private_key);
 
-        Config::from_toml_source(
-            TomlSource::inline(raw),
-            CliContext {
-                submit_genesis: true,
-            },
-        )
-        .expect("Test Iroha config failed to build. This is likely to be a bug.")
+        Config::from_toml_source(TomlSource::inline(raw))
+            .expect("Test Iroha config failed to build. This is likely to be a bug.")
     }
 
     fn pipeline_time() -> Duration {

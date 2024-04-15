@@ -1,10 +1,7 @@
 //! This module contains the sample configurations used for testing and benchmarking throughout Iroha.
 use std::{collections::HashSet, path::Path, str::FromStr};
 
-use iroha_config::{
-    base::toml::TomlSource,
-    parameters::{actual::Root as Config, user::CliContext},
-};
+use iroha_config::{base::toml::TomlSource, parameters::actual::Root as Config};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{peer::PeerId, prelude::*, ChainId};
 use iroha_primitives::{
@@ -96,17 +93,12 @@ pub fn get_config(
     peer_key_pair: KeyPair,
     genesis_key_pair: KeyPair,
 ) -> Config {
-    Config::from_toml_source(
-        TomlSource::inline(get_config_toml(
-            trusted_peers,
-            chain_id,
-            peer_key_pair,
-            genesis_key_pair,
-        )),
-        CliContext {
-            submit_genesis: true,
-        },
-    )
+    Config::from_toml_source(TomlSource::inline(get_config_toml(
+        trusted_peers,
+        chain_id,
+        peer_key_pair,
+        genesis_key_pair,
+    )))
     .expect("should be a valid config")
 }
 

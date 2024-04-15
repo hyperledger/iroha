@@ -9,8 +9,11 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
-use error_stack::{IntoReportCompat, Result, ResultExt};
-use iroha_config::parameters::{actual::Root as Config, user::CliContext};
+use error_stack::{IntoReportCompat, Report, Result, ResultExt};
+use iroha_config::{
+    base::{read::ConfigReader, util::Emitter, WithOrigin},
+    parameters::{actual::Root as Config, user::Root as UserConfig},
+};
 #[cfg(feature = "telemetry")]
 use iroha_core::metrics::MetricsReporter;
 use iroha_core::{
@@ -32,7 +35,9 @@ use iroha_core::{
 use iroha_data_model::prelude::*;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{actor::LoggerHandle, InitConfig as LoggerInitConfig};
+use iroha_primitives::addr::SocketAddr;
 use iroha_torii::Torii;
+use thiserror::Error;
 use tokio::{
     signal,
     sync::{broadcast, mpsc, Notify},
@@ -589,14 +594,9 @@ fn genesis_domain(public_key: PublicKey) -> Domain {
 }
 
 /// Error of [`read_config_and_genesis`]
-#[derive(thiserror::Error, Debug, Copy, Clone)]
-#[allow(missing_docs)]
-pub enum ReadConfigError {
-    #[error("Failed to process configuration file")]
-    ConfigFile,
-    #[error("Failed to process genesis block file")]
-    GenesisFile,
-}
+#[derive(Error, Debug, Copy, Clone)]
+#[error("Configuration error")]
+pub struct ReadConfigError;
 
 /// Read the configuration and then a genesis block if specified.
 ///
@@ -609,19 +609,27 @@ pub fn read_config_and_genesis(
 ) -> Result<(Config, LoggerInitConfig, Option<GenesisNetwork>), ReadConfigError> {
     use iroha_config::parameters::actual::Genesis;
 
-    let config = Config::load(
-        args.config.as_ref(),
-        CliContext {
-            submit_genesis: args.submit_genesis,
-        },
-    )
-    .change_context(ReadConfigError::ConfigFile)?;
+    let mut reader = ConfigReader::new();
+
+    if let Some(path) = &args.config {
+        reader = reader
+            .read_toml_with_extends(path)
+            .change_context(ReadConfigError)?;
+    }
+
+    let config = reader
+        .read_and_complete::<UserConfig>()
+        .change_context(ReadConfigError)?
+        .parse()
+        .change_context(ReadConfigError)?;
+
+    validate_config(&config, args.submit_genesis).change_context(ReadConfigError)?;
 
     let genesis = if let Genesis::Full { key_pair, file } = &config.genesis {
         let raw_block = RawGenesisBlock::from_path(file.resolve_relative_path())
             .into_report()
             // https://github.com/hashintel/hash/issues/4295
-            .map_err(|report| report.change_context(ReadConfigError::GenesisFile))
+            .map_err(|report| report.change_context(ReadConfigError))
             .attach_printable_lazy(|| format!("file: {}", file.value().display()))
             .attach_printable_lazy(|| format!("got path from: {}", file.origin()))?;
 
@@ -635,6 +643,61 @@ pub fn read_config_and_genesis(
     };
 
     let logger_config = LoggerInitConfig::new(config.logger, args.terminal_colors);
+
+    Ok((config, logger_config, genesis))
+}
+
+#[derive(Error, Debug)]
+enum ConfigValidateError {
+    #[error("The network consists from this one peer only")]
+    LonePeer,
+    #[cfg(feature = "dev-telemetry")]
+    #[error("Dev telemetry output path should be a file path")]
+    BadTelemetryOutFile,
+    #[error("Torii and Network addresses are the same, but should be different")]
+    SameNetworkAndToriiAddrs,
+    #[error("Invalid directory path found")]
+    InvalidDirPath,
+    #[error("Cannot bind a listener to address `{addr}`")]
+    CannotBindAddress { addr: SocketAddr },
+}
+
+fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigValidateError> {
+    let mut emitter = Emitter::new();
+
+    validate_try_bind_address(&mut emitter, &config.network.address);
+    validate_try_bind_address(&mut emitter, &config.torii.address);
+    validate_directory_path(&mut emitter, &config.kura.store_dir);
+    // maybe validate only if snapshot mode is enabled
+    validate_directory_path(&mut emitter, &config.snapshot.store_dir);
+
+    if !submit_genesis && config.sumeragi.trusted_peers.is_empty() {
+        emitter.emit(Report::new(ConfigValidateError::LonePeer).attach_printable("\
+            The network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
+            Since `--submit-genesis` is not set, there is no way to receive the genesis block.\n\
+            Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`,\n\
+            and `genesis.file` configuration parameters, or increase the number of trusted peers in\n\
+            the network using `sumeragi.trusted_peers` configuration parameter.\
+        "));
+    }
+
+    if config.network.address.value() == config.torii.address.value() {
+        emitter.emit(
+            Report::new(ConfigValidateError::SameNetworkAndToriiAddrs)
+                .attach_printable(format!(
+                    "Network (peer-to-peer) address comes from: {}",
+                    config.network.address.origin()
+                ))
+                .attach_printable(format!(
+                    "Torii (API Gateway) address comes from: {}",
+                    config.torii.address.origin()
+                ))
+                .attach_printable(format!(
+                    "Value provided: `{}`",
+                    config.network.address.value()
+                )),
+        );
+    }
 
     #[cfg(not(feature = "telemetry"))]
     if config.telemetry.is_some() {
@@ -650,7 +713,67 @@ pub fn read_config_and_genesis(
         eprintln!("`dev_telemetry.out_file` config is specified, but ignored, because Iroha is compiled without `dev-telemetry` feature enabled");
     }
 
-    Ok((config, logger_config, genesis))
+    #[cfg(feature = "dev-telemetry")]
+    if let Some(path) = &config.dev_telemetry.out_file {
+        if path.value().parent().is_none() {
+            emitter.emit(
+                Report::new(ConfigValidateError::BadTelemetryOutFile)
+                    .attach_printable(format!("actual path: \"{}\"", path.value().display()))
+                    .attach_printable(format!("comes from: {}", path.origin())),
+            );
+        }
+        if path.value().is_dir() {
+            emitter.emit(
+                Report::new(ConfigValidateError::BadTelemetryOutFile)
+                    .attach_printable(format!(
+                        "the path is a directory: {}",
+                        path.value().display()
+                    ))
+                    .attach_printable(format!("comes from: {}", path.origin())),
+            );
+        }
+    }
+
+    emitter.into_result()?;
+
+    Ok(())
+}
+
+fn validate_directory_path(emitter: &mut Emitter<ConfigValidateError>, path: &WithOrigin<PathBuf>) {
+    #[derive(Debug, Error)]
+    #[error(
+    "expected path to be either non-existing or a directory, it points to an existing file: {path}"
+    )]
+    struct InvalidDirPathError {
+        path: PathBuf,
+    }
+
+    if path.value().is_file() {
+        emitter.emit(
+            Report::new(InvalidDirPathError {
+                path: path.value().clone(),
+            })
+            .change_context(ConfigValidateError::InvalidDirPath)
+            .attach_printable(format!("comes from: {}", path.origin())),
+        );
+    }
+}
+
+fn validate_try_bind_address(
+    emitter: &mut Emitter<ConfigValidateError>,
+    value: &WithOrigin<SocketAddr>,
+) {
+    use std::net::TcpListener;
+
+    if let Err(err) = TcpListener::bind(value.value()) {
+        emitter.emit(
+            Report::new(err)
+                .change_context(ConfigValidateError::CannotBindAddress {
+                    addr: value.value().clone(),
+                })
+                .attach_printable(value.origin()),
+        )
+    }
 }
 
 #[allow(missing_docs)]
