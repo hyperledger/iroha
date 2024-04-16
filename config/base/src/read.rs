@@ -289,7 +289,10 @@ impl ConfigReader {
 
         for source in &self.sources {
             if let Some(toml_value) = source.fetch(id) {
-                let result: core::result::Result<T, _> = toml_value.try_into();
+                // FIXME: Avoid cloning.
+                //        Currently cloning is performed for the sake of a better error message.
+                //        In future, it might be replaced with a rendered source TOML and span to it
+                let result: core::result::Result<T, _> = toml_value.clone().try_into();
                 match (result, errored) {
                     (Ok(v), false) => {
                         if value.is_none() {
@@ -310,7 +313,10 @@ impl ConfigReader {
                     (Err(error), _) => {
                         errored = true;
                         value = None;
-                        errors.push((error, source.clone()));
+                        errors.push((
+                            Report::new(error).attach_printable(format!("value: {toml_value}")),
+                            source.clone(),
+                        ));
                     }
                 }
             } else {
