@@ -59,7 +59,9 @@ mod test {
 
     use self::Ed25519Sha512;
     use super::*;
-    use crate::{signature::ed25519, Algorithm, KeyGenOption, PrivateKey, PublicKey};
+    use crate::{
+        secrecy::Secret, signature::ed25519, Algorithm, KeyGenOption, PrivateKey, PublicKey,
+    };
 
     const MESSAGE_1: &[u8] = b"This is a dummy message for use with tests";
     const SIGNATURE_1: &str = "451b5b8e8725321541954997781de51f4142e4a56bab68d24f6a6b92615de5eefb74134138315859a32c7cf5fe5a488bc545e2e08e5eedfd1fb10188d532d808";
@@ -86,7 +88,7 @@ mod test {
         let (p1, s1) = key_pair_factory();
 
         assert_eq!(
-            PrivateKey(Box::new(crate::PrivateKeyInner::Ed25519(s1))),
+            PrivateKey(Box::new(Secret::new(crate::PrivateKeyInner::Ed25519(s1)))),
             PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap()
         );
         assert_eq!(

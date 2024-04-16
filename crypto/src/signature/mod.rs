@@ -67,7 +67,8 @@ impl Signature {
 
     /// Creates new signature by signing payload via [`KeyPair::private_key`].
     pub fn new(key_pair: &KeyPair, payload: &[u8]) -> Self {
-        let signature = match key_pair.private_key.0.borrow() {
+        use crate::secrecy::ExposeSecret;
+        let signature = match key_pair.private_key.0.expose_secret() {
             crate::PrivateKeyInner::Ed25519(sk) => ed25519::Ed25519Sha512::sign(payload, sk),
             crate::PrivateKeyInner::Secp256k1(sk) => {
                 secp256k1::EcdsaSecp256k1Sha256::sign(payload, sk)

@@ -12,6 +12,7 @@ pub mod kex;
 mod merkle;
 #[cfg(not(feature = "ffi_import"))]
 mod multihash;
+mod secrecy;
 mod signature;
 #[cfg(not(feature = "ffi_import"))]
 mod varint;
@@ -25,7 +26,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::{borrow::Borrow, fmt, str::FromStr};
+use core::{fmt, str::FromStr};
 
 #[cfg(not(feature = "ffi_import"))]
 pub use blake2;
@@ -40,11 +41,13 @@ use iroha_schema::{Declaration, IntoSchema, MetaMap, Metadata, NamedFieldsMeta, 
 pub use merkle::MerkleTree;
 #[cfg(not(feature = "ffi_import"))]
 use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use w3f_bls::SerializableToBytes;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub use self::signature::*;
+use crate::secrecy::Secret;
 
 // Hiding constants is a bad idea. For one, you're forcing the user to
 // create temporaries, but also you're not actually hiding any
@@ -220,12 +223,13 @@ impl KeyPair {
 // TODO: consider whether to use or not a method `KeyPair::from_private_key` instead/in addition.
 impl From<PrivateKey> for KeyPair {
     fn from(value: PrivateKey) -> Self {
+        use crate::secrecy::ExposeSecret;
         macro_rules! with_algorithm_variations {
             ($(($alg:ident, $alg_mod:path)),+) => {
-                match *value.0 {
+                match value.0.expose_secret() {
                     $(
                         PrivateKeyInner::$alg(secret) => {
-                            <$alg_mod>::keypair(KeyGenOption::FromPrivateKey(secret)).into()
+                            <$alg_mod>::keypair(KeyGenOption::FromPrivateKey(secret.clone())).into()
                         }
                     )*
                 }
@@ -245,7 +249,7 @@ impl From<(ed25519::PublicKey, ed25519::PrivateKey)> for KeyPair {
     fn from((public_key, private_key): (ed25519::PublicKey, ed25519::PrivateKey)) -> Self {
         Self {
             public_key: PublicKey(Box::new(PublicKeyInner::Ed25519(public_key))),
-            private_key: PrivateKey(Box::new(PrivateKeyInner::Ed25519(private_key))),
+            private_key: PrivateKey(Box::new(Secret::new(PrivateKeyInner::Ed25519(private_key)))),
         }
     }
 }
@@ -254,7 +258,9 @@ impl From<(secp256k1::PublicKey, secp256k1::PrivateKey)> for KeyPair {
     fn from((public_key, private_key): (secp256k1::PublicKey, secp256k1::PrivateKey)) -> Self {
         Self {
             public_key: PublicKey(Box::new(PublicKeyInner::Secp256k1(public_key))),
-            private_key: PrivateKey(Box::new(PrivateKeyInner::Secp256k1(private_key))),
+            private_key: PrivateKey(Box::new(Secret::new(PrivateKeyInner::Secp256k1(
+                private_key,
+            )))),
         }
     }
 }
@@ -265,7 +271,9 @@ impl From<(bls::BlsNormalPublicKey, bls::BlsNormalPrivateKey)> for KeyPair {
     ) -> Self {
         Self {
             public_key: PublicKey(Box::new(PublicKeyInner::BlsNormal(public_key))),
-            private_key: PrivateKey(Box::new(PrivateKeyInner::BlsNormal(private_key))),
+            private_key: PrivateKey(Box::new(Secret::new(PrivateKeyInner::BlsNormal(
+                private_key,
+            )))),
         }
     }
 }
@@ -274,7 +282,9 @@ impl From<(bls::BlsSmallPublicKey, bls::BlsSmallPrivateKey)> for KeyPair {
     fn from((public_key, private_key): (bls::BlsSmallPublicKey, bls::BlsSmallPrivateKey)) -> Self {
         Self {
             public_key: PublicKey(Box::new(PublicKeyInner::BlsSmall(public_key))),
-            private_key: PrivateKey(Box::new(PrivateKeyInner::BlsSmall(private_key))),
+            private_key: PrivateKey(Box::new(Secret::new(PrivateKeyInner::BlsSmall(
+                private_key,
+            )))),
         }
     }
 }
@@ -554,15 +564,16 @@ impl From<PrivateKey> for PublicKey {
                 match $private_inner {
                     $(
                         PrivateKeyInner::$alg(secret) => {
-                            PublicKeyInner::$alg(<$alg_mod>::keypair(KeyGenOption::FromPrivateKey(secret)).0)
+                            PublicKeyInner::$alg(<$alg_mod>::keypair(KeyGenOption::FromPrivateKey(secret.clone())).0)
                         }
                     )*
                 }
             }
         }
 
+        use crate::secrecy::ExposeSecret;
         let inner = with_algorithm_variations!(
-            *private_key.0,
+            private_key.0.expose_secret(),
             (Ed25519, ed25519::Ed25519Sha512),
             (Secp256k1, secp256k1::EcdsaSecp256k1Sha256),
             (BlsNormal, bls::BlsNormal),
@@ -584,16 +595,17 @@ enum PrivateKeyInner {
 
 ffi::ffi_item! {
     /// Private Key used in signatures.
-    #[derive(Clone, Serialize, Deserialize)]
+    #[derive(Clone, Deserialize)]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
     #[allow(missing_docs, variant_size_differences)]
-    #[serde(into = "PrivateKeySerialized", try_from = "PrivateKeySerialized")]
-    pub struct PrivateKey(Box<PrivateKeyInner>);
+    #[serde(try_from = "PrivateKeySerialized")]
+    pub struct PrivateKey(Box<Secret<PrivateKeyInner>>);
 }
 
 impl PartialEq for PrivateKey {
     fn eq(&self, other: &Self) -> bool {
-        match (self.0.borrow(), other.0.borrow()) {
+        use crate::secrecy::ExposeSecret;
+        match (self.0.expose_secret(), other.0.expose_secret()) {
             (PrivateKeyInner::Ed25519(l), PrivateKeyInner::Ed25519(r)) => l == r,
             (PrivateKeyInner::Secp256k1(l), PrivateKeyInner::Secp256k1(r)) => l == r,
             (PrivateKeyInner::BlsNormal(l), PrivateKeyInner::BlsNormal(r)) => {
@@ -629,6 +641,7 @@ impl PrivateKey {
                 bls::BlsSmall::parse_private_key(payload).map(PrivateKeyInner::BlsSmall)
             }
         }
+        .map(Secret::new)
         .map(Box::new)
         .map(PrivateKey)
     }
@@ -648,7 +661,8 @@ impl PrivateKey {
 
     /// Get the digital signature algorithm of the private key
     pub fn algorithm(&self) -> Algorithm {
-        match self.0.borrow() {
+        use crate::secrecy::ExposeSecret;
+        match self.0.expose_secret() {
             PrivateKeyInner::Ed25519(_) => Algorithm::Ed25519,
             PrivateKeyInner::Secp256k1(_) => Algorithm::Secp256k1,
             PrivateKeyInner::BlsNormal(_) => Algorithm::BlsNormal,
@@ -658,7 +672,8 @@ impl PrivateKey {
 
     /// Key payload
     fn payload(&self) -> Vec<u8> {
-        match self.0.borrow() {
+        use crate::secrecy::ExposeSecret;
+        match self.0.expose_secret() {
             PrivateKeyInner::Ed25519(key) => key.to_keypair_bytes().to_vec(),
             PrivateKeyInner::Secp256k1(key) => key.to_bytes().to_vec(),
             PrivateKeyInner::BlsNormal(key) => key.to_bytes(),
@@ -675,19 +690,90 @@ impl PrivateKey {
     }
 }
 
+impl ZeroizeOnDrop for PrivateKeyInner {}
+
+impl Drop for PrivateKeyInner {
+    fn drop(&mut self) {
+        fn assert_will_zeroize_on_drop(_value: &mut impl ZeroizeOnDrop) {
+            // checks that `zeroize` feature of `ed25519-dalek` crate is enabled
+            // actual zeroize will be in `impl Drop` for nested key
+        }
+        match self {
+            PrivateKeyInner::Ed25519(key) => {
+                assert_will_zeroize_on_drop(key);
+            }
+            PrivateKeyInner::Secp256k1(key) => {
+                assert_will_zeroize_on_drop(key);
+            }
+            PrivateKeyInner::BlsNormal(key) => {
+                key.0 .0 .0.zeroize();
+            }
+            PrivateKeyInner::BlsSmall(key) => {
+                key.0 .0 .0.zeroize();
+            }
+        }
+    }
+}
+
+const PRIVATE_KEY_REDACTED: &str = "[REDACTED PrivateKey]";
+
 #[cfg(not(feature = "ffi_import"))]
 impl core::fmt::Debug for PrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple(self.algorithm().as_static_str())
-            .field(&hex::encode_upper(self.payload()))
-            .finish()
+        PRIVATE_KEY_REDACTED.fmt(f)
     }
 }
 
 #[cfg(not(feature = "ffi_import"))]
 impl core::fmt::Display for PrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&hex::encode_upper(self.payload()))
+        PRIVATE_KEY_REDACTED.fmt(f)
+    }
+}
+
+impl Serialize for PrivateKey {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        PRIVATE_KEY_REDACTED.serialize(serializer)
+    }
+}
+
+/// Use when you need to format/serialize private key (e.g in kagami)
+#[derive(Eq, PartialEq)]
+pub struct ExposedPrivateKey(pub PrivateKey);
+
+#[cfg(not(feature = "ffi_import"))]
+impl fmt::Debug for ExposedPrivateKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple(self.0.algorithm().as_static_str())
+            .field(&hex::encode_upper(self.0.payload()))
+            .finish()
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl fmt::Display for ExposedPrivateKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&hex::encode_upper(self.0.payload()))
+    }
+}
+
+impl Serialize for ExposedPrivateKey {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let key_serialized: PrivateKeySerialized = self.0.clone().into();
+        key_serialized.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ExposedPrivateKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let key_serialized = PrivateKeySerialized::deserialize(deserializer)?;
+        let private_key = key_serialized
+            .try_into()
+            .map_err(serde::de::Error::custom)?;
+        Ok(ExposedPrivateKey(private_key))
     }
 }
 
@@ -713,6 +799,12 @@ impl From<PrivateKey> for PrivateKeySerialized {
             algorithm: value.algorithm(),
             payload: value.payload(),
         }
+    }
+}
+
+impl Drop for PrivateKeySerialized {
+    fn drop(&mut self) {
+        self.payload.zeroize();
     }
 }
 
@@ -884,6 +976,12 @@ mod tests {
     #[test]
     #[cfg(feature = "rand")]
     fn key_pair_serialize_deserialize_consistent() {
+        #[derive(Serialize)]
+        struct ExposedKeyPair {
+            public_key: PublicKey,
+            private_key: ExposedPrivateKey,
+        }
+
         for algorithm in [
             Algorithm::Ed25519,
             Algorithm::Secp256k1,
@@ -891,14 +989,30 @@ mod tests {
             Algorithm::BlsSmall,
         ] {
             let key_pair = KeyPair::random_with_algorithm(algorithm);
+            let exposed_key_pair = ExposedKeyPair {
+                public_key: key_pair.public_key.clone(),
+                private_key: ExposedPrivateKey(key_pair.private_key.clone()),
+            };
 
             assert_eq!(
                 key_pair,
-                serde_json::to_string(&key_pair)
+                serde_json::to_string(&exposed_key_pair)
                     .and_then(|key_pair| serde_json::from_str(&key_pair))
                     .unwrap_or_else(|_| panic!("Failed to de/serialize key {:?}", &key_pair))
             );
         }
+    }
+
+    #[test]
+    fn private_key_format_or_serialize_redacted() {
+        let key_pair = KeyPair::random();
+        let (_, private_key) = key_pair.into_parts();
+
+        assert_eq!(
+            serde_json::to_string(&private_key).expect("Couldn't serialize key"),
+            format!("\"{PRIVATE_KEY_REDACTED}\"")
+        );
+        assert_eq!(format!("{}", &private_key), PRIVATE_KEY_REDACTED);
     }
 
     #[test]
@@ -1047,7 +1161,7 @@ mod tests {
     #[derive(Debug, PartialEq, Deserialize, Serialize)]
     struct TestJson {
         public_key: PublicKey,
-        private_key: PrivateKey,
+        private_key: ExposedPrivateKey,
     }
 
     macro_rules! assert_test_json_serde {
@@ -1079,10 +1193,10 @@ mod tests {
                     Algorithm::Ed25519,
                     "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
                 ).unwrap(),
-                private_key: PrivateKey::from_hex(
+                private_key: ExposedPrivateKey(PrivateKey::from_hex(
                     Algorithm::Ed25519,
                     "3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4",
-                ).unwrap()
+                ).unwrap())
             }
         );
     }
@@ -1104,11 +1218,13 @@ mod tests {
                     "0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
                 )
                 .unwrap(),
-                private_key: PrivateKey::from_hex(
-                    Algorithm::Secp256k1,
-                    "4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445",
+                private_key: ExposedPrivateKey(
+                    PrivateKey::from_hex(
+                        Algorithm::Secp256k1,
+                        "4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445",
+                    )
+                    .unwrap()
                 )
-                .unwrap()
             }
         );
     }
@@ -1129,10 +1245,10 @@ mod tests {
                     Algorithm::BlsNormal,
                     "9060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2",
                 ).unwrap(),
-                private_key: PrivateKey::from_hex(
+                private_key: ExposedPrivateKey(PrivateKey::from_hex(
                     Algorithm::BlsNormal,
                     "1ca347641228c3b79aa43839dedc85fa51c0e8b9b6a00f6b0d6b0423e902973f",
-                ).unwrap()
+                ).unwrap())
             }
         );
         assert_test_json_serde!(
@@ -1148,10 +1264,10 @@ mod tests {
                     Algorithm::BlsSmall,
                     "9051D4A9C69402423413EBBA4C00BC82A0102AA2B783057BD7BCEE4DD17B37DE5D719EE84BE43783F2AE47A673A74B8315DD3E595ED1FBDFAC17DA1D7A36F642B423ED18275FAFD671B1D331439D22F12FB6EB436A47E8656F182A78DF29D310",
                 ).unwrap(),
-                private_key: PrivateKey::from_hex(
+                private_key: ExposedPrivateKey(PrivateKey::from_hex(
                     Algorithm::BlsSmall,
                     "8cb95072914cdd8e4cf682fdbe1189cdf4fc54d445e760b3446f896dbdbf5b2b",
-                ).unwrap()
+                ).unwrap())
             }
         );
     }
