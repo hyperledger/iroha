@@ -649,6 +649,20 @@ mod tests {
             base
         }
 
+        fn config_to_toml_value(config: PartialUserConfig) -> Result<toml::Value> {
+            use iroha_crypto::ExposedPrivateKey;
+            let private_key = config.private_key.as_ref().unwrap().clone();
+            let genesis_private_key = config.genesis.private_key.as_ref().unwrap().clone();
+            let mut result = toml::Value::try_from(config)?;
+
+            // private key will be serialized as "[REDACTED PrivateKey]" so need to restore it
+            result["private_key"] = toml::Value::try_from(ExposedPrivateKey(private_key))?;
+            result["genesis"]["private_key"] =
+                toml::Value::try_from(ExposedPrivateKey(genesis_private_key))?;
+
+            Ok(result)
+        }
+
         #[test]
         fn relative_file_paths_resolution() -> Result<()> {
             // Given
@@ -663,7 +677,7 @@ mod tests {
                 cfg.kura.store_dir.set("../storage".into());
                 cfg.snapshot.store_dir.set("../snapshots".into());
                 cfg.dev_telemetry.out_file.set("../logs/telemetry".into());
-                toml::Value::try_from(cfg)?
+                config_to_toml_value(cfg)?
             };
 
             let dir = tempfile::tempdir()?;
@@ -722,7 +736,7 @@ mod tests {
             let config = {
                 let mut cfg = config_factory();
                 cfg.genesis.file.set("./genesis.json".into());
-                toml::Value::try_from(cfg)?
+                config_to_toml_value(cfg)?
             };
 
             let dir = tempfile::tempdir()?;
