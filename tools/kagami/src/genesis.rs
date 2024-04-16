@@ -276,7 +276,7 @@ pub struct SignArgs {
     /// The algorithm of the provided keypair
     #[clap(default_value_t, long, short)]
     algorithm: crypto::AlgorithmArg,
-    /// Private key (in string format) to sign genesis block
+    /// Private key (in hex string format) to sign genesis block
     #[clap(long, group = "private_key")]
     private_key_string: Option<String>,
     /// Path to private key to sign genesis block
@@ -284,7 +284,7 @@ pub struct SignArgs {
     private_key_file: Option<PathBuf>,
     /// Public key in multihash format of the corresponding private key
     #[clap(long, group = "public_key")]
-    public_key_string: Option<String>,
+    public_key_string: Option<PublicKey>,
     /// Path to public key in multihash format of the corresponding private key
     #[clap(long, group = "public_key")]
     public_key_file: Option<PathBuf>,
@@ -301,7 +301,7 @@ pub struct SignArgs {
     #[clap(long, default_value_t = true, group = "format")]
     hex: bool,
     /// Encode signed genesis block with SCALE (it is only supported with file output)
-    #[clap(long, short, default_value_t = false, group = "format")]
+    #[clap(long, default_value_t = false, group = "format")]
     scale: bool,
     /// Path to signed genesis output file (stdout by default)
     #[clap(long, short)]
@@ -354,7 +354,10 @@ impl SignArgs {
     }
 
     fn get_public_key(&self) -> Result<PublicKey> {
-        let public_key_bytes = get_key_raw(&self.public_key_file, &self.public_key_string)?;
+        if let Some(key) = &self.public_key_string {
+            return Ok(key.clone());
+        }
+        let public_key_bytes = get_key_raw(&self.public_key_file, &None)?;
         match public_key_bytes {
             KeyStorage::FromFile(bytes) => {
                 PublicKey::from_bytes(self.algorithm.0, bytes.as_slice()).wrap_err_with(|| {

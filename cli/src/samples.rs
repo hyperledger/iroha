@@ -11,6 +11,7 @@ use iroha_config::{
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{peer::PeerId, prelude::*, ChainId};
+use iroha_genesis::GenesisSignature;
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
     unique_vec::UniqueVec,
@@ -63,7 +64,7 @@ pub fn get_user_config(
     peers: &UniqueVec<PeerId>,
     chain_id: Option<ChainId>,
     key_pair: Option<KeyPair>,
-    encoded_signature: String,
+    genesis_signature: &GenesisSignature,
 ) -> UserConfig {
     let chain_id = chain_id.unwrap_or_else(|| ChainId::from("0"));
 
@@ -92,7 +93,10 @@ pub fn get_user_config(
         .set(HumanDuration(Duration::from_millis(500)));
     config.genesis.public_key.set(public_key);
     config.genesis.file.set("./genesis.json".into());
-    config.genesis.signature.set(encoded_signature);
+    config
+        .genesis
+        .signature
+        .set(genesis_signature.to_hex_string());
     // There is no need in persistency in tests
     // If required to should be set explicitly not to overlap with other existing tests
     config.snapshot.mode.set(SnapshotMode::Disabled);
@@ -111,9 +115,9 @@ pub fn get_config(
     trusted_peers: &UniqueVec<PeerId>,
     chain_id: Option<ChainId>,
     key_pair: Option<KeyPair>,
-    encoded_signature: String,
+    genesis_signature: &GenesisSignature,
 ) -> Config {
-    get_user_config(trusted_peers, chain_id, key_pair, encoded_signature)
+    get_user_config(trusted_peers, chain_id, key_pair, genesis_signature)
         .unwrap_partial()
         .expect("config should build as all required fields were provided")
         .parse(CliContext {

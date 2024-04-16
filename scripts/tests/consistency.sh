@@ -3,7 +3,7 @@ set -e
 
 case $1 in
     "genesis")
-        cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm | diff - configs/swarm/genesis.json || {
+        cargo run --release --bin kagami -- genesis generate --executor-path-in-genesis ./executor.wasm | diff - configs/swarm/genesis.json || {
             echo 'Please re-generate the genesis with `cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm > configs/swarm/genesis.json`'
             exit 1
         };;

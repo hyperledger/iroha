@@ -16,7 +16,7 @@ use iroha_config::parameters::actual::Root as Config;
 pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{query::QueryOutputBox, ChainId};
-use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockFile};
+use iroha_genesis::{GenesisNetwork, GenesisSignature, RawGenesisBlock, RawGenesisBlockFile};
 use iroha_logger::InstrumentFutures;
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
@@ -65,15 +65,12 @@ pub fn get_key_pair() -> KeyPair {
 }
 
 /// Get hex string represented genesis_config for ./genesis.json that is tied to hardcoded keys and chain_id
-pub fn get_genesis_encoded_signature() -> String {
+pub fn get_genesis_signature() -> GenesisSignature {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let genesis = RawGenesisBlock::from_path(manifest_dir.join("../../configs/swarm/genesis.json"))
         .expect("Failed to deserialize genesis block from file");
 
-    let genesis_signature =
-        GenesisNetwork::new_genesis_signature(genesis, &get_chain_id(), &get_key_pair());
-
-    genesis_signature.to_hex_string()
+    GenesisNetwork::new_genesis_signature(genesis, &get_chain_id(), &get_key_pair())
 }
 
 /// Trait used to differentiate a test instance of `genesis`.
@@ -782,7 +779,7 @@ impl TestConfig for Config {
             &UniqueVec::new(),
             Some(get_chain_id()),
             Some(get_key_pair()),
-            get_genesis_encoded_signature(),
+            &get_genesis_signature(),
         )
         .merge(RootPartial::from_env(&StdEnv).expect("test env variables should parse properly"));
 

@@ -232,9 +232,13 @@ impl FromEnv for GenesisPartial {
         let file =
             ParseEnvResult::parse_simple(&mut emitter, env, "GENESIS_FILE", "genesis.file").into();
 
-        let signature =
-            ParseEnvResult::parse_simple(&mut emitter, env, "SIGNATURE", "genesis.signature")
-                .into();
+        let signature = ParseEnvResult::parse_simple(
+            &mut emitter,
+            env,
+            "GENESIS_SIGNATURE",
+            "genesis.signature",
+        )
+        .into();
 
         emitter.finish()?;
 

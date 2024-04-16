@@ -28,7 +28,7 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use iroha_genesis::{GenesisNetwork, GenesisSignature, RawGenesisBlock};
+use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{actor::LoggerHandle, InitConfig as LoggerInitConfig};
 use iroha_torii::Torii;
 use tokio::{
@@ -508,16 +508,14 @@ pub fn read_config_and_genesis(
     let genesis = if let Genesis::Full {
         public_key: _,
         file,
-        signature: encoded_signature,
+        signature: signature_config,
     } = &config.genesis
     {
         let raw_genesis = RawGenesisBlock::from_path(file)?;
 
-        let signed_genesis_config = GenesisSignature::from_hex_string(encoded_signature)?;
-
         Some(GenesisNetwork::try_parse(
             raw_genesis,
-            signed_genesis_config,
+            signature_config.clone().into_genesis_signature(),
         )?)
     } else {
         None

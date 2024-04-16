@@ -8,7 +8,7 @@ use iroha_data_model::isi::InstructionBox;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use test_network::{
-    get_chain_id, get_genesis_encoded_signature, get_key_pair, wait_for_genesis_committed,
+    get_chain_id, get_genesis_signature, get_key_pair, wait_for_genesis_committed,
     Peer as TestPeer, PeerBuilder, TestRuntime,
 };
 use tokio::runtime::Runtime;
@@ -49,7 +49,7 @@ fn main_genesis() {
         &unique_vec![peer.id.clone()],
         Some(chain_id.clone()),
         Some(get_key_pair()),
-        get_genesis_encoded_signature(),
+        &get_genesis_signature(),
     );
     let rt = Runtime::test();
     let (genesis, key_pair) = generate_genesis(1_000_000_u32);

@@ -4,6 +4,7 @@
 use std::{
     num::NonZeroU32,
     path::{Path, PathBuf},
+    str::FromStr,
     time::Duration,
 };
 
@@ -90,6 +91,27 @@ pub struct Network {
     pub idle_timeout: Duration,
 }
 
+/// Wrapper around `iroha_genesis::GenesisSignature` for type-checking
+#[derive(Debug, Clone)]
+pub struct GenesisSignatureConfig(iroha_genesis::GenesisSignature);
+
+impl GenesisSignatureConfig {
+    /// Converts `GenesisSignatureConfig` into `iroha_genesis::GenesisSignature`
+    pub fn into_genesis_signature(self) -> iroha_genesis::GenesisSignature {
+        self.0
+    }
+}
+
+impl FromStr for GenesisSignatureConfig {
+    type Err = iroha_genesis::GenesisSignatureParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(GenesisSignatureConfig(
+            iroha_genesis::GenesisSignature::from_hex_string(&s.as_bytes())?,
+        ))
+    }
+}
+
 /// Parsed genesis configuration
 #[derive(Debug, Clone)]
 pub enum Genesis {
@@ -105,7 +127,7 @@ pub enum Genesis {
         /// Path to the genesis file
         file: PathBuf,
         /// Hex-encoded genesis config
-        signature: String,
+        signature: GenesisSignatureConfig,
     },
 }
 

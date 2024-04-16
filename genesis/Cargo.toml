@@ -17,6 +17,7 @@ iroha_schema = { workspace = true }
 
 parity-scale-codec = { workspace = true, features = ["derive"] }
 derive_more = { workspace = true, features = ["deref"] }
+displaydoc = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 once_cell = { workspace = true }

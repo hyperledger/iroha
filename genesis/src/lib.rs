@@ -44,6 +44,17 @@ impl GenesisTransaction {
     }
 }
 
+/// Different errors as a result of parsing hex string for `GenesisSignature`
+#[derive(Copy, Clone, Debug, displaydoc::Display)]
+pub enum GenesisSignatureParseError {
+    ///  Hex string could not be decoded into scale encoded bytes
+    HexDecodeError,
+    ///  The config has incorrect scale format and cannot be decoded
+    ScaleDecodeError,
+}
+
+impl std::error::Error for GenesisSignatureParseError {}
+
 /// [`SignedGenesisConfig`] contains data that is used for loading signed genesis from config.
 #[derive(Debug, Clone, Decode, Encode)]
 pub struct GenesisSignature {
@@ -74,10 +85,11 @@ impl GenesisSignature {
     /// Deserialize [`SignedGenesisConfig`] from hex representation
     /// # Errors
     /// Fails if it cannot either decode hex string or decode scale-encoded bytes
-    pub fn from_hex_string<S: AsRef<[u8]>>(hex: &S) -> Result<Self> {
-        let decoded_hex = hex::decode(hex).map_err(|_| eyre!("Failed to decode hex string"))?;
+    pub fn from_hex_string<S: AsRef<[u8]>>(hex: &S) -> Result<Self, GenesisSignatureParseError> {
+        let decoded_hex =
+            hex::decode(hex).map_err(|_| GenesisSignatureParseError::HexDecodeError)?;
         Decode::decode(&mut decoded_hex.as_slice())
-            .map_err(|_| eyre!("Failed to decode scale-encoded data"))
+            .map_err(|_| GenesisSignatureParseError::ScaleDecodeError)
     }
 }
 
