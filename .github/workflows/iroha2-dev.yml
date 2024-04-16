@@ -2,7 +2,7 @@ name: I2::Dev::Publish
 
 on:
   push:
-    branches: [iroha2-dev]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always

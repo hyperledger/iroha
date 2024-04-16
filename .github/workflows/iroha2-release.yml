@@ -2,7 +2,7 @@ name: I2::Release::Publish
 
 on:
   push:
-    branches: [iroha2-stable, iroha2-lts]
+    branches: [stable, lts]
 
 env:
   CARGO_TERM_COLOR: always
@@ -21,9 +21,7 @@ jobs:
           install: true
       - name: Get tag from branch name
         run: |
-          BRANCH=${{ github.ref_name }}
-          PREFIX='iroha2-'
-          TAG=${BRANCH#$PREFIX}
+          TAG=${{ github.ref_name }}
           echo "TAG=$TAG" >>$GITHUB_ENV
       - name: Get the release from a branch name
         run: |
