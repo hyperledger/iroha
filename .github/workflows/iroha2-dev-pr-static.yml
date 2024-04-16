@@ -43,7 +43,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-
       - name: Format
         run: cargo fmt --all -- --check
       - name: Lints without features
@@ -51,32 +50,34 @@ jobs:
         run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
       - name: Lints with all features enabled
         if: always()
-        run: cargo clippy --workspace --benches --tests --examples --all-features --quiet
+        run: cargo clippy --workspace --benches --tests --examples --all-features --quiet --message-format=json &> clippy.json
       - name: Documentation
         if: always()
         run: cargo doc --no-deps --quiet
+      - name: Upload clippy report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clippy.json
+          path: clippy.json
+
   python_static_analysis:
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v4
-
       - name: Install dependencies using Poetry
         working-directory: client_cli/pytests
         run: |
           poetry install
-
       - name: Check code formatting with Black
         working-directory: client_cli/pytests
         run: |
           poetry run black --check .
-
       - name: Run mypy (Type Checker)
         working-directory: client_cli/pytests
         run: |
           poetry run mypy --explicit-package-bases .
-
       - name: Run flake8 (Linter)
         working-directory: client_cli/pytests
         run: |
