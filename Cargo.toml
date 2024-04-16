@@ -102,7 +102,7 @@ displaydoc = { version = "0.2.4", default-features = false }
 
 cfg-if = "1.0.0"
 derive_more = { version = "0.99.17", default-features = false }
-async-trait = "0.1.73"
+async-trait = "0.1.76"
 strum = { version = "0.25.0", default-features = false }
 getset = "0.1.2"
 hex-literal = "0.4.1"
