@@ -69,9 +69,7 @@ discretion.
 * Development
 
 The Iroha ledger is to accumulate committed changes into the
-=iroha2-dev= branch (until the announcement of the deprecation of
-Iroha v1, and renaming of the branches to fit the new pecking
-order). All commits must be signed-off (for reasons of legal
+=main= branch. All commits must be signed-off (for reasons of legal
 liability), and all merged commits must be merged with an "all green"
 continuous integration test report. Merging with unsatisfied
 requirements is left up to the technical lead's discretion, with them
@@ -98,7 +96,7 @@ conduct a pre-release sync meeting. The technical lead's
 responsibility is to then appraise all present of the main
 API-breaking changes that might require attention. In preparation, the
 technical lead is encouraged to walk through the differential of the
-current =iroha2-stable= branch and =iroha2-dev= to find any changes in
+current =stable= branch and =main= to find any changes in
 =schema.json= as well as other tell-tale signs of API breakage.
 
 Any major API breaking changes beyond this point are discouraged,
@@ -114,8 +112,8 @@ process]] must be invoked.
 
 The release window opening announcement is followed by the release of
 a =nightly= docker container through the continuous delivery
-system. Following that, a Pull Request from the =iroha2-dev= to the
-=iroha2-stable= (and =iroha2-lts= according to [[lts_selection.org]]) is
+system. Following that, a Pull Request from the =main= to the
+=stable= (and =iroha2-lts= according to [[lts_selection.org]]) is
 created, with the release checklist as the description. Points on the
 checklist are ticked off as soon as they are met.
 
@@ -135,7 +133,7 @@ the relevant chat.
 The following is a suggested version of the description of the pull
 request for the relevant branches.
 
-- [ ] The current =iroha2-dev= passes all Continuous integration
+- [ ] The current =main= passes all Continuous integration
   checks
 - [ ] The current =nightly= build was published and links provided to
   major SDK developers
@@ -164,7 +162,7 @@ through an architectural changes process called "request for comments"
 (RFC).  This entails:
 
 1. The proposer of the changes must open a pull request into the
-   =iroha2-dev= branch containing a file submitted to
+   =main= branch containing a file submitted to
    =docs/source/rfc/= in a format of their choosing (markdown, org,
    ReST), containing a detailed explanation of the changes.
 
