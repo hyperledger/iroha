@@ -20,7 +20,7 @@ RUN poetry install
 
 RUN rustup toolchain install nightly-2024-01-12_64-unknown-linux-gnu
 RUN rustup default nightly-2024-01-12-x86_64-unknown-linux-gnu
-RUN rustup component add clippy
+RUN rustup component add llvm-tools-preview clippy
 RUN rustup component add rust-src
 RUN rustup component add rustfmt
 RUN rustup target add wasm32-unknown-unknown
