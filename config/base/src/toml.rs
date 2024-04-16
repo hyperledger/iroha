@@ -21,9 +21,9 @@ pub struct TomlSource {
 
 #[derive(Error, Debug, Copy, Clone)]
 pub enum FromFileError {
-    #[error("Failed to read the TOML source file")]
+    #[error("Failed to read file from disk")]
     Read,
-    #[error("Failed to parse the content of a file")]
+    #[error("Failed to parse file contents as TOML")]
     Parse,
 }
 
@@ -33,24 +33,19 @@ impl TomlSource {
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P) -> error_stack::Result<Self, FromFileError> {
-        fn scoped(path: PathBuf) -> error_stack::Result<TomlSource, FromFileError> {
-            log::trace!("reading TOML source: `{}`", path.display());
+        let path = path.as_ref().to_path_buf();
 
-            let mut raw_string = String::new();
-            File::open(&path)
-                .change_context(FromFileError::Read)?
-                .read_to_string(&mut raw_string)
-                .change_context(FromFileError::Read)?;
+        log::trace!("reading TOML source: `{}`", path.display());
 
-            let table = Table::from_str(&raw_string).change_context(FromFileError::Parse)?;
+        let mut raw_string = String::new();
+        File::open(&path)
+            .change_context(FromFileError::Read)?
+            .read_to_string(&mut raw_string)
+            .change_context(FromFileError::Read)?;
 
-            Ok(TomlSource::new(path, table))
-        }
+        let table = Table::from_str(&raw_string).change_context(FromFileError::Parse)?;
 
-        // FIXME: a better way to attach to all errors at once?
-        scoped(path.as_ref().to_path_buf()).attach_printable_lazy(|| {
-            format!("occurred while reading `{}`", path.as_ref().display())
-        })
+        Ok(TomlSource::new(path, table))
     }
 
     /// Primarily for testing purposes, creates a source which will contain debug information

@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use error_stack::{Report, ResultExt};
 use iroha_config_base::{
+    attach::ConfigValueAndOrigin,
     util::{Emitter, EmitterResultExt, HumanDuration},
     ReadConfig, WithOrigin,
 };
@@ -68,8 +69,8 @@ impl Root {
         if tx_timeout.value() > tx_ttl.value() {
             emitter.emit(
                 Report::new(ParseError::TxTimeoutVsTtl)
-                    .attach_printable(format!("{}: {:?}", tx_timeout.origin(), tx_timeout.value()))
-                    .attach_printable(format!("{}: {:?}", tx_ttl.origin(), tx_ttl.value()))
+                    .attach_printable(tx_timeout.clone().into_attachment())
+                    .attach_printable(tx_ttl.clone().into_attachment())
                     // FIXME: is this correct?
                     .attach_printable("Note: it doesn't make sense to set the timeout longer than the possible transaction lifetime"),
             )
@@ -79,9 +80,9 @@ impl Root {
         let (private_key, private_key_origin) = private_key.into_tuple();
         let account_id = AccountId::new(domain_id, public_key.clone());
         let key_pair = KeyPair::new(public_key, private_key)
+            .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", public_key_origin))
+            .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", private_key_origin))
             .change_context(ParseError::KeyPair)
-            .attach_printable_lazy(|| format!("got public key from: {public_key_origin}"))
-            .attach_printable_lazy(|| format!("got private key from: {private_key_origin}"))
             .ok_or_emit(&mut emitter);
 
         emitter.into_result()?;

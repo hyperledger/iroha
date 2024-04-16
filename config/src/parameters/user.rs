@@ -19,6 +19,7 @@ use std::{
 
 use error_stack::{Result, ResultExt};
 use iroha_config_base::{
+    attach::ConfigValueAndOrigin,
     env::FromEnvStr,
     read::{CustomEnvFetcher, CustomEnvRead, CustomEnvReadError},
     util::{Emitter, EmitterResultExt, HumanBytes, HumanDuration},
@@ -121,9 +122,9 @@ impl Root {
         let (private_key, private_key_origin) = self.private_key.into_tuple();
         let (public_key, public_key_origin) = self.public_key.into_tuple();
         let key_pair = iroha_crypto::KeyPair::new(public_key, private_key.0)
+            .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", public_key_origin))
+            .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", private_key_origin))
             .change_context(ParseError::BadKeyPair)
-            .attach_printable_lazy(|| format!("got public key from: {public_key_origin}"))
-            .attach_printable_lazy(|| format!("got private key from: {private_key_origin}"))
             .ok_or_emit(&mut emitter);
 
         let genesis = self
@@ -213,9 +214,9 @@ impl Genesis {
                 let (private_key, priv_key_origin) = private_key.into_tuple();
                 let (public_key, pub_key_origin) = self.public_key.into_tuple();
                 let key_pair = iroha_crypto::KeyPair::new(public_key, private_key.0)
-                    .change_context(GenesisConfigError::KeyPair)
-                    .attach_printable_lazy(|| format!("got public key from: {pub_key_origin}"))
-                    .attach_printable_lazy(|| format!("got private key from: {priv_key_origin}"))?;
+                    .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", pub_key_origin))
+                    .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", priv_key_origin))
+                    .change_context(GenesisConfigError::KeyPair)?;
                 Ok(actual::Genesis::Full { key_pair, file })
             }
             (key, _) => {

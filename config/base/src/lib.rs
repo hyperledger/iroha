@@ -2,6 +2,7 @@
 
 #![allow(missing_docs)]
 
+pub mod attach;
 pub mod env;
 pub mod read;
 pub mod toml;
@@ -13,6 +14,8 @@ use std::{
 };
 
 pub use iroha_config_base_derive::ReadConfig;
+
+use crate::attach::ConfigValueAndOrigin;
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct ParameterId {
@@ -83,24 +86,6 @@ impl ParameterOrigin {
     }
 }
 
-impl Display for ParameterOrigin {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Default { id } => write!(f, "default value for parameter `{id}`"),
-            Self::File { path, id } => {
-                write!(f, "parameter `{id}` from file `{}`", path.display())
-            }
-            Self::Env { var, id } => {
-                write!(f, "parameter `{id}` from environment variable `{var}`")
-            }
-            Self::EnvUnknown { id } => {
-                write!(f, "parameter `{id}` from environment variables")
-            }
-            Self::Custom { message } => write!(f, "{message}"),
-        }
-    }
-}
-
 /// A container with information on where the value came from, in terms of [`ParameterOrigin`]
 #[derive(Debug, Clone)]
 pub struct WithOrigin<T> {
@@ -137,8 +122,12 @@ impl<T> WithOrigin<T> {
         (self.value, self.origin)
     }
 
-    pub fn origin(&self) -> ParameterOrigin {
-        self.origin.clone()
+    pub fn origin(&self) -> &ParameterOrigin {
+        &self.origin
+    }
+
+    pub fn into_attachment(self) -> ConfigValueAndOrigin<T> {
+        ConfigValueAndOrigin::new(self.value, self.origin)
     }
 }
 

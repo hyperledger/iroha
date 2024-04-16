@@ -254,7 +254,7 @@ fn extra_fields() {
     let error = load_config_from_fixtures("bad.extra_fields.toml")
         .expect_err("should fail with extra field");
 
-    assert_contains!(format!("{error:?}"), "Some parameters aren't recognised");
+    assert_contains!(format!("{error:?}"), "Found unrecognised parameters");
     assert_contains!(format!("{error:?}"), "unknown parameter: `bar`");
     assert_contains!(format!("{error:?}"), "unknown parameter: `foo`");
 }

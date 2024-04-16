@@ -21,6 +21,7 @@ num-traits = "0.2.19"
 toml = { workspace = true }
 error-stack = { workspace = true }
 log = "0.4"
+derive_more = { workspace = true, features = ["constructor", "display"] }
 
 [dev-dependencies]
 expect-test = { workspace = true }

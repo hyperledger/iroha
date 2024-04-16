@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::{Debug, Display, Formatter},
+    fmt::Debug,
     marker::PhantomData,
     path::{Path, PathBuf},
 };
@@ -11,6 +11,8 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::{
+    attach,
+    attach::EnvValue,
     env::{FromEnvStr, ReadEnv},
     toml::TomlSource,
     util::{Emitter, ExtendsPaths},
@@ -23,23 +25,21 @@ pub trait ReadConfig: Sized {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Failed to read configuration")]
-    Root,
-    #[error("Unable to read TOML from file")]
-    TomlFromFile,
+    #[error("Failed to read configuration from file")]
+    ReadFile,
     #[error("Invalid `extends` field")]
     InvalidExtends,
-    #[error("Failed to extend from another file")]
+    #[error("Failed to extend configurations")]
     CannotExtend,
     #[error("Failed to parse parameter `{0}`")]
     ParseParameter(ParameterId),
-    #[error("Errors occurred while reading from file")]
-    InSourceFile,
+    #[error("Errors occurred while reading from file: `{0}`")]
+    InSourceFile(PathBuf),
     #[error("Errors occurred while reading from environment variables")]
     InEnvironment,
     #[error("Some required parameters are missing")]
     MissingParameters,
-    #[error("Some parameters aren't recognised")]
+    #[error("Found unrecognised parameters")]
     UnknownParameters,
     #[error("{msg}")]
     Custom { msg: String },
@@ -115,16 +115,21 @@ impl ConfigReader {
     ///
     /// If files reading error occurs
     pub fn read_toml_with_extends<P: AsRef<Path>>(mut self, path: P) -> Result<Self, Error> {
-        fn recursion(reader: &mut ConfigReader, path: impl AsRef<Path>) -> Result<(), Error> {
-            let mut source =
-                TomlSource::from_file(path.as_ref()).change_context(Error::TomlFromFile)?;
+        fn recursion(
+            reader: &mut ConfigReader,
+            path: impl AsRef<Path>,
+            depth: u8,
+        ) -> Result<(), Error> {
+            let mut source = TomlSource::from_file(path.as_ref())
+                .attach_printable_lazy(|| attach::FilePath::new(path.as_ref().to_path_buf()))
+                .change_context(Error::ReadFile)?;
             let table = source.table_mut();
 
             if let Some(extends) = table.remove("extends") {
                 let parsed: ExtendsPaths = extends.clone()
                     .try_into()
-                    .attach_printable(r#"expected: a single path ("./file.toml") or an array of paths (["a.toml", "b.toml", "c.toml"])"#)
-                    .attach_printable_lazy(|| format!("actual: {extends}"))
+                    .attach_printable_lazy(|| attach::Expected::new(r#"a single path ("./file.toml") or an array of paths (["a.toml", "b.toml", "c.toml"])"#))
+                    .attach_printable_lazy(|| attach::ActualValue::new(extends))
                     .change_context(Error::InvalidExtends)?;
                 log::trace!("found `extends`: {:?}", parsed);
                 for extends_path in parsed.iter() {
@@ -134,11 +139,9 @@ impl ConfigReader {
                         .expect("it cannot be root or empty")
                         .join(extends_path);
 
-                    recursion(reader, &full_path)
-                        .change_context(Error::CannotExtend)
-                        .attach_printable_lazy(|| {
-                            format!("extending from: `{}`", full_path.display())
-                        })?;
+                    recursion(reader, &full_path, depth + 1).attach_printable_lazy(|| {
+                        attach::ExtendsChain::new(path.as_ref().to_path_buf(), full_path, depth + 1)
+                    })?;
                 }
             };
 
@@ -147,13 +150,11 @@ impl ConfigReader {
             Ok(())
         }
 
-        recursion(&mut self, path.as_ref())
-            .change_context(Error::Root)
-            .map_err(|err| {
-                // error doesn't mean we need to panic
-                self.bomb.defuse();
-                err
-            })?;
+        recursion(&mut self, path.as_ref(), 0).map_err(|err| {
+            // error doesn't mean we need to panic
+            self.bomb.defuse();
+            err
+        })?;
 
         Ok(self)
     }
@@ -218,11 +219,7 @@ impl ConfigReader {
             let report = local_emitter
                 .into_result()
                 .expect_err("there should be at least one error");
-            emitter.emit(
-                report
-                    .change_context(Error::InSourceFile)
-                    .attach_printable(format!("in file `{}`", source.display())),
-            )
+            emitter.emit(report.change_context(Error::InSourceFile(source)))
         }
 
         // environment parsing errors
@@ -237,7 +234,7 @@ impl ConfigReader {
             emitter.emit(report.change_context(Error::InEnvironment));
         }
 
-        emitter.into_result().change_context(Error::Root)
+        emitter.into_result()
     }
 
     pub fn read_and_complete<T: ReadConfig>(self) -> Result<T, Error> {
@@ -345,23 +342,6 @@ pub struct CustomEnvFetcher<'a> {
     parameter: &'a ParameterId,
 }
 
-struct AttachmentEnvValue {
-    var: String,
-    value: String,
-}
-
-impl Debug for AttachmentEnvValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "input: {}={}", self.var, self.value)
-    }
-}
-
-impl Display for AttachmentEnvValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
 impl<'a> CustomEnvFetcher<'a> {
     fn new(reader: &'a mut ConfigReader, parameter: &'a ParameterId) -> Self {
         Self { reader, parameter }
@@ -390,10 +370,7 @@ impl<'a> CustomEnvFetcher<'a> {
                 Err(error) => {
                     self.reader.collect_env_error(
                         Report::new(error)
-                            .attach_printable(AttachmentEnvValue {
-                                var: var.to_string(),
-                                value: raw_str.into_owned(),
-                            })
+                            .attach_printable(EnvValue::new(var.to_string(), raw_str.into_owned()))
                             .change_context(EnvError(format!(
                                 "Failed to parse parameter `{}` from `{var}`",
                                 self.parameter
@@ -501,12 +478,8 @@ where
                 (Err(error), _) => {
                     self.errored = true;
                     self.reader.collect_env_error(
-                        // FIXME: reduce repetition
                         Report::new(error)
-                            .attach_printable(AttachmentEnvValue {
-                                var: var.to_string(),
-                                value: raw_str.into_owned(),
-                            })
+                            .attach_printable(EnvValue::new(var.to_string(), raw_str.into_owned()))
                             .change_context(EnvError(format!(
                                 "Failed to parse parameter `{}` from `{var}`",
                                 self.id,

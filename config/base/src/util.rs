@@ -1,5 +1,6 @@
 use std::{path::PathBuf, time::Duration};
 
+use derive_more::Display;
 use drop_bomb::DropBomb;
 use error_stack::Report;
 use serde::{Deserialize, Serialize};
@@ -7,7 +8,8 @@ use serde::{Deserialize, Serialize};
 /// [`Duration`], but can parse a human-readable string.
 /// TODO: currently deserializes just as [`Duration`]
 #[serde_with::serde_as]
-#[derive(Debug, Copy, Clone, Deserialize, Serialize, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Deserialize, Serialize, Ord, PartialOrd, Eq, PartialEq, Display)]
+#[display(fmt = "{:?}", _0)]
 pub struct HumanDuration(#[serde_as(as = "serde_with::DurationMilliSeconds")] pub Duration);
 
 impl HumanDuration {

@@ -275,12 +275,10 @@ fn error_when_no_file() {
         .expect_err("the path doesn't exist");
 
     expect![[r#"
-        Failed to read configuration
+        Failed to read configuration from file
         │
-        ├─▶ Unable to read TOML from file
-        │
-        ├─▶ Failed to read the TOML source file
-        │   ╰╴occurred while reading `/path/to/non/existing...`
+        ├─▶ Failed to read file from disk
+        │   ╰╴file path: /path/to/non/existing...
         │
         ╰─▶ No such file or directory (os error 2)"#]]
     .assert_eq_report(&report);
@@ -293,13 +291,11 @@ fn error_invalid_extends() {
         .expect_err("extends is invalid, should fail");
 
     expect![[r#"
-        Failed to read configuration
-        │
-        ├─▶ Invalid `extends` field
+        Invalid `extends` field
         │
         ╰─▶ data did not match any variant of untagged enum ExtendsPaths
             ├╴expected: a single path ("./file.toml") or an array of paths (["a.toml", "b.toml", "c.toml"])
-            ╰╴actual: 1234"#]]
+            ╰╴actual value: 1234"#]]
         .assert_eq_report(&report);
 }
 
@@ -310,18 +306,12 @@ fn error_extends_depth_2_leads_to_nowhere() {
         .expect_err("extends is invalid, should fail");
 
     expect![[r#"
-        Failed to read configuration
+        Failed to read configuration from file
+        ├╴extending (2): `./tests/bad.invalid-nested-extends.base.toml` -> `./tests/non-existing.toml`
+        ├╴extending (1): `./tests/bad.invalid-nested-extends.toml` -> `./tests/bad.invalid-nested-extends.base.toml`
         │
-        ├─▶ Failed to extend from another file
-        │   ╰╴extending from: `./tests/bad.invalid-nested-extends.base.toml`
-        │
-        ├─▶ Failed to extend from another file
-        │   ╰╴extending from: `./tests/non-existing.toml`
-        │
-        ├─▶ Unable to read TOML from file
-        │
-        ├─▶ Failed to read the TOML source file
-        │   ╰╴occurred while reading `./tests/non-existing.toml`
+        ├─▶ Failed to read file from disk
+        │   ╰╴file path: ./tests/non-existing.toml
         │
         ╰─▶ No such file or directory (os error 2)"#]]
     .assert_eq_report(&report);
@@ -338,10 +328,8 @@ fn error_reading_empty_config() {
         .expect_err("should miss required fields");
 
     expect![[r#"
-            Failed to read configuration
-            │
-            ╰─▶ Some required parameters are missing
-                ╰╴missing parameter: `chain_id`"#]]
+        Some required parameters are missing
+        ╰╴missing parameter: `chain_id`"#]]
     .assert_eq_report(&report);
 }
 
@@ -368,20 +356,16 @@ fn error_extra_fields_in_multiple_files() {
         .expect_err("there are unknown fields");
 
     expect![[r#"
-            Failed to read configuration
-            │
-            ╰┬▶ Errors occurred while reading from file
-             │  ├╴in file `./base.toml`
-             │  │
-             │  ╰─▶ Some parameters aren't recognised
-             │      ╰╴unknown parameter: `torii.bar`
-             │
-             ╰▶ Errors occurred while reading from file
-                ├╴in file `./config.toml`
-                │
-                ╰─▶ Some parameters aren't recognised
-                    ├╴unknown parameter: `extra_1`
-                    ╰╴unknown parameter: `extra_2`"#]]
+        Errors occurred while reading from file: `./base.toml`
+        │
+        ╰─▶ Found unrecognised parameters
+            ╰╴unknown parameter: `torii.bar`
+
+        Errors occurred while reading from file: `./config.toml`
+        │
+        ╰─▶ Found unrecognised parameters
+            ├╴unknown parameter: `extra_1`
+            ╰╴unknown parameter: `extra_2`"#]]
     .assert_eq_report(&report);
 }
 
@@ -406,21 +390,19 @@ fn multiple_parsing_errors_in_multiple_sources() {
         .expect_err("invalid config");
 
     expect![[r#"
-            Failed to read configuration
-            │
-            ╰┬▶ Errors occurred while reading from file
-             │  ├╴in file `./base.toml`
-             │  │
-             │  ├─▶ Failed to parse parameter `torii.address`
-             │  │
-             │  ╰─▶ invalid socket address syntax
-             │
-             ╰▶ Errors occurred while reading from file
-                ├╴in file `./config.toml`
-                │
-                ├─▶ Failed to parse parameter `torii.address`
-                │
-                ╰─▶ invalid type: boolean `false`, expected socket address"#]]
+        Errors occurred while reading from file: `./base.toml`
+        │
+        ├─▶ Failed to parse parameter `torii.address`
+        │
+        ╰─▶ invalid socket address syntax
+            ╰╴value: "is it socket addr?"
+
+        Errors occurred while reading from file: `./config.toml`
+        │
+        ├─▶ Failed to parse parameter `torii.address`
+        │
+        ╰─▶ invalid type: boolean `false`, expected socket address
+            ╰╴value: false"#]]
     .assert_eq_report(&report);
 }
 
@@ -570,19 +552,17 @@ fn multiple_env_parsing_errors() {
         .expect_err("invalid config");
 
     expect![[r#"
-        Failed to read configuration
-        │
-        ├─▶ Errors occurred while reading from environment variables
+        Errors occurred while reading from environment variables
         │
         ╰┬▶ Failed to parse parameter `torii.address` from `API_ADDRESS`
          │  │
          │  ╰─▶ invalid socket address syntax
-         │      ╰╴input: API_ADDRESS=i am not socket addr
+         │      ╰╴value: API_ADDRESS=i am not socket addr
          │
          ╰▶ Failed to parse parameter `logger.level` from `LOG_LEVEL`
             │
             ╰─▶ Matching variant not found
-                ╰╴input: LOG_LEVEL=error or whatever"#]]
+                ╰╴value: LOG_LEVEL=error or whatever"#]]
     .assert_eq_report(&report);
 }
 
@@ -634,9 +614,7 @@ fn private_key_inconsistent_env() {
         .expect_err("invalid config");
 
     expect![[r#"
-        Failed to read configuration
-        │
-        ├─▶ Errors occurred while reading from environment variables
+        Errors occurred while reading from environment variables
         │
         ├─▶ Failed to parse parameter `private_key`
         │

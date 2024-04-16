@@ -2899,6 +2899,7 @@ dependencies = [
 name = "iroha_config_base"
 version = "2.0.0-pre-rc.21"
 dependencies = [
+ "derive_more",
  "drop_bomb",
  "error-stack",
  "expect-test",
