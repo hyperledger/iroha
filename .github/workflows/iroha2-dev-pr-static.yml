@@ -2,7 +2,7 @@ name: I2::Dev::Static
 
 on:
   pull_request:
-    branches: [iroha2-dev]
+    branches: [main]
     paths:
       - '**.rs'
       - '**.json'
