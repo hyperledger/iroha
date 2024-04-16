@@ -6,9 +6,9 @@ Benchmark your code during development and get a statistical report with tps mea
 
 1. Establish a baseline:
 
-    Checkout the target branch (`iroha2-dev`):
+    Checkout the target branch (`main`):
     ```
-    git checkout iroha2-dev
+    git checkout main
     ```
     Then run:
     ```
