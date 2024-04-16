@@ -150,3 +150,51 @@ jobs:
         with:
           name: telemetry
           path: target/telemetry
+
+  sonarqube-defectdojo:
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download clippy report artifact
+        uses: dawidd6/action-download-artifact@v3.1.4
+        with:
+          workflow: iroha2-dev-pr-static.yml
+          name: clippy.json
+          search_artifacts: true
+      - name: Download lcov report artifact
+        uses: dawidd6/action-download-artifact@v3.1.4
+        with:
+          workflow: iroha2-dev-pr.yml
+          name: lcov.info
+          search_artifacts: true
+      - name: SonarQube
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dcommunity.rust.clippy.reportPaths=clippy.json
+            -Dcommunity.rust.lcov.reportPaths=lcov.info
+      - name: DefectDojo
+        id: defectdojo
+        uses: C4tWithShell/defectdojo-action@1.0.4
+        with:
+          token: ${{ secrets.DEFECTOJO_TOKEN }}
+          defectdojo_url: ${{ secrets.DEFECTOJO_URL }}
+          product_type: iroha2
+          engagement: ${{ github.ref_name }}
+          tools: "SonarQube API Import,Github Vulnerability Scan"
+          sonar_projectKey: hyperledger:iroha
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_repository: ${{ github.repository }}
+          product: ${{ github.repository }}
+          environment: Test
+          reports: '{"Github Vulnerability Scan": "github.json"}'
+      - name: Show Defectdojo response
+        if: always()
+        run: |
+          set -e
+          printf '%s\n' '${{ steps.defectdojo.outputs.response }}'
