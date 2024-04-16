@@ -45,10 +45,10 @@ name: Iroha1
 ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
 on:
   push:
-    branches: [ main, support/1.*, edge, develop]
+    branches: [ iroha1-main, support/1.*, edge]
     tags: '**'
   pull_request:
-    branches: [ main, support/1.*, edge, develop]  ## target branches
+    branches: [ iroha1-main, support/1.*, edge]  ## target branches
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
