@@ -40,7 +40,7 @@ jobs:
     container:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       # TODO Remove this step #2165
       # - name: Adjust toolchain
       #   run: |
@@ -77,7 +77,7 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2024-01-12
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Run tests, with no-default-features
         run: |
