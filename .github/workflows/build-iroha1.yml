@@ -1567,6 +1567,7 @@ jobs:
           images: |
             ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
           tags: |
+            type=raw,value=main,enable=${{ github.ref == format('refs/heads/{0}', 'iroha1-main') }}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
@@ -1579,6 +1580,7 @@ jobs:
         id: meta_ghcr
         with:
           tags: |
+            type=raw,value=main,enable=${{ github.ref == format('refs/heads/{0}', 'iroha1-main') }}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
@@ -1743,6 +1745,7 @@ jobs:
           images: |
             ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
           tags: |
+            type=raw,value=main,enable=${{ github.ref == format('refs/heads/{0}', 'iroha1-main') }}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
@@ -1755,6 +1758,7 @@ jobs:
         id: meta_ghcr
         with:
           tags: |
+            type=raw,value=main,enable=${{ github.ref == format('refs/heads/{0}', 'iroha1-main') }}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
