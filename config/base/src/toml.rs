@@ -21,9 +21,9 @@ pub struct TomlSource {
 
 #[derive(Error, Debug, Copy, Clone)]
 pub enum FromFileError {
-    #[error("Failed to read file from disk")]
+    #[error("File system error")]
     Read,
-    #[error("Failed to parse file contents as TOML")]
+    #[error("Error while deserializing file contents as TOML")]
     Parse,
 }
 

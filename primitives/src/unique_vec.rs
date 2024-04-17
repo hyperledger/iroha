@@ -72,6 +72,7 @@ impl<T> UniqueVec<T> {
 }
 
 /// A result for [`UniqueVec::push`]
+#[derive(Debug)]
 pub enum PushResult<T> {
     /// The element was pushed into the vec
     Ok,

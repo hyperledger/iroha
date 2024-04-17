@@ -7,7 +7,7 @@ use std::{
 };
 
 use erased_serde::Serialize;
-use error_stack::{IntoReportCompat, ResultExt};
+use error_stack::{fmt::ColorMode, IntoReportCompat, ResultExt};
 use eyre::{eyre, Error, Result, WrapErr};
 use iroha_client::{
     client::{Client, QueryResult},
@@ -192,6 +192,8 @@ fn main() -> error_stack::Result<(), MainError> {
         verbose,
     } = clap::Parser::parse();
 
+    error_stack::Report::set_color_mode(color_mode());
+
     let config = Config::load(config_path)
         // FIXME: would be nice to NOT change the context, it's unnecessary
         .change_context(MainError::Config)
@@ -215,6 +217,16 @@ fn main() -> error_stack::Result<(), MainError> {
         .map_err(|report| report.change_context(MainError::Subcommand))?;
 
     Ok(())
+}
+
+fn color_mode() -> ColorMode {
+    if supports_color::on(supports_color::Stream::Stdout)
+        && supports_color::on(supports_color::Stream::Stderr)
+    {
+        ColorMode::Color
+    } else {
+        ColorMode::None
+    }
 }
 
 /// Submit instruction with metadata to network.

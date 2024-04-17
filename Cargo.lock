@@ -2861,6 +2861,7 @@ dependencies = [
  "json5",
  "once_cell",
  "serde_json",
+ "supports-color 2.1.0",
  "thiserror",
  "vergen",
 ]

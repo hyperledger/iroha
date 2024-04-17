@@ -599,6 +599,8 @@ fn genesis_domain(public_key: PublicKey) -> Domain {
 pub enum ConfigError {
     #[error("Error occurred while reading configuration from file(s) and environment")]
     ReadConfig,
+    #[error("Error occurred while validating configuration integrity")]
+    ParseConfig,
     #[error("Error occurred while reading genesis block")]
     ReadGenesis,
     #[error("The network consists from this one peer only")]
@@ -613,7 +615,7 @@ pub enum ConfigError {
     SameNetworkAndToriiAddrs,
     #[error("Invalid directory path found")]
     InvalidDirPath,
-    #[error("Cannot bind a listener to address `{addr}`")]
+    #[error("Network error: cannot listen to address `{addr}`")]
     CannotBindAddress { addr: SocketAddr },
 }
 
@@ -640,7 +642,7 @@ pub fn read_config_and_genesis(
         .read_and_complete::<UserConfig>()
         .change_context(ConfigError::ReadConfig)?
         .parse()
-        .change_context(ConfigError::ReadConfig)?;
+        .change_context(ConfigError::ParseConfig)?;
 
     let genesis = if let Genesis::Full { key_pair, file } = &config.genesis {
         let raw_block = RawGenesisBlock::from_path(file.resolve_relative_path())
