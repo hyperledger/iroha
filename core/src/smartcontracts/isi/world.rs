@@ -25,6 +25,7 @@ pub mod isi {
         query::error::FindError,
         Level,
     };
+    use iroha_primitives::unique_vec::PushResult;
 
     use super::*;
 
@@ -38,10 +39,11 @@ pub mod isi {
             let peer_id = self.object.id;
 
             let world = &mut state_transaction.world;
-            if !world.trusted_peers_ids.push(peer_id.clone()) {
+            if let PushResult::Duplicate(duplicate) = world.trusted_peers_ids.push(peer_id.clone())
+            {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
-                    id: IdBox::PeerId(peer_id),
+                    id: IdBox::PeerId(duplicate),
                 }
                 .into());
             }

@@ -73,8 +73,8 @@ where
     }
 }
 
-impl<T> ConfigValueAndOrigin<T> {
-    pub fn new(value: T, origin: ParameterOrigin) -> Self {
+impl<T, F> ConfigValueAndOrigin<T, F> {
+    fn new_internal(value: T, origin: ParameterOrigin) -> Self {
         Self {
             value,
             origin,
@@ -83,26 +83,28 @@ impl<T> ConfigValueAndOrigin<T> {
     }
 }
 
-impl<T: AsRef<Path>> ConfigValueAndOrigin<T> {
-    // pub fn map<F, U>(self, fun: F) -> ConfigValueAndOrigin<U>
-    // where
-    //     F: FnOnce(T) -> U,
-    // {
-    //     let Self { value, origin } = self;
-    //     ConfigValueAndOrigin {
-    //         value: fun(value),
-    //         origin,
-    //     }
-    // }
-
-    pub fn display_path(self) -> ConfigValueAndOrigin<T, FormatPath<T>> {
-        let Self { value, origin, .. } = self;
-        ConfigValueAndOrigin {
-            value,
-            origin,
-            _f: PhantomData,
-        }
+impl<T> ConfigValueAndOrigin<T> {
+    pub fn new(value: T, origin: ParameterOrigin) -> Self {
+        ConfigValueAndOrigin::new_internal(value, origin)
     }
+}
+
+impl<T: AsRef<Path>> ConfigValueAndOrigin<T> {
+    pub fn display_path(self) -> ConfigValueAndOrigin<T, FormatPath<T>> {
+        ConfigValueAndOrigin::new_internal(self.value, self.origin)
+    }
+}
+
+impl<T: Debug> ConfigValueAndOrigin<T> {
+    pub fn display_as_debug(self) -> ConfigValueAndOrigin<T, FormatDebug<T>> {
+        ConfigValueAndOrigin::new_internal(self.value, self.origin)
+    }
+}
+
+pub trait DisplayProxy {
+    type Base: ?Sized;
+
+    fn fmt(value: &Self::Base, f: &mut Formatter<'_>) -> std::fmt::Result;
 }
 
 pub struct FormatDisplay<T>(PhantomData<T>);
@@ -126,10 +128,14 @@ impl<T: AsRef<Path>> DisplayProxy for FormatPath<T> {
     }
 }
 
-pub trait DisplayProxy {
-    type Base: ?Sized;
+pub struct FormatDebug<T>(PhantomData<T>);
 
-    fn fmt(value: &Self::Base, f: &mut Formatter<'_>) -> std::fmt::Result;
+impl<T: Debug> DisplayProxy for FormatDebug<T> {
+    type Base = T;
+
+    fn fmt(value: &Self::Base, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{value:?}")
+    }
 }
 
 struct DisplayWithProxy<'a, T, F>(&'a T, PhantomData<F>);

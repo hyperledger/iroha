@@ -153,8 +153,10 @@ impl SumeragiHandle {
 
             current_topology = match state_view.height() {
                 0 => {
-                    assert!(!sumeragi_config.trusted_peers.is_empty());
-                    Topology::new(sumeragi_config.trusted_peers.clone())
+                    // we rely on the guarantee of that `sumeragi.trusted_peers` contains
+                    // at least id of the peer itself
+                    // FIXME: find a way to guarantee it statically
+                    Topology::new(sumeragi_config.trusted_peers.value().clone())
                 }
                 height => {
                     let block_ref = kura.get_block_by_height(height).expect(

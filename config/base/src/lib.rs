@@ -129,6 +129,17 @@ impl<T> WithOrigin<T> {
     pub fn into_attachment(self) -> ConfigValueAndOrigin<T> {
         ConfigValueAndOrigin::new(self.value, self.origin)
     }
+
+    pub fn map<F, U>(self, fun: F) -> WithOrigin<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        let Self { value, origin } = self;
+        WithOrigin {
+            value: fun(value),
+            origin,
+        }
+    }
 }
 
 impl WithOrigin<PathBuf> {

@@ -247,7 +247,7 @@ impl Iroha<ToriiNotStarted> {
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
             [genesis_domain(config.genesis.public_key().clone())],
-            config.sumeragi.trusted_peers.clone(),
+            config.sumeragi.trusted_peers.value().clone(),
         );
 
         let kura = Kura::new(&config.kura).change_context(StartError::InitKura)?;
@@ -594,63 +594,13 @@ fn genesis_domain(public_key: PublicKey) -> Domain {
 }
 
 /// Error of [`read_config_and_genesis`]
-#[derive(Error, Debug, Copy, Clone)]
-#[error("Configuration error")]
-pub struct ReadConfigError;
-
-/// Read the configuration and then a genesis block if specified.
-///
-/// # Errors
-/// - If failed to read the config
-/// - If failed to load the genesis block
-/// - If failed to build a genesis network
-pub fn read_config_and_genesis(
-    args: &Args,
-) -> Result<(Config, LoggerInitConfig, Option<GenesisNetwork>), ReadConfigError> {
-    use iroha_config::parameters::actual::Genesis;
-
-    let mut reader = ConfigReader::new();
-
-    if let Some(path) = &args.config {
-        reader = reader
-            .read_toml_with_extends(path)
-            .change_context(ReadConfigError)?;
-    }
-
-    let config = reader
-        .read_and_complete::<UserConfig>()
-        .change_context(ReadConfigError)?
-        .parse()
-        .change_context(ReadConfigError)?;
-
-    validate_config(&config, args.submit_genesis).change_context(ReadConfigError)?;
-
-    let genesis = if let Genesis::Full { key_pair, file } = &config.genesis {
-        let raw_block = RawGenesisBlock::from_path(file.resolve_relative_path())
-            .into_report()
-            // https://github.com/hashintel/hash/issues/4295
-            .map_err(|report|
-                report
-                    .attach_printable(file.clone().into_attachment().display_path())
-                    .change_context(ReadConfigError)
-            )?;
-
-        Some(GenesisNetwork::new(
-            raw_block,
-            &config.common.chain_id,
-            key_pair,
-        ))
-    } else {
-        None
-    };
-
-    let logger_config = LoggerInitConfig::new(config.logger, args.terminal_colors);
-
-    Ok((config, logger_config, genesis))
-}
-
 #[derive(Error, Debug)]
-enum ConfigValidateError {
+#[allow(missing_docs)]
+pub enum ConfigError {
+    #[error("Error occurred while reading configuration from file(s) and environment")]
+    ReadConfig,
+    #[error("Error occurred while reading genesis block")]
+    ReadGenesis,
     #[error("The network consists from this one peer only")]
     LonePeer,
     #[cfg(feature = "dev-telemetry")]
@@ -667,7 +617,58 @@ enum ConfigValidateError {
     CannotBindAddress { addr: SocketAddr },
 }
 
-fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigValidateError> {
+/// Read the configuration and then a genesis block if specified.
+///
+/// # Errors
+/// - If failed to read the config
+/// - If failed to load the genesis block
+/// - If failed to build a genesis network
+pub fn read_config_and_genesis(
+    args: &Args,
+) -> Result<(Config, LoggerInitConfig, Option<GenesisNetwork>), ConfigError> {
+    use iroha_config::parameters::actual::Genesis;
+
+    let mut reader = ConfigReader::new();
+
+    if let Some(path) = &args.config {
+        reader = reader
+            .read_toml_with_extends(path)
+            .change_context(ConfigError::ReadConfig)?;
+    }
+
+    let config = reader
+        .read_and_complete::<UserConfig>()
+        .change_context(ConfigError::ReadConfig)?
+        .parse()
+        .change_context(ConfigError::ReadConfig)?;
+
+    let genesis = if let Genesis::Full { key_pair, file } = &config.genesis {
+        let raw_block = RawGenesisBlock::from_path(file.resolve_relative_path())
+            .into_report()
+            // https://github.com/hashintel/hash/issues/4295
+            .map_err(|report|
+                report
+                    .attach_printable(file.clone().into_attachment().display_path())
+                    .change_context(ConfigError::ReadGenesis)
+            )?;
+
+        Some(GenesisNetwork::new(
+            raw_block,
+            &config.common.chain_id,
+            key_pair,
+        ))
+    } else {
+        None
+    };
+
+    validate_config(&config, args.submit_genesis)?;
+
+    let logger_config = LoggerInitConfig::new(config.logger, args.terminal_colors);
+
+    Ok((config, logger_config, genesis))
+}
+
+fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigError> {
     let mut emitter = Emitter::new();
 
     validate_try_bind_address(&mut emitter, &config.network.address);
@@ -676,19 +677,19 @@ fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigVa
     // maybe validate only if snapshot mode is enabled
     validate_directory_path(&mut emitter, &config.snapshot.store_dir);
 
-    if !submit_genesis && config.sumeragi.trusted_peers.is_empty() {
-        emitter.emit(Report::new(ConfigValidateError::LonePeer).attach_printable("\
-            The network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
+    if !submit_genesis && !config.sumeragi.contains_other_trusted_peers() {
+        emitter.emit(Report::new(ConfigError::LonePeer).attach_printable("\
+            Reason: the network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
             Since `--submit-genesis` is not set, there is no way to receive the genesis block.\n\
             Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`,\n\
             and `genesis.file` configuration parameters, or increase the number of trusted peers in\n\
             the network using `sumeragi.trusted_peers` configuration parameter.\
-        "));
+        ").attach_printable(config.sumeragi.trusted_peers.clone().into_attachment().display_as_debug()));
     }
 
     if config.network.address.value() == config.torii.address.value() {
         emitter.emit(
-            Report::new(ConfigValidateError::SameNetworkAndToriiAddrs)
+            Report::new(ConfigError::SameNetworkAndToriiAddrs)
                 .attach_printable(config.network.address.clone().into_attachment())
                 .attach_printable(config.torii.address.clone().into_attachment()),
         );
@@ -712,13 +713,13 @@ fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigVa
     if let Some(path) = &config.dev_telemetry.out_file {
         if path.value().parent().is_none() {
             emitter.emit(
-                Report::new(ConfigValidateError::TelemetryOutFileIsRootOrEmpty)
+                Report::new(ConfigError::TelemetryOutFileIsRootOrEmpty)
                     .attach_printable(path.as_attachment()),
             );
         }
         if path.value().is_dir() {
             emitter.emit(
-                Report::new(ConfigValidateError::TelemetryOutFileIsDir)
+                Report::new(ConfigError::TelemetryOutFileIsDir)
                     .attach_printable(path.as_attachment()),
             );
         }
@@ -729,7 +730,7 @@ fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigVa
     Ok(())
 }
 
-fn validate_directory_path(emitter: &mut Emitter<ConfigValidateError>, path: &WithOrigin<PathBuf>) {
+fn validate_directory_path(emitter: &mut Emitter<ConfigError>, path: &WithOrigin<PathBuf>) {
     #[derive(Debug, Error)]
     #[error(
     "expected path to be either non-existing or a directory, but it points to an existing file: {path}"
@@ -744,22 +745,19 @@ fn validate_directory_path(emitter: &mut Emitter<ConfigValidateError>, path: &Wi
                 path: path.value().clone(),
             })
             .attach_printable(path.clone().into_attachment().display_path())
-            .change_context(ConfigValidateError::InvalidDirPath),
+            .change_context(ConfigError::InvalidDirPath),
         );
     }
 }
 
-fn validate_try_bind_address(
-    emitter: &mut Emitter<ConfigValidateError>,
-    value: &WithOrigin<SocketAddr>,
-) {
+fn validate_try_bind_address(emitter: &mut Emitter<ConfigError>, value: &WithOrigin<SocketAddr>) {
     use std::net::TcpListener;
 
     if let Err(err) = TcpListener::bind(value.value()) {
         emitter.emit(
             Report::new(err)
                 .attach_printable(value.clone().into_attachment())
-                .change_context(ConfigValidateError::CannotBindAddress {
+                .change_context(ConfigError::CannotBindAddress {
                     addr: value.value().clone(),
                 }),
         )

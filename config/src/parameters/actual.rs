@@ -153,8 +153,16 @@ impl Default for Queue {
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct Sumeragi {
-    pub trusted_peers: UniqueVec<PeerId>,
+    /// **Must** contain id of the peer itself
+    pub trusted_peers: WithOrigin<UniqueVec<PeerId>>,
     pub debug_force_soft_fork: bool,
+}
+
+impl Sumeragi {
+    /// Tells whether a trusted peers list has some other peers except for the peer itself
+    pub fn contains_other_trusted_peers(&self) -> bool {
+        self.trusted_peers.value().len() > 1
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

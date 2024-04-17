@@ -71,16 +71,22 @@ impl<T> UniqueVec<T> {
     }
 }
 
+/// A result for [`UniqueVec::push`]
+pub enum PushResult<T> {
+    /// The element was pushed into the vec
+    Ok,
+    /// The element is already contained in the vec
+    Duplicate(T),
+}
+
 impl<T: PartialEq> UniqueVec<T> {
     /// Push `value` to [`UniqueVec`] if it is not already present.
-    ///
-    /// Returns `true` if value was pushed and `false` if not.
-    pub fn push(&mut self, value: T) -> bool {
+    pub fn push(&mut self, value: T) -> PushResult<T> {
         if self.contains(&value) {
-            false
+            PushResult::Duplicate(value)
         } else {
             self.0.push(value);
-            true
+            PushResult::Ok
         }
     }
 }
@@ -317,13 +323,13 @@ mod tests {
     #[test]
     fn push_returns_true_if_value_is_unique() {
         let mut unique_vec = unique_vec![1, 3, 4];
-        assert!(unique_vec.push(2));
+        assert!(matches!(unique_vec.push(2), PushResult::Ok));
     }
 
     #[test]
     fn push_returns_false_if_value_is_not_unique() {
         let mut unique_vec = unique_vec![1, 2, 3];
-        assert!(!unique_vec.push(1));
+        assert!(matches!(unique_vec.push(1), PushResult::Duplicate(1)));
     }
 
     #[test]

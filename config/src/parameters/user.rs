@@ -30,7 +30,10 @@ use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
     LengthLimits, Level,
 };
-use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
+use iroha_primitives::{
+    addr::SocketAddr,
+    unique_vec::{PushResult, UniqueVec},
+};
 use serde::Deserialize;
 use url::Url;
 
@@ -102,12 +105,14 @@ impl CustomEnvRead for RootPrivateKey {
     }
 }
 
-#[derive(thiserror::Error, Debug, Copy, Clone)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParseError {
     #[error("Failed to construct the key pair")]
     BadKeyPair,
     #[error("Invalid genesis configuration")]
     BadGenesis,
+    #[error("Trusted peers contains self peer id: {id}")]
+    TrustedPeersWithSelf { id: PeerId },
 }
 
 impl Root {
@@ -134,7 +139,7 @@ impl Root {
             .ok_or_emit(&mut emitter);
 
         let kura = self.kura.parse();
-        let mut sumeragi = self.sumeragi.parse();
+
         let (network, block_sync, transaction_gossiper) = self.network.parse();
         let logger = self.logger;
         let queue = self.queue;
@@ -144,22 +149,29 @@ impl Root {
         let telemetry = self.telemetry.map(actual::Telemetry::from);
         let chain_wide = self.chain_wide.parse();
 
+        let peer_id = key_pair.as_ref().map(|key_pair| {
+            PeerId::new(
+                network.address.value().clone(),
+                key_pair.public_key().clone(),
+            )
+        });
+
+        let sumeragi = peer_id
+            .as_ref()
+            .map(|id| self.sumeragi.parse_and_push_self(id.clone()))
+            .transpose()
+            .ok_or_emit(&mut emitter)
+            .flatten();
+
         emitter.into_result()?;
 
         let key_pair = key_pair.unwrap();
-        let peer_id = PeerId::new(
-            network.address.value().clone(),
-            key_pair.public_key().clone(),
-        );
-
         let peer = actual::Common {
             chain_id: self.chain_id.0,
             key_pair,
-            peer_id,
+            peer_id: peer_id.unwrap(),
         };
         let genesis = genesis.unwrap();
-
-        sumeragi.trusted_peers.push(peer.peer_id());
 
         Ok(actual::Root {
             common: peer,
@@ -167,7 +179,7 @@ impl Root {
             genesis,
             torii,
             kura,
-            sumeragi,
+            sumeragi: sumeragi.unwrap(),
             block_sync,
             transaction_gossiper,
             live_query_store,
@@ -279,7 +291,7 @@ pub struct KuraDebug {
 #[derive(Debug, ReadConfig)]
 pub struct Sumeragi {
     #[config(env = "SUMERAGI_TRUSTED_PEERS", default)]
-    pub trusted_peers: TrustedPeers,
+    pub trusted_peers: WithOrigin<TrustedPeers>,
     #[config(nested)]
     pub debug: SumeragiDebug,
 }
@@ -305,15 +317,21 @@ impl Default for TrustedPeers {
 }
 
 impl Sumeragi {
-    fn parse(self) -> actual::Sumeragi {
+    fn parse_and_push_self(self, self_id: PeerId) -> Result<actual::Sumeragi, ParseError> {
         let Self {
             trusted_peers,
             debug: SumeragiDebug { force_soft_fork },
         } = self;
 
-        actual::Sumeragi {
-            trusted_peers: trusted_peers.0,
-            debug_force_soft_fork: force_soft_fork,
+        let mut trusted_peers = trusted_peers.map(|x| x.0);
+        if let PushResult::Duplicate(duplicate) = trusted_peers.value_mut().push(self_id) {
+            Err(ParseError::TrustedPeersWithSelf { id: duplicate })
+                .attach_printable(trusted_peers.into_attachment().display_as_debug())?
+        } else {
+            Ok(actual::Sumeragi {
+                trusted_peers,
+                debug_force_soft_fork: force_soft_fork,
+            })
         }
     }
 }
