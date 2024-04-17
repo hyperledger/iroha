@@ -2,7 +2,7 @@ name: I2::Release::Tests
 
 on:
   pull_request:
-    branches: [stable, lts]
+    branches: [stable, iroha2-lts]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

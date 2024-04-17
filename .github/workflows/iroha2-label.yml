@@ -2,7 +2,7 @@ name: I2::Label
 
 on:
   pull_request_target:
-    branches: [main, stable, lts]
+    branches: [main, stable, iroha2-lts]
     types: [opened]
 
 jobs:
