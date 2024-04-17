@@ -69,7 +69,7 @@ pub struct Config {
 
 /// An error type for [`Config::load`]
 #[derive(thiserror::Error, Debug, Copy, Clone)]
-#[error("Unable to load Iroha Client configuration")]
+#[error("Failed to load configuration")]
 pub struct LoadError;
 
 impl Config {
@@ -91,8 +91,6 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
     #[test]

@@ -7,7 +7,7 @@ use std::{
 };
 
 use erased_serde::Serialize;
-use error_stack::{IntoReportCompat as _, ResultExt as _};
+use error_stack::{IntoReportCompat, ResultExt};
 use eyre::{eyre, Error, Result, WrapErr};
 use iroha_client::{
     client::{Client, QueryResult},
@@ -176,8 +176,14 @@ impl RunArgs for Subcommand {
 }
 
 #[derive(Error, Debug)]
-#[error("Failure occurred while running Iroha Client CLI")]
-struct MainError;
+enum MainError {
+    #[error("Failed to load Iroha Client CLI configuration")]
+    Config,
+    #[error("Failed to serialize config")]
+    SerializeConfig,
+    #[error("Failed to run the command")]
+    Subcommand,
+}
 
 fn main() -> error_stack::Result<(), MainError> {
     let Args {
@@ -186,14 +192,16 @@ fn main() -> error_stack::Result<(), MainError> {
         verbose,
     } = clap::Parser::parse();
 
-    let config = Config::load(config_path).change_context(MainError)?;
-
+    let config = Config::load(config_path)
+        // FIXME: would be nice to NOT change the context, it's unnecessary
+        .change_context(MainError::Config)
+        .attach_printable("config path was set by `--config` argument")?;
     if verbose {
         eprintln!(
             "Configuration: {}",
             &serde_json::to_string_pretty(&config)
-                .change_context(MainError)
-                .attach_printable("failed to serialize configuration")?
+                .change_context(MainError::SerializeConfig)
+                .attach_printable("caused by `--verbose` argument")?
         );
     }
 
@@ -201,11 +209,12 @@ fn main() -> error_stack::Result<(), MainError> {
         write: stdout(),
         config,
     };
-
     subcommand
         .run(&mut context)
         .into_report()
-        .map_err(|report| report.change_context(MainError))
+        .map_err(|report| report.change_context(MainError::Subcommand))?;
+
+    Ok(())
 }
 
 /// Submit instruction with metadata to network.
