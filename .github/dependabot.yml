@@ -2,31 +2,31 @@ version: 2
 
 updates:
   - package-ecosystem: "docker"
-    target-branch: "iroha2-dev"
+    target-branch: "main"
     directory: "/"
     schedule:
       interval: "weekly"
 
   - package-ecosystem: "github-actions"
-    target-branch: "iroha2-dev"
+    target-branch: "main"
     directory: "/"
     schedule:
       interval: "weekly"
 
   - package-ecosystem: "pip"
-    target-branch: "iroha2-dev"
+    target-branch: "main"
     directory: "/client_cli/pytests/"
     schedule:
       interval: "daily"
 
   - package-ecosystem: "cargo"
-    target-branch: "iroha2-dev"
+    target-branch: "main"
     directory: "/"
     schedule:
       interval: "daily"
 
   - package-ecosystem: "cargo"
-    target-branch: "iroha2-dev"
+    target-branch: "main"
     directory: "/default_validator/"
     schedule:
       interval: "daily"
