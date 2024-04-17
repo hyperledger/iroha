@@ -332,6 +332,7 @@ jobs:
         with: &step_docker_meta_with
           images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
           tags: |
+            type=raw,value=main,enable=${{ github.ref == format('refs/heads/{0}', 'iroha1-main') }}
             type=raw,value=${{env.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
