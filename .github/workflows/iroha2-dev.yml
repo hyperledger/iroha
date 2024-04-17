@@ -74,17 +74,17 @@ jobs:
       - name: Build
         run: mold --run cargo build --release --verbose
       - name: Archive iroha
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: cargo-build-release
           path: target/release/iroha
       - name: Archive iroha_client_cli
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: cargo-client-cli-build-release
           path: target/release/iroha_client_cli
       - name: Archive kagami
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: cargo-crypto-cli-build-release
           path: target/release/kagami
@@ -93,7 +93,7 @@ jobs:
           mkdir -p target/schema
           cargo run --bin kagami -- schema >target/schema/schema.json
       - name: Archive schema
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: schema
           path: target/schema
@@ -146,7 +146,7 @@ jobs:
           github_token: ${{ secrets.github_token }}
         continue-on-error: true
       - name: Archive telemetry
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: telemetry
           path: target/telemetry
