@@ -61,7 +61,7 @@ manyhow = { version = "0.8.1", features = ["darling"] }
 darling = "0.20.3"
 drop_bomb = "0.1.5"
 
-futures = { version = "0.3.28", default-features = false }
+futures = { version = "0.3.30", default-features = false }
 tokio = "1.33.0"
 tokio-stream = "0.1.14"
 tokio-tungstenite = "0.20.1"
