@@ -113,7 +113,7 @@ jobs:
       - name: Set up Docker Buildx
         id: buildx
         if: always()
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
         with:
           install: true
       - name: Build and push iroha2:dev image
