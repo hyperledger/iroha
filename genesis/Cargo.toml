@@ -12,7 +12,7 @@ workspace = true
 
 [dependencies]
 iroha_crypto = { workspace = true }
-iroha_data_model = { workspace = true, features = ["http", "transparent_api"] }
+iroha_data_model = { workspace = true, features = ["http"] }
 iroha_schema = { workspace = true }
 
 parity-scale-codec = { workspace = true, features = ["derive"] }

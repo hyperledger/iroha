@@ -10,7 +10,14 @@
 #![allow(missing_docs)]
 
 use std::{
-    error::Error, fmt::Debug, fs::File, io::Read, num::{NonZeroU32, NonZeroUsize}, path::{Path, PathBuf}, str::FromStr, time::Duration
+    error::Error,
+    fmt::Debug,
+    fs::File,
+    io::Read,
+    num::{NonZeroU32, NonZeroUsize},
+    path::{Path, PathBuf},
+    str::FromStr,
+    time::Duration,
 };
 
 pub use boilerplate::*;
@@ -25,14 +32,13 @@ use iroha_genesis::GenesisSignatureParseError;
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use url::Url;
 
+use super::actual::GenesisSignatureConfig;
 use crate::{
     kura::InitMode as KuraInitMode,
     logger::Format as LoggerFormat,
     parameters::{actual, defaults::telemetry::*},
     snapshot::Mode as SnapshotMode,
 };
-
-use super::actual::GenesisSignatureConfig;
 
 mod boilerplate;
 
@@ -357,7 +363,8 @@ impl Genesis {
             (Some(file), Some(signature), true) => Ok(actual::Genesis::Full {
                 public_key: self.public_key,
                 file,
-                signature: GenesisSignatureConfig::from_str(&signature).map_err(GenesisConfigError::from)?,
+                signature: GenesisSignatureConfig::from_str(&signature)
+                    .map_err(GenesisConfigError::from)?,
             }),
             (_, _, false) => Err(GenesisConfigError::GenesisWithoutSubmit),
             (_, _, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
@@ -372,7 +379,7 @@ pub enum GenesisConfigError {
     ///  `--submit-genesis` was set, but `genesis.file`, `genesis.public_key` and `genesis.signature` are not presented
     SubmitWithoutGenesis,
     ///  Failed to parse `GenesisSignatureConfig` from hex string
-    Parsing(#[from] GenesisSignatureParseError)
+    Parsing(#[from] GenesisSignatureParseError),
 }
 
 #[derive(Debug)]

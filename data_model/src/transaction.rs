@@ -772,6 +772,12 @@ mod http {
             self
         }
 
+        /// Convert `TransactionBuilder` into `TransactionPayload`.
+        #[must_use]
+        pub fn into_payload(self) -> TransactionPayload {
+            self.payload
+        }
+
         /// Sign transaction with provided key pair.
         #[must_use]
         pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {

@@ -653,28 +653,46 @@ mod tests {
         fn relative_file_paths_resolution() -> Result<()> {
             // Given
 
+            let dir = tempfile::tempdir()?;
+
             let genesis = RawGenesisBlockBuilder::default()
-                .executor_file(PathBuf::from("./executor.wasm"))
+                .executor_file(PathBuf::from(
+                    dir.path().join("config/genesis/executor.wasm"),
+                ))
                 .build();
+
+            let genesis_path = dir.path().join("config/genesis/gen.json");
+            let executor_path = dir.path().join("config/genesis/executor.wasm");
+            let config_path = dir.path().join("config/config.toml");
+            std::fs::create_dir(dir.path().join("config"))?;
+            std::fs::create_dir(dir.path().join("config/genesis"))?;
+            std::fs::write(genesis_path, json5::to_string(&genesis)?)?;
+            std::fs::write(executor_path, "")?;
 
             let config = {
                 let mut cfg = config_factory();
                 cfg.genesis.file.set("./genesis/gen.json".into());
+
+                let keypair = KeyPair::new(
+                    cfg.public_key.clone().get().unwrap(),
+                    cfg.private_key.clone().get().unwrap(),
+                )?;
+                let genesis_block = RawGenesisBlock::try_from(genesis.clone())?;
+                let signature = GenesisNetwork::new_genesis_signature(
+                    genesis_block,
+                    &cfg.chain_id.clone().get().unwrap(),
+                    &keypair,
+                )
+                .to_hex_string();
+                cfg.genesis.signature.set(signature);
+
                 cfg.kura.store_dir.set("../storage".into());
                 cfg.snapshot.store_dir.set("../snapshots".into());
                 cfg.dev_telemetry.out_file.set("../logs/telemetry".into());
                 toml::Value::try_from(cfg)?
             };
 
-            let dir = tempfile::tempdir()?;
-            let genesis_path = dir.path().join("config/genesis/gen.json");
-            let executor_path = dir.path().join("config/genesis/executor.wasm");
-            let config_path = dir.path().join("config/config.toml");
-            std::fs::create_dir(dir.path().join("config"))?;
-            std::fs::create_dir(dir.path().join("config/genesis"))?;
             std::fs::write(config_path, toml::to_string(&config)?)?;
-            std::fs::write(genesis_path, json5::to_string(&genesis)?)?;
-            std::fs::write(executor_path, "")?;
 
             let config_path = dir.path().join("config/config.toml");
 

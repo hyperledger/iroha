@@ -59,7 +59,7 @@ impl std::error::Error for GenesisSignatureParseError {}
 #[derive(Debug, Clone, Decode, Encode)]
 pub struct GenesisSignature {
     chain_id: ChainId,
-    creation_time_ms: Duration,
+    creation_time: Duration,
     signatures: SignaturesOf<TransactionPayload>,
 }
 
@@ -72,7 +72,7 @@ impl GenesisSignature {
     ) -> Self {
         Self {
             chain_id,
-            creation_time_ms,
+            creation_time: creation_time_ms,
             signatures,
         }
     }
@@ -138,15 +138,11 @@ impl GenesisNetwork {
         genesis_block: RawGenesisBlock,
         signature: GenesisSignature,
     ) -> Result<GenesisNetwork> {
-        let payload = TransactionPayload {
-            chain_id: signature.chain_id,
-            creation_time_ms: signature.creation_time_ms.as_millis().try_into()?,
-            authority: GENESIS_ACCOUNT_ID.clone(),
-            instructions: Executable::Instructions(genesis_block.unify().isi),
-            time_to_live_ms: None,
-            nonce: None,
-            metadata: UnlimitedMetadata::new(),
-        };
+        let mut payload_builder =
+            TransactionBuilder::new(signature.chain_id, GENESIS_ACCOUNT_ID.clone())
+                .with_instructions(genesis_block.unify().isi);
+        payload_builder.set_creation_time(signature.creation_time);
+        let payload = payload_builder.into_payload();
 
         let genesis_signed_transaction =
             SignedTransaction::try_from((signature.signatures, payload))

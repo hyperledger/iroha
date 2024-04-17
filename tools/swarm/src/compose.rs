@@ -4,7 +4,7 @@ use std::{
     fs::File,
     io::Write,
     num::NonZeroU16,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
@@ -92,7 +92,7 @@ pub struct DockerComposeServiceBuilder {
     volumes: Vec<(String, String)>,
     trusted_peers: BTreeSet<PeerId>,
     genesis_public_key: PublicKey,
-    signed_genesis_file: Option<PathBuf>,
+    genesis_signature: Option<String>,
     health_check: bool,
 }
 
@@ -119,7 +119,7 @@ impl DockerComposeServiceBuilder {
         volumes: Vec<(String, String)>,
         trusted_peers: BTreeSet<PeerId>,
         genesis_public_key: PublicKey,
-        signed_genesis_file: Option<PathBuf>,
+        genesis_signature: Option<String>,
     ) -> Self {
         Self {
             chain_id,
@@ -128,7 +128,7 @@ impl DockerComposeServiceBuilder {
             volumes,
             trusted_peers,
             genesis_public_key,
-            signed_genesis_file,
+            genesis_signature,
             health_check: false,
         }
     }
@@ -138,10 +138,8 @@ impl DockerComposeServiceBuilder {
         self
     }
 
-    // TODO: Verify
-    #[allow(dead_code)]
-    pub fn submit_genesis_with(mut self, signed_genesis_file: PathBuf) -> Self {
-        self.signed_genesis_file = Some(signed_genesis_file);
+    pub fn submit_genesis_with(mut self, genesis_signature: String) -> Self {
+        self.genesis_signature = Some(genesis_signature);
         self
     }
 
@@ -153,7 +151,7 @@ impl DockerComposeServiceBuilder {
             volumes,
             trusted_peers,
             genesis_public_key,
-            signed_genesis_file,
+            genesis_signature,
             health_check,
         } = self;
 
@@ -162,7 +160,7 @@ impl DockerComposeServiceBuilder {
             PairColon(peer.port_api, peer.port_api),
         ];
 
-        let command = if signed_genesis_file.is_some() {
+        let command = if genesis_signature.is_some() {
             ServiceCommand::SubmitGenesis
         } else {
             ServiceCommand::None
@@ -305,8 +303,9 @@ struct FullPeerEnv {
     private_key_payload: Vec<u8>,
     p2p_address: SocketAddr,
     api_address: SocketAddr,
-    genesis_public_key: PublicKey,
     genesis_file: Option<String>,
+    genesis_public_key: PublicKey,
+    genesis_signature: Option<String>,
     #[serde_as(as = "Option<serde_with::json::JsonString>")]
     sumeragi_trusted_peers: Option<BTreeSet<PeerId>>,
 }
@@ -323,6 +322,7 @@ struct CompactPeerEnv {
 impl From<CompactPeerEnv> for FullPeerEnv {
     fn from(value: CompactPeerEnv) -> Self {
         let genesis_file = Some(PATH_TO_GENESIS.to_string());
+        let genesis_signature = generate_hex_string_signature(&value.chain_id, &value.key_pair);
 
         let (private_key_algorithm, private_key_payload) = {
             let (algorithm, payload) = value.key_pair.private_key().clone().to_bytes();
@@ -334,8 +334,9 @@ impl From<CompactPeerEnv> for FullPeerEnv {
             public_key: value.key_pair.public_key().clone(),
             private_key_algorithm,
             private_key_payload,
-            genesis_public_key: value.genesis_public_key,
             genesis_file,
+            genesis_public_key: value.genesis_public_key,
+            genesis_signature: Some(genesis_signature),
             p2p_address: value.p2p_addr,
             api_address: value.api_addr,
             sumeragi_trusted_peers: if value.trusted_peers.is_empty() {
@@ -405,10 +406,9 @@ impl DockerComposeBuilder<'_> {
                     .cloned()
                     .collect(),
                 genesis_key_pair.public_key().clone(),
-                None
+                None,
             )
-            // TODO: Verify
-            // .submit_genesis_with(genesis_key_pair.private_key().clone())
+            .submit_genesis_with(generate_hex_string_signature(&chain_id, &genesis_key_pair))
             .set_health_check(self.health_check)
             .build();
 
@@ -458,6 +458,16 @@ fn generate_key_pair(base_seed: Option<&[u8]>, additional_seed: &[u8]) -> KeyPai
         let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
         KeyPair::from_seed(seed, Algorithm::default())
     })
+}
+
+fn generate_hex_string_signature(chain_id: &ChainId, genesis_key_pair: &KeyPair) -> String {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let raw_block = iroha_genesis::RawGenesisBlock::from_path(
+        manifest_dir.join("../../configs/swarm/genesis.json"),
+    )
+    .expect("Could not find genesis.json. Path should be changed");
+    iroha_genesis::GenesisNetwork::new_genesis_signature(raw_block, chain_id, genesis_key_pair)
+        .to_hex_string()
 }
 
 mod peer_generator {

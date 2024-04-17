@@ -3255,6 +3255,7 @@ dependencies = [
  "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_genesis",
  "iroha_primitives",
  "owo-colors",
  "path-absolutize",

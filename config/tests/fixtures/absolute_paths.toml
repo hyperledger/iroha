@@ -11,4 +11,4 @@ out_file = "/telemetry/file.json"
 
 [genesis]
 file = "/oh/my/genesis.json"
-signature = "ABCDEFG"
+signature = "043061141f660000000040c6e6170400808ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb01013103d69f1ab927443712914ca427adea127649366599c57f1b69fc2ed65f0a62f2f78e454c3e5b6d6890dfe6d099a1645606d60db8a3fc0564af2df14c76ff09"
