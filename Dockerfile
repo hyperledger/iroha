@@ -11,8 +11,8 @@ RUN pacman -Syu --noconfirm --disable-download-timeout
 
 # Set up Rust toolchain
 RUN pacman -S rustup mold musl rust-musl wget --noconfirm --disable-download-timeout
-RUN rustup toolchain install nightly-2024-01-12
-RUN rustup default nightly-2024-01-12
+RUN rustup toolchain install nightly-2024-04-18
+RUN rustup default nightly-2024-04-18
 RUN rustup target add x86_64-unknown-linux-musl wasm32-unknown-unknown
 RUN rustup component add rust-src
 
