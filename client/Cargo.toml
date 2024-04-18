@@ -59,7 +59,7 @@ iroha_version = { workspace = true, features = ["http"] }
 
 attohttpc = { version = "0.26.1", default-features = false }
 eyre = { workspace = true }
-http = "0.2.9"
+http = "0.2.12"
 url = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -73,7 +73,7 @@ parity-scale-codec = { workspace = true, default-features = false, features = ["
 tokio = { workspace = true, features = ["rt"] }
 tokio-tungstenite = { workspace = true }
 tungstenite = { workspace = true }
-futures-util = "0.3.28"
+futures-util = "0.3.30"
 merge = "0.1.0"
 toml = { workspace = true }
 nonzero_ext = { workspace = true }
