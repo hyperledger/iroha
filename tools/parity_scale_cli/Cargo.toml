@@ -1,5 +1,5 @@
 [package]
-name = "parity_scale_decoder"
+name = "parity_scale_cli"
 
 edition.workspace = true
 version.workspace = true
