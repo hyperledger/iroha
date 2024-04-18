@@ -216,14 +216,14 @@ pub enum TryReadError {
     IO(#[source] std::io::Error, PathBuf),
     /// Error (de)serializing state snapshot
     Serialization(#[from] serde_json::Error),
-    /// Snapshot is in a non-consistent state. Snapshot has greater height ({snapshot_height}) than kura block store ({kura_height})
+    /// Snapshot is in a non-consistent state. Snapshot has greater height (`snapshot_height`) than kura block store (`kura_height`)
     MismatchedHeight {
         /// The amount of block hashes stored by snapshot
         snapshot_height: usize,
         /// The amount of blocks stored by [`Kura`]
         kura_height: usize,
     },
-    /// Snapshot is in a non-consistent state. Hash of the block at height {height} is different between snapshot ({snapshot_block_hash}) and kura ({kura_block_hash})
+    /// Snapshot is in a non-consistent state. Hash of the block at height `height` is different between snapshot (`snapshot_block_hash`) and kura (`kura_block_hash`)
     MismatchedHash {
         /// Height at which block hashes differs between snapshot and [`Kura`]
         height: usize,

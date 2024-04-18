@@ -312,7 +312,7 @@ impl GetSetFieldAttrs {
                 Entry::Occupied(mut o) => {
                     let o = o.get_mut();
                     // visibility is overwritten, while the "with_prefix" is merged
-                    o.visibility = options.visibility.clone();
+                    o.visibility.clone_from(&options.visibility);
                     o.with_prefix |= options.with_prefix;
                 }
                 Entry::Vacant(v) => {

@@ -17,7 +17,7 @@ iroha_data_model = { workspace = true }
 color-eyre = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-tracing-core = "0.1.31"
+tracing-core = "0.1.32"
 tracing-futures = { version = "0.2.5", default-features = false, features = ["std-future", "std"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi", "json"] }
 tokio = { workspace = true, features = ["sync", "rt", "macros"] }

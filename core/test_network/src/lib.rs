@@ -33,9 +33,6 @@ use tokio::{
 };
 pub use unique_port;
 
-#[derive(Debug, Clone, Copy)]
-struct ShutdownRuntime;
-
 /// Network of peers
 pub struct Network {
     /// Genesis peer which sends genesis block to everyone

@@ -465,7 +465,7 @@ mod tests {
     #[derive(Decode)]
     enum QueryRequest<Q> {
         Query(QueryWithParameters<Q>),
-        Cursor(#[allow(unused_tuple_struct_fields)] ForwardCursor),
+        Cursor(#[allow(dead_code)] ForwardCursor),
     }
 
     #[derive(Decode)]

@@ -14,6 +14,6 @@ workspace = true
 [dependencies]
 eyre = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
-sha256 = "1.4.0"
+sha256 = "1.5.0"
 path-absolutize = { workspace = true }
-wasm-opt = "0.116.0"
+wasm-opt = "0.116.1"

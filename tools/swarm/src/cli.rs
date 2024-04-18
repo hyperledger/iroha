@@ -15,7 +15,7 @@ pub struct Cli {
     /// The health checks use predefined settings.
     ///
     /// For more details on health check configurations in Docker Compose files, visit:
-    /// https://docs.docker.com/compose/compose-file/compose-file-v3/#healthcheck
+    /// <https://docs.docker.com/compose/compose-file/compose-file-v3/#healthcheck>
     #[arg(long)]
     pub health_check: bool,
     /// Re-create the target file if it already exists.

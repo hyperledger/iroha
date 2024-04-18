@@ -62,7 +62,7 @@ pub mod isi {
             }
 
             let domain = state_transaction.world.domain_mut(&account_id.domain_id)?;
-            if domain.accounts.get(&account_id).is_some() {
+            if domain.accounts.contains_key(&account_id) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
                     id: IdBox::AccountId(account_id),
@@ -121,7 +121,7 @@ pub mod isi {
             let domain = state_transaction
                 .world
                 .domain_mut(&asset_definition_id.domain_id)?;
-            if domain.asset_definitions.get(&asset_definition_id).is_some() {
+            if domain.asset_definitions.contains_key(&asset_definition_id) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
                     id: IdBox::AssetDefinitionId(asset_definition_id),
