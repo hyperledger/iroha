@@ -153,6 +153,9 @@ impl Filter for DataEntityFilter {
             }
             (Self::ByAsset(filter_opt), DataEvent::Asset(asset)) => filter_opt.matches(asset),
             (Self::ByRole(filter_opt), DataEvent::Role(role)) => filter_opt.matches(role),
+            (Self::ByTrigger(filter_opt), DataEvent::Trigger(trigger)) => {
+                filter_opt.matches(trigger)
+            }
             _ => false,
         }
     }
