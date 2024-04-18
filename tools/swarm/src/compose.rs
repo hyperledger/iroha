@@ -91,6 +91,7 @@ pub struct DockerComposeServiceBuilder {
     source: ServiceSource,
     volumes: Vec<(String, String)>,
     trusted_peers: BTreeSet<PeerId>,
+    genesis_file: Option<String>,
     genesis_public_key: PublicKey,
     genesis_signature: Option<String>,
     health_check: bool,
@@ -118,6 +119,7 @@ impl DockerComposeServiceBuilder {
         source: ServiceSource,
         volumes: Vec<(String, String)>,
         trusted_peers: BTreeSet<PeerId>,
+        genesis_file: Option<String>,
         genesis_public_key: PublicKey,
         genesis_signature: Option<String>,
     ) -> Self {
@@ -127,6 +129,7 @@ impl DockerComposeServiceBuilder {
             source,
             volumes,
             trusted_peers,
+            genesis_file,
             genesis_public_key,
             genesis_signature,
             health_check: false,
@@ -150,6 +153,7 @@ impl DockerComposeServiceBuilder {
             source,
             volumes,
             trusted_peers,
+            genesis_file,
             genesis_public_key,
             genesis_signature,
             health_check,
@@ -170,6 +174,7 @@ impl DockerComposeServiceBuilder {
             chain_id,
             trusted_peers,
             genesis_public_key,
+            genesis_file,
             key_pair: peer.key_pair.clone(),
             p2p_addr: socket_addr!(0.0.0.0:peer.port_p2p),
             api_addr: socket_addr!(0.0.0.0:peer.port_api),
@@ -314,6 +319,8 @@ struct CompactPeerEnv {
     chain_id: ChainId,
     key_pair: KeyPair,
     genesis_public_key: PublicKey,
+    /// Genesis file is only needed for a peer that is submitting the genesis block
+    genesis_file: Option<String>,
     p2p_addr: SocketAddr,
     api_addr: SocketAddr,
     trusted_peers: BTreeSet<PeerId>,
@@ -321,8 +328,16 @@ struct CompactPeerEnv {
 
 impl From<CompactPeerEnv> for FullPeerEnv {
     fn from(value: CompactPeerEnv) -> Self {
-        let genesis_file = Some(PATH_TO_GENESIS.to_string());
-        let genesis_signature = generate_hex_string_signature(&value.chain_id, &value.key_pair);
+        let (genesis_file, genesis_signature) =
+            value.genesis_file.map_or((None, None), |genesis_path| {
+                (
+                    Some(genesis_path),
+                    Some(generate_hex_string_signature(
+                        &value.chain_id,
+                        &value.key_pair,
+                    )),
+                )
+            });
 
         let (private_key_algorithm, private_key_payload) = {
             let (algorithm, payload) = value.key_pair.private_key().clone().to_bytes();
@@ -336,7 +351,7 @@ impl From<CompactPeerEnv> for FullPeerEnv {
             private_key_payload,
             genesis_file,
             genesis_public_key: value.genesis_public_key,
-            genesis_signature: Some(genesis_signature),
+            genesis_signature,
             p2p_address: value.p2p_addr,
             api_address: value.api_addr,
             sumeragi_trusted_peers: if value.trusted_peers.is_empty() {
@@ -405,6 +420,7 @@ impl DockerComposeBuilder<'_> {
                     .filter(|trusted_peer| trusted_peer.public_key() != peer.key_pair.public_key())
                     .cloned()
                     .collect(),
+                Some(PATH_TO_GENESIS.into()),
                 genesis_key_pair.public_key().clone(),
                 None,
             )
@@ -429,6 +445,7 @@ impl DockerComposeBuilder<'_> {
                         })
                         .cloned()
                         .collect(),
+                    None,
                     genesis_key_pair.public_key().clone(),
                     None,
                 )
@@ -466,8 +483,12 @@ fn generate_hex_string_signature(chain_id: &ChainId, genesis_key_pair: &KeyPair)
         manifest_dir.join("../../configs/swarm/genesis.json"),
     )
     .expect("Could not find genesis.json. Path should be changed");
-    iroha_genesis::GenesisNetwork::new_genesis_signature(raw_block, chain_id, genesis_key_pair)
-        .to_hex_string()
+    if cfg!(test) {
+        "9030303030303030302d303030302d303030302d303030302d303030303030303030303030e36c2066000000004034f13504008039e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8010106fd66ada31d1fed20f6ade6dfd0a033d07b89258a426624777ed1076b205661306958d51629b7a2df0f7251b0df5f02f53beaf504fffe5a7557ec1af0ac2a03".into()
+    } else {
+        iroha_genesis::GenesisNetwork::new_genesis_signature(raw_block, chain_id, genesis_key_pair)
+            .to_hex_string()
+    }
 }
 
 mod peer_generator {
@@ -595,10 +616,12 @@ mod tests {
 
     #[test]
     fn default_config_with_swarm_env_is_exhaustive() {
-        let keypair = KeyPair::random();
+        let keypair = KeyPair::from_seed(vec![1, 5, 1, 2, 2, 3, 4, 1, 2, 3], Algorithm::default());
+        println!("{:?}", keypair);
         let env: TestEnv = CompactPeerEnv {
             chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
+            genesis_file: Some(PATH_TO_GENESIS.into()),
             genesis_public_key: keypair.public_key().clone(),
             p2p_addr: socket_addr!(127.0.0.1:1337),
             api_addr: socket_addr!(127.0.0.1:1338),
@@ -651,6 +674,7 @@ mod tests {
                         environment: CompactPeerEnv {
                             chain_id,
                             key_pair: key_pair.clone(),
+                            genesis_file: Some(PATH_TO_GENESIS.into()),
                             genesis_public_key: key_pair.public_key().clone(),
                             p2p_addr: SocketAddr::from_str("iroha1:1339").unwrap(),
                             api_addr: SocketAddr::from_str("iroha1:1338").unwrap(),
@@ -691,8 +715,9 @@ mod tests {
                   PRIVATE_KEY_PAYLOAD: db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8
                   P2P_ADDRESS: iroha1:1339
                   API_ADDRESS: iroha1:1338
-                  GENESIS_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
                   GENESIS_FILE: /config/genesis.json
+                  GENESIS_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
+                  GENESIS_SIGNATURE: 9030303030303030302d303030302d303030302d303030302d303030303030303030303030e36c2066000000004034f13504008039e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8010106fd66ada31d1fed20f6ade6dfd0a033d07b89258a426624777ed1076b205661306958d51629b7a2df0f7251b0df5f02f53beaf504fffe5a7557ec1af0ac2a03
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -714,6 +739,7 @@ mod tests {
         let env: FullPeerEnv = CompactPeerEnv {
             chain_id,
             key_pair: key_pair.clone(),
+            genesis_file: Some(PATH_TO_GENESIS.into()),
             genesis_public_key: key_pair.public_key().clone(),
             p2p_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             api_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
@@ -730,8 +756,9 @@ mod tests {
             PRIVATE_KEY_PAYLOAD: 6bf163fd75192b81a78cb20c5f8cb917f591ac6635f2577e6ca305c27a456a5d415388a90fa238196737746a70565d041cfb32eaa0c89ff8cb244c7f832a6ebd
             P2P_ADDRESS: iroha0:1337
             API_ADDRESS: iroha0:1337
-            GENESIS_PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
             GENESIS_FILE: /config/genesis.json
+            GENESIS_PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
+            GENESIS_SIGNATURE: 9030303030303030302d303030302d303030302d303030302d303030303030303030303030e36c2066000000004034f13504008039e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8010106fd66ada31d1fed20f6ade6dfd0a033d07b89258a426624777ed1076b205661306958d51629b7a2df0f7251b0df5f02f53beaf504fffe5a7557ec1af0ac2a03
         "#]];
         expected.assert_eq(&actual);
     }
@@ -773,8 +800,9 @@ mod tests {
                   PRIVATE_KEY_PAYLOAD: 5f8d1291bf6b762ee748a87182345d135fd167062857aa4f20ba39f25e74c4b0f0321eb4139163c35f88bf78520ff7071499d7f4e79854550028a196c7b49e13
                   P2P_ADDRESS: 0.0.0.0:1337
                   API_ADDRESS: 0.0.0.0:8080
-                  GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   GENESIS_FILE: /config/genesis.json
+                  GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
+                  GENESIS_SIGNATURE: 9030303030303030302d303030302d303030302d303030302d303030303030303030303030e36c2066000000004034f13504008039e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8010106fd66ada31d1fed20f6ade6dfd0a033d07b89258a426624777ed1076b205661306958d51629b7a2df0f7251b0df5f02f53beaf504fffe5a7557ec1af0ac2a03
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"}]'
                 ports:
                 - 1337:1337
@@ -800,7 +828,6 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1338
                   API_ADDRESS: 0.0.0.0:8081
                   GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  GENESIS_FILE: /config/genesis.json
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1338:1338
@@ -825,7 +852,6 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1339
                   API_ADDRESS: 0.0.0.0:8082
                   GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  GENESIS_FILE: /config/genesis.json
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1339:1339
@@ -850,7 +876,6 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1340
                   API_ADDRESS: 0.0.0.0:8083
                   GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  GENESIS_FILE: /config/genesis.json
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1340:1340
