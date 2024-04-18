@@ -646,7 +646,6 @@ mod http {
         /// Construct [`Self`], using the time from [`TimeSource`]
         // we don't want to expose this to non-tests
         #[inline]
-        #[cfg(all(feature = "std", feature = "transparent_api"))]
         pub fn new_with_time_source(
             chain_id: ChainId,
             authority: AccountId,
