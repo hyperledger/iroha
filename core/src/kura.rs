@@ -811,7 +811,7 @@ pub enum Error {
     Codec(#[from] parity_scale_codec::Error),
     /// Failed to allocate buffer
     Alloc(#[from] std::collections::TryReserveError),
-    /// Tried reading block data out of bounds: {start_block_height}, {block_count}
+    /// Tried reading block data out of bounds: `start_block_height`, `block_count`
     OutOfBoundsBlockRead {
         /// The block height from which the read was supposed to start
         start_block_height: u64,

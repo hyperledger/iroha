@@ -79,7 +79,7 @@ pub enum BlockValidationError {
 /// Error during signature verification
 #[derive(thiserror::Error, displaydoc::Display, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureVerificationError {
-    /// The block doesn't have enough valid signatures to be committed ({votes_count} out of {min_votes_for_commit})
+    /// The block doesn't have enough valid signatures to be committed (`votes_count` out of `min_votes_for_commit`)
     NotEnoughSignatures {
         /// Current number of signatures
         votes_count: usize,
@@ -607,8 +607,7 @@ mod valid {
             let payload = payload(&block).clone();
             key_pairs
                 .iter()
-                .enumerate()
-                .map(|(_, key_pair)| SignatureOf::new(key_pair, &payload))
+                .map(|key_pair| SignatureOf::new(key_pair, &payload))
                 .try_for_each(|signature| block.add_signature(signature))
                 .expect("Failed to add signatures");
 

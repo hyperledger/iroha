@@ -37,4 +37,4 @@ erased-serde = "0.3.31"
 
 [build-dependencies]
 vergen = { version = "8.3.1", default-features = false }
-color-eyre = "0.6.2"
+color-eyre = "0.6.3"

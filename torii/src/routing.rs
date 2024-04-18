@@ -214,7 +214,7 @@ pub mod subscription {
         Consumer(#[from] Box<event::Error>),
         /// Event reception error
         Event(#[from] tokio::sync::broadcast::error::RecvError),
-        /// WebSocket error
+        /// `WebSocket` error
         WebSocket(#[from] warp::Error),
         /// A `Close` message is received. Not strictly an Error
         CloseMessage,

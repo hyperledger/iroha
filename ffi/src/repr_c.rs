@@ -1049,7 +1049,7 @@ impl<'slice, R: Clone> CTypeConvert<'slice, &'slice [Opaque], RefSlice<*const R>
     type FfiStore = Box<[R]>;
 
     fn into_repr_c(self, store: &mut Self::RustStore) -> RefSlice<*const R> {
-        *store = self.iter().map(|item| item as *const R).collect();
+        *store = self.iter().map(core::ptr::from_ref).collect();
         RefSlice::from_slice(Some(store))
     }
 
@@ -1096,8 +1096,7 @@ impl<'slice, R: Clone> CTypeConvert<'slice, &mut [Opaque], RefMutSlice<*mut R>>
     type FfiStore = Box<[R]>;
 
     fn into_repr_c(self, store: &mut Self::RustStore) -> RefMutSlice<*mut R> {
-        *store = self.iter_mut().map(|item| item as *mut R).collect();
-
+        *store = self.iter_mut().map(core::ptr::from_mut).collect();
         RefMutSlice::from_slice(Some(store))
     }
 

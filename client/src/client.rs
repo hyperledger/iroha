@@ -651,7 +651,7 @@ impl Client {
                         match transaction_event.status() {
                             TransactionStatus::Queued => {}
                             TransactionStatus::Approved => {
-                                block_height = transaction_event.block_height;
+                                block_height = transaction_event.block_height();
                             }
                             TransactionStatus::Rejected(reason) => {
                                 return Err((Clone::clone(&**reason)).into());

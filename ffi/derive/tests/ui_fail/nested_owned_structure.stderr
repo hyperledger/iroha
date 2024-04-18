@@ -2,9 +2,28 @@ error[E0277]: the trait bound `Vec<FfiStruct>: NonLocal<Vec<Opaque>>` is not sat
   --> tests/ui_fail/nested_owned_structure.rs:10:1
    |
 10 | #[ffi_export]
-   | ^^^^^^^^^^^^^ the trait `NonLocal<Vec<Opaque>>` is not implemented for `Vec<FfiStruct>`
+   | ^^^^^^^^^^^^^ the trait `NonLocal<Vec<Opaque>>` is not implemented for `Vec<FfiStruct>`, which is required by `Vec<Vec<FfiStruct>>: FfiOutPtr`
    |
    = help: the trait `NonLocal<Vec<Transparent>>` is implemented for `Vec<R>`
    = note: required for `Vec<Vec<FfiStruct>>` to implement `COutPtr<Vec<Vec<Opaque>>>`
    = note: required for `Vec<Vec<FfiStruct>>` to implement `FfiOutPtr`
    = note: this error originates in the attribute macro `ffi_export` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Vec<FfiStruct>: NonLocal<Vec<Opaque>>` is not satisfied
+  --> tests/ui_fail/nested_owned_structure.rs:10:1
+   |
+10 | #[ffi_export]
+   | ^^^^^^^^^^^^^ the trait `NonLocal<Vec<Opaque>>` is not implemented for `Vec<FfiStruct>`, which is required by `Vec<Vec<FfiStruct>>: COutPtr<Vec<Vec<Opaque>>>`
+   |
+   = help: the trait `NonLocal<Vec<Transparent>>` is implemented for `Vec<R>`
+   = note: required for `Vec<Vec<FfiStruct>>` to implement `COutPtr<Vec<Vec<Opaque>>>`
+   = note: this error originates in the attribute macro `ffi_export` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Vec<FfiStruct>: NonLocal<Vec<Opaque>>` is not satisfied
+  --> tests/ui_fail/nested_owned_structure.rs:17:14
+   |
+17 |     unsafe { __return_nested(nested.as_mut_ptr()) };
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `NonLocal<Vec<Opaque>>` is not implemented for `Vec<FfiStruct>`, which is required by `Vec<Vec<FfiStruct>>: COutPtr<Vec<Vec<Opaque>>>`
+   |
+   = help: the trait `NonLocal<Vec<Transparent>>` is implemented for `Vec<R>`
+   = note: required for `Vec<Vec<FfiStruct>>` to implement `COutPtr<Vec<Vec<Opaque>>>`

@@ -590,10 +590,7 @@ pub mod tests {
                 .expect("Failed to accept Transaction.")
         };
         // Check that fully signed transaction passes signature check
-        assert!(matches!(
-            fully_signed_tx.check_signature_condition(&state_view),
-            true
-        ));
+        assert!(fully_signed_tx.check_signature_condition(&state_view));
 
         let get_tx = |key_pair| {
             AcceptedTransaction::accept(tx.clone().sign(&key_pair), &chain_id, &tx_limits)

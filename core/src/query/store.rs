@@ -33,7 +33,7 @@ pub enum Error {
     /// Unknown cursor error.
     #[error(transparent)]
     UnknownCursor(#[from] UnknownCursor),
-    /// Connection with LiveQueryStore is closed.
+    /// Connection with `LiveQueryStore` is closed.
     #[error("Connection with LiveQueryStore is closed")]
     ConnectionClosed,
     /// Fetch size is too big.

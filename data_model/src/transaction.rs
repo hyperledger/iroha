@@ -12,8 +12,6 @@ use derive_more::{DebugCustom, Display};
 use iroha_crypto::SignaturesOf;
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
-#[cfg(feature = "std")]
-use iroha_primitives::time::TimeSource;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, version};
 use parity_scale_codec::{Decode, Encode};
@@ -650,7 +648,7 @@ mod http {
         pub fn new_with_time_source(
             chain_id: ChainId,
             authority: AccountId,
-            time_source: &TimeSource,
+            time_source: &iroha_primitives::time::TimeSource,
         ) -> Self {
             let creation_time_ms = time_source
                 .get_unix_time()

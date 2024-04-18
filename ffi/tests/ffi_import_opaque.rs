@@ -133,8 +133,8 @@ fn fallible_output() {
 #[allow(trivial_casts)]
 fn compare_opaque_eq<T, U: PartialEq + core::fmt::Debug>(opaque1: &T, opaque2: &T) {
     unsafe {
-        let opaque1: &*const U = &*(opaque1 as *const T).cast::<*const U>();
-        let opaque2: &*const U = &*(opaque2 as *const T).cast::<*const U>();
+        let opaque1: &*const U = &*(core::ptr::from_ref(opaque1)).cast::<*const U>();
+        let opaque2: &*const U = &*(core::ptr::from_ref(opaque2)).cast::<*const U>();
 
         assert_eq!(**opaque1, **opaque2)
     }

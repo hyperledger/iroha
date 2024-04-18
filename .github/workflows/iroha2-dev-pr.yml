@@ -21,7 +21,7 @@ jobs:
   consistency:
     runs-on: [self-hosted, Linux, iroha2]
     container:
-      image: hyperledger/iroha2-ci:nightly-2024-01-12
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
@@ -38,7 +38,7 @@ jobs:
   with_coverage:
     runs-on: [self-hosted, Linux, iroha2]
     container:
-      image: hyperledger/iroha2-ci:nightly-2024-01-12
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
@@ -68,7 +68,7 @@ jobs:
   integration:
     runs-on: [self-hosted, Linux, iroha2]
     container:
-      image: hyperledger/iroha2-ci:nightly-2024-01-12
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +81,7 @@ jobs:
   unstable:
     runs-on: [self-hosted, Linux, iroha2]
     container:
-      image: hyperledger/iroha2-ci:nightly-2024-01-12
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -95,7 +95,7 @@ jobs:
     if: startsWith(github.head_ref, 'iroha2-pr-deploy/')
     runs-on: [self-hosted, Linux, iroha2]
     container:
-      image: hyperledger/iroha2-ci:nightly-2024-01-12
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
       - uses: actions/checkout@v4
       - name: Login to Soramitsu Harbor
@@ -125,7 +125,7 @@ jobs:
   client-cli-tests:
     runs-on: [self-hosted, Linux, iroha2]
     container:
-      image: hyperledger/iroha2-ci:nightly-2024-01-12
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

@@ -469,13 +469,13 @@ impl Set {
     /// Apply `f` to triggers that belong to the given [`DomainId`]
     ///
     /// Return an empty list if [`Set`] doesn't contain any triggers belonging to [`DomainId`].
-    pub fn inspect_by_domain_id<'a, F: 'a, R>(
+    pub fn inspect_by_domain_id<'a, F, R>(
         &'a self,
         domain_id: &DomainId,
         f: F,
     ) -> impl Iterator<Item = R> + '_
     where
-        F: Fn(&TriggerId, &dyn LoadedActionTrait) -> R,
+        F: Fn(&TriggerId, &dyn LoadedActionTrait) -> R + 'a,
     {
         let domain_id = domain_id.clone();
 

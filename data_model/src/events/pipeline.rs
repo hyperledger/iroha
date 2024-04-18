@@ -18,7 +18,7 @@ use crate::{
 
 #[model]
 mod model {
-    use getset::Getters;
+    use getset::{CopyGetters, Getters};
 
     use super::*;
 
@@ -71,6 +71,7 @@ mod model {
         Eq,
         PartialOrd,
         Ord,
+        CopyGetters,
         Getters,
         Decode,
         Encode,
@@ -169,6 +170,7 @@ mod model {
         PartialOrd,
         Ord,
         Default,
+        CopyGetters,
         Getters,
         Decode,
         Encode,
@@ -203,7 +205,6 @@ mod model {
     pub struct TransactionEventFilter {
         #[getset(get = "pub")]
         pub hash: Option<HashOf<SignedTransaction>>,
-        #[getset(get_copy = "pub")]
         pub block_height: Option<Option<u64>>,
         #[getset(get = "pub")]
         pub status: Option<TransactionStatus>,
@@ -265,6 +266,12 @@ impl TransactionEventFilter {
     pub fn for_status(mut self, status: TransactionStatus) -> Self {
         self.status = Some(status);
         self
+    }
+
+    /// Block height
+    // TODO: Derive with getset
+    pub fn block_height(&self) -> Option<Option<u64>> {
+        self.block_height
     }
 }
 

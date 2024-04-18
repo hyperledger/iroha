@@ -77,21 +77,13 @@ impl RequestBuilder for DefaultRequestBuilder {
         }
     }
 
-    fn header<K, V: ?Sized>(self, key: K, value: &V) -> Self
-    where
-        K: AsRef<str>,
-        V: ToString,
-    {
+    fn header<K: AsRef<str>, V: ToString + ?Sized>(self, key: K, value: &V) -> Self {
         self.and_then(|builder| {
             Ok(builder.header(header_name_from_str(key.as_ref())?, value.to_string()))
         })
     }
 
-    fn param<K, V: ?Sized>(self, key: K, value: &V) -> Self
-    where
-        K: AsRef<str>,
-        V: ToString,
-    {
+    fn param<K: AsRef<str>, V: ToString + ?Sized>(self, key: K, value: &V) -> Self {
         self.and_then(|b| Ok(b.param(key, value.to_string())))
     }
 
@@ -157,11 +149,7 @@ impl RequestBuilder for DefaultWebSocketRequestBuilder {
         Self(self.0.and(Err(eyre!("No params expected"))))
     }
 
-    fn header<N, V: ?Sized>(self, name: N, value: &V) -> Self
-    where
-        N: AsRef<str>,
-        V: ToString,
-    {
+    fn header<N: AsRef<str>, V: ToString + ?Sized>(self, name: N, value: &V) -> Self {
         self.and_then(|b| Ok(b.header(header_name_from_str(name.as_ref())?, value.to_string())))
     }
 

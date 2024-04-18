@@ -57,7 +57,7 @@ impl MetadataArgs {
 /// Should be combined with `#[command(flatten)]` attr.
 #[derive(clap::Args, Debug, Clone, PartialEq, Eq)]
 pub struct MetadataValueArg {
-    /// Wrapper around MetadataValue to accept possible values and fallback to json.
+    /// Wrapper around `MetadataValue` to accept possible values and fallback to json.
     ///
     /// The following types are supported:
     /// Numbers: decimal with optional point
@@ -400,10 +400,10 @@ mod domain {
         /// Domain name as double-quited string
         #[arg(short, long)]
         pub id: DomainId,
-        /// Account from which to transfer (in form `name@domain_name')
+        /// Account from which to transfer (in form `name@domain_name`)
         #[arg(short, long)]
         pub from: AccountId,
-        /// Account to which to transfer (in form `name@domain_name')
+        /// Account to which to transfer (in form `name@domain_name`)
         #[arg(short, long)]
         pub to: AccountId,
         #[command(flatten)]
@@ -531,7 +531,7 @@ mod account {
     /// Register account
     #[derive(clap::Args, Debug)]
     pub struct Register {
-        /// Id of account in form `name@domain_name'
+        /// Id of account in form `name@domain_name`
         #[arg(short, long)]
         pub id: AccountId,
         /// Its public key

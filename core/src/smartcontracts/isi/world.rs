@@ -126,9 +126,9 @@ pub mod isi {
                 .collect::<Vec<_>>();
 
             let world = &mut state_transaction.world;
-            triggers_in_domain.iter().for_each(|trigger_id| {
+            for trigger_id in &triggers_in_domain {
                 assert!(world.triggers.remove(trigger_id));
-            });
+            }
             if world.domains.remove(domain_id.clone()).is_none() {
                 return Err(FindError::Domain(domain_id).into());
             }

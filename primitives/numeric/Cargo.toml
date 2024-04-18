@@ -37,7 +37,7 @@ serde_with = { workspace = true, features = ["macros"] }
 thiserror = { workspace = true, optional = true }
 displaydoc = { workspace = true }
 
-rust_decimal = { version = "1.34", default-features = false, features = ["serde", "serde-with-str"] }
+rust_decimal = { version = "1.35", default-features = false, features = ["serde", "serde-with-str"] }
 
 [dev-dependencies]
 serde_json = { workspace = true, features = ["alloc"] }

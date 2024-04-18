@@ -170,13 +170,12 @@ pub struct FfiTypeInput {
     pub ident: syn::Ident,
     pub generics: syn::Generics,
     pub data: FfiTypeData,
-    pub doc_attrs: DocAttrs,
     pub derive_attr: DeriveAttrs,
     pub repr_attr: Repr,
     pub ffi_type_attr: FfiTypeAttr,
     pub getset_attr: GetSetStructAttrs,
     pub span: Span,
-    /// The original DeriveInput this structure was parsed from
+    /// The original `DeriveInput` this structure was parsed from
     pub ast: syn::DeriveInput,
 }
 
@@ -193,7 +192,6 @@ impl darling::FromDeriveInput for FfiTypeInput {
         let ident = input.ident.clone();
         let generics = input.generics.clone();
         let data = darling::ast::Data::try_from(&input.data)?;
-        let doc_attrs = DocAttrs::from_attributes(&input.attrs)?;
         let derive_attr = DeriveAttrs::from_attributes(&input.attrs)?;
         let repr_attr = Repr::from_attributes(&input.attrs)?;
         let ffi_type_attr = FfiTypeAttr::from_attributes(&input.attrs)?;
@@ -205,7 +203,6 @@ impl darling::FromDeriveInput for FfiTypeInput {
             ident,
             generics,
             data,
-            doc_attrs,
             derive_attr,
             repr_attr,
             ffi_type_attr,

@@ -184,23 +184,19 @@ enum IsiName {
     Revoke,
 }
 
-impl ToString for IsiName {
-    fn to_string(&self) -> String {
+impl core::fmt::Display for IsiName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            IsiName::Grant => "grant",
-            IsiName::Revoke => "revoke",
+            IsiName::Grant => write!(f, "grant"),
+            IsiName::Revoke => write!(f, "revoke"),
         }
-        .to_string()
     }
 }
 
 fn gen_validate_impl(isi_name: IsiName, pass_condition: &Type) -> proc_macro2::TokenStream {
     use quote::ToTokens;
 
-    let fn_name = Ident::new(
-        &format!("validate_{}", isi_name.to_string()),
-        Span::call_site(),
-    );
+    let fn_name = Ident::new(&format!("validate_{isi_name}"), Span::call_site());
 
     let doc_intro = match isi_name {
         IsiName::Grant => {
