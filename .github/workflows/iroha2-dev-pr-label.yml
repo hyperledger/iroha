@@ -2,7 +2,7 @@ name: I2::Dev::Label
 
 on:
   pull_request:
-    branches: [iroha-dev]
+    branches: [main]
     paths:
       - 'docs/source/references/schema.json'
       - 'docs/source/references/config.md'

@@ -2,7 +2,7 @@ name: I2::Dev::Wasm
 
 on:
   pull_request:
-    branches: [iroha2-dev]
+    branches: [main]
     paths:
       - 'data_model/**.rs'
       - 'data_model/**.yml'
