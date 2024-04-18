@@ -49,7 +49,7 @@
         "iroha_client_cli"
         "kagami"
         "kura_inspector"
-        "parity_scale_decoder"
+        "parity_scale_cli"
       ];
 
       # HACK: A hook to filter out darwin-specific flags when cross-compiling.

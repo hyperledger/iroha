@@ -4147,7 +4147,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "parity_scale_decoder"
+name = "parity_scale_cli"
 version = "2.0.0-pre-rc.21"
 dependencies = [
  "clap",

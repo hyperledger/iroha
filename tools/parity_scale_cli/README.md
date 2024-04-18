@@ -7,13 +7,13 @@ This tool helps you decode **Iroha 2** data types from binaries using [Parity Sc
 To build the tool, run:
 
 ```bash
-cargo build --bin parity_scale_decoder
+cargo build --bin parity_scale_cli
 ```
 
 If your terminal does not support colours, run:
 
 ```bash
-cargo build --features no_color --bin parity_scale_decoder
+cargo build --features no_color --bin parity_scale_cli
 ```
 
 ## Usage
@@ -21,7 +21,7 @@ cargo build --features no_color --bin parity_scale_decoder
 Run Parity Scale Decoder Tool:
 
 ```bash
-parity_scale_decoder <SUBCOMMAND>
+parity_scale_cli <SUBCOMMAND>
 ```
 
 ### Subcommands
@@ -37,7 +37,7 @@ parity_scale_decoder <SUBCOMMAND>
 To list all supported data types, run from the project main directory:
 
 ```bash
-./target/debug/parity_scale_decoder list-type
+./target/debug/parity_scale_cli list-type
 ```
 
 <details> <summary> Expand to see possible outputs</summary>
@@ -62,13 +62,13 @@ Decode the data type from a given binary.
 * Decode the specified data type from a binary:
 
   ```bash
-  ./target/debug/parity_scale_decoder decode <path_to_binary> --type <type>
+  ./target/debug/parity_scale_cli decode <path_to_binary> --type <type>
   ```
 
 * If you are not sure which data type is encoded in the binary, run the tool without the `--type` option:
 
   ```bash
-    ./target/debug/parity_scale_decoder decode <path_to_binary>
+    ./target/debug/parity_scale_cli decode <path_to_binary>
   ```
 
 ### `decode` usage examples
@@ -76,11 +76,11 @@ Decode the data type from a given binary.
 * Decode the `Account` data type from the `samples/account.bin` binary:
 
   ```bash
-  ./target/debug/parity_scale_decoder decode tools/parity_scale_decoder/samples/account.bin --type Account
+  ./target/debug/parity_scale_cli decode tools/parity_scale_cli/samples/account.bin --type Account
   ```
 
 * Decode the `Domain` data type from the `samples/domain.bin` binary:
 
   ```bash
-  ./target/debug/parity_scale_decoder decode tools/parity_scale_decoder/samples/domain.bin --type Domain
+  ./target/debug/parity_scale_cli decode tools/parity_scale_cli/samples/domain.bin --type Domain
   ```
