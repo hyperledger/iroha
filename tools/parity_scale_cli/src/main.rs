@@ -3,7 +3,11 @@ use core::num::{NonZeroU32, NonZeroU64};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
-    fs, io,
+    fs,
+    fs::File,
+    io,
+    io::{BufRead, BufReader, BufWriter, Read, Write},
+    marker::PhantomData,
     path::PathBuf,
     time::Duration,
 };
@@ -56,30 +60,64 @@ use iroha_primitives::{
     conststr::ConstString,
     unique_vec::UniqueVec,
 };
-use parity_scale_codec::DecodeAll;
+use parity_scale_codec::{DecodeAll, Encode};
+use serde::{de::DeserializeOwned, Serialize};
 
-/// Generate map with types and `dump_decoded()` ptr
-pub fn generate_map() -> DumpDecodedMap {
-    let mut map = DumpDecodedMap::new();
+/// Generate map with types and converter trait object
+fn generate_map() -> ConverterMap {
+    let mut map = ConverterMap::new();
 
     macro_rules! insert_into_map {
         ($t:ty) => {{
             let type_id = <$t as iroha_schema::TypeId>::id();
-
-            #[allow(trivial_casts)]
-            map.insert(type_id, <$t as DumpDecoded>::dump_decoded as DumpDecodedPtr)
+            map.insert(type_id, ConverterImpl::<$t>::new())
         }};
     }
 
     iroha_schema_gen::map_all_schema_types!(insert_into_map);
 
-    #[allow(trivial_casts)]
     map.insert(
         <iroha_schema::Compact<u128> as iroha_schema::TypeId>::id(),
-        <parity_scale_codec::Compact<u32> as DumpDecoded>::dump_decoded as DumpDecodedPtr,
+        ConverterImpl::<u32>::new(),
     );
 
     map
+}
+
+type ConverterMap = BTreeMap<String, Box<dyn Converter>>;
+
+struct ConverterImpl<T>(PhantomData<T>);
+
+impl<T> ConverterImpl<T> {
+    #[allow(clippy::unnecessary_box_returns)]
+    fn new() -> Box<Self> {
+        Box::new(Self(PhantomData))
+    }
+}
+
+trait Converter {
+    fn scale_to_rust(&self, input: &[u8]) -> Result<String>;
+    fn scale_to_json(&self, input: &[u8]) -> Result<String>;
+    fn json_to_scale(&self, input: &str) -> Result<Vec<u8>>;
+}
+
+impl<T> Converter for ConverterImpl<T>
+where
+    T: Debug + Encode + DecodeAll + Serialize + DeserializeOwned,
+{
+    fn scale_to_rust(&self, mut input: &[u8]) -> Result<String> {
+        let object = T::decode_all(&mut input)?;
+        Ok(format!("{object:#?}"))
+    }
+    fn scale_to_json(&self, mut input: &[u8]) -> Result<String> {
+        let object = T::decode_all(&mut input)?;
+        let json = serde_json::to_string(&object)?;
+        Ok(json)
+    }
+    fn json_to_scale(&self, input: &str) -> Result<Vec<u8>> {
+        let object: T = serde_json::from_str(input)?;
+        Ok(object.encode())
+    }
 }
 
 /// Parity Scale decoder tool for Iroha data types
@@ -88,12 +126,16 @@ pub fn generate_map() -> DumpDecodedMap {
 enum Args {
     /// Show all available types
     ListTypes,
-    /// Decode type from binary
-    Decode(DecodeArgs),
+    /// Decode SCALE to Rust debug format from binary file
+    ScaleToRust(ScaleToRustArgs),
+    /// Decode SCALE to JSON. By default uses stdin and stdout
+    ScaleToJson(ScaleJsonArgs),
+    /// Encode JSON as SCALE. By default uses stdin and stdout
+    JsonToScale(ScaleJsonArgs),
 }
 
 #[derive(Debug, clap::Args)]
-struct DecodeArgs {
+struct ScaleToRustArgs {
     /// Path to the binary with encoded Iroha structure
     binary: PathBuf,
     /// Type that is expected to be encoded in binary.
@@ -102,57 +144,54 @@ struct DecodeArgs {
     type_name: Option<String>,
 }
 
-/// Function pointer to [`DumpDecoded::dump_decoded()`]
-///
-/// Function pointer is used cause trait object cannot be used
-/// due to [`Sized`] bound in [`Decode`] trait
-pub type DumpDecodedPtr = fn(&[u8], &mut dyn io::Write) -> Result<(), eyre::Error>;
-
-/// Map (Type Name -> `dump_decode()` ptr)
-pub type DumpDecodedMap = BTreeMap<String, DumpDecodedPtr>;
-
-/// Types implementing this trait can be decoded from bytes
-/// with *Parity Scale Codec* and dumped to something implementing [`Write`](std::io::Write)
-pub trait DumpDecoded: Debug + DecodeAll {
-    /// Decode `Self` from `input` and dump to `w`
-    ///
-    /// # Errors
-    /// - If decoding from *Parity Scale Codec* fails
-    /// - If writing into `w` fails
-    fn dump_decoded(mut input: &[u8], w: &mut dyn io::Write) -> Result<()> {
-        let obj = <Self as DecodeAll>::decode_all(&mut input)?;
-        writeln!(w, "{obj:#?}")?;
-        Ok(())
-    }
+#[derive(Debug, clap::Args)]
+struct ScaleJsonArgs {
+    /// Path to the input file
+    #[clap(short, long)]
+    input: Option<PathBuf>,
+    /// Path to the output file
+    #[clap(short, long)]
+    output: Option<PathBuf>,
+    /// Type that is expected to be encoded in input
+    #[clap(short, long = "type")]
+    type_name: String,
 }
-
-impl<T: Debug + DecodeAll> DumpDecoded for T {}
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
     let map = generate_map();
-    let stdout = io::stdout();
-    let mut writer = io::BufWriter::new(stdout.lock());
 
     match args {
-        Args::Decode(decode_args) => {
-            let decoder = Decoder::new(decode_args, &map);
+        Args::ScaleToRust(decode_args) => {
+            let mut writer = BufWriter::new(io::stdout().lock());
+            let decoder = ScaleToRustDecoder::new(decode_args, &map);
             decoder.decode(&mut writer)
         }
-        Args::ListTypes => list_types(&map, &mut writer),
+        Args::ScaleToJson(args) => {
+            let decoder = ScaleJsonDecoder::new(args, &map)?;
+            decoder.scale_to_json()
+        }
+        Args::JsonToScale(args) => {
+            let decoder = ScaleJsonDecoder::new(args, &map)?;
+            decoder.json_to_scale()
+        }
+        Args::ListTypes => {
+            let mut writer = BufWriter::new(io::stdout().lock());
+            list_types(&map, &mut writer)
+        }
     }
 }
 
 /// Type decoder
-struct Decoder<'map> {
-    args: DecodeArgs,
-    map: &'map DumpDecodedMap,
+struct ScaleToRustDecoder<'map> {
+    args: ScaleToRustArgs,
+    map: &'map ConverterMap,
 }
 
-impl<'map> Decoder<'map> {
+impl<'map> ScaleToRustDecoder<'map> {
     /// Create new `Decoder` with `args` and `map`
-    pub fn new(args: DecodeArgs, map: &'map DumpDecodedMap) -> Self {
+    pub fn new(args: ScaleToRustArgs, map: &'map ConverterMap) -> Self {
         Self { args, map }
     }
 
@@ -175,7 +214,7 @@ impl<'map> Decoder<'map> {
     ) -> Result<()> {
         self.map.get(type_name).map_or_else(
             || Err(eyre!("Unknown type: `{type_name}`")),
-            |dump_decoded| dump_decoded(bytes, writer),
+            |converter| Self::dump_decoded(converter.as_ref(), bytes, writer),
         )
     }
 
@@ -186,9 +225,9 @@ impl<'map> Decoder<'map> {
         let count = self
             .map
             .iter()
-            .filter_map(|(type_name, dump_decoded)| {
+            .filter_map(|(type_name, converter)| {
                 let mut buf = Vec::new();
-                dump_decoded(bytes, &mut buf).ok()?;
+                Self::dump_decoded(converter.as_ref(), bytes, &mut buf).ok()?;
                 let formatted = String::from_utf8(buf).ok()?;
                 writeln!(writer, "{}:\n{}", type_name.italic().cyan(), formatted).ok()
             })
@@ -200,10 +239,69 @@ impl<'map> Decoder<'map> {
         }
         .map_err(Into::into)
     }
+
+    fn dump_decoded(converter: &dyn Converter, input: &[u8], w: &mut dyn io::Write) -> Result<()> {
+        let result = converter.scale_to_rust(input)?;
+        writeln!(w, "{result}")?;
+        Ok(())
+    }
+}
+
+struct ScaleJsonDecoder<'map> {
+    reader: Box<dyn BufRead>,
+    writer: Box<dyn Write>,
+    converter: &'map dyn Converter,
+}
+
+impl<'map> ScaleJsonDecoder<'map> {
+    fn new(args: ScaleJsonArgs, map: &'map ConverterMap) -> Result<Self> {
+        let reader: Box<dyn BufRead> = match args.input {
+            None => Box::new(io::stdin().lock()),
+            Some(path) => Box::new(BufReader::new(File::open(path)?)),
+        };
+        let writer: Box<dyn Write> = match args.output {
+            None => Box::new(BufWriter::new(io::stdout().lock())),
+            Some(path) => Box::new(BufWriter::new(File::create(path)?)),
+        };
+        let Some(converter) = map.get(&args.type_name) else {
+            return Err(eyre!("Unknown type: `{}`", args.type_name));
+        };
+        Ok(Self {
+            reader,
+            writer,
+            converter: converter.as_ref(),
+        })
+    }
+
+    fn scale_to_json(self) -> Result<()> {
+        let Self {
+            mut reader,
+            mut writer,
+            converter,
+        } = self;
+        let mut input = Vec::new();
+        reader.read_to_end(&mut input)?;
+        let output = converter.scale_to_json(&input)?;
+        writeln!(writer, "{output}")?;
+        Ok(())
+    }
+
+    fn json_to_scale(self) -> Result<()> {
+        let Self {
+            mut reader,
+            mut writer,
+            converter,
+        } = self;
+        let mut input = String::new();
+        reader.read_to_string(&mut input)?;
+        let output = converter.json_to_scale(&input)?;
+        writer.write_all(&output)?;
+        Ok(())
+    }
 }
 
 /// Print all supported types from `map` to `writer`
-fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> {
+fn list_types<W: io::Write>(map: &ConverterMap, writer: &mut W) -> Result<()> {
     for key in map.keys() {
         writeln!(writer, "{key}")?;
     }
@@ -289,18 +387,50 @@ mod tests {
         let mut binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         binary.push("samples/");
         binary.push(sample_path);
-        let args = DecodeArgs {
+        let args = ScaleToRustArgs {
             binary,
             type_name: Some(type_id),
         };
 
         let map = generate_map();
-        let decoder = Decoder::new(args, &map);
+        let decoder = ScaleToRustDecoder::new(args, &map);
         let mut buf = Vec::new();
         decoder.decode(&mut buf).expect("Decoding failed");
         let output = String::from_utf8(buf).expect("Invalid UTF-8");
         let expected_output = format!("{expected:#?}\n");
 
         assert_eq!(output, expected_output,);
+    }
+
+    #[test]
+    fn test_decode_encode_account() {
+        test_decode_encode("account.bin", "NewAccount");
+    }
+
+    #[test]
+    fn test_decode_encode_domain() {
+        test_decode_encode("domain.bin", "NewDomain");
+    }
+
+    #[test]
+    fn test_decode_encode_trigger() {
+        test_decode_encode("trigger.bin", "Trigger");
+    }
+
+    fn test_decode_encode(sample_path: &str, type_id: &str) {
+        let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("samples/")
+            .join(sample_path);
+        let scale_expected = fs::read(binary).expect("Couldn't read file");
+
+        let map = generate_map();
+        let converter = &map[type_id];
+        let json = converter
+            .scale_to_json(&scale_expected)
+            .expect("Couldn't convert to SCALE");
+        let scale_actual = converter
+            .json_to_scale(&json)
+            .expect("Couldn't convert to SCALE");
+        assert_eq!(scale_actual, scale_expected);
     }
 }

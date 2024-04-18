@@ -335,13 +335,13 @@ pub mod stream {
 
         /// Message sent by the stream producer.
         /// Event sent by the peer.
-        #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+        #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
         #[repr(transparent)]
         pub struct EventMessage(pub EventBox);
 
         /// Message sent by the stream consumer.
         /// Request sent by the client to subscribe to events.
-        #[derive(Debug, Clone, Constructor, Decode, Encode, IntoSchema)]
+        #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
         #[repr(transparent)]
         pub struct EventSubscriptionRequest(pub Vec<EventFilterBox>);
     }
