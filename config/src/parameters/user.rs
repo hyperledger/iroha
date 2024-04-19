@@ -30,10 +30,7 @@ use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
     LengthLimits, Level,
 };
-use iroha_primitives::{
-    addr::SocketAddr,
-    unique_vec::{PushResult, UniqueVec},
-};
+use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::Deserialize;
 use url::Url;
 
@@ -105,14 +102,12 @@ impl CustomEnvRead for RootPrivateKey {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Copy, Clone)]
 pub enum ParseError {
     #[error("Failed to construct the key pair")]
     BadKeyPair,
     #[error("Invalid genesis configuration")]
     BadGenesis,
-    #[error("Trusted peers contains self peer id: {id}")]
-    TrustedPeersWithSelf { id: PeerId },
 }
 
 impl Root {
@@ -324,15 +319,17 @@ impl Sumeragi {
         } = self;
 
         let mut trusted_peers = trusted_peers.map(|x| x.0);
-        if let PushResult::Duplicate(duplicate) = trusted_peers.value_mut().push(self_id) {
-            Err(ParseError::TrustedPeersWithSelf { id: duplicate })
-                .attach_printable(trusted_peers.into_attachment().display_as_debug())?
-        } else {
-            Ok(actual::Sumeragi {
-                trusted_peers,
-                debug_force_soft_fork: force_soft_fork,
-            })
-        }
+
+        // we deliberately don't care if the config already contains the peer itself
+        // Because why not? What harm could it cause?
+        // On the other hand, on local deployments it might be useful to re-use a shared config
+        // with ALL trusted peer specified, so it's fine.
+        let _ = trusted_peers.value_mut().push(self_id);
+
+        Ok(actual::Sumeragi {
+            trusted_peers,
+            debug_force_soft_fork: force_soft_fork,
+        })
     }
 }
 
