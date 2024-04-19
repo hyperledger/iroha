@@ -73,7 +73,7 @@ hex = { workspace = true }
 once_cell = { workspace = true }
 tempfile = { workspace = true }
 
-byte-unit = "4.0.19"
+byte-unit = "5.1.4"
 
 [[bench]]
 name = "validation"
