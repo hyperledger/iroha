@@ -127,18 +127,24 @@ fn minimal_config_snapshot() {
                 debug_output_new_blocks: false,
             },
             sumeragi: Sumeragi {
-                trusted_peers: UniqueVec(
-                    [
-                        PeerId {
-                            address: 127.0.0.1:1338,
-                            public_key: PublicKey(
-                                ed25519(
-                                    "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                trusted_peers: WithOrigin {
+                    value: UniqueVec(
+                        [
+                            PeerId {
+                                address: 127.0.0.1:1338,
+                                public_key: PublicKey(
+                                    ed25519(
+                                        "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                                    ),
                                 ),
-                            ),
-                        },
-                    ],
-                ),
+                            },
+                        ],
+                    ),
+                    origin: File {
+                        id: ParameterId(sumeragi.trusted_peers),
+                        path: "tests/fixtures/base_trusted_peers.toml",
+                    },
+                },
                 debug_force_soft_fork: false,
             },
             block_sync: BlockSync {
