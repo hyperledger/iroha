@@ -1,3 +1,5 @@
+//! Environment variables
+
 use std::{
     borrow::Cow,
     cell::RefCell,
@@ -9,9 +11,17 @@ use std::{
 
 use error_stack::Context;
 
+/// Convertation from a string read from an environment variable to a specific value.
+///
+/// Has an implementation for any type that implements [`FromStr`] (with an error that is [Context]).
 pub trait FromEnvStr {
+    /// Error that might occur during conversion
     type Error: Context;
 
+    /// The conversion itself.
+    ///
+    /// # Errors
+    /// Up to an implementor.
     fn from_env_str(value: Cow<'_, str>) -> Result<Self, Self::Error>
     where
         Self: Sized;
@@ -32,7 +42,11 @@ where
     }
 }
 
+/// Enables polymorphism for environment readers.
+/// Has default implementations for plain functions,
+/// thus it should work for closures as well.
 pub trait ReadEnv {
+    /// Read a value from an environment variable.
     fn read_env(&self, key: &str) -> Option<Cow<'_, str>>;
 }
 
@@ -45,6 +59,11 @@ where
     }
 }
 
+/// An adapter of [`std::env::var`] for [`ReadEnv`] trait.
+/// Does not fail in case of [`std::env::VarError::NotUnicode`], but prints it as an error via
+/// [log].
+///
+/// [`crate::read::ConfigReader`] uses it by default.
 pub fn std_env(key: &str) -> Option<Cow<'static, str>> {
     match std::env::var(key) {
         Ok(value) => Some(Cow::from(value)),

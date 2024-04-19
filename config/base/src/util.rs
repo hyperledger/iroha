@@ -1,3 +1,5 @@
+//! Various utilities
+
 use std::{path::PathBuf, time::Duration};
 
 use derive_more::Display;
@@ -111,6 +113,9 @@ impl<'a> Iterator for ExtendsPathsIter<'a> {
     }
 }
 
+/// A tool to collect multiple [`Report`]s.
+///
+/// Will panic on [`Drop`] unless [`Emitter::into_result`] is called.
 #[derive(Debug)]
 pub struct Emitter<C> {
     report: Option<Report<C>>,
@@ -124,6 +129,7 @@ impl<C> Default for Emitter<C> {
 }
 
 impl<C> Emitter<C> {
+    /// Constructor
     pub fn new() -> Self {
         Self {
             report: None,
@@ -131,6 +137,7 @@ impl<C> Emitter<C> {
         }
     }
 
+    /// Emit a single report
     pub fn emit(&mut self, report: Report<C>) {
         match &mut self.report {
             Some(existing) => {
@@ -142,13 +149,18 @@ impl<C> Emitter<C> {
         }
     }
 
+    /// Convert into [`Err`] if any report was emitted, otherwise [`Ok`].
+    /// # Errors
+    /// If at least one report was emitted.
     pub fn into_result(mut self) -> error_stack::Result<(), C> {
         self.bomb.defuse();
         self.report.map_or_else(|| Ok(()), Err)
     }
 }
 
+/// An extension of [Result] to add convenience methods to work with [Emitter].
 pub trait EmitterResultExt<T, C> {
+    /// If [Ok], return [Some]; otherwise, emit an error and return [None].
     fn ok_or_emit(self, emitter: &mut Emitter<C>) -> Option<T>;
 }
 

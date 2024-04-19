@@ -53,6 +53,8 @@ pub struct FromTomlSourceError;
 impl Root {
     /// A shorthand to read config from a single provided TOML.
     /// For testing purposes.
+    /// # Errors
+    /// If config reading/parsing fails.
     pub fn from_toml_source(src: TomlSource) -> Result<Self, FromTomlSourceError> {
         ConfigReader::new()
             .with_toml_source(src)

@@ -13,7 +13,7 @@ pub mod sample_config {
     use error_stack::ResultExt;
     use iroha_config_base::{
         read::{
-            ConfigReader, CustomEnvFetcher, CustomEnvRead, CustomEnvReadError, OkAfterFinish,
+            ConfigReader, CustomEnvFetcher, CustomEnvRead, CustomEnvReadError, FinalWrap,
             ReadConfig,
         },
         WithOrigin,
@@ -31,7 +31,7 @@ pub mod sample_config {
     }
 
     impl ReadConfig for Root {
-        fn read(reader: ConfigReader) -> (OkAfterFinish<Self>, ConfigReader)
+        fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader)
         where
             Self: Sized,
         {
@@ -56,7 +56,7 @@ pub mod sample_config {
                 .finish();
 
             (
-                OkAfterFinish::value_fn(move || Self {
+                FinalWrap::value_fn(move || Self {
                     chain_id: chain_id.unwrap(),
                     torii: torii.unwrap(),
                     kura: kura.unwrap(),
@@ -76,7 +76,7 @@ pub mod sample_config {
     }
 
     impl ReadConfig for Torii {
-        fn read(reader: ConfigReader) -> (OkAfterFinish<Self>, ConfigReader)
+        fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader)
         where
             Self: Sized,
         {
@@ -92,7 +92,7 @@ pub mod sample_config {
                 .finish();
 
             (
-                OkAfterFinish::value_fn(|| Self {
+                FinalWrap::value_fn(|| Self {
                     address: address.unwrap(),
                     max_content_len: max_content_len.unwrap(),
                 }),
@@ -108,7 +108,7 @@ pub mod sample_config {
     }
 
     impl ReadConfig for Kura {
-        fn read(reader: ConfigReader) -> (OkAfterFinish<Self>, ConfigReader)
+        fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader)
         where
             Self: Sized,
         {
@@ -125,7 +125,7 @@ pub mod sample_config {
                 .finish();
 
             (
-                OkAfterFinish::value_fn(|| Self {
+                FinalWrap::value_fn(|| Self {
                     store_dir: store_dir.unwrap(),
                     debug_force: debug_force.unwrap(),
                 }),
@@ -140,7 +140,7 @@ pub mod sample_config {
     }
 
     impl ReadConfig for Telemetry {
-        fn read(reader: ConfigReader) -> (OkAfterFinish<Self>, ConfigReader)
+        fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader)
         where
             Self: Sized,
         {
@@ -151,7 +151,7 @@ pub mod sample_config {
                 .finish_with_origin();
 
             (
-                OkAfterFinish::value_fn(|| Self {
+                FinalWrap::value_fn(|| Self {
                     out_file: out_file.unwrap(),
                 }),
                 reader,
@@ -165,7 +165,7 @@ pub mod sample_config {
     }
 
     impl ReadConfig for Logger {
-        fn read(reader: ConfigReader) -> (OkAfterFinish<Self>, ConfigReader)
+        fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader)
         where
             Self: Sized,
         {
@@ -176,7 +176,7 @@ pub mod sample_config {
                 .finish();
 
             (
-                OkAfterFinish::value_fn(|| Self {
+                FinalWrap::value_fn(|| Self {
                     level: level.unwrap(),
                 }),
                 reader,
@@ -277,7 +277,7 @@ fn error_when_no_file() {
     expect![[r#"
         Failed to read configuration from file
         │
-        ├─▶ Failed to read file from disk
+        ├─▶ File system error
         │   ╰╴file path: /path/to/non/existing...
         │
         ╰─▶ No such file or directory (os error 2)"#]]
@@ -310,7 +310,7 @@ fn error_extends_depth_2_leads_to_nowhere() {
         ├╴extending (2): `./tests/bad.invalid-nested-extends.base.toml` -> `./tests/non-existing.toml`
         ├╴extending (1): `./tests/bad.invalid-nested-extends.toml` -> `./tests/bad.invalid-nested-extends.base.toml`
         │
-        ├─▶ Failed to read file from disk
+        ├─▶ File system error
         │   ╰╴file path: ./tests/non-existing.toml
         │
         ╰─▶ No such file or directory (os error 2)"#]]

@@ -567,13 +567,13 @@ mod codegen {
                     fn read(
                         __reader: ::iroha_config_base::read::ConfigReader
                     ) -> (
-                        ::iroha_config_base::read::OkAfterFinish<Self>,
+                        ::iroha_config_base::read::FinalWrap<Self>,
                         ::iroha_config_base::read::ConfigReader
                     ) {
                         #(#read_fields)*
 
                         (
-                            ::iroha_config_base::read::OkAfterFinish::value_fn(|| Self {
+                            ::iroha_config_base::read::FinalWrap::value_fn(|| Self {
                                 #(#unwrap_fields),*
                             }),
                             __reader

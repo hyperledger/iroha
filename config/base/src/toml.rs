@@ -1,3 +1,8 @@
+//! TOML-specific tools.
+//!
+//! While it is definitely possible to support other formats than TOML, since there is no
+//! need for this for now, TOML support is integrated in a non-generic way.
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::File,
@@ -13,13 +18,16 @@ use toml::Table;
 
 use crate::ParameterId;
 
+/// A source of configuration in TOML format
 #[derive(Debug, Clone)]
 pub struct TomlSource {
     path: PathBuf,
     table: Table,
 }
 
+/// Error of [`TomlSource::from_file`]
 #[derive(Error, Debug, Copy, Clone)]
+#[allow(missing_docs)]
 pub enum FromFileError {
     #[error("File system error")]
     Read,
@@ -28,10 +36,15 @@ pub enum FromFileError {
 }
 
 impl TomlSource {
+    /// Constructor
     pub fn new(path: PathBuf, table: Table) -> Self {
         Self { path, table }
     }
 
+    /// Read from a file
+    ///
+    /// # Errors
+    /// If a file system or a TOML parsing error occurs.
     pub fn from_file<P: AsRef<Path>>(path: P) -> error_stack::Result<Self, FromFileError> {
         let path = path.as_ref().to_path_buf();
 
@@ -48,7 +61,7 @@ impl TomlSource {
         Ok(TomlSource::new(path, table))
     }
 
-    /// Primarily for testing purposes, creates a source which will contain debug information
+    /// Primarily for testing purposes: creates a source which will contain debug information
     /// about where this source was defined.
     #[track_caller]
     pub fn inline(table: Table) -> Self {
@@ -58,11 +71,14 @@ impl TomlSource {
         )
     }
 
+    /// Get an exclusive borrow of the TOML table inside
     pub fn table_mut(&mut self) -> &mut Table {
         &mut self.table
     }
 
+    /// Fetch a value by parameter path
     // FIXME: not optimal code
+    // TODO: implement via `Index` trait?
     pub fn fetch(&self, path: &ParameterId) -> Option<toml::Value> {
         enum TableOrValue<'a> {
             Table(&'a Table),
@@ -88,11 +104,12 @@ impl TomlSource {
         }
     }
 
+    /// Get the file path of the source
     pub fn path(&self) -> &PathBuf {
         &self.path
     }
 
-    #[allow(single_use_lifetimes)] // FIXME: when I remove `'a`, it cannot compile
+    #[allow(single_use_lifetimes)] // FIXME: cannot compile without `'a`
     pub(crate) fn find_unknown<'a>(
         &self,
         known: impl Iterator<Item = &'a ParameterId>,
@@ -164,17 +181,40 @@ fn find_unknown_parameters(table: &toml::Table, known: &ParamTree) -> BTreeSet<P
     Traverse::default().run(table, known).unknown
 }
 
-/// A utility, primarily for tests, to conveniently write content into the toml
+/// A utility, primarily for testing, to conveniently write content into a [`Table`].
+///
+/// ```
+/// use toml::Table;
+/// use iroha_config_base::toml::Writer;
+///
+/// let mut table = Table::new();
+/// Writer::new(&mut table)
+///     .write("foo", "some string")
+///     .write("bar", "some other string")
+///     .write(["baz", "foo", "bar"], 42);
+///
+/// assert_eq!(table, toml::toml! {
+///     foo = "some string"
+///     bar = "some other string"
+///
+///     [baz.foo]
+///     bar = 42
+/// });
+/// ```
 #[derive(Debug)]
 pub struct Writer<'a> {
     table: &'a mut Table,
 }
 
 impl<'a> Writer<'a> {
+    /// Constructor
     pub fn new(table: &'a mut Table) -> Self {
         Self { table }
     }
 
+    /// Write a serializable value by path.
+    /// Recursively creates all path segments as tables if they don't exist.
+    ///
     /// # Panics
     ///
     /// - If there is existing non-table value along the path
@@ -209,8 +249,8 @@ impl<'a> Writer<'a> {
 ///
 /// ```
 /// use iroha_config_base::toml::Writer;
-/// let mut table = toml::Table::new();
 ///
+/// let mut table = toml::Table::new();
 /// Writer::new(&mut table)
 ///     // path: <root>.fine
 ///     .write("fine", 0)
@@ -218,6 +258,7 @@ impl<'a> Writer<'a> {
 ///     .write(["also", "fine"], 1);
 /// ```
 pub trait WritePath {
+    /// Provides an iterator over path segments
     fn path(self) -> impl IntoIterator<Item = &'static str>;
 }
 

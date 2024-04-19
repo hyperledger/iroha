@@ -11,6 +11,8 @@ pub mod parameters;
 pub mod snapshot;
 
 /// Enables tracing of configuration via [`stderrlog`].
+/// # Errors
+/// See [`stderrlog::StdErrLog::init`] errors.
 pub fn enable_tracing() -> Result<(), SetLoggerError> {
     stderrlog::new()
         .module("iroha_config_base")
