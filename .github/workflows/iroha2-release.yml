@@ -1,8 +1,9 @@
 name: I2::Release::Publish
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v2*'
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +21,7 @@ jobs:
           install: true
       - name: Get the release tag
         run: |
-          RELEASE_VERSION=${{ github.event.release.tag_name }}
+          RELEASE_VERSION=${{ github.ref_name }}
           PREFIX='v'
           TAG=${RELEASE_VERSION#$PREFIX}
           echo "TAG=$TAG" >>$GITHUB_ENV

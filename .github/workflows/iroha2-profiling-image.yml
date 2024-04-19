@@ -1,8 +1,9 @@
 name: I2::Profiling::Publish
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v2*'
 
 env:
   IROHA2_DOCKERFILE: Dockerfile.glibc
@@ -20,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Get the release tag
         run: |
-          RELEASE_VERSION=${{ github.event.release.tag_name }}
+          RELEASE_VERSION=${{ github.ref_name }}
           PREFIX='v'
           TAG=${RELEASE_VERSION#$PREFIX}
           echo "TAG=$TAG" >>$GITHUB_ENV
@@ -40,14 +41,14 @@ jobs:
         uses: docker/setup-buildx-action@v3
         with:
           install: true
-      - name: Build and push iroha2:profiling-image
+      - name: Build and push IROHA2_PROFILE image
         uses: docker/build-push-action@v5
         if: always()
         with:
           push: true
           tags: |
-            hyperledger/iroha:${{ env.TAG }}-profiling
-            docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}-profiling
+            hyperledger/iroha:${{ env.TAG }}-IROHA2_PROFILE
+            docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}-IROHA2_PROFILE
           labels: commit=${{ github.sha }}
           build-args: |
             "PROFILE=${{ env.IROHA2_PROFILE }}"
