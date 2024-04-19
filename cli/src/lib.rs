@@ -673,8 +673,14 @@ pub fn read_config_and_genesis(
 fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigError> {
     let mut emitter = Emitter::new();
 
-    validate_try_bind_address(&mut emitter, &config.network.address);
-    validate_try_bind_address(&mut emitter, &config.torii.address);
+    // These cause race condition in tests, due to them actually binding TCP listeners
+    // Since these validations are primarily for the convenience of the end user,
+    // it seems a fine compromise to run it only in release mode
+    #[cfg(release)]
+    {
+        validate_try_bind_address(&mut emitter, &config.network.address);
+        validate_try_bind_address(&mut emitter, &config.torii.address);
+    }
     validate_directory_path(&mut emitter, &config.kura.store_dir);
     // maybe validate only if snapshot mode is enabled
     validate_directory_path(&mut emitter, &config.snapshot.store_dir);
@@ -752,6 +758,7 @@ fn validate_directory_path(emitter: &mut Emitter<ConfigError>, path: &WithOrigin
     }
 }
 
+#[cfg(release)]
 fn validate_try_bind_address(emitter: &mut Emitter<ConfigError>, value: &WithOrigin<SocketAddr>) {
     use std::net::TcpListener;
 
@@ -949,7 +956,6 @@ mod tests {
         }
 
         #[test]
-        #[ignore] // FIXME
         fn fails_with_no_trusted_peers_and_submit_role() -> eyre::Result<()> {
             // Given
 
