@@ -41,14 +41,14 @@ jobs:
         uses: docker/setup-buildx-action@v3
         with:
           install: true
-      - name: Build and push IROHA2_PROFILE image
+      - name: Build and push iroha2-profiling image
         uses: docker/build-push-action@v5
         if: always()
         with:
           push: true
           tags: |
-            hyperledger/iroha:${{ env.TAG }}-IROHA2_PROFILE
-            docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}-IROHA2_PROFILE
+            hyperledger/iroha:${{ env.TAG }}-${{ env.IROHA2_PROFILE }}
+            docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}-${{ env.IROHA2_PROFILE }}
           labels: commit=${{ github.sha }}
           build-args: |
             "PROFILE=${{ env.IROHA2_PROFILE }}"
