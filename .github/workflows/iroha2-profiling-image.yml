@@ -1,28 +1,16 @@
 name: I2::Profiling::Publish
 
 on:
-  workflow_dispatch:
-    inputs:
-      IROHA2_IMAGE_TAG:
-        required: true
-        default: stable
-      IROHA2_IMAGE_RELEASE:
-        required: true
-      IROHA2_DOCKERFILE:
-        required: true
-        default: Dockerfile.glibc
-      IROHA2_PROFILE:
-        required: true
-        default: profiling
-      IROHA2_RUSTFLAGS:
-        required: false
-        default: -C force-frame-pointers=on
-      IROHA2_FEATURES:
-        required: false
-        default: profiling
-      IROHA2_CARGOFLAGS:
-        required: false
-        default: -Z build-std
+  push:
+    tags:
+      - 'v2*'
+
+env:
+  IROHA2_DOCKERFILE: Dockerfile.glibc
+  IROHA2_PROFILE: profiling
+  IROHA2_RUSTFLAGS: -C force-frame-pointers=on
+  IROHA2_FEATURES: profiling
+  IROHA2_CARGOFLAGS: -Z build-std
 
 jobs:
   registry:
@@ -31,6 +19,12 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
       - uses: actions/checkout@v4
+      - name: Get the release tag
+        run: |
+          RELEASE_VERSION=${{ github.ref_name }}
+          PREFIX='v'
+          TAG=${RELEASE_VERSION#$PREFIX}
+          echo "TAG=$TAG" >>$GITHUB_ENV
       - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -47,20 +41,20 @@ jobs:
         uses: docker/setup-buildx-action@v3
         with:
           install: true
-      - name: Build and push iroha2:profiling-image
+      - name: Build and push iroha2-profiling image
         uses: docker/build-push-action@v5
         if: always()
         with:
           push: true
           tags: |
-            hyperledger/iroha2:${{ github.event.inputs.IROHA2_IMAGE_TAG }}-${{ github.event.inputs.IROHA2_IMAGE_RELEASE }}-profiling
-            docker.soramitsu.co.jp/iroha2/iroha2:${{ github.event.inputs.IROHA2_IMAGE_TAG }}-${{ github.event.inputs.IROHA2_IMAGE_RELEASE }}-profiling
+            hyperledger/iroha:${{ env.TAG }}-${{ env.IROHA2_PROFILE }}
+            docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}-${{ env.IROHA2_PROFILE }}
           labels: commit=${{ github.sha }}
           build-args: |
-            "PROFILE=${{ github.event.inputs.IROHA2_PROFILE }}"
-            "RUSTFLAGS=${{ github.event.inputs.IROHA2_RUSTFLAGS }}"
-            "FEATURES=${{ github.event.inputs.IROHA2_FEATURES }}"
-            "CARGOFLAGS=${{ github.event.inputs.IROHA2_CARGOFLAGS }}"
-          file: ${{ github.event.inputs.IROHA2_DOCKERFILE }}
+            "PROFILE=${{ env.IROHA2_PROFILE }}"
+            "RUSTFLAGS=${{ env.IROHA2_RUSTFLAGS }}"
+            "FEATURES=${{ env.IROHA2_FEATURES }}"
+            "CARGOFLAGS=${{ env.IROHA2_CARGOFLAGS }}"
+          file: ${{env.IROHA2_DOCKERFILE }}
           # This context specification is required
           context: .
