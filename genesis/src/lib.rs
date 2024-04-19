@@ -13,6 +13,7 @@ use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     asset::{AssetDefinition, AssetValueType},
     executor::Executor,
+    isi::InstructionBox,
     prelude::{Metadata, *},
     ChainId,
 };
@@ -270,6 +271,12 @@ impl<S> RawGenesisBlockBuilder<S> {
             domain_id,
             state: self.state,
         }
+    }
+
+    /// Add instruction to the end of genesis transaction
+    pub fn append_instruction(mut self, instruction: impl Into<InstructionBox>) -> Self {
+        self.transaction.append_instruction(instruction.into());
+        self
     }
 }
 
