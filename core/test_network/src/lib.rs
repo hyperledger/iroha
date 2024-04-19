@@ -15,7 +15,7 @@ use iroha_client::{
 };
 use iroha_config::{base::WithOrigin, parameters::actual::Root as Config};
 pub use iroha_core::state::StateReadOnly;
-use iroha_crypto::KeyPair;
+use iroha_crypto::{ExposedPrivateKey, KeyPair};
 use iroha_data_model::{query::QueryOutputBox, ChainId};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockFile};
 use iroha_logger::{warn, InstrumentFutures};
@@ -796,7 +796,7 @@ impl TestConfig for Config {
         let (public_key, private_key) = KeyPair::random().into_parts();
         iroha_config::base::toml::Writer::new(&mut raw)
             .write("public_key", public_key)
-            .write("private_key", private_key);
+            .write("private_key", ExposedPrivateKey(private_key));
 
         Config::from_toml_source(TomlSource::inline(raw))
             .expect("Test Iroha config failed to build. This is likely to be a bug.")
