@@ -236,6 +236,7 @@ fn self_is_presented_in_trusted_peers() {
     assert!(config
         .sumeragi
         .trusted_peers
+        .value()
         .contains(&config.common.peer_id()));
 }
 

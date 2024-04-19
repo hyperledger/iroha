@@ -325,7 +325,7 @@ impl ConfigReader {
         }
 
         for (error, source) in errors {
-            self.collect_deserialize_error(&source, id, error.into());
+            self.collect_deserialize_error(&source, id, error);
         }
 
         if errored {

@@ -9,6 +9,7 @@ use iroha_client::{
     },
 };
 use iroha_config::parameters::actual::Root as Config;
+use iroha_config_base::WithOrigin;
 use iroha_primitives::unique_vec;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
@@ -39,8 +40,12 @@ fn register_new_peer() -> Result<()> {
 
     // Start new peer
     let mut configuration = Config::test();
-    configuration.sumeragi.trusted_peers =
-        unique_vec![peer_clients.choose(&mut thread_rng()).unwrap().0.id.clone()];
+    configuration.sumeragi.trusted_peers = WithOrigin::inline(unique_vec![peer_clients
+        .choose(&mut thread_rng())
+        .unwrap()
+        .0
+        .id
+        .clone()]);
     let rt = Runtime::test();
     let new_peer = rt.block_on(
         PeerBuilder::new()

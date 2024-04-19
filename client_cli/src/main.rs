@@ -220,8 +220,8 @@ fn main() -> error_stack::Result<(), MainError> {
 }
 
 fn color_mode() -> ColorMode {
-    if supports_color::on(supports_color::Stream::Stdout)
-        && supports_color::on(supports_color::Stream::Stderr)
+    if supports_color::on(supports_color::Stream::Stdout).is_some()
+        && supports_color::on(supports_color::Stream::Stderr).is_some()
     {
         ColorMode::Color
     } else {

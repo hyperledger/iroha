@@ -2,13 +2,8 @@
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicBool;
-use std::{
-    collections::BTreeMap,
-    ops::Deref,
-    path::{Path, PathBuf},
-    sync::Arc,
-    thread,
-};
+use std::{collections::BTreeMap,ops::Deref,
+    path::Path, sync::Arc, thread};
 
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
@@ -18,7 +13,7 @@ use iroha_client::{
     config::Config as ClientConfig,
     data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level},
 };
-use iroha_config::parameters::actual::Root as Config;
+use iroha_config::{base::WithOrigin, parameters::actual::Root as Config};
 pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{query::QueryOutputBox, ChainId};
@@ -224,8 +219,9 @@ impl Network {
         );
 
         let mut config = Config::test();
-        config.sumeragi.trusted_peers =
-            UniqueVec::from_iter(self.peers().map(|peer| &peer.id).cloned());
+        config.sumeragi.trusted_peers = WithOrigin::inline(UniqueVec::from_iter(
+            self.peers().map(|peer| &peer.id).cloned(),
+        ));
 
         let peer = PeerBuilder::new()
             .with_config(config)
@@ -279,8 +275,9 @@ impl Network {
             .collect::<Result<Vec<_>>>()?;
 
         let mut config = default_config.unwrap_or_else(Config::test);
-        config.sumeragi.trusted_peers =
-            UniqueVec::from_iter(peers.iter().map(|peer| peer.id.clone()));
+        config.sumeragi.trusted_peers = WithOrigin::inline(UniqueVec::from_iter(
+            peers.iter().map(|peer| peer.id.clone()),
+        ));
 
         let mut genesis_peer = peers.remove(0);
         let genesis_builder = builders.remove(0).with_config(config.clone());
@@ -629,7 +626,7 @@ impl PeerBuilder {
     pub async fn start_with_peer(self, peer: &mut Peer) {
         let config = self.config.unwrap_or_else(|| {
             let mut config = Config::test();
-            config.sumeragi.trusted_peers = unique_vec![peer.id.clone()];
+            config.sumeragi.trusted_peers = WithOrigin::inline(unique_vec![peer.id.clone()]);
             config
         });
         let genesis = match self.genesis {

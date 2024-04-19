@@ -35,11 +35,10 @@ async fn main() -> error_stack::Result<(), MainError> {
 
     let (config, logger_config, genesis) =
         iroha::read_config_and_genesis(&args).change_context(MainError::Config).attach_printable_lazy(|| {
-            if let Some(path) = &args.config {
-                format!("config path is specified by `--config` arg: {}", path.display())
-            } else {
-                "`--config` arg was not set, therefore configuration relies fully on environment variables".to_owned()
-            }
+            args.config.as_ref().map_or_else(
+                || "`--config` arg was not set, therefore configuration relies fully on environment variables".to_owned(),
+                |path| format!("config path is specified by `--config` arg: {}", path.display()),
+            )
         })?;
     let logger = iroha_logger::init_global(logger_config)
         .into_report()

@@ -156,6 +156,9 @@ rust.unused_lifetimes = "warn"
 # TODO: reenable
 # rust.unsafe_op_in_unsafe_fn = "deny"
 
+# FIXME: tmp
+rust.non_local_definitions = "allow"
+
 # pedantic
 clippy.pedantic = { level = "warn", priority = -1 }
 clippy.match_wildcard_for_single_variants = "allow"

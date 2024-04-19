@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// TODO: currently deserializes just as [`Duration`]
 #[serde_with::serde_as]
 #[derive(Debug, Copy, Clone, Deserialize, Serialize, Ord, PartialOrd, Eq, PartialEq, Display)]
-#[display(fmt = "{:?}", _0)]
+#[display(fmt = "{_0:?}")]
 pub struct HumanDuration(#[serde_as(as = "serde_with::DurationMilliSeconds")] pub Duration);
 
 impl HumanDuration {

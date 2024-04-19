@@ -17,8 +17,8 @@ pub fn read_private_key_from_env(
     fetcher: &mut CustomEnvFetcher,
     env_prefix: &'static str,
 ) -> Result<Option<PrivateKey>, CustomEnvReadError<PrivateKeyFromEnvError>> {
-    let env_algorithm = format!("{}ALGORITHM", env_prefix);
-    let env_payload = format!("{}PAYLOAD", env_prefix);
+    let env_algorithm = format!("{env_prefix}ALGORITHM");
+    let env_payload = format!("{env_prefix}PAYLOAD");
 
     let algorithm = fetcher.fetch_env::<Algorithm>(&env_algorithm)?;
     let payload = fetcher.fetch_env::<Hex>(&env_payload)?;

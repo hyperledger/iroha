@@ -145,7 +145,7 @@ where
     F: DisplayProxy<Base = T>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        <F as DisplayProxy>::fmt(&self.0, f)
+        <F as DisplayProxy>::fmt(self.0, f)
     }
 }
 
