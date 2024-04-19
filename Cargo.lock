@@ -2746,7 +2746,7 @@ dependencies = [
  "eyre",
  "futures-util",
  "hex",
- "http 0.2.12",
+ "http 1.1.0",
  "iroha",
  "iroha_config",
  "iroha_crypto",

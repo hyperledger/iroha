@@ -59,7 +59,7 @@ iroha_version = { workspace = true, features = ["http"] }
 
 attohttpc = { version = "0.26.1", default-features = false }
 eyre = { workspace = true }
-http = "0.2.12"
+http = "1.1.0"
 url = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
