@@ -1,4 +1,4 @@
-error: generics are not supported
+error: [derive(ReadConfig)]: generics are not supported
  --> tests/ui_fail/generics.rs:4:13
   |
 4 | struct Test<T> {

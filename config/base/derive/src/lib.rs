@@ -95,7 +95,11 @@ mod ast {
             let mut halt_codegen = false;
 
             for i in self.generics.params {
-                emit!(emitter, i, "generics are not supported");
+                emit!(
+                    emitter,
+                    i,
+                    "[derive(ReadConfig)]: generics are not supported"
+                );
                 // proceeding to codegen with these errors will produce a mess
                 halt_codegen = true;
             }
@@ -405,13 +409,19 @@ mod ast {
                                     args.args.first().expect("should be exactly 1")
                                 {
                                     Some((Some(ty), &last_segment.ident))
+                                } else {
+                                    None
                                 }
                             }
                             syn::PathArguments::None => Some((None, &last_segment.ident)),
                             _ => None,
                         }
+                    } else {
+                        None
                     }
-                }
+                } else {
+                    None
+                };
 
                 if let Some((next, ident)) = found {
                     let token = match ident.to_string().as_ref() {
