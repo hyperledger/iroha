@@ -77,10 +77,12 @@ pub fn derive_read_config(input: TokenStream) -> TokenStream {
 
 /// Parsing proc-macro input
 mod ast {
+    use std::collections::HashSet;
+
     use iroha_macro_utils::Emitter;
-    use manyhow::emit;
+    use manyhow::{emit, JoinToTokensError};
     use proc_macro2::{Span, TokenStream, TokenTree};
-    use syn::parse::ParseStream;
+    use syn::{parse::ParseStream, punctuated::Punctuated, Token};
 
     use crate::{codegen, codegen::ParameterEnv};
 
@@ -161,10 +163,12 @@ mod ast {
                 Attrs::Parameter { default, env } => {
                     let shape = ParameterTypeShape::analyze(&ty);
                     let evaluation = match (shape.option, default) {
-                        (false, AttrDefault::None) => codegen::Evaluation::Required,
-                        (false, AttrDefault::Expr(expr)) => codegen::Evaluation::OrElse(expr),
-                        (false, AttrDefault::Word) => codegen::Evaluation::OrDefault,
-                        (true, AttrDefault::None) => codegen::Evaluation::Optional,
+                        (false, None) => codegen::Evaluation::Required,
+                        (false, Some(AttrDefault::Value(expr))) => {
+                            codegen::Evaluation::OrElse(expr)
+                        }
+                        (false, Some(AttrDefault::Flag)) => codegen::Evaluation::OrDefault,
+                        (true, None) => codegen::Evaluation::Optional,
                         (true, _) => {
                             emit!(emitter, ident, "parameter of type `Option<..>` conflicts with `config(default)` attribute");
                             codegen::Evaluation::Optional
@@ -187,7 +191,7 @@ mod ast {
     enum Attrs {
         Nested,
         Parameter {
-            default: AttrDefault,
+            default: Option<AttrDefault>,
             env: Option<ParameterEnv>,
         },
     }
@@ -201,171 +205,157 @@ mod ast {
         }
     }
 
-    #[derive(Debug, Default)]
+    #[derive(Debug)]
     enum AttrDefault {
-        /// `default` was not set
-        #[default]
-        None,
         /// `config(default)`
-        Word,
+        Flag,
         /// `config(default = "<expr>")`
-        Expr(syn::Expr),
+        Value(syn::Expr),
     }
 
     impl syn::parse::Parse for Attrs {
         #[allow(clippy::too_many_lines)]
         fn parse(input: ParseStream) -> syn::Result<Self> {
-            input.step(|cursor| {
-                enum LocalError {
-                    ConflictNested(Span),
-                    ConflictEnv(Span),
-                    Duplicate(Span),
-                    EnvExpectedFormat(Span),
-                    EnvOnlyWithoutEnv(Span),
-                    BadDefaultExpr(Span, syn::Error),
-                    UnexpectedToken(Span)
-                }
+            let tokens: Punctuated<AttrItem, Token![,]> = Punctuated::parse_terminated(input)?;
 
-                impl From<LocalError> for syn::Error {
-                    fn from(value: LocalError) -> Self {
-                        match value {
-                            LocalError::ConflictNested(span) => Self::new(span, "attributes conflict: `nested` cannot be set with other attributes"),
-                            LocalError::ConflictEnv(span) => Self::new(span, "attributes conflict: set either `env` or `env_custom`, not both"),
-                            LocalError::Duplicate(span) => Self::new(span, "duplicate attribute"),
-                            LocalError::BadDefaultExpr(span, error) => Self::new(span, format!("expected a valid expression within `default = \"<expr>\"`, but couldn't parse it: {error}")),
-                            LocalError::EnvExpectedFormat(span) => Self::new(span, "expected `env` to be set as `env = \"VARIABLE_NAME\""),
-                            LocalError::EnvOnlyWithoutEnv(span) => Self::new(span, "`env_only` cannot be set without `env`"),
-                            LocalError::UnexpectedToken(span) => Self::new(span, "unexpected token; expected `default`, `env`, `env_only`, or `nested`"),
-                        }
-                    }
-                }
+            #[derive(Default)]
+            struct Accumulator {
+                default: Option<AttrDefault>,
+                env: Option<(Span, syn::LitStr)>,
+                env_custom: Option<()>,
+                nested: Option<Span>,
+            }
 
-                let mut attr_default = None;
-                let mut attr_env = None;
-                let mut attr_env_custom = false;
-                let mut attr_nested = false;
+            let mut acc = Accumulator::default();
 
-                let mut rest = *cursor;
-
-                while let Some((tt, next)) = rest.token_tree() {
-                    match &tt {
-                        TokenTree::Ident(ident) => {
-                            let token = ident.to_string();
-                            match token.as_str() {
-                                "default" => {
-                                    if attr_nested  {
-                                        Err(LocalError::ConflictNested(ident.span()))?
-                                    }
-                                    if attr_default.is_some() {
-                                        Err(LocalError::Duplicate(ident.span()))?
-                                    }
-
-                                    let (lit, next) = match expect_comma_or_eq_with_lit_str(next)? {
-                                        (None, next) => {
-                                            attr_default = Some(AttrDefault::Word);
-                                            rest = next;
-                                            continue;
-                                        }
-                                        (Some(lit), next) => {
-                                            (lit, next)
-                                        },
-                                    };
-                                    let expr: syn::Expr = lit
-                                        .parse()
-                                        .map_err(|err| LocalError::BadDefaultExpr(lit.span(), err))?;
-                                    attr_default = Some(AttrDefault::Expr(expr));
-                                    rest = expect_comma_or_none(next)?;
-                                }
-                                "nested" => {
-                                    if attr_default.is_some() || attr_env.is_some() {
-                                        Err(LocalError::ConflictNested(ident.span()))?
-                                    }
-                                    if attr_nested {
-                                        Err(LocalError::Duplicate(ident.span()))?
-                                    }
-                                    attr_nested = true;
-                                    rest = expect_comma_or_none(next)?;
-                                }
-                                "env" => {
-                                    // err if nested was set
-                                    if attr_nested {
-                                        Err(LocalError::ConflictNested(ident.span()))?
-                                    }
-                                    if attr_env_custom {
-                                        Err(LocalError::ConflictEnv(ident.span()))?
-                                    }
-                                    if attr_env.is_some() {
-                                        Err(LocalError::Duplicate(ident.span()))?
-                                    }
-                                    let (Some(lit_str), next) = expect_comma_or_eq_with_lit_str(next)? else {
-                                        Err(LocalError::EnvExpectedFormat(ident.span()))?
-                                    };
-                                    attr_env = Some(lit_str);
-                                    rest = expect_comma_or_none(next)?;
-                                }
-                                "env_custom" => {
-                                    if attr_nested {
-                                        Err(LocalError::ConflictNested(ident.span()))?
-                                    }
-                                    if attr_env.is_some() {
-                                        Err(LocalError::ConflictEnv(ident.span()))?
-                                    }
-                                    if attr_env_custom {
-                                        Err(LocalError::Duplicate(ident.span()))?
-                                    }
-                                    attr_env_custom = true;
-                                    rest = expect_comma_or_none(next)?;
-                                }
-                                other => {
-                                    Err(LocalError::UnexpectedToken(ident.span()))?
-                                }
-                            }
-                        }
-                        other => {
-                            Err(LocalError::UnexpectedToken(other.span()))?
-                        }
-                    }
-                }
-
-                let combined = if attr_nested {
-                    Self::Nested
+            fn reject_duplicate<T>(
+                acc: &mut Option<T>,
+                span: Span,
+                value: T,
+            ) -> Result<(), syn::Error> {
+                if acc.is_some() {
+                    Err(syn::Error::new(span, "duplicate attribute"))
                 } else {
-                    Self::Parameter {
-                        default: attr_default.unwrap_or_default(),
-                        env: match (attr_env, attr_env_custom) {
-                            (Some(var), false) => Some(ParameterEnv::Plain(var)),
-                            (None, true) => Some(ParameterEnv::Custom),
-                            (None, false) => None,
-                            _ => unreachable!()
-                        },
+                    *acc = Some(value);
+                    Ok(())
+                }
+            }
+
+            for token in tokens {
+                match token {
+                    AttrItem::Default(span, value) => {
+                        reject_duplicate(&mut acc.default, span, value)?
                     }
+                    AttrItem::Env(span, value) => {
+                        reject_duplicate(&mut acc.env, span, (span, value))?
+                    }
+                    AttrItem::EnvCustom(span) => reject_duplicate(&mut acc.env_custom, span, ())?,
+                    AttrItem::Nested(span) => reject_duplicate(&mut acc.nested, span, span)?,
+                }
+            }
+
+            let value = match acc {
+                Accumulator {
+                    nested: Some(_),
+                    default: None,
+                    env: None,
+                    env_custom: None,
+                } => Self::Nested,
+                Accumulator {
+                    nested: Some(span), ..
+                } => {
+                    return Err(syn::Error::new(
+                        span,
+                        "attributes conflict: `nested` cannot be set with other attributes",
+                    ))
+                }
+                Accumulator {
+                    env: Some((span, _)),
+                    env_custom: Some(()),
+                    ..
+                } => {
+                    return Err(syn::Error::new(
+                        span,
+                        "attributes conflict: set either `env` or `env_custom`, not both",
+                    ))
+                }
+                Accumulator {
+                    default,
+                    env_custom: Some(()),
+                    ..
+                } => Self::Parameter {
+                    default,
+                    env: Some(ParameterEnv::Custom),
+                },
+                Accumulator { default, env, .. } => Self::Parameter {
+                    default,
+                    env: env.map(|(_, lit)| ParameterEnv::Plain(lit)),
+                },
+            };
+
+            Ok(value)
+        }
+    }
+
+    #[derive(Debug)]
+    /// A single item in the attribute list. Used for parsing of [`Attrs`].
+    enum AttrItem {
+        Default(Span, AttrDefault),
+        Env(Span, syn::LitStr),
+        EnvCustom(Span),
+        Nested(Span),
+    }
+
+    impl syn::parse::Parse for AttrItem {
+        fn parse(input: ParseStream) -> syn::Result<Self> {
+            input.step(|cursor| {
+                const EXPECTED_IDENT: &str =
+                    "unexpected token; expected `default`, `env`, `env_only`, or `nested`";
+
+                let Some((ident, cursor)) = cursor.ident() else {
+                    Err(syn::Error::new(cursor.span(), EXPECTED_IDENT))?
                 };
 
-                Ok((combined, rest))
+                match ident.to_string().as_str() {
+                    "default" => {
+                        let (lit_str, cursor) = expect_eq_with_lit_str(cursor)?;
+                        let Some(lit_str) = lit_str else {
+                            return Ok((Self::Default(ident.span(), AttrDefault::Flag), cursor));
+                        };
+                        let expr: syn::Expr = lit_str.parse().map_err(|err| {
+                            syn::Error::new(err.span(), format!("expected a valid expression within `default = \"<expr>\"`, but couldn't parse it: {err}"))
+                        })?;
+                        Ok((Self::Default(ident.span(), AttrDefault::Value(expr)), cursor))
+                    }
+                    "nested" => {
+                        Ok((Self::Nested(ident.span()), cursor))
+                    }
+                    "env" => {
+                        let (Some(lit), cursor) = expect_eq_with_lit_str(cursor)? else {
+                            return Err(syn::Error::new(
+                                ident.span(),
+                                "expected `env` to be set as `env = \"VARIABLE_NAME\"",
+                            ));
+                        };
+                        Ok((Self::Env(ident.span(), lit), cursor))
+                    }
+                    "env_custom" => {
+                        Ok((Self::EnvCustom(ident.span()), cursor))
+                    }
+                    other => Err(syn::Error::new(cursor.span(), EXPECTED_IDENT)),
+                }
             })
         }
     }
 
-    fn expect_comma_or_none(cursor: syn::buffer::Cursor) -> syn::Result<syn::buffer::Cursor> {
-        match cursor.token_tree() {
-            Some((TokenTree::Punct(punct), next)) if punct.as_char() == ',' => Ok(next),
-            Some((other, next)) => Err(syn::Error::new(other.span(), "expected a comma")),
-            None => Ok(cursor),
-        }
-    }
-
-    fn expect_comma_or_eq_with_lit_str(
+    fn expect_eq_with_lit_str(
         cursor: syn::buffer::Cursor,
     ) -> syn::Result<(Option<syn::LitStr>, syn::buffer::Cursor)> {
         const EXPECTED_STR_LIT: &str = r#"expected a string literal, e.g. "...""#;
 
         let next = match cursor.token_tree() {
             Some((TokenTree::Punct(punct), next)) if punct.as_char() == '=' => next,
-            Some((TokenTree::Punct(punct), next)) if punct.as_char() == ',' => {
-                return Ok((None, next))
-            }
-            None => return Ok((None, cursor)),
-            Some((other, _)) => Err(syn::Error::new(other.span(), "expected ',' or '='"))?,
+            _ => return Ok((None, cursor)),
         };
 
         let (lit, next) = match next.token_tree() {
@@ -474,7 +464,7 @@ mod ast {
             assert!(matches!(
                 attrs,
                 Attrs::Parameter {
-                    default: AttrDefault::Word,
+                    default: Some(AttrDefault::Flag),
                     env: None
                 }
             ));
@@ -487,7 +477,7 @@ mod ast {
             assert!(matches!(
                 attrs,
                 Attrs::Parameter {
-                    default: AttrDefault::Expr(_),
+                    default: Some(AttrDefault::Value(_)),
                     env: None
                 }
             ));
@@ -498,7 +488,7 @@ mod ast {
             let attrs: Attrs = syn::parse_quote!(default, env = "$!@#");
 
             let Attrs::Parameter {
-                default: AttrDefault::Word,
+                default: Some(AttrDefault::Flag),
                 env: Some(ParameterEnv::Plain(var)),
             } = attrs
             else {
