@@ -10,14 +10,7 @@
 #![allow(missing_docs)]
 
 use std::{
-    error::Error,
-    fmt::Debug,
-    fs::File,
-    io::Read,
-    num::{NonZeroU32, NonZeroUsize},
-    path::{Path, PathBuf},
-    str::FromStr,
-    time::Duration,
+    error::Error, fmt::Debug, fs::File, io::Read, num::{NonZeroU32, NonZeroUsize}, path::{Path, PathBuf}, str::FromStr, time::Duration
 };
 
 pub use boilerplate::*;

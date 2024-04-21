@@ -332,8 +332,12 @@ fn full_envs_set_is_consumed() -> Result<()> {
                         ),
                     ),
                 ),
-                file: None,
-                signature: None,
+                file: Some(
+                    "/config/genesis.json",
+                ),
+                signature: Some(
+                    "9030303030303030302d303030302d303030302d303030302d303030303030303030303030b815226600000000807600360400808ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb010189130966757279f420f28a62a71e45b97dcdf2edd49a84378d7c51261e06b9004393fd2d49be3822467c67942df95d15f88146e0fb104ae2ae3206e873fb730c",
+                ),
             },
             kura: KuraPartial {
                 init_mode: Some(

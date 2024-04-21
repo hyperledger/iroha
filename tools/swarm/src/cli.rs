@@ -27,7 +27,7 @@ pub struct Cli {
     /// interactive, the app will stop execution with a non-zero exit code. In order to
     /// overwrite the file anyway, pass `--force` flag.
     #[arg(long, short)]
-    pub outfile: PathBuf,
+    pub out_file: PathBuf,
     /// Disable banner in the file saying that the file is generated.
     ///
     /// It includes all passed arguments in order to help with reproducibility.

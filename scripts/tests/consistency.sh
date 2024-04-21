@@ -20,11 +20,11 @@ case $1 in
             #        it is not a default behaviour because Kagami resolves `build` path relative
             #        to the output file location
             temp_file="configs/swarm/docker-compose.TMP.yml"
-            full_cmd="$cmd_base --outfile $temp_file"
+            full_cmd="$cmd_base --out-file $temp_file"
 
             eval "$full_cmd"
             diff "$temp_file" "$target" || {
-                echo "Please re-generate \`$target\` with \`$cmd_base --outfile $target\`"
+                echo "Please re-generate \`$target\` with \`$cmd_base --out-file $target\`"
                 exit 1
             }
         }

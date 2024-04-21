@@ -268,10 +268,9 @@ fn generate_synthetic(
 }
 
 /// Use `Kagami` to sign genesis block.
-#[derive(ClapArgs, Clone, Debug)]
+#[derive(Clone, Debug, Parser)]
 #[command(group = ArgGroup::new("private_key").required(true))]
 #[command(group = ArgGroup::new("public_key").required(true))]
-#[command(group = ArgGroup::new("format").required(false))]
 pub struct SignArgs {
     /// The algorithm of the provided keypair
     #[clap(default_value_t, long, short)]
@@ -297,12 +296,9 @@ pub struct SignArgs {
     /// Path to genesis json file
     #[clap(long, short)]
     genesis_file: PathBuf,
-    /// Output signed genesis config as a hex string
-    #[clap(long, default_value_t = true, group = "format")]
-    hex: bool,
     /// Encode signed genesis block with SCALE (it is only supported with file output)
-    #[clap(long, default_value_t = false, group = "format")]
-    scale: bool,
+    #[clap(long, short, default_value_t = false)]
+    binary: bool,
     /// Path to signed genesis output file (stdout by default)
     #[clap(long, short)]
     out_file: Option<PathBuf>,
@@ -392,23 +388,13 @@ impl<T: Write> RunArgs<T> for SignArgs {
             GenesisNetwork::new_genesis_signature(genesis_block, &self.chain_id, &key_pair);
         let genesis_signature_string = genesis_signature.to_hex_string();
 
-        let encoded_genesis_signature = if self.scale {
-            genesis_signature_string.encode()
-        } else {
-            Vec::default()
-        };
-
-        let hex_genesis_config = if self.hex {
-            genesis_signature_string
-        } else {
-            String::default()
-        };
+        let scale_encoded_signature = self.binary.then(|| genesis_signature_string.encode());
 
         if let Some(path) = self.out_file {
-            if self.scale {
+            if let Some(encoded_genesis_signature) = scale_encoded_signature {
                 fs::write(&path, encoded_genesis_signature)?;
             } else {
-                fs::write(&path, hex_genesis_config)?;
+                fs::write(&path, genesis_signature_string)?;
             }
 
             writeln!(
@@ -416,13 +402,13 @@ impl<T: Write> RunArgs<T> for SignArgs {
                 "Genesis was successfully signed and written to `{}`",
                 path.display()
             )?;
-        } else if self.scale {
+        } else if self.binary {
             writeln!(
                 writer,
                 "SCALE encoded data is not supported for console outputs."
             )?;
         } else {
-            writeln!(writer, "{hex_genesis_config}")?;
+            writeln!(writer, "{genesis_signature_string}")?;
         }
 
         Ok(())
@@ -438,7 +424,8 @@ mod tests {
 
     const GENESIS_JSON_PATH: &str = "../../configs/swarm/genesis.json";
 
-    fn genesis_signing_works() -> Result<bool> {
+    #[test]
+    fn genesis_signing_works() -> Result<()> {
         let keypair_config = crypto::Args {
             algorithm: AlgorithmArg::default(),
             private_key: None,
@@ -454,20 +441,18 @@ mod tests {
         let tmp_keypair_json_file = tempfile::NamedTempFile::new()?;
         fs::write(tmp_keypair_json_file.path(), keypair_json.buffer())?;
 
-        let chain_id = ChainId::from("0123456");
-        let crypto_genesis_config = SignArgs {
-            algorithm: AlgorithmArg::default(),
-            private_key_string: None,
-            private_key_file: None,
-            public_key_string: None,
-            public_key_file: None,
-            keypair_file: Some(PathBuf::from(tmp_keypair_json_file.path())),
-            chain_id: chain_id.clone(),
-            genesis_file: PathBuf::from_str(GENESIS_JSON_PATH)?,
-            out_file: None,
-            scale: false,
-            hex: true,
-        };
+        let chain_id_slice = "0123456";
+        let chain_id = ChainId::from(chain_id_slice);
+        let crypto_genesis_config = SignArgs::try_parse_from([
+            "sign",
+            "--chain-id",
+            chain_id_slice,
+            "--genesis-file",
+            GENESIS_JSON_PATH,
+            "--keypair-file",
+            tmp_keypair_json_file.path().as_os_str().to_str().unwrap(),
+        ])
+        .unwrap();
 
         let mut genesis_buf_writer = BufWriter::new(Vec::new());
 
@@ -495,15 +480,10 @@ mod tests {
                 && a.nonce() == b.nonce()
                 && a.signatures() == b.signatures()
         };
-        Ok(cmp(
-            &signed_genesis_from_config.0,
-            &signed_genesis_manually.0,
-        ))
-    }
-
-    #[test]
-    fn test_genesis_signing_works() {
-        let result = genesis_signing_works();
-        assert!(result.is_ok_and(|result| result));
+        assert!(
+            cmp(&signed_genesis_from_config.0, &signed_genesis_manually.0,),
+            "Genesis transactions are not equal."
+        );
+        Ok(())
     }
 }

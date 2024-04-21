@@ -29,12 +29,7 @@ use crate::{
     kura::InitMode as KuraInitMode,
     logger::Format,
     parameters::{
-        defaults::{self, chain_wide::*, network::*, queue::*, torii::*},
-        user,
-        user::{
-            ChainWide, DevTelemetry, Genesis, Kura, KuraDebug, Logger, Network, Queue, Root,
-            Snapshot, Sumeragi, SumeragiDebug, Telemetry, Torii,
-        },
+        defaults::{self, chain_wide::*, network::*, queue::*, torii::*}, user::{self, ChainWide, DevTelemetry, Genesis, Kura, KuraDebug, Logger, Network, Queue, Root, Snapshot, Sumeragi, SumeragiDebug, Telemetry, Torii}
     },
     snapshot::Mode as SnapshotMode,
 };

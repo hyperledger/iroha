@@ -92,10 +92,14 @@ pub struct Network {
 }
 
 /// Wrapper around `iroha_genesis::GenesisSignature` for type-checking
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct GenesisSignatureConfig(iroha_genesis::GenesisSignature);
 
 impl GenesisSignatureConfig {
+    /// Constructs `GenesisSignatureConfig` from `GenesisSignature`
+    pub fn new(genesis_signature: iroha_genesis::GenesisSignature) -> Self {
+        Self(genesis_signature)
+    }
     /// Converts `GenesisSignatureConfig` into `iroha_genesis::GenesisSignature`
     pub fn into_genesis_signature(self) -> iroha_genesis::GenesisSignature {
         self.0
@@ -126,7 +130,7 @@ pub enum Genesis {
         public_key: PublicKey,
         /// Path to the genesis file
         file: PathBuf,
-        /// Hex-encoded genesis config
+        /// Genesis signature config with the data to reconstruct signed genesis block
         signature: GenesisSignatureConfig,
     },
 }

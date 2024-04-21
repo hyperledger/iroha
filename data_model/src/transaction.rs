@@ -13,6 +13,7 @@ use iroha_crypto::SignaturesOf;
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 #[cfg(feature = "std")]
+#[allow(unused_imports)]
 use iroha_primitives::time::TimeSource;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, version};

@@ -678,13 +678,13 @@ mod tests {
                     cfg.private_key.clone().get().unwrap(),
                 )?;
                 let genesis_block = RawGenesisBlock::try_from(genesis.clone())?;
-                let signature = GenesisNetwork::new_genesis_signature(
+                let genesis_signature = GenesisNetwork::new_genesis_signature(
                     genesis_block,
                     &cfg.chain_id.clone().get().unwrap(),
                     &keypair,
                 )
                 .to_hex_string();
-                cfg.genesis.signature.set(signature);
+                cfg.genesis.signature.set(genesis_signature);
 
                 cfg.kura.store_dir.set("../storage".into());
                 cfg.snapshot.store_dir.set("../snapshots".into());
