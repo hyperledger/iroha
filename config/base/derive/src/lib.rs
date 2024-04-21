@@ -321,7 +321,7 @@ mod ast {
 
                 let combined = if attr_nested {
                     Self::Nested
-                }else {
+                } else {
                     Self::Parameter {
                         default: attr_default.unwrap_or_default(),
                         env: match (attr_env, attr_env_custom) {
@@ -397,20 +397,18 @@ mod ast {
                     return vec![];
                 }
 
-                let mut found = None;
-
-                if let syn::Type::Path(type_path) = ty {
+                let found = if let syn::Type::Path(type_path) = ty {
                     if let Some(last_segment) = type_path.path.segments.last() {
                         match &last_segment.arguments {
                             syn::PathArguments::AngleBracketed(args) if args.args.len() == 1 => {
                                 if let syn::GenericArgument::Type(ty) =
                                     args.args.first().expect("should be exactly 1")
                                 {
-                                    found = Some((Some(ty), &last_segment.ident));
+                                    Some((Some(ty), &last_segment.ident))
                                 }
                             }
-                            syn::PathArguments::None => found = Some((None, &last_segment.ident)),
-                            _ => {}
+                            syn::PathArguments::None => Some((None, &last_segment.ident)),
+                            _ => None,
                         }
                     }
                 }

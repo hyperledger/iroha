@@ -73,14 +73,22 @@ impl Error {
 /// and finally, construct an exhaustive error report with as many errors, accumulated along the
 /// way, as possible.
 pub struct ConfigReader {
-    sources: Vec<TomlSource>,
+    /// The namespace this [`ConfigReader`] is handling. All the `ParameterId` handled will be prefixed with it.
     nesting: Vec<String>,
-    errors_by_source: BTreeMap<PathBuf, Vec<Report<Error>>>,
-    errors_in_env: Vec<Report<EnvError>>,
-    existing_parameters: BTreeSet<ParameterId>,
-    missing_parameters: BTreeSet<ParameterId>,
-    bomb: DropBomb,
+    /// File sources for the config
+    sources: Vec<TomlSource>,
+    /// Environment variables source for the config
     env: Box<dyn ReadEnv>,
+    /// Errors accumulated per each file
+    errors_by_source: BTreeMap<PathBuf, Vec<Report<Error>>>,
+    /// Errors accumulated from the environment variables
+    errors_in_env: Vec<Report<EnvError>>,
+    /// A list of all the parameters that have been requested from this reader. Used to report unused (unknown) parameters in the toml file
+    existing_parameters: BTreeSet<ParameterId>,
+    /// A list of all required parameters that have been requested, but were not found
+    missing_parameters: BTreeSet<ParameterId>,
+    /// A runtime guard to prevent dropping the [`ConfigReader`] without handing errors
+    bomb: DropBomb,
 }
 
 impl Debug for ConfigReader {
