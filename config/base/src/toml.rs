@@ -109,7 +109,9 @@ impl TomlSource {
         &self.path
     }
 
-    #[allow(single_use_lifetimes)] // FIXME: cannot compile without `'a`
+    // FIXME: false-positive
+    //        https://github.com/rust-lang/rust/issues/44752#issuecomment-1712086069
+    #[allow(single_use_lifetimes)]
     pub(crate) fn find_unknown<'a>(
         &self,
         known: impl Iterator<Item = &'a ParameterId>,
