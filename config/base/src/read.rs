@@ -563,7 +563,7 @@ where
     /// Delegates reading of environment in a free way if the value type is [`CustomEnvRead`].
     #[must_use]
     pub fn env_custom(mut self) -> Self {
-        let mut fetcher = CustomEnvFetcher::new(&mut self.reader, &self.id);
+        let mut fetcher = CustomEnvFetcher::new(self.reader, &self.id);
 
         match (T::read(&mut fetcher), self.errored) {
             (Ok(Some(value)), false) => {

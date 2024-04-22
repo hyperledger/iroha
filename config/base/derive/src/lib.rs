@@ -81,7 +81,7 @@ mod ast {
 
     use iroha_macro_utils::Emitter;
     use manyhow::{emit, JoinToTokensError};
-    use proc_macro2::{Span, TokenStream, TokenTree};
+    use proc_macro2::{Ident, Span, TokenStream, TokenTree};
     use syn::{parse::ParseStream, punctuated::Punctuated, Token};
 
     use crate::{codegen, codegen::ParameterEnv};
@@ -216,8 +216,6 @@ mod ast {
     impl syn::parse::Parse for Attrs {
         #[allow(clippy::too_many_lines)]
         fn parse(input: ParseStream) -> syn::Result<Self> {
-            let tokens: Punctuated<AttrItem, Token![,]> = Punctuated::parse_terminated(input)?;
-
             #[derive(Default)]
             struct Accumulator {
                 default: Option<AttrDefault>,
@@ -225,8 +223,6 @@ mod ast {
                 env_custom: Option<()>,
                 nested: Option<Span>,
             }
-
-            let mut acc = Accumulator::default();
 
             fn reject_duplicate<T>(
                 acc: &mut Option<T>,
@@ -241,6 +237,8 @@ mod ast {
                 }
             }
 
+            let mut acc = Accumulator::default();
+            let tokens: Punctuated<AttrItem, Token![,]> = Punctuated::parse_terminated(input)?;
             for token in tokens {
                 match token {
                     AttrItem::Default(span, value) => {
@@ -390,34 +388,32 @@ mod ast {
                 Unknown,
             }
 
-            fn parse_tokens(ty: &syn::Type, depth: u8) -> Vec<Token> {
-                if depth == 0 {
-                    return vec![];
-                }
-
-                let found = if let syn::Type::Path(type_path) = ty {
+            fn try_find(ty: &syn::Type) -> Option<(Option<&syn::Type>, &Ident)> {
+                if let syn::Type::Path(type_path) = ty {
                     if let Some(last_segment) = type_path.path.segments.last() {
                         match &last_segment.arguments {
                             syn::PathArguments::AngleBracketed(args) if args.args.len() == 1 => {
                                 if let syn::GenericArgument::Type(ty) =
                                     args.args.first().expect("should be exactly 1")
                                 {
-                                    Some((Some(ty), &last_segment.ident))
-                                } else {
-                                    None
+                                    return Some((Some(ty), &last_segment.ident));
                                 }
                             }
-                            syn::PathArguments::None => Some((None, &last_segment.ident)),
-                            _ => None,
+                            syn::PathArguments::None => return Some((None, &last_segment.ident)),
+                            _ => {}
                         }
-                    } else {
-                        None
                     }
-                } else {
-                    None
-                };
+                }
 
-                if let Some((next, ident)) = found {
+                None
+            }
+
+            fn parse_tokens(ty: &syn::Type, depth: u8) -> Vec<Token> {
+                if depth == 0 {
+                    return vec![];
+                }
+
+                if let Some((next, ident)) = try_find(ty) {
                     let token = match ident.to_string().as_ref() {
                         "Option" => Token::Option,
                         "WithOrigin" => Token::WithOrigin,

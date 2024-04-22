@@ -153,10 +153,7 @@ impl Root {
 
         let sumeragi = peer_id
             .as_ref()
-            .map(|id| self.sumeragi.parse_and_push_self(id.clone()))
-            .transpose()
-            .ok_or_emit(&mut emitter)
-            .flatten();
+            .map(|id| self.sumeragi.parse_and_push_self(id.clone()));
 
         emitter.into_result()?;
 
@@ -312,7 +309,7 @@ impl Default for TrustedPeers {
 }
 
 impl Sumeragi {
-    fn parse_and_push_self(self, self_id: PeerId) -> Result<actual::Sumeragi, ParseError> {
+    fn parse_and_push_self(self, self_id: PeerId) -> actual::Sumeragi {
         let Self {
             trusted_peers,
             debug: SumeragiDebug { force_soft_fork },
@@ -326,10 +323,10 @@ impl Sumeragi {
         // with ALL trusted peer specified, so it's fine.
         let _ = trusted_peers.value_mut().push(self_id);
 
-        Ok(actual::Sumeragi {
+        actual::Sumeragi {
             trusted_peers,
             debug_force_soft_fork: force_soft_fork,
-        })
+        }
     }
 }
 
