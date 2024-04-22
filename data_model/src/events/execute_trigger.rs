@@ -55,7 +55,7 @@ pub mod model {
         /// Id of trigger catch executions of
         pub(super) trigger_id: TriggerId,
         /// Authority of user who owns trigger
-        pub(super) authority: AccountId,
+        pub(super) authority: FilterOpt<AccountId>,
     }
 }
 
@@ -67,7 +67,11 @@ impl Filter for ExecuteTriggerEventFilter {
     ///
     /// Event considered as matched if trigger ids are equal
     fn matches(&self, event: &ExecuteTriggerEvent) -> bool {
-        self.trigger_id == event.trigger_id && self.authority == event.authority
+        self.trigger_id == event.trigger_id
+            && match &self.authority {
+                FilterOpt::AcceptAll => true,
+                FilterOpt::BySome(authority) => authority == &event.authority,
+            }
     }
 }
 

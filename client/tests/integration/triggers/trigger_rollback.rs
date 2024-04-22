@@ -26,7 +26,7 @@ fn failed_trigger_revert() -> Result<()> {
             account_id.clone(),
             TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
-                account_id,
+                FilterOpt::BySome(account_id),
             )),
         ),
     ));
