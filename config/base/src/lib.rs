@@ -48,31 +48,28 @@
 //! }
 //!
 //! impl ReadConfig for Config {
-//!     fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader) {
-//!         let (foo_bar, reader) = reader
+//!     fn read(reader: &mut ConfigReader) -> FinalWrap<Self> {
+//!         let foo_bar = reader
 //!             .read_parameter(["foo", "bar"])
 //!             .env("BAR")
 //!             .value_required()
 //!             .finish();
 //!
-//!         let (foo_baz, reader) = reader
+//!         let foo_baz = reader
 //!             .read_parameter(["foo", "baz"])
 //!             .value_or_else(|| 100)
 //!             .finish_with_origin();
 //!
-//!         let (more, reader) = reader
+//!         let more = reader
 //!             .read_parameter(["foo", "more"])
 //!             .value_optional()
 //!             .finish();
 //!
-//!         (
-//!             FinalWrap::value_fn(|| Self {
-//!                 foo_bar: foo_bar.unwrap(),
-//!                 foo_baz: foo_baz.unwrap(),
-//!                 more: more.unwrap(),
-//!             }),
-//!             reader,
-//!         )
+//!         FinalWrap::value_fn(|| Self {
+//!             foo_bar: foo_bar.unwrap(),
+//!             foo_baz: foo_baz.unwrap(),
+//!             more: more.unwrap(),
+//!         })
 //!     }
 //! }
 //!

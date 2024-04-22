@@ -567,19 +567,13 @@ mod codegen {
             quote! {
                 impl ::iroha_config_base::read::ReadConfig for #ident {
                     fn read(
-                        __reader: ::iroha_config_base::read::ConfigReader
-                    ) -> (
-                        ::iroha_config_base::read::FinalWrap<Self>,
-                        ::iroha_config_base::read::ConfigReader
-                    ) {
+                        __reader: &mut ::iroha_config_base::read::ConfigReader
+                    ) -> ::iroha_config_base::read::FinalWrap<Self> {
                         #(#read_fields)*
 
-                        (
-                            ::iroha_config_base::read::FinalWrap::value_fn(|| Self {
-                                #(#unwrap_fields),*
-                            }),
-                            __reader
-                        )
+                        ::iroha_config_base::read::FinalWrap::value_fn(|| Self {
+                            #(#unwrap_fields),*
+                        })
                     }
                 }
             }
@@ -597,7 +591,7 @@ mod codegen {
 
             let read = match kind {
                 EntryKind::Nested => {
-                    quote! { let (#ident, __reader) = __reader.read_nested(stringify!(#ident)); }
+                    quote! { let #ident = __reader.read_nested(stringify!(#ident)); }
                 }
                 EntryKind::Parameter {
                     env,
@@ -605,7 +599,7 @@ mod codegen {
                     with_origin,
                 } => {
                     let mut read = quote! {
-                        let (#ident, __reader) = __reader.read_parameter([stringify!(#ident)])
+                        let #ident = __reader.read_parameter([stringify!(#ident)])
                     };
                     match env {
                         Some(ParameterEnv::Plain(var)) => read.extend(quote! { .env(#var) }),
@@ -681,7 +675,7 @@ mod codegen {
 
             let actual = entry.generate().read.to_string();
 
-            expect![[r#"let (test , __reader) = __reader . read_parameter ([stringify ! (test)]) . env ("TEST_ENV") . value_required () . finish () ;"#]].assert_eq(&actual);
+            expect![[r#"let test = __reader . read_parameter ([stringify ! (test)]) . env ("TEST_ENV") . value_required () . finish () ;"#]].assert_eq(&actual);
         }
     }
 }

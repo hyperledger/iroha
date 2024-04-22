@@ -31,41 +31,38 @@ pub mod sample_config {
     }
 
     impl ReadConfig for Root {
-        fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader)
+        fn read(reader: &mut ConfigReader) -> FinalWrap<Self>
         where
             Self: Sized,
         {
-            let (chain_id, reader) = reader
+            let chain_id = reader
                 .read_parameter::<String>(["chain_id"])
                 .env("CHAIN_ID")
                 .value_required()
                 .finish();
 
-            let (torii, reader) = reader.read_nested("torii");
+            let torii = reader.read_nested("torii");
 
-            let (kura, reader) = reader.read_nested("kura");
+            let kura = reader.read_nested("kura");
 
-            let (telemetry, reader) = reader.read_nested("telemetry");
+            let telemetry = reader.read_nested("telemetry");
 
-            let (logger, reader) = reader.read_nested("logger");
+            let logger = reader.read_nested("logger");
 
-            let (private_key, reader) = reader
+            let private_key = reader
                 .read_parameter(["private_key"])
                 .env_custom()
                 .value_optional()
                 .finish();
 
-            (
-                FinalWrap::value_fn(move || Self {
-                    chain_id: chain_id.unwrap(),
-                    torii: torii.unwrap(),
-                    kura: kura.unwrap(),
-                    telemetry: telemetry.unwrap(),
-                    logger: logger.unwrap(),
-                    private_key: private_key.unwrap(),
-                }),
-                reader,
-            )
+            FinalWrap::value_fn(move || Self {
+                chain_id: chain_id.unwrap(),
+                torii: torii.unwrap(),
+                kura: kura.unwrap(),
+                telemetry: telemetry.unwrap(),
+                logger: logger.unwrap(),
+                private_key: private_key.unwrap(),
+            })
         }
     }
 
@@ -76,28 +73,25 @@ pub mod sample_config {
     }
 
     impl ReadConfig for Torii {
-        fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader)
+        fn read(reader: &mut ConfigReader) -> FinalWrap<Self>
         where
             Self: Sized,
         {
-            let (address, reader) = reader
+            let address = reader
                 .read_parameter::<SocketAddr>(["address"])
                 .env("API_ADDRESS")
                 .value_or_else(|| "128.0.0.1:8080".parse().unwrap())
                 .finish_with_origin();
 
-            let (max_content_len, reader) = reader
+            let max_content_len = reader
                 .read_parameter::<u64>(["max_content_length"])
                 .value_or_else(|| 1024)
                 .finish();
 
-            (
-                FinalWrap::value_fn(|| Self {
-                    address: address.unwrap(),
-                    max_content_len: max_content_len.unwrap(),
-                }),
-                reader,
-            )
+            FinalWrap::value_fn(|| Self {
+                address: address.unwrap(),
+                max_content_len: max_content_len.unwrap(),
+            })
         }
     }
 
@@ -108,29 +102,26 @@ pub mod sample_config {
     }
 
     impl ReadConfig for Kura {
-        fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader)
+        fn read(reader: &mut ConfigReader) -> FinalWrap<Self>
         where
             Self: Sized,
         {
             // origin needed so that we can resolve the path relative to the origin
-            let (store_dir, reader) = reader
+            let store_dir = reader
                 .read_parameter::<PathBuf>(["store_dir"])
                 .env("KURA_STORE_DIR")
                 .value_or_else(|| PathBuf::from("./storage"))
                 .finish_with_origin();
 
-            let (debug_force, reader) = reader
+            let debug_force = reader
                 .read_parameter::<bool>(["debug_force"])
                 .value_or_else(|| false)
                 .finish();
 
-            (
-                FinalWrap::value_fn(|| Self {
-                    store_dir: store_dir.unwrap(),
-                    debug_force: debug_force.unwrap(),
-                }),
-                reader,
-            )
+            FinalWrap::value_fn(|| Self {
+                store_dir: store_dir.unwrap(),
+                debug_force: debug_force.unwrap(),
+            })
         }
     }
 
@@ -140,22 +131,19 @@ pub mod sample_config {
     }
 
     impl ReadConfig for Telemetry {
-        fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader)
+        fn read(reader: &mut ConfigReader) -> FinalWrap<Self>
         where
             Self: Sized,
         {
             // origin needed so that we can resolve the path relative to the origin
-            let (out_file, reader) = reader
+            let out_file = reader
                 .read_parameter::<PathBuf>(["dev", "out_file"])
                 .value_optional()
                 .finish_with_origin();
 
-            (
-                FinalWrap::value_fn(|| Self {
-                    out_file: out_file.unwrap(),
-                }),
-                reader,
-            )
+            FinalWrap::value_fn(|| Self {
+                out_file: out_file.unwrap(),
+            })
         }
     }
 
@@ -165,22 +153,19 @@ pub mod sample_config {
     }
 
     impl ReadConfig for Logger {
-        fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader)
+        fn read(reader: &mut ConfigReader) -> FinalWrap<Self>
         where
             Self: Sized,
         {
-            let (level, reader) = reader
+            let level = reader
                 .read_parameter::<LogLevel>(["level"])
                 .env("LOG_LEVEL")
                 .value_or_default()
                 .finish();
 
-            (
-                FinalWrap::value_fn(|| Self {
-                    level: level.unwrap(),
-                }),
-                reader,
-            )
+            FinalWrap::value_fn(|| Self {
+                level: level.unwrap(),
+            })
         }
     }
 

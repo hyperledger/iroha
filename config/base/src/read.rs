@@ -2,8 +2,8 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    convert::identity,
     fmt::Debug,
-    marker::PhantomData,
     path::{Path, PathBuf},
 };
 
@@ -28,7 +28,7 @@ pub trait ReadConfig: Sized {
     ///
     /// The wrap is guaranteed to unwrap safely if the reader emits
     /// no error upon [`ConfigReader::into_result`].
-    fn read(reader: ConfigReader) -> (FinalWrap<Self>, ConfigReader);
+    fn read(reader: &mut ConfigReader) -> FinalWrap<Self>;
 }
 
 /// An umbrella error for various cases related to [`ConfigReader`].
@@ -184,7 +184,7 @@ impl ConfigReader {
 
     /// Instantiate a parameter reading pipeline.
     #[must_use]
-    pub fn read_parameter<T>(mut self, id: impl Into<ParameterId>) -> ReadingParameter<T>
+    pub fn read_parameter<T>(&mut self, id: impl Into<ParameterId>) -> ReadingParameter<T>
     where
         for<'de> T: Deserialize<'de>,
     {
@@ -196,14 +196,11 @@ impl ConfigReader {
     /// Delegate reading to another implementor of [`ReadConfig`] under a certain namespace.
     /// All parameter IDs in it will be resolved within that namespace.
     #[must_use]
-    pub fn read_nested<T: ReadConfig>(
-        mut self,
-        namespace: impl AsRef<str>,
-    ) -> (FinalWrap<T>, Self) {
+    pub fn read_nested<T: ReadConfig>(&mut self, namespace: impl AsRef<str>) -> FinalWrap<T> {
         self.nesting.push(namespace.as_ref().to_string());
-        let (value, mut reader) = T::read(self);
-        reader.nesting.pop();
-        (value, reader)
+        let value = T::read(self);
+        self.nesting.pop();
+        value
     }
 
     /// Finally, complete the reading procedure and emit a collective report
@@ -268,9 +265,9 @@ impl ConfigReader {
     /// A shorthand to "just read the config and get an error or the value".
     /// # Errors
     /// See [`Self::into_result`]
-    pub fn read_and_complete<T: ReadConfig>(self) -> Result<T, Error> {
-        let (value, reader) = T::read(self);
-        reader.into_result()?;
+    pub fn read_and_complete<T: ReadConfig>(mut self) -> Result<T, Error> {
+        let value = T::read(&mut self);
+        self.into_result()?;
         Ok(value.unwrap())
     }
 
@@ -472,15 +469,15 @@ impl<C> From<Report<C>> for CustomEnvReadError<C> {
 }
 
 /// A state of reading a certain configuration parameter.
-pub struct ReadingParameter<T> {
-    reader: ConfigReader,
+pub struct ReadingParameter<'reader, T> {
+    reader: &'reader mut ConfigReader,
     id: ParameterId,
     value: Option<WithOrigin<T>>,
     errored: bool,
 }
 
-impl<T> ReadingParameter<T> {
-    fn new(reader: ConfigReader, id: ParameterId) -> Self {
+impl<'reader, T> ReadingParameter<'reader, T> {
+    fn new(reader: &'reader mut ConfigReader, id: ParameterId) -> Self {
         Self {
             reader,
             id,
@@ -490,7 +487,7 @@ impl<T> ReadingParameter<T> {
     }
 }
 
-impl<T> ReadingParameter<T>
+impl<T> ReadingParameter<'_, T>
 where
     for<'de> T: Deserialize<'de>,
 {
@@ -509,7 +506,7 @@ where
     }
 }
 
-impl<T> ReadingParameter<T>
+impl<T> ReadingParameter<'_, T>
 where
     T: FromEnvStr,
 {
@@ -559,7 +556,7 @@ where
     }
 }
 
-impl<T> ReadingParameter<T>
+impl<T> ReadingParameter<'_, T>
 where
     T: CustomEnvRead,
 {
@@ -611,17 +608,17 @@ where
     }
 }
 
-impl<T> ReadingParameter<T> {
+impl<T> ReadingParameter<'_, T> {
     /// Finish reading, and if the value is not read so far, it will be reported later on [`ConfigReader::into_result`].
     #[must_use]
-    pub fn value_required(mut self) -> ReadingDone<T> {
+    pub fn value_required(self) -> ReadingDone<T> {
         match (self.errored, self.value) {
-            (false, Some(value)) => ReadingDone::with_value(self.reader, value),
+            (false, Some(value)) => ReadingDone(ReadingDoneValue::Fine(value)),
             (false, None) => {
                 self.reader.collect_missing_parameter(&self.id);
-                ReadingDone::errored(self.reader)
+                ReadingDone(ReadingDoneValue::Errored)
             }
-            (true, _) => ReadingDone::errored(self.reader),
+            (true, _) => ReadingDone(ReadingDoneValue::Errored),
         }
     }
 
@@ -629,29 +626,30 @@ impl<T> ReadingParameter<T> {
     #[must_use]
     pub fn value_or_else<F: FnOnce() -> T>(self, fun: F) -> ReadingDone<T> {
         match (self.errored, self.value) {
-            (false, Some(value)) => ReadingDone::with_value(self.reader, value),
+            (false, Some(value)) => ReadingDone(ReadingDoneValue::Fine(value)),
             (false, None) => {
                 log::trace!("parameter `{}`: fallback to default value", self.id);
-                ReadingDone::with_value(
-                    self.reader,
-                    WithOrigin::new(fun(), ParameterOrigin::default(self.id.clone())),
-                )
+                ReadingDone(ReadingDoneValue::Fine(WithOrigin::new(
+                    fun(),
+                    ParameterOrigin::default(self.id.clone()),
+                )))
             }
-            (true, _) => ReadingDone::errored(self.reader),
+            (true, _) => ReadingDone(ReadingDoneValue::Errored),
         }
     }
 
     /// Finish reading, allowing value to be not present
     #[must_use]
-    pub fn value_optional(self) -> ReadingDone<T, FinishWithOption> {
+    pub fn value_optional(self) -> OptionReadingDone<T> {
         match (self.errored, self.value) {
-            (false, value) => ReadingDone::with_optional_value(self.reader, value),
-            (true, _) => ReadingDone::errored(self.reader),
+            (false, value) => OptionReadingDone(ReadingDoneValue::Fine(value)),
+            (true, _) => OptionReadingDone(ReadingDoneValue::Errored),
         }
     }
 }
 
-impl<T: Default> ReadingParameter<T> {
+// TODO check lifetime redundancy
+impl<T: Default> ReadingParameter<'_, T> {
     /// Equivalent of [`ReadingParameter::value_or_else`] with [`Default::default`].
     #[must_use]
     pub fn value_or_default(self) -> ReadingDone<T> {
@@ -659,92 +657,59 @@ impl<T: Default> ReadingParameter<T> {
     }
 }
 
-/// A marker for [`ReadingDone`] to indicate that the value **might not be present** in [`FinalWrap`].
-#[allow(missing_copy_implementations)]
-pub struct FinishWithOption;
+enum ReadingDoneValue<T> {
+    Errored,
+    Fine(T),
+}
 
-/// A marker for [`ReadingDone`] to indicate that the value **will be present** in [`FinalWrap`].
-#[allow(missing_copy_implementations)]
-pub struct FinishWithValue;
+impl<T> ReadingDoneValue<T> {
+    fn into_final(self) -> FinalWrap<T> {
+        self.into_final_with(identity)
+    }
+
+    fn into_final_with<F, U>(self, f: F) -> FinalWrap<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Self::Errored => FinalWrap(FinalWrapInner::Errored),
+            Self::Fine(t) => FinalWrap(FinalWrapInner::Value(f(t))),
+        }
+    }
+}
 
 /// A state of reading when the parameter's value is read, and the next step is to finish it via
 /// [`ReadingDone::finish`] or [`ReadingDone::finish_with_origin`]
-#[allow(missing_docs)]
-pub enum ReadingDone<T, Finish = FinishWithValue> {
-    Errored {
-        reader: ConfigReader,
-        _f: PhantomData<Finish>,
-    },
-    WithValue {
-        reader: ConfigReader,
-        value: WithOrigin<T>,
-    },
-    WithOptionalValue {
-        reader: ConfigReader,
-        value: Option<WithOrigin<T>>,
-    },
-}
+pub struct ReadingDone<T>(ReadingDoneValue<WithOrigin<T>>);
 
-impl<T, Finish> ReadingDone<T, Finish> {
-    fn errored(reader: ConfigReader) -> Self {
-        Self::Errored {
-            reader,
-            _f: PhantomData,
-        }
-    }
-}
+/// Same as [`ReadingDone`], but holding an optional value.
+pub struct OptionReadingDone<T>(ReadingDoneValue<Option<WithOrigin<T>>>);
 
-impl<T> ReadingDone<T, FinishWithOption> {
-    fn with_optional_value(reader: ConfigReader, value: Option<WithOrigin<T>>) -> Self {
-        Self::WithOptionalValue { reader, value }
-    }
-
+impl<T> ReadingDone<T> {
     /// Finish with the value only.
     #[must_use]
-    pub fn finish(self) -> (FinalWrap<Option<T>>, ConfigReader) {
-        match self {
-            Self::Errored { reader, .. } => (FinalWrap::errored(), reader),
-            Self::WithOptionalValue { reader, value } => {
-                (FinalWrap::value(value.map(WithOrigin::into_value)), reader)
-            }
-            Self::WithValue { .. } => unreachable!(),
-        }
+    pub fn finish(self) -> FinalWrap<T> {
+        self.0.into_final_with(WithOrigin::into_value)
     }
 
     /// Finish with the value and its origin
     #[must_use]
-    pub fn finish_with_origin(self) -> (FinalWrap<Option<WithOrigin<T>>>, ConfigReader) {
-        match self {
-            Self::Errored { reader, .. } => (FinalWrap::errored(), reader),
-            Self::WithOptionalValue { reader, value } => (FinalWrap::value(value), reader),
-            Self::WithValue { .. } => unreachable!(),
-        }
+    pub fn finish_with_origin(self) -> FinalWrap<WithOrigin<T>> {
+        self.0.into_final()
     }
 }
 
-impl<T> ReadingDone<T, FinishWithValue> {
-    fn with_value(reader: ConfigReader, value: WithOrigin<T>) -> Self {
-        Self::WithValue { reader, value }
-    }
-
+impl<T> OptionReadingDone<T> {
     /// Finish with the value only
     #[must_use]
-    pub fn finish(self) -> (FinalWrap<T>, ConfigReader) {
-        match self {
-            Self::Errored { reader, .. } => (FinalWrap::errored(), reader),
-            Self::WithOptionalValue { .. } => unreachable!(),
-            Self::WithValue { reader, value } => (FinalWrap::value(value.into_value()), reader),
-        }
+    pub fn finish(self) -> FinalWrap<Option<T>> {
+        self.0.into_final_with(|x| x.map(WithOrigin::into_value))
     }
 
     /// Finish with the value and its origin
     #[must_use]
-    pub fn finish_with_origin(self) -> (FinalWrap<WithOrigin<T>>, ConfigReader) {
-        match self {
-            Self::Errored { reader, .. } => (FinalWrap::errored(), reader),
-            Self::WithOptionalValue { .. } => unreachable!(),
-            Self::WithValue { reader, value } => (FinalWrap::value(value), reader),
-        }
+    pub fn finish_with_origin(self) -> FinalWrap<Option<WithOrigin<T>>> {
+        self.0.into_final()
     }
 }
 
@@ -753,27 +718,22 @@ impl<T> ReadingDone<T, FinishWithValue> {
 /// I.e. it is guaranteed that [`FinalWrap::unwrap`] will not panic after associated
 /// [`ConfigReader::into_result`] returns [`Ok`].
 #[allow(missing_docs)]
-pub enum FinalWrap<T> {
+pub struct FinalWrap<T>(FinalWrapInner<T>);
+
+/// Exists to not expose enum variants if they were in [`FinalWrap`]
+enum FinalWrapInner<T> {
     Errored,
     Value(T),
     ValueFn(Box<dyn FnOnce() -> T>),
 }
 
 impl<T> FinalWrap<T> {
-    fn errored() -> Self {
-        Self::Errored
-    }
-
-    fn value(value: T) -> Self {
-        Self::Value(value)
-    }
-
     /// Pass a closure that will emit the value on [`Self::unwrap`].
     pub fn value_fn<F>(fun: F) -> Self
     where
         F: FnOnce() -> T + 'static,
     {
-        Self::ValueFn(Box::new(fun))
+        Self(FinalWrapInner::ValueFn(Box::new(fun)))
     }
 
     /// Unwrap the value inside.
@@ -783,10 +743,10 @@ impl<T> FinalWrap<T> {
     /// # Panics
     /// Might panic if an error occurred while reading of this certain value.
     pub fn unwrap(self) -> T {
-        match self {
-            Self::Errored => panic!("`FinalWrap::unwrap` is supposed to be called only after `ConfigReader::into_result` returns OK; it is probably a bug"),
-            Self::Value(value) => value,
-            Self::ValueFn(fun) => fun()
+        match self.0 {
+            FinalWrapInner::Errored => panic!("`FinalWrap::unwrap` is supposed to be called only after `ConfigReader::into_result` returns OK; it is probably a bug"),
+            FinalWrapInner::Value(value) => value,
+            FinalWrapInner::ValueFn(fun) => fun()
         }
     }
 }
