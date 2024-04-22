@@ -23,7 +23,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
             asset_id.account_id.clone(),
             TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
-                asset_id.account_id,
+                FilterOpt::BySome(asset_id.account_id),
             )),
         ),
     ));
@@ -72,7 +72,7 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
             account_id.clone(),
             TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
-                account_id,
+                FilterOpt::BySome(account_id),
             )),
         ),
     ));

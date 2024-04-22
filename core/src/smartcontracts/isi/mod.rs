@@ -655,7 +655,7 @@ mod tests {
                 account_id.clone(),
                 TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                     trigger_id.clone(),
-                    account_id.clone(),
+                    FilterOpt::BySome(account_id.clone()),
                 )),
             ),
         ));
