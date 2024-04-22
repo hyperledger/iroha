@@ -6,27 +6,37 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "[chore]"
 
   - package-ecosystem: "github-actions"
     target-branch: "main"
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "[chore]"
 
   - package-ecosystem: "pip"
     target-branch: "main"
     directory: "/client_cli/pytests/"
     schedule:
       interval: "daily"
+    commit-message:
+      prefix: "[chore]"
 
   - package-ecosystem: "cargo"
     target-branch: "main"
     directory: "/"
     schedule:
       interval: "daily"
+    commit-message:
+      prefix: "[chore]"
 
   - package-ecosystem: "cargo"
     target-branch: "main"
-    directory: "/default_validator/"
+    directory: "/default_executor/"
     schedule:
       interval: "daily"
+    commit-message:
+      prefix: "[chore]"
