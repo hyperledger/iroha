@@ -65,7 +65,18 @@ fn minimal_config_snapshot() -> Result<()> {
                     ),
                     private_key: "[REDACTED PrivateKey]",
                 },
-                p2p_address: 127.0.0.1:1337,
+                peer_id: PeerId {
+                    address: 127.0.0.1:1337,
+                    public_key: PublicKey(
+                        ed25519(
+                            "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                        ),
+                    ),
+                },
+            },
+            network: Network {
+                address: 127.0.0.1:1337,
+                idle_timeout: 60s,
             },
             genesis: Partial {
                 public_key: PublicKey(
@@ -363,6 +374,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 block_gossip_period: None,
                 transaction_gossip_max_size: None,
                 transaction_gossip_period: None,
+                idle_timeout: None,
             },
             logger: LoggerPartial {
                 level: Some(
