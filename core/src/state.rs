@@ -45,7 +45,11 @@ use crate::{
     smartcontracts::{
         triggers::{
             self,
-            set::{LoadedWasm, Set as TriggerSet},
+            set::{
+                LoadedWasm, Set as TriggerSet, SetBlock as TriggerSetBlock,
+                SetReadOnly as TriggerSetReadOnly, SetTransaction as TriggerSetTransaction,
+                SetView as TriggerSetView,
+            },
             specialized::LoadedActionTrait,
         },
         wasm, Execute,
@@ -73,8 +77,7 @@ pub struct World {
     /// Registered permission token ids.
     pub(crate) permission_token_schema: Cell<PermissionTokenSchema>,
     /// Triggers
-    // TODO: refactor `TriggerSet` to use storage inside
-    pub(crate) triggers: Cell<TriggerSet>,
+    pub(crate) triggers: TriggerSet,
     /// Runtime Executor
     pub(crate) executor: Cell<Executor>,
 }
@@ -96,7 +99,7 @@ pub struct WorldBlock<'world> {
     /// Registered permission token ids.
     pub(crate) permission_token_schema: CellBlock<'world, PermissionTokenSchema>,
     /// Triggers
-    pub(crate) triggers: CellBlock<'world, TriggerSet>,
+    pub(crate) triggers: TriggerSetBlock<'world>,
     /// Runtime Executor
     pub(crate) executor: CellBlock<'world, Executor>,
     /// Events produced during execution of block
@@ -121,7 +124,7 @@ pub struct WorldTransaction<'block, 'world> {
     /// Registered permission token ids.
     pub(crate) permission_token_schema: CellTransaction<'block, 'world, PermissionTokenSchema>,
     /// Triggers
-    pub(crate) triggers: CellTransaction<'block, 'world, TriggerSet>,
+    pub(crate) triggers: TriggerSetTransaction<'block, 'world>,
     /// Runtime Executor
     pub(crate) executor: CellTransaction<'block, 'world, Executor>,
     /// Events produced during execution of a transaction
@@ -153,7 +156,7 @@ pub struct WorldView<'world> {
     /// Registered permission token ids.
     pub(crate) permission_token_schema: CellView<'world, PermissionTokenSchema>,
     /// Triggers
-    pub(crate) triggers: CellView<'world, TriggerSet>,
+    pub(crate) triggers: TriggerSetView<'world>,
     /// Runtime Executor
     pub(crate) executor: CellView<'world, Executor>,
 }
@@ -332,7 +335,7 @@ pub trait WorldReadOnly {
     fn account_permission_tokens(&self) -> &impl StorageReadOnly<AccountId, Permissions>;
     fn account_roles(&self) -> &impl StorageReadOnly<RoleIdWithOwner, ()>;
     fn permission_token_schema(&self) -> &PermissionTokenSchema;
-    fn triggers(&self) -> &TriggerSet;
+    fn triggers(&self) -> &impl TriggerSetReadOnly;
     fn executor(&self) -> &Executor;
 
     // Domain-related methods
@@ -580,7 +583,7 @@ macro_rules! impl_world_ro {
             fn permission_token_schema(&self) -> &PermissionTokenSchema {
                 &self.permission_token_schema
             }
-            fn triggers(&self) -> &TriggerSet {
+            fn triggers(&self) -> &impl TriggerSetReadOnly {
                 &self.triggers
             }
             fn executor(&self) -> &Executor {
@@ -882,7 +885,7 @@ impl WorldTransaction<'_, '_> {
     ///
     /// Usable when you can't call [`Self::emit_events()`] due to mutable reference to self.
     fn emit_events_impl<I: IntoIterator<Item = T>, T: Into<DataEvent>>(
-        triggers: &mut TriggerSet,
+        triggers: &mut TriggerSetTransaction,
         events_buffer: &mut TransactionEventBuffer<'_>,
         world_events: I,
     ) {
@@ -1339,7 +1342,9 @@ impl<'state> StateBlock<'state> {
             }
         }
 
-        self.world.triggers.decrease_repeats(&succeed);
+        let mut transaction = self.transaction();
+        transaction.world.triggers.decrease_repeats(&succeed);
+        transaction.apply();
 
         errors.is_empty().then_some(()).ok_or(errors)
     }
@@ -1623,9 +1628,8 @@ pub(crate) mod deserialize {
                                 permission_token_schema = Some(map.next_value()?);
                             }
                             "triggers" => {
-                                triggers = Some(map.next_value_seed(CellSeeded {
-                                    seed: self.loader.cast::<TriggerSet>(),
-                                })?);
+                                triggers =
+                                    Some(map.next_value_seed(self.loader.cast::<TriggerSet>())?);
                             }
                             "executor" => {
                                 executor = Some(map.next_value_seed(CellSeeded {

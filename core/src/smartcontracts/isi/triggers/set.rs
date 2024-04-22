@@ -11,7 +11,7 @@
 use core::cmp::min;
 use std::{fmt, num::NonZeroU64};
 
-use indexmap::{map::Entry, IndexMap};
+use indexmap::IndexMap;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     events::EventFilter,
@@ -24,6 +24,13 @@ use serde::{
     de::{DeserializeSeed, MapAccess, Visitor},
     ser::{SerializeMap, SerializeStruct},
     Serialize, Serializer,
+};
+use storage::{
+    cell::{Block as CellBlock, Cell, Transaction as CellTransaction, View as CellView},
+    storage::{
+        Block as StorageBlock, Storage, StorageReadOnly, Transaction as StorageTransaction,
+        View as StorageView,
+    },
 };
 use thiserror::Error;
 
@@ -49,59 +56,135 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// [`WasmSmartContract`]s by [`TriggerId`].
 /// Stored together with number to count triggers with identical [`WasmSmartContract`].
-type WasmSmartContractMap = IndexMap<HashOf<WasmSmartContract>, WasmSmartContractEntry>;
+type WasmSmartContractMap = Storage<HashOf<WasmSmartContract>, WasmSmartContractEntry>;
+type WasmSmartContractMapBlock<'set> =
+    StorageBlock<'set, HashOf<WasmSmartContract>, WasmSmartContractEntry>;
+type WasmSmartContractMapTransaction<'block, 'set> =
+    StorageTransaction<'block, 'set, HashOf<WasmSmartContract>, WasmSmartContractEntry>;
+type WasmSmartContractMapView<'set> =
+    StorageView<'set, HashOf<WasmSmartContract>, WasmSmartContractEntry>;
 
 /// Specialized structure that maps event filters to Triggers.
 // NB: `Set` has custom `Serialize` and `DeserializeSeed` implementations
 // which need to be manually updated when changing the struct
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Set {
     /// Triggers using [`DataEventFilter`]
-    data_triggers: IndexMap<TriggerId, LoadedAction<DataEventFilter>>,
+    data_triggers: Storage<TriggerId, LoadedAction<DataEventFilter>>,
     /// Triggers using [`PipelineEventFilterBox`]
-    pipeline_triggers: IndexMap<TriggerId, LoadedAction<PipelineEventFilterBox>>,
+    pipeline_triggers: Storage<TriggerId, LoadedAction<PipelineEventFilterBox>>,
     /// Triggers using [`TimeEventFilter`]
-    time_triggers: IndexMap<TriggerId, LoadedAction<TimeEventFilter>>,
+    time_triggers: Storage<TriggerId, LoadedAction<TimeEventFilter>>,
     /// Triggers using [`ExecuteTriggerEventFilter`]
-    by_call_triggers: IndexMap<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
+    by_call_triggers: Storage<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
-    ids: IndexMap<TriggerId, TriggeringEventType>,
+    ids: Storage<TriggerId, TriggeringEventType>,
     /// [`WasmSmartContract`]s map by hash for querying and optimization purposes.
     contracts: WasmSmartContractMap,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
-    matched_ids: Vec<(EventBox, TriggerId)>,
+    // NOTE: Cell is used because matched_ids changed as whole (not granularly)
+    matched_ids: Cell<Vec<(EventBox, TriggerId)>>,
 }
 
+/// Trigger set for block's aggregated changes
+pub struct SetBlock<'set> {
+    /// Triggers using [`DataEventFilter`]
+    data_triggers: StorageBlock<'set, TriggerId, LoadedAction<DataEventFilter>>,
+    /// Triggers using [`PipelineEventFilterBox`]
+    pipeline_triggers: StorageBlock<'set, TriggerId, LoadedAction<PipelineEventFilterBox>>,
+    /// Triggers using [`TimeEventFilter`]
+    time_triggers: StorageBlock<'set, TriggerId, LoadedAction<TimeEventFilter>>,
+    /// Triggers using [`ExecuteTriggerEventFilter`]
+    by_call_triggers: StorageBlock<'set, TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
+    /// Trigger ids with type of events they process
+    ids: StorageBlock<'set, TriggerId, TriggeringEventType>,
+    /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
+    contracts: WasmSmartContractMapBlock<'set>,
+    /// List of actions that should be triggered by events provided by `handle_*` methods.
+    /// Vector is used to save the exact triggers order.
+    matched_ids: CellBlock<'set, Vec<(EventBox, TriggerId)>>,
+}
+
+/// Trigger set for transaction's aggregated changes
+pub struct SetTransaction<'block, 'set> {
+    /// Triggers using [`DataEventFilter`]
+    data_triggers: StorageTransaction<'block, 'set, TriggerId, LoadedAction<DataEventFilter>>,
+    /// Triggers using [`PipelineEventFilterBox`]
+    pipeline_triggers:
+        StorageTransaction<'block, 'set, TriggerId, LoadedAction<PipelineEventFilterBox>>,
+    /// Triggers using [`TimeEventFilter`]
+    time_triggers: StorageTransaction<'block, 'set, TriggerId, LoadedAction<TimeEventFilter>>,
+    /// Triggers using [`ExecuteTriggerEventFilter`]
+    by_call_triggers:
+        StorageTransaction<'block, 'set, TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
+    /// Trigger ids with type of events they process
+    ids: StorageTransaction<'block, 'set, TriggerId, TriggeringEventType>,
+    /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
+    contracts: WasmSmartContractMapTransaction<'block, 'set>,
+    /// List of actions that should be triggered by events provided by `handle_*` methods.
+    /// Vector is used to save the exact triggers order.
+    matched_ids: CellTransaction<'block, 'set, Vec<(EventBox, TriggerId)>>,
+}
+
+/// Consistent point in time view of the [`Set`]
+pub struct SetView<'set> {
+    /// Triggers using [`DataEventFilter`]
+    data_triggers: StorageView<'set, TriggerId, LoadedAction<DataEventFilter>>,
+    /// Triggers using [`PipelineEventFilterBox`]
+    pipeline_triggers: StorageView<'set, TriggerId, LoadedAction<PipelineEventFilterBox>>,
+    /// Triggers using [`TimeEventFilter`]
+    time_triggers: StorageView<'set, TriggerId, LoadedAction<TimeEventFilter>>,
+    /// Triggers using [`ExecuteTriggerEventFilter`]
+    by_call_triggers: StorageView<'set, TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
+    /// Trigger ids with type of events they process
+    ids: StorageView<'set, TriggerId, TriggeringEventType>,
+    /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
+    contracts: WasmSmartContractMapView<'set>,
+    /// List of actions that should be triggered by events provided by `handle_*` methods.
+    /// Vector is used to save the exact triggers order.
+    matched_ids: CellView<'set, Vec<(EventBox, TriggerId)>>,
+}
+
+/// Entry in wasm smart-contracts map
 #[derive(Debug, Clone)]
 struct WasmSmartContractEntry {
+    /// Original wasm binary blob
     original_contract: WasmSmartContract,
+    /// Compiled with [`wasmtime`] smart-contract
     compiled_contract: wasmtime::Module,
+    /// Number of times this contract is used
     count: NonZeroU64,
 }
 
 /// Helper struct for serializing triggers.
-struct TriggersWithContext<'s, F> {
+struct TriggersWithContext<'s, F>
+where
+    F: storage::Value,
+{
     /// Triggers being serialized
-    triggers: &'s IndexMap<TriggerId, LoadedAction<F>>,
+    triggers: &'s StorageView<'s, TriggerId, LoadedAction<F>>,
     /// Containing Set, used for looking up original [`WasmSmartContract`]s
     /// during serialization.
-    set: &'s Set,
+    set: &'s SetView<'s>,
 }
 
-impl<'s, F> TriggersWithContext<'s, F> {
-    fn new(triggers: &'s IndexMap<TriggerId, LoadedAction<F>>, set: &'s Set) -> Self {
+impl<'s, F: storage::Value> TriggersWithContext<'s, F> {
+    fn new(
+        triggers: &'s StorageView<'s, TriggerId, LoadedAction<F>>,
+        set: &'s SetView<'s>,
+    ) -> Self {
         Self { triggers, set }
     }
 }
 
-impl<F: Clone + Serialize> Serialize for TriggersWithContext<'_, F> {
+impl<F: storage::Value + Serialize> Serialize for TriggersWithContext<'_, F> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         let mut map = serializer.serialize_map(Some(self.triggers.len()))?;
-        for (id, action) in self.triggers {
+        for (id, action) in self.triggers.iter() {
             let action = self.set.get_original_action(action.clone());
             map.serialize_entry(&id, &action)?;
         }
@@ -114,33 +197,25 @@ impl Serialize for Set {
     where
         S: serde::Serializer,
     {
-        let &Self {
-            data_triggers,
-            pipeline_triggers,
-            time_triggers,
-            by_call_triggers,
-            ids,
-            contracts: _contracts,
-            matched_ids: _matched_ids,
-        } = &self;
+        let set_view = self.view();
         let mut set = serializer.serialize_struct("Set", 6)?;
         set.serialize_field(
             "data_triggers",
-            &TriggersWithContext::new(data_triggers, self),
+            &TriggersWithContext::new(&set_view.data_triggers, &set_view),
         )?;
         set.serialize_field(
             "pipeline_triggers",
-            &TriggersWithContext::new(pipeline_triggers, self),
+            &TriggersWithContext::new(&set_view.pipeline_triggers, &set_view),
         )?;
         set.serialize_field(
             "time_triggers",
-            &TriggersWithContext::new(time_triggers, self),
+            &TriggersWithContext::new(&set_view.time_triggers, &set_view),
         )?;
         set.serialize_field(
             "by_call_triggers",
-            &TriggersWithContext::new(by_call_triggers, self),
+            &TriggersWithContext::new(&set_view.by_call_triggers, &set_view),
         )?;
-        set.serialize_field("ids", ids)?;
+        set.serialize_field("ids", &self.ids)?;
         set.end()
     }
 }
@@ -167,18 +242,21 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
             where
                 M: MapAccess<'de>,
             {
-                let mut set = Set::default();
+                let set = Set::default();
+                let mut set_block = set.block();
+                let mut set_transaction = set_block.transaction();
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "data_triggers" => {
                             let triggers: IndexMap<TriggerId, SpecializedAction<DataEventFilter>> =
                                 map.next_value()?;
                             for (id, action) in triggers {
-                                set.add_data_trigger(
-                                    self.loader.engine,
-                                    SpecializedTrigger::new(id, action),
-                                )
-                                .unwrap();
+                                set_transaction
+                                    .add_data_trigger(
+                                        self.loader.engine,
+                                        SpecializedTrigger::new(id, action),
+                                    )
+                                    .unwrap();
                             }
                         }
                         "pipeline_triggers" => {
@@ -187,22 +265,24 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                                 SpecializedAction<PipelineEventFilterBox>,
                             > = map.next_value()?;
                             for (id, action) in triggers {
-                                set.add_pipeline_trigger(
-                                    self.loader.engine,
-                                    SpecializedTrigger::new(id, action),
-                                )
-                                .unwrap();
+                                set_transaction
+                                    .add_pipeline_trigger(
+                                        self.loader.engine,
+                                        SpecializedTrigger::new(id, action),
+                                    )
+                                    .unwrap();
                             }
                         }
                         "time_triggers" => {
                             let triggers: IndexMap<TriggerId, SpecializedAction<TimeEventFilter>> =
                                 map.next_value()?;
                             for (id, action) in triggers {
-                                set.add_time_trigger(
-                                    self.loader.engine,
-                                    SpecializedTrigger::new(id, action),
-                                )
-                                .unwrap();
+                                set_transaction
+                                    .add_time_trigger(
+                                        self.loader.engine,
+                                        SpecializedTrigger::new(id, action),
+                                    )
+                                    .unwrap();
                             }
                         }
                         "by_call_triggers" => {
@@ -211,19 +291,26 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                                 SpecializedAction<ExecuteTriggerEventFilter>,
                             > = map.next_value()?;
                             for (id, action) in triggers {
-                                set.add_by_call_trigger(
-                                    self.loader.engine,
-                                    SpecializedTrigger::new(id, action),
-                                )
-                                .unwrap();
+                                set_transaction
+                                    .add_by_call_trigger(
+                                        self.loader.engine,
+                                        SpecializedTrigger::new(id, action),
+                                    )
+                                    .unwrap();
                             }
                         }
+                        // TODO: ids look redundant because we insert ids already through `add_` methods
                         "ids" => {
-                            set.ids = map.next_value()?;
+                            let ids: IndexMap<TriggerId, TriggeringEventType> = map.next_value()?;
+                            for (id, event_type) in ids {
+                                set_transaction.ids.insert(id, event_type);
+                            }
                         }
                         _ => { /* Ignore unknown fields */ }
                     }
                 }
+                set_transaction.apply();
+                set_block.commit();
 
                 Ok(set)
             }
@@ -233,21 +320,332 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
     }
 }
 
-impl Clone for Set {
-    fn clone(&self) -> Self {
-        Self {
-            data_triggers: self.data_triggers.clone(),
-            pipeline_triggers: self.pipeline_triggers.clone(),
-            time_triggers: self.time_triggers.clone(),
-            by_call_triggers: self.by_call_triggers.clone(),
-            ids: self.ids.clone(),
-            contracts: self.contracts.clone(),
-            matched_ids: Vec::default(),
+/// Trait to perform read-only operations on [`WorldBlock`], [`WorldTransaction`] and [`WorldView`]
+#[allow(missing_docs)]
+pub trait SetReadOnly {
+    fn data_triggers(&self) -> &impl StorageReadOnly<TriggerId, LoadedAction<DataEventFilter>>;
+    fn pipeline_triggers(
+        &self,
+    ) -> &impl StorageReadOnly<TriggerId, LoadedAction<PipelineEventFilterBox>>;
+    fn time_triggers(&self) -> &impl StorageReadOnly<TriggerId, LoadedAction<TimeEventFilter>>;
+    fn by_call_triggers(
+        &self,
+    ) -> &impl StorageReadOnly<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>;
+    fn ids(&self) -> &impl StorageReadOnly<TriggerId, TriggeringEventType>;
+    fn contracts(&self)
+        -> &impl StorageReadOnly<HashOf<WasmSmartContract>, WasmSmartContractEntry>;
+    fn matched_ids(&self) -> &[(EventBox, TriggerId)];
+
+    /// Get original [`WasmSmartContract`] for [`TriggerId`].
+    /// Returns `None` if there's no [`Trigger`]
+    /// with specified `id` that has WASM executable
+    #[inline]
+    fn get_original_contract(
+        &self,
+        hash: &HashOf<WasmSmartContract>,
+    ) -> Option<&WasmSmartContract> {
+        self.contracts()
+            .get(hash)
+            .map(|entry| &entry.original_contract)
+    }
+
+    /// Convert [`LoadedAction`] to original [`Action`] by retrieving original
+    /// [`WasmSmartContract`] if applicable
+    fn get_original_action<F: Clone>(&self, action: LoadedAction<F>) -> SpecializedAction<F> {
+        let LoadedAction {
+            executable,
+            repeats,
+            authority,
+            filter,
+            metadata,
+        } = action;
+
+        let original_executable = match executable {
+            LoadedExecutable::Wasm(LoadedWasm { ref blob_hash, .. }) => {
+                let original_wasm = self
+                    .get_original_contract(blob_hash)
+                    .cloned()
+                    .expect("No original smartcontract saved for trigger. This is a bug.");
+                Executable::Wasm(original_wasm)
+            }
+            LoadedExecutable::Instructions(isi) => Executable::Instructions(isi),
+        };
+
+        SpecializedAction {
+            executable: original_executable,
+            repeats,
+            authority,
+            filter,
+            metadata,
+        }
+    }
+
+    /// Get all contained trigger ids without a particular order
+    #[inline]
+    fn ids_iter(&self) -> impl Iterator<Item = &TriggerId> {
+        self.ids().iter().map(|(trigger_id, _)| trigger_id)
+    }
+
+    /// Get [`LoadedExecutable`] for given [`TriggerId`].
+    /// Returns `None` if `id` is not in the set.
+    fn get_executable(&self, id: &TriggerId) -> Option<&LoadedExecutable> {
+        let event_type = self.ids().get(id)?;
+
+        Some(match event_type {
+            TriggeringEventType::Data => {
+                &self
+                    .data_triggers()
+                    .get(id)
+                    .expect("`Set::data_triggers` doesn't contain required id. This is a bug")
+                    .executable
+            }
+            TriggeringEventType::Pipeline => {
+                &self
+                    .pipeline_triggers()
+                    .get(id)
+                    .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug")
+                    .executable
+            }
+            TriggeringEventType::Time => {
+                &self
+                    .time_triggers()
+                    .get(id)
+                    .expect("`Set::time_triggers` doesn't contain required id. This is a bug")
+                    .executable
+            }
+            TriggeringEventType::ExecuteTrigger => {
+                &self
+                    .by_call_triggers()
+                    .get(id)
+                    .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug")
+                    .executable
+            }
+        })
+    }
+
+    /// Apply `f` to triggers that belong to the given [`DomainId`]
+    ///
+    /// Return an empty list if [`Set`] doesn't contain any triggers belonging to [`DomainId`].
+    fn inspect_by_domain_id<'a, F: 'a, R>(
+        &'a self,
+        domain_id: &DomainId,
+        f: F,
+    ) -> impl Iterator<Item = R> + '_
+    where
+        F: Fn(&TriggerId, &dyn LoadedActionTrait) -> R,
+    {
+        let domain_id = domain_id.clone();
+
+        self.ids().iter().filter_map(move |(id, event_type)| {
+            let trigger_domain_id = id.domain_id.as_ref()?;
+
+            if *trigger_domain_id != domain_id {
+                return None;
+            }
+
+            let result = match event_type {
+                TriggeringEventType::Data => self
+                    .data_triggers()
+                    .get(id)
+                    .map(|trigger| f(id, trigger))
+                    .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
+                TriggeringEventType::Pipeline => self
+                    .pipeline_triggers()
+                    .get(id)
+                    .map(|trigger| f(id, trigger))
+                    .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
+                TriggeringEventType::Time => self
+                    .time_triggers()
+                    .get(id)
+                    .map(|trigger| f(id, trigger))
+                    .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
+                TriggeringEventType::ExecuteTrigger => self
+                    .by_call_triggers()
+                    .get(id)
+                    .map(|trigger| f(id, trigger))
+                    .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug"),
+            };
+
+            Some(result)
+        })
+    }
+
+    /// Apply `f` to the trigger identified by `id`.
+    ///
+    /// Return [`None`] if [`Set`] doesn't contain the trigger with the given `id`.
+    fn inspect_by_id<F, R>(&self, id: &TriggerId, f: F) -> Option<R>
+    where
+        F: Fn(&dyn LoadedActionTrait) -> R,
+    {
+        let event_type = self.ids().get(id).copied()?;
+
+        let result = match event_type {
+            TriggeringEventType::Data => self
+                .data_triggers()
+                .get(id)
+                .map(|entry| f(entry))
+                .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
+            TriggeringEventType::Pipeline => self
+                .pipeline_triggers()
+                .get(id)
+                .map(|entry| f(entry))
+                .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
+            TriggeringEventType::Time => self
+                .time_triggers()
+                .get(id)
+                .map(|entry| f(entry))
+                .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
+            TriggeringEventType::ExecuteTrigger => self
+                .by_call_triggers()
+                .get(id)
+                .map(|entry| f(entry))
+                .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug"),
+        };
+        Some(result)
+    }
+}
+
+macro_rules! impl_set_ro {
+    ($($ident:ty),*) => {$(
+        impl SetReadOnly for $ident {
+            fn data_triggers(&self) -> &impl StorageReadOnly<TriggerId, LoadedAction<DataEventFilter>> {
+                &self.data_triggers
+            }
+            fn pipeline_triggers(&self) -> &impl StorageReadOnly<TriggerId, LoadedAction<PipelineEventFilterBox>> {
+                &self.pipeline_triggers
+            }
+            fn time_triggers(&self) -> &impl StorageReadOnly<TriggerId, LoadedAction<TimeEventFilter>> {
+                &self.time_triggers
+            }
+            fn by_call_triggers(&self) -> &impl StorageReadOnly<TriggerId, LoadedAction<ExecuteTriggerEventFilter>> {
+                &self.by_call_triggers
+            }
+            fn ids(&self) -> &impl StorageReadOnly<TriggerId, TriggeringEventType> {
+                &self.ids
+            }
+            fn contracts(&self) -> &impl StorageReadOnly<HashOf<WasmSmartContract>, WasmSmartContractEntry> {
+                &self.contracts
+            }
+            fn matched_ids(&self) -> &[(EventBox, TriggerId)] {
+                &self.matched_ids
+            }
+        }
+    )*};
+}
+
+impl_set_ro! {
+    SetBlock<'_>, SetTransaction<'_, '_>, SetView<'_>
+}
+
+impl Set {
+    /// Create struct to apply block's changes
+    pub fn block(&self) -> SetBlock<'_> {
+        SetBlock {
+            data_triggers: self.data_triggers.block(),
+            pipeline_triggers: self.pipeline_triggers.block(),
+            time_triggers: self.time_triggers.block(),
+            by_call_triggers: self.by_call_triggers.block(),
+            ids: self.ids.block(),
+            contracts: self.contracts.block(),
+            matched_ids: self.matched_ids.block(),
+        }
+    }
+
+    /// Create struct to apply block's changes while reverting changes made in the latest block
+    pub fn block_and_revert(&self) -> SetBlock<'_> {
+        SetBlock {
+            data_triggers: self.data_triggers.block_and_revert(),
+            pipeline_triggers: self.pipeline_triggers.block_and_revert(),
+            time_triggers: self.time_triggers.block_and_revert(),
+            by_call_triggers: self.by_call_triggers.block_and_revert(),
+            ids: self.ids.block_and_revert(),
+            contracts: self.contracts.block_and_revert(),
+            matched_ids: self.matched_ids.block_and_revert(),
+        }
+    }
+
+    /// Create point in time view of the [`World`]
+    pub fn view(&self) -> SetView<'_> {
+        SetView {
+            data_triggers: self.data_triggers.view(),
+            pipeline_triggers: self.pipeline_triggers.view(),
+            time_triggers: self.time_triggers.view(),
+            by_call_triggers: self.by_call_triggers.view(),
+            ids: self.ids.view(),
+            contracts: self.contracts.view(),
+            matched_ids: self.matched_ids.view(),
         }
     }
 }
 
-impl Set {
+impl<'set> SetBlock<'set> {
+    /// Create struct to apply transaction's changes
+    pub fn transaction(&mut self) -> SetTransaction<'_, 'set> {
+        SetTransaction {
+            data_triggers: self.data_triggers.transaction(),
+            pipeline_triggers: self.pipeline_triggers.transaction(),
+            time_triggers: self.time_triggers.transaction(),
+            by_call_triggers: self.by_call_triggers.transaction(),
+            ids: self.ids.transaction(),
+            contracts: self.contracts.transaction(),
+            matched_ids: self.matched_ids.transaction(),
+        }
+    }
+
+    /// Commit block's changes
+    pub fn commit(self) {
+        // NOTE: commit in reverse order
+        self.matched_ids.commit();
+        self.contracts.commit();
+        self.ids.commit();
+        self.by_call_triggers.commit();
+        self.time_triggers.commit();
+        self.pipeline_triggers.commit();
+        self.data_triggers.commit();
+    }
+
+    /// Handle [`TimeEvent`].
+    ///
+    /// Find all actions that are triggered by `event` and store them.
+    /// These actions are inspected in the next [`Set::inspect_matched()`] call.
+    pub fn handle_time_event(&mut self, event: TimeEvent) {
+        for (id, action) in self.time_triggers.iter() {
+            let mut count = action.filter.count_matches(&event);
+            if let Repeats::Exactly(repeats) = action.repeats {
+                count = min(repeats, count);
+            }
+            if count == 0 {
+                continue;
+            }
+
+            let ids = core::iter::repeat_with(|| (EventBox::Time(event), id.clone())).take(
+                count
+                    .try_into()
+                    .expect("`u32` should always fit in `usize`"),
+            );
+            self.matched_ids.extend(ids);
+        }
+    }
+
+    /// Extract `matched_id`
+    pub fn extract_matched_ids(&mut self) -> Vec<(EventBox, TriggerId)> {
+        core::mem::take(&mut self.matched_ids)
+    }
+}
+
+impl<'block, 'set> SetTransaction<'block, 'set> {
+    /// Apply transaction's changes
+    pub fn apply(self) {
+        // NOTE: apply in reverse order
+        self.matched_ids.apply();
+        self.contracts.apply();
+        self.ids.apply();
+        self.by_call_triggers.apply();
+        self.time_triggers.apply();
+        self.pipeline_triggers.apply();
+        self.data_triggers.apply();
+    }
+
     /// Add trigger with [`DataEventFilter`]
     ///
     /// Return `false` if a trigger with given id already exists
@@ -327,12 +725,12 @@ impl Set {
     /// # Errors
     ///
     /// Return [`Err`] if failed to preload wasm trigger
-    fn add_to<F: EventFilter>(
+    fn add_to<F: storage::Value + EventFilter>(
         &mut self,
         engine: &wasmtime::Engine,
         trigger: SpecializedTrigger<F>,
         event_type: TriggeringEventType,
-        map: impl FnOnce(&mut Self) -> &mut IndexMap<TriggerId, LoadedAction<F>>,
+        map: impl FnOnce(&mut Self) -> &mut StorageTransaction<'block, 'set, TriggerId, LoadedAction<F>>,
     ) -> Result<bool> {
         let SpecializedTrigger {
             id: trigger_id,
@@ -346,7 +744,7 @@ impl Set {
                 },
         } = trigger;
 
-        if self.contains(&trigger_id) {
+        if self.ids.get(&trigger_id).is_some() {
             return Ok(false);
         }
 
@@ -354,31 +752,31 @@ impl Set {
             Executable::Wasm(bytes) => {
                 let hash = HashOf::new(&bytes);
                 // Store original executable representation to respond to queries with.
-                let module = match self.contracts.entry(hash) {
-                    Entry::Occupied(mut occupied) => {
-                        let WasmSmartContractEntry {
-                            compiled_contract,
-                            count,
-                            ..
-                        } = occupied.get_mut();
-                        // Considering 1 trigger registration takes 1 second,
-                        // it would take 584 942 417 355 years to overflow.
-                        *count = count.checked_add(1).expect(
-                            "There is no way someone could register 2^64 amount of same triggers",
-                        );
-                        // Cloning module is cheap, under Arc inside
-                        compiled_contract.clone()
-                    }
-                    Entry::Vacant(vacant) => {
-                        let module = wasm::load_module(engine, &bytes)?;
-                        // Cloning module is cheap, under Arc inside
-                        vacant.insert(WasmSmartContractEntry {
+                let module = if let Some(WasmSmartContractEntry {
+                    compiled_contract,
+                    count,
+                    ..
+                }) = self.contracts.get_mut(&hash)
+                {
+                    // Considering 1 trigger registration takes 1 second,
+                    // it would take 584 942 417 355 years to overflow.
+                    *count = count.checked_add(1).expect(
+                        "There is no way someone could register 2^64 amount of same triggers",
+                    );
+                    // Cloning module is cheap, under Arc inside
+                    compiled_contract.clone()
+                } else {
+                    let module = wasm::load_module(engine, &bytes)?;
+                    // Cloning module is cheap, under Arc inside
+                    self.contracts.insert(
+                        hash,
+                        WasmSmartContractEntry {
                             original_contract: bytes,
                             compiled_contract: module.clone(),
                             count: NonZeroU64::MIN,
-                        });
-                        module
-                    }
+                        },
+                    );
+                    module
                 };
                 LoadedExecutable::Wasm(LoadedWasm {
                     module,
@@ -399,174 +797,6 @@ impl Set {
         );
         self.ids.insert(trigger_id, event_type);
         Ok(true)
-    }
-
-    /// Get original [`WasmSmartContract`] for [`TriggerId`].
-    /// Returns `None` if there's no [`Trigger`]
-    /// with specified `id` that has WASM executable
-    #[inline]
-    pub fn get_original_contract(
-        &self,
-        hash: &HashOf<WasmSmartContract>,
-    ) -> Option<&WasmSmartContract> {
-        self.contracts
-            .get(hash)
-            .map(|entry| &entry.original_contract)
-    }
-
-    /// Convert [`LoadedAction`] to original [`Action`] by retrieving original
-    /// [`WasmSmartContract`] if applicable
-    pub fn get_original_action<F: Clone>(&self, action: LoadedAction<F>) -> SpecializedAction<F> {
-        let LoadedAction {
-            executable,
-            repeats,
-            authority,
-            filter,
-            metadata,
-        } = action;
-
-        let original_executable = match executable {
-            LoadedExecutable::Wasm(LoadedWasm { ref blob_hash, .. }) => {
-                let original_wasm = self
-                    .get_original_contract(blob_hash)
-                    .cloned()
-                    .expect("No original smartcontract saved for trigger. This is a bug.");
-                Executable::Wasm(original_wasm)
-            }
-            LoadedExecutable::Instructions(isi) => Executable::Instructions(isi),
-        };
-
-        SpecializedAction {
-            executable: original_executable,
-            repeats,
-            authority,
-            filter,
-            metadata,
-        }
-    }
-
-    /// Get all contained trigger ids without a particular order
-    #[inline]
-    pub fn ids(&self) -> impl ExactSizeIterator<Item = &TriggerId> {
-        self.ids.keys()
-    }
-
-    /// Get [`LoadedExecutable`] for given [`TriggerId`].
-    /// Returns `None` if `id` is not in the set.
-    pub fn get_executable(&self, id: &TriggerId) -> Option<&LoadedExecutable> {
-        let event_type = self.ids.get(id)?;
-
-        Some(match event_type {
-            TriggeringEventType::Data => {
-                &self
-                    .data_triggers
-                    .get(id)
-                    .expect("`Set::data_triggers` doesn't contain required id. This is a bug")
-                    .executable
-            }
-            TriggeringEventType::Pipeline => {
-                &self
-                    .pipeline_triggers
-                    .get(id)
-                    .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug")
-                    .executable
-            }
-            TriggeringEventType::Time => {
-                &self
-                    .time_triggers
-                    .get(id)
-                    .expect("`Set::time_triggers` doesn't contain required id. This is a bug")
-                    .executable
-            }
-            TriggeringEventType::ExecuteTrigger => {
-                &self
-                    .by_call_triggers
-                    .get(id)
-                    .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug")
-                    .executable
-            }
-        })
-    }
-
-    /// Apply `f` to triggers that belong to the given [`DomainId`]
-    ///
-    /// Return an empty list if [`Set`] doesn't contain any triggers belonging to [`DomainId`].
-    pub fn inspect_by_domain_id<'a, F, R>(
-        &'a self,
-        domain_id: &DomainId,
-        f: F,
-    ) -> impl Iterator<Item = R> + '_
-    where
-        F: Fn(&TriggerId, &dyn LoadedActionTrait) -> R + 'a,
-    {
-        let domain_id = domain_id.clone();
-
-        self.ids.iter().filter_map(move |(id, event_type)| {
-            let trigger_domain_id = id.domain_id.as_ref()?;
-
-            if *trigger_domain_id != domain_id {
-                return None;
-            }
-
-            let result = match event_type {
-                TriggeringEventType::Data => self
-                    .data_triggers
-                    .get(id)
-                    .map(|trigger| f(id, trigger))
-                    .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
-                TriggeringEventType::Pipeline => self
-                    .pipeline_triggers
-                    .get(id)
-                    .map(|trigger| f(id, trigger))
-                    .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
-                TriggeringEventType::Time => self
-                    .time_triggers
-                    .get(id)
-                    .map(|trigger| f(id, trigger))
-                    .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
-                TriggeringEventType::ExecuteTrigger => self
-                    .by_call_triggers
-                    .get(id)
-                    .map(|trigger| f(id, trigger))
-                    .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug"),
-            };
-
-            Some(result)
-        })
-    }
-
-    /// Apply `f` to the trigger identified by `id`.
-    ///
-    /// Return [`None`] if [`Set`] doesn't contain the trigger with the given `id`.
-    pub fn inspect_by_id<F, R>(&self, id: &TriggerId, f: F) -> Option<R>
-    where
-        F: Fn(&dyn LoadedActionTrait) -> R,
-    {
-        let event_type = self.ids.get(id).copied()?;
-
-        let result = match event_type {
-            TriggeringEventType::Data => self
-                .data_triggers
-                .get(id)
-                .map(|entry| f(entry))
-                .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
-            TriggeringEventType::Pipeline => self
-                .pipeline_triggers
-                .get(id)
-                .map(|entry| f(entry))
-                .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
-            TriggeringEventType::Time => self
-                .time_triggers
-                .get(id)
-                .map(|entry| f(entry))
-                .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
-            TriggeringEventType::ExecuteTrigger => self
-                .by_call_triggers
-                .get(id)
-                .map(|entry| f(entry))
-                .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug"),
-        };
-        Some(result)
     }
 
     /// Apply `f` to the trigger identified by `id`.
@@ -610,8 +840,8 @@ impl Set {
     /// # Panics
     ///
     /// Panics on inconsistent state of [`Set`]. This is a bug.
-    pub fn remove(&mut self, id: &TriggerId) -> bool {
-        let Some(event_type) = self.ids.remove(id) else {
+    pub fn remove(&mut self, id: TriggerId) -> bool {
+        let Some(event_type) = self.ids.remove(id.clone()) else {
             return false;
         };
 
@@ -638,58 +868,6 @@ impl Set {
         true
     }
 
-    /// Remove trigger from `triggers` and decrease the counter of the original [`WasmSmartContract`].
-    ///
-    /// Note that this function doesn't remove the trigger from [`Set::ids`].
-    ///
-    /// Returns `true` if trigger was removed and `false` otherwise.
-    fn remove_from<F: EventFilter>(
-        original_contracts: &mut WasmSmartContractMap,
-        triggers: &mut IndexMap<TriggerId, LoadedAction<F>>,
-        trigger_id: &TriggerId,
-    ) -> bool {
-        triggers
-            .remove(trigger_id)
-            .map(|loaded_action| {
-                if let Some(blob_hash) = loaded_action.extract_blob_hash() {
-                    Self::remove_original_trigger(original_contracts, blob_hash);
-                }
-            })
-            .is_some()
-    }
-
-    /// Decrease the counter of the original [`WasmSmartContract`] by `blob_hash`
-    /// or remove it if the counter reaches zero.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `blob_hash` is not in the [`Set::original_contracts`].
-    fn remove_original_trigger(
-        original_contracts: &mut WasmSmartContractMap,
-        blob_hash: HashOf<WasmSmartContract>,
-    ) {
-        #[allow(clippy::option_if_let_else)] // More readable this way
-        match original_contracts.entry(blob_hash) {
-            Entry::Occupied(mut entry) => {
-                let count = &mut entry.get_mut().count;
-                if let Some(new_count) = NonZeroU64::new(count.get() - 1) {
-                    *count = new_count;
-                } else {
-                    entry.remove();
-                }
-            }
-            Entry::Vacant(_) => {
-                panic!("`Set::original_contracts` doesn't contain required hash. This is a bug")
-            }
-        }
-    }
-
-    /// Check if [`Set`] contains `id`.
-    #[inline]
-    pub fn contains(&self, id: &TriggerId) -> bool {
-        self.ids.contains_key(id)
-    }
-
     /// Modify repetitions of the hook identified by [`Id`].
     ///
     /// # Errors
@@ -713,6 +891,97 @@ impl Set {
         .ok_or_else(|| ModRepeatsError::NotFound(id.clone()))
         // .flatten() -- unstable
         .and_then(std::convert::identity)
+    }
+
+    /// Remove trigger from `triggers` and decrease the counter of the original [`WasmSmartContract`].
+    ///
+    /// Note that this function doesn't remove the trigger from [`Set::ids`].
+    ///
+    /// Returns `true` if trigger was removed and `false` otherwise.
+    fn remove_from<F: storage::Value + EventFilter>(
+        contracts: &mut WasmSmartContractMapTransaction<'block, 'set>,
+        triggers: &mut StorageTransaction<'block, 'set, TriggerId, LoadedAction<F>>,
+        trigger_id: TriggerId,
+    ) -> bool {
+        triggers
+            .remove(trigger_id)
+            .map(|loaded_action| {
+                if let Some(blob_hash) = loaded_action.extract_blob_hash() {
+                    Self::remove_original_trigger(contracts, blob_hash);
+                }
+            })
+            .is_some()
+    }
+
+    /// Decrease the counter of the original [`WasmSmartContract`] by `blob_hash`
+    /// or remove it if the counter reaches zero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `blob_hash` is not in the [`Set::contracts`].
+    fn remove_original_trigger(
+        contracts: &mut WasmSmartContractMapTransaction,
+        blob_hash: HashOf<WasmSmartContract>,
+    ) {
+        #[allow(clippy::option_if_let_else)] // More readable this way
+        match contracts.get_mut(&blob_hash) {
+            Some(entry) => {
+                let count = &mut entry.count;
+                if let Some(new_count) = NonZeroU64::new(count.get() - 1) {
+                    *count = new_count;
+                } else {
+                    contracts.remove(blob_hash);
+                }
+            }
+            None => {
+                panic!("`Set::contracts` doesn't contain required hash. This is a bug")
+            }
+        }
+    }
+
+    /// Decrease `action`s for provided triggers and remove those whose counter reached zero.
+    pub fn decrease_repeats(&mut self, triggers: &[TriggerId]) {
+        for id in triggers {
+            // Ignoring error if trigger has not `Repeats::Exact(_)` but something else
+            let _mod_repeats_res = self.mod_repeats(id, |n| Ok(n.saturating_sub(1)));
+        }
+
+        let Self {
+            data_triggers,
+            pipeline_triggers,
+            time_triggers,
+            by_call_triggers,
+            ids,
+            contracts,
+            ..
+        } = self;
+        Self::remove_zeros(ids, contracts, data_triggers);
+        Self::remove_zeros(ids, contracts, pipeline_triggers);
+        Self::remove_zeros(ids, contracts, time_triggers);
+        Self::remove_zeros(ids, contracts, by_call_triggers);
+    }
+
+    /// Remove actions with zero execution count from `triggers`
+    fn remove_zeros<F: storage::Value + EventFilter>(
+        ids: &mut StorageTransaction<'block, 'set, TriggerId, TriggeringEventType>,
+        contracts: &mut WasmSmartContractMapTransaction<'block, 'set>,
+        triggers: &mut StorageTransaction<'block, 'set, TriggerId, LoadedAction<F>>,
+    ) {
+        let to_remove: Vec<TriggerId> = triggers
+            .iter()
+            .filter_map(|(id, action)| {
+                if let Repeats::Exactly(0) = action.repeats {
+                    return Some(id.clone());
+                }
+                None
+            })
+            .collect();
+
+        for id in to_remove {
+            ids.remove(id.clone())
+                .and_then(|_| Self::remove_from(contracts, triggers, id).then_some(()))
+                .expect("`Set`'s `ids`, `contracts` and typed trigger collections are inconsistent. This is a bug")
+        }
     }
 
     /// Handle [`DataEvent`].
@@ -741,29 +1010,6 @@ impl Set {
         };
     }
 
-    /// Handle [`TimeEvent`].
-    ///
-    /// Find all actions that are triggered by `event` and store them.
-    /// These actions are inspected in the next [`Set::inspect_matched()`] call.
-    pub fn handle_time_event(&mut self, event: TimeEvent) {
-        for (id, action) in &self.time_triggers {
-            let mut count = action.filter.count_matches(&event);
-            if let Repeats::Exactly(repeats) = action.repeats {
-                count = min(repeats, count);
-            }
-            if count == 0 {
-                continue;
-            }
-
-            let ids = core::iter::repeat_with(|| (EventBox::Time(event), id.clone())).take(
-                count
-                    .try_into()
-                    .expect("`u32` should always fit in `usize`"),
-            );
-            self.matched_ids.extend(ids);
-        }
-    }
-
     /// Match and insert a [`TriggerId`] into the set of matched ids.
     ///
     /// Skips insertion:
@@ -785,56 +1031,6 @@ impl Set {
         }
 
         matched_ids.push((event.into(), id.clone()));
-    }
-
-    /// Decrease `action`s for provided triggers and remove those whose counter reached zero.
-    pub fn decrease_repeats(&mut self, triggers: &[TriggerId]) {
-        for id in triggers {
-            // Ignoring error if trigger has not `Repeats::Exact(_)` but something else
-            let _mod_repeats_res = self.mod_repeats(id, |n| Ok(n.saturating_sub(1)));
-        }
-
-        let Self {
-            data_triggers,
-            pipeline_triggers,
-            time_triggers,
-            by_call_triggers,
-            ids,
-            contracts: original_contracts,
-            ..
-        } = self;
-        Self::remove_zeros(ids, original_contracts, data_triggers);
-        Self::remove_zeros(ids, original_contracts, pipeline_triggers);
-        Self::remove_zeros(ids, original_contracts, time_triggers);
-        Self::remove_zeros(ids, original_contracts, by_call_triggers);
-    }
-
-    /// Remove actions with zero execution count from `triggers`
-    fn remove_zeros<F: EventFilter>(
-        ids: &mut IndexMap<TriggerId, TriggeringEventType>,
-        original_contracts: &mut WasmSmartContractMap,
-        triggers: &mut IndexMap<TriggerId, LoadedAction<F>>,
-    ) {
-        let to_remove: Vec<TriggerId> = triggers
-            .iter()
-            .filter_map(|(id, action)| {
-                if let Repeats::Exactly(0) = action.repeats {
-                    return Some(id.clone());
-                }
-                None
-            })
-            .collect();
-
-        for id in to_remove {
-            ids.remove(&id)
-                .and_then(|_| Self::remove_from(original_contracts, triggers, &id).then_some(()))
-                .expect("`Set`'s `ids`, `original_contracts` and typed trigger collections are inconsistent. This is a bug")
-        }
-    }
-
-    /// Extract `matched_id`
-    pub fn extract_matched_ids(&mut self) -> Vec<(EventBox, TriggerId)> {
-        core::mem::take(&mut self.matched_ids)
     }
 }
 
