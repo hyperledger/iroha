@@ -21,6 +21,7 @@ use storage::storage::StorageReadOnly;
 use super::Execute;
 use crate::{
     prelude::*,
+    smartcontracts::triggers::set::SetReadOnly,
     state::{StateReadOnly, StateTransaction, WorldReadOnly},
 };
 

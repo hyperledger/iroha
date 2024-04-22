@@ -128,7 +128,7 @@ pub mod isi {
 
             let world = &mut state_transaction.world;
             for trigger_id in &triggers_in_domain {
-                assert!(world.triggers.remove(trigger_id));
+                assert!(world.triggers.remove(trigger_id.clone()));
             }
             if world.domains.remove(domain_id.clone()).is_none() {
                 return Err(FindError::Domain(domain_id).into());
