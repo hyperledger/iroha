@@ -21,17 +21,13 @@ enum MainError {
 async fn main() -> error_stack::Result<(), MainError> {
     let args = Args::parse();
 
+    configure_reports(&args);
+
     if args.trace_config {
         iroha_config::enable_tracing()
             .change_context(MainError::TraceConfigSetup)
             .attach_printable("was enabled by `--trace-config` argument")?;
     }
-
-    error_stack::Report::set_color_mode(if args.terminal_colors {
-        error_stack::fmt::ColorMode::Color
-    } else {
-        error_stack::fmt::ColorMode::None
-    });
 
     let (config, logger_config, genesis) =
         iroha::read_config_and_genesis(&args).change_context(MainError::Config).attach_printable_lazy(|| {
@@ -63,4 +59,20 @@ async fn main() -> error_stack::Result<(), MainError> {
         .change_context(MainError::IrohaStart)?;
 
     Ok(())
+}
+
+/// Configures globals of [`error_stack::Report`]
+fn configure_reports(args: &Args) {
+    use std::panic::Location;
+
+    use error_stack::{fmt::ColorMode, Report};
+
+    Report::set_color_mode(if args.terminal_colors {
+        ColorMode::Color
+    } else {
+        ColorMode::None
+    });
+
+    // neither devs nor users benefit from it
+    Report::install_debug_hook::<Location>(|_, _| {});
 }
