@@ -64,8 +64,8 @@ drop_bomb = "0.1.5"
 futures = { version = "0.3.30", default-features = false }
 tokio = "1.37.0"
 tokio-stream = "0.1.15"
-tokio-tungstenite = "0.20.1"
-tungstenite = "0.20.1"
+tokio-tungstenite = "0.21.0"
+tungstenite = "0.21.0"
 crossbeam-queue = "0.3.11"
 parking_lot = { version = "0.12.1" }
 
