@@ -18,6 +18,7 @@ impl Registrable for NewRole {
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
     use eyre::Result;
+    use indexmap::IndexSet;
     use iroha_data_model::{
         isi::error::{InstructionExecutionError, InvalidParameterError, RepetitionError},
         prelude::*,
@@ -345,6 +346,12 @@ pub mod isi {
         ) -> Result<(), Error> {
             let raw_executor = self.executor;
 
+            let permissions_before = state_transaction
+                .world
+                .permission_token_schema
+                .token_ids
+                .clone();
+
             // Cloning executor to avoid multiple mutable borrows of `state_transaction`.
             // Also it's a cheap operation.
             let mut upgraded_executor = state_transaction.world.executor.clone();
@@ -359,12 +366,79 @@ pub mod isi {
 
             *state_transaction.world.executor.get_mut() = upgraded_executor;
 
+            revoke_removed_permissions(authority, state_transaction, permissions_before)?;
+
             state_transaction
                 .world
                 .emit_events(std::iter::once(ExecutorEvent::Upgraded));
 
             Ok(())
         }
+    }
+
+    fn revoke_removed_permissions(
+        authority: &AccountId,
+        state_transaction: &mut StateTransaction,
+        permissions_before: Vec<PermissionTokenId>,
+    ) -> Result<(), Error> {
+        let world = state_transaction.world();
+        let permissions_after = world
+            .permission_token_schema()
+            .token_ids
+            .iter()
+            .collect::<IndexSet<_>>();
+        let permissions_removed = permissions_before
+            .into_iter()
+            .filter(|permission| !permissions_after.contains(permission))
+            .collect::<IndexSet<_>>();
+        if permissions_removed.is_empty() {
+            return Ok(());
+        }
+
+        let to_revoke_from_accounts = find_related_accounts(world, &permissions_removed);
+        let to_revoke_from_roles = find_related_roles(world, &permissions_removed);
+
+        for (account_id, permission) in to_revoke_from_accounts {
+            let revoke = Revoke::permission(permission, account_id);
+            revoke.execute(authority, state_transaction)?
+        }
+        for (role_id, permission) in to_revoke_from_roles {
+            let revoke = Revoke::role_permission(permission, role_id);
+            revoke.execute(authority, state_transaction)?
+        }
+        Ok(())
+    }
+
+    fn find_related_accounts(
+        world: &impl WorldReadOnly,
+        permissions: &IndexSet<PermissionTokenId>,
+    ) -> Vec<(AccountId, PermissionToken)> {
+        world
+            .account_permission_tokens()
+            .iter()
+            .flat_map(|(account_id, account_permissions)| {
+                account_permissions
+                    .iter()
+                    .filter(|permission| permissions.contains(&permission.definition_id))
+                    .map(|permission| (account_id.clone(), permission.clone()))
+            })
+            .collect()
+    }
+
+    fn find_related_roles(
+        world: &impl WorldReadOnly,
+        permissions: &IndexSet<PermissionTokenId>,
+    ) -> Vec<(RoleId, PermissionToken)> {
+        world
+            .roles()
+            .iter()
+            .flat_map(|(role_id, role)| {
+                role.permissions
+                    .iter()
+                    .filter(|permission| permissions.contains(&permission.definition_id))
+                    .map(|permission| (role_id.clone(), permission.clone()))
+            })
+            .collect()
     }
 
     impl Execute for Log {

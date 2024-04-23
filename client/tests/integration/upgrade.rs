@@ -114,6 +114,76 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
 }
 
 #[test]
+fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_030).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    // Permission which will be removed by executor
+    let can_unregister_domain_token = PermissionToken::new(
+        "CanUnregisterDomain".parse()?,
+        &json!({ "domain_id": DomainId::from_str("wonderland")? }),
+    );
+
+    // Register `TEST_ROLE` with permission
+    let test_role_id: RoleId = "TEST_ROLE".parse()?;
+    let test_role =
+        Role::new(test_role_id.clone()).add_permission(can_unregister_domain_token.clone());
+    client.submit_blocking(Register::role(test_role))?;
+
+    // Check that permission exists
+    assert!(client
+        .request(FindPermissionTokenSchema)?
+        .token_ids()
+        .contains(&can_unregister_domain_token.definition_id));
+
+    // Check that `TEST_ROLE` has permission
+    assert!(client
+        .request(FindAllRoles::new())?
+        .collect::<QueryResult<Vec<_>>>()?
+        .into_iter()
+        .find(|role| role.id == test_role_id)
+        .expect("Failed to find Role")
+        .permissions
+        .contains(&can_unregister_domain_token));
+
+    // Check that Alice has permission
+    let alice_id: AccountId = "alice@wonderland".parse()?;
+    assert!(client
+        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .collect::<QueryResult<Vec<_>>>()?
+        .contains(&can_unregister_domain_token));
+
+    upgrade_executor(
+        &client,
+        "tests/integration/smartcontracts/executor_remove_token",
+    )?;
+
+    // Check that permission doesn't exist
+    assert!(!client
+        .request(FindPermissionTokenSchema)?
+        .token_ids()
+        .contains(&can_unregister_domain_token.definition_id));
+
+    // Check that `TEST_ROLE` doesn't have permission
+    assert!(!client
+        .request(FindAllRoles::new())?
+        .collect::<QueryResult<Vec<_>>>()?
+        .into_iter()
+        .find(|role| role.id == test_role_id)
+        .expect("Failed to find Role")
+        .permissions
+        .contains(&can_unregister_domain_token));
+
+    // Check that Alice doesn't have permission
+    assert!(!client
+        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .collect::<QueryResult<Vec<_>>>()?
+        .contains(&can_unregister_domain_token));
+
+    Ok(())
+}
+
+#[test]
 fn migration_fail_should_not_cause_any_effects() {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_995).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);

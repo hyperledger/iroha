@@ -1276,7 +1276,7 @@ isi_box! {
         PermissionToken(Revoke<PermissionToken, Account>),
         /// Revoke [`Role`] from [`Account`].
         Role(Revoke<RoleId, Account>),
-        /// Revoke [`PermissionToken`] from [`Account`].
+        /// Revoke [`PermissionToken`] from [`Role`].
         RolePermissionToken(Revoke<PermissionToken, Role>),
     }
 }
