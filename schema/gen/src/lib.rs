@@ -91,7 +91,6 @@ types!(
     BTreeMap<Name, MetadataValueBox>,
     BTreeSet<Permission>,
     BTreeSet<PermissionId>,
-    BTreeSet<SignatureWrapperOf<BlockPayload>>,
     BatchedResponse<QueryOutputBox>,
     BatchedResponseV1<QueryOutputBox>,
     BlockEvent,
@@ -101,6 +100,7 @@ types!(
     BlockPayload,
     BlockRejectionReason,
     BlockStatus,
+    BlockSignature,
     BlockSubscriptionRequest,
     Box<GenericPredicateBox<QueryOutputPredicate>>,
     Box<QueryOutputPredicate>,
@@ -281,6 +281,7 @@ types!(
     QueryExecutionFail,
     QueryOutputBox,
     QueryOutputPredicate,
+    QuerySignature,
     Register<Account>,
     Register<Asset>,
     Register<AssetDefinition>,
@@ -320,8 +321,6 @@ types!(
     SignatureOf<BlockPayload>,
     SignatureOf<ClientQueryPayload>,
     SignatureOf<TransactionPayload>,
-    SignatureWrapperOf<BlockPayload>,
-    SignaturesOf<BlockPayload>,
     SignedBlock,
     SignedBlockV1,
     SignedQuery,
@@ -348,6 +347,7 @@ types!(
     TransactionPayload,
     TransactionQueryOutput,
     TransactionRejectionReason,
+    TransactionSignature,
     TransactionStatus,
     Transfer<Account, AssetDefinitionId, Account>,
     Transfer<Account, DomainId, Account>,
@@ -366,7 +366,6 @@ types!(
     TriggerNumberOfExecutionsChanged,
     TriggeringEventFilterBox,
     TypeError,
-    UniqueVec<PeerId>,
     Unregister<Account>,
     Unregister<Asset>,
     Unregister<AssetDefinition>,
@@ -377,6 +376,7 @@ types!(
     UnregisterBox,
     Upgrade,
     ValidationFail,
+    Vec<BlockSignature>,
     Vec<CommittedTransaction>,
     Vec<EventBox>,
     Vec<EventFilterBox>,
@@ -415,7 +415,7 @@ pub mod complete_data_model {
         block::{
             error::BlockRejectionReason,
             stream::{BlockMessage, BlockSubscriptionRequest},
-            BlockHeader, BlockPayload, SignedBlock, SignedBlockV1,
+            BlockHeader, BlockPayload, BlockSignature, SignedBlock, SignedBlockV1,
         },
         domain::NewDomain,
         events::pipeline::{BlockEventFilter, TransactionEventFilter},
@@ -443,7 +443,7 @@ pub mod complete_data_model {
         },
         transaction::{
             error::TransactionLimitError, SignedTransactionV1, TransactionLimits,
-            TransactionPayload,
+            TransactionPayload, TransactionSignature,
         },
         BatchedResponse, BatchedResponseV1, JsonString, Level,
     };
@@ -451,7 +451,6 @@ pub mod complete_data_model {
         addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
         const_vec::ConstVec,
         conststr::ConstString,
-        unique_vec::UniqueVec,
     };
     pub use iroha_schema::Compact;
 }

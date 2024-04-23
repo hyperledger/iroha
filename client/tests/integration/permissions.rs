@@ -4,11 +4,10 @@ use eyre::Result;
 use iroha::{
     client::{self, Client, QueryResult},
     crypto::KeyPair,
-    data_model::prelude::*,
-};
-use iroha_data_model::{
-    permission::Permission, role::RoleId, transaction::error::TransactionRejectionReason,
-    JsonString,
+    data_model::{
+        permission::Permission, prelude::*, role::RoleId,
+        transaction::error::TransactionRejectionReason, JsonString,
+    },
 };
 use iroha_genesis::GenesisTransaction;
 use serde_json::json;

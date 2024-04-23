@@ -46,7 +46,7 @@ impl LazyQueryOutput<'_> {
     ///
     /// - if fetch size is too big
     /// - defined pagination parameter for a query that returns singular result
-    pub fn apply_postprocessing(
+    pub(crate) fn apply_postprocessing(
         self,
         filter: &PredicateBox,
         sorting: &Sorting,
@@ -187,10 +187,7 @@ impl ValidQueryRequest {
         query: SignedQuery,
         state_ro: &impl StateReadOnly,
     ) -> Result<Self, ValidationFail> {
-        if !query
-            .authority()
-            .signatory_matches(query.signature().public_key())
-        {
+        if !query.authority().signatory_matches(&query.signature().0) {
             return Err(Error::Signature(String::from(
                 "Signature public key doesn't correspond to the account.",
             ))
@@ -299,11 +296,10 @@ impl ValidQuery for QueryBox {
 mod tests {
     use std::str::FromStr as _;
 
-    use iroha_crypto::{Hash, HashOf};
+    use iroha_crypto::{Hash, HashOf, KeyPair};
     use iroha_data_model::{
         metadata::MetadataValueBox, query::error::FindError, transaction::TransactionLimits,
     };
-    use iroha_primitives::unique_vec::UniqueVec;
     use test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use tokio::test;
 
@@ -419,10 +415,12 @@ mod tests {
             let mut transactions = vec![valid_tx; valid_tx_per_block];
             transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
-            let topology = Topology::new(UniqueVec::new());
+            let (peer_public_key, _) = KeyPair::random().into_parts();
+            let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+            let topology = Topology::new(vec![peer_id]);
             let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                 .chain(0, &mut state_block)
-                .sign(&ALICE_KEYPAIR)
+                .sign(ALICE_KEYPAIR.private_key())
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
@@ -434,7 +432,7 @@ mod tests {
             for _ in 1u64..blocks {
                 let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                     .chain(0, &mut state_block)
-                    .sign(&ALICE_KEYPAIR)
+                    .sign(ALICE_KEYPAIR.private_key())
                     .unpack(|_| {})
                     .commit(&topology)
                     .unpack(|_| {})
@@ -573,10 +571,12 @@ mod tests {
         let tx_limits = &state_block.transaction_executor().transaction_limits;
         let va_tx = AcceptedTransaction::accept(tx, &chain_id, tx_limits)?;
 
-        let topology = Topology::new(UniqueVec::new());
+        let (peer_public_key, _) = KeyPair::random().into_parts();
+        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+        let topology = Topology::new(vec![peer_id]);
         let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
             .chain(0, &mut state_block)
-            .sign(&ALICE_KEYPAIR)
+            .sign(ALICE_KEYPAIR.private_key())
             .unpack(|_| {})
             .commit(&topology)
             .unpack(|_| {})

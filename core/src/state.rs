@@ -796,9 +796,11 @@ impl WorldTransaction<'_, '_> {
         increment: Numeric,
     ) -> Result<(), Error> {
         let domain = self.domain_mut(&definition_id.domain)?;
-        let asset_total_amount: &mut Numeric = domain
-            .asset_total_quantities.get_mut(definition_id)
-            .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount");
+        let asset_total_amount: &mut Numeric =
+            domain.asset_total_quantities.get_mut(definition_id).expect(
+                "INTERNAL BUG: Asset total amount not found. \
+                Insert initial total amount on `Register<AssetDefinition>`",
+            );
         *asset_total_amount = asset_total_amount
             .checked_add(increment)
             .ok_or(MathError::Overflow)?;
@@ -827,9 +829,11 @@ impl WorldTransaction<'_, '_> {
         decrement: Numeric,
     ) -> Result<(), Error> {
         let domain = self.domain_mut(&definition_id.domain)?;
-        let asset_total_amount: &mut Numeric = domain
-            .asset_total_quantities.get_mut(definition_id)
-            .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount");
+        let asset_total_amount: &mut Numeric =
+            domain.asset_total_quantities.get_mut(definition_id).expect(
+                "INTERNAL BUG: Asset total amount not found. \
+                Insert initial total amount on `Register<AssetDefinition>`",
+            );
         *asset_total_amount = asset_total_amount
             .checked_sub(decrement)
             .ok_or(MathError::NotEnoughQuantity)?;
@@ -1037,7 +1041,7 @@ pub trait StateReadOnly {
         (1..=self.height()).map(|height| {
             NonZeroUsize::new(height)
                 .and_then(|height| self.kura().get_block_by_height(height))
-                .expect("Failed to load block.")
+                .expect("INTERNAL BUG: Failed to load block")
         })
     }
 
@@ -1484,7 +1488,7 @@ impl StateTransaction<'_, '_> {
                     .world
                     .triggers
                     .get_compiled_contract(blob_hash)
-                    .expect("contract is not present it's a bug")
+                    .expect("INTERNAL BUG: contract is not present")
                     .clone();
                 let mut wasm_runtime = wasm::RuntimeBuilder::<wasm::state::Trigger>::new()
                     .with_config(self.config.wasm_runtime)
@@ -1829,7 +1833,6 @@ pub(crate) mod deserialize {
 #[cfg(test)]
 mod tests {
     use iroha_data_model::block::BlockPayload;
-    use iroha_primitives::unique_vec::UniqueVec;
     use test_samples::gen_account_in;
 
     use super::*;
@@ -1840,7 +1843,10 @@ mod tests {
 
     /// Used to inject faulty payload for testing
     fn new_dummy_block_with_payload(f: impl FnOnce(&mut BlockPayload)) -> CommittedBlock {
-        let topology = Topology::new(UniqueVec::new());
+        let (leader_public_key, _) = iroha_crypto::KeyPair::random().into_parts();
+        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let topology = Topology::new(vec![peer_id]);
+
         ValidBlock::new_dummy_and_modify_payload(f)
             .commit(&topology)
             .unpack(|_| {})

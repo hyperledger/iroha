@@ -1,6 +1,5 @@
 use eyre::Result;
-use iroha::data_model::prelude::*;
-use iroha_data_model::transaction::error::TransactionRejectionReason;
+use iroha::data_model::{prelude::*, transaction::error::TransactionRejectionReason};
 use serde_json::json;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
@@ -304,7 +303,6 @@ fn domain_owner_trigger_permissions() -> Result<()> {
     Ok(())
 }
 
-#[ignore = "migrated to client cli python tests"]
 #[test]
 fn domain_owner_transfer() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_100).start_with_runtime();

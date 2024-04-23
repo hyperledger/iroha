@@ -3,9 +3,8 @@ use std::str::FromStr as _;
 use eyre::Result;
 use iroha::{
     client::{self, QueryResult},
-    data_model::prelude::*,
+    data_model::{prelude::*, transaction::error::TransactionRejectionReason},
 };
-use iroha_data_model::transaction::error::TransactionRejectionReason;
 use serde_json::json;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};

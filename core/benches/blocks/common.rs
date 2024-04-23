@@ -34,14 +34,16 @@ pub fn create_block(
         .sign(key_pair);
     let limits = state.transaction_executor().transaction_limits;
 
-    let topology = Topology::new(UniqueVec::new());
+    let (peer_public_key, _) = KeyPair::random().into_parts();
+    let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+    let topology = Topology::new(vec![peer_id]);
     let block = BlockBuilder::new(
         vec![AcceptedTransaction::accept(transaction, &chain_id, &limits).unwrap()],
         topology.clone(),
         Vec::new(),
     )
     .chain(0, state)
-    .sign(key_pair)
+    .sign(key_pair.private_key())
     .unpack(|_| {})
     .commit(&topology)
     .unpack(|_| {})

@@ -24,7 +24,7 @@ impl AcceptedTransaction {
     // TODO: We should have another type of transaction like `CheckedTransaction` in the type system?
     fn is_signatory_consistent(&self) -> bool {
         let authority = self.as_ref().authority();
-        let signatory = self.as_ref().signature().public_key();
+        let signatory = &self.as_ref().signature().0;
         authority.signatory_matches(signatory)
     }
 

@@ -1266,12 +1266,28 @@ pub mod http {
             pub fetch_size: FetchSize,
         }
 
+        /// Signature of query
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
+        pub struct QuerySignature(pub PublicKey, pub SignatureOf<ClientQueryPayload>);
+
         /// I/O ready structure to send queries.
         #[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
         #[version_with_scale(version = 1, versioned_alias = "SignedQuery")]
         pub struct SignedQueryV1 {
             /// Signature of the client who sends this query.
-            pub signature: SignatureOf<ClientQueryPayload>,
+            pub signature: QuerySignature,
             /// Payload
             pub payload: ClientQueryPayload,
         }
@@ -1300,13 +1316,16 @@ pub mod http {
 
         #[derive(Decode, Deserialize)]
         struct SignedQueryCandidate {
-            signature: SignatureOf<ClientQueryPayload>,
+            signature: QuerySignature,
+            #[serde(flatten)]
             payload: ClientQueryPayload,
         }
 
         impl SignedQueryCandidate {
             fn validate(self) -> Result<SignedQueryV1, &'static str> {
-                if self.signature.verify(&self.payload).is_err() {
+                let QuerySignature(public_key, signature) = &self.signature;
+
+                if signature.verify(public_key, &self.payload).is_err() {
                     return Err("Query signature not valid");
                 }
 
@@ -1342,7 +1361,7 @@ pub mod http {
     #[cfg(feature = "transparent_api")]
     impl SignedQuery {
         /// Return query signature
-        pub fn signature(&self) -> &SignatureOf<ClientQueryPayload> {
+        pub fn signature(&self) -> &QuerySignature {
             let SignedQuery::V1(query) = self;
             &query.signature
         }
@@ -1428,8 +1447,10 @@ pub mod http {
         #[inline]
         #[must_use]
         pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedQuery {
+            let signature = SignatureOf::new(key_pair.private_key(), &self.payload);
+
             SignedQueryV1 {
-                signature: SignatureOf::new(key_pair, &self.payload),
+                signature: QuerySignature(key_pair.public_key().clone(), signature),
                 payload: self.payload,
             }
             .into()
@@ -1439,7 +1460,7 @@ pub mod http {
     pub mod prelude {
         //! The prelude re-exports most commonly used traits, structs and macros from this crate.
 
-        pub use super::{ClientQueryBuilder, SignedQuery, SignedQueryV1};
+        pub use super::{ClientQueryBuilder, QuerySignature, SignedQuery, SignedQueryV1};
     }
 }
 

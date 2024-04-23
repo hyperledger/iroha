@@ -297,8 +297,6 @@ impl Kura {
     }
 
     /// Get a reference to block by height, loading it from disk if needed.
-    // The below lint suggests changing the code into something that does not compile due
-    // to the borrow checker.
     pub fn get_block_by_height(&self, block_height: NonZeroUsize) -> Option<Arc<SignedBlock>> {
         let mut data_array_guard = self.block_data.lock();
 

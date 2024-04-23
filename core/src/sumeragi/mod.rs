@@ -10,7 +10,6 @@ use std::{
 
 use eyre::Result;
 use iroha_config::parameters::actual::{Common as CommonConfig, Sumeragi as SumeragiConfig};
-use iroha_crypto::{KeyPair, SignatureOf};
 use iroha_data_model::{block::SignedBlock, prelude::*};
 use iroha_genesis::GenesisTransaction;
 use iroha_logger::prelude::*;
@@ -73,14 +72,14 @@ impl SumeragiHandle {
         block: &SignedBlock,
         state_block: &mut StateBlock<'_>,
         events_sender: &EventsSender,
-        recreate_topology: RecreateTopologyByViewChangeIndex,
-    ) -> RecreateTopologyByViewChangeIndex {
+        topology: &mut Topology,
+    ) {
         // NOTE: topology need to be updated up to block's view_change_index
-        let current_topology = recreate_topology(block.header().view_change_index as usize);
+        topology.rotate_all_n(block.header().view_change_index as usize);
 
         let block = ValidBlock::validate(
             block.clone(),
-            &current_topology,
+            topology,
             chain_id,
             genesis_public_key,
             state_block,
@@ -89,14 +88,17 @@ impl SumeragiHandle {
             let _ = events_sender.send(e.into());
         })
         .expect("Kura: Invalid block")
-        .commit(&current_topology)
+        .commit(topology)
         .unpack(|e| {
             let _ = events_sender.send(e.into());
         })
         .expect("Kura: Invalid block");
 
         if block.as_ref().header().is_genesis() {
-            *state_block.world.trusted_peers_ids = block.as_ref().commit_topology().clone();
+            *state_block.world.trusted_peers_ids =
+                block.as_ref().commit_topology().cloned().collect();
+
+            *topology = Topology::new(block.as_ref().commit_topology().cloned());
         }
 
         state_block
@@ -106,10 +108,7 @@ impl SumeragiHandle {
                 let _ = events_sender.send(e);
             });
 
-        let peers = state_block.world.peers().cloned().collect();
-        Box::new(move |view_change_index| {
-            Topology::recreate_topology(block.as_ref(), view_change_index, peers)
-        })
+        topology.block_committed(block.as_ref(), state_block.world.peers().cloned());
     }
 
     /// Start [`Sumeragi`] actor and return handle to it.
@@ -139,11 +138,14 @@ impl SumeragiHandle {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
         let blocks_iter;
-        let mut recreate_topology: RecreateTopologyByViewChangeIndex;
+        let mut topology;
 
         {
             let state_view = state.view();
-            let skip_block_count = state_view.block_hashes.len();
+            let skip_block_count: usize = state_view
+                .height()
+                .try_into()
+                .expect("Blockchain height should fit into usize");
             blocks_iter = (skip_block_count + 1..=block_count).map(|block_height| {
                 NonZeroUsize::new(block_height).and_then(|height| kura.get_block_by_height(height)).expect(
                     "Sumeragi should be able to load the block that was reported as presented. \
@@ -151,16 +153,14 @@ impl SumeragiHandle {
                 )
             });
 
-            recreate_topology = match state_view.height() {
-                // View change index of the next block doesn't affect init topology
-                0 => {
-                    let peers = sumeragi_config
+            topology = match state_view.height() {
+                0 => Topology::new(
+                    sumeragi_config
                         .trusted_peers
                         .value()
                         .clone()
-                        .into_non_empty_vec();
-                    Box::new(move |_view_change_index| Topology::new(peers))
-                }
+                        .into_non_empty_vec(),
+                ),
                 height => {
                     let block_ref = NonZeroUsize::new(height)
                         .and_then(|height| kura.get_block_by_height(height))
@@ -168,29 +168,27 @@ impl SumeragiHandle {
                             "Sumeragi could not load block that was reported as present. \
                              Please check that the block storage was not disconnected.",
                         );
-                    let peers = state_view.world.peers_ids().iter().cloned().collect();
-                    Box::new(move |view_change_index| {
-                        Topology::recreate_topology(&block_ref, view_change_index, peers)
-                    })
+                    let mut topology = Topology::new(block_ref.commit_topology().cloned());
+                    topology
+                        .block_committed(&block_ref, state_view.world.peers_ids().iter().cloned());
+                    topology
                 }
             };
         }
 
         for block in blocks_iter {
             let mut state_block = state.block();
-            recreate_topology = Self::replay_block(
+            Self::replay_block(
                 &common_config.chain,
                 &genesis_network.public_key,
                 &block,
                 &mut state_block,
                 &events_sender,
-                recreate_topology,
+                &mut topology,
             );
+
             state_block.commit();
         }
-
-        // There is no more blocks so we pick 0 as view change index
-        let current_topology = recreate_topology(0);
 
         info!("Sumeragi has finished loading blocks and setting up the state");
 
@@ -213,7 +211,7 @@ impl SumeragiHandle {
             control_message_receiver,
             message_receiver,
             debug_force_soft_fork,
-            current_topology,
+            topology,
             transaction_cache: Vec::new(),
             view_changes_metric: view_changes,
         };
@@ -247,9 +245,6 @@ impl SumeragiHandle {
     }
 }
 
-/// Closure to get topology recreated at certain view change index
-type RecreateTopologyByViewChangeIndex = Box<dyn FnOnce(usize) -> Topology>;
-
 /// The interval at which sumeragi checks if there are tx in the
 /// `queue`.  And will create a block if is leader and the voting is
 /// not already in progress.
@@ -281,18 +276,6 @@ impl VotingBlock<'_> {
         VotingBlock {
             block,
             voted_at: Instant::now(),
-            state_block,
-        }
-    }
-    /// Construct new `VotingBlock` with the given time.
-    pub(crate) fn voted_at(
-        block: ValidBlock,
-        state_block: StateBlock<'_>,
-        voted_at: Instant,
-    ) -> VotingBlock {
-        VotingBlock {
-            block,
-            voted_at,
             state_block,
         }
     }

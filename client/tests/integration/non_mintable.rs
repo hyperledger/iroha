@@ -3,9 +3,8 @@ use std::str::FromStr as _;
 use eyre::Result;
 use iroha::{
     client::{self, QueryResult},
-    data_model::{metadata::UnlimitedMetadata, prelude::*},
+    data_model::{isi::InstructionBox, metadata::UnlimitedMetadata, prelude::*},
 };
-use iroha_data_model::isi::InstructionBox;
 use test_network::*;
 use test_samples::ALICE_ID;
 

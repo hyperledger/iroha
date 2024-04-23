@@ -1,9 +1,10 @@
 //! Example of registering multiple triggers
 //! Used to show Iroha's trigger deduplication capabilities
 
-use iroha::{client::Client, data_model::prelude::*};
-use iroha_crypto::KeyPair;
-use iroha_data_model::trigger::TriggerId;
+use iroha::{
+    client::Client,
+    data_model::{prelude::*, trigger::TriggerId},
+};
 use iroha_genesis::{GenesisTransaction, GenesisTransactionBuilder};
 use iroha_primitives::unique_vec;
 use irohad::samples::{construct_executor, get_config};

@@ -9,12 +9,14 @@
 //! as various forms of validation are performed.
 
 use eyre::Result;
-use iroha_crypto::SignatureVerificationFail;
+use iroha_crypto::SignatureOf;
 pub use iroha_data_model::prelude::*;
 use iroha_data_model::{
     isi::error::Mismatch,
     query::error::FindError,
-    transaction::{error::TransactionLimitError, TransactionLimits, TransactionPayload},
+    transaction::{
+        error::TransactionLimitError, TransactionLimits, TransactionPayload, TransactionSignature,
+    },
 };
 use iroha_genesis::GenesisTransaction;
 use iroha_logger::{debug, error};
@@ -27,16 +29,42 @@ use crate::{
 
 /// `AcceptedTransaction` — a transaction accepted by Iroha peer.
 #[derive(Debug, Clone, PartialEq, Eq)]
-// TODO: Inner field should be private to maintain invariants
+// FIX: Inner field should be private to maintain invariants
 pub struct AcceptedTransaction(pub(crate) SignedTransaction);
 
+/// Verification failed of some signature due to following reason
+#[derive(Clone, PartialEq, Eq)]
+pub struct SignatureVerificationFail {
+    /// Signature which verification has failed
+    pub signature: SignatureOf<TransactionPayload>,
+    /// Error which happened during verification
+    pub reason: String,
+}
+
+impl core::fmt::Debug for SignatureVerificationFail {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SignatureVerificationFail")
+            .field("signature", &self.signature)
+            .field("reason", &self.reason)
+            .finish()
+    }
+}
+
+impl core::fmt::Display for SignatureVerificationFail {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Failed to verify signatures: {}", self.reason,)
+    }
+}
+
+impl std::error::Error for SignatureVerificationFail {}
+
 /// Error type for transaction from [`SignedTransaction`] to [`AcceptedTransaction`]
-#[derive(Debug, FromVariant, thiserror::Error, displaydoc::Display)]
+#[derive(Debug, displaydoc::Display, PartialEq, Eq, FromVariant, thiserror::Error)]
 pub enum AcceptTransactionFail {
     /// Failure during limits check
     TransactionLimit(#[source] TransactionLimitError),
     /// Failure during signature verification
-    SignatureVerification(#[source] SignatureVerificationFail<TransactionPayload>),
+    SignatureVerification(#[source] SignatureVerificationFail),
     /// The genesis account can only sign transactions in the genesis block
     UnexpectedGenesisAccountSignature,
     /// Chain id doesn't correspond to the id of current blockchain
@@ -63,10 +91,10 @@ impl AcceptedTransaction {
             }));
         }
 
-        let signature = tx.0.signature();
-        if signature.public_key() != genesis_public_key {
+        let TransactionSignature(public_key, signature) = tx.0.signature();
+        if public_key != genesis_public_key {
             return Err(SignatureVerificationFail {
-                signature: signature.clone().into(),
+                signature: signature.clone(),
                 reason: "Signature doesn't correspond to genesis public key".to_string(),
             }
             .into());

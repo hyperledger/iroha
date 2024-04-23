@@ -11,7 +11,10 @@ use iroha_core::{
     tx::TransactionExecutor,
 };
 use iroha_data_model::{
-    account::AccountId, isi::InstructionBox, prelude::*, transaction::TransactionLimits,
+    account::AccountId,
+    isi::InstructionBox,
+    prelude::*,
+    transaction::{TransactionBuilder, TransactionLimits},
 };
 use iroha_primitives::unique_vec::UniqueVec;
 use once_cell::sync::Lazy;
@@ -27,7 +30,7 @@ const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
     max_wasm_size_bytes: 0,
 };
 
-fn build_test_transaction(chain_id: ChainId) -> SignedTransaction {
+fn build_test_transaction(chain_id: ChainId) -> TransactionBuilder {
     let domain_id: DomainId = "domain".parse().unwrap();
     let create_domain: InstructionBox = Register::domain(Domain::new(domain_id.clone())).into();
     let create_account = Register::account(Account::new(gen_account_in(&domain_id).0)).into();
@@ -36,9 +39,7 @@ fn build_test_transaction(chain_id: ChainId) -> SignedTransaction {
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id)).into();
     let instructions = [create_domain, create_account, create_asset];
 
-    TransactionBuilder::new(chain_id, STARTER_ID.clone())
-        .with_instructions(instructions)
-        .sign(&STARTER_KEYPAIR)
+    TransactionBuilder::new(chain_id, STARTER_ID.clone()).with_instructions(instructions)
 }
 
 fn build_test_and_transient_state() -> State {
@@ -79,7 +80,7 @@ fn build_test_and_transient_state() -> State {
 fn accept_transaction(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let transaction = build_test_transaction(chain_id.clone());
+    let transaction = build_test_transaction(chain_id.clone()).sign(&STARTER_KEYPAIR);
     let mut success_count = 0;
     let mut failures_count = 0;
     let _ = criterion.bench_function("accept", |b| {
@@ -116,7 +117,7 @@ fn validate_transaction(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = AcceptedTransaction::accept(
-        build_test_transaction(chain_id.clone()),
+        build_test_transaction(chain_id.clone()).sign(&STARTER_KEYPAIR),
         &chain_id,
         &TRANSACTION_LIMITS,
     )
@@ -141,16 +142,17 @@ fn sign_blocks(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = AcceptedTransaction::accept(
-        build_test_transaction(chain_id.clone()),
+        build_test_transaction(chain_id.clone()).sign(&STARTER_KEYPAIR),
         &chain_id,
         &TRANSACTION_LIMITS,
     )
     .expect("Failed to accept transaction.");
-    let key_pair = KeyPair::random();
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::test().start();
     let state = State::new(World::new(), kura, query_handle);
-    let topology = Topology::new(UniqueVec::new());
+    let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
+    let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+    let topology = Topology::new(vec![peer_id]);
 
     let mut count = 0;
 
@@ -162,7 +164,7 @@ fn sign_blocks(criterion: &mut Criterion) {
         b.iter_batched(
             || block.clone(),
             |block| {
-                let _: ValidBlock = block.sign(&key_pair).unpack(|_| {});
+                let _: ValidBlock = block.sign(&peer_private_key).unpack(|_| {});
                 count += 1;
             },
             BatchSize::SmallInput,

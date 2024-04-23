@@ -657,6 +657,12 @@
       }
     ]
   },
+  "BlockSignature": {
+    "Tuple": [
+      "u64",
+      "SignatureOf<BlockPayload>"
+    ]
+  },
   "BlockStatus": {
     "Enum": [
       {
@@ -3048,6 +3054,12 @@
       }
     ]
   },
+  "QuerySignature": {
+    "Tuple": [
+      "PublicKey",
+      "SignatureOf<ClientQueryPayload>"
+    ]
+  },
   "Register<Account>": {
     "Struct": [
       {
@@ -3568,10 +3580,6 @@
   "Signature": {
     "Struct": [
       {
-        "name": "public_key",
-        "type": "PublicKey"
-      },
-      {
         "name": "payload",
         "type": "Vec<u8>"
       }
@@ -3580,14 +3588,6 @@
   "SignatureOf<BlockPayload>": "Signature",
   "SignatureOf<ClientQueryPayload>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
-  "SignaturesOf<BlockPayload>": {
-    "Struct": [
-      {
-        "name": "signatures",
-        "type": "SortedVec<SignatureOf<BlockPayload>>"
-      }
-    ]
-  },
   "SignedBlock": {
     "Enum": [
       {
@@ -3601,7 +3601,7 @@
     "Struct": [
       {
         "name": "signatures",
-        "type": "SignaturesOf<BlockPayload>"
+        "type": "Vec<BlockSignature>"
       },
       {
         "name": "payload",
@@ -3622,7 +3622,7 @@
     "Struct": [
       {
         "name": "signature",
-        "type": "SignatureOf<ClientQueryPayload>"
+        "type": "QuerySignature"
       },
       {
         "name": "payload",
@@ -3643,7 +3643,7 @@
     "Struct": [
       {
         "name": "signature",
-        "type": "SignatureOf<TransactionPayload>"
+        "type": "TransactionSignature"
       },
       {
         "name": "payload",
@@ -3753,9 +3753,6 @@
   },
   "SortedVec<PermissionId>": {
     "Vec": "PermissionId"
-  },
-  "SortedVec<SignatureOf<BlockPayload>>": {
-    "Vec": "SignatureOf<BlockPayload>"
   },
   "Sorting": {
     "Struct": [
@@ -3938,6 +3935,12 @@
         "discriminant": 4,
         "type": "WasmExecutionFail"
       }
+    ]
+  },
+  "TransactionSignature": {
+    "Tuple": [
+      "PublicKey",
+      "SignatureOf<TransactionPayload>"
     ]
   },
   "TransactionStatus": {
@@ -4374,6 +4377,9 @@
         "discriminant": 4
       }
     ]
+  },
+  "Vec<BlockSignature>": {
+    "Vec": "BlockSignature"
   },
   "Vec<CommittedTransaction>": {
     "Vec": "CommittedTransaction"

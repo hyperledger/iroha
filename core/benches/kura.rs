@@ -15,7 +15,6 @@ use iroha_core::{
 };
 use iroha_crypto::KeyPair;
 use iroha_data_model::{prelude::*, transaction::TransactionLimits};
-use iroha_primitives::unique_vec::UniqueVec;
 use test_samples::gen_account_in;
 use tokio::{fs, runtime::Runtime};
 
@@ -47,17 +46,20 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
 
     let query_handle = LiveQueryStore::test().start();
     let state = State::new(World::new(), kura, query_handle);
-    let topology = Topology::new(UniqueVec::new());
+    let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
+    let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+    let topology = Topology::new(vec![peer_id]);
     let mut block = {
         let mut state_block = state.block();
-        BlockBuilder::new(vec![tx], topology, Vec::new())
+        BlockBuilder::new(vec![tx], topology.clone(), Vec::new())
             .chain(0, &mut state_block)
-            .sign(&KeyPair::random())
+            .sign(&peer_private_key)
             .unpack(|_| {})
     };
 
+    let key_pair = KeyPair::random();
     for _ in 1..n_executors {
-        block = block.sign(&KeyPair::random());
+        block.sign(&key_pair, &topology);
     }
     let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
     block_store.create_files_if_they_do_not_exist().unwrap();
