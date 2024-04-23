@@ -164,17 +164,21 @@ impl DockerComposeServiceBuilder {
             PairColon(peer.port_api, peer.port_api),
         ];
 
-        let command = if genesis_signature.is_some() {
-            ServiceCommand::SubmitGenesis
+        let (command, genesis_signature) = if genesis_signature.is_some() {
+            (
+                ServiceCommand::SubmitGenesis,
+                Some(generate_hex_string_signature(&chain_id, &peer.key_pair)),
+            )
         } else {
-            ServiceCommand::None
+            (ServiceCommand::None, None)
         };
 
         let compact_env = CompactPeerEnv {
             chain_id,
             trusted_peers,
-            genesis_public_key,
             genesis_file,
+            genesis_public_key,
+            genesis_signature,
             key_pair: peer.key_pair.clone(),
             p2p_addr: socket_addr!(0.0.0.0:peer.port_p2p),
             api_addr: socket_addr!(0.0.0.0:peer.port_api),
@@ -318,9 +322,10 @@ struct FullPeerEnv {
 struct CompactPeerEnv {
     chain_id: ChainId,
     key_pair: KeyPair,
-    genesis_public_key: PublicKey,
     /// Genesis file is only needed for a peer that is submitting the genesis block
     genesis_file: Option<String>,
+    genesis_public_key: PublicKey,
+    genesis_signature: Option<String>,
     p2p_addr: SocketAddr,
     api_addr: SocketAddr,
     trusted_peers: BTreeSet<PeerId>,
@@ -328,17 +333,6 @@ struct CompactPeerEnv {
 
 impl From<CompactPeerEnv> for FullPeerEnv {
     fn from(value: CompactPeerEnv) -> Self {
-        let (genesis_file, genesis_signature) =
-            value.genesis_file.map_or((None, None), |genesis_path| {
-                (
-                    Some(genesis_path),
-                    Some(generate_hex_string_signature(
-                        &value.chain_id,
-                        &value.key_pair,
-                    )),
-                )
-            });
-
         let (private_key_algorithm, private_key_payload) = {
             let (algorithm, payload) = value.key_pair.private_key().clone().to_bytes();
             (algorithm, payload)
@@ -349,9 +343,9 @@ impl From<CompactPeerEnv> for FullPeerEnv {
             public_key: value.key_pair.public_key().clone(),
             private_key_algorithm,
             private_key_payload,
-            genesis_file,
+            genesis_file: value.genesis_file,
             genesis_public_key: value.genesis_public_key,
-            genesis_signature,
+            genesis_signature: value.genesis_signature,
             p2p_address: value.p2p_addr,
             api_address: value.api_addr,
             sumeragi_trusted_peers: if value.trusted_peers.is_empty() {
@@ -616,13 +610,14 @@ mod tests {
 
     #[test]
     fn default_config_with_swarm_env_is_exhaustive() {
-        let keypair = KeyPair::from_seed(vec![1, 5, 1, 2, 2, 3, 4, 1, 2, 3], Algorithm::default());
-        println!("{:?}", keypair);
+        let key_pair = KeyPair::from_seed(vec![1, 5, 1, 2, 2, 3, 4, 1, 2, 3], Algorithm::default());
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let env: TestEnv = CompactPeerEnv {
-            chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
-            key_pair: keypair.clone(),
+            chain_id: chain_id.clone(),
+            key_pair: key_pair.clone(),
             genesis_file: Some(PATH_TO_GENESIS.into()),
-            genesis_public_key: keypair.public_key().clone(),
+            genesis_public_key: key_pair.public_key().clone(),
+            genesis_signature: Some(generate_hex_string_signature(&chain_id, &key_pair)),
             p2p_addr: socket_addr!(127.0.0.1:1337),
             api_addr: socket_addr!(127.0.0.1:1338),
             trusted_peers: {
@@ -672,10 +667,13 @@ mod tests {
                         platform: PlatformArchitecture,
                         source: ServiceSource::Build(PathBuf::from(".")),
                         environment: CompactPeerEnv {
-                            chain_id,
+                            chain_id: chain_id.clone(),
                             key_pair: key_pair.clone(),
                             genesis_file: Some(PATH_TO_GENESIS.into()),
                             genesis_public_key: key_pair.public_key().clone(),
+                            genesis_signature: Some(generate_hex_string_signature(
+                                &chain_id, &key_pair,
+                            )),
                             p2p_addr: SocketAddr::from_str("iroha1:1339").unwrap(),
                             api_addr: SocketAddr::from_str("iroha1:1338").unwrap(),
                             trusted_peers: BTreeSet::new(),
@@ -737,10 +735,11 @@ mod tests {
         let key_pair = KeyPair::from_seed(vec![0, 1, 2], Algorithm::default());
 
         let env: FullPeerEnv = CompactPeerEnv {
-            chain_id,
+            chain_id: chain_id.clone(),
             key_pair: key_pair.clone(),
             genesis_file: Some(PATH_TO_GENESIS.into()),
             genesis_public_key: key_pair.public_key().clone(),
+            genesis_signature: Some(generate_hex_string_signature(&chain_id, &key_pair)),
             p2p_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             api_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             trusted_peers: BTreeSet::new(),

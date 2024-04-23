@@ -4,7 +4,7 @@ use std::{collections::HashSet, path::Path, str::FromStr, time::Duration};
 use iroha_config::{
     base::{HumanDuration, UnwrapPartial},
     parameters::{
-        actual::Root as Config,
+        actual::{GenesisSignatureConfig, Root as Config},
         user::{CliContext, RootPartial as UserConfig},
     },
     snapshot::Mode as SnapshotMode,
@@ -96,7 +96,7 @@ pub fn get_user_config(
     config
         .genesis
         .signature
-        .set(genesis_signature.to_hex_string());
+        .set(GenesisSignatureConfig::new(genesis_signature.clone()));
     // There is no need in persistency in tests
     // If required to should be set explicitly not to overlap with other existing tests
     config.snapshot.mode.set(SnapshotMode::Disabled);

@@ -10,7 +10,13 @@
 #![allow(missing_docs)]
 
 use std::{
-    error::Error, fmt::Debug, fs::File, io::Read, num::{NonZeroU32, NonZeroUsize}, path::{Path, PathBuf}, str::FromStr, time::Duration
+    error::Error,
+    fmt::Debug,
+    fs::File,
+    io::Read,
+    num::{NonZeroU32, NonZeroUsize},
+    path::{Path, PathBuf},
+    time::Duration,
 };
 
 pub use boilerplate::*;
@@ -344,7 +350,7 @@ pub(crate) fn private_key_from_env<E: Error>(
 pub struct Genesis {
     pub public_key: PublicKey,
     pub file: Option<PathBuf>,
-    pub signature: Option<String>,
+    pub signature: Option<GenesisSignatureConfig>,
 }
 
 impl Genesis {
@@ -356,8 +362,7 @@ impl Genesis {
             (Some(file), Some(signature), true) => Ok(actual::Genesis::Full {
                 public_key: self.public_key,
                 file,
-                signature: GenesisSignatureConfig::from_str(&signature)
-                    .map_err(GenesisConfigError::from)?,
+                signature,
             }),
             (_, _, false) => Err(GenesisConfigError::GenesisWithoutSubmit),
             (_, _, true) => Err(GenesisConfigError::SubmitWithoutGenesis),

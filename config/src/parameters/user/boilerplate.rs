@@ -29,7 +29,12 @@ use crate::{
     kura::InitMode as KuraInitMode,
     logger::Format,
     parameters::{
-        defaults::{self, chain_wide::*, network::*, queue::*, torii::*}, user::{self, ChainWide, DevTelemetry, Genesis, Kura, KuraDebug, Logger, Network, Queue, Root, Snapshot, Sumeragi, SumeragiDebug, Telemetry, Torii}
+        actual::GenesisSignatureConfig,
+        defaults::{self, chain_wide::*, network::*, queue::*, torii::*},
+        user::{
+            self, ChainWide, DevTelemetry, Genesis, Kura, KuraDebug, Logger, Network, Queue, Root,
+            Snapshot, Sumeragi, SumeragiDebug, Telemetry, Torii,
+        },
     },
     snapshot::Mode as SnapshotMode,
 };
@@ -185,7 +190,7 @@ impl FromEnv for RootPartial {
 pub struct GenesisPartial {
     pub public_key: UserField<PublicKey>,
     pub file: UserField<PathBuf>,
-    pub signature: UserField<String>,
+    pub signature: UserField<GenesisSignatureConfig>,
 }
 
 impl UnwrapPartial for GenesisPartial {

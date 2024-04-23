@@ -625,7 +625,9 @@ mod tests {
         use std::path::PathBuf;
 
         use assertables::{assert_contains, assert_contains_as_result};
-        use iroha_config::parameters::user::RootPartial as PartialUserConfig;
+        use iroha_config::parameters::{
+            actual::GenesisSignatureConfig, user::RootPartial as PartialUserConfig,
+        };
         use iroha_crypto::KeyPair;
         use iroha_primitives::addr::socket_addr;
         use path_absolutize::Absolutize as _;
@@ -682,9 +684,10 @@ mod tests {
                     genesis_block,
                     &cfg.chain_id.clone().get().unwrap(),
                     &keypair,
-                )
-                .to_hex_string();
-                cfg.genesis.signature.set(genesis_signature);
+                );
+                cfg.genesis
+                    .signature
+                    .set(GenesisSignatureConfig::new(genesis_signature));
 
                 cfg.kura.store_dir.set("../storage".into());
                 cfg.snapshot.store_dir.set("../snapshots".into());

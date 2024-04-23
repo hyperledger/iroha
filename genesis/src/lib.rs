@@ -1,10 +1,11 @@
 //! Genesis-related logic and constructs. Contains the `GenesisBlock`,
 //! `RawGenesisBlock` and the `RawGenesisBlockBuilder` structures.
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Formatter},
     fs::{self, File},
     io::BufReader,
     path::{Path, PathBuf},
+    str::FromStr,
     time::Duration,
 };
 
@@ -19,7 +20,7 @@ use iroha_data_model::{
 };
 use once_cell::sync::Lazy;
 use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 /// [`DomainId`] of the genesis account.
 pub static GENESIS_DOMAIN_ID: Lazy<DomainId> = Lazy::new(|| "genesis".parse().expect("Valid"));
@@ -56,11 +57,47 @@ pub enum GenesisSignatureParseError {
 impl std::error::Error for GenesisSignatureParseError {}
 
 /// [`SignedGenesisConfig`] contains data that is used for loading signed genesis from config.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize)]
 pub struct GenesisSignature {
     chain_id: ChainId,
     creation_time: Duration,
     signatures: SignaturesOf<TransactionPayload>,
+}
+
+struct GenesisSignatureVisitor;
+
+impl de::Visitor<'_> for GenesisSignatureVisitor {
+    type Value = GenesisSignature;
+
+    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        formatter.write_str("a string literal containing a number")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        let parsed = GenesisSignature::from_hex_string(&v).map_err(|e| E::custom(e))?;
+
+        Ok(parsed)
+    }
+}
+
+impl<'de> Deserialize<'de> for GenesisSignature {
+    fn deserialize<D>(deserializer: D) -> Result<GenesisSignature, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(GenesisSignatureVisitor)
+    }
+}
+
+impl FromStr for GenesisSignature {
+    type Err = GenesisSignatureParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(GenesisSignature::from_hex_string(&s.as_bytes())?)
+    }
 }
 
 impl GenesisSignature {
