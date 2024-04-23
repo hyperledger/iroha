@@ -59,7 +59,7 @@ jobs:
       - name: Documentation
         uses: actions-ecosystem/action-regex-match@v2
         id: docs-match
-        if: steps.feature-match.outputs.match == ''
+        if: steps.fix-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
           regex: '^\[documentation\]( #\d+(, #\d+)*)?: .+$'
@@ -75,7 +75,7 @@ jobs:
       - name: CI
         uses: actions-ecosystem/action-regex-match@v2
         id: ci-match
-        if: steps.feature-match.outputs.match == ''
+        if: steps.docs-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
           regex: '^\[ci\]( #\d+(, #\d+)*)?: .+$'
@@ -91,7 +91,7 @@ jobs:
       - name: Chore
         uses: actions-ecosystem/action-regex-match@v2
         id: chore-match
-        if: steps.feature-match.outputs.match == ''
+        if: steps.ci-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
           regex: '^\[chore\]( #\d+(, #\d+)*)?: .+$'
