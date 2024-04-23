@@ -13,7 +13,6 @@ workspace = true
 [dependencies]
 iroha_crypto = { workspace = true }
 iroha_data_model = { workspace = true, features = ["http"] }
-iroha_schema = { workspace = true }
 
 derive_more = { workspace = true, features = ["deref"] }
 serde = { workspace = true, features = ["derive"] }

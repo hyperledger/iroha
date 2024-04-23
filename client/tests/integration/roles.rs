@@ -4,9 +4,8 @@ use eyre::Result;
 use iroha_client::{
     client::{self, QueryResult},
     crypto::KeyPair,
-    data_model::prelude::*,
+    data_model::{prelude::*, transaction::error::TransactionRejectionReason},
 };
-use iroha_data_model::transaction::error::TransactionRejectionReason;
 use serde_json::json;
 use test_network::*;
 

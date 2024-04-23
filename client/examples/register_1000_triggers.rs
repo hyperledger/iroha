@@ -3,8 +3,10 @@
 use std::str::FromStr;
 
 use iroha::samples::{construct_executor, get_config};
-use iroha_client::{client::Client, data_model::prelude::*};
-use iroha_data_model::trigger::TriggerId;
+use iroha_client::{
+    client::Client,
+    data_model::{prelude::*, trigger::TriggerId},
+};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use test_network::{

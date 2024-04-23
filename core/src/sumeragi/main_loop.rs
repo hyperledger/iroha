@@ -1,7 +1,7 @@
 //! The main event loop that powers sumeragi.
 use std::sync::mpsc;
 
-use iroha_crypto::HashOf;
+use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{block::*, events::pipeline::PipelineEventBox, peer::PeerId};
 use iroha_p2p::UpdateTopology;
 use tracing::{span, Level};
@@ -41,7 +41,7 @@ pub struct Sumeragi {
     /// is the proxy tail.
     pub debug_force_soft_fork: bool,
     /// The current network topology.
-    pub current_topology: Topology,
+    pub topology: Topology,
     /// In order to *be fast*, we must minimize communication with
     /// other subsystems where we can. This way the performance of
     /// sumeragi is more dependent on the code that is internal to the
@@ -78,11 +78,11 @@ impl Sumeragi {
         self.network.post(post);
     }
 
-    #[allow(clippy::needless_pass_by_value, single_use_lifetimes)] // TODO: uncomment when anonymous lifetimes are stable
-    fn broadcast_packet_to<'peer_id>(
+    #[allow(clippy::needless_pass_by_value)]
+    fn broadcast_packet_to<'peer_id, I: IntoIterator<Item = &'peer_id PeerId> + Send>(
         &self,
         msg: impl Into<BlockMessage>,
-        ids: impl IntoIterator<Item = &'peer_id PeerId> + Send,
+        ids: I,
     ) {
         let msg = msg.into();
 
@@ -107,7 +107,7 @@ impl Sumeragi {
 
     /// Connect or disconnect peers according to the current network topology.
     fn connect_peers(&self, topology: &Topology) {
-        let peers = topology.ordered_peers.clone().into_iter().collect();
+        let peers = topology.iter().cloned().collect();
         self.network.update_topology(UpdateTopology(peers));
     }
 
@@ -155,16 +155,14 @@ impl Sumeragi {
                 should_sleep = false;
                 if let Err(error) = view_change_proof_chain.merge(
                     msg.view_change_proofs,
-                    &self.current_topology.ordered_peers,
-                    self.current_topology.max_faults(),
+                    &self.topology,
                     state_view.latest_block_hash(),
                 ) {
                     trace!(%error, "Failed to add proofs into view change proof chain")
                 }
 
                 let current_view_change_index = view_change_proof_chain.verify_with_state(
-                    &self.current_topology.ordered_peers,
-                    self.current_topology.max_faults(),
+                    &self.topology,
                     state_view.latest_block_hash(),
                 ) as u64;
 
@@ -228,7 +226,7 @@ impl Sumeragi {
                     let mut state_block = state.block();
                     let block = match ValidBlock::validate(
                         block,
-                        &self.current_topology,
+                        &self.topology,
                         &self.chain_id,
                         genesis_public_key,
                         &mut state_block,
@@ -236,7 +234,7 @@ impl Sumeragi {
                     .unpack(|e| self.send_event(e))
                     .and_then(|block| {
                         block
-                            .commit(&self.current_topology)
+                            .commit(&self.topology)
                             .unpack(|e| self.send_event(e))
                             .map_err(|(block, error)| (block.into(), error))
                     }) {
@@ -247,7 +245,8 @@ impl Sumeragi {
                         }
                     };
 
-                    *state_block.world.trusted_peers_ids = block.as_ref().commit_topology().clone();
+                    *state_block.world.trusted_peers_ids =
+                        block.as_ref().commit_topology().cloned().collect();
                     self.commit_block(block, state_block);
                     return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                 }
@@ -279,15 +278,15 @@ impl Sumeragi {
             .expect("Genesis invalid");
 
         let mut state_block = state.block();
-        let genesis = BlockBuilder::new(transactions, self.current_topology.clone(), vec![])
+        let genesis = BlockBuilder::new(transactions, self.topology.clone(), vec![])
             .chain(0, &mut state_block)
-            .sign(&self.key_pair)
+            .sign(self.key_pair.private_key())
             .unpack(|e| self.send_event(e));
 
         let genesis_msg = BlockCreated::from(genesis.clone());
 
         let genesis = genesis
-            .commit(&self.current_topology)
+            .commit(&self.topology)
             .unpack(|e| self.send_event(e))
             .expect("Genesis invalid");
 
@@ -297,7 +296,7 @@ impl Sumeragi {
         );
 
         info!(
-            role = ?self.current_topology.role(&self.peer_id),
+            role = ?self.topology.role(&self.peer_id),
             block_hash = %genesis.as_ref().hash(),
             "Genesis block created",
         );
@@ -321,7 +320,7 @@ impl Sumeragi {
     ) {
         info!(
             addr=%self.peer_id.address,
-            role=%self.current_topology.role(&self.peer_id),
+            role=%self.topology.role(&self.peer_id),
             block_height=%block.as_ref().header().height,
             block_hash=%block.as_ref().hash(),
             "{}", Strategy::LOG_MESSAGE,
@@ -344,8 +343,8 @@ impl Sumeragi {
         self.update_params(&state_block);
         self.cache_transaction(&state_block);
 
-        self.current_topology = new_topology;
-        self.connect_peers(&self.current_topology);
+        self.topology = new_topology;
+        self.connect_peers(&self.topology);
 
         // Commit new block making it's effect visible for the rest of application
         state_block.commit();
@@ -386,7 +385,7 @@ impl Sumeragi {
     ) -> Option<VotingBlock<'state>> {
         let block_hash = block.hash();
         let addr = &self.peer_id.address;
-        let role = self.current_topology.role(&self.peer_id);
+        let role = self.topology.role(&self.peer_id);
         trace!(%addr, %role, block=%block_hash, "Block received, voting...");
 
         let mut state_block = state.block();
@@ -406,7 +405,7 @@ impl Sumeragi {
             }
         };
 
-        let signed_block = block.sign(&self.key_pair);
+        let signed_block = block.sign(&self.key_pair, topology);
         Some(VotingBlock::new(signed_block, state_block))
     }
 
@@ -416,11 +415,8 @@ impl Sumeragi {
         view_change_proof_chain: &mut ProofChain,
     ) -> u64 {
         view_change_proof_chain.prune(state_view.latest_block_hash());
-        view_change_proof_chain.verify_with_state(
-            &self.current_topology.ordered_peers,
-            self.current_topology.max_faults(),
-            state_view.latest_block_hash(),
-        ) as u64
+        view_change_proof_chain.verify_with_state(&self.topology, state_view.latest_block_hash())
+            as u64
     }
 
     #[allow(clippy::too_many_lines)]
@@ -431,10 +427,10 @@ impl Sumeragi {
         voting_block: &mut Option<VotingBlock<'state>>,
         current_view_change_index: u64,
         genesis_public_key: &PublicKey,
-        voting_signatures: &mut Vec<SignatureOf<BlockPayload>>,
+        voting_signatures: &mut Vec<BlockSignature>,
     ) {
-        let current_topology = &self.current_topology;
-        let role = current_topology.role(&self.peer_id);
+        let topology = &self.topology;
+        let role = topology.role(&self.peer_id);
         let addr = &self.peer_id.address;
 
         #[allow(clippy::suspicious_operation_groupings)]
@@ -496,64 +492,55 @@ impl Sumeragi {
                 }
             }
             (
-                BlockMessage::BlockCommitted(BlockCommitted { hash, signatures }),
+                BlockMessage::BlockCommitted(BlockCommitted { signatures }),
                 Role::Leader | Role::ValidatingPeer | Role::ProxyTail | Role::ObservingPeer,
             ) => {
-                let is_consensus_required = current_topology.is_consensus_required().is_some();
+                let is_consensus_required = topology.is_consensus_required().is_some();
                 if role == Role::ProxyTail && is_consensus_required
                     || role == Role::Leader && !is_consensus_required
                 {
                     error!(%addr, %role, "Received BlockCommitted message, but shouldn't");
-                } else if let Some(voted_block) = voting_block.take() {
+                } else if let Some(mut voted_block) = voting_block.take() {
                     match voted_block
                         .block
-                        .commit_with_signatures(current_topology, signatures, hash)
+                        .replace_signatures(signatures, topology)
+                        .unpack(|e| self.send_event(e))
+                        .expect("FIXME")
+                        .commit(topology)
                         .unpack(|e| self.send_event(e))
                     {
                         Ok(committed_block) => {
                             self.commit_block(committed_block, voted_block.state_block)
                         }
-                        Err((
-                            valid_block,
-                            BlockValidationError::IncorrectHash { expected, actual },
-                        )) => {
-                            error!(%addr, %role, %expected, %actual, "The hash of the committed block does not match the hash of the block stored by the peer.");
-
-                            *voting_block = Some(VotingBlock {
-                                voted_at: voted_block.voted_at,
-                                block: valid_block,
-                                state_block: voted_block.state_block,
-                            });
-                        }
                         Err((_, error)) => {
-                            error!(%addr, %role, %hash, ?error, "Block failed to be committed")
+                            error!(%addr, %role, ?error, "Block failed to be committed")
                         }
                     }
                 } else {
-                    error!(%addr, %role, %hash, "Peer missing voting block")
+                    error!(%addr, %role, "Peer missing voting block")
                 }
             }
             (BlockMessage::BlockCreated(block_created), Role::ValidatingPeer) => {
-                let current_topology = current_topology
+                let topology = topology
                 .is_consensus_required()
                 .expect("Peer has `ValidatingPeer` role, which mean that current topology require consensus");
 
                 // Release block writer before creating a new one
                 let _ = voting_block.take();
                 if let Some(v_block) =
-                    self.vote_for_block(state, &current_topology, genesis_public_key, block_created)
+                    self.vote_for_block(state, &topology, genesis_public_key, block_created)
                 {
                     let block_hash = v_block.block.as_ref().hash();
                     let msg = BlockSigned::from(&v_block.block);
 
-                    self.broadcast_packet_to(msg, [current_topology.proxy_tail()]);
+                    self.broadcast_packet_to(msg, [topology.proxy_tail()]);
                     info!(%addr, block=%block_hash, "Block validated, signed and forwarded");
 
                     *voting_block = Some(v_block);
                 }
             }
             (BlockMessage::BlockCreated(BlockCreated { block }), Role::ObservingPeer) => {
-                let current_topology = current_topology.is_consensus_required().expect(
+                let current_topology = topology.is_consensus_required().expect(
                     "Peer has `ObservingPeer` role, which mean that current topology require consensus"
                 );
 
@@ -562,13 +549,13 @@ impl Sumeragi {
 
                 let v_block = {
                     let block_hash = block.hash_of_payload();
-                    let role = self.current_topology.role(&self.peer_id);
+                    let role = self.topology.role(&self.peer_id);
                     trace!(%addr, %role, %block_hash, "Block received, voting...");
 
                     let mut state_block = state.block();
                     match ValidBlock::validate(
                         block,
-                        &current_topology,
+                        topology,
                         &self.chain_id,
                         genesis_public_key,
                         &mut state_block,
@@ -577,7 +564,7 @@ impl Sumeragi {
                     {
                         Ok(block) => {
                             let block = if current_view_change_index >= 1 {
-                                block.sign(&self.key_pair)
+                                block.sign(&self.key_pair, topology)
                             } else {
                                 block
                             };
@@ -608,7 +595,7 @@ impl Sumeragi {
                 // Release block writer before creating new one
                 let _ = voting_block.take();
                 if let Some(mut new_block) =
-                    self.vote_for_block(state, current_topology, genesis_public_key, block_created)
+                    self.vote_for_block(state, topology, genesis_public_key, block_created)
                 {
                     // NOTE: Up until this point it was unknown which block is expected to be received,
                     // therefore all the signatures (of any hash) were collected and will now be pruned
@@ -624,8 +611,7 @@ impl Sumeragi {
                 } else {
                     &[Role::ValidatingPeer]
                 };
-                let valid_signatures =
-                    current_topology.filter_signatures_by_roles(roles, &signatures);
+                let valid_signatures = topology.filter_signatures_by_roles(roles, &signatures);
 
                 if let Some(voted_block) = voting_block.as_mut() {
                     let voting_block_hash = voted_block.block.as_ref().hash_of_payload();
@@ -656,8 +642,8 @@ impl Sumeragi {
         round_start_time: &Instant,
         #[cfg_attr(not(debug_assertions), allow(unused_variables))] is_genesis_peer: bool,
     ) {
-        let current_topology = &self.current_topology;
-        let role = current_topology.role(&self.peer_id);
+        let topology = &self.topology;
+        let role = topology.role(&self.peer_id);
         let addr = &self.peer_id.address;
 
         match role {
@@ -677,15 +663,15 @@ impl Sumeragi {
                         let event_recommendations = Vec::new();
                         let new_block = BlockBuilder::new(
                             transactions,
-                            self.current_topology.clone(),
+                            self.topology.clone(),
                             event_recommendations,
                         )
                         .chain(current_view_change_index, &mut state_block)
-                        .sign(&self.key_pair)
+                        .sign(self.key_pair.private_key())
                         .unpack(|e| self.send_event(e));
 
                         let created_in = create_block_start_time.elapsed();
-                        if current_topology.is_consensus_required().is_some() {
+                        if topology.is_consensus_required().is_some() {
                             info!(%addr, created_in_ms=%created_in.as_millis(), block=%new_block.as_ref().hash(), "Block created");
 
                             if created_in > self.pipeline_time() / 2 {
@@ -696,10 +682,7 @@ impl Sumeragi {
                             let msg = BlockCreated::from(new_block);
                             self.broadcast_packet(msg);
                         } else {
-                            match new_block
-                                .commit(current_topology)
-                                .unpack(|e| self.send_event(e))
-                            {
+                            match new_block.commit(topology).unpack(|e| self.send_event(e)) {
                                 Ok(committed_block) => {
                                     self.broadcast_packet(BlockCommitted::from(&committed_block));
                                     self.commit_block(committed_block, state_block);
@@ -717,7 +700,7 @@ impl Sumeragi {
 
                     match voted_block
                         .block
-                        .commit(current_topology)
+                        .commit(topology)
                         .unpack(|e| self.send_event(e))
                     {
                         Ok(committed_block) => {
@@ -761,9 +744,9 @@ fn reset_state(
     old_latest_block_hash: &mut HashOf<SignedBlock>,
     latest_block: &SignedBlock,
     // below is the state that gets reset.
-    current_topology: &mut Topology,
+    topology: &mut Topology,
     voting_block: &mut Option<VotingBlock>,
-    voting_signatures: &mut Vec<SignatureOf<BlockPayload>>,
+    voting_signatures: &mut Vec<BlockSignature>,
     round_start_time: &mut Instant,
     last_view_change_time: &mut Instant,
     view_change_time: &mut Duration,
@@ -788,17 +771,17 @@ fn reset_state(
     if was_commit_or_view_change {
         *old_latest_block_hash = current_latest_block_hash;
 
-        *current_topology = Topology::recreate_topology(
+        *topology = Topology::recreate_topology(
             latest_block,
             current_view_change_index,
-            current_topology.ordered_peers.iter().cloned().collect(),
+            topology.iter().cloned().collect(),
         );
 
         *voting_block = None;
         voting_signatures.clear();
         *last_view_change_time = Instant::now();
         *view_change_time = pipeline_time;
-        info!(addr=%peer_id.address, role=%current_topology.role(peer_id), %current_view_change_index, "View change updated");
+        info!(addr=%peer_id.address, role=%topology.role(peer_id), %current_view_change_index, "View change updated");
     }
 }
 
@@ -823,7 +806,7 @@ pub(crate) fn run(
     state: Arc<State>,
 ) {
     // Connect peers with initial topology
-    sumeragi.connect_peers(&sumeragi.current_topology);
+    sumeragi.connect_peers(&sumeragi.topology);
 
     let span = span!(tracing::Level::TRACE, "genesis").entered();
     let is_genesis_peer = if state.view().height() == 0
@@ -849,7 +832,7 @@ pub(crate) fn run(
 
     info!(
         addr=%sumeragi.peer_id.address,
-        role_in_next_round=%sumeragi.current_topology.role(&sumeragi.peer_id),
+        role_in_next_round=%sumeragi.topology.role(&sumeragi.peer_id),
         "Sumeragi initialized",
     );
 
@@ -914,7 +897,7 @@ pub(crate) fn run(
             &state_view
                 .latest_block_ref()
                 .expect("state must have blocks"),
-            &mut sumeragi.current_topology,
+            &mut sumeragi.topology,
             &mut voting_block,
             &mut voting_signatures,
             &mut round_start_time,
@@ -952,7 +935,7 @@ pub(crate) fn run(
         if (node_expects_block || current_view_change_index > 0)
             && last_view_change_time.elapsed() > view_change_time
         {
-            let role = sumeragi.current_topology.role(&sumeragi.peer_id);
+            let role = sumeragi.topology.role(&sumeragi.peer_id);
 
             if node_expects_block {
                 if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
@@ -964,16 +947,21 @@ pub(crate) fn run(
                     warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, "No block produced in due time, requesting view change...");
                 }
 
-                let suspect_proof =
+                let suspect_proof = {
+                    let node_pos = sumeragi
+                        .topology
+                        .position(sumeragi.key_pair.public_key())
+                        .expect("BUG: Node is not part of consensus");
+
                     ProofBuilder::new(state_view.latest_block_hash(), current_view_change_index)
-                        .sign(&sumeragi.key_pair);
+                        .sign(node_pos as u64, sumeragi.key_pair.private_key())
+                };
 
                 view_change_proof_chain
                     .insert_proof(
-                        &sumeragi.current_topology.ordered_peers,
-                        sumeragi.current_topology.max_faults(),
-                        state_view.latest_block_hash(),
                         suspect_proof,
+                        &sumeragi.topology,
+                        state_view.latest_block_hash(),
                     )
                     .unwrap_or_else(|err| error!("{err}"));
             }
@@ -995,7 +983,7 @@ pub(crate) fn run(
             &state_view
                 .latest_block_ref()
                 .expect("state must have blocks"),
-            &mut sumeragi.current_topology,
+            &mut sumeragi.topology,
             &mut voting_block,
             &mut voting_signatures,
             &mut round_start_time,
@@ -1016,7 +1004,7 @@ pub(crate) fn run(
 
 fn add_signatures<const EXPECT_VALID: bool>(
     block: &mut VotingBlock,
-    signatures: impl IntoIterator<Item = SignatureOf<BlockPayload>>,
+    signatures: impl IntoIterator<Item = BlockSignature>,
 ) {
     for signature in signatures {
         if let Err(error) = block.block.add_signature(signature) {
@@ -1216,7 +1204,7 @@ mod tests {
     fn create_data_for_test(
         chain_id: &ChainId,
         topology: &Topology,
-        leader_key_pair: &KeyPair,
+        leader_private_key: &PrivateKey,
         tx_signer_key_pair: &KeyPair,
     ) -> (State, Arc<Kura>, SignedBlock) {
         // Predefined world state
@@ -1226,7 +1214,7 @@ mod tests {
         let domain_id = "wonderland".parse().expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());
-        let world = World::with([domain], topology.ordered_peers.clone());
+        let world = World::with([domain], topology.iter().cloned().collect());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, Arc::clone(&kura), query_handle);
@@ -1250,7 +1238,7 @@ mod tests {
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx.clone(), tx], topology.clone(), Vec::new())
             .chain(0, &mut state_block)
-            .sign(leader_key_pair)
+            .sign(leader_private_key)
             .unpack(|_| {});
 
         let genesis = block
@@ -1295,7 +1283,7 @@ mod tests {
             // Creating a block of two identical transactions and validating it
             BlockBuilder::new(vec![tx1, tx2], topology.clone(), Vec::new())
                 .chain(0, &mut state_block)
-                .sign(leader_key_pair)
+                .sign(leader_private_key)
                 .unpack(|_| {})
         };
 
@@ -1308,13 +1296,17 @@ mod tests {
         let chain_id = ChainId::from("0");
         let tx_signer_key_pair = KeyPair::random();
 
-        let leader_key_pair = KeyPair::random();
+        let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
-            leader_key_pair.public_key().clone(),
+            leader_public_key,
         )]);
-        let (state, _, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, _, mut block) = create_data_for_test(
+            &chain_id,
+            &topology,
+            &leader_private_key,
+            &tx_signer_key_pair,
+        );
 
         // Malform block to make it invalid
         payload_mut(&mut block).commit_topology.clear();
@@ -1334,13 +1326,17 @@ mod tests {
         let chain_id = ChainId::from("0");
         let tx_signer_key_pair = KeyPair::random();
 
-        let leader_key_pair = KeyPair::random();
+        let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
-            leader_key_pair.public_key().clone(),
+            leader_public_key,
         )]);
-        let (state, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, kura, mut block) = create_data_for_test(
+            &chain_id,
+            &topology,
+            &leader_private_key,
+            &tx_signer_key_pair,
+        );
 
         let mut state_block = state.block();
         let committed_block = ValidBlock::validate(
@@ -1383,9 +1379,13 @@ mod tests {
         let tx_signer_key_pair = KeyPair::random();
 
         let topology = Topology::new(UniqueVec::new());
-        let leader_key_pair = KeyPair::random();
-        let (state, _, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (_, leader_private_key) = KeyPair::random().into_parts();
+        let (state, _, mut block) = create_data_for_test(
+            &chain_id,
+            &topology,
+            &leader_private_key,
+            &tx_signer_key_pair,
+        );
 
         // Change block height
         payload_mut(&mut block).header.height = 42;
@@ -1420,8 +1420,12 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, _, block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, _, block) = create_data_for_test(
+            &chain_id,
+            &topology,
+            leader_key_pair.private_key(),
+            &tx_signer_key_pair,
+        );
         let result = handle_block_sync(
             &chain_id,
             tx_signer_key_pair.public_key(),
@@ -1442,8 +1446,12 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, kura, mut block) = create_data_for_test(
+            &chain_id,
+            &topology,
+            leader_key_pair.private_key(),
+            &tx_signer_key_pair,
+        );
 
         let mut state_block = state.block();
         let committed_block = ValidBlock::validate(
@@ -1487,8 +1495,12 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, kura, mut block) = create_data_for_test(
+            &chain_id,
+            &topology,
+            leader_key_pair.private_key(),
+            &tx_signer_key_pair,
+        );
 
         // Increase block view change index
         payload_mut(&mut block).header.view_change_index = 42;
@@ -1541,8 +1553,12 @@ mod tests {
 
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::random();
-        let (state, _, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, _, mut block) = create_data_for_test(
+            &chain_id,
+            &topology,
+            leader_key_pair.private_key(),
+            &tx_signer_key_pair,
+        );
 
         // Change block height and view change index
         // Soft-fork on genesis block is not possible

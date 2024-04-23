@@ -679,6 +679,12 @@
       }
     ]
   },
+  "BlockSignature": {
+    "Tuple": [
+      "u64",
+      "SignatureOf<BlockPayload>"
+    ]
+  },
   "BlockStatus": {
     "Enum": [
       {
@@ -3048,6 +3054,12 @@
       }
     ]
   },
+  "QuerySignature": {
+    "Tuple": [
+      "PublicKey",
+      "SignatureOf<QueryPayload>"
+    ]
+  },
   "Register<Account>": {
     "Struct": [
       {
@@ -3568,10 +3580,6 @@
   "Signature": {
     "Struct": [
       {
-        "name": "public_key",
-        "type": "PublicKey"
-      },
-      {
         "name": "payload",
         "type": "Vec<u8>"
       }
@@ -3594,22 +3602,6 @@
   "SignatureOf<BlockPayload>": "Signature",
   "SignatureOf<QueryPayload>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
-  "SignaturesOf<BlockPayload>": {
-    "Struct": [
-      {
-        "name": "signatures",
-        "type": "SortedVec<SignatureOf<BlockPayload>>"
-      }
-    ]
-  },
-  "SignaturesOf<TransactionPayload>": {
-    "Struct": [
-      {
-        "name": "signatures",
-        "type": "SortedVec<SignatureOf<TransactionPayload>>"
-      }
-    ]
-  },
   "SignedBlock": {
     "Enum": [
       {
@@ -3623,7 +3615,7 @@
     "Struct": [
       {
         "name": "signatures",
-        "type": "SignaturesOf<BlockPayload>"
+        "type": "Vec<BlockSignature>"
       },
       {
         "name": "payload",
@@ -3644,7 +3636,7 @@
     "Struct": [
       {
         "name": "signature",
-        "type": "SignatureOf<QueryPayload>"
+        "type": "QuerySignature"
       },
       {
         "name": "payload",
@@ -3665,7 +3657,7 @@
     "Struct": [
       {
         "name": "signatures",
-        "type": "SignaturesOf<TransactionPayload>"
+        "type": "Vec<TransactionSignature>"
       },
       {
         "name": "payload",
@@ -3775,12 +3767,6 @@
   },
   "SortedVec<PublicKey>": {
     "Vec": "PublicKey"
-  },
-  "SortedVec<SignatureOf<BlockPayload>>": {
-    "Vec": "SignatureOf<BlockPayload>"
-  },
-  "SortedVec<SignatureOf<TransactionPayload>>": {
-    "Vec": "SignatureOf<TransactionPayload>"
   },
   "String": "String",
   "StringPredicate": {
@@ -3955,6 +3941,12 @@
         "discriminant": 4,
         "type": "WasmExecutionFail"
       }
+    ]
+  },
+  "TransactionSignature": {
+    "Tuple": [
+      "PublicKey",
+      "SignatureOf<TransactionPayload>"
     ]
   },
   "TransactionStatus": {
@@ -4408,6 +4400,9 @@
       }
     ]
   },
+  "Vec<BlockSignature>": {
+    "Vec": "BlockSignature"
+  },
   "Vec<EventBox>": {
     "Vec": "EventBox"
   },
@@ -4434,6 +4429,9 @@
   },
   "Vec<QueryOutputBox>": {
     "Vec": "QueryOutputBox"
+  },
+  "Vec<TransactionSignature>": {
+    "Vec": "TransactionSignature"
   },
   "Vec<TransactionValue>": {
     "Vec": "TransactionValue"

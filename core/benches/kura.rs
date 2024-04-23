@@ -53,14 +53,14 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let topology = Topology::new(UniqueVec::new());
     let mut block = {
         let mut state_block = state.block();
-        BlockBuilder::new(vec![tx], topology, Vec::new())
+        BlockBuilder::new(vec![tx], topology.clone(), Vec::new())
             .chain(0, &mut state_block)
-            .sign(&KeyPair::random())
+            .sign(KeyPair::random().private_key())
             .unpack(|_| {})
     };
 
     for _ in 1..n_executors {
-        block = block.sign(&KeyPair::random());
+        block = block.sign(&KeyPair::random(), &topology);
     }
     let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
     block_store.create_files_if_they_do_not_exist().unwrap();

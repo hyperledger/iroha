@@ -41,7 +41,7 @@ pub fn create_block(
         Vec::new(),
     )
     .chain(0, state)
-    .sign(key_pair)
+    .sign(key_pair.private_key())
     .unpack(|_| {})
     .commit(&topology)
     .unpack(|_| {})

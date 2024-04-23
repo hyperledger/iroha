@@ -75,7 +75,7 @@ impl ValidQueryRequest {
         let account_has_public_key = state_ro
             .world()
             .map_account(query.authority(), |account| {
-                account.contains_signatory(query.signature().public_key())
+                account.contains_signatory(&query.signature().0)
             })
             .map_err(Error::from)?;
         if !account_has_public_key {
@@ -315,7 +315,7 @@ mod tests {
             let topology = Topology::new(UniqueVec::new());
             let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                 .chain(0, &mut state_block)
-                .sign(&ALICE_KEYS)
+                .sign(ALICE_KEYS.private_key())
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
@@ -327,7 +327,7 @@ mod tests {
             for _ in 1u64..blocks {
                 let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                     .chain(0, &mut state_block)
-                    .sign(&ALICE_KEYS)
+                    .sign(ALICE_KEYS.private_key())
                     .unpack(|_| {})
                     .commit(&topology)
                     .unpack(|_| {})
@@ -469,7 +469,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
             .chain(0, &mut state_block)
-            .sign(&ALICE_KEYS)
+            .sign(ALICE_KEYS.private_key())
             .unpack(|_| {})
             .commit(&topology)
             .unpack(|_| {})

@@ -1,9 +1,8 @@
 use iroha_client::{
     client::{account, transaction, Client},
     crypto::{HashOf, KeyPair, PublicKey},
-    data_model::{isi::Instruction, prelude::*},
+    data_model::{isi::Instruction, prelude::*, query::TransactionQueryOutput},
 };
-use iroha_data_model::query::TransactionQueryOutput;
 use test_network::*;
 
 fn submit(

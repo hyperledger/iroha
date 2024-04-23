@@ -1,9 +1,11 @@
 use eyre::Result;
 use iroha_client::{
     crypto::KeyPair,
-    data_model::{account::SignatureCheckCondition, prelude::*},
+    data_model::{
+        account::SignatureCheckCondition, prelude::*,
+        transaction::error::TransactionRejectionReason,
+    },
 };
-use iroha_data_model::transaction::error::TransactionRejectionReason;
 use serde_json::json;
 use test_network::*;
 

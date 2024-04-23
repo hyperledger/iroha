@@ -258,7 +258,7 @@ mod run {
                                 }
                             }
                         };
-                        // Reset idle and ping timeout as peer received message from another peer 
+                        // Reset idle and ping timeout as peer received message from another peer
                         idle_interval.reset();
                         ping_interval.reset();
                     }
@@ -428,7 +428,7 @@ mod run {
 mod state {
     //! Module for peer stages.
 
-    use iroha_crypto::{KeyGenOption, KeyPair, Signature};
+    use iroha_crypto::{KeyGenOption, KeyPair, PublicKey, Signature};
     use iroha_primitives::addr::SocketAddr;
 
     use super::{cryptographer::Cryptographer, *};
@@ -572,8 +572,8 @@ mod state {
             let write_half = &mut connection.write;
 
             let payload = create_payload::<K>(&kx_local_pk, &kx_remote_pk);
-            let signature = Signature::new(&key_pair, &payload);
-            let data = signature.encode();
+            let signature = Signature::new(key_pair.private_key(), &payload);
+            let data = (key_pair.public_key(), signature).encode();
 
             let data = &cryptographer.encrypt(data.as_slice())?;
 
@@ -621,13 +621,12 @@ mod state {
 
             let data = cryptographer.decrypt(data.as_slice())?;
 
-            let signature: Signature = DecodeAll::decode_all(&mut data.as_slice())?;
+            let (remote_pub_key, signature): (PublicKey, Signature) =
+                DecodeAll::decode_all(&mut data.as_slice())?;
 
             // Swap order of keys since we are verifying for other peer order remote/local keys is reversed
             let payload = create_payload::<K>(&kx_remote_pk, &kx_local_pk);
-            signature.verify(&payload)?;
-
-            let (remote_pub_key, _) = signature.into();
+            signature.verify(&remote_pub_key, &payload)?;
 
             let peer_id = PeerId::new(peer_addr, remote_pub_key);
 

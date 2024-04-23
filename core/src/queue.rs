@@ -29,8 +29,7 @@ impl AcceptedTransaction {
         let transaction_signatories = self
             .as_ref()
             .signatures()
-            .iter()
-            .map(|signature| signature.public_key())
+            .map(|signature| &signature.0)
             .cloned()
             .collect();
 

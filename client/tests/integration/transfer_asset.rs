@@ -3,13 +3,15 @@ use std::str::FromStr;
 use iroha_client::{
     client::{self, QueryResult},
     crypto::KeyPair,
-    data_model::{isi::Instruction, prelude::*, Registered},
-};
-use iroha_data_model::{
-    account::{Account, AccountId},
-    asset::{Asset, AssetDefinition},
-    isi::InstructionBox,
-    name::Name,
+    data_model::{
+        account::{Account, AccountId},
+        asset::{Asset, AssetDefinition},
+        isi::Instruction,
+        isi::InstructionBox,
+        name::Name,
+        prelude::*,
+        Registered,
+    },
 };
 use test_network::*;
 

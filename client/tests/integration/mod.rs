@@ -1,5 +1,7 @@
-use iroha_crypto::KeyPair;
-use iroha_data_model::account::{Account, AccountId, NewAccount};
+use iroha_client::{
+    crypto::KeyPair,
+    data_model::account::{Account, AccountId, NewAccount},
+};
 
 mod add_account;
 mod add_domain;

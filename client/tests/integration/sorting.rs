@@ -5,6 +5,7 @@ use iroha_client::{
     client::{self, QueryResult},
     data_model::{
         account::Account,
+        isi::InstructionBox,
         prelude::*,
         query::{
             predicate::{string, value, PredicateBox},
@@ -12,7 +13,6 @@ use iroha_client::{
         },
     },
 };
-use iroha_data_model::isi::InstructionBox;
 use nonzero_ext::nonzero;
 use test_network::*;
 

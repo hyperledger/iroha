@@ -1,6 +1,8 @@
 use eyre::Result;
-use iroha_client::{client, data_model::prelude::*};
-use iroha_data_model::asset::AssetValue;
+use iroha_client::{
+    client,
+    data_model::{asset::AssetValue, prelude::*},
+};
 use test_network::*;
 
 use crate::integration::new_account_with_random_public_key;

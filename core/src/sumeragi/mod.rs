@@ -9,7 +9,6 @@ use std::{
 
 use eyre::Result;
 use iroha_config::parameters::actual::{Common as CommonConfig, Sumeragi as SumeragiConfig};
-use iroha_crypto::{KeyPair, SignatureOf};
 use iroha_data_model::{block::SignedBlock, prelude::*};
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
@@ -72,14 +71,14 @@ impl SumeragiHandle {
         block: &SignedBlock,
         state_block: &mut StateBlock<'_>,
         events_sender: &EventsSender,
-        mut current_topology: Topology,
+        mut topology: Topology,
     ) -> Topology {
         // NOTE: topology need to be updated up to block's view_change_index
-        current_topology.rotate_all_n(block.header().view_change_index);
+        topology.rotate_all_n(block.header().view_change_index);
 
         let block = ValidBlock::validate(
             block.clone(),
-            &current_topology,
+            &topology,
             chain_id,
             genesis_public_key,
             state_block,
@@ -88,14 +87,15 @@ impl SumeragiHandle {
             let _ = events_sender.send(e.into());
         })
         .expect("Kura: Invalid block")
-        .commit(&current_topology)
+        .commit(&topology)
         .unpack(|e| {
             let _ = events_sender.send(e.into());
         })
         .expect("Kura: Invalid block");
 
         if block.as_ref().header().is_genesis() {
-            *state_block.world.trusted_peers_ids = block.as_ref().commit_topology().clone();
+            *state_block.world.trusted_peers_ids =
+                block.as_ref().commit_topology().cloned().collect();
         }
 
         state_block
@@ -139,7 +139,7 @@ impl SumeragiHandle {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
         let blocks_iter;
-        let mut current_topology;
+        let mut topology;
 
         {
             let state_view = state.view();
@@ -151,7 +151,7 @@ impl SumeragiHandle {
                 )
             });
 
-            current_topology = match state_view.height() {
+            topology = match state_view.height() {
                 0 => {
                     assert!(!sumeragi_config.trusted_peers.is_empty());
                     Topology::new(sumeragi_config.trusted_peers.clone())
@@ -172,13 +172,13 @@ impl SumeragiHandle {
 
         for block in blocks_iter {
             let mut state_block = state.block();
-            current_topology = Self::replay_block(
+            topology = Self::replay_block(
                 &common_config.chain_id,
                 &genesis_network.public_key,
                 &block,
                 &mut state_block,
                 &events_sender,
-                current_topology,
+                topology,
             );
             state_block.commit();
         }
@@ -206,7 +206,7 @@ impl SumeragiHandle {
             control_message_receiver,
             message_receiver,
             debug_force_soft_fork,
-            current_topology,
+            topology,
             transaction_cache: Vec::new(),
             view_changes_metric: view_changes,
         };

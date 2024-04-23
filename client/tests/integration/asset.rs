@@ -4,14 +4,14 @@ use eyre::Result;
 use iroha_client::{
     client::{self, QueryResult},
     crypto::{KeyPair, PublicKey},
-    data_model::prelude::*,
+    data_model::{
+        asset::{AssetId, AssetValue, AssetValueType},
+        isi::error::{InstructionEvaluationError, InstructionExecutionError, Mismatch, TypeError},
+        prelude::*,
+        transaction::error::TransactionRejectionReason,
+    },
 };
 use iroha_config::parameters::actual::Root as Config;
-use iroha_data_model::{
-    asset::{AssetId, AssetValue, AssetValueType},
-    isi::error::{InstructionEvaluationError, InstructionExecutionError, Mismatch, TypeError},
-    transaction::error::TransactionRejectionReason,
-};
 use serde_json::json;
 use test_network::*;
 

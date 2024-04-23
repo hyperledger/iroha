@@ -2,9 +2,10 @@
 use std::{thread, time::Duration};
 
 use iroha::samples::{construct_executor, get_config};
-use iroha_client::data_model::prelude::*;
-use iroha_crypto::KeyPair;
-use iroha_data_model::isi::InstructionBox;
+use iroha_client::{
+    crypto::KeyPair,
+    data_model::{isi::InstructionBox, prelude::*},
+};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use test_network::{

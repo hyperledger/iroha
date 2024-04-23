@@ -2,8 +2,10 @@
 
 use derive_more::Display;
 use indexmap::IndexSet;
-use iroha_crypto::{PublicKey, SignatureOf};
-use iroha_data_model::{block::SignedBlock, prelude::PeerId};
+use iroha_data_model::{
+    block::{BlockSignature, SignedBlock},
+    prelude::PeerId,
+};
 use iroha_logger::trace;
 use iroha_primitives::unique_vec::UniqueVec;
 
@@ -19,10 +21,7 @@ use iroha_primitives::unique_vec::UniqueVec;
 ///
 /// Above is an illustration of how the various operations work for a f = 2 topology.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Topology {
-    /// Current order of peers. The roles of peers are defined based on this order.
-    pub(crate) ordered_peers: UniqueVec<PeerId>,
-}
+pub struct Topology(UniqueVec<PeerId>);
 
 /// Topology with at least one peer
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Deref)]
@@ -36,32 +35,60 @@ pub struct ConsensusTopology<'topology> {
     topology: &'topology Topology,
 }
 
+impl AsRef<[PeerId]> for Topology {
+    fn as_ref(&self) -> &[PeerId] {
+        &self.0
+    }
+}
+
+impl IntoIterator for Topology {
+    type Item = PeerId;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl FromIterator<PeerId> for Topology {
+    fn from_iter<T: IntoIterator<Item = PeerId>>(iter: T) -> Self {
+        Self(UniqueVec::from_iter(iter))
+    }
+}
+
 impl Topology {
     /// Create a new topology.
-    pub fn new(peers: UniqueVec<PeerId>) -> Self {
-        Topology {
-            ordered_peers: peers,
-        }
+    pub fn new(peers: impl IntoIterator<Item = PeerId>) -> Self {
+        Topology(peers.into_iter().collect())
+    }
+
+    pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = &PeerId> {
+        self.0.iter()
+    }
+
+    pub(crate) fn position(&self, public_key: &iroha_crypto::PublicKey) -> Option<usize> {
+        self.iter().position(|peer| peer.public_key() == public_key)
     }
 
     /// True, if the topology contains at least one peer and thus requires consensus
     pub fn is_non_empty(&self) -> Option<NonEmptyTopology> {
-        (!self.ordered_peers.is_empty()).then_some(NonEmptyTopology { topology: self })
+        (!self.0.is_empty()).then_some(NonEmptyTopology { topology: self })
     }
 
     /// Is consensus required, aka are there more than 1 peer.
     pub fn is_consensus_required(&self) -> Option<ConsensusTopology> {
-        (self.ordered_peers.len() > 1).then_some(ConsensusTopology { topology: self })
+        (self.0.len() > 1).then_some(ConsensusTopology { topology: self })
     }
 
     /// How many faulty peers can this topology tolerate.
-    pub fn max_faults(&self) -> usize {
-        (self.ordered_peers.len().saturating_sub(1)) / 3
+    pub const fn max_faults(&self) -> usize {
+        (self.0.len().saturating_sub(1)) / 3
     }
 
     /// The required amount of votes to commit a block with this topology.
     pub fn min_votes_for_commit(&self) -> usize {
-        let len = self.ordered_peers.len();
+        let len = self.0.len();
+
         if len > 3 {
             self.max_faults() * 2 + 1
         } else {
@@ -69,57 +96,56 @@ impl Topology {
         }
     }
 
-    /// Index of leader among `ordered_peers`
+    /// Index of leader
     #[allow(clippy::unused_self)] // In order to be consistent with `proxy_tail_index` method
-    fn leader_index(&self) -> usize {
+    pub const fn leader_index(&self) -> usize {
         0
     }
 
-    /// Index of leader among `ordered_peers`
-    fn proxy_tail_index(&self) -> usize {
-        // NOTE: proxy tail is the last element from the set A so that's why it's `min_votes_for_commit - 1`
+    /// Index of proxy tail
+    pub fn proxy_tail_index(&self) -> usize {
+        // NOTE: last element of set A
         self.min_votes_for_commit() - 1
     }
 
     /// Filter signatures by roles in the topology.
-    #[allow(clippy::comparison_chain)]
-    pub fn filter_signatures_by_roles<'a, T: 'a, I: IntoIterator<Item = &'a SignatureOf<T>>>(
+    pub fn filter_signatures_by_roles<'a, I: IntoIterator<Item = &'a BlockSignature>>(
         &self,
         roles: &[Role],
         signatures: I,
-    ) -> Vec<SignatureOf<T>> {
-        let mut public_keys = IndexSet::with_capacity(self.ordered_peers.len());
+    ) -> impl Iterator<Item = BlockSignature> + 'a
+    where
+        <I as IntoIterator>::IntoIter: 'a,
+    {
+        let mut filtered = IndexSet::new();
+
         for role in roles {
             match (role, self.is_non_empty(), self.is_consensus_required()) {
                 (Role::Leader, Some(topology), _) => {
-                    public_keys.insert(topology.leader().public_key());
+                    filtered.insert(topology.leader_index());
                 }
                 (Role::ProxyTail, _, Some(topology)) => {
-                    public_keys.insert(&topology.proxy_tail().public_key);
+                    filtered.insert(topology.proxy_tail_index());
                 }
                 (Role::ValidatingPeer, _, Some(topology)) => {
-                    for peer in topology.validating_peers() {
-                        public_keys.insert(peer.public_key());
-                    }
+                    filtered.extend(topology.leader_index() + 1..topology.proxy_tail_index());
                 }
                 (Role::ObservingPeer, _, Some(topology)) => {
-                    for peer in topology.observing_peers() {
-                        public_keys.insert(peer.public_key());
-                    }
+                    filtered.extend(topology.proxy_tail_index() + 1..topology.0.len());
                 }
                 _ => {}
             };
         }
+
         signatures
             .into_iter()
-            .filter(|signature| public_keys.contains(signature.public_key()))
+            .filter(move |signature| filtered.contains(&(signature.0 as usize)))
             .cloned()
-            .collect()
     }
 
     /// What role does this peer have in the topology.
     pub fn role(&self, peer_id: &PeerId) -> Role {
-        match self.ordered_peers.iter().position(|p| p == peer_id) {
+        match self.0.iter().position(|p| p == peer_id) {
             Some(index) if index == self.leader_index() => Role::Leader,
             Some(index) if index < self.proxy_tail_index() => Role::ValidatingPeer,
             Some(index) if index == self.proxy_tail_index() => Role::ProxyTail,
@@ -134,13 +160,13 @@ impl Topology {
     /// Add or remove peers from the topology.
     pub fn update_peer_list(&mut self, new_peers: UniqueVec<PeerId>) {
         self.modify_peers_directly(|peers| peers.retain(|peer| new_peers.contains(peer)));
-        self.ordered_peers.extend(new_peers);
+        self.0.extend(new_peers);
     }
 
     /// Rotate peers n times where n is a number of failed attempt to create a block.
     pub fn rotate_all_n(&mut self, n: u64) {
         let len = self
-            .ordered_peers
+            .0
             .len()
             .try_into()
             .expect("`usize` should fit into `u64`");
@@ -162,14 +188,21 @@ impl Topology {
     }
 
     /// Pull peers up in the topology to the top of the a set while preserving local order.
-    pub fn lift_up_peers(&mut self, to_lift_up: &[PublicKey]) {
+    pub fn lift_up_peers(&mut self, to_lift_up: &[u64]) {
         self.modify_peers_directly(|peers| {
-            peers.sort_by_cached_key(|peer| !to_lift_up.contains(&peer.public_key));
+            let to_lift_up: IndexSet<_> = to_lift_up.iter().collect();
+
+            let mut node_pos = 0;
+            peers.sort_by_cached_key(|_| {
+                let res = !to_lift_up.contains(&node_pos);
+                node_pos += 1;
+                res
+            });
         });
     }
 
     /// Perform sequence of actions after block committed.
-    pub fn update_topology(&mut self, block_signees: &[PublicKey], new_peers: UniqueVec<PeerId>) {
+    pub fn update_topology(&mut self, block_signees: &[u64], new_peers: UniqueVec<PeerId>) {
         self.lift_up_peers(block_signees);
         self.rotate_set_a();
         self.update_peer_list(new_peers);
@@ -181,13 +214,9 @@ impl Topology {
         view_change_index: u64,
         new_peers: UniqueVec<PeerId>,
     ) -> Self {
-        let mut topology = Topology::new(block.commit_topology().clone());
-        let block_signees = block
-            .signatures()
-            .into_iter()
-            .map(|s| s.public_key())
-            .cloned()
-            .collect::<Vec<PublicKey>>();
+        let mut topology = Topology::new(block.commit_topology().cloned());
+
+        let block_signees = block.signatures().map(|s| s.0).collect::<Vec<_>>();
 
         topology.update_topology(&block_signees, new_peers);
 
@@ -195,7 +224,7 @@ impl Topology {
         topology.rotate_all_n(view_change_index);
 
         {
-            // FIXME: This is a hack to prevent consensus from running amock due to
+            // HACK: This is a hack to prevent consensus from running amock due to
             // a bug in the implementation by reverting to predictable ordering
 
             let view_change_limit: usize = view_change_index
@@ -205,60 +234,59 @@ impl Topology {
 
             if view_change_limit > 1 {
                 iroha_logger::error!("Restarting consensus(internal bug). Report to developers");
-                let mut peers: Vec<_> = topology.ordered_peers.iter().cloned().collect();
+                let mut peers: Vec<_> = topology.0.iter().cloned().collect();
 
                 peers.sort();
                 let peers_count = peers.len();
                 peers.rotate_right(view_change_limit % peers_count);
-                topology = Topology::new(peers.into_iter().collect());
+                topology = Topology::new(peers.into_iter());
             }
         }
 
         topology
     }
 
-    /// Modify [`ordered_peers`](Self::ordered_peers) directly as [`Vec`].
     fn modify_peers_directly(&mut self, f: impl FnOnce(&mut Vec<PeerId>)) {
-        let unique_peers = std::mem::take(&mut self.ordered_peers);
-
+        let unique_peers = std::mem::take(&mut self.0);
         let mut peers_vec = Vec::from(unique_peers);
+
         f(&mut peers_vec);
 
-        self.ordered_peers = UniqueVec::from_iter(peers_vec);
+        self.0 = UniqueVec::from_iter(peers_vec);
     }
 }
 
 impl<'topology> NonEmptyTopology<'topology> {
     /// Get leader's [`PeerId`].
     pub fn leader(&self) -> &'topology PeerId {
-        &self.topology.ordered_peers[self.topology.leader_index()]
+        &self.topology.0[self.topology.leader_index()]
     }
 }
 
 impl<'topology> ConsensusTopology<'topology> {
     /// Get proxy tail's peer id.
     pub fn proxy_tail(&self) -> &'topology PeerId {
-        &self.topology.ordered_peers[self.topology.proxy_tail_index()]
+        &self.topology.0[self.topology.proxy_tail_index()]
     }
 
     /// Get leader's [`PeerId`]
     pub fn leader(&self) -> &'topology PeerId {
-        &self.topology.ordered_peers[self.topology.leader_index()]
+        &self.topology.0[self.topology.leader_index()]
     }
 
     /// Get validating [`PeerId`]s.
     pub fn validating_peers(&self) -> &'topology [PeerId] {
-        &self.ordered_peers[self.leader_index() + 1..self.proxy_tail_index()]
+        &self.0[self.leader_index() + 1..self.proxy_tail_index()]
     }
 
     /// Get observing [`PeerId`]s.
     pub fn observing_peers(&self) -> &'topology [PeerId] {
-        &self.ordered_peers[self.proxy_tail_index() + 1..]
+        &self.0[self.proxy_tail_index() + 1..]
     }
 
     /// Get voting [`PeerId`]s.
     pub fn voting_peers(&self) -> &'topology [PeerId] {
-        &self.ordered_peers[self.leader_index()..=self.proxy_tail_index()]
+        &self.0[self.leader_index()..=self.proxy_tail_index()]
     }
 }
 
@@ -280,7 +308,10 @@ pub enum Role {
 #[cfg(test)]
 macro_rules! test_peers {
     ($($id:literal),+$(,)?) => {{
-        let mut iter = ::core::iter::repeat_with(|| KeyPair::random());
+        let mut iter = ::core::iter::repeat_with(
+            || iroha_crypto::KeyPair::random()
+        );
+
         test_peers![$($id),*: iter]
     }};
     ($($id:literal),+$(,)?: $key_pair_iter:expr) => {
@@ -299,6 +330,7 @@ mod tests {
     use iroha_primitives::unique_vec;
 
     use super::*;
+    use crate::block::ValidBlock;
 
     fn topology() -> Topology {
         let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
@@ -306,11 +338,7 @@ mod tests {
     }
 
     fn extract_ports(topology: &Topology) -> Vec<u16> {
-        topology
-            .ordered_peers
-            .iter()
-            .map(|peer| peer.address.port())
-            .collect()
+        topology.0.iter().map(|peer| peer.address.port()).collect()
     }
 
     #[test]
@@ -324,12 +352,7 @@ mod tests {
     fn lift_up_peers() {
         let mut topology = topology();
         // Will lift up 1, 2, 4, 6
-        let to_lift_up = &[
-            topology.ordered_peers[1].public_key().clone(),
-            topology.ordered_peers[2].public_key().clone(),
-            topology.ordered_peers[4].public_key().clone(),
-            topology.ordered_peers[6].public_key().clone(),
-        ];
+        let to_lift_up = &[1, 2, 4, 6];
         topology.lift_up_peers(to_lift_up);
         assert_eq!(extract_ports(&topology), vec![1, 2, 4, 6, 0, 3, 5])
     }
@@ -340,9 +363,9 @@ mod tests {
         // New peers will be 0, 2, 5, 7
         let new_peers = {
             let mut peers = unique_vec![
-                topology.ordered_peers[5].clone(),
-                topology.ordered_peers[0].clone(),
-                topology.ordered_peers[2].clone(),
+                topology.0[5].clone(),
+                topology.0[0].clone(),
+                topology.0[2].clone(),
             ];
             peers.extend(test_peers![7]);
             peers
@@ -360,37 +383,31 @@ mod tests {
         let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
         let topology = Topology::new(peers.clone());
 
-        let dummy = "value to sign";
-        let signatures = key_pairs
-            .iter()
-            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
-            .collect::<Vec<SignatureOf<_>>>();
+        let dummy_block = ValidBlock::new_dummy();
+        let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
+        let dummy_signatures = (0..key_pairs.len())
+            .map(|i| BlockSignature(i as u64, dummy_signature.clone()))
+            .collect::<Vec<_>>();
 
         let leader_signatures =
-            topology.filter_signatures_by_roles(&[Role::Leader], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::Leader], dummy_signatures.iter());
         assert_eq!(leader_signatures.len(), 1);
-        assert_eq!(leader_signatures[0].public_key(), peers[0].public_key());
+        assert_eq!(leader_signatures[0].0 .0, 0);
 
         let proxy_tail_signatures =
-            topology.filter_signatures_by_roles(&[Role::ProxyTail], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ProxyTail], dummy_signatures.iter());
         assert_eq!(proxy_tail_signatures.len(), 1);
-        assert_eq!(proxy_tail_signatures[0].public_key(), peers[4].public_key());
+        assert_eq!(proxy_tail_signatures[0].0 .0, 4);
 
         let validating_peers_signatures =
-            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], dummy_signatures.iter());
         assert_eq!(validating_peers_signatures.len(), 3);
-        assert!(validating_peers_signatures
-            .iter()
-            .map(|s| s.public_key())
-            .eq(peers[1..4].iter().map(PeerId::public_key)));
+        assert!(validating_peers_signatures.iter().map(|s| s.0 .0).eq(1..4));
 
         let observing_peers_signatures =
-            topology.filter_signatures_by_roles(&[Role::ObservingPeer], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ObservingPeer], dummy_signatures.iter());
         assert_eq!(observing_peers_signatures.len(), 2);
-        assert!(observing_peers_signatures
-            .iter()
-            .map(|s| s.public_key())
-            .eq(peers[5..].iter().map(PeerId::public_key)));
+        assert!(observing_peers_signatures.iter().map(|s| s.0 .0).eq(5..7));
     }
 
     #[test]
@@ -401,26 +418,26 @@ mod tests {
         let peers = UniqueVec::new();
         let topology = Topology::new(peers);
 
-        let dummy = "value to sign";
-        let signatures = key_pairs
-            .iter()
-            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
-            .collect::<Vec<SignatureOf<_>>>();
+        let dummy_block = ValidBlock::new_dummy();
+        let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
+        let dummy_signatures = (0..key_pairs.len())
+            .map(|i| BlockSignature(i as u64, dummy_signature.clone()))
+            .collect::<Vec<_>>();
 
         let leader_signatures =
-            topology.filter_signatures_by_roles(&[Role::Leader], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::Leader], dummy_signatures.iter());
         assert!(leader_signatures.is_empty());
 
         let proxy_tail_signatures =
-            topology.filter_signatures_by_roles(&[Role::ProxyTail], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ProxyTail], dummy_signatures.iter());
         assert!(proxy_tail_signatures.is_empty());
 
         let validating_peers_signatures =
-            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], dummy_signatures.iter());
         assert!(validating_peers_signatures.is_empty());
 
         let observing_peers_signatures =
-            topology.filter_signatures_by_roles(&[Role::ObservingPeer], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ObservingPeer], dummy_signatures.iter());
         assert!(observing_peers_signatures.is_empty());
     }
 
@@ -433,27 +450,27 @@ mod tests {
         let peers = test_peers![0: key_pairs_iter];
         let topology = Topology::new(peers.clone());
 
-        let dummy = "value to sign";
-        let signatures = key_pairs
-            .iter()
-            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
-            .collect::<Vec<SignatureOf<_>>>();
+        let dummy_block = ValidBlock::new_dummy();
+        let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
+        let dummy_signatures = (0..key_pairs.len())
+            .map(|i| BlockSignature(i as u64, dummy_signature.clone()))
+            .collect::<Vec<_>>();
 
         let leader_signatures =
-            topology.filter_signatures_by_roles(&[Role::Leader], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::Leader], dummy_signatures.iter());
         assert_eq!(leader_signatures.len(), 1);
-        assert_eq!(leader_signatures[0].public_key(), peers[0].public_key());
+        assert_eq!(leader_signatures[0].0, 0);
 
         let proxy_tail_signatures =
-            topology.filter_signatures_by_roles(&[Role::ProxyTail], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ProxyTail], dummy_signatures.iter());
         assert!(proxy_tail_signatures.is_empty());
 
         let validating_peers_signatures =
-            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], dummy_signatures.iter());
         assert!(validating_peers_signatures.is_empty());
 
         let observing_peers_signatures =
-            topology.filter_signatures_by_roles(&[Role::ObservingPeer], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ObservingPeer], dummy_signatures.iter());
         assert!(observing_peers_signatures.is_empty());
     }
 
@@ -466,28 +483,28 @@ mod tests {
         let peers = test_peers![0, 1: key_pairs_iter];
         let topology = Topology::new(peers.clone());
 
-        let dummy = "value to sign";
-        let signatures = key_pairs
-            .iter()
-            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
-            .collect::<Vec<SignatureOf<_>>>();
+        let dummy_block = ValidBlock::new_dummy();
+        let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
+        let dummy_signatures = (0..key_pairs.len())
+            .map(|i| BlockSignature(i as u64, dummy_signature.clone()))
+            .collect::<Vec<_>>();
 
         let leader_signatures =
-            topology.filter_signatures_by_roles(&[Role::Leader], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::Leader], dummy_signatures.iter());
         assert_eq!(leader_signatures.len(), 1);
-        assert_eq!(leader_signatures[0].public_key(), peers[0].public_key());
+        assert_eq!(leader_signatures[0].0, 0);
 
         let proxy_tail_signatures =
-            topology.filter_signatures_by_roles(&[Role::ProxyTail], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ProxyTail], dummy_signatures.iter());
         assert_eq!(proxy_tail_signatures.len(), 1);
-        assert_eq!(proxy_tail_signatures[0].public_key(), peers[1].public_key());
+        assert_eq!(proxy_tail_signatures[0].0, 1);
 
         let validating_peers_signatures =
-            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], dummy_signatures.iter());
         assert!(validating_peers_signatures.is_empty());
 
         let observing_peers_signatures =
-            topology.filter_signatures_by_roles(&[Role::ObservingPeer], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ObservingPeer], dummy_signatures.iter());
         assert!(observing_peers_signatures.is_empty());
     }
 
@@ -500,32 +517,29 @@ mod tests {
         let peers = test_peers![0, 1, 2: key_pairs_iter];
         let topology = Topology::new(peers.clone());
 
-        let dummy = "value to sign";
-        let signatures = key_pairs
-            .iter()
-            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
-            .collect::<Vec<SignatureOf<_>>>();
+        let dummy_block = ValidBlock::new_dummy();
+        let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
+        let dummy_signatures = (0..key_pairs.len())
+            .map(|i| BlockSignature(i as u64, dummy_signature.clone()))
+            .collect::<Vec<_>>();
 
         let leader_signatures =
-            topology.filter_signatures_by_roles(&[Role::Leader], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::Leader], dummy_signatures.iter());
         assert_eq!(leader_signatures.len(), 1);
-        assert_eq!(leader_signatures[0].public_key(), peers[0].public_key());
+        assert_eq!(leader_signatures[0].0, 0);
 
         let proxy_tail_signatures =
-            topology.filter_signatures_by_roles(&[Role::ProxyTail], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ProxyTail], dummy_signatures.iter());
         assert_eq!(proxy_tail_signatures.len(), 1);
-        assert_eq!(proxy_tail_signatures[0].public_key(), peers[2].public_key());
+        assert_eq!(proxy_tail_signatures[0].0, 2);
 
         let validating_peers_signatures =
-            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], dummy_signatures.iter());
         assert_eq!(validating_peers_signatures.len(), 1);
-        assert_eq!(
-            validating_peers_signatures[0].public_key(),
-            peers[1].public_key()
-        );
+        assert_eq!(validating_peers_signatures[0].0, 1);
 
         let observing_peers_signatures =
-            topology.filter_signatures_by_roles(&[Role::ObservingPeer], signatures.iter());
+            topology.filter_signatures_by_roles(&[Role::ObservingPeer], dummy_signatures.iter());
         assert!(observing_peers_signatures.is_empty());
     }
 

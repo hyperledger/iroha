@@ -1,13 +1,13 @@
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
+    crypto::KeyPair,
     data_model::{
         peer::{Peer as DataModelPeer, PeerId},
         prelude::*,
     },
 };
 use iroha_config::parameters::actual::Root as Config;
-use iroha_crypto::KeyPair;
 use iroha_primitives::addr::socket_addr;
 use test_network::*;
 use tokio::runtime::Runtime;

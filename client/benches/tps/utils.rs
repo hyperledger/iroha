@@ -4,11 +4,11 @@ use eyre::{Result, WrapErr};
 use iroha_client::{
     client::Client,
     data_model::{
+        events::pipeline::{BlockEventFilter, BlockStatus},
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
         prelude::*,
     },
 };
-use iroha_data_model::events::pipeline::{BlockEventFilter, BlockStatus};
 use nonzero_ext::nonzero;
 use serde::Deserialize;
 use test_network::*;

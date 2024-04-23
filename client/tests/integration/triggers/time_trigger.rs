@@ -3,10 +3,13 @@ use std::{str::FromStr as _, time::Duration};
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
-    data_model::{prelude::*, transaction::WasmSmartContract},
+    data_model::{
+        events::pipeline::{BlockEventFilter, BlockStatus},
+        prelude::*,
+        transaction::WasmSmartContract,
+    },
 };
 use iroha_config::parameters::defaults::chain_wide::DEFAULT_CONSENSUS_ESTIMATION;
-use iroha_data_model::events::pipeline::{BlockEventFilter, BlockStatus};
 use iroha_logger::info;
 use test_network::*;
 

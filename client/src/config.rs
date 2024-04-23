@@ -9,14 +9,16 @@ use iroha_config::{
     base,
     base::{FromEnv, StdEnv, UnwrapPartial},
 };
-use iroha_crypto::KeyPair;
-use iroha_data_model::{prelude::*, ChainId};
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use url::Url;
 
-use crate::config::user::RootPartial;
+use crate::{
+    config::user::RootPartial,
+    crypto::KeyPair,
+    data_model::{prelude::*, ChainId},
+};
 
 mod user;
 

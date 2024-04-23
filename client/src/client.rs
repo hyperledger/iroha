@@ -14,13 +14,6 @@ use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
 pub use iroha_config::client_api::ConfigDTO;
-use iroha_data_model::{
-    events::pipeline::{
-        BlockEventFilter, BlockStatus, PipelineEventBox, PipelineEventFilterBox,
-        TransactionEventFilter, TransactionStatus,
-    },
-    query::QueryOutputBox,
-};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_torii_const::uri as torii_uri;
@@ -35,9 +28,13 @@ use crate::{
     crypto::{HashOf, KeyPair},
     data_model::{
         block::SignedBlock,
+        events::pipeline::{
+            BlockEventFilter, BlockStatus, PipelineEventBox, PipelineEventFilterBox,
+            TransactionEventFilter, TransactionStatus,
+        },
         isi::Instruction,
         prelude::*,
-        query::{predicate::PredicateBox, Pagination, Query, Sorting},
+        query::{predicate::PredicateBox, Pagination, Query, QueryOutputBox, Sorting},
         BatchedResponse, ChainId, ValidationFail,
     },
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
@@ -70,17 +67,17 @@ pub type QueryResult<T> = core::result::Result<T, ClientQueryError>;
 /// Trait for signing transactions
 pub trait Sign {
     /// Sign transaction with provided key pair.
-    fn sign(self, key_pair: &crate::crypto::KeyPair) -> SignedTransaction;
+    fn sign(self, key_pair: &KeyPair) -> SignedTransaction;
 }
 
 impl Sign for TransactionBuilder {
-    fn sign(self, key_pair: &crate::crypto::KeyPair) -> SignedTransaction {
+    fn sign(self, key_pair: &KeyPair) -> SignedTransaction {
         self.sign(key_pair)
     }
 }
 
 impl Sign for SignedTransaction {
-    fn sign(self, key_pair: &crate::crypto::KeyPair) -> SignedTransaction {
+    fn sign(self, key_pair: &KeyPair) -> SignedTransaction {
         self.sign(key_pair)
     }
 }

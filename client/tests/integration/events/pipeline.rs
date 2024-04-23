@@ -4,19 +4,17 @@ use eyre::Result;
 use iroha_client::{
     crypto::HashOf,
     data_model::{
+        events::pipeline::{
+            BlockEvent, BlockEventFilter, BlockStatus, TransactionEventFilter, TransactionStatus,
+        },
+        isi::error::InstructionExecutionError,
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
         prelude::*,
+        transaction::error::TransactionRejectionReason,
+        ValidationFail,
     },
 };
 use iroha_config::parameters::actual::Root as Config;
-use iroha_data_model::{
-    events::pipeline::{
-        BlockEvent, BlockEventFilter, BlockStatus, TransactionEventFilter, TransactionStatus,
-    },
-    isi::error::InstructionExecutionError,
-    transaction::error::TransactionRejectionReason,
-    ValidationFail,
-};
 use test_network::*;
 
 // Needed to re-enable ignored tests.

@@ -8,15 +8,17 @@ use iroha_config::base::{
     Emitter, FromEnv, HumanDuration, Merge, ParseEnvResult, UnwrapPartial, UnwrapPartialResult,
     UserField,
 };
-use iroha_crypto::{PrivateKey, PublicKey};
-use iroha_data_model::{account::AccountId, ChainId};
 use serde::Deserialize;
 
-use crate::config::{
-    base::{FromEnvResult, ReadEnv},
-    user::{Account, OnlyHttpUrl, Root, Transaction},
-    BasicAuth, DEFAULT_TRANSACTION_NONCE, DEFAULT_TRANSACTION_STATUS_TIMEOUT,
-    DEFAULT_TRANSACTION_TIME_TO_LIVE,
+use crate::{
+    config::{
+        base::{FromEnvResult, ReadEnv},
+        user::{Account, OnlyHttpUrl, Root, Transaction},
+        BasicAuth, DEFAULT_TRANSACTION_NONCE, DEFAULT_TRANSACTION_STATUS_TIMEOUT,
+        DEFAULT_TRANSACTION_TIME_TO_LIVE,
+    },
+    crypto::{PrivateKey, PublicKey},
+    data_model::{account::AccountId, ChainId},
 };
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Default, Merge)]

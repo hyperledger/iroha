@@ -3,11 +3,14 @@
 
 use derive_more::{Deref, DerefMut};
 use eyre::Result;
-use indexmap::IndexSet;
-use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
-use iroha_data_model::{block::SignedBlock, prelude::PeerId};
+use iroha_crypto::{HashOf, PrivateKey, SignatureOf};
+use iroha_data_model::block::SignedBlock;
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
+
+use super::network_topology::Topology;
+
+type ViewChangeProofSignature = (u64, SignatureOf<ProofPayload>);
 
 /// Error emerge during insertion of `Proof` into `ProofChain`
 #[derive(Error, displaydoc::Display, Debug, Clone, Copy)]
@@ -30,7 +33,7 @@ struct ProofPayload {
 /// The proof of a view change. It needs to be signed by f+1 peers for proof to be valid and view change to happen.
 #[derive(Debug, Clone, Decode, Encode)]
 pub struct SignedProof {
-    signatures: SignaturesOf<ProofPayload>,
+    signatures: Vec<ViewChangeProofSignature>,
     /// Collection of signatures from the different peers.
     payload: ProofPayload,
 }
@@ -54,40 +57,40 @@ impl ProofBuilder {
     }
 
     /// Sign this message with the peer's public and private key.
-    pub fn sign(mut self, key_pair: &KeyPair) -> SignedProof {
-        let signature = SignatureOf::new(key_pair, &self.0.payload);
-        self.0.signatures.insert(signature);
+    pub fn sign(mut self, node_pos: u64, private_key: &PrivateKey) -> SignedProof {
+        let signature = SignatureOf::new(private_key, &self.0.payload);
+        self.0.signatures.push((node_pos, signature));
         self.0
     }
 }
 
 impl SignedProof {
     /// Verify the signatures of `other` and add them to this proof.
-    fn merge_signatures(&mut self, other: SignaturesOf<ProofPayload>) {
-        for signature in other {
-            if signature.verify(&self.payload).is_ok() {
-                self.signatures.insert(signature);
+    fn merge_signatures(&mut self, other: Vec<ViewChangeProofSignature>, topology: &Topology) {
+        for (node_pos, signature) in other {
+            let public_key = topology.as_ref()[node_pos as usize].public_key();
+
+            if signature.verify(public_key, &self.payload).is_ok() {
+                self.signatures.push((node_pos, signature));
             }
         }
     }
 
     /// Verify if the proof is valid, given the peers in `topology`.
-    fn verify(&self, peers: &[PeerId], max_faults: usize) -> bool {
-        let peer_public_keys: IndexSet<_> = peers.iter().map(PeerId::public_key).collect();
-
+    fn verify(&self, topology: &Topology) -> bool {
         let valid_count = self
             .signatures
             .iter()
-            .filter(|signature| {
-                signature.verify(&self.payload).is_ok()
-                    && peer_public_keys.contains(signature.public_key())
+            .filter(|&(node_pos, signature)| {
+                let public_key = topology.as_ref()[*node_pos as usize].public_key();
+                signature.verify(public_key, &self.payload).is_ok()
             })
             .count();
 
         // See Whitepaper for the information on this limit.
         #[allow(clippy::int_plus_one)]
         {
-            valid_count >= max_faults + 1
+            valid_count >= topology.max_faults() + 1
         }
     }
 }
@@ -100,8 +103,7 @@ impl ProofChain {
     /// Verify the view change proof chain.
     pub fn verify_with_state(
         &self,
-        peers: &[PeerId],
-        max_faults: usize,
+        topology: &Topology,
         latest_block_hash: Option<HashOf<SignedBlock>>,
     ) -> usize {
         self.iter()
@@ -109,7 +111,7 @@ impl ProofChain {
             .take_while(|(i, proof)| {
                 proof.payload.latest_block_hash == latest_block_hash
                     && proof.payload.view_change_index == (*i as u64)
-                    && proof.verify(peers, max_faults)
+                    && proof.verify(topology)
             })
             .count()
     }
@@ -134,23 +136,21 @@ impl ProofChain {
     /// - If proof view change number differs from view change number
     pub fn insert_proof(
         &mut self,
-        peers: &[PeerId],
-        max_faults: usize,
-        latest_block_hash: Option<HashOf<SignedBlock>>,
         new_proof: SignedProof,
+        topology: &Topology,
+        latest_block_hash: Option<HashOf<SignedBlock>>,
     ) -> Result<(), Error> {
         if new_proof.payload.latest_block_hash != latest_block_hash {
             return Err(Error::BlockHashMismatch);
         }
-        let next_unfinished_view_change =
-            self.verify_with_state(peers, max_faults, latest_block_hash);
+        let next_unfinished_view_change = self.verify_with_state(topology, latest_block_hash);
         if new_proof.payload.view_change_index != (next_unfinished_view_change as u64) {
             return Err(Error::ViewChangeNotFound); // We only care about the current view change that may or may not happen.
         }
 
         let is_proof_chain_incomplete = next_unfinished_view_change < self.len();
         if is_proof_chain_incomplete {
-            self[next_unfinished_view_change].merge_signatures(new_proof.signatures);
+            self[next_unfinished_view_change].merge_signatures(new_proof.signatures, topology);
         } else {
             self.push(new_proof);
         }
@@ -165,8 +165,7 @@ impl ProofChain {
     pub fn merge(
         &mut self,
         mut other: Self,
-        peers: &[PeerId],
-        max_faults: usize,
+        topology: &Topology,
         latest_block_hash: Option<HashOf<SignedBlock>>,
     ) -> Result<(), Error> {
         // Prune to exclude invalid proofs
@@ -175,8 +174,7 @@ impl ProofChain {
             return Err(Error::BlockHashMismatch);
         }
 
-        let next_unfinished_view_change =
-            self.verify_with_state(peers, max_faults, latest_block_hash);
+        let next_unfinished_view_change = self.verify_with_state(topology, latest_block_hash);
         let is_proof_chain_incomplete = next_unfinished_view_change < self.len();
         let other_contain_additional_proofs = next_unfinished_view_change < other.len();
 
@@ -184,7 +182,7 @@ impl ProofChain {
             // Case 1: proof chain is incomplete and other have corresponding proof.
             (true, true) => {
                 let new_proof = other.swap_remove(next_unfinished_view_change);
-                self[next_unfinished_view_change].merge_signatures(new_proof.signatures);
+                self[next_unfinished_view_change].merge_signatures(new_proof.signatures, topology);
             }
             // Case 2: proof chain is complete, but other have additional proof.
             (false, true) => {

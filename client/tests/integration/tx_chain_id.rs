@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
-use iroha_crypto::KeyPair;
-use iroha_data_model::prelude::*;
+use iroha_client::{crypto::KeyPair, data_model::prelude::*};
 use iroha_primitives::numeric::numeric;
 use test_network::*;
 

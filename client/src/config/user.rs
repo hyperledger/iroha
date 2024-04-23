@@ -7,13 +7,15 @@ use std::{fs::File, io::Read, path::Path, str::FromStr, time::Duration};
 pub use boilerplate::*;
 use eyre::{eyre, Context, Report};
 use iroha_config::base::{Emitter, ErrorsCollection};
-use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
-use iroha_data_model::{account::AccountId, ChainId};
 use merge::Merge;
 use serde_with::DeserializeFromStr;
 use url::Url;
 
-use crate::config::BasicAuth;
+use crate::{
+    config::BasicAuth,
+    crypto::{KeyPair, PrivateKey, PublicKey},
+    data_model::{account::AccountId, ChainId},
+};
 
 impl RootPartial {
     /// Reads the partial layer from TOML

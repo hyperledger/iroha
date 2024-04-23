@@ -14,7 +14,9 @@ pub use iroha_data_model::prelude::*;
 use iroha_data_model::{
     isi::error::Mismatch,
     query::error::FindError,
-    transaction::{error::TransactionLimitError, TransactionLimits, TransactionPayload},
+    transaction::{
+        error::TransactionLimitError, TransactionLimits, TransactionPayload, TransactionSignature,
+    },
 };
 use iroha_genesis::GenesisTransaction;
 use iroha_logger::{debug, error};
@@ -63,8 +65,8 @@ impl AcceptedTransaction {
             }));
         }
 
-        for signature in tx.0.signatures() {
-            if signature.public_key() != genesis_public_key {
+        for TransactionSignature(public_key, signature) in tx.0.signatures() {
+            if public_key != genesis_public_key {
                 return Err(SignatureVerificationFail {
                     signature: signature.clone().into(),
                     reason: "Signature doesn't correspond to genesis public key".to_string(),
