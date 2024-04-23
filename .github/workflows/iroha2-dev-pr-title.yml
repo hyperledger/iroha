@@ -46,7 +46,7 @@ jobs:
         if: steps.refactor-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
-          regex: '\[fix\] #\d+(, #\d+)*: .+$'
+          regex: '^\[fix\] #\d+(, #\d+)*: .+$'
       - name: Add fix label
         uses: actions-ecosystem/action-add-labels@v1
         if: steps.fix-match.outputs.match != ''
