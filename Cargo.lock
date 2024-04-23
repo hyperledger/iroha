@@ -2811,7 +2811,7 @@ name = "iroha_client"
 version = "2.0.0-pre-rc.21"
 dependencies = [
  "attohttpc",
- "base64 0.21.7",
+ "base64 0.22.0",
  "color-eyre",
  "criterion",
  "derive_more",
@@ -3017,7 +3017,7 @@ dependencies = [
 name = "iroha_data_model"
 version = "2.0.0-pre-rc.21"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.0",
  "criterion",
  "derive_more",
  "displaydoc",

@@ -79,7 +79,7 @@ vergen = { version = "8.3.1", default-features = false }
 trybuild = "1.0.91"
 impls = "1.0.3"
 
-base64 = { version = "0.21.7", default-features = false }
+base64 = { version = "0.22.0", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 nonzero_ext = { version = "0.3.0", default-features = false }
 
