@@ -8,8 +8,8 @@ use iroha_data_model::trigger::TriggerId;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use test_network::{
-    get_chain_id, wait_for_genesis_committed_with_max_retries, Peer as TestPeer, PeerBuilder,
-    TestClient, TestRuntime,
+    get_chain_id, get_genesis_signature, wait_for_genesis_committed_with_max_retries,
+    Peer as TestPeer, PeerBuilder, TestClient, TestRuntime,
 };
 use tokio::runtime::Runtime;
 
@@ -57,25 +57,24 @@ fn generate_genesis(num_triggers: u32) -> Result<RawGenesisBlock, Box<dyn std::e
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
 
+    let peer_key_pair = &peer.key_pair;
     let chain_id = get_chain_id();
     let mut configuration = get_config(
         &unique_vec![peer.id.clone()],
         Some(chain_id.clone()),
-        Some(peer.key_pair.clone()),
+        Some(peer_key_pair.clone()),
+        &get_genesis_signature(),
     );
+
+    let raw_block = generate_genesis(1_000_u32)?;
+    let signature =
+        GenesisNetwork::new_genesis_signature(raw_block.clone(), &chain_id, peer_key_pair);
 
     // Increase executor limits for large genesis
     configuration.chain_wide.executor_runtime.fuel_limit = u64::MAX;
     configuration.chain_wide.executor_runtime.max_memory_bytes = u32::MAX;
 
-    let genesis = GenesisNetwork::new(
-        generate_genesis(1_000_u32)?,
-        &chain_id,
-        configuration
-            .genesis
-            .key_pair()
-            .expect("should be available in the config; probably a bug"),
-    );
+    let genesis = GenesisNetwork::try_parse(raw_block, signature)?;
 
     let builder = PeerBuilder::new()
         .with_into_genesis(genesis)

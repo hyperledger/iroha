@@ -670,13 +670,10 @@ mod tests {
         fn config_to_toml_value(config: PartialUserConfig) -> Result<toml::Value> {
             use iroha_crypto::ExposedPrivateKey;
             let private_key = config.private_key.as_ref().unwrap().clone();
-            let genesis_private_key = config.genesis.private_key.as_ref().unwrap().clone();
             let mut result = toml::Value::try_from(config)?;
 
             // private key will be serialized as "[REDACTED PrivateKey]" so need to restore it
             result["private_key"] = toml::Value::try_from(ExposedPrivateKey(private_key))?;
-            result["genesis"]["private_key"] =
-                toml::Value::try_from(ExposedPrivateKey(genesis_private_key))?;
 
             Ok(result)
         }
@@ -688,9 +685,7 @@ mod tests {
             let dir = tempfile::tempdir()?;
 
             let genesis = RawGenesisBlockBuilder::default()
-                .executor_file(PathBuf::from(
-                    dir.path().join("config/genesis/executor.wasm"),
-                ))
+                .executor_file(dir.path().join("config/genesis/executor.wasm"))
                 .build();
 
             let genesis_path = dir.path().join("config/genesis/gen.json");

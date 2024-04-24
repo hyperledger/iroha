@@ -407,8 +407,8 @@ impl DockerComposeBuilder<'_> {
 
         let mut peers_iter = peers.iter();
 
-        let signature = self.signature.clone().map_or(
-            generate_hex_string_signature(&chain_id, &genesis_key_pair),
+        let signature = self.signature.clone().map_or_else(
+            || generate_hex_string_signature(&chain_id, &genesis_key_pair),
             |sign| sign,
         );
 

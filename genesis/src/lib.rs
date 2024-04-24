@@ -58,11 +58,21 @@ pub enum GenesisSignatureParseError {
 impl std::error::Error for GenesisSignatureParseError {}
 
 /// [`SignedGenesisConfig`] contains data that is used for loading signed genesis from config.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode)]
 pub struct GenesisSignature {
     chain_id: ChainId,
     creation_time: Duration,
     signatures: SignaturesOf<TransactionPayload>,
+}
+
+impl Serialize for GenesisSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let hex_encoded_string = self.to_hex_string();
+        hex_encoded_string.serialize(serializer)
+    }
 }
 
 struct GenesisSignatureVisitor;

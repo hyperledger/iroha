@@ -272,6 +272,9 @@ fn generate_synthetic(
 #[command(group = ArgGroup::new("private_key").required(true))]
 #[command(group = ArgGroup::new("public_key").required(true))]
 pub struct SignArgs {
+    /// Path to genesis json file
+    #[clap(long)]
+    genesis_file: PathBuf,
     /// The algorithm of the provided keypair
     #[clap(default_value_t, long, short)]
     algorithm: crypto::AlgorithmArg,
@@ -293,9 +296,6 @@ pub struct SignArgs {
     /// Unique id of blockchain
     #[clap(long)]
     chain_id: ChainId,
-    /// Path to genesis json file
-    #[clap(long, short)]
-    genesis_file: PathBuf,
     /// Encode signed genesis block with SCALE (it is only supported with file output)
     #[clap(long, short, default_value_t = false)]
     binary: bool,

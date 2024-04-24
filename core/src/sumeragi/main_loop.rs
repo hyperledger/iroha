@@ -271,9 +271,12 @@ impl Sumeragi {
             assert_eq!(state_view.latest_block_hash(), None);
         }
 
-        let genesis_accepted_tx =
-            AcceptedTransaction::accept_genesis(genesis_network.into_transaction(), &self.chain_id)
-                .expect("Genesis invalid");
+        let genesis_accepted_tx = AcceptedTransaction::accept_genesis(
+            genesis_network.into_transaction(),
+            &self.chain_id,
+            genesis_public_key,
+        )
+        .expect("Genesis invalid");
         let transactions = Vec::from([genesis_accepted_tx]);
 
         let mut state_block = state.block();
