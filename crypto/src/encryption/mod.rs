@@ -65,13 +65,15 @@ fn random_bytes<T: ArrayLength<u8>>() -> Result<GenericArray<u8, T>, Error> {
 /// # Usage
 ///
 /// ```
-/// use iroha_crypto::encryption::{SymmetricEncryptor, ChaCha20Poly1305};
+/// use iroha_crypto::encryption::{ChaCha20Poly1305, SymmetricEncryptor};
 ///
 /// let key: Vec<u8> = (0..0x20).collect();
 /// let encryptor = SymmetricEncryptor::<ChaCha20Poly1305>::new_with_key(&key);
 /// let aad = b"Using ChaCha20Poly1305 to encrypt data";
 /// let message = b"Hidden message";
-/// let ciphertext = encryptor.encrypt_easy(aad.as_ref(), message.as_ref()).unwrap();
+/// let ciphertext = encryptor
+///     .encrypt_easy(aad.as_ref(), message.as_ref())
+///     .unwrap();
 ///
 /// let res = encryptor.decrypt_easy(aad.as_ref(), ciphertext.as_slice());
 /// assert_eq!(res.unwrap().as_slice(), message);

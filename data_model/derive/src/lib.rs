@@ -23,7 +23,7 @@ use proc_macro2::TokenStream;
 ///     #[enum_ref(derive(Encode))]
 ///     pub enum InnerEnum {
 ///         A(u32),
-///         B(i32)
+///         B(i32),
 ///     }
 ///
 ///     #[derive(EnumRef)]
@@ -51,7 +51,6 @@ use proc_macro2::TokenStream;
 /// }
 /// */
 /// ```
-///
 #[manyhow]
 #[proc_macro_derive(EnumRef, attributes(enum_ref))]
 pub fn enum_ref(input: TokenStream) -> Result<TokenStream> {
@@ -79,13 +78,13 @@ pub fn enum_ref(input: TokenStream) -> Result<TokenStream> {
 /// #[model]
 /// mod model {
 ///     pub struct DataModel1 {
-///        pub item1: u32,
-///        item2: u64
+///         pub item1: u32,
+///         item2: u64,
 ///     }
 ///
 ///     pub(crate) struct DataModel2 {
-///        pub item1: u32,
-///        item2: u64
+///         pub item1: u32,
+///         item2: u64,
 ///     }
 /// }
 ///
@@ -177,8 +176,8 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 /// The common use-case:
 ///
 /// ```
+/// use iroha_data_model::{IdBox, Identifiable};
 /// use iroha_data_model_derive::IdEqOrdHash;
-/// use iroha_data_model::{Identifiable, IdBox};
 ///
 /// #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// struct Id {
@@ -237,8 +236,8 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 /// Manual selection of the identifier field:
 ///
 /// ```
+/// use iroha_data_model::{IdBox, Identifiable};
 /// use iroha_data_model_derive::IdEqOrdHash;
-/// use iroha_data_model::{Identifiable, IdBox};
 ///
 /// #[derive(Debug, IdEqOrdHash)]
 /// struct InnerStruct {
@@ -275,7 +274,6 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 ///     name: u32,
 /// }
 /// ```
-///
 #[manyhow]
 #[proc_macro_derive(IdEqOrdHash, attributes(id, opaque))]
 pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
@@ -292,8 +290,8 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 /// Derive `::serde::Serialize` trait for `enum` with possibility to avoid tags for selected variants
 ///
 /// ```
-/// use serde::Serialize;
 /// use iroha_data_model_derive::PartiallyTaggedSerialize;
+/// use serde::Serialize;
 ///
 /// #[derive(PartiallyTaggedSerialize)]
 /// enum Outer {
@@ -308,11 +306,13 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 /// }
 ///
 /// assert_eq!(
-///     &serde_json::to_string(&Outer::Inner(Inner::B(42))).expect("Failed to serialize"), r#"{"B":42}"#
+///     &serde_json::to_string(&Outer::Inner(Inner::B(42))).expect("Failed to serialize"),
+///     r#"{"B":42}"#
 /// );
 ///
 /// assert_eq!(
-///     &serde_json::to_string(&Outer::A(42)).expect("Failed to serialize"), r#"{"A":42}"#
+///     &serde_json::to_string(&Outer::A(42)).expect("Failed to serialize"),
+///     r#"{"A":42}"#
 /// );
 /// ```
 #[manyhow]
@@ -326,9 +326,10 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> Result<TokenStre
 /// Derive `::serde::Deserialize` trait for `enum` with possibility to avoid tags for selected variants
 ///
 /// ```
-/// use serde::Deserialize;
-/// use iroha_data_model_derive::PartiallyTaggedDeserialize;
 /// use std::string::ToString;
+///
+/// use iroha_data_model_derive::PartiallyTaggedDeserialize;
+/// use serde::Deserialize;
 ///
 /// #[derive(Debug, PartialEq, Eq, PartiallyTaggedDeserialize)]
 /// enum Outer {
@@ -343,11 +344,13 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> Result<TokenStre
 /// }
 ///
 /// assert_eq!(
-///     serde_json::from_str::<Outer>(r#"{"B":42}"#).expect("Failed to deserialize B"), Outer::Inner(Inner::B(42))
+///     serde_json::from_str::<Outer>(r#"{"B":42}"#).expect("Failed to deserialize B"),
+///     Outer::Inner(Inner::B(42))
 /// );
 ///
 /// assert_eq!(
-///     serde_json::from_str::<Outer>(r#"{"A":42}"#).expect("Failed to deserialize A"), Outer::A(42)
+///     serde_json::from_str::<Outer>(r#"{"A":42}"#).expect("Failed to deserialize A"),
+///     Outer::A(42)
 /// );
 /// ```
 ///
@@ -408,9 +411,8 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> Result<TokenSt
 /// # Examples
 ///
 /// ```
-/// use iroha_data_model_derive::{IdEqOrdHash, HasOrigin};
-/// use iroha_data_model::prelude::{HasOrigin, Identifiable, IdBox};
-///
+/// use iroha_data_model::prelude::{HasOrigin, IdBox, Identifiable};
+/// use iroha_data_model_derive::{HasOrigin, IdEqOrdHash};
 ///
 /// #[derive(Debug, Clone, HasOrigin)]
 /// #[has_origin(origin = Layer)]
@@ -460,7 +462,10 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> Result<TokenSt
 /// # }
 ///
 /// let layer_id = LayerId { name: 42 };
-/// let sub_layer_id = SubLayerId { name: 24, parent_id: layer_id.clone() };
+/// let sub_layer_id = SubLayerId {
+///     name: 24,
+///     parent_id: layer_id.clone(),
+/// };
 /// let layer_created_event = LayerEvent::Created(layer_id.clone());
 /// let sub_layer_created_event = SubLayerEvent::Created(sub_layer_id.clone());
 /// let layer_sub_layer_event = LayerEvent::SubLayer(sub_layer_created_event.clone());

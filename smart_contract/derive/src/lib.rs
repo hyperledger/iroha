@@ -15,7 +15,6 @@ mod entrypoint;
 /// - If function has a return type
 ///
 /// # Examples
-///
 // `ignore` because this macro idiomatically should be imported from `iroha_wasm` crate.
 //
 /// Using without parameters:

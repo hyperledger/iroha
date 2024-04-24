@@ -703,16 +703,16 @@ impl Set {
         f: impl Fn(u32) -> Result<u32, RepeatsOverflowError>,
     ) -> Result<(), ModRepeatsError> {
         self.inspect_by_id_mut(id, |action| match action.repeats() {
-                Repeats::Exactly(repeats) => {
-                    let new_repeats = f(*repeats)?;
-                    action.set_repeats(Repeats::Exactly(new_repeats));
-                    Ok(())
-                }
-                _ => Err(ModRepeatsError::RepeatsOverflow(RepeatsOverflowError)),
-            })
-            .ok_or_else(|| ModRepeatsError::NotFound(id.clone()))
-            // .flatten() -- unstable
-            .and_then(std::convert::identity)
+            Repeats::Exactly(repeats) => {
+                let new_repeats = f(*repeats)?;
+                action.set_repeats(Repeats::Exactly(new_repeats));
+                Ok(())
+            }
+            _ => Err(ModRepeatsError::RepeatsOverflow(RepeatsOverflowError)),
+        })
+        .ok_or_else(|| ModRepeatsError::NotFound(id.clone()))
+        // .flatten() -- unstable
+        .and_then(std::convert::identity)
     }
 
     /// Handle [`DataEvent`].

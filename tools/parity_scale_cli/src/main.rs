@@ -219,7 +219,6 @@ impl<'map> ScaleToRustDecoder<'map> {
     }
 
     /// Try to decode every type from `bytes` and print to `writer`
-    ///
     // TODO: Can be parallelized when there will be too many types
     fn decode_by_guess<W: io::Write>(&self, bytes: &[u8], writer: &mut W) -> Result<()> {
         let count = self

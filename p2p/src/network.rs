@@ -309,18 +309,24 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     }
 
     fn update_topology(&mut self) {
-        let to_connect = self.current_topology
+        let to_connect = self
+            .current_topology
             .iter()
             // Peer is not connected but should
-            .filter_map(|(peer, is_active)| (
-                !self.peers.contains_key(&peer.public_key)
-                    && !self.connecting_peers.values().any(|public_key| peer.public_key() == public_key)
-                    && *is_active
-            ).then_some(peer))
+            .filter_map(|(peer, is_active)| {
+                (!self.peers.contains_key(&peer.public_key)
+                    && !self
+                        .connecting_peers
+                        .values()
+                        .any(|public_key| peer.public_key() == public_key)
+                    && *is_active)
+                    .then_some(peer)
+            })
             .cloned()
             .collect::<Vec<_>>();
 
-        let to_disconnect = self.peers
+        let to_disconnect = self
+            .peers
             .keys()
             // Peer is connected but shouldn't
             .filter(|public_key| !self.current_topology.contains_key(*public_key))

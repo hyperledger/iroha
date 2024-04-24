@@ -428,13 +428,13 @@ pub mod query {
         ) -> Result<Box<dyn Iterator<Item = RoleId> + 'state>, Error> {
             Ok(Box::new(
                 state_ro
-               .world()
-               .roles()
-               .iter()
-               .map(|(_, role)| role)
-               // To me, this should probably be a method, not a field.
-               .map(Role::id)
-               .cloned(),
+                    .world()
+                    .roles()
+                    .iter()
+                    .map(|(_, role)| role)
+                    // To me, this should probably be a method, not a field.
+                    .map(Role::id)
+                    .cloned(),
             ))
         }
     }

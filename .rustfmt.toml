@@ -1,5 +1,5 @@
 newline_style="Unix"
 use_field_init_shorthand=true
-use_try_shorthand=true
-group_imports="StdExternalCrate" # unstable https://github.com/rust-lang/rustfmt/issues/5083
-imports_granularity="Crate"      # unstable https://github.com/rust-lang/rustfmt/issues/4991
+format_code_in_doc_comments = true  # unstable (https://github.com/rust-lang/rustfmt/issues/3348)
+group_imports="StdExternalCrate"    # unstable (https://github.com/rust-lang/rustfmt/issues/5083)
+imports_granularity="Crate"         # unstable (https://github.com/rust-lang/rustfmt/issues/4991)
