@@ -1,9 +1,9 @@
 iroha2:
-  - base-branch: '^iroha2.*$'
+  - base-branch: ['main', 'stable']
 
 api-changes:
   - all:
-    - base-branch: '^iroha2-dev$'
+    - base-branch: '^main$'
     - changed-files:
       - any-glob-to-any-file:
         - 'docs/source/references/schema.json'
@@ -12,7 +12,7 @@ api-changes:
 
 config-changes:
   - all:
-    - base-branch: '^iroha2-dev$'
+    - base-branch: '^main$'
     - changed-files:
       # TODO have templates actually reflect configrations #4288
       - any-glob-to-any-file: 'configs/*.template.toml'

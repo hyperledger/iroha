@@ -35,19 +35,13 @@ pub trait RequestBuilder {
 
     /// Add a single query param
     #[must_use]
-    fn param<K, V: ?Sized>(self, key: K, value: &V) -> Self
-    where
-        K: AsRef<str>,
-        V: ToString;
+    fn param<K: AsRef<str>, V: ToString + ?Sized>(self, key: K, value: &V) -> Self;
 
     /// Add multiple headers at once. Uses [`RequestBuilder::header`] for each param.
     #[must_use]
-    fn headers<H, N, V>(mut self, headers: H) -> Self
+    fn headers<H: IntoIterator, N: AsRef<str>, V: ToString>(mut self, headers: H) -> Self
     where
-        H: IntoIterator,
         H::Item: Borrow<(N, V)>,
-        N: AsRef<str>,
-        V: ToString,
         Self: Sized,
     {
         for pair in headers {
@@ -59,10 +53,7 @@ pub trait RequestBuilder {
 
     /// Add a single header
     #[must_use]
-    fn header<N, V: ?Sized>(self, name: N, value: &V) -> Self
-    where
-        N: AsRef<str>,
-        V: ToString;
+    fn header<N: AsRef<str>, V: ToString + ?Sized>(self, name: N, value: &V) -> Self;
 
     /// Set request's binary body
     #[must_use]

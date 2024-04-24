@@ -52,6 +52,7 @@ impl AcceptedTransaction {
     pub fn accept_genesis(
         tx: GenesisTransaction,
         expected_chain_id: &ChainId,
+        genesis_public_key: &PublicKey,
     ) -> Result<Self, AcceptTransactionFail> {
         let actual_chain_id = tx.0.chain_id();
 
@@ -60,6 +61,16 @@ impl AcceptedTransaction {
                 expected: expected_chain_id.clone(),
                 actual: actual_chain_id.clone(),
             }));
+        }
+
+        for signature in tx.0.signatures() {
+            if signature.public_key() != genesis_public_key {
+                return Err(SignatureVerificationFail {
+                    signature: signature.clone().into(),
+                    reason: "Signature doesn't correspond to genesis public key".to_string(),
+                }
+                .into());
+            }
         }
 
         Ok(Self(tx.0))

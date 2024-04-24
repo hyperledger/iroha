@@ -95,7 +95,7 @@ impl AsRef<[u8; Hash::LENGTH]> for Hash {
         #[allow(unsafe_code, trivial_casts)]
         // SAFETY: `Hash` and `[u8; Hash::LENGTH]` have the same memory layout
         unsafe {
-            &*((self as *const Self).cast::<[u8; Self::LENGTH]>())
+            &*(core::ptr::from_ref(self).cast::<[u8; Self::LENGTH]>())
         }
     }
 }

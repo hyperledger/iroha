@@ -728,7 +728,7 @@ pub mod query {
                         domain.accounts.values().filter(move |account| {
                             let asset_id =
                                 AssetId::new(asset_definition_id.clone(), account.id().clone());
-                            account.assets.get(&asset_id).is_some()
+                            account.assets.contains_key(&asset_id)
                         })
                     })?
                     .cloned(),

@@ -1,6 +1,6 @@
 [workspace.package]
 edition = "2021"
-version = "2.0.0-pre-rc.20"
+version = "2.0.0-pre-rc.21"
 # TODO: teams are being deprecated update the authors URL
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 
@@ -15,117 +15,117 @@ categories = ["cryptography::cryptocurrencies"]
 
 [workspace.dependencies]
 iroha = { path = "cli" }
-iroha_torii = { version = "=2.0.0-pre-rc.20", path = "torii" }
-iroha_torii_derive = { version = "=2.0.0-pre-rc.20", path = "torii/derive" }
-iroha_torii_const = { version = "=2.0.0-pre-rc.20", path = "torii/const" }
-iroha_macro_utils = { version = "=2.0.0-pre-rc.20", path = "macro/utils" }
-iroha_telemetry = { version = "=2.0.0-pre-rc.20", path = "telemetry" }
-iroha_telemetry_derive = { version = "=2.0.0-pre-rc.20", path = "telemetry/derive" }
-iroha_p2p = { version = "=2.0.0-pre-rc.20", path = "p2p" }
-iroha_core = { version = "=2.0.0-pre-rc.20 ", path = "core" }
-iroha_primitives = { version = "=2.0.0-pre-rc.20", path = "primitives", default-features = false }
-iroha_primitives_derive = { version = "=2.0.0-pre-rc.20", path = "primitives/derive" }
-iroha_data_model = { version = "=2.0.0-pre-rc.20", path = "data_model", default-features = false }
-iroha_data_model_derive = { version = "=2.0.0-pre-rc.20", path = "data_model/derive" }
-iroha_client = { version = "=2.0.0-pre-rc.20", path = "client" }
-iroha_config = { version = "=2.0.0-pre-rc.20", path = "config" }
-iroha_config_base = { version = "=2.0.0-pre-rc.20", path = "config/base" }
-iroha_schema_gen = { version = "=2.0.0-pre-rc.20", path = "schema/gen" }
-iroha_schema = { version = "=2.0.0-pre-rc.20", path = "schema", default-features = false }
-iroha_schema_derive = { version = "=2.0.0-pre-rc.20", path = "schema/derive" }
-iroha_logger = { version = "=2.0.0-pre-rc.20", path = "logger" }
-iroha_crypto = { version = "=2.0.0-pre-rc.20", path = "crypto", default-features = false }
-iroha_macro = { version = "=2.0.0-pre-rc.20", path = "macro", default-features = false }
-iroha_derive = { version = "=2.0.0-pre-rc.20", path = "macro/derive" }
-iroha_futures = { version = "=2.0.0-pre-rc.20", path = "futures" }
-iroha_futures_derive = { version = "=2.0.0-pre-rc.20", path = "futures/derive" }
-iroha_genesis = { version = "=2.0.0-pre-rc.20", path = "genesis" }
-iroha_ffi = { version = "=2.0.0-pre-rc.20", path = "ffi" }
-iroha_ffi_derive = { version = "=2.0.0-pre-rc.20", path = "ffi/derive" }
-iroha_version = { version = "=2.0.0-pre-rc.20", path = "version", default-features = false }
-iroha_version_derive = { version = "=2.0.0-pre-rc.20", path = "version/derive", default-features = false }
-iroha_wasm_codec = { version = "=2.0.0-pre-rc.20", path = "wasm_codec" }
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.20", path = "wasm_builder" }
+iroha_torii = { version = "=2.0.0-pre-rc.21", path = "torii" }
+iroha_torii_derive = { version = "=2.0.0-pre-rc.21", path = "torii/derive" }
+iroha_torii_const = { version = "=2.0.0-pre-rc.21", path = "torii/const" }
+iroha_macro_utils = { version = "=2.0.0-pre-rc.21", path = "macro/utils" }
+iroha_telemetry = { version = "=2.0.0-pre-rc.21", path = "telemetry" }
+iroha_telemetry_derive = { version = "=2.0.0-pre-rc.21", path = "telemetry/derive" }
+iroha_p2p = { version = "=2.0.0-pre-rc.21", path = "p2p" }
+iroha_core = { version = "=2.0.0-pre-rc.21 ", path = "core" }
+iroha_primitives = { version = "=2.0.0-pre-rc.21", path = "primitives", default-features = false }
+iroha_primitives_derive = { version = "=2.0.0-pre-rc.21", path = "primitives/derive" }
+iroha_data_model = { version = "=2.0.0-pre-rc.21", path = "data_model", default-features = false }
+iroha_data_model_derive = { version = "=2.0.0-pre-rc.21", path = "data_model/derive" }
+iroha_client = { version = "=2.0.0-pre-rc.21", path = "client" }
+iroha_config = { version = "=2.0.0-pre-rc.21", path = "config" }
+iroha_config_base = { version = "=2.0.0-pre-rc.21", path = "config/base" }
+iroha_schema_gen = { version = "=2.0.0-pre-rc.21", path = "schema/gen" }
+iroha_schema = { version = "=2.0.0-pre-rc.21", path = "schema", default-features = false }
+iroha_schema_derive = { version = "=2.0.0-pre-rc.21", path = "schema/derive" }
+iroha_logger = { version = "=2.0.0-pre-rc.21", path = "logger" }
+iroha_crypto = { version = "=2.0.0-pre-rc.21", path = "crypto", default-features = false }
+iroha_macro = { version = "=2.0.0-pre-rc.21", path = "macro", default-features = false }
+iroha_derive = { version = "=2.0.0-pre-rc.21", path = "macro/derive" }
+iroha_futures = { version = "=2.0.0-pre-rc.21", path = "futures" }
+iroha_futures_derive = { version = "=2.0.0-pre-rc.21", path = "futures/derive" }
+iroha_genesis = { version = "=2.0.0-pre-rc.21", path = "genesis" }
+iroha_ffi = { version = "=2.0.0-pre-rc.21", path = "ffi" }
+iroha_ffi_derive = { version = "=2.0.0-pre-rc.21", path = "ffi/derive" }
+iroha_version = { version = "=2.0.0-pre-rc.21", path = "version", default-features = false }
+iroha_version_derive = { version = "=2.0.0-pre-rc.21", path = "version/derive", default-features = false }
+iroha_wasm_codec = { version = "=2.0.0-pre-rc.21", path = "wasm_codec" }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.21", path = "wasm_builder" }
 
-iroha_smart_contract = { version = "=2.0.0-pre-rc.20", path = "smart_contract" }
-iroha_smart_contract_derive = { version = "=2.0.0-pre-rc.20", path = "smart_contract/derive" }
-iroha_smart_contract_utils = { version = "=2.0.0-pre-rc.20", path = "smart_contract/utils" }
-iroha_executor_derive = { version = "=2.0.0-pre-rc.20", path = "smart_contract/executor/derive" }
-iroha_trigger_derive = { version = "=2.0.0-pre-rc.20", path = "smart_contract/trigger/derive" }
+iroha_smart_contract = { version = "=2.0.0-pre-rc.21", path = "smart_contract" }
+iroha_smart_contract_derive = { version = "=2.0.0-pre-rc.21", path = "smart_contract/derive" }
+iroha_smart_contract_utils = { version = "=2.0.0-pre-rc.21", path = "smart_contract/utils" }
+iroha_executor_derive = { version = "=2.0.0-pre-rc.21", path = "smart_contract/executor/derive" }
+iroha_trigger_derive = { version = "=2.0.0-pre-rc.21", path = "smart_contract/trigger/derive" }
 
-test_network = { version = "=2.0.0-pre-rc.20", path = "core/test_network" }
-proc-macro2 = "1.0.69"
-syn = { version = "2.0.38", default-features = false }
-quote = "1.0.33"
+test_network = { version = "=2.0.0-pre-rc.21", path = "core/test_network" }
+proc-macro2 = "1.0.81"
+syn = { version = "2.0.60", default-features = false }
+quote = "1.0.36"
 manyhow = { version = "0.8.1", features = ["darling"] }
-darling = "0.20.3"
+darling = "0.20.8"
 drop_bomb = "0.1.5"
 
-futures = { version = "0.3.28", default-features = false }
-tokio = "1.33.0"
-tokio-stream = "0.1.14"
-tokio-tungstenite = "0.20.1"
-tungstenite = "0.20.1"
-crossbeam-queue = "0.3.8"
+futures = { version = "0.3.30", default-features = false }
+tokio = "1.37.0"
+tokio-stream = "0.1.15"
+tokio-tungstenite = "0.21.0"
+tungstenite = "0.21.0"
+crossbeam-queue = "0.3.11"
 parking_lot = { version = "0.12.1" }
 
-once_cell = "1.18.0"
-tempfile = "3.8.0"
+once_cell = "1.19.0"
+tempfile = "3.10.1"
 path-absolutize = "3.1.1"
 pathdiff = "0.2.1"
-bytes = "1.5.0"
+bytes = "1.6.0"
 
-vergen = { version = "8.2.5", default-features = false }
-trybuild = "1.0.85"
+vergen = { version = "8.3.1", default-features = false }
+trybuild = "1.0.91"
 impls = "1.0.3"
 
-base64 = { version = "0.21.4", default-features = false }
+base64 = { version = "0.22.0", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 nonzero_ext = { version = "0.3.0", default-features = false }
 
-url = "2.4.1"
+url = "2.5.0"
 prometheus = { version = "0.13.3", default-features = false }
 
-clap = "4.4.6"
+clap = "4.5.4"
 owo-colors = "3.5.0"
 supports-color = "2.1.0"
 inquire = "0.6.2"
 spinoff = "0.8.0"
 
 criterion = "0.5.1"
-expect-test = "1.4.1"
+expect-test = "1.5.0"
 
-eyre = "0.6.8"
-color-eyre = "0.6.2"
-thiserror = { version = "1.0.49", default-features = false }
+eyre = "0.6.12"
+color-eyre = "0.6.3"
+thiserror = { version = "1.0.59", default-features = false }
 displaydoc = { version = "0.2.4", default-features = false }
 
 cfg-if = "1.0.0"
 derive_more = { version = "0.99.17", default-features = false }
-async-trait = "0.1.73"
+async-trait = "0.1.80"
 strum = { version = "0.25.0", default-features = false }
 getset = "0.1.2"
 hex-literal = "0.4.1"
 
 rand = { version = "0.8.5", default-features = false, features = ["getrandom", "alloc"] }
-warp = { version = "0.3.6", default-features = false }
-wasmtime = "15.0.0"
+warp = { version = "0.3.7", default-features = false }
+wasmtime = "15.0.1"
 
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.17", default-features = false }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", default-features = false }
 
 dashmap = "5.5.3"
 rustc-hash = "1.1.0"
 
-serde = { version = "1.0.188", default-features = false }
-serde_json = { version = "1.0.107", default-features = false }
-serde_yaml = "0.9.25"
-serde_with = { version = "3.3.0", default-features = false }
-parity-scale-codec = { version = "3.6.5", default-features = false }
+serde = { version = "1.0.198", default-features = false }
+serde_json = { version = "1.0.116", default-features = false }
+serde_yaml = "0.9.34"
+serde_with = { version = "3.7.0", default-features = false }
+parity-scale-codec = { version = "3.6.9", default-features = false }
 json5 = "0.4.1"
-toml = "0.8.8"
+toml = "0.8.12"
 
-storage = { git = "https://github.com/Erigara/storage.git", rev = "e0afe4b42810e9b3cf067cfbaa63a6ad7af6e2ba" }
+storage = { git = "https://github.com/Erigara/storage.git", rev = "6bd9fdd95220da7626471d190b17b2f5b8815c47" }
 
 [workspace.lints]
 rustdoc.private_doc_tests = "deny"
@@ -188,7 +188,7 @@ clippy.string_lit_as_bytes = "warn"
 clippy.suspicious_operation_groupings = "warn"
 clippy.useless_let_if_seq = "warn"
 
-#cargo
+# cargo
 clippy.redundant_feature_names = "deny"
 clippy.wildcard_dependencies = "deny"
 
@@ -230,7 +230,7 @@ members = [
     "telemetry",
     "tools/kagami",
     "tools/kura_inspector",
-    "tools/parity_scale_decoder",
+    "tools/parity_scale_cli",
     "tools/swarm",
     "tools/wasm_builder_cli",
     "tools/wasm_test_runner",

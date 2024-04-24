@@ -37,8 +37,8 @@ mod model {
         Eq,
         PartialOrd,
         Ord,
-        Getters,
         CopyGetters,
+        Getters,
         Decode,
         Encode,
         Deserialize,
@@ -337,12 +337,14 @@ pub mod stream {
         use super::*;
 
         /// Request sent to subscribe to blocks stream starting from the given height.
-        #[derive(Debug, Clone, Copy, Constructor, Decode, Encode, IntoSchema)]
+        #[derive(
+            Debug, Clone, Copy, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        )]
         #[repr(transparent)]
         pub struct BlockSubscriptionRequest(pub NonZeroU64);
 
         /// Message sent by the stream producer containing block.
-        #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+        #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
         #[repr(transparent)]
         pub struct BlockMessage(pub SignedBlock);
     }

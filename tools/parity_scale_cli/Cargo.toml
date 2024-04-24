@@ -1,5 +1,5 @@
 [package]
-name = "parity_scale_decoder"
+name = "parity_scale_cli"
 
 edition.workspace = true
 version.workspace = true
@@ -27,7 +27,9 @@ iroha_genesis = { workspace = true }
 clap = { workspace = true, features = ["derive", "cargo"] }
 eyre = { workspace = true }
 parity-scale-codec = { workspace = true }
-colored = "2.0.4"
+colored = "2.1.0"
+serde_json = { workspace = true, features = ["std"]}
+serde = { workspace = true }
 
 [build-dependencies]
 iroha_data_model = { workspace = true }

@@ -46,7 +46,7 @@ jobs:
         if: steps.refactor-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
-          regex: '\[fix\] #\d+(, #\d+)*: .+$'
+          regex: '^\[fix\] #\d+(, #\d+)*: .+$'
       - name: Add fix label
         uses: actions-ecosystem/action-add-labels@v1
         if: steps.fix-match.outputs.match != ''
@@ -59,7 +59,7 @@ jobs:
       - name: Documentation
         uses: actions-ecosystem/action-regex-match@v2
         id: docs-match
-        if: steps.feature-match.outputs.match == ''
+        if: steps.fix-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
           regex: '^\[documentation\]( #\d+(, #\d+)*)?: .+$'
@@ -75,7 +75,7 @@ jobs:
       - name: CI
         uses: actions-ecosystem/action-regex-match@v2
         id: ci-match
-        if: steps.feature-match.outputs.match == ''
+        if: steps.docs-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
           regex: '^\[ci\]( #\d+(, #\d+)*)?: .+$'
@@ -88,6 +88,22 @@ jobs:
           labels: |
             CI
 
+      - name: Chore
+        uses: actions-ecosystem/action-regex-match@v2
+        id: chore-match
+        if: steps.ci-match.outputs.match == ''
+        with:
+          text: ${{ github.event.pull_request.title }}
+          regex: '^\[chore\]( #\d+(, #\d+)*)?: .+$'
+      - name: Add Chore label
+        uses: actions-ecosystem/action-add-labels@v1
+        if: steps.chore-match.outputs.match != ''
+        continue-on-error: true
+        with:
+          github_token: ${{ secrets.github_token }}
+          labels: |
+            chore
+
       - name: None of the above
-        if: steps.fix-match.outputs.match == '' && steps.refactor-match.outputs.match == '' && steps.feature-match.outputs.match == '' && steps.docs-match.outputs.match == '' && steps.ci-match.outputs.match == ''
+        if: steps.fix-match.outputs.match == '' && steps.refactor-match.outputs.match == '' && steps.feature-match.outputs.match == '' && steps.docs-match.outputs.match == '' && steps.ci-match.outputs.match == '' && steps.chore-match.outputs.match == ''
         run: exit 1

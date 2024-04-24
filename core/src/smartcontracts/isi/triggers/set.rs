@@ -49,7 +49,7 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// [`WasmSmartContract`]s by [`TriggerId`].
 /// Stored together with number to count triggers with identical [`WasmSmartContract`].
-type WasmSmartContractMap = IndexMap<HashOf<WasmSmartContract>, (WasmSmartContract, NonZeroU64)>;
+type WasmSmartContractMap = IndexMap<HashOf<WasmSmartContract>, WasmSmartContractEntry>;
 
 /// Specialized structure that maps event filters to Triggers.
 // NB: `Set` has custom `Serialize` and `DeserializeSeed` implementations
@@ -66,11 +66,18 @@ pub struct Set {
     by_call_triggers: IndexMap<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
     ids: IndexMap<TriggerId, TriggeringEventType>,
-    /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
-    original_contracts: WasmSmartContractMap,
+    /// [`WasmSmartContract`]s map by hash for querying and optimization purposes.
+    contracts: WasmSmartContractMap,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: Vec<(EventBox, TriggerId)>,
+}
+
+#[derive(Debug, Clone)]
+struct WasmSmartContractEntry {
+    original_contract: WasmSmartContract,
+    compiled_contract: wasmtime::Module,
+    count: NonZeroU64,
 }
 
 /// Helper struct for serializing triggers.
@@ -113,7 +120,7 @@ impl Serialize for Set {
             time_triggers,
             by_call_triggers,
             ids,
-            original_contracts: _original_contracts,
+            contracts: _contracts,
             matched_ids: _matched_ids,
         } = &self;
         let mut set = serializer.serialize_struct("Set", 6)?;
@@ -234,7 +241,7 @@ impl Clone for Set {
             time_triggers: self.time_triggers.clone(),
             by_call_triggers: self.by_call_triggers.clone(),
             ids: self.ids.clone(),
-            original_contracts: self.original_contracts.clone(),
+            contracts: self.contracts.clone(),
             matched_ids: Vec::default(),
         }
     }
@@ -346,22 +353,37 @@ impl Set {
         let loaded_executable = match executable {
             Executable::Wasm(bytes) => {
                 let hash = HashOf::new(&bytes);
-                let loaded = LoadedExecutable::Wasm(LoadedWasm {
-                    module: wasm::load_module(engine, &bytes)?,
-                    blob_hash: hash,
-                });
                 // Store original executable representation to respond to queries with.
-                self.original_contracts
-                    .entry(hash)
-                    .and_modify(|(_, count)| {
+                let module = match self.contracts.entry(hash) {
+                    Entry::Occupied(mut occupied) => {
+                        let WasmSmartContractEntry {
+                            compiled_contract,
+                            count,
+                            ..
+                        } = occupied.get_mut();
                         // Considering 1 trigger registration takes 1 second,
                         // it would take 584 942 417 355 years to overflow.
                         *count = count.checked_add(1).expect(
                             "There is no way someone could register 2^64 amount of same triggers",
-                        )
-                    })
-                    .or_insert((bytes, NonZeroU64::MIN));
-                loaded
+                        );
+                        // Cloning module is cheap, under Arc inside
+                        compiled_contract.clone()
+                    }
+                    Entry::Vacant(vacant) => {
+                        let module = wasm::load_module(engine, &bytes)?;
+                        // Cloning module is cheap, under Arc inside
+                        vacant.insert(WasmSmartContractEntry {
+                            original_contract: bytes,
+                            compiled_contract: module.clone(),
+                            count: NonZeroU64::MIN,
+                        });
+                        module
+                    }
+                };
+                LoadedExecutable::Wasm(LoadedWasm {
+                    module,
+                    blob_hash: hash,
+                })
             }
             Executable::Instructions(instructions) => LoadedExecutable::Instructions(instructions),
         };
@@ -387,9 +409,9 @@ impl Set {
         &self,
         hash: &HashOf<WasmSmartContract>,
     ) -> Option<&WasmSmartContract> {
-        self.original_contracts
+        self.contracts
             .get(hash)
-            .map(|(contract, _)| contract)
+            .map(|entry| &entry.original_contract)
     }
 
     /// Convert [`LoadedAction`] to original [`Action`] by retrieving original
@@ -469,13 +491,13 @@ impl Set {
     /// Apply `f` to triggers that belong to the given [`DomainId`]
     ///
     /// Return an empty list if [`Set`] doesn't contain any triggers belonging to [`DomainId`].
-    pub fn inspect_by_domain_id<'a, F: 'a, R>(
+    pub fn inspect_by_domain_id<'a, F, R>(
         &'a self,
         domain_id: &DomainId,
         f: F,
     ) -> impl Iterator<Item = R> + '_
     where
-        F: Fn(&TriggerId, &dyn LoadedActionTrait) -> R,
+        F: Fn(&TriggerId, &dyn LoadedActionTrait) -> R + 'a,
     {
         let domain_id = domain_id.clone();
 
@@ -595,18 +617,16 @@ impl Set {
 
         let removed = match event_type {
             TriggeringEventType::Data => {
-                Self::remove_from(&mut self.original_contracts, &mut self.data_triggers, id)
+                Self::remove_from(&mut self.contracts, &mut self.data_triggers, id)
             }
-            TriggeringEventType::Pipeline => Self::remove_from(
-                &mut self.original_contracts,
-                &mut self.pipeline_triggers,
-                id,
-            ),
+            TriggeringEventType::Pipeline => {
+                Self::remove_from(&mut self.contracts, &mut self.pipeline_triggers, id)
+            }
             TriggeringEventType::Time => {
-                Self::remove_from(&mut self.original_contracts, &mut self.time_triggers, id)
+                Self::remove_from(&mut self.contracts, &mut self.time_triggers, id)
             }
             TriggeringEventType::ExecuteTrigger => {
-                Self::remove_from(&mut self.original_contracts, &mut self.by_call_triggers, id)
+                Self::remove_from(&mut self.contracts, &mut self.by_call_triggers, id)
             }
         };
 
@@ -651,7 +671,7 @@ impl Set {
         #[allow(clippy::option_if_let_else)] // More readable this way
         match original_contracts.entry(blob_hash) {
             Entry::Occupied(mut entry) => {
-                let count = &mut entry.get_mut().1;
+                let count = &mut entry.get_mut().count;
                 if let Some(new_count) = NonZeroU64::new(count.get() - 1) {
                     *count = new_count;
                 } else {
@@ -780,7 +800,7 @@ impl Set {
             time_triggers,
             by_call_triggers,
             ids,
-            original_contracts,
+            contracts: original_contracts,
             ..
         } = self;
         Self::remove_zeros(ids, original_contracts, data_triggers);

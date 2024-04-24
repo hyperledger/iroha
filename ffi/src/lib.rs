@@ -644,6 +644,7 @@ macro_rules! impl_tuple {
     // NOTE: This is a trick to index tuples
     ( @decl_priv_out_ptr $( $ty:ident ),+ $(,)? ) => {
         mod private_out_ptr {
+            #[allow(dead_code)]
             pub struct OutPtr<'itm, $($ty: $crate::FfiOutPtrWrite),+> {
                 $(pub $ty: &'itm mut core::mem::MaybeUninit::<$ty::OutPtr>),+
             }

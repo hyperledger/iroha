@@ -4,18 +4,16 @@
 use std::{
     fmt::{self, Debug, Formatter},
     sync::{mpsc, Arc},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
-use eyre::{Result, WrapErr as _};
+use eyre::Result;
 use iroha_config::parameters::actual::{Common as CommonConfig, Sumeragi as SumeragiConfig};
 use iroha_crypto::{KeyPair, SignatureOf};
 use iroha_data_model::{block::SignedBlock, prelude::*};
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
-use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
-use storage::storage::StorageReadOnly;
 
 use crate::{
     block::ValidBlock,
@@ -29,30 +27,14 @@ pub mod message;
 pub mod network_topology;
 pub mod view_change;
 
-use parking_lot::Mutex;
-
 use self::{message::*, view_change::ProofChain};
 use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, NetworkMessage};
-
-/*
-The values in the following struct are not atomics because the code that
-operates on them assumes their values does not change during the course of
-the function.
-*/
-#[derive(Debug)]
-struct LastUpdateMetricsData {
-    block_height: u64,
-}
 
 /// Handle to `Sumeragi` actor
 #[derive(Clone)]
 pub struct SumeragiHandle {
-    state: Arc<State>,
-    metrics: Metrics,
-    last_update_metrics_mutex: Arc<Mutex<LastUpdateMetricsData>>,
-    network: IrohaNetwork,
-    kura: Arc<Kura>,
-    queue: Arc<Queue>,
+    /// Counter for amount of dropped messages by sumeragi
+    dropped_messages_metric: iroha_telemetry::metrics::DroppedMessagesCounter,
     _thread_handle: Arc<ThreadHandler>,
     // Should be dropped after `_thread_handle` to prevent sumeargi thread from panicking
     control_message_sender: mpsc::SyncSender<ControlFlowMessage>,
@@ -60,119 +42,10 @@ pub struct SumeragiHandle {
 }
 
 impl SumeragiHandle {
-    /// Update the metrics on the world state view.
-    ///
-    /// # Errors
-    /// - Domains fail to compose
-    ///
-    /// # Panics
-    /// - If either mutex is poisoned
-    #[allow(clippy::cast_precision_loss)]
-    pub fn update_metrics(&self) -> Result<()> {
-        let online_peers_count: u64 = self
-            .network
-            .online_peers(
-                #[allow(clippy::disallowed_types)]
-                std::collections::HashSet::len,
-            )
-            .try_into()
-            .expect("casting usize to u64");
-
-        let state_view = self.state.view();
-
-        let mut last_guard = self.last_update_metrics_mutex.lock();
-
-        let start_index = last_guard.block_height;
-        {
-            let mut block_index = start_index;
-            while block_index < state_view.height() {
-                let Some(block) = self.kura.get_block_by_height(block_index + 1) else {
-                    break;
-                };
-                block_index += 1;
-                let mut block_txs_accepted = 0;
-                let mut block_txs_rejected = 0;
-                for tx in block.transactions() {
-                    if tx.error.is_none() {
-                        block_txs_accepted += 1;
-                    } else {
-                        block_txs_rejected += 1;
-                    }
-                }
-
-                self.metrics
-                    .txs
-                    .with_label_values(&["accepted"])
-                    .inc_by(block_txs_accepted);
-                self.metrics
-                    .txs
-                    .with_label_values(&["rejected"])
-                    .inc_by(block_txs_rejected);
-                self.metrics
-                    .txs
-                    .with_label_values(&["total"])
-                    .inc_by(block_txs_accepted + block_txs_rejected);
-                self.metrics.block_height.inc();
-            }
-            last_guard.block_height = block_index;
-        }
-
-        let new_tx_amounts = {
-            let mut new_buf = Vec::new();
-            core::mem::swap(&mut new_buf, &mut state_view.new_tx_amounts.lock());
-            new_buf
-        };
-
-        for amount in &new_tx_amounts {
-            self.metrics.tx_amounts.observe(*amount);
-        }
-
-        #[allow(clippy::cast_possible_truncation)]
-        if let Some(timestamp) = state_view.genesis_timestamp() {
-            let curr_time = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get the current system time");
-
-            // this will overflow in 584942417years.
-            self.metrics.uptime_since_genesis_ms.set(
-                (curr_time - timestamp)
-                    .as_millis()
-                    .try_into()
-                    .expect("Timestamp should fit into u64"),
-            )
-        };
-
-        self.metrics.connected_peers.set(online_peers_count);
-
-        self.metrics
-            .domains
-            .set(state_view.world().domains().len() as u64);
-        for domain in state_view.world().domains_iter() {
-            self.metrics
-                .accounts
-                .get_metric_with_label_values(&[domain.id().name.as_ref()])
-                .wrap_err("Failed to compose domains")?
-                .set(domain.accounts.len() as u64);
-        }
-
-        self.metrics
-            .view_changes
-            .set(state_view.latest_block_view_change_index());
-
-        self.metrics.queue_size.set(self.queue.tx_len() as u64);
-
-        Ok(())
-    }
-
-    /// Access node metrics.
-    pub fn metrics(&self) -> &Metrics {
-        &self.metrics
-    }
-
     /// Deposit a sumeragi control flow network message.
     pub fn incoming_control_flow_message(&self, msg: ControlFlowMessage) {
         if let Err(error) = self.control_message_sender.try_send(msg) {
-            self.metrics.dropped_messages.inc();
+            self.dropped_messages_metric.inc();
             error!(
                 ?error,
                 "This peer is faulty. \
@@ -184,7 +57,7 @@ impl SumeragiHandle {
     /// Deposit a sumeragi network message.
     pub fn incoming_block_message(&self, msg: BlockMessage) {
         if let Err(error) = self.message_sender.try_send(msg) {
-            self.metrics.dropped_messages.inc();
+            self.dropped_messages_metric.inc();
             error!(
                 ?error,
                 "This peer is faulty. \
@@ -195,6 +68,7 @@ impl SumeragiHandle {
 
     fn replay_block(
         chain_id: &ChainId,
+        genesis_public_key: &PublicKey,
         block: &SignedBlock,
         state_block: &mut StateBlock<'_>,
         events_sender: &EventsSender,
@@ -203,16 +77,22 @@ impl SumeragiHandle {
         // NOTE: topology need to be updated up to block's view_change_index
         current_topology.rotate_all_n(block.header().view_change_index);
 
-        let block = ValidBlock::validate(block.clone(), &current_topology, chain_id, state_block)
-            .unpack(|e| {
-                let _ = events_sender.send(e.into());
-            })
-            .expect("Kura: Invalid block")
-            .commit(&current_topology)
-            .unpack(|e| {
-                let _ = events_sender.send(e.into());
-            })
-            .expect("Kura: Invalid block");
+        let block = ValidBlock::validate(
+            block.clone(),
+            &current_topology,
+            chain_id,
+            genesis_public_key,
+            state_block,
+        )
+        .unpack(|e| {
+            let _ = events_sender.send(e.into());
+        })
+        .expect("Kura: Invalid block")
+        .commit(&current_topology)
+        .unpack(|e| {
+            let _ = events_sender.send(e.into());
+        })
+        .expect("Kura: Invalid block");
 
         if block.as_ref().header().is_genesis() {
             *state_block.world.trusted_peers_ids = block.as_ref().commit_topology().clone();
@@ -248,6 +128,11 @@ impl SumeragiHandle {
             network,
             genesis_network,
             block_count: BlockCount(block_count),
+            sumeragi_metrics:
+                SumeragiMetrics {
+                    view_changes,
+                    dropped_messages,
+                },
         }: SumeragiStartArgs,
     ) -> SumeragiHandle {
         let (control_message_sender, control_message_receiver) = mpsc::sync_channel(100);
@@ -289,6 +174,7 @@ impl SumeragiHandle {
             let mut state_block = state.block();
             current_topology = Self::replay_block(
                 &common_config.chain_id,
+                &genesis_network.public_key,
                 &block,
                 &mut state_block,
                 &events_sender,
@@ -322,6 +208,7 @@ impl SumeragiHandle {
             debug_force_soft_fork,
             current_topology,
             transaction_cache: Vec::new(),
+            view_changes_metric: view_changes,
         };
 
         // Oneshot channel to allow forcefully stopping the thread.
@@ -345,16 +232,9 @@ impl SumeragiHandle {
 
         let thread_handle = ThreadHandler::new(Box::new(shutdown), thread_handle);
         SumeragiHandle {
-            state,
-            network,
-            queue,
-            kura,
+            dropped_messages_metric: dropped_messages,
             control_message_sender,
             message_sender,
-            metrics: Metrics::default(),
-            last_update_metrics_mutex: Arc::new(Mutex::new(LastUpdateMetricsData {
-                block_height: 0,
-            })),
             _thread_handle: Arc::new(thread_handle),
         }
     }
@@ -418,6 +298,22 @@ pub struct SumeragiStartArgs {
     pub queue: Arc<Queue>,
     pub kura: Arc<Kura>,
     pub network: IrohaNetwork,
-    pub genesis_network: Option<GenesisNetwork>,
+    pub genesis_network: GenesisWithPubKey,
     pub block_count: BlockCount,
+    pub sumeragi_metrics: SumeragiMetrics,
+}
+
+/// Relevant sumeragi metrics
+pub struct SumeragiMetrics {
+    /// Number of view changes in current round
+    pub view_changes: iroha_telemetry::metrics::ViewChangesGauge,
+    /// Amount of dropped messages by sumeragi
+    pub dropped_messages: iroha_telemetry::metrics::DroppedMessagesCounter,
+}
+
+/// Optional genesis paired with genesis public key for verification
+#[allow(missing_docs)]
+pub struct GenesisWithPubKey {
+    pub genesis: Option<GenesisNetwork>,
+    pub public_key: PublicKey,
 }

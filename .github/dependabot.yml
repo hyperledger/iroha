@@ -2,31 +2,41 @@ version: 2
 
 updates:
   - package-ecosystem: "docker"
-    target-branch: "iroha2-dev"
+    target-branch: "main"
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "[chore]"
 
   - package-ecosystem: "github-actions"
-    target-branch: "iroha2-dev"
+    target-branch: "main"
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "[chore]"
 
   - package-ecosystem: "pip"
-    target-branch: "iroha2-dev"
+    target-branch: "main"
     directory: "/client_cli/pytests/"
     schedule:
       interval: "daily"
+    commit-message:
+      prefix: "[chore]"
 
   - package-ecosystem: "cargo"
-    target-branch: "iroha2-dev"
+    target-branch: "main"
     directory: "/"
     schedule:
       interval: "daily"
+    commit-message:
+      prefix: "[chore]"
 
   - package-ecosystem: "cargo"
-    target-branch: "iroha2-dev"
-    directory: "/default_validator/"
+    target-branch: "main"
+    directory: "/default_executor/"
     schedule:
       interval: "daily"
+    commit-message:
+      prefix: "[chore]"

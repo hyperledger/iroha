@@ -13,7 +13,7 @@ Documentation for Iroha 2 tools:
 
 - [Kagami](../tools/kagami/README.md)
 - [Kura Inspector](../tools/kura_inspector/README.md)
-- [Parity Scale Decoder Tool](../tools/parity_scale_decoder/README.md)
+- [Parity Scale Decoder Tool](../tools/parity_scale_cli/README.md)
 
 ## Development
 

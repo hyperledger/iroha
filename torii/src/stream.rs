@@ -26,7 +26,7 @@ where
     SendTimeout,
     /// An empty message was received
     NoMessage,
-    /// Error in internal stream representation (typically WebSocket)
+    /// Error in internal stream representation (typically `WebSocket`)
     ///
     /// Made without `from` macro because it will break `IrohaVersion` variant conversion
     InternalStream(#[source] InternalStreamError),

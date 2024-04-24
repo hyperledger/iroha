@@ -119,7 +119,16 @@ pub mod isi {
         ) -> Result<(), Error> {
             let domain_id = self.object_id;
 
+            let triggers_in_domain = state_transaction
+                .world()
+                .triggers()
+                .inspect_by_domain_id(&domain_id, |trigger_id, _| trigger_id.clone())
+                .collect::<Vec<_>>();
+
             let world = &mut state_transaction.world;
+            for trigger_id in &triggers_in_domain {
+                assert!(world.triggers.remove(trigger_id));
+            }
             if world.domains.remove(domain_id.clone()).is_none() {
                 return Err(FindError::Domain(domain_id).into());
             }

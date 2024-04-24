@@ -14,7 +14,7 @@ use eyre::{bail, eyre, Context as _, Result};
 use path_absolutize::Absolutize;
 
 /// Current toolchain used to build smartcontracts
-const TOOLCHAIN: &str = "+nightly-2024-01-12";
+const TOOLCHAIN: &str = "+nightly-2024-04-18";
 
 /// WASM Builder for smartcontracts (e.g. triggers and executors).
 ///

@@ -1,6 +1,7 @@
 use clap::{builder::PossibleValue, ArgGroup, ValueEnum};
 use color_eyre::eyre::WrapErr as _;
-use iroha_crypto::{Algorithm, KeyPair, PrivateKey};
+use iroha_crypto::{Algorithm, ExposedPrivateKey, KeyPair, PrivateKey};
+use serde::Serialize;
 
 use super::*;
 
@@ -50,18 +51,29 @@ impl ValueEnum for AlgorithmArg {
 
 impl<T: Write> RunArgs<T> for Args {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-        if self.json {
-            let key_pair = self.key_pair()?;
-            let output =
-                serde_json::to_string_pretty(&key_pair).wrap_err("Failed to serialise to JSON.")?;
+        let json = self.json;
+        let compact = self.compact;
+        let key_pair = self.key_pair()?;
+        let exposed_private_key = ExposedPrivateKey(key_pair.private_key().clone());
+
+        if json {
+            #[derive(Serialize)]
+            pub struct ExposedKeyPair<'a> {
+                public_key: &'a PublicKey,
+                private_key: ExposedPrivateKey,
+            }
+            let exposed_key_pair = ExposedKeyPair {
+                public_key: key_pair.public_key(),
+                private_key: exposed_private_key,
+            };
+            let output = serde_json::to_string_pretty(&exposed_key_pair)
+                .wrap_err("Failed to serialise to JSON.")?;
             writeln!(writer, "{output}")?;
-        } else if self.compact {
-            let key_pair = self.key_pair()?;
+        } else if compact {
             writeln!(writer, "{}", &key_pair.public_key())?;
-            writeln!(writer, "{}", &key_pair.private_key())?;
+            writeln!(writer, "{}", &exposed_private_key)?;
             writeln!(writer, "{}", &key_pair.public_key().algorithm())?;
         } else {
-            let key_pair = self.key_pair()?;
             writeln!(
                 writer,
                 "Public key (multihash): \"{}\"",
@@ -71,7 +83,7 @@ impl<T: Write> RunArgs<T> for Args {
                 writer,
                 "Private key ({}): \"{}\"",
                 &key_pair.public_key().algorithm(),
-                &key_pair.private_key()
+                exposed_private_key
             )?;
         }
         Ok(())

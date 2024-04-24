@@ -6,11 +6,12 @@ use std::collections::VecDeque;
 
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 use crate::{Hash, HashOf};
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate `T`
-#[derive(Debug, TypeId, Decode, Encode)]
+#[derive(Debug, TypeId, Decode, Encode, Deserialize, Serialize)]
 #[repr(transparent)]
 pub struct MerkleTree<T>(Vec<Option<HashOf<T>>>);
 

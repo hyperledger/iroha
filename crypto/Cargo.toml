@@ -56,33 +56,33 @@ serde_with = { workspace = true, features = ["macros", "hex"] }
 hex = { workspace = true, features = ["alloc", "serde"] }
 getset = { workspace = true }
 
-thiserror = { version = "1.0.50", optional = true }
+thiserror = { version = "1.0.59", optional = true }
 displaydoc = { version = "0.2.4", default-features = false }
 
 digest = { version = "0.10.7", default-features = false, features = ["alloc"] }
 blake2 = { version = "0.10.6", default-features = false }
 sha2 = { version = "0.10.8", default-features = false }
-hkdf = { version = "0.12.3", default-features = false }
+hkdf = { version = "0.12.4", default-features = false }
 w3f-bls = { version = "0.1.3", default-features = false }
 
-signature = { version = "2.1.0", default-features = false, features = ["alloc"] }
-ed25519-dalek = { version = "2.1.0", default-features = false, features = ["alloc", "rand_core", "zeroize"] }
-curve25519-dalek = { version = "4.1.1", default-features = false }
-x25519-dalek = { version = "2.0.0", default-features = false, features = ["static_secrets"] }
+signature = { version = "2.2.0", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "2.1.1", default-features = false, features = ["alloc", "rand_core", "zeroize"] }
+curve25519-dalek = { version = "4.1.2", default-features = false }
+x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets"] }
 
 rand = { workspace = true, default-features = false, features = ["std_rng", "alloc"] }
 rand_core = { version = "0.6.4", default-features = false, features = ["alloc"] }
 rand_chacha = { version = "0.3.1", default-features = false }
 
 
-zeroize = { version = "1.6.0", default-features = false }
+zeroize = { version = "1.7.0", default-features = false }
 arrayref = { version = "0.3.7", default-features = false }
 
 aead = { version = "0.5.2", default-features = false, features = ["alloc"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false }
 
-elliptic-curve = { version = "0.13.6", default-features = false }
-k256 = { version = "0.13.1", default-features = false, features = ["alloc", "ecdsa", "sha256"] }
+elliptic-curve = { version = "0.13.8", default-features = false }
+k256 = { version = "0.13.3", default-features = false, features = ["alloc", "ecdsa", "sha256"] }
 
 [dev-dependencies]
 hex-literal = { workspace = true }
@@ -91,6 +91,6 @@ serde_json = { workspace = true, features = ["std"] }
 # these crypto libraries are not used to implement actual crypto algorithms
 # but to test some of the primitives against them
 amcl = { version = "0.2.0", default-features = false, features = ["secp256k1"] }
-secp256k1 = { version = "0.28.0", features = ["rand", "serde"] }
-libsodium-sys-stable = "1.20.3"
-openssl = { version = "0.10.59", features = ["vendored"] }
+secp256k1 = { version = "0.29.0", features = ["rand", "serde"] }
+libsodium-sys-stable = "1.20.5"
+openssl = { version = "0.10.64", features = ["vendored"] }

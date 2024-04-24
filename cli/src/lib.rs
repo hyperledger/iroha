@@ -11,6 +11,8 @@ use std::{path::PathBuf, sync::Arc};
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use iroha_config::parameters::{actual::Root as Config, user::CliContext};
+#[cfg(feature = "telemetry")]
+use iroha_core::metrics::MetricsReporter;
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
@@ -24,7 +26,7 @@ use iroha_core::{
         try_read_snapshot, SnapshotMaker, SnapshotMakerHandle, TryReadError as TryReadSnapshotError,
     },
     state::{State, StateReadOnly, World},
-    sumeragi::{SumeragiHandle, SumeragiStartArgs},
+    sumeragi::{GenesisWithPubKey, SumeragiHandle, SumeragiMetrics, SumeragiStartArgs},
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
@@ -214,6 +216,7 @@ impl Iroha {
         );
 
         let kura = Kura::new(&config.kura)?;
+        let kura_thread_handler = Kura::start(Arc::clone(&kura));
         let live_query_store_handle = LiveQueryStore::from_config(config.live_query_store).start();
 
         let block_count = kura.init()?;
@@ -254,7 +257,13 @@ impl Iroha {
         #[cfg(feature = "telemetry")]
         Self::start_telemetry(&logger, &config).await?;
 
-        let kura_thread_handler = Kura::start(Arc::clone(&kura));
+        #[cfg(feature = "telemetry")]
+        let metrics_reporter = MetricsReporter::new(
+            Arc::clone(&state),
+            network.clone(),
+            kura.clone(),
+            queue.clone(),
+        );
 
         let start_args = SumeragiStartArgs {
             sumeragi_config: config.sumeragi.clone(),
@@ -264,8 +273,15 @@ impl Iroha {
             queue: Arc::clone(&queue),
             kura: Arc::clone(&kura),
             network: network.clone(),
-            genesis_network: genesis,
+            genesis_network: GenesisWithPubKey {
+                genesis,
+                public_key: config.genesis.public_key().clone(),
+            },
             block_count,
+            sumeragi_metrics: SumeragiMetrics {
+                dropped_messages: metrics_reporter.metrics().dropped_messages.clone(),
+                view_changes: metrics_reporter.metrics().view_changes.clone(),
+            },
         };
         // Starting Sumeragi requires no async context enabled
         let sumeragi = tokio::task::spawn_blocking(move || SumeragiHandle::start(start_args))
@@ -319,11 +335,11 @@ impl Iroha {
             Arc::clone(&queue),
             events_sender,
             Arc::clone(&notify_shutdown),
-            #[cfg(feature = "telemetry")]
-            sumeragi.clone(),
             live_query_store_handle,
             Arc::clone(&kura),
             Arc::clone(&state),
+            #[cfg(feature = "telemetry")]
+            metrics_reporter,
         );
 
         Self::spawn_config_updates_broadcasting(kiso.clone(), logger.clone());
@@ -651,6 +667,20 @@ mod tests {
             base
         }
 
+        fn config_to_toml_value(config: PartialUserConfig) -> Result<toml::Value> {
+            use iroha_crypto::ExposedPrivateKey;
+            let private_key = config.private_key.as_ref().unwrap().clone();
+            let genesis_private_key = config.genesis.private_key.as_ref().unwrap().clone();
+            let mut result = toml::Value::try_from(config)?;
+
+            // private key will be serialized as "[REDACTED PrivateKey]" so need to restore it
+            result["private_key"] = toml::Value::try_from(ExposedPrivateKey(private_key))?;
+            result["genesis"]["private_key"] =
+                toml::Value::try_from(ExposedPrivateKey(genesis_private_key))?;
+
+            Ok(result)
+        }
+
         #[test]
         fn relative_file_paths_resolution() -> Result<()> {
             // Given
@@ -692,7 +722,7 @@ mod tests {
                 cfg.kura.store_dir.set("../storage".into());
                 cfg.snapshot.store_dir.set("../snapshots".into());
                 cfg.dev_telemetry.out_file.set("../logs/telemetry".into());
-                toml::Value::try_from(cfg)?
+                config_to_toml_value(cfg)?
             };
 
             std::fs::write(config_path, toml::to_string(&config)?)?;
@@ -743,7 +773,7 @@ mod tests {
             let config = {
                 let mut cfg = config_factory();
                 cfg.genesis.file.set("./genesis.json".into());
-                toml::Value::try_from(cfg)?
+                config_to_toml_value(cfg)?
             };
 
             let dir = tempfile::tempdir()?;

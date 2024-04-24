@@ -63,9 +63,7 @@ fn minimal_config_snapshot() -> Result<()> {
                             "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
                         ),
                     ),
-                    private_key: ed25519(
-                        "8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
-                    ),
+                    private_key: "[REDACTED PrivateKey]",
                 },
                 peer_id: PeerId {
                     address: 127.0.0.1:1337,
@@ -320,9 +318,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 ),
             ),
             private_key: Some(
-                ed25519(
-                    "8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
-                ),
+                "[REDACTED PrivateKey]",
             ),
             genesis: GenesisPartial {
                 public_key: Some(

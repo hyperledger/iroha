@@ -585,6 +585,12 @@ impl<'a> Iterator for ExtendsPathsIter<'a> {
 mod tests {
     use super::*;
 
+    impl ExtendsPaths {
+        fn as_str_vec(&self) -> Vec<&str> {
+            self.iter().map(|p| p.to_str().unwrap()).collect()
+        }
+    }
+
     #[test]
     fn single_missing_field() {
         let mut emitter: Emitter<MissingFieldError> = Emitter::new();
@@ -670,12 +676,6 @@ mod tests {
 
     #[test]
     fn iterating_over_extends() {
-        impl ExtendsPaths {
-            fn as_str_vec(&self) -> Vec<&str> {
-                self.iter().map(|p| p.to_str().unwrap()).collect()
-            }
-        }
-
         let single = ExtendsPaths::Single("single".into());
         assert_eq!(single.as_str_vec(), vec!["single"]);
 

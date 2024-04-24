@@ -217,9 +217,6 @@ pub fn wrap_as_opaque(emitter: &mut Emitter, mut input: FfiTypeInput) -> TokenSt
     let ref_mut_name = gen_ref_mut_name(name);
     let impl_ffi = gen_impl_ffi(name, &input.generics);
 
-    let ref_inner = quote!(*const iroha_ffi::Extern);
-    let ref_mut_inner = quote!(*mut iroha_ffi::Extern);
-
     let shared_fns = gen_shared_fns(emitter, &input);
     // TODO: which attributes do we need to keep?
     // in darling there is mechanism to forwards attrs, but it needs to be an whitelist
@@ -235,11 +232,11 @@ pub fn wrap_as_opaque(emitter: &mut Emitter, mut input: FfiTypeInput) -> TokenSt
         #(#attrs)*
         #[derive(Clone, Copy)]
         #[repr(transparent)]
-        #vis struct #ref_name #ref_ty_generics (#ref_inner, core::marker::PhantomData<&#lifetime ()> #(#phantom_data_type_defs)*) #handle_bounded_where_clause;
+        #vis struct #ref_name #ref_ty_generics (*const iroha_ffi::Extern, core::marker::PhantomData<&#lifetime ()> #(#phantom_data_type_defs)*) #handle_bounded_where_clause;
 
         #(#attrs)*
         #[repr(transparent)]
-        #vis struct #ref_mut_name #ref_ty_generics(#ref_mut_inner, core::marker::PhantomData<&#lifetime mut ()> #(#phantom_data_type_defs)*) #handle_bounded_where_clause;
+        #vis struct #ref_mut_name #ref_ty_generics(*mut iroha_ffi::Extern, core::marker::PhantomData<&#lifetime mut ()> #(#phantom_data_type_defs)*) #handle_bounded_where_clause;
 
         impl #impl_generics Drop for #name #ty_generics #handle_bounded_where_clause {
             fn drop(&mut self) {
@@ -270,7 +267,7 @@ pub fn wrap_as_opaque(emitter: &mut Emitter, mut input: FfiTypeInput) -> TokenSt
             type Target = #name #ty_generics;
 
             fn deref(&self) -> &Self::Target {
-                unsafe {&*(&self.0 as *const #ref_inner).cast()}
+                unsafe {&*(&self.0 as *const *const iroha_ffi::Extern).cast()}
             }
         }
 
@@ -278,13 +275,13 @@ pub fn wrap_as_opaque(emitter: &mut Emitter, mut input: FfiTypeInput) -> TokenSt
             type Target = #ref_name #ref_ty_generics;
 
             fn deref(&self) -> &Self::Target {
-                unsafe {&*(&self.0 as *const #ref_mut_inner).cast()}
+                unsafe {&*(&self.0 as *const *mut iroha_ffi::Extern).cast()}
             }
         }
 
         impl #ref_impl_generics core::ops::DerefMut for #ref_mut_name #ref_ty_generics #handle_bounded_where_clause {
             fn deref_mut(&mut self) -> &mut Self::Target {
-                unsafe {&mut *(&mut self.0 as *mut #ref_mut_inner).cast()}
+                unsafe {&mut *(&mut self.0 as *mut *mut iroha_ffi::Extern).cast()}
             }
         }
 
@@ -299,8 +296,6 @@ fn gen_impl_ffi(name: &Ident, generics: &syn::Generics) -> TokenStream {
 
     let ref_name = gen_ref_name(name);
     let ref_mut_name = gen_ref_mut_name(name);
-    let ref_inner = quote!(*const iroha_ffi::Extern);
-    let ref_mut_inner = quote!(*mut iroha_ffi::Extern);
 
     let lifetime = gen_lifetime_name_for_opaque();
     ref_generics.params.push(parse_quote!(#lifetime));
@@ -320,10 +315,10 @@ fn gen_impl_ffi(name: &Ident, generics: &syn::Generics) -> TokenStream {
             type RefType<#lifetime> = #ref_name #ref_ty_generics;
             type RefMutType<#lifetime> = #ref_mut_name #ref_ty_generics;
 
-            fn as_extern_ptr(&self) -> #ref_inner {
+            fn as_extern_ptr(&self) -> *const iroha_ffi::Extern {
                 self.0
             }
-            fn as_extern_ptr_mut(&mut self) -> #ref_mut_inner {
+            fn as_extern_ptr_mut(&mut self) -> *mut iroha_ffi::Extern {
                 self.0
             }
             unsafe fn from_extern_ptr(opaque_ptr: *mut iroha_ffi::Extern) -> Self {
@@ -394,7 +389,7 @@ fn gen_impl_ffi(name: &Ident, generics: &syn::Generics) -> TokenStream {
 
         iroha_ffi::ffi_type! {
             unsafe impl<#lifetime #(, #split_impl_generics)*> Transparent for #ref_name #ref_ty_generics #where_clause {
-                type Target = #ref_inner;
+                type Target = *const iroha_ffi::Extern;
 
                 validation_fn=unsafe {|target: &*const iroha_ffi::Extern| !target.is_null()},
                 niche_value=core::ptr::null()
@@ -402,7 +397,7 @@ fn gen_impl_ffi(name: &Ident, generics: &syn::Generics) -> TokenStream {
         }
         iroha_ffi::ffi_type! {
             unsafe impl <#lifetime #(, #split_impl_generics)*> Transparent for #ref_mut_name #ref_ty_generics #where_clause {
-                type Target = #ref_mut_inner;
+                type Target = *mut iroha_ffi::Extern;
 
                 validation_fn=unsafe {|target: &*mut iroha_ffi::Extern| !target.is_null()},
                 niche_value=core::ptr::null_mut()

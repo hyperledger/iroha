@@ -23,7 +23,7 @@ use iroha_crypto::PublicKey;
 use iroha_data_model_derive::{model, EnumRef, IdEqOrdHash};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
-use iroha_version::{declare_versioned_with_scale, version_with_scale};
+use iroha_version::{declare_versioned, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use prelude::Executable;
 use serde::{Deserialize, Serialize};
@@ -1024,7 +1024,10 @@ impl From<LengthLimits> for RangeInclusive<u32> {
     }
 }
 
-declare_versioned_with_scale!(BatchedResponse<T> 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+declare_versioned!(
+    BatchedResponse<T: serde::Serialize + for<'de> serde::Deserialize<'de>> 1..2,
+    Debug, Clone, iroha_macro::FromVariant, IntoSchema
+);
 
 impl<T> From<BatchedResponse<T>> for (T, crate::query::cursor::ForwardCursor) {
     fn from(source: BatchedResponse<T>) -> Self {

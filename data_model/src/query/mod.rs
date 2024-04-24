@@ -1154,7 +1154,7 @@ pub mod http {
     use super::*;
     use crate::account::AccountId;
 
-    declare_versioned_with_scale!(SignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+    declare_versioned!(SignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
     #[model]
     mod model {
