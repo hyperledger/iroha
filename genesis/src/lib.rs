@@ -420,7 +420,7 @@ impl<S> RawGenesisBlockBuilder<S> {
 
     /// Add instruction to the end of genesis transaction
     pub fn append_instruction(mut self, instruction: impl Into<InstructionBox>) -> Self {
-        self.transaction.append_instruction(instruction.into());
+        self.transaction.push_instruction(instruction.into());
         self
     }
 }
