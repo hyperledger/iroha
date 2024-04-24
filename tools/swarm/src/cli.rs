@@ -10,6 +10,12 @@ pub struct Cli {
     /// The Unicode `seed` string for deterministic key-generation.
     #[arg(long, short)]
     pub seed: Option<String>,
+    /// Explicit keypair in json format. Takes precedence over seed parameter.
+    #[arg(long)]
+    pub key_pair: Option<String>,
+    /// Genesis signature. Should be set with --key-pair.
+    #[arg(long, requires = "key_pair")]
+    pub signature: Option<String>,
     /// Includes a health check configuration to each service in the Docker Compose output.
     ///
     /// The health checks use predefined settings.

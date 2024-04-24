@@ -96,7 +96,7 @@ impl FromStr for GenesisSignature {
     type Err = GenesisSignatureParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(GenesisSignature::from_hex_string(&s.as_bytes())?)
+        GenesisSignature::from_hex_string(&s.as_bytes())
     }
 }
 

@@ -15,6 +15,7 @@ use crate::{cli::SourceParsed, compose::ResolvedImageSource};
 fn main() -> Result<()> {
     color_eyre::install()?;
 
+    #[allow(unused_variables)]
     let Cli {
         peers,
         seed,
@@ -24,6 +25,8 @@ fn main() -> Result<()> {
         out_file: target_file_raw,
         config_dir: config_dir_raw,
         health_check,
+        key_pair,
+        signature,
     } = Cli::parse();
 
     let seed = seed.map(String::into_bytes);
@@ -54,6 +57,8 @@ fn main() -> Result<()> {
         peers,
         seed,
         health_check,
+        key_pair,
+        signature,
     }
     .build_and_write(banner_enabled)?;
 

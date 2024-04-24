@@ -164,13 +164,10 @@ impl DockerComposeServiceBuilder {
             PairColon(peer.port_api, peer.port_api),
         ];
 
-        let (command, genesis_signature) = if genesis_signature.is_some() {
-            (
-                ServiceCommand::SubmitGenesis,
-                Some(generate_hex_string_signature(&chain_id, &peer.key_pair)),
-            )
+        let command = if genesis_signature.is_some() {
+            ServiceCommand::SubmitGenesis
         } else {
-            (ServiceCommand::None, None)
+            ServiceCommand::None
         };
 
         let compact_env = CompactPeerEnv {
@@ -367,6 +364,9 @@ pub struct DockerComposeBuilder<'a> {
     pub peers: NonZeroU16,
     /// Crypto seed to use for keys generation
     pub seed: Option<&'a [u8]>,
+    /// Keypair that takes precedence over seed if present
+    pub key_pair: Option<String>,
+    pub signature: Option<String>,
     pub health_check: bool,
 }
 
@@ -382,7 +382,12 @@ impl DockerComposeBuilder<'_> {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let peers = peer_generator::generate_peers(self.peers, self.seed)
             .wrap_err("Failed to generate peers")?;
-        let genesis_key_pair = generate_key_pair(self.seed, GENESIS_KEYPAIR_SEED);
+
+        let genesis_key_pair = self.key_pair.clone().map_or(
+            Ok(generate_key_pair(self.seed, GENESIS_KEYPAIR_SEED)),
+            |json_key| serde_json::from_str(json_key.as_str()).map_err(|e| eyre!(e.to_string())),
+        )?;
+
         let service_source = match &self.image_source {
             ResolvedImageSource::Build { path } => {
                 ServiceSource::Build(path.relative_to(target_file_dir)?)
@@ -402,6 +407,11 @@ impl DockerComposeBuilder<'_> {
 
         let mut peers_iter = peers.iter();
 
+        let signature = self.signature.clone().map_or(
+            generate_hex_string_signature(&chain_id, &genesis_key_pair),
+            |sign| sign,
+        );
+
         let first_peer_service = {
             let (name, peer) = peers_iter.next().expect("There is non-zero count of peers");
             let service = DockerComposeServiceBuilder::new(
@@ -418,7 +428,7 @@ impl DockerComposeBuilder<'_> {
                 genesis_key_pair.public_key().clone(),
                 None,
             )
-            .submit_genesis_with(generate_hex_string_signature(&chain_id, &genesis_key_pair))
+            .submit_genesis_with(signature)
             .set_health_check(self.health_check)
             .build();
 
@@ -781,6 +791,8 @@ mod tests {
             },
             seed,
             health_check: true,
+            key_pair: None,
+            signature: None,
         }
         .build()
         .expect("should build with no errors");
