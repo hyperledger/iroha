@@ -114,6 +114,39 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
 }
 
 #[test]
+fn executor_upgrade_add_parameter() -> Result<()> {
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_170).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    upgrade_executor(
+        &client,
+        "tests/integration/smartcontracts/executor_add_parameter",
+    )?;
+
+    let domain_id = "test_domain".parse()?;
+    client.submit_blocking(Register::domain(Domain::new(domain_id)))?;
+
+    let account_id1 = "account1@test_domain".parse()?;
+    let (public_key1, _) = KeyPair::random().into_parts();
+
+    let account_id2 = "account2@test_domain".parse()?;
+    let (public_key2, _) = KeyPair::random().into_parts();
+    client.submit_blocking(Register::account(Account::new(account_id1, public_key1)))?;
+
+    // limit is 1, can't register second account
+    let register2 = Register::account(Account::new(account_id2, public_key2));
+    assert!(client.submit_blocking(register2.clone()).is_err());
+
+    let parameter = Parameter::from_str("?max_accounts_per_domain=10")?;
+    client.submit_blocking(SetParameter::new(parameter))?;
+
+    // limit was set to 10, second account can be registered
+    assert!(client.submit_blocking(register2).is_ok());
+
+    Ok(())
+}
+
+#[test]
 fn migration_fail_should_not_cause_any_effects() {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_995).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);

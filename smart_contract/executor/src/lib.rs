@@ -94,6 +94,24 @@ pub fn set_permission_token_schema(schema: &data_model::permission::PermissionTo
     unsafe { encode_and_execute(&schema, host::set_permission_token_schema) }
 }
 
+/// Add new [`Parameter`].
+///
+/// # Errors
+///
+/// - If parameter with same id already exists
+///
+/// # Traps
+///
+/// Host side will generate a trap if this function was not called from a
+/// executor's `migrate()` entrypoint.
+#[cfg(not(test))]
+pub fn add_parameter(parameter: &Parameter) -> Result<(), alloc::string::String> {
+    // Safety: - ownership of the returned result is transferred into `_decode_from_raw`
+    unsafe {
+        decode_with_length_prefix_from_raw(encode_and_execute(parameter, host::add_parameter))
+    }
+}
+
 #[cfg(not(test))]
 mod host {
     #[link(wasm_import_module = "iroha")]
@@ -128,6 +146,9 @@ mod host {
 
         /// Set new [`PermissionTokenSchema`].
         pub(super) fn set_permission_token_schema(ptr: *const u8, len: usize);
+
+        /// Add new [`Parameter`]
+        pub(super) fn add_parameter(ptr: *const u8, len: usize) -> *const u8;
     }
 }
 

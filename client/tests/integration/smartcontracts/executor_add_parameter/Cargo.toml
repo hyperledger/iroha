@@ -1,0 +1,24 @@
+[package]
+name = "executor_add_parameter"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_executor.workspace = true
+iroha_schema.workspace = true
+
+parity-scale-codec.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+
+panic-halt.workspace = true
+lol_alloc.workspace = true
+getrandom.workspace = true
