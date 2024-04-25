@@ -1062,12 +1062,11 @@ impl<'slice, R: Clone> CTypeConvert<'slice, &'slice [Opaque], RefSlice<*const R>
         *store = source
             .iter()
             .map(|item| {
-                item
-                        .as_ref()
-                        // NOTE: This function clones every opaque pointer in the slice. This could
-                        // be avoided with the entire slice being opaque, if that even makes sense.
-                        .cloned()
-                        .ok_or(FfiReturn::ArgIsNull)
+                item.as_ref()
+                    // NOTE: This function clones every opaque pointer in the slice. This could
+                    // be avoided with the entire slice being opaque, if that even makes sense.
+                    .cloned()
+                    .ok_or(FfiReturn::ArgIsNull)
             })
             .collect::<core::result::Result<_, _>>()?;
 
@@ -1109,12 +1108,11 @@ impl<'slice, R: Clone> CTypeConvert<'slice, &mut [Opaque], RefMutSlice<*mut R>>
         *store = source
             .iter()
             .map(|item| {
-                item
-                        .as_mut()
-                        // NOTE: This function clones every opaque pointer in the slice. This could
-                        // be avoided with the entire slice being opaque, if that even makes sense.
-                        .cloned()
-                        .ok_or(FfiReturn::ArgIsNull)
+                item.as_mut()
+                    // NOTE: This function clones every opaque pointer in the slice. This could
+                    // be avoided with the entire slice being opaque, if that even makes sense.
+                    .cloned()
+                    .ok_or(FfiReturn::ArgIsNull)
             })
             .collect::<core::result::Result<_, _>>()?;
 

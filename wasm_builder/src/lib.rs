@@ -21,8 +21,8 @@ const TOOLCHAIN: &str = "+nightly-2024-04-18";
 /// # Example
 ///
 /// ```no_run
-/// use iroha_wasm_builder::Builder;
 /// use eyre::Result;
+/// use iroha_wasm_builder::Builder;
 ///
 /// fn main() -> Result<()> {
 ///     let bytes = Builder::new("relative/path/to/smartcontract/")
@@ -372,9 +372,7 @@ fn cargo_command() -> Command {
         // when running with `-C instrument-coverage`
         // TODO: Check if there are no problems with that
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
-        .args([
-            TOOLCHAIN,
-        ]);
+        .args([TOOLCHAIN]);
     cargo
 }
 

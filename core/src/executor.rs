@@ -156,9 +156,9 @@ impl Executor {
             Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateTransaction>::new()
-                    .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                    .with_config(state_transaction.config.executor_runtime)
-                    .build()?;
+                        .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+                        .with_config(state_transaction.config.executor_runtime)
+                        .build()?;
 
                 runtime.execute_executor_validate_transaction(
                     state_transaction,
@@ -192,9 +192,9 @@ impl Executor {
             Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateInstruction>::new()
-                    .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                    .with_config(state_transaction.config.executor_runtime)
-                    .build()?;
+                        .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+                        .with_config(state_transaction.config.executor_runtime)
+                        .build()?;
 
                 runtime.execute_executor_validate_instruction(
                     state_transaction,
@@ -224,10 +224,11 @@ impl Executor {
         match self {
             Self::Initial => Ok(()),
             Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
-                let runtime = wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery<S>>::new()
-                    .with_engine(state_ro.engine().clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                    .with_config(state_ro.config().executor_runtime)
-                    .build()?;
+                let runtime =
+                    wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery<S>>::new()
+                        .with_engine(state_ro.engine().clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+                        .with_config(state_ro.config().executor_runtime)
+                        .build()?;
 
                 runtime.execute_executor_validate_query(
                     state_ro,

@@ -370,17 +370,22 @@ mod valid {
         ) -> Result<(), TransactionValidationError> {
             let is_genesis = block.header().is_genesis();
 
-            block.transactions()
+            block
+                .transactions()
                 // TODO: Unnecessary clone?
                 .cloned()
-                .try_for_each(|TransactionValue{value, error}| {
+                .try_for_each(|TransactionValue { value, error }| {
                     let transaction_executor = state_block.transaction_executor();
                     let limits = &transaction_executor.transaction_limits;
 
                     let tx = if is_genesis {
-                            AcceptedTransaction::accept_genesis(GenesisTransaction(value), expected_chain_id, genesis_public_key)
+                        AcceptedTransaction::accept_genesis(
+                            GenesisTransaction(value),
+                            expected_chain_id,
+                            genesis_public_key,
+                        )
                     } else {
-                            AcceptedTransaction::accept(value, expected_chain_id, limits)
+                        AcceptedTransaction::accept(value, expected_chain_id, limits)
                     }?;
 
                     if error.is_some() {
@@ -389,9 +394,9 @@ mod valid {
                             Ok(_) => Err(TransactionValidationError::RejectedIsValid),
                         }?;
                     } else {
-                        transaction_executor.validate(tx, state_block).map_err(|(_tx, error)| {
-                            TransactionValidationError::NotValid(error)
-                        })?;
+                        transaction_executor
+                            .validate(tx, state_block)
+                            .map_err(|(_tx, error)| TransactionValidationError::NotValid(error))?;
                     }
 
                     Ok(())

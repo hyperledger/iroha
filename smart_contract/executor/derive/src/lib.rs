@@ -324,7 +324,6 @@ pub fn derive_visit(input: TokenStream) -> TokenStream {
 ///    block_height: u64,
 ///    host: smart_contract::Host,
 /// }
-///
 /// ```
 #[manyhow]
 #[proc_macro_derive(ValidateEntrypoints, attributes(entrypoints))]

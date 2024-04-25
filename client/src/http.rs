@@ -95,10 +95,7 @@ pub mod ws {
     /// ```rust
     /// use eyre::{eyre, Result};
     /// use iroha_client::http::{
-    ///     ws::conn_flow::{
-    ///         Events as FlowEvents, Init as FlowInit,
-    ///         InitData,
-    ///     },
+    ///     ws::conn_flow::{Events as FlowEvents, Init as FlowInit, InitData},
     ///     Method, RequestBuilder,
     /// };
     ///
@@ -109,7 +106,12 @@ pub mod ws {
     ///
     ///     fn init(self) -> InitData<R, Self::Next> {
     ///         InitData::new(
-    ///             R::new(Method::GET, "http://localhost:3000".parse().expect("`localhost` is a valid URL, port `3000` is sensible, `http` is supported")),
+    ///             R::new(
+    ///                 Method::GET,
+    ///                 "http://localhost:3000".parse().expect(
+    ///                     "`localhost` is a valid URL, port `3000` is sensible, `http` is supported",
+    ///                 ),
+    ///             ),
     ///             vec![1, 2, 3],
     ///             Events,
     ///         )
@@ -139,39 +141,38 @@ pub mod ws {
     ///
     /// ```rust
     /// use eyre::Result;
-    /// use url::Url;
     /// use iroha_client::{
-    ///     data_model::prelude::EventBox,
     ///     client::events_api::flow as events_api_flow,
+    ///     data_model::prelude::EventBox,
     ///     http::{
     ///         ws::conn_flow::{Events, Init, InitData},
-    ///         RequestBuilder, Method
+    ///         Method, RequestBuilder,
     ///     },
     /// };
+    /// use url::Url;
     ///
     /// // Some request builder
     /// struct MyBuilder;
     ///
     /// impl RequestBuilder for MyBuilder {
     ///     fn new(_: Method, url: Url) -> Self {
-    ///          todo!()
+    ///         todo!()
     ///     }
     ///
-    ///     fn param<K: AsRef<str>, V: ?Sized + ToString>(self, _: K, _: &V) -> Self  {
-    ///          todo!()
+    ///     fn param<K: AsRef<str>, V: ?Sized + ToString>(self, _: K, _: &V) -> Self {
+    ///         todo!()
     ///     }
     ///
     ///     fn header<N: AsRef<str>, V: ?Sized + ToString>(self, _: N, _: &V) -> Self {
-    ///          todo!()
+    ///         todo!()
     ///     }
     ///
     ///     fn body(self, data: Vec<u8>) -> Self {
-    ///          todo!()
+    ///         todo!()
     ///     }
     /// }
     ///
     /// impl MyBuilder {
-    ///
     ///     fn connect(self) -> MyStream {
     ///         /* ... */
     ///         MyStream {}

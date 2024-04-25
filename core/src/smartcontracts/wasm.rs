@@ -253,7 +253,6 @@ pub(crate) struct SmartContractQueryRequest(pub QueryRequest<QueryBox>);
 /// # Errors
 ///
 /// See [`Module::new`]
-///
 // TODO: Probably we can do some checks here such as searching for entrypoint function
 pub fn load_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<wasmtime::Module> {
     Module::new(engine, bytes).map_err(Error::ModuleLoading)
@@ -854,7 +853,10 @@ impl<'wrld, 'state, 'block, S>
         // is validated and then it's executed. Here it's validating in both steps.
         // Add a flag indicating whether smart contract is being validated or executed
         let authority = state.authority.clone();
-        state.state.0.world
+        state
+            .state
+            .0
+            .world
             .executor
             .clone() // Cloning executor is a cheap operation
             .validate_instruction(state.state.0, &authority, instruction)

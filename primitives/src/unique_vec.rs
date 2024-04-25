@@ -150,8 +150,8 @@ impl<'de, T: PartialEq + Deserialize<'de>> UniqueVec<T> {
     /// # Example
     ///
     /// ```
-    /// use serde::{Deserialize, de::Error as _};
     /// use iroha_primitives::unique_vec::UniqueVec;
+    /// use serde::{de::Error as _, Deserialize};
     ///
     /// #[derive(Debug, PartialEq, Deserialize)]
     /// pub struct Config {
@@ -160,10 +160,7 @@ impl<'de, T: PartialEq + Deserialize<'de>> UniqueVec<T> {
     /// }
     ///
     /// let err = serde_json::from_str::<Config>(r#"{"numbers": [1, 2, 3, 2, 4, 5]}"#).unwrap_err();
-    /// assert_eq!(
-    ///     err.to_string(),
-    ///     "Duplicated value at line 1 column 25",
-    /// );
+    /// assert_eq!(err.to_string(), "Duplicated value at line 1 column 25",);
     /// ```
     pub fn deserialize_failing_on_duplicates<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -189,8 +186,8 @@ impl<'de, T: Debug + PartialEq + Deserialize<'de>> UniqueVec<T> {
     /// # Example
     ///
     /// ```
-    /// use serde::{Deserialize, de::Error as _};
     /// use iroha_primitives::unique_vec::UniqueVec;
+    /// use serde::{de::Error as _, Deserialize};
     ///
     /// #[derive(Debug, PartialEq, Deserialize)]
     /// pub struct Config {
@@ -198,7 +195,8 @@ impl<'de, T: Debug + PartialEq + Deserialize<'de>> UniqueVec<T> {
     ///     arrays: UniqueVec<Vec<u32>>,
     /// }
     ///
-    /// let err = serde_json::from_str::<Config>(r#"{"arrays": [[1, 2, 3], [9, 8], [1, 2, 3]]}"#).unwrap_err();
+    /// let err = serde_json::from_str::<Config>(r#"{"arrays": [[1, 2, 3], [9, 8], [1, 2, 3]]}"#)
+    ///     .unwrap_err();
     /// assert_eq!(
     ///     err.to_string(),
     ///     "Duplicated value `[1, 2, 3]` at line 1 column 41",
@@ -228,8 +226,8 @@ impl<'de, T: Display + PartialEq + Deserialize<'de>> UniqueVec<T> {
     /// # Example
     ///
     /// ```
-    /// use serde::{Deserialize, de::Error as _};
     /// use iroha_primitives::unique_vec::UniqueVec;
+    /// use serde::{de::Error as _, Deserialize};
     ///
     /// #[derive(Debug, PartialEq, Deserialize)]
     /// pub struct Config {
@@ -238,10 +236,7 @@ impl<'de, T: Display + PartialEq + Deserialize<'de>> UniqueVec<T> {
     /// }
     ///
     /// let err = serde_json::from_str::<Config>(r#"{"numbers": [1, 2, 3, 2, 4, 5]}"#).unwrap_err();
-    /// assert_eq!(
-    ///     err.to_string(),
-    ///     "Duplicated value `2` at line 1 column 25",
-    /// );
+    /// assert_eq!(err.to_string(), "Duplicated value `2` at line 1 column 25",);
     /// ```
     pub fn display_deserialize_failing_on_duplicates<D>(deserializer: D) -> Result<Self, D::Error>
     where

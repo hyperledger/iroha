@@ -262,7 +262,8 @@ impl TransactionExecutor {
         let tx: SignedTransaction = tx.into();
         let authority = tx.authority().clone();
 
-        state_transaction.world
+        state_transaction
+            .world
             .executor
             .clone() // Cloning executor is a cheap operation
             .validate_transaction(state_transaction, &authority, tx)

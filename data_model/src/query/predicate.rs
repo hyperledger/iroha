@@ -66,7 +66,6 @@ where
     ///     PredicateSymbol::test_conformity(vec![true, false]);
     /// }
     /// ```
-    ///
     fn test_conformity(values: Vec<Self>)
     where
         Self: PartialEq + Clone,
@@ -89,48 +88,48 @@ where
     ///
     /// #[derive(Clone, PartialEq)]
     /// enum Check {
-    ///    Good,
-    ///    // Encapsulates reason for badness which
-    ///    // doesn't behave associatively
-    ///    // (but if we ignore it, Check as a whole does)
-    ///    Bad(String),
+    ///     Good,
+    ///     // Encapsulates reason for badness which
+    ///     // doesn't behave associatively
+    ///     // (but if we ignore it, Check as a whole does)
+    ///     Bad(String),
     /// }
     ///
     /// impl core::ops::Not for Check {
-    ///   type Output = Self;
-    ///   fn not(self) -> Self {
-    ///     // ...
-    ///     todo!()
-    ///   }
+    ///     type Output = Self;
+    ///     fn not(self) -> Self {
+    ///         // ...
+    ///         todo!()
+    ///     }
     /// }
     ///
     /// impl PredicateSymbol for Check {
-    ///   fn and(self, other: Self) -> ControlFlow<Self, Self> {
-    ///     // ...
-    ///     todo!()
-    ///   }
+    ///     fn and(self, other: Self) -> ControlFlow<Self, Self> {
+    ///         // ...
+    ///         todo!()
+    ///     }
     ///
-    ///   fn or(self, other: Self) -> ControlFlow<Self, Self> {
-    ///     // ...
-    ///     todo!()
-    ///   }
+    ///     fn or(self, other: Self) -> ControlFlow<Self, Self> {
+    ///         // ...
+    ///         todo!()
+    ///     }
     /// }
     ///
     /// fn shallow_eq(left: &Check, right: &Check) -> bool {
-    ///    match (left, right) {
-    ///      (Check::Good, Check::Good) | (Check::Bad(_), Check::Bad(_)) => true,
-    ///      _ => false
-    ///    }
+    ///     match (left, right) {
+    ///         (Check::Good, Check::Good) | (Check::Bad(_), Check::Bad(_)) => true,
+    ///         _ => false,
+    ///     }
     /// }
     ///
     /// fn test() {
-    ///    let good = Check::Good;
-    ///    let bad = Check::Bad("example".to_owned());
-    ///    // Would fail some assertions, since derived PartialEq is "deep"
-    ///    // PredicateSymbol::test_conformity(vec![good, bad]);
+    ///     let good = Check::Good;
+    ///     let bad = Check::Bad("example".to_owned());
+    ///     // Would fail some assertions, since derived PartialEq is "deep"
+    ///     // PredicateSymbol::test_conformity(vec![good, bad]);
     ///
-    ///    // Works as expected
-    ///    PredicateSymbol::test_conformity_with_eq(vec![good, bad], shallow_eq);
+    ///     // Works as expected
+    ///     PredicateSymbol::test_conformity_with_eq(vec![good, bad], shallow_eq);
     /// }
     /// ```
     fn test_conformity_with_eq(values: Vec<Self>, shallow_eq: impl FnMut(&Self, &Self) -> bool)

@@ -233,8 +233,7 @@ pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
 ///
 /// // For a struct such as:
 /// #[iroha_ffi::ffi_export]
-/// #[derive(iroha_ffi::FfiType)]
-/// #[derive(Clone, Getters)]
+/// #[derive(iroha_ffi::FfiType, Clone, Getters)]
 /// #[getset(get = "pub")]
 /// pub struct Foo {
 ///     /// Id of the struct
@@ -247,7 +246,10 @@ pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
 /// impl Foo {
 ///     /// Construct new type
 ///     pub fn new(id: u8) -> Self {
-///         Self {id, bar: Vec::new()}
+///         Self {
+///             id,
+///             bar: Vec::new(),
+///         }
 ///     }
 ///     /// Return bar
 ///     pub fn bar(&self) -> &[u8] {
@@ -392,17 +394,17 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```rust
 /// #[iroha_ffi::ffi_import]
 /// pub fn return_first_elem_from_arr(arr: [u8; 8]) -> u8 {
-///    // The body of this function is replaced with something like the following:
-///    // let mut store = Default::default();
-///    // let arr = iroha_ffi::FfiConvert::into_ffi(arr, &mut store);
-///    // let output = MaybeUninit::uninit();
-///    //
-///    // let call_res = __return_first_elem_from_arr(arr, output.as_mut_ptr());
-///    // if iroha_ffi::FfiReturn::Ok != call_res {
-///    //     panic!("Function call failed");
-///    // }
-///    //
-///    // iroha_ffi::FfiOutPtrRead::try_read_out(output.assume_init()).expect("Invalid type")
+///     // The body of this function is replaced with something like the following:
+///     // let mut store = Default::default();
+///     // let arr = iroha_ffi::FfiConvert::into_ffi(arr, &mut store);
+///     // let output = MaybeUninit::uninit();
+///     //
+///     // let call_res = __return_first_elem_from_arr(arr, output.as_mut_ptr());
+///     // if iroha_ffi::FfiReturn::Ok != call_res {
+///     //     panic!("Function call failed");
+///     // }
+///     //
+///     // iroha_ffi::FfiOutPtrRead::try_read_out(output.assume_init()).expect("Invalid type")
 /// }
 ///
 /// /* The following functions will be declared:

@@ -142,7 +142,7 @@ impl ToTokens for MetricSpec {
 /// # Examples
 ///
 /// ```rust
-/// use iroha_core::state::{World, StateTransaction};
+/// use iroha_core::state::{StateTransaction, World};
 /// use iroha_telemetry_derive::metrics;
 ///
 /// #[metrics(+"test_query", "another_test_query_without_timing")]

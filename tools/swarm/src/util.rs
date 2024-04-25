@@ -54,22 +54,21 @@ impl AbsolutePath {
     /// Relative path from self to other.
     pub fn relative_to(&self, other: &(impl AsRef<Path> + ?Sized)) -> color_eyre::Result<PathBuf> {
         pathdiff::diff_paths(self, other)
-                .ok_or_else(|| {
-                    eyre!(
-                        "failed to build relative path from {} to {}",
-                        other.as_ref().display(),
-                        self.display(),
-                    )
-                })
-                // docker-compose might not like "test" path, but "./test" instead 
-                .map(|rel| {
-                    if rel.starts_with("..") {
-                        rel
-                    } else {
-                        Path::new("./").join(rel)
-
-                    }
-                })
+            .ok_or_else(|| {
+                eyre!(
+                    "failed to build relative path from {} to {}",
+                    other.as_ref().display(),
+                    self.display(),
+                )
+            })
+            // docker-compose might not like "test" path, but "./test" instead
+            .map(|rel| {
+                if rel.starts_with("..") {
+                    rel
+                } else {
+                    Path::new("./").join(rel)
+                }
+            })
     }
 }
 
