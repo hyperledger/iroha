@@ -13,6 +13,7 @@ pub enum PrivateKeyFromEnvError {
     InconsistentVars,
 }
 
+// TODO: remove this crutch with https://github.com/hyperledger/iroha/issues/4412
 pub fn read_private_key_from_env(
     fetcher: &mut CustomEnvFetcher,
     env_prefix: &'static str,
