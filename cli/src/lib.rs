@@ -722,13 +722,13 @@ fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigEr
         if path.value().parent().is_none() {
             emitter.emit(
                 Report::new(ConfigError::TelemetryOutFileIsRootOrEmpty)
-                    .attach_printable(path.as_attachment()),
+                    .attach_printable(path.clone().into_attachment().display_path()),
             );
         }
         if path.value().is_dir() {
             emitter.emit(
                 Report::new(ConfigError::TelemetryOutFileIsDir)
-                    .attach_printable(path.as_attachment()),
+                    .attach_printable(path.clone().into_attachment().display_path()),
             );
         }
     }
