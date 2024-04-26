@@ -66,7 +66,7 @@ pub fn get_config_toml(
     iroha_config::base::toml::Writer::new(&mut raw)
         .write("chain_id", chain_id)
         .write("public_key", public_key)
-        .write("private_key", private_key)
+        .write("private_key", ExposedPrivateKey(private_key))
         .write(["sumeragi", "trusted_peers"], peers)
         .write(["network", "address"], DEFAULT_P2P_ADDR)
         .write(["network", "block_gossip_period"], 500)
