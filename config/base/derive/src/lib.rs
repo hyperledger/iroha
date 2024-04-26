@@ -18,16 +18,16 @@ use crate::ast::Input;
 ///
 /// #[derive(ReadConfig)]
 /// struct Config {
-///   #[config(default, env = "FOO")]
-///   foo: bool,
-///   #[config(nested)]
-///   nested: Nested
+///     #[config(default, env = "FOO")]
+///     foo: bool,
+///     #[config(nested)]
+///     nested: Nested,
 /// }
 ///
 /// #[derive(ReadConfig)]
 /// struct Nested {
-///   #[config(default = "42")]
-///   foo: u64
+///     #[config(default = "42")]
+///     foo: u64,
 /// }
 /// ```
 ///

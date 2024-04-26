@@ -186,8 +186,8 @@ fn find_unknown_parameters(table: &toml::Table, known: &ParamTree) -> BTreeSet<P
 /// A utility, primarily for testing, to conveniently write content into a [`Table`].
 ///
 /// ```
-/// use toml::Table;
 /// use iroha_config_base::toml::Writer;
+/// use toml::Table;
 ///
 /// let mut table = Table::new();
 /// Writer::new(&mut table)
@@ -195,13 +195,16 @@ fn find_unknown_parameters(table: &toml::Table, known: &ParamTree) -> BTreeSet<P
 ///     .write("bar", "some other string")
 ///     .write(["baz", "foo", "bar"], 42);
 ///
-/// assert_eq!(table, toml::toml! {
-///     foo = "some string"
-///     bar = "some other string"
+/// assert_eq!(
+///     table,
+///     toml::toml! {
+///         foo = "some string"
+///         bar = "some other string"
 ///
-///     [baz.foo]
-///     bar = 42
-/// });
+///         [baz.foo]
+///         bar = 42
+///     }
+/// );
 /// ```
 #[derive(Debug)]
 pub struct Writer<'a> {

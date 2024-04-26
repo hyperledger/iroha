@@ -648,11 +648,11 @@ pub fn read_config_and_genesis(
         let raw_block = RawGenesisBlock::from_path(file.resolve_relative_path())
             .into_report()
             // https://github.com/hashintel/hash/issues/4295
-            .map_err(|report|
+            .map_err(|report| {
                 report
                     .attach_printable(file.clone().into_attachment().display_path())
                     .change_context(ConfigError::ReadGenesis)
-            )?;
+            })?;
 
         Some(GenesisNetwork::new(
             raw_block,

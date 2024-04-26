@@ -74,7 +74,10 @@ pub fn get_config_toml(
         .write(["torii", "address"], DEFAULT_TORII_ADDR)
         .write(["chain_wide", "max_transactions_in_block"], 2)
         .write(["genesis", "public_key"], genesis_public_key)
-        .write(["genesis", "private_key"], ExposedPrivateKey(genesis_private_key))
+        .write(
+            ["genesis", "private_key"],
+            ExposedPrivateKey(genesis_private_key),
+        )
         .write(["genesis", "file"], "NEVER READ ME; YOU FOUND A BUG!")
         // There is no need in persistence in tests.
         // If required to should be set explicitly not to overlap with other existing tests
