@@ -941,7 +941,6 @@ mod test {
 // TODO: think of a way to `impl Identifiable for IdentifiableBox`.
 // The main problem is lifetimes and conversion cost.
 
-#[cfg(feature = "http")]
 impl IdentifiableBox {
     fn id_box(&self) -> IdBox {
         match self {

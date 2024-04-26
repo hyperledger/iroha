@@ -15,7 +15,7 @@ use iroha_data_model::{
     isi::InstructionBox,
     permission::PermissionTokenSchema,
     prelude::*,
-    query::{QueryBox, QueryId, QueryOutputBox, QueryRequest, QueryWithParameters},
+    query::{QueryBox, QueryId, QueryOutputBox, QueryRequest, SmartContractQuery},
     smart_contract::payloads::{self, Validate},
     BatchedResponse, Level as LogLevel, ValidationFail,
 };
@@ -246,7 +246,7 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 #[cfg_attr(test, derive(parity_scale_codec::Encode))]
 #[derive(Debug, derive_more::Display, Decode)]
 #[repr(transparent)]
-pub(crate) struct SmartContractQueryRequest(pub QueryRequest<QueryBox>);
+pub(crate) struct SmartContractQueryRequest(pub QueryRequest<SmartContractQuery>);
 
 /// Create [`Module`] from bytes.
 ///
@@ -796,8 +796,9 @@ where
         iroha_logger::debug!(%query_request, "Executing");
 
         match query_request.0 {
-            QueryRequest::Query(QueryWithParameters {
+            QueryRequest::Query(SmartContractQuery {
                 query,
+                filter,
                 sorting,
                 pagination,
                 fetch_size,
@@ -806,11 +807,11 @@ where
                     let state_ro = state.state.state();
                     let state_ro = state_ro.borrow();
                     state.validate_query(&state.authority, query.clone())?;
-                    let output = query.execute(state_ro)?;
+                    let output = query
+                        .execute(state_ro)?
+                        .apply_postprocessing(&filter, &sorting, pagination, fetch_size)?;
 
-                    state_ro
-                        .query_handle()
-                        .handle_query_output(output, &sorting, pagination, fetch_size)
+                    state_ro.query_handle().handle_query_output(output)
                 }?;
                 match &batched {
                     BatchedResponse::V1(batched) => {
@@ -1706,7 +1707,7 @@ impl<C: wasmtime::AsContextMut> GetExport for (&wasmtime::Instance, C) {
 
 #[cfg(test)]
 mod tests {
-    use iroha_data_model::query::{sorting::Sorting, Pagination};
+    use iroha_data_model::query::{predicate::PredicateBox, sorting::Sorting, Pagination};
     use parity_scale_codec::Encode;
     use test_samples::gen_account_in;
     use tokio::test;
@@ -1819,8 +1820,9 @@ mod tests {
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
         let query_hex = encode_hex(SmartContractQueryRequest(QueryRequest::Query(
-            QueryWithParameters::new(
+            SmartContractQuery::new(
                 FindAccountById::new(authority.clone()).into(),
+                PredicateBox::default(),
                 Sorting::default(),
                 Pagination::default(),
                 FetchSize::default(),

@@ -9,6 +9,7 @@ use alloc::{
 };
 
 use iroha_data_model_derive::model;
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +23,9 @@ mod model {
     use super::*;
 
     /// Struct for sorting requests
-    #[derive(Debug, Clone, Default, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
+    #[derive(
+        Debug, Clone, Default, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
     pub struct Sorting {
         /// Sort query result using [`Name`] of the key in [`Asset`]'s metadata.
         pub sort_by_metadata_key: Option<Name>,

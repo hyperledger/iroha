@@ -1,14 +1,23 @@
 //! Query functionality. The common error type is also defined here,
 //! alongside functions for converting them into HTTP responses.
+use std::cmp::Ordering;
+
 use eyre::Result;
 use iroha_data_model::{
     prelude::*,
-    query::{error::QueryExecutionFail as Error, QueryOutputBox},
+    query::{
+        error::QueryExecutionFail as Error, predicate::PredicateBox, Pagination, QueryOutputBox,
+        Sorting,
+    },
 };
 use parity_scale_codec::{Decode, Encode};
 
 use crate::{
     prelude::ValidQuery,
+    query::{
+        cursor::{Batch as _, Batched},
+        pagination::Paginate as _,
+    },
     state::{StateReadOnly, WorldReadOnly},
 };
 
@@ -24,6 +33,107 @@ pub enum LazyQueryOutput<'a> {
     QueryOutput(QueryOutputBox),
     /// Iterator over a set of [`Query::Output`]s
     Iter(Box<dyn Iterator<Item = QueryOutputBox> + 'a>),
+}
+
+impl LazyQueryOutput<'_> {
+    /// If the underlying output is an iterator, apply all the query postprocessing:
+    /// - filtering
+    /// - sorting
+    /// - pagination
+    /// - batching
+    pub fn apply_postprocessing(
+        self,
+        filter: &PredicateBox,
+        sorting: &Sorting,
+        pagination: Pagination,
+        fetch_size: FetchSize,
+    ) -> Result<ProcessedQueryOutput, Error> {
+        match self {
+            // nothing applies to the singular results
+            LazyQueryOutput::QueryOutput(output) => {
+                if filter != &PredicateBox::default()
+                    || sorting != &Sorting::default()
+                    || pagination != Pagination::default()
+                    || fetch_size != FetchSize::default()
+                {
+                    return Err(Error::InvalidSingularParameters);
+                }
+
+                Ok(ProcessedQueryOutput::Single(output))
+            }
+            LazyQueryOutput::Iter(iter) => {
+                // filter the results
+                let iter = iter.filter(move |v| filter.applies(v));
+
+                // sort & paginate
+                let output = match &sorting.sort_by_metadata_key {
+                    Some(key) => {
+                        // if sorting was requested, we need to retrieve all the results first
+                        let mut pairs: Vec<(Option<QueryOutputBox>, QueryOutputBox)> = iter
+                            .map(|value| {
+                                let key = match &value {
+                                    QueryOutputBox::Identifiable(IdentifiableBox::Asset(asset)) => {
+                                        match asset.value() {
+                                            AssetValue::Store(store) => {
+                                                store.get(key).cloned().map(Into::into)
+                                            }
+                                            _ => None,
+                                        }
+                                    }
+                                    QueryOutputBox::Identifiable(v) => {
+                                        TryInto::<&dyn HasMetadata>::try_into(v)
+                                            .ok()
+                                            .and_then(|has_metadata| {
+                                                has_metadata.metadata().get(key)
+                                            })
+                                            .cloned()
+                                            .map(Into::into)
+                                    }
+                                    _ => None,
+                                };
+                                (key, value)
+                            })
+                            .collect();
+                        pairs.sort_by(|(left_key, _), (right_key, _)| {
+                            match (left_key, right_key) {
+                                (Some(l), Some(r)) => l.cmp(r),
+                                (Some(_), None) => Ordering::Less,
+                                (None, Some(_)) => Ordering::Greater,
+                                (None, None) => Ordering::Equal,
+                            }
+                        });
+                        pairs
+                            .into_iter()
+                            .map(|(_, val)| val)
+                            .paginate(pagination)
+                            .collect::<Vec<_>>()
+                    }
+                    // no sorting, can just paginate the results without constructing the full output vec
+                    None => iter.paginate(pagination).collect::<Vec<_>>(),
+                };
+
+                let fetch_size = fetch_size
+                    .fetch_size
+                    .unwrap_or(iroha_data_model::query::DEFAULT_FETCH_SIZE);
+                if fetch_size > iroha_data_model::query::MAX_FETCH_SIZE {
+                    return Err(Error::FetchSizeTooBig);
+                }
+
+                // split the results into batches of fetch_size
+                Ok(ProcessedQueryOutput::Iter(output.batched(fetch_size)))
+            }
+        }
+    }
+}
+
+/// An evaluated & post-processed query output that is ready to be sent to the live query store
+///
+/// It has all the parameters (filtering, sorting, pagination and batching) applied already
+pub enum ProcessedQueryOutput {
+    /// A single query output
+    Single(QueryOutputBox),
+    /// An iterable query result, batched into fetch_size-sized chunks
+    Iter(Batched<Vec<QueryOutputBox>>),
 }
 
 impl Lazy for QueryOutputBox {
@@ -93,17 +203,18 @@ impl ValidQueryRequest {
     ///
     /// # Errors
     /// Forwards `self.query.execute` error.
-    pub fn execute<'state>(
+    pub fn execute_and_process<'state>(
         &'state self,
         state_ro: &'state impl StateReadOnly,
-    ) -> Result<LazyQueryOutput<'state>, Error> {
-        let output = self.0.query().execute(state_ro)?;
+    ) -> Result<ProcessedQueryOutput, Error> {
+        let query = &self.0;
 
-        Ok(if let LazyQueryOutput::Iter(iter) = output {
-            LazyQueryOutput::Iter(Box::new(iter.filter(|val| self.0.filter().applies(val))))
-        } else {
-            output
-        })
+        query.query().execute(state_ro)?.apply_postprocessing(
+            query.filter(),
+            query.sorting(),
+            query.pagination(),
+            query.fetch_size(),
+        )
 
         // We're not handling the LimitedMetadata case, because
         // the predicate when applied to it is ambiguous. We could

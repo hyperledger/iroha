@@ -26,8 +26,8 @@ pub use sorting::Sorting;
 
 pub use self::model::*;
 use self::{
-    account::*, asset::*, block::*, domain::*, peer::*, permission::*, role::*, transaction::*,
-    trigger::*,
+    account::*, asset::*, block::*, domain::*, peer::*, permission::*, predicate::*, role::*,
+    transaction::*, trigger::*,
 };
 use crate::{
     account::{Account, AccountId},
@@ -41,7 +41,6 @@ use crate::{
 
 pub mod cursor;
 pub mod pagination;
-#[cfg(feature = "http")]
 pub mod predicate;
 pub mod sorting;
 
@@ -55,7 +54,18 @@ pub const MAX_FETCH_SIZE: NonZeroU32 = nonzero!(10_000_u32);
 
 /// Structure for query fetch size parameter encoding/decoding
 #[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Constructor, Decode, Encode, Deserialize, Serialize,
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Constructor,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
 pub struct FetchSize {
     /// Inner value of a fetch size.
@@ -250,23 +260,39 @@ mod model {
     }
 
     /// Request type clients (like http clients or wasm) can send to a query endpoint.
+    ///
+    /// `Q` should be either [`http::SignedQuery`] for client or [`SmartContractQuery`] for wasm smart contract.
+    // NOTE: if updating, also update the `iroha_smart_contract::QueryRequest` and its encoding
     #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
     pub enum QueryRequest<Q> {
         /// Query it-self.
         /// Basically used for one-time queries or to get a cursor for big queries.
-        Query(QueryWithParameters<Q>),
+        Query(Q),
         /// Cursor over previously sent [`Query`](QueryRequest::Query).
         Cursor(ForwardCursor),
     }
 
-    /// Query with parameters client can specify.
+    /// A query with parameters, as coming from a smart contract.
+    // NOTE: if updating, also update the `iroha_smart_contract::SmartContractQuery` and its encoding
     #[derive(
-        Clone, Debug, PartialEq, Eq, Constructor, Getters, Encode, Decode, Serialize, Deserialize,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Constructor,
+        Getters,
     )]
     #[getset(get = "pub")]
-    pub struct QueryWithParameters<Q> {
-        /// The actual query.
-        pub query: Q,
+    pub struct SmartContractQuery {
+        /// Query definition.
+        pub query: QueryBox,
+        /// The filter applied to the result on the server-side.
+        pub filter: PredicateBox,
         /// Sorting of the query results.
         pub sorting: Sorting,
         /// Pagination of the query results.
@@ -517,12 +543,14 @@ impl<Q: core::fmt::Display> core::fmt::Display for QueryRequest<Q> {
     }
 }
 
-impl<Q: core::fmt::Display> core::fmt::Display for QueryWithParameters<Q> {
+impl core::fmt::Display for SmartContractQuery {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("QueryWithParameters")
             .field("query", &self.query.to_string())
+            .field("filter", &self.filter)
             .field("sorting", &self.sorting)
             .field("pagination", &self.pagination)
+            .field("fetch_size", &self.fetch_size)
             .finish()
     }
 }
@@ -1151,22 +1179,28 @@ pub mod http {
         #[derive(Debug, Clone)]
         #[repr(transparent)]
         #[must_use]
-        pub struct QueryBuilder {
+        pub struct ClientQueryBuilder {
             /// Payload
-            pub(super) payload: QueryPayload,
+            pub(super) payload: ClientQueryPayload,
         }
 
         /// Payload of a query.
         #[derive(
             Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
-        pub(crate) struct QueryPayload {
+        pub(crate) struct ClientQueryPayload {
             /// Account id of the user who will sign this query.
             pub authority: AccountId,
             /// Query definition.
             pub query: QueryBox,
             /// The filter applied to the result on the server-side.
             pub filter: PredicateBox,
+            /// Sorting applied to the result on the server-side.
+            pub sorting: Sorting,
+            /// Selects the page of the result set to return.
+            pub pagination: Pagination,
+            /// Specifies the size of a single batch of results.
+            pub fetch_size: FetchSize,
         }
 
         /// I/O ready structure to send queries.
@@ -1174,9 +1208,9 @@ pub mod http {
         #[version_with_scale(version = 1, versioned_alias = "SignedQuery")]
         pub struct SignedQueryV1 {
             /// Signature of the client who sends this query.
-            pub signature: SignatureOf<QueryPayload>,
+            pub signature: SignatureOf<ClientQueryPayload>,
             /// Payload
-            pub payload: QueryPayload,
+            pub payload: ClientQueryPayload,
         }
 
         /// End type of a query http clients can send to an endpoint.
@@ -1186,15 +1220,8 @@ pub mod http {
 
     impl ClientQueryRequest {
         /// Construct a new request containing query.
-        pub fn query(
-            query: SignedQuery,
-            sorting: Sorting,
-            pagination: Pagination,
-            fetch_size: FetchSize,
-        ) -> Self {
-            Self(QueryRequest::Query(QueryWithParameters::new(
-                query, sorting, pagination, fetch_size,
-            )))
+        pub fn query(query: SignedQuery) -> Self {
+            Self(QueryRequest::Query(query))
         }
 
         /// Construct a new request containing cursor.
@@ -1210,8 +1237,8 @@ pub mod http {
 
         #[derive(Decode, Deserialize)]
         struct SignedQueryCandidate {
-            signature: SignatureOf<QueryPayload>,
-            payload: QueryPayload,
+            signature: SignatureOf<ClientQueryPayload>,
+            payload: ClientQueryPayload,
         }
 
         impl SignedQueryCandidate {
@@ -1252,7 +1279,7 @@ pub mod http {
     #[cfg(feature = "transparent_api")]
     impl SignedQuery {
         /// Return query signature
-        pub fn signature(&self) -> &SignatureOf<QueryPayload> {
+        pub fn signature(&self) -> &SignatureOf<ClientQueryPayload> {
             let SignedQuery::V1(query) = self;
             &query.signature
         }
@@ -1271,28 +1298,67 @@ pub mod http {
             let SignedQuery::V1(query) = self;
             &query.payload.filter
         }
+        /// Return query sorting
+        pub fn sorting(&self) -> &Sorting {
+            let SignedQuery::V1(query) = self;
+            &query.payload.sorting
+        }
+        /// Return query pagination
+        pub fn pagination(&self) -> Pagination {
+            let SignedQuery::V1(query) = self;
+            query.payload.pagination
+        }
+        /// Return query fetch size
+        pub fn fetch_size(&self) -> FetchSize {
+            let SignedQuery::V1(query) = self;
+            query.payload.fetch_size
+        }
     }
 
-    impl QueryBuilder {
+    impl ClientQueryBuilder {
         /// Construct a new request with the `query`.
         pub fn new(query: impl Query, authority: AccountId) -> Self {
             Self {
-                payload: QueryPayload {
+                payload: ClientQueryPayload {
                     query: query.into(),
                     authority,
                     filter: PredicateBox::default(),
+                    sorting: Sorting::default(),
+                    pagination: Pagination::default(),
+                    fetch_size: FetchSize::default(),
                 },
             }
         }
 
-        /// Construct a new request with the `query`.
+        /// Set the filter for the query
         #[inline]
         pub fn with_filter(mut self, filter: PredicateBox) -> Self {
             self.payload.filter = filter;
             self
         }
 
-        /// Consumes self and returns a signed [`QueryBuilder`].
+        /// Set the sorting for the query
+        #[inline]
+        pub fn with_sorting(mut self, sorting: Sorting) -> Self {
+            self.payload.sorting = sorting;
+            self
+        }
+
+        /// Set the pagination for the query
+        #[inline]
+        pub fn with_pagination(mut self, pagination: Pagination) -> Self {
+            self.payload.pagination = pagination;
+            self
+        }
+
+        /// Set the fetch size for the query
+        #[inline]
+        pub fn with_fetch_size(mut self, fetch_size: FetchSize) -> Self {
+            self.payload.fetch_size = fetch_size;
+            self
+        }
+
+        /// Consumes self and returns a signed [`ClientQueryBuilder`].
         ///
         /// # Errors
         /// Fails if signature creation fails.
@@ -1310,7 +1376,7 @@ pub mod http {
     pub mod prelude {
         //! The prelude re-exports most commonly used traits, structs and macros from this crate.
 
-        pub use super::{QueryBuilder, SignedQuery, SignedQueryV1};
+        pub use super::{ClientQueryBuilder, SignedQuery, SignedQueryV1};
     }
 }
 
@@ -1369,6 +1435,8 @@ pub mod error {
             UnknownCursor,
             /// fetch_size could not be greater than {MAX_FETCH_SIZE:?}
             FetchSizeTooBig,
+            /// Some of the specified parameters (filter/pagination/fetch_size/sorting) are not applicable to singular queries
+            InvalidSingularParameters,
         }
 
         /// Type assertion error
@@ -1423,11 +1491,11 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 #[allow(ambiguous_glob_reexports)]
 pub mod prelude {
+    #[cfg(feature = "http")]
+    pub use super::http::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
-        peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
-        trigger::prelude::*, FetchSize, QueryBox, QueryId, TransactionQueryOutput,
+        peer::prelude::*, permission::prelude::*, predicate::PredicateTrait, role::prelude::*,
+        transaction::*, trigger::prelude::*, FetchSize, QueryBox, QueryId, TransactionQueryOutput,
     };
-    #[cfg(feature = "http")]
-    pub use super::{http::*, predicate::PredicateTrait};
 }

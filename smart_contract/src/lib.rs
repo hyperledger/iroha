@@ -11,7 +11,10 @@ use data_model::smart_contract::payloads;
 use data_model::{
     isi::Instruction,
     prelude::*,
-    query::{cursor::ForwardCursor, sorting::Sorting, Pagination, Query, QueryOutputBox},
+    query::{
+        cursor::ForwardCursor, predicate::PredicateBox, sorting::Sorting, Pagination, Query,
+        QueryOutputBox,
+    },
     BatchedResponse,
 };
 use derive_more::Display;
@@ -62,7 +65,6 @@ unsafe extern "C" fn _iroha_smart_contract_dealloc(offset: *mut u8, len: usize) 
 ///
 /// getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
 /// ```
-#[cfg(not(test))]
 pub fn stub_getrandom(_dest: &mut [u8]) -> Result<(), getrandom::Error> {
     const ERROR_MESSAGE: &str =
         "`getrandom()` is not implemented. To provide your custom function \
@@ -70,6 +72,8 @@ pub fn stub_getrandom(_dest: &mut [u8]) -> Result<(), getrandom::Error> {
          Be aware that your function must give the same result on different peers at the same execution round,
          and keep in mind the consequences of purely implemented random function.";
 
+    // we don't support logging in our current wasm test runner implementation
+    #[cfg(not(test))]
     error!(ERROR_MESSAGE);
     unimplemented!("{ERROR_MESSAGE}")
 }
@@ -140,23 +144,30 @@ impl<I: Instruction + Encode> ExecuteOnHost for I {
 }
 
 #[derive(Debug, Encode)]
+// this type mirrors [`iroha_data_model::query::QueryRequest`] and has compatible encoding
+// but it narrows down the `Q` to be a `SmartContractQuery<'a, Q>` and stores the `ForwardCursor` as a reference (allows queries without cloning)
 enum QueryRequest<'a, Q> {
-    Query(QueryWithParameters<'a, Q>),
+    Query(SmartContractQuery<'a, Q>),
     Cursor(&'a ForwardCursor),
 }
 
 /// Generic query request containing additional parameters.
-#[derive(Debug)]
-pub struct QueryWithParameters<'a, Q> {
+#[derive(Debug, Clone)]
+// this type mirrors [`iroha_data_model::query::SmartContractQuery`] and has compatible encoding
+// but it allows `Q` to be any subtype of `QueryBox` for easier API and stores the query as a reference (allows queries without cloning)
+pub struct SmartContractQuery<'a, Q> {
     query: &'a Q,
+    filter: PredicateBox,
     sorting: Sorting,
     pagination: Pagination,
     fetch_size: FetchSize,
 }
 
-impl<Q: Query> Encode for QueryWithParameters<'_, Q> {
+impl<Q: Query> Encode for SmartContractQuery<'_, Q> {
     fn encode(&self) -> Vec<u8> {
+        // NOTE: the encoding must be compatible with [`iroha_data_model::query::SmartContractQuery`]
         let mut output = self.query.encode_as_query_box();
+        self.filter.encode_to(&mut output);
         self.sorting.encode_to(&mut output);
         self.pagination.encode_to(&mut output);
         self.fetch_size.encode_to(&mut output);
@@ -169,14 +180,16 @@ pub trait ExecuteQueryOnHost: Sized {
     /// Query output type.
     type Output;
 
+    /// Apply filter to a query
+    fn filter(&self, predicate: impl Into<PredicateBox>) -> SmartContractQuery<Self>;
     /// Apply sorting to a query
-    fn sort(&self, sorting: Sorting) -> QueryWithParameters<Self>;
+    fn sort(&self, sorting: Sorting) -> SmartContractQuery<Self>;
 
     /// Apply pagination to a query
-    fn paginate(&self, pagination: Pagination) -> QueryWithParameters<Self>;
+    fn paginate(&self, pagination: Pagination) -> SmartContractQuery<Self>;
 
     /// Set fetch size for a query. Default is [`DEFAULT_FETCH_SIZE`]
-    fn fetch_size(&self, fetch_size: FetchSize) -> QueryWithParameters<Self>;
+    fn fetch_size(&self, fetch_size: FetchSize) -> SmartContractQuery<Self>;
 
     /// Execute query on the host
     ///
@@ -195,27 +208,44 @@ where
 {
     type Output = Q::Output;
 
-    fn sort(&self, sorting: Sorting) -> QueryWithParameters<Self> {
-        QueryWithParameters {
+    #[must_use]
+    fn filter(&self, predicate: impl Into<PredicateBox>) -> SmartContractQuery<Self> {
+        SmartContractQuery {
             query: self,
+            filter: predicate.into(),
+            sorting: Sorting::default(),
+            pagination: Pagination::default(),
+            fetch_size: FetchSize::default(),
+        }
+    }
+
+    #[must_use]
+    fn sort(&self, sorting: Sorting) -> SmartContractQuery<Self> {
+        SmartContractQuery {
+            query: self,
+            filter: PredicateBox::default(),
             sorting,
             pagination: Pagination::default(),
             fetch_size: FetchSize::default(),
         }
     }
 
-    fn paginate(&self, pagination: Pagination) -> QueryWithParameters<Self> {
-        QueryWithParameters {
+    #[must_use]
+    fn paginate(&self, pagination: Pagination) -> SmartContractQuery<Self> {
+        SmartContractQuery {
             query: self,
+            filter: PredicateBox::default(),
             sorting: Sorting::default(),
             pagination,
             fetch_size: FetchSize::default(),
         }
     }
 
-    fn fetch_size(&self, fetch_size: FetchSize) -> QueryWithParameters<Self> {
-        QueryWithParameters {
+    #[must_use]
+    fn fetch_size(&self, fetch_size: FetchSize) -> SmartContractQuery<Self> {
+        SmartContractQuery {
             query: self,
+            filter: PredicateBox::default(),
             sorting: Sorting::default(),
             pagination: Pagination::default(),
             fetch_size,
@@ -223,8 +253,9 @@ where
     }
 
     fn execute(&self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail> {
-        QueryWithParameters {
+        SmartContractQuery {
             query: self,
+            filter: PredicateBox::default(),
             sorting: Sorting::default(),
             pagination: Pagination::default(),
             fetch_size: FetchSize::default(),
@@ -233,12 +264,19 @@ where
     }
 }
 
-impl<Q> QueryWithParameters<'_, Q>
+impl<Q> SmartContractQuery<'_, Q>
 where
     Q: Query + Encode,
     Q::Output: DecodeAll,
     <Q::Output as TryFrom<QueryOutputBox>>::Error: core::fmt::Debug,
 {
+    /// Apply filter to a query
+    #[must_use]
+    pub fn filter(mut self, predicate: impl Into<PredicateBox>) -> Self {
+        self.filter = predicate.into();
+        self
+    }
+
     /// Apply sorting to a query
     #[must_use]
     pub fn sort(mut self, sorting: Sorting) -> Self {
@@ -464,30 +502,39 @@ mod tests {
 
     use super::*;
 
-    #[derive(Decode)]
-    struct QueryWithParameters<Q> {
-        query: Q,
-        sorting: Sorting,
-        pagination: Pagination,
-        #[allow(dead_code)]
-        fetch_size: FetchSize,
-    }
+    getrandom::register_custom_getrandom!(super::stub_getrandom);
 
     #[derive(Decode)]
-    enum QueryRequest<Q> {
-        Query(QueryWithParameters<Q>),
-        Cursor(#[allow(dead_code)] ForwardCursor),
+    struct SmartContractQuery {
+        /// Query definition.
+        pub query: QueryBox,
+        /// The filter applied to the result on the server-side.
+        pub filter: PredicateBox,
+        /// Sorting of the query results.
+        pub sorting: Sorting,
+        /// Pagination of the query results.
+        pub pagination: Pagination,
+        /// Amount of results to fetch.
+        pub fetch_size: FetchSize,
     }
 
     #[derive(Decode)]
     #[repr(transparent)]
-    struct SmartContractQueryRequest(pub QueryRequest<QueryBox>);
+    struct SmartContractQueryRequest(pub iroha_data_model::query::QueryRequest<SmartContractQuery>);
 
     impl SmartContractQueryRequest {
-        fn unwrap_query(self) -> (QueryBox, Sorting, Pagination) {
+        fn unwrap_query(self) -> (QueryBox, PredicateBox, Sorting, Pagination, FetchSize) {
             match self.0 {
-                QueryRequest::Query(query) => (query.query, query.sorting, query.pagination),
-                QueryRequest::Cursor(_) => panic!("Expected query, got cursor"),
+                iroha_data_model::query::QueryRequest::Query(query) => (
+                    query.query,
+                    query.filter,
+                    query.sorting,
+                    query.pagination,
+                    query.fetch_size,
+                ),
+                iroha_data_model::query::QueryRequest::Cursor(_) => {
+                    panic!("Expected query, got cursor")
+                }
             }
         }
     }
@@ -548,5 +595,66 @@ mod tests {
     #[webassembly_test]
     fn execute_query() {
         assert_eq!(get_test_query().execute(), QUERY_RESULT);
+    }
+
+    #[webassembly_test]
+    fn data_model_compat() {
+        // this test tries to ensure that encodings of SmartContractQuery and QueryRequest are compatible with those in data model
+
+        use alloc::string::ToString;
+        use core::{
+            num::{NonZeroU32, NonZeroU64},
+            str::FromStr,
+        };
+
+        let query = FindAccountById::new(test_samples::ALICE_ID.clone());
+        let smart_contract_filter: PredicateBox =
+            iroha_data_model::query::predicate::value::QueryOutputPredicate::Identifiable(
+                iroha_data_model::query::predicate::string::StringPredicate::EndsWith(
+                    "kitty".to_string(),
+                ),
+            )
+            .into();
+        let smart_contract_query = super::SmartContractQuery {
+            query: &query,
+            filter: smart_contract_filter.clone(),
+            sorting: Sorting::by_metadata_key(Name::from_str("metadata_key").unwrap()),
+            pagination: Pagination {
+                limit: Some(NonZeroU32::new(12341234).unwrap()),
+                start: Some(NonZeroU64::new(43214321).unwrap()),
+            },
+            fetch_size: FetchSize {
+                fetch_size: Some(NonZeroU32::new(56785678).unwrap()),
+            },
+        };
+        let smart_contract_query_rq = super::QueryRequest::Query(smart_contract_query.clone());
+        let encoded_rq = smart_contract_query_rq.encode();
+        let data_model_query_rq = iroha_data_model::query::QueryRequest::<
+            iroha_data_model::query::SmartContractQuery,
+        >::decode(&mut encoded_rq.as_slice())
+        .unwrap();
+
+        match data_model_query_rq {
+            iroha_data_model::query::QueryRequest::Query(q) => {
+                match q.query() {
+                    iroha_data_model::query::QueryBox::FindAccountById(q) => {
+                        assert_eq!(q, &query)
+                    }
+                    q => panic!(
+                        "Unexpected query value decoded for data model query: {:?}",
+                        q
+                    ),
+                };
+
+                assert_eq!(q.filter(), &smart_contract_filter);
+                assert_eq!(q.sorting(), &smart_contract_query.sorting);
+                assert_eq!(q.pagination(), &smart_contract_query.pagination);
+                assert_eq!(q.fetch_size(), &smart_contract_query.fetch_size);
+            }
+            q => panic!(
+                "Unexpected query request value decoded for data model query: {:?}",
+                q
+            ),
+        }
     }
 }
