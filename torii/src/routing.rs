@@ -16,10 +16,7 @@ use iroha_data_model::{
         SignedBlock,
     },
     prelude::*,
-    query::{
-        cursor::ForwardCursor, http, sorting::Sorting, Pagination, QueryOutputBox, QueryRequest,
-        QueryWithParameters,
-    },
+    query::{cursor::ForwardCursor, http, QueryOutputBox, QueryRequest},
     BatchedResponse,
 };
 #[cfg(feature = "telemetry")]
@@ -33,16 +30,8 @@ use crate::stream::{Sink, Stream};
 pub fn client_query_request(
 ) -> impl warp::Filter<Extract = (http::ClientQueryRequest,), Error = warp::Rejection> + Copy {
     body::versioned::<SignedQuery>()
-        .and(sorting())
-        .and(paginate())
-        .and(fetch_size())
-        .and_then(|signed_query, sorting, pagination, fetch_size| async move {
-            Result::<_, std::convert::Infallible>::Ok(http::ClientQueryRequest::query(
-                signed_query,
-                sorting,
-                pagination,
-                fetch_size,
-            ))
+        .and_then(|signed_query| async move {
+            Result::<_, std::convert::Infallible>::Ok(http::ClientQueryRequest::query(signed_query))
         })
         .or(cursor().and_then(|cursor| async move {
             Result::<_, std::convert::Infallible>::Ok(http::ClientQueryRequest::cursor(cursor))
@@ -50,23 +39,8 @@ pub fn client_query_request(
         .unify()
 }
 
-/// Filter for warp which extracts sorting
-fn sorting() -> impl warp::Filter<Extract = (Sorting,), Error = warp::Rejection> + Copy {
-    warp::query()
-}
-
 /// Filter for warp which extracts cursor
 fn cursor() -> impl warp::Filter<Extract = (ForwardCursor,), Error = warp::Rejection> + Copy {
-    warp::query()
-}
-
-/// Filter for warp which extracts pagination
-pub fn paginate() -> impl warp::Filter<Extract = (Pagination,), Error = warp::Rejection> + Copy {
-    warp::query()
-}
-
-/// Filter for warp which extracts fetch size
-fn fetch_size() -> impl warp::Filter<Extract = (FetchSize,), Error = warp::Rejection> + Copy {
     warp::query()
 }
 
@@ -104,16 +78,11 @@ pub async fn handle_queries(
     let handle = task::spawn_blocking(move || {
         let state_view = state.view();
         match query_request.0 {
-            QueryRequest::Query(QueryWithParameters {
-                query: signed_query,
-                sorting,
-                pagination,
-                fetch_size,
-            }) => {
+            QueryRequest::Query(signed_query) => {
                 let valid_query = ValidQueryRequest::validate(signed_query, &state_view)?;
-                let query_output = valid_query.execute(&state_view)?;
+                let query_output = valid_query.execute_and_process(&state_view)?;
                 live_query_store
-                    .handle_query_output(query_output, &sorting, pagination, fetch_size)
+                    .handle_query_output(query_output)
                     .map_err(ValidationFail::from)
             }
             QueryRequest::Cursor(cursor) => live_query_store

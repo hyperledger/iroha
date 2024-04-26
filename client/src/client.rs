@@ -361,11 +361,11 @@ pub struct Client {
 }
 
 /// Query request
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone)]
 pub struct QueryRequest {
     torii_url: Url,
     headers: HashMap<String, String>,
-    request: crate::data_model::query::QueryRequest<Vec<u8>>,
+    request: crate::data_model::query::QueryRequest<SignedQuery>,
 }
 
 impl QueryRequest {
@@ -377,12 +377,8 @@ impl QueryRequest {
             torii_url: format!("http://{torii_url}").parse().unwrap(),
             headers: HashMap::new(),
             request: crate::data_model::query::QueryRequest::Query(
-                crate::data_model::query::QueryWithParameters {
-                    query: Vec::default(),
-                    sorting: Sorting::default(),
-                    pagination: Pagination::default(),
-                    fetch_size: FetchSize::default(),
-                },
+                ClientQueryBuilder::new(FindAllAccounts, test_samples::ALICE_ID.clone())
+                    .sign(&test_samples::ALICE_KEYPAIR),
             ),
         }
     }
@@ -395,11 +391,9 @@ impl QueryRequest {
         .headers(self.headers);
 
         match self.request {
-            crate::data_model::query::QueryRequest::Query(query_with_params) => builder
-                .params(query_with_params.sorting().clone().into_query_parameters())
-                .params(query_with_params.pagination().into_query_parameters())
-                .params(query_with_params.fetch_size().into_query_parameters())
-                .body(query_with_params.query().clone()),
+            crate::data_model::query::QueryRequest::Query(signed_query) => {
+                builder.body(signed_query.encode())
+            }
             crate::data_model::query::QueryRequest::Cursor(cursor) => {
                 builder.params(Vec::from(cursor))
             }
@@ -490,7 +484,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign_query(&self, query: QueryBuilder) -> SignedQuery {
+    pub fn sign_query(&self, query: ClientQueryBuilder) -> SignedQuery {
         query.sign(&self.key_pair)
     }
 
@@ -822,17 +816,17 @@ impl Client {
     where
         <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
-        let query_builder = QueryBuilder::new(request, self.account_id.clone()).with_filter(filter);
-        let request = self.sign_query(query_builder).encode_versioned();
+        let query_builder = ClientQueryBuilder::new(request, self.account_id.clone())
+            .with_filter(filter)
+            .with_pagination(pagination)
+            .with_sorting(sorting)
+            .with_fetch_size(fetch_size);
+        let request = self.sign_query(query_builder);
 
         let query_request = QueryRequest {
             torii_url: self.torii_url.clone(),
             headers: self.headers.clone(),
-            request: crate::data_model::query::QueryRequest::Query(
-                crate::data_model::query::QueryWithParameters::new(
-                    request, sorting, pagination, fetch_size,
-                ),
-            ),
+            request: crate::data_model::query::QueryRequest::Query(request),
         };
 
         (

@@ -1,7 +1,7 @@
 //! Predicate-related logic. Should contain predicate-related `impl`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::vec;
+use alloc::{borrow::ToOwned, boxed::Box, vec, vec::Vec};
 use core::{
     fmt::Display,
     ops::{ControlFlow, Not},

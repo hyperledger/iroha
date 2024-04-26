@@ -47,7 +47,7 @@ use iroha_data_model::{
             value::{AtIndex, Container, QueryOutputPredicate},
             GenericPredicateBox, NonTrivial, PredicateBox,
         },
-        ForwardCursor, QueryOutputBox,
+        ForwardCursor, Pagination, QueryOutputBox, Sorting,
     },
     transaction::{
         error::TransactionLimitError, SignedTransactionV1, TransactionLimits, TransactionPayload,

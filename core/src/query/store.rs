@@ -1,7 +1,6 @@
 //! This module contains [`LiveQueryStore`] actor.
 
 use std::{
-    cmp::Ordering,
     num::NonZeroU64,
     time::{Duration, Instant},
 };
@@ -9,23 +8,16 @@ use std::{
 use indexmap::IndexMap;
 use iroha_config::parameters::actual::LiveQueryStore as Config;
 use iroha_data_model::{
-    asset::AssetValue,
-    query::{
-        cursor::ForwardCursor, error::QueryExecutionFail, pagination::Pagination, sorting::Sorting,
-        FetchSize, QueryId, QueryOutputBox, DEFAULT_FETCH_SIZE, MAX_FETCH_SIZE,
-    },
-    BatchedResponse, BatchedResponseV1, HasMetadata, IdentifiableBox, ValidationFail,
+    query::{cursor::ForwardCursor, error::QueryExecutionFail, QueryId, QueryOutputBox},
+    BatchedResponse, BatchedResponseV1, ValidationFail,
 };
 use iroha_logger::trace;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 
-use super::{
-    cursor::{Batch as _, Batched, UnknownCursor},
-    pagination::Paginate as _,
-};
-use crate::smartcontracts::query::LazyQueryOutput;
+use super::cursor::{Batched, UnknownCursor};
+use crate::smartcontracts::query::ProcessedQueryOutput;
 
 /// Query service error.
 #[derive(Debug, thiserror::Error, Copy, Clone, Serialize, Deserialize, Encode, Decode)]
@@ -157,7 +149,7 @@ pub struct LiveQueryStoreHandle {
 }
 
 impl LiveQueryStoreHandle {
-    /// Apply sorting and pagination to the query output.
+    /// Construct a batched response from a post-processed query output.
     ///
     /// # Errors
     ///
@@ -165,28 +157,18 @@ impl LiveQueryStoreHandle {
     /// - Otherwise throws up query output handling errors.
     pub fn handle_query_output(
         &self,
-        query_output: LazyQueryOutput<'_>,
-        sorting: &Sorting,
-        pagination: Pagination,
-        fetch_size: FetchSize,
+        query_output: ProcessedQueryOutput,
     ) -> Result<BatchedResponse<QueryOutputBox>> {
         match query_output {
-            LazyQueryOutput::QueryOutput(batch) => {
+            ProcessedQueryOutput::Single(batch) => {
                 let cursor = ForwardCursor::default();
                 let result = BatchedResponseV1 { batch, cursor };
                 Ok(result.into())
             }
-            LazyQueryOutput::Iter(iter) => {
-                let fetch_size = fetch_size.fetch_size.unwrap_or(DEFAULT_FETCH_SIZE);
-                if fetch_size > MAX_FETCH_SIZE {
-                    return Err(Error::FetchSizeTooBig);
-                }
-
-                let live_query = Self::apply_sorting_and_pagination(iter, sorting, pagination);
+            ProcessedQueryOutput::Iter(live_query) => {
                 let query_id = uuid::Uuid::new_v4().to_string();
 
                 let curr_cursor = Some(0);
-                let live_query = live_query.batched(fetch_size);
                 self.construct_query_response(query_id, curr_cursor, live_query)
             }
         }
@@ -260,57 +242,18 @@ impl LiveQueryStoreHandle {
 
         Ok(query_response.into())
     }
-
-    fn apply_sorting_and_pagination(
-        iter: impl Iterator<Item = QueryOutputBox>,
-        sorting: &Sorting,
-        pagination: Pagination,
-    ) -> Vec<QueryOutputBox> {
-        if let Some(key) = &sorting.sort_by_metadata_key {
-            let mut pairs: Vec<(Option<QueryOutputBox>, QueryOutputBox)> = iter
-                .map(|value| {
-                    let key = match &value {
-                        QueryOutputBox::Identifiable(IdentifiableBox::Asset(asset)) => {
-                            match asset.value() {
-                                AssetValue::Store(store) => store.get(key).cloned().map(Into::into),
-                                _ => None,
-                            }
-                        }
-                        QueryOutputBox::Identifiable(v) => TryInto::<&dyn HasMetadata>::try_into(v)
-                            .ok()
-                            .and_then(|has_metadata| has_metadata.metadata().get(key))
-                            .cloned()
-                            .map(Into::into),
-                        _ => None,
-                    };
-                    (key, value)
-                })
-                .collect();
-            pairs.sort_by(
-                |(left_key, _), (right_key, _)| match (left_key, right_key) {
-                    (Some(l), Some(r)) => l.cmp(r),
-                    (Some(_), None) => Ordering::Less,
-                    (None, Some(_)) => Ordering::Greater,
-                    (None, None) => Ordering::Equal,
-                },
-            );
-            pairs
-                .into_iter()
-                .map(|(_, val)| val)
-                .paginate(pagination)
-                .collect()
-        } else {
-            iter.paginate(pagination).collect()
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use iroha_data_model::metadata::MetadataValueBox;
+    use iroha_data_model::{
+        metadata::MetadataValueBox,
+        query::{predicate::PredicateBox, FetchSize, Pagination, Sorting},
+    };
     use nonzero_ext::nonzero;
 
     use super::*;
+    use crate::smartcontracts::query::LazyQueryOutput;
 
     #[test]
     fn query_message_order_preserved() {
@@ -319,6 +262,7 @@ mod tests {
         let query_store_handle = threaded_rt.block_on(async { query_store.start() });
 
         for i in 0..10_000 {
+            let filter = PredicateBox::default();
             let pagination = Pagination::default();
             let fetch_size = FetchSize {
                 fetch_size: Some(nonzero!(1_u32)),
@@ -331,8 +275,12 @@ mod tests {
 
             let mut counter = 0;
 
+            let query_output = query_output
+                .apply_postprocessing(&filter, &sorting, pagination, fetch_size)
+                .unwrap();
+
             let (batch, mut cursor) = query_store_handle
-                .handle_query_output(query_output, &sorting, pagination, fetch_size)
+                .handle_query_output(query_output)
                 .unwrap()
                 .into();
             let QueryOutputBox::Vec(v) = batch else {

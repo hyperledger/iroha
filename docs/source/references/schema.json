@@ -718,6 +718,34 @@
     ]
   },
   "ChainId": "String",
+  "ClientQueryPayload": {
+    "Struct": [
+      {
+        "name": "authority",
+        "type": "AccountId"
+      },
+      {
+        "name": "query",
+        "type": "QueryBox"
+      },
+      {
+        "name": "filter",
+        "type": "GenericPredicateBox<QueryOutputPredicate>"
+      },
+      {
+        "name": "sorting",
+        "type": "Sorting"
+      },
+      {
+        "name": "pagination",
+        "type": "Pagination"
+      },
+      {
+        "name": "fetch_size",
+        "type": "FetchSize"
+      }
+    ]
+  },
   "Compact<u128>": {
     "Int": "Compact"
   },
@@ -1192,6 +1220,14 @@
       {
         "name": "message",
         "type": "String"
+      }
+    ]
+  },
+  "FetchSize": {
+    "Struct": [
+      {
+        "name": "fetch_size",
+        "type": "Option<NonZero<u32>>"
       }
     ]
   },
@@ -2411,6 +2447,9 @@
   "Option<IpfsPath>": {
     "Option": "IpfsPath"
   },
+  "Option<Name>": {
+    "Option": "Name"
+  },
   "Option<NonZero<u32>>": {
     "Option": "NonZero<u32>"
   },
@@ -2452,6 +2491,18 @@
   },
   "Option<u64>": {
     "Option": "u64"
+  },
+  "Pagination": {
+    "Struct": [
+      {
+        "name": "limit",
+        "type": "Option<NonZero<u32>>"
+      },
+      {
+        "name": "start",
+        "type": "Option<NonZero<u64>>"
+      }
+    ]
   },
   "Parameter": {
     "Struct": [
@@ -2857,6 +2908,10 @@
       {
         "tag": "FetchSizeTooBig",
         "discriminant": 4
+      },
+      {
+        "tag": "InvalidSingularParameters",
+        "discriminant": 5
       }
     ]
   },
@@ -2944,22 +2999,6 @@
       {
         "tag": "Pass",
         "discriminant": 5
-      }
-    ]
-  },
-  "QueryPayload": {
-    "Struct": [
-      {
-        "name": "authority",
-        "type": "AccountId"
-      },
-      {
-        "name": "query",
-        "type": "QueryBox"
-      },
-      {
-        "name": "filter",
-        "type": "GenericPredicateBox<QueryOutputPredicate>"
       }
     ]
   },
@@ -3493,7 +3532,7 @@
     ]
   },
   "SignatureOf<BlockPayload>": "Signature",
-  "SignatureOf<QueryPayload>": "Signature",
+  "SignatureOf<ClientQueryPayload>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
   "SignaturesOf<BlockPayload>": {
     "Struct": [
@@ -3537,11 +3576,11 @@
     "Struct": [
       {
         "name": "signature",
-        "type": "SignatureOf<QueryPayload>"
+        "type": "SignatureOf<ClientQueryPayload>"
       },
       {
         "name": "payload",
-        "type": "QueryPayload"
+        "type": "ClientQueryPayload"
       }
     ]
   },
@@ -3668,6 +3707,14 @@
   },
   "SortedVec<SignatureOf<BlockPayload>>": {
     "Vec": "SignatureOf<BlockPayload>"
+  },
+  "Sorting": {
+    "Struct": [
+      {
+        "name": "sort_by_metadata_key",
+        "type": "Option<Name>"
+      }
+    ]
   },
   "String": "String",
   "StringPredicate": {

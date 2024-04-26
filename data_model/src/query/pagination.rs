@@ -15,6 +15,7 @@ use std::collections::btree_map;
 
 use derive_more::{Constructor, Display};
 use iroha_data_model_derive::model;
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +24,18 @@ const PAGINATION_LIMIT: &str = "limit";
 
 /// Structure for pagination requests
 #[derive(
-    Debug, Display, Clone, Copy, PartialEq, Eq, Default, Decode, Encode, Deserialize, Serialize,
+    Debug,
+    Display,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
 #[display(
     fmt = "{}--{}",

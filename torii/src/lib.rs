@@ -363,7 +363,9 @@ impl Error {
             QueryFailed(query_error)
             | InstructionFailed(InstructionExecutionError::Query(query_error)) => match query_error
             {
-                Conversion(_) | UnknownCursor | FetchSizeTooBig => StatusCode::BAD_REQUEST,
+                Conversion(_) | UnknownCursor | FetchSizeTooBig | InvalidSingularParameters => {
+                    StatusCode::BAD_REQUEST
+                }
                 Signature(_) => StatusCode::UNAUTHORIZED,
                 Find(_) => StatusCode::NOT_FOUND,
             },
