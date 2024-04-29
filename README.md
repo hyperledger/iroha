@@ -22,7 +22,8 @@ Iroha has the following features:
 5. Validation of business rules for transactions and queries in the system
 6. Multisignature transactions
 
-Iroha is _Crash Fault Tolerant_ and has its own consensus algorithm - [YAC](https://arxiv.org/pdf/1809.00554.pdf)
+Iroha is _Crash Fault Tolerant_ and has its own consensus algorithm — [YAC](https://arxiv.org/pdf/1809.00554.pdf).
+In Iroha 2, it is replaced with a new algorithm — [Sumeragi](https://iroha.tech/#sumeragi).
 
 ## Documentation
 
