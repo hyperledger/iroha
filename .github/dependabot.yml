@@ -7,7 +7,8 @@ updates:
     schedule:
       interval: "weekly"
     commit-message:
-      prefix: "[chore]"
+      prefix: chore
+      include: scope
 
   - package-ecosystem: "github-actions"
     target-branch: "main"
@@ -15,7 +16,8 @@ updates:
     schedule:
       interval: "weekly"
     commit-message:
-      prefix: "[chore]"
+      prefix: chore
+      include: scope
 
   - package-ecosystem: "pip"
     target-branch: "main"
@@ -23,7 +25,8 @@ updates:
     schedule:
       interval: "daily"
     commit-message:
-      prefix: "[chore]"
+      prefix: chore
+      include: scope
 
   - package-ecosystem: "cargo"
     target-branch: "main"
@@ -31,7 +34,8 @@ updates:
     schedule:
       interval: "daily"
     commit-message:
-      prefix: "[chore]"
+      prefix: chore
+      include: scope
 
   - package-ecosystem: "cargo"
     target-branch: "main"
@@ -39,4 +43,5 @@ updates:
     schedule:
       interval: "daily"
     commit-message:
-      prefix: "[chore]"
+      prefix: chore
+      include: scope
