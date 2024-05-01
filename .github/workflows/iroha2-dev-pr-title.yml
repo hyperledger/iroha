@@ -3,107 +3,47 @@ name: I2::Dev::Title
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, edited, reopened]
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: write
 
 jobs:
-  check:
+  validate:
+    name: Validate PR title
     runs-on: ubuntu-latest
     steps:
-      - name: Feature
-        uses: actions-ecosystem/action-regex-match@v2
-        id: feature-match
+      - name: Check conventional commits
+        uses: amannn/action-semantic-pull-request@v5
+        id: lint_pr_title
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          text: ${{ github.event.pull_request.title }}
-          regex: '^\[feature\] #\d+(, #\d+)*: .+$'
-      - name: Add feature label
-        uses: actions-ecosystem/action-add-labels@v1
-        if: steps.feature-match.outputs.match != ''
-        continue-on-error: true
-        with:
-          github_token: ${{ secrets.github_token }}
-          labels: |
-            Enhancement
+          validateSingleCommit: true
+          validateSingleCommitMatchesPrTitle: true
 
-      - name: Refactor
-        uses: actions-ecosystem/action-regex-match@v2
-        id: refactor-match
-        if: steps.feature-match.outputs.match == ''
+      - name: Post error comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        # When the previous step fails, the workflow would stop. By adding this
+        # condition you can continue the execution with the populated error message.
+        if: always() && (steps.lint_pr_title.outputs.error_message != null)
         with:
-          text: ${{ github.event.pull_request.title }}
-          regex: '^\[refactor\]( #\d+(, #\d+)*)?: .+$'
-      - name: Add Refactor label
-        uses: actions-ecosystem/action-add-labels@v1
-        if: steps.refactor-match.outputs.match != ''
-        continue-on-error: true
-        with:
-          github_token: ${{ secrets.github_token }}
-          labels: |
-            Refactor
+          header: pr-title-lint-error
+          message: |
+            Hey there and thank you for opening this pull request! 👋🏼
+            
+            We require pull request titles to follow the [Conventional Commits specification](https://www.conventionalcommits.org/en/v1.0.0/), and it looks like your proposed title needs to be adjusted.
+            
+            Details:
+            
+            ```
+            ${{ steps.lint_pr_title.outputs.error_message }}
+            ```
 
-      - name: Fix
-        uses: actions-ecosystem/action-regex-match@v2
-        id: fix-match
-        if: steps.refactor-match.outputs.match == ''
+      # Delete a previous comment when the issue has been resolved
+      - name: Delete error comment
+        if: ${{ steps.lint_pr_title.outputs.error_message == null }}
+        uses: marocchino/sticky-pull-request-comment@v2
         with:
-          text: ${{ github.event.pull_request.title }}
-          regex: '^\[fix\] #\d+(, #\d+)*: .+$'
-      - name: Add fix label
-        uses: actions-ecosystem/action-add-labels@v1
-        if: steps.fix-match.outputs.match != ''
-        continue-on-error: true
-        with:
-          github_token: ${{ secrets.github_token }}
-          labels: |
-            Bug
-
-      - name: Documentation
-        uses: actions-ecosystem/action-regex-match@v2
-        id: docs-match
-        if: steps.fix-match.outputs.match == ''
-        with:
-          text: ${{ github.event.pull_request.title }}
-          regex: '^\[documentation\]( #\d+(, #\d+)*)?: .+$'
-      - name: Add Documentation label
-        uses: actions-ecosystem/action-add-labels@v1
-        if: steps.docs-match.outputs.match != ''
-        continue-on-error: true
-        with:
-          github_token: ${{ secrets.github_token }}
-          labels: |
-            Documentation
-
-      - name: CI
-        uses: actions-ecosystem/action-regex-match@v2
-        id: ci-match
-        if: steps.docs-match.outputs.match == ''
-        with:
-          text: ${{ github.event.pull_request.title }}
-          regex: '^\[ci\]( #\d+(, #\d+)*)?: .+$'
-      - name: Add CI label
-        uses: actions-ecosystem/action-add-labels@v1
-        if: steps.ci-match.outputs.match != ''
-        continue-on-error: true
-        with:
-          github_token: ${{ secrets.github_token }}
-          labels: |
-            CI
-
-      - name: Chore
-        uses: actions-ecosystem/action-regex-match@v2
-        id: chore-match
-        if: steps.ci-match.outputs.match == ''
-        with:
-          text: ${{ github.event.pull_request.title }}
-          regex: '^\[chore\]( #\d+(, #\d+)*)?: .+$'
-      - name: Add Chore label
-        uses: actions-ecosystem/action-add-labels@v1
-        if: steps.chore-match.outputs.match != ''
-        continue-on-error: true
-        with:
-          github_token: ${{ secrets.github_token }}
-          labels: |
-            chore
-
-      - name: None of the above
-        if: steps.fix-match.outputs.match == '' && steps.refactor-match.outputs.match == '' && steps.feature-match.outputs.match == '' && steps.docs-match.outputs.match == '' && steps.ci-match.outputs.match == '' && steps.chore-match.outputs.match == ''
-        run: exit 1
+          header: pr-title-lint-error
+          delete: true
