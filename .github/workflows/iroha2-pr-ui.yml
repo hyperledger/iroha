@@ -2,7 +2,7 @@ name: I2::Tests::UI
 
 on:
   pull_request:
-    branches: [main, stable, lts]
+    branches: [2.0.0-pre-rc.21]
     paths:
       - '**/derive/**.rs'
       - '**/tests/ui.rs'

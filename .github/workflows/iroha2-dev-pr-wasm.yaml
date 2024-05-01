@@ -2,7 +2,7 @@ name: I2::Dev::Wasm
 
 on:
   pull_request:
-    branches: [main]
+    branches: [2.0.0-pre-rc.21]
     paths:
       - 'data_model/**.rs'
       - 'data_model/**.yml'

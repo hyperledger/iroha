@@ -3,7 +3,7 @@ name: I2::CI::check_for_incorrect_images
 on:
   push:
     branches:
-      - main
+      - 2.0.0-pre-rc.21
       - stable
 
 jobs:
@@ -20,6 +20,6 @@ jobs:
       - name: Check containers on iroha2 stable branch
         if: github.base_ref == 'stable'
         run: python .github/scripts/ci_test/ci_image_scan.py --allow iroha2:stable -- docker-compose*.yml
-      - name: Check containers on iroha2 main branch
-        if: github.base_ref == 'main'
+      - name: Check containers on iroha2 2.0.0-pre-rc.21 branch
+        if: github.base_ref == '2.0.0-pre-rc.21'
         run: python .github/scripts/ci_test/ci_image_scan.py --allow iroha2:dev -- docker-compose*.yml

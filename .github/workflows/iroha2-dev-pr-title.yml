@@ -2,7 +2,7 @@ name: I2::Dev::Title
 
 on:
   pull_request_target:
-    branches: [main]
+    branches: [2.0.0-pre-rc.21]
     types: [opened, edited, reopened]
 
 jobs:
