@@ -194,6 +194,7 @@ mod model {
         PartialOrd,
         Ord,
         Default,
+        CopyGetters,
         Getters,
         Decode,
         Encode,
@@ -203,9 +204,10 @@ mod model {
     )]
     #[ffi_type]
     pub struct TransactionEventFilter {
-        #[getset(get = "pub")]
+        #[getset(get_copy = "pub")]
         pub hash: Option<HashOf<SignedTransaction>>,
-        pub block_height: Option<Option<u64>>,
+        #[getset(get_copy = "pub")]
+        pub block_height: Option<u64>,
         #[getset(get = "pub")]
         pub status: Option<TransactionStatus>,
     }
@@ -249,7 +251,7 @@ impl TransactionEventFilter {
 
     /// Match only transactions with the given block height
     #[must_use]
-    pub fn for_block_height(mut self, block_height: Option<u64>) -> Self {
+    pub fn for_block_height(mut self, block_height: u64) -> Self {
         self.block_height = Some(block_height);
         self
     }
@@ -266,12 +268,6 @@ impl TransactionEventFilter {
     pub fn for_status(mut self, status: TransactionStatus) -> Self {
         self.status = Some(status);
         self
-    }
-
-    /// Block height
-    // TODO: Derive with getset
-    pub fn block_height(&self) -> Option<Option<u64>> {
-        self.block_height
     }
 }
 
@@ -315,7 +311,7 @@ impl super::EventFilter for PipelineEventFilterBox {
                     &transaction_event.hash,
                 ),
                 TransactionEventFilter::field_matches(
-                    transaction_filter.block_height.as_ref(),
+                    Some(transaction_filter.block_height).as_ref(),
                     &transaction_event.block_height,
                 ),
                 TransactionEventFilter::field_matches(
