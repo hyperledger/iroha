@@ -7,6 +7,7 @@ on:
       - '**.rs'
       - '**.json'
       - '**.toml'
+      - '**.lock'
       - '.github/workflows/iroha2-dev-pr.yml'
 
 concurrency:
