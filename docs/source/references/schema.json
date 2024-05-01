@@ -2497,9 +2497,6 @@
   "Option<NonZero<u64>>": {
     "Option": "NonZero<u64>"
   },
-  "Option<Option<u64>>": {
-    "Option": "Option<u64>"
-  },
   "Option<ParameterId>": {
     "Option": "ParameterId"
   },
@@ -3856,7 +3853,7 @@
       },
       {
         "name": "block_height",
-        "type": "Option<Option<u64>>"
+        "type": "Option<u64>"
       },
       {
         "name": "status",
