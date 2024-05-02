@@ -54,6 +54,9 @@ pub fn build_schemas() -> MetaMap {
 
         // Never referenced, but present in type signature. Like `PhantomData<X>`
         MerkleTree<SignedTransaction>,
+
+        // Genesis file - used by SDKs to generate the genesis block
+        iroha_genesis::RawGenesisBlock,
     }
 }
 
