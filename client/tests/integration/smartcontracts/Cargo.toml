@@ -16,6 +16,7 @@ members = [
     "executor_remove_token",
     "executor_with_migration_fail",
     "query_assets_and_save_cursor",
+    "smart_contract_can_filter_queries",
 ]
 
 [profile.dev]
@@ -29,8 +30,8 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [workspace.dependencies]
-iroha_smart_contract = { version = "=2.0.0-pre-rc.21", path = "../../../../smart_contract", features = ["debug"]}
-iroha_trigger = { version = "=2.0.0-pre-rc.21", path = "../../../../smart_contract/trigger", features = ["debug"]}
+iroha_smart_contract = { version = "=2.0.0-pre-rc.21", path = "../../../../smart_contract", features = ["debug"] }
+iroha_trigger = { version = "=2.0.0-pre-rc.21", path = "../../../../smart_contract/trigger", features = ["debug"] }
 iroha_executor = { version = "=2.0.0-pre-rc.21", path = "../../../../smart_contract/executor" }
 iroha_schema = { version = "=2.0.0-pre-rc.21", path = "../../../../schema" }
 
