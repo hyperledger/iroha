@@ -17,6 +17,7 @@ use iroha_data_model::{
     prelude::{Metadata, *},
     ChainId,
 };
+use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
@@ -71,7 +72,7 @@ impl GenesisNetwork {
 /// The initial block of the network
 ///
 /// Use [`RawGenesisBlockFile`] to read it from a file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, IntoSchema)]
 pub struct RawGenesisBlock {
     /// Transactions
     transactions: Vec<GenesisTransactionBuilder>,
@@ -157,7 +158,7 @@ impl RawGenesisBlockFile {
 }
 
 /// Transaction for initialize settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, IntoSchema)]
 #[serde(transparent)]
 pub struct GenesisTransactionBuilder {
     /// Instructions

@@ -1592,6 +1592,14 @@
       }
     ]
   },
+  "GenesisTransactionBuilder": {
+    "Struct": [
+      {
+        "name": "isi",
+        "type": "Vec<InstructionBox>"
+      }
+    ]
+  },
   "Grant<PermissionToken, Account>": {
     "Struct": [
       {
@@ -3045,6 +3053,18 @@
       }
     ]
   },
+  "RawGenesisBlock": {
+    "Struct": [
+      {
+        "name": "transactions",
+        "type": "Vec<GenesisTransactionBuilder>"
+      },
+      {
+        "name": "executor",
+        "type": "Executor"
+      }
+    ]
+  },
   "Register<Account>": {
     "Struct": [
       {
@@ -4413,6 +4433,9 @@
   },
   "Vec<GenericPredicateBox<QueryOutputPredicate>>": {
     "Vec": "GenericPredicateBox<QueryOutputPredicate>"
+  },
+  "Vec<GenesisTransactionBuilder>": {
+    "Vec": "GenesisTransactionBuilder"
   },
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
