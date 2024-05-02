@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [2.0.0-pre-rc.21.1] - 2024-05-01
+
+- add RawGenesisBlock to schema (#4538)
+- remove nested option on `TransactionEventFilter::block_height` (#4538)
+
 ## [2.0.0-pre-rc.21] - 2024-04-19
 
 ### Added
