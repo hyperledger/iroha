@@ -345,22 +345,19 @@ impl FromStr for PublicKeyInner {
     fn from_str(key: &str) -> Result<Self, Self::Err> {
         let bytes = hex_decode(key)?;
 
-        multihash::Multihash::try_from(bytes).map(Into::into)
+        let (algorithm, payload) = multihash::decode_public_key(&bytes)?;
+        PublicKey::from_bytes(algorithm, &payload).map(|key| *key.0)
     }
 }
 
 #[cfg(not(feature = "ffi_import"))]
 impl PublicKeyInner {
     fn normalize(&self) -> String {
-        let multihash: &multihash::Multihash = &self.clone().into();
-        let bytes = Vec::try_from(multihash).expect("Failed to convert multihash to bytes.");
+        let (algorithm, payload) = self.to_raw();
+        let bytes = multihash::encode_public_key(algorithm, &payload)
+            .expect("Failed to convert multihash to bytes.");
 
-        let mut bytes_iter = bytes.into_iter();
-        let fn_code = hex::encode(bytes_iter.by_ref().take(2).collect::<Vec<_>>());
-        let dig_size = hex::encode(bytes_iter.by_ref().take(1).collect::<Vec<_>>());
-        let key = hex::encode_upper(bytes_iter.by_ref().collect::<Vec<_>>());
-
-        format!("{fn_code}{dig_size}{key}")
+        multihash::multihash_to_hex_string(&bytes)
     }
 }
 

@@ -2,192 +2,170 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    format,
     string::{String, ToString as _},
     vec,
     vec::Vec,
 };
 
 use derive_more::Display;
-use iroha_primitives::const_vec::ConstVec;
 
-use crate::{varint, Algorithm, NoSuchAlgorithm, ParseError, PublicKey, PublicKeyInner};
+use crate::{varint, Algorithm, ParseError};
 
-/// ed25519 public string
-pub const ED_25519_PUB_STR: &str = "ed25519-pub";
-/// secp256k1 public string
-pub const SECP_256_K1_PUB_STR: &str = "secp256k1-pub";
-/// bls12 381 g1 public string
-pub const BLS12_381_G1_PUB: &str = "bls12_381-g1-pub";
-/// bls12 381 g2 public string
-pub const BLS12_381_G2_PUB: &str = "bls12_381-g2-pub";
-
-/// Type of digest function.
-/// The corresponding byte codes are taken from [official multihash table](https://github.com/multiformats/multicodec/blob/master/table.csv)
-#[allow(clippy::enum_variant_names)]
-#[repr(u64)]
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DigestFunction {
-    /// `Ed25519`
-    #[display(fmt = "{ED_25519_PUB_STR}")]
-    #[default]
-    Ed25519Pub = 0xed,
-    /// `Secp256k1`
-    #[display(fmt = "{SECP_256_K1_PUB_STR}")]
-    Secp256k1Pub = 0xe7,
-    /// `Bls12381G1`
-    #[display(fmt = "{BLS12_381_G1_PUB}")]
-    Bls12381G1Pub = 0xea,
-    /// `Bls12381G2`
-    #[display(fmt = "{BLS12_381_G2_PUB}")]
-    Bls12381G2Pub = 0xeb,
+pub fn decode_public_key(bytes: &[u8]) -> Result<(Algorithm, Vec<u8>), ParseError> {
+    let (digest_function, payload) = decode_multihash(bytes)?;
+    let algorithm = digest_function_public::decode(digest_function)?;
+    Ok((algorithm, payload))
 }
 
-impl From<DigestFunction> for Algorithm {
-    fn from(f: DigestFunction) -> Self {
-        match f {
-            DigestFunction::Ed25519Pub => Self::Ed25519,
-            DigestFunction::Secp256k1Pub => Self::Secp256k1,
-            DigestFunction::Bls12381G1Pub => Self::BlsNormal,
-            DigestFunction::Bls12381G2Pub => Self::BlsSmall,
+pub fn encode_public_key(
+    algorithm: Algorithm,
+    payload: &[u8],
+) -> Result<Vec<u8>, MultihashConvertError> {
+    let digest_function = digest_function_public::encode(algorithm);
+    encode_multihash(digest_function, payload)
+}
+
+pub fn decode_private_key(bytes: &[u8]) -> Result<(Algorithm, Vec<u8>), ParseError> {
+    let (digest_function, payload) = decode_multihash(bytes)?;
+    let algorithm = digest_function_private::decode(digest_function)?;
+    Ok((algorithm, payload))
+}
+
+pub fn encode_private_key(
+    algorithm: Algorithm,
+    payload: &[u8],
+) -> Result<Vec<u8>, MultihashConvertError> {
+    let digest_function = digest_function_private::encode(algorithm);
+    encode_multihash(digest_function, payload)
+}
+
+pub fn multihash_to_hex_string(bytes: &[u8]) -> String {
+    let mut bytes_iter = bytes.iter().copied();
+    let fn_code = hex::encode(bytes_iter.by_ref().take(2).collect::<Vec<_>>());
+    let dig_size = hex::encode(bytes_iter.by_ref().take(1).collect::<Vec<_>>());
+    let key = hex::encode_upper(bytes_iter.by_ref().collect::<Vec<_>>());
+
+    format!("{fn_code}{dig_size}{key}")
+}
+
+/// Value of byte code corresponding to algorithm.
+/// See [official multihash table](https://github.com/multiformats/multicodec/blob/master/table.csv)
+type DigestFunction = u64;
+
+mod digest_function_public {
+    #[cfg(not(feature = "std"))]
+    use alloc::string::String;
+
+    use crate::{error::ParseError, multihash::DigestFunction, Algorithm};
+
+    const ED_25519: DigestFunction = 0xed;
+    const SECP_256_K1: DigestFunction = 0xe7;
+    const BLS12_381_G1: DigestFunction = 0xea;
+    const BLS12_381_G2: DigestFunction = 0xeb;
+
+    pub fn decode(digest_function: DigestFunction) -> Result<Algorithm, ParseError> {
+        let algorithm = match digest_function {
+            ED_25519 => Algorithm::Ed25519,
+            SECP_256_K1 => Algorithm::Secp256k1,
+            BLS12_381_G1 => Algorithm::BlsNormal,
+            BLS12_381_G2 => Algorithm::BlsSmall,
+            _ => return Err(ParseError(String::from("No such algorithm"))),
+        };
+        Ok(algorithm)
+    }
+
+    pub fn encode(algorithm: Algorithm) -> u64 {
+        match algorithm {
+            Algorithm::Ed25519 => ED_25519,
+            Algorithm::Secp256k1 => SECP_256_K1,
+            Algorithm::BlsNormal => BLS12_381_G1,
+            Algorithm::BlsSmall => BLS12_381_G2,
         }
     }
 }
 
-impl From<Algorithm> for DigestFunction {
-    fn from(a: Algorithm) -> Self {
-        match a {
-            Algorithm::Ed25519 => Self::Ed25519Pub,
-            Algorithm::Secp256k1 => Self::Secp256k1Pub,
-            Algorithm::BlsNormal => Self::Bls12381G1Pub,
-            Algorithm::BlsSmall => Self::Bls12381G2Pub,
+mod digest_function_private {
+    #[cfg(not(feature = "std"))]
+    use alloc::string::String;
+
+    use crate::{error::ParseError, multihash::DigestFunction, Algorithm};
+
+    const ED_25519: DigestFunction = 0x1300;
+    const SECP_256_K1: DigestFunction = 0x1301;
+    const BLS12_381_G1: DigestFunction = 0x1309;
+    const BLS12_381_G2: DigestFunction = 0x130a;
+
+    pub fn decode(digest_function: DigestFunction) -> Result<Algorithm, ParseError> {
+        let algorithm = match digest_function {
+            ED_25519 => Algorithm::Ed25519,
+            SECP_256_K1 => Algorithm::Secp256k1,
+            BLS12_381_G1 => Algorithm::BlsNormal,
+            BLS12_381_G2 => Algorithm::BlsSmall,
+            _ => return Err(ParseError(String::from("No such algorithm"))),
+        };
+        Ok(algorithm)
+    }
+
+    pub fn encode(algorithm: Algorithm) -> u64 {
+        match algorithm {
+            Algorithm::Ed25519 => ED_25519,
+            Algorithm::Secp256k1 => SECP_256_K1,
+            Algorithm::BlsNormal => BLS12_381_G1,
+            Algorithm::BlsSmall => BLS12_381_G2,
         }
     }
 }
 
-impl core::str::FromStr for DigestFunction {
-    type Err = NoSuchAlgorithm;
+fn decode_multihash(bytes: &[u8]) -> Result<(DigestFunction, Vec<u8>), ParseError> {
+    let idx = bytes
+        .iter()
+        .enumerate()
+        .find(|&(_, &byte)| (byte & 0b1000_0000) == 0)
+        .ok_or_else(|| {
+            ParseError(String::from(
+                "Failed to find last byte(byte smaller than 128)",
+            ))
+        })?
+        .0;
 
-    fn from_str(source: &str) -> Result<Self, Self::Err> {
-        match source {
-            ED_25519_PUB_STR => Ok(DigestFunction::Ed25519Pub),
-            SECP_256_K1_PUB_STR => Ok(DigestFunction::Secp256k1Pub),
-            BLS12_381_G1_PUB => Ok(DigestFunction::Bls12381G1Pub),
-            BLS12_381_G2_PUB => Ok(DigestFunction::Bls12381G2Pub),
-            _ => Err(Self::Err {}),
-        }
+    let (digest_function, bytes) = bytes.split_at(idx + 1);
+    let mut bytes = bytes.iter().copied();
+
+    let digest_function: u64 = varint::VarUint::new(digest_function)
+        .map_err(|err| ParseError(err.to_string()))?
+        .try_into()
+        .map_err(|err: varint::ConvertError| ParseError(err.to_string()))?;
+
+    let digest_size = bytes
+        .next()
+        .ok_or_else(|| ParseError(String::from("Digest size not found")))?;
+
+    let payload: Vec<u8> = bytes.collect();
+    if payload.len() != digest_size as usize {
+        return Err(ParseError(String::from(
+            "Digest size not equal to actual length",
+        )));
     }
+    Ok((digest_function, payload))
 }
 
-impl TryFrom<u64> for DigestFunction {
-    type Error = NoSuchAlgorithm;
+fn encode_multihash(
+    digest_function: DigestFunction,
+    payload: &[u8],
+) -> Result<Vec<u8>, MultihashConvertError> {
+    let mut bytes = vec![];
 
-    fn try_from(variant: u64) -> Result<Self, Self::Error> {
-        match variant {
-            variant if variant == DigestFunction::Ed25519Pub as u64 => {
-                Ok(DigestFunction::Ed25519Pub)
-            }
-            variant if variant == DigestFunction::Secp256k1Pub as u64 => {
-                Ok(DigestFunction::Secp256k1Pub)
-            }
-            variant if variant == DigestFunction::Bls12381G1Pub as u64 => {
-                Ok(DigestFunction::Bls12381G1Pub)
-            }
-            variant if variant == DigestFunction::Bls12381G2Pub as u64 => {
-                Ok(DigestFunction::Bls12381G2Pub)
-            }
-            _ => Err(Self::Error {}),
-        }
-    }
-}
-
-impl From<DigestFunction> for u64 {
-    fn from(digest_function: DigestFunction) -> Self {
-        digest_function as u64
-    }
-}
-
-/// Multihash.
-///
-/// Offers a middleware representation of [`PublicKey`] which can be converted
-/// to/from bytes or string.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Multihash(PublicKeyInner);
-
-impl TryFrom<Vec<u8>> for Multihash {
-    type Error = ParseError;
-
-    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        let idx = bytes
-            .iter()
-            .enumerate()
-            .find(|&(_, &byte)| (byte & 0b1000_0000) == 0)
-            .ok_or_else(|| {
-                ParseError(String::from(
-                    "Failed to find last byte(byte smaller than 128)",
-                ))
-            })?
-            .0;
-
-        let (digest_function, bytes) = bytes.split_at(idx + 1);
-        let mut bytes = bytes.iter().copied();
-
-        let digest_function: u64 = varint::VarUint::new(digest_function)
-            .map_err(|err| ParseError(err.to_string()))?
-            .try_into()
-            .map_err(|err: varint::ConvertError| ParseError(err.to_string()))?;
-        let digest_function =
-            DigestFunction::try_from(digest_function).map_err(|err| ParseError(err.to_string()))?;
-        let algorithm = Algorithm::from(digest_function);
-
-        let digest_size = bytes
-            .next()
-            .ok_or_else(|| ParseError(String::from("Digest size not found")))?;
-
-        let payload: Vec<u8> = bytes.collect();
-        if payload.len() != digest_size as usize {
-            return Err(ParseError(String::from(
-                "Digest size not equal to actual length",
-            )));
-        }
-        let payload = ConstVec::new(payload);
-
-        Ok(Self::from(*PublicKey::from_bytes(algorithm, &payload)?.0))
-    }
-}
-
-impl TryFrom<&Multihash> for Vec<u8> {
-    type Error = MultihashConvertError;
-
-    fn try_from(multihash: &Multihash) -> Result<Self, Self::Error> {
-        let mut bytes = vec![];
-
-        let (algorithm, payload) = multihash.0.to_raw();
-        let digest_function: DigestFunction = algorithm.into();
-        let digest_function: u64 = digest_function.into();
-        let digest_function: varint::VarUint = digest_function.into();
-        let mut digest_function = digest_function.into();
-        bytes.append(&mut digest_function);
-        bytes.push(payload.len().try_into().map_err(|_e| {
+    let digest_function: varint::VarUint = digest_function.into();
+    let mut digest_function = digest_function.into();
+    bytes.append(&mut digest_function);
+    bytes.push(
+        payload.len().try_into().map_err(|_e| {
             MultihashConvertError::new(String::from("Digest size can't fit into u8"))
-        })?);
-        bytes.extend_from_slice(payload.as_ref());
-
-        Ok(bytes)
-    }
-}
-
-impl From<Multihash> for PublicKeyInner {
-    #[inline]
-    fn from(multihash: Multihash) -> Self {
-        multihash.0
-    }
-}
-
-impl From<PublicKeyInner> for Multihash {
-    #[inline]
-    fn from(public_key: PublicKeyInner) -> Self {
-        Self(public_key)
-    }
+        })?,
+    );
+    bytes.extend_from_slice(payload.as_ref());
+    Ok(bytes)
 }
 
 /// Error which occurs when converting to/from `Multihash`
@@ -205,58 +183,55 @@ impl MultihashConvertError {
 #[cfg(feature = "std")]
 impl std::error::Error for MultihashConvertError {}
 
-impl From<NoSuchAlgorithm> for MultihashConvertError {
-    fn from(source: NoSuchAlgorithm) -> Self {
-        Self {
-            reason: source.to_string(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::hex_decode;
 
     #[test]
-    fn multihash_to_bytes() {
-        let multihash = Multihash(
-            *PublicKey::from_bytes(
-                Algorithm::Ed25519,
-                &hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
-                    .unwrap(),
-            )
-            .unwrap()
-            .0,
-        );
-        let bytes = Vec::try_from(&multihash).expect("Failed to serialize multihash");
-        assert_eq!(
-            hex_decode("ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
-                .unwrap(),
-            bytes
-        );
-    }
-
-    #[test]
-    fn multihash_from_bytes() {
-        let multihash = Multihash(
-            *PublicKey::from_bytes(
-                Algorithm::Ed25519,
-                &hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
-                    .unwrap(),
-            )
-            .unwrap()
-            .0,
-        );
-        let bytes =
+    fn test_encode_public_key() {
+        let algorithm = Algorithm::Ed25519;
+        let payload =
+            hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4").unwrap();
+        let multihash =
             hex_decode("ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
                 .unwrap();
-        let multihash_decoded: Multihash = bytes.try_into().unwrap();
-        assert_eq!(multihash, multihash_decoded);
+        assert_eq!(encode_public_key(algorithm, &payload).unwrap(), multihash);
     }
 
     #[test]
-    fn digest_function_display() {
-        assert_eq!(DigestFunction::Ed25519Pub.to_string(), ED_25519_PUB_STR);
+    fn test_decode_public_key() {
+        let algorithm = Algorithm::Ed25519;
+        let payload =
+            hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4").unwrap();
+        let multihash =
+            hex_decode("ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
+                .unwrap();
+        assert_eq!(decode_public_key(&multihash).unwrap(), (algorithm, payload));
+    }
+
+    #[test]
+    fn test_encode_private_key() {
+        let algorithm = Algorithm::Ed25519;
+        let payload =
+            hex_decode("8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB").unwrap();
+        let multihash =
+            hex_decode("8026408F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB")
+                .unwrap();
+        assert_eq!(encode_private_key(algorithm, &payload).unwrap(), multihash);
+    }
+
+    #[test]
+    fn test_decode_private_key() {
+        let algorithm = Algorithm::Ed25519;
+        let payload =
+            hex_decode("8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB").unwrap();
+        let multihash =
+            hex_decode("8026408F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB")
+                .unwrap();
+        assert_eq!(
+            decode_private_key(&multihash).unwrap(),
+            (algorithm, payload)
+        );
     }
 }
