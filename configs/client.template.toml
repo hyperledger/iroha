@@ -10,7 +10,7 @@
 [account]
 # id =
 # public_key =
-# private_key = { algorithm = "", payload = "" }
+# private_key =
 
 [transaction]
 # time_to_live = "100s"

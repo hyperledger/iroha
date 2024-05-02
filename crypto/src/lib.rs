@@ -592,10 +592,9 @@ enum PrivateKeyInner {
 
 ffi::ffi_item! {
     /// Private Key used in signatures.
-    #[derive(Clone, Deserialize)]
+    #[derive(Clone, DeserializeFromStr)]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
     #[allow(missing_docs, variant_size_differences)]
-    #[serde(try_from = "PrivateKeySerialized")]
     pub struct PrivateKey(Box<Secret<PrivateKeyInner>>);
 }
 
@@ -687,6 +686,16 @@ impl PrivateKey {
     }
 }
 
+impl FromStr for PrivateKey {
+    type Err = ParseError;
+
+    fn from_str(key: &str) -> Result<Self, Self::Err> {
+        let bytes = hex_decode(key)?;
+        let (algorithm, payload) = multihash::decode_private_key(&bytes)?;
+        PrivateKey::from_bytes(algorithm, &payload)
+    }
+}
+
 impl ZeroizeOnDrop for PrivateKeyInner {}
 
 impl Drop for PrivateKeyInner {
@@ -736,13 +745,36 @@ impl Serialize for PrivateKey {
 
 /// Use when you need to format/serialize private key (e.g in kagami)
 #[derive(Eq, PartialEq)]
+#[cfg_attr(
+    not(feature = "ffi_import"),
+    derive(DeserializeFromStr, SerializeDisplay)
+)]
 pub struct ExposedPrivateKey(pub PrivateKey);
+
+impl FromStr for ExposedPrivateKey {
+    type Err = ParseError;
+
+    fn from_str(key: &str) -> Result<Self, Self::Err> {
+        let private_key = PrivateKey::from_str(key)?;
+        Ok(ExposedPrivateKey(private_key))
+    }
+}
+
+impl ExposedPrivateKey {
+    fn normalize(&self) -> String {
+        let (algorithm, payload) = self.0.to_bytes();
+        let bytes = multihash::encode_private_key(algorithm, &payload)
+            .expect("Failed to convert multihash to bytes.");
+
+        multihash::multihash_to_hex_string(&bytes)
+    }
+}
 
 #[cfg(not(feature = "ffi_import"))]
 impl fmt::Debug for ExposedPrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple(self.0.algorithm().as_static_str())
-            .field(&hex::encode_upper(self.0.payload()))
+            .field(&self.normalize())
             .finish()
     }
 }
@@ -750,58 +782,7 @@ impl fmt::Debug for ExposedPrivateKey {
 #[cfg(not(feature = "ffi_import"))]
 impl fmt::Display for ExposedPrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&hex::encode_upper(self.0.payload()))
-    }
-}
-
-impl Serialize for ExposedPrivateKey {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let key_serialized: PrivateKeySerialized = self.0.clone().into();
-        key_serialized.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for ExposedPrivateKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let key_serialized = PrivateKeySerialized::deserialize(deserializer)?;
-        let private_key = key_serialized
-            .try_into()
-            .map_err(serde::de::Error::custom)?;
-        Ok(ExposedPrivateKey(private_key))
-    }
-}
-
-#[serde_with::serde_as]
-#[derive(Serialize, Deserialize)]
-struct PrivateKeySerialized {
-    algorithm: Algorithm,
-    #[serde_as(as = "serde_with::hex::Hex<serde_with::formats::Uppercase>")]
-    payload: Vec<u8>,
-}
-
-impl TryFrom<PrivateKeySerialized> for PrivateKey {
-    type Error = ParseError;
-
-    fn try_from(value: PrivateKeySerialized) -> Result<Self, Self::Error> {
-        Self::from_bytes(value.algorithm, &value.payload)
-    }
-}
-
-impl From<PrivateKey> for PrivateKeySerialized {
-    fn from(value: PrivateKey) -> Self {
-        Self {
-            algorithm: value.algorithm(),
-            payload: value.payload(),
-        }
-    }
-}
-
-impl Drop for PrivateKeySerialized {
-    fn drop(&mut self) {
-        self.payload.zeroize();
+        f.write_str(&self.normalize())
     }
 }
 
@@ -1180,10 +1161,7 @@ mod tests {
         assert_test_json_serde!(
             json!({
                 "public_key": "ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4",
-                "private_key": {
-                    "algorithm": "ed25519",
-                    "payload": "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
-                }
+                "private_key": "8026403A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
             }),
             TestJson {
                 public_key: PublicKey::from_hex(
@@ -1204,10 +1182,7 @@ mod tests {
         assert_test_json_serde!(
             json!({
                 "public_key": "e701210312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC",
-                "private_key": {
-                    "algorithm": "secp256k1",
-                    "payload": "4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445"
-                }
+                "private_key": "8126204DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445"
             }),
             TestJson {
                 public_key: PublicKey::from_hex(
@@ -1232,10 +1207,7 @@ mod tests {
         assert_test_json_serde!(
             json!({
                 "public_key": "ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2",
-                "private_key": {
-                    "algorithm": "bls_normal",
-                    "payload": "1CA347641228C3B79AA43839DEDC85FA51C0E8B9B6A00F6B0D6B0423E902973F"
-                }
+                "private_key": "8926201CA347641228C3B79AA43839DEDC85FA51C0E8B9B6A00F6B0D6B0423E902973F"
             }),
             TestJson {
                 public_key: PublicKey::from_hex(
@@ -1251,10 +1223,7 @@ mod tests {
         assert_test_json_serde!(
             json!({
                 "public_key": "eb01609051D4A9C69402423413EBBA4C00BC82A0102AA2B783057BD7BCEE4DD17B37DE5D719EE84BE43783F2AE47A673A74B8315DD3E595ED1FBDFAC17DA1D7A36F642B423ED18275FAFD671B1D331439D22F12FB6EB436A47E8656F182A78DF29D310",
-                "private_key": {
-                    "algorithm": "bls_small",
-                    "payload": "8CB95072914CDD8E4CF682FDBE1189CDF4FC54D445E760B3446F896DBDBF5B2B"
-                }
+                "private_key": "8a26208CB95072914CDD8E4CF682FDBE1189CDF4FC54D445E760B3446F896DBDBF5B2B"
             }),
             TestJson {
                 public_key: PublicKey::from_hex(

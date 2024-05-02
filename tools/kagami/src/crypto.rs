@@ -72,7 +72,6 @@ impl<T: Write> RunArgs<T> for Args {
         } else if compact {
             writeln!(writer, "{}", &key_pair.public_key())?;
             writeln!(writer, "{}", &exposed_private_key)?;
-            writeln!(writer, "{}", &key_pair.public_key().algorithm())?;
         } else {
             writeln!(
                 writer,
@@ -81,9 +80,8 @@ impl<T: Write> RunArgs<T> for Args {
             )?;
             writeln!(
                 writer,
-                "Private key ({}): \"{}\"",
-                &key_pair.public_key().algorithm(),
-                exposed_private_key
+                "Private key (multihash): \"{}\"",
+                &exposed_private_key
             )?;
         }
         Ok(())

@@ -8,7 +8,7 @@ use std::{
 };
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
-use iroha_crypto::{Algorithm, KeyPair, PrivateKey, PublicKey};
+use iroha_crypto::{Algorithm, ExposedPrivateKey, KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{prelude::PeerId, ChainId};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use peer_generator::Peer;
@@ -298,15 +298,11 @@ pub enum ServiceSource {
 struct FullPeerEnv {
     chain_id: ChainId,
     public_key: PublicKey,
-    private_key_algorithm: Algorithm,
-    #[serde_as(as = "serde_with::hex::Hex")]
-    private_key_payload: Vec<u8>,
+    private_key: ExposedPrivateKey,
     p2p_address: SocketAddr,
     api_address: SocketAddr,
     genesis_public_key: PublicKey,
-    genesis_private_key_algorithm: Option<Algorithm>,
-    #[serde_as(as = "Option<serde_with::hex::Hex>")]
-    genesis_private_key_payload: Option<Vec<u8>>,
+    genesis_private_key: Option<ExposedPrivateKey>,
     genesis_file: Option<String>,
     #[serde_as(as = "Option<serde_with::json::JsonString>")]
     sumeragi_trusted_peers: Option<BTreeSet<PeerId>>,
@@ -325,30 +321,19 @@ struct CompactPeerEnv {
 
 impl From<CompactPeerEnv> for FullPeerEnv {
     fn from(value: CompactPeerEnv) -> Self {
-        let (genesis_private_key_algorithm, genesis_private_key_payload, genesis_file) = value
-            .genesis_private_key
-            .map_or((None, None, None), |private_key| {
-                let (algorithm, payload) = private_key.to_bytes();
-                (
-                    Some(algorithm),
-                    Some(payload),
-                    Some(PATH_TO_GENESIS.to_string()),
-                )
-            });
-
-        let (private_key_algorithm, private_key_payload) = {
-            let (algorithm, payload) = value.key_pair.private_key().clone().to_bytes();
-            (algorithm, payload)
+        let genesis_private_key = value.genesis_private_key.map(ExposedPrivateKey);
+        let genesis_file = if genesis_private_key.is_some() {
+            Some(PATH_TO_GENESIS.to_string())
+        } else {
+            None
         };
 
         Self {
             chain_id: value.chain_id,
             public_key: value.key_pair.public_key().clone(),
-            private_key_algorithm,
-            private_key_payload,
+            private_key: ExposedPrivateKey(value.key_pair.private_key().clone()),
             genesis_public_key: value.genesis_public_key,
-            genesis_private_key_algorithm,
-            genesis_private_key_payload,
+            genesis_private_key,
             genesis_file,
             p2p_address: value.p2p_addr,
             api_address: value.api_addr,
@@ -690,13 +675,11 @@ mod tests {
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
-                  PRIVATE_KEY_ALGORITHM: ed25519
-                  PRIVATE_KEY_PAYLOAD: db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8
+                  PRIVATE_KEY: 802640DB9D90D20F969177BD5882F9FE211D14D1399D5440D04E3468783D169BBC4A8E39E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
                   P2P_ADDRESS: iroha1:1339
                   API_ADDRESS: iroha1:1338
                   GENESIS_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
-                  GENESIS_PRIVATE_KEY_ALGORITHM: ed25519
-                  GENESIS_PRIVATE_KEY_PAYLOAD: db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8
+                  GENESIS_PRIVATE_KEY: 802640DB9D90D20F969177BD5882F9FE211D14D1399D5440D04E3468783D169BBC4A8E39E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
                   GENESIS_FILE: /config/genesis.json
                 ports:
                 - 1337:1337
@@ -732,8 +715,7 @@ mod tests {
         let expected = expect_test::expect![[r#"
             CHAIN_ID: 00000000-0000-0000-0000-000000000000
             PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
-            PRIVATE_KEY_ALGORITHM: ed25519
-            PRIVATE_KEY_PAYLOAD: 6bf163fd75192b81a78cb20c5f8cb917f591ac6635f2577e6ca305c27a456a5d415388a90fa238196737746a70565d041cfb32eaa0c89ff8cb244c7f832a6ebd
+            PRIVATE_KEY: 8026406BF163FD75192B81A78CB20C5F8CB917F591AC6635F2577E6CA305C27A456A5D415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
             P2P_ADDRESS: iroha0:1337
             API_ADDRESS: iroha0:1337
             GENESIS_PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
@@ -774,13 +756,11 @@ mod tests {
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13
-                  PRIVATE_KEY_ALGORITHM: ed25519
-                  PRIVATE_KEY_PAYLOAD: 5f8d1291bf6b762ee748a87182345d135fd167062857aa4f20ba39f25e74c4b0f0321eb4139163c35f88bf78520ff7071499d7f4e79854550028a196c7b49e13
+                  PRIVATE_KEY: 8026405F8D1291BF6B762EE748A87182345D135FD167062857AA4F20BA39F25E74C4B0F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13
                   P2P_ADDRESS: 0.0.0.0:1337
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  GENESIS_PRIVATE_KEY_ALGORITHM: ed25519
-                  GENESIS_PRIVATE_KEY_PAYLOAD: 5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9
+                  GENESIS_PRIVATE_KEY: 8026405A6D5F06A90D29AD906E2F6EA8B41B4EF187849D0D397081A4A15FFCBE71E7C73420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   GENESIS_FILE: /config/genesis.json
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"}]'
                 ports:
@@ -802,8 +782,7 @@ mod tests {
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C
-                  PRIVATE_KEY_ALGORITHM: ed25519
-                  PRIVATE_KEY_PAYLOAD: 8d34d2c6a699c61e7a9d5aabbbd07629029dfb4f9a0800d65aa6570113edb465a88554aa5c86d28d0eebec497235664433e807881cd31e12a1af6c4d8b0f026c
+                  PRIVATE_KEY: 8026408D34D2C6A699C61E7A9D5AABBBD07629029DFB4F9A0800D65AA6570113EDB465A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C
                   P2P_ADDRESS: 0.0.0.0:1338
                   API_ADDRESS: 0.0.0.0:8081
                   GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
@@ -826,8 +805,7 @@ mod tests {
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4
-                  PRIVATE_KEY_ALGORITHM: ed25519
-                  PRIVATE_KEY_PAYLOAD: cf4515a82289f312868027568c0da0ee3f0fde7fef1b69deb47b19fde7cbc169312c1b7b5de23d366adcf23cd6db92ce18b2aa283c7d9f5033b969c2dc2b92f4
+                  PRIVATE_KEY: 802640CF4515A82289F312868027568C0DA0EE3F0FDE7FEF1B69DEB47B19FDE7CBC169312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4
                   P2P_ADDRESS: 0.0.0.0:1339
                   API_ADDRESS: 0.0.0.0:8082
                   GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
@@ -850,8 +828,7 @@ mod tests {
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE
-                  PRIVATE_KEY_ALGORITHM: ed25519
-                  PRIVATE_KEY_PAYLOAD: ab0e99c2b845b4ac7b3e88d25a860793c7eb600a25c66c75cba0bae91e955aa6854457b2e3d6082181da73dc01c1e6f93a72d0c45268dc8845755287e98a5dee
+                  PRIVATE_KEY: 802640AB0E99C2B845B4AC7B3E88D25A860793C7EB600A25C66C75CBA0BAE91E955AA6854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE
                   P2P_ADDRESS: 0.0.0.0:1340
                   API_ADDRESS: 0.0.0.0:8083
                   GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9

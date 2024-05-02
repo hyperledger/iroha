@@ -30,7 +30,6 @@ use crate::{
     logger::Format,
     parameters::{
         defaults::{self, chain_wide::*, network::*, queue::*, torii::*},
-        user,
         user::{
             ChainWide, DevTelemetry, Genesis, Kura, KuraDebug, Logger, Network, Queue, Root,
             Snapshot, Sumeragi, SumeragiDebug, Telemetry, Torii,
@@ -148,7 +147,7 @@ impl FromEnv for RootPartial {
             ParseEnvResult::parse_simple(&mut emitter, env, "PUBLIC_KEY", "iroha.public_key")
                 .into();
         let private_key =
-            user::private_key_from_env(&mut emitter, env, "PRIVATE_KEY", "iroha.private_key")
+            ParseEnvResult::parse_simple(&mut emitter, env, "PRIVATE_KEY", "iroha.private_key")
                 .into();
 
         let genesis = emitter.try_from_env(env);
@@ -227,7 +226,7 @@ impl FromEnv for GenesisPartial {
             "genesis.public_key",
         )
         .into();
-        let private_key = user::private_key_from_env(
+        let private_key = ParseEnvResult::parse_simple(
             &mut emitter,
             env,
             "GENESIS_PRIVATE_KEY",
