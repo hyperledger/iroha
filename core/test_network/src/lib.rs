@@ -17,7 +17,7 @@ pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{query::QueryOutputBox, ChainId};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockFile};
-use iroha_logger::InstrumentFutures;
+use iroha_logger::{warn, InstrumentFutures};
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
     unique_vec,
@@ -345,12 +345,20 @@ pub fn wait_for_genesis_committed_with_max_retries(
     const POLL_PERIOD: Duration = Duration::from_millis(1000);
 
     for _ in 0..max_retries {
-        let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {
-            client.get_status().map_or(
-                acc + 1,
-                |status| if status.blocks < 1 { acc + 1 } else { acc },
-            )
-        });
+        let ready_peers = clients
+            .iter()
+            .map(|client| {
+                let is_ready = match client.get_status() {
+                    Ok(status) => status.blocks >= 1,
+                    Err(error) => {
+                        warn!("Error retrieving peer status: {:?}", error);
+                        false
+                    }
+                };
+                is_ready as u32
+            })
+            .sum::<u32>();
+        let without_genesis_peers = clients.len() as u32 - ready_peers;
         if without_genesis_peers <= offline_peers {
             return;
         }
