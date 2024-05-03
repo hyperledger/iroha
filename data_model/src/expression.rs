@@ -499,6 +499,13 @@ impl<'de> Deserialize<'de> for Expression {
     where
         D: serde::Deserializer<'de>,
     {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if value.as_object().map_or(false, |o| o.contains_key("U128")) {
+            let result: ValueBox =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            return Ok(Expression::Raw(result));
+        }
+
         #[derive(Deserialize)]
         #[serde(untagged)]
         #[allow(variant_size_differences)]
@@ -507,7 +514,8 @@ impl<'de> Deserialize<'de> for Expression {
             Expression(serde_internal_repr::Expression),
         }
 
-        let wrapper = ExpressionDeserializeWrapper::deserialize(deserializer)?;
+        let wrapper: ExpressionDeserializeWrapper =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
         match wrapper {
             ExpressionDeserializeWrapper::Expression(expression) => Ok(expression.into()),
             ExpressionDeserializeWrapper::Raw(raw) => Ok(Expression::Raw(raw)),
