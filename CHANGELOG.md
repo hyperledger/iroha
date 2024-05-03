@@ -2,7 +2,15 @@
 
 ## [Unreleased]
 
+## [2.0.0-pre-rc.21.2] - 2024-05-03
+
+### Fixed
+
+- remove serde(flatten) from SetKeyValue/RemoveKeyValue (#4546)
+
 ## [2.0.0-pre-rc.21.1] - 2024-05-01
+
+### Fixed
 
 - add RawGenesisBlock to schema (#4538)
 - remove nested option on `TransactionEventFilter::block_height` (#4538)
