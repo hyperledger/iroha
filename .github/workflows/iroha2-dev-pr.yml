@@ -35,14 +35,38 @@ jobs:
       - name: Check Docker Compose configurations
         if: always()
         run: ./scripts/tests/consistency.sh docker-compose
+  
+  build_executor:
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Build iroha executor
+        run: cargo run --bin iroha_wasm_builder_cli -- build ./default_executor --optimize --outfile configs/swarm/executor.wasm
+      - name: Upload executor to reuse in other jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: executor
+          path: configs/swarm/executor.wasm
+          # Executor is used only for the current workflow, no need to store longer than that
+          retention-days: 1
 
   with_coverage:
     runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
+    needs: build_executor
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Download executor
+        uses: actions/download-artifact@v4
+        with:
+          name: executor
+          path: configs/swarm
       - name: Run tests, with coverage
         run: mold --run cargo test --all-features --workspace --no-fail-fast
         env:
@@ -71,9 +95,15 @@ jobs:
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     timeout-minutes: 30
+    needs: build_executor
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Download executor
+        uses: actions/download-artifact@v4
+        with:
+          name: executor
+          path: configs/swarm
       - name: Run tests, with no-default-features
         run: |
           mold --run cargo test --test mod --no-default-features -- \
@@ -84,9 +114,15 @@ jobs:
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     timeout-minutes: 60
+    needs: build_executor
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Download executor
+        uses: actions/download-artifact@v4
+        with:
+          name: executor
+          path: configs/swarm
       - name: Run tests
         run: mold --run cargo test -p iroha_client --tests --no-default-features unstable_network --quiet
 
@@ -128,9 +164,15 @@ jobs:
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     timeout-minutes: 60
+    needs: build_executor
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Download executor
+        uses: actions/download-artifact@v4
+        with:
+          name: executor
+          path: configs/swarm
       - name: Build binaries
         run: |
           cargo build -p iroha_client_cli -p kagami -p iroha
