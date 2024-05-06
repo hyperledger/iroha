@@ -22,7 +22,7 @@ eyre = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true, features = ["macros", "std"] }
 thiserror = { workspace = true }
-num-traits = "0.2.18"
+num-traits = "0.2.19"
 
 serde_json = { version = "1", optional = true }
 
