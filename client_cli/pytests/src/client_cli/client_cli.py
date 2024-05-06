@@ -458,13 +458,11 @@ class ClientCli:
         try:
             while idx < len(output):
                 obj, idx_next = decoder.raw_decode(output[idx:])
-                if (
-                    obj.get("Pipeline", {}).get("entity_kind") == "Transaction"
-                    and obj.get("Pipeline", {}).get("status") == "Committed"
-                    and obj.get("Pipeline", {}).get("hash") == transaction_hash
-                ):
-                    return True
                 idx += idx_next
+                match obj:
+                    case {"Pipeline": {"entity_kind": "Transaction", "status": "Committed",
+                                       "hash": hash}} if hash == transaction_hash:
+                        return True
         except json.JSONDecodeError:
             return False
         return False
