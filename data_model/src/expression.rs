@@ -387,7 +387,6 @@ mod operation {
     PartialOrd,
     Ord,
     PartiallyTaggedSerialize,
-    PartiallyTaggedDeserialize,
 )]
 pub enum Expression {
     /// Add expression.
@@ -431,6 +430,80 @@ pub enum Expression {
     Where(Where),
     /// Get a temporary value by name
     ContextValue(ContextValue),
+}
+
+mod serde_internal {
+    use super::*;
+
+    #[derive(PartiallyTaggedDeserialize)]
+    pub enum Expression2 {
+        Add(Add),
+        Subtract(Subtract),
+        Multiply(Multiply),
+        Divide(Divide),
+        Mod(Mod),
+        RaiseTo(RaiseTo),
+        Greater(Greater),
+        Less(Less),
+        Equal(Equal),
+        Not(Not),
+        And(And),
+        Or(Or),
+        If(If),
+        #[serde_partially_tagged(untagged)]
+        Raw(ValueBox),
+        Query(QueryBox),
+        Contains(Contains),
+        ContainsAll(ContainsAll),
+        ContainsAny(ContainsAny),
+        Where(Where),
+        ContextValue(ContextValue),
+    }
+
+    impl From<Expression2> for Expression {
+        fn from(e: Expression2) -> Self {
+            match e {
+                Expression2::Add(v) => Expression::Add(v),
+                Expression2::Subtract(v) => Expression::Subtract(v),
+                Expression2::Multiply(v) => Expression::Multiply(v),
+                Expression2::Divide(v) => Expression::Divide(v),
+                Expression2::Mod(v) => Expression::Mod(v),
+                Expression2::RaiseTo(v) => Expression::RaiseTo(v),
+                Expression2::Greater(v) => Expression::Greater(v),
+                Expression2::Less(v) => Expression::Less(v),
+                Expression2::Equal(v) => Expression::Equal(v),
+                Expression2::Not(v) => Expression::Not(v),
+                Expression2::And(v) => Expression::And(v),
+                Expression2::Or(v) => Expression::Or(v),
+                Expression2::If(v) => Expression::If(v),
+                Expression2::Raw(v) => Expression::Raw(v),
+                Expression2::Query(v) => Expression::Query(v),
+                Expression2::Contains(v) => Expression::Contains(v),
+                Expression2::ContainsAll(v) => Expression::ContainsAll(v),
+                Expression2::ContainsAny(v) => Expression::ContainsAny(v),
+                Expression2::Where(v) => Expression::Where(v),
+                Expression2::ContextValue(v) => Expression::ContextValue(v),
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Expression {
+        fn deserialize<D>(deserializer: D) -> Result<Expression, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            let value = serde_json::Value::deserialize(deserializer)?;
+            if value.as_object().map_or(false, |o| o.contains_key("U128")) {
+                let result: NumericValue =
+                    serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                return Ok(Expression::Raw(Box::new(Value::Numeric(result))));
+            }
+
+            let expression: Expression2 =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            Ok(expression.into())
+        }
+    }
 }
 
 impl Expression {
