@@ -315,16 +315,11 @@ impl Sumeragi {
             debug: SumeragiDebug { force_soft_fork },
         } = self;
 
-        let mut trusted_peers = trusted_peers.map(|x| x.0);
-
-        // we deliberately don't care if the config already contains the peer itself
-        // Because why not? What harm could it cause?
-        // On the other hand, on local deployments it might be useful to re-use a shared config
-        // with ALL trusted peer specified, so it's fine.
-        let _ = trusted_peers.value_mut().push(self_id);
-
         actual::Sumeragi {
-            trusted_peers,
+            trusted_peers: trusted_peers.map(|x| actual::TrustedPeers {
+                myself: self_id,
+                others: x.0,
+            }),
             debug_force_soft_fork: force_soft_fork,
         }
     }

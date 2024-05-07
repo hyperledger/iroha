@@ -219,9 +219,8 @@ impl Network {
         );
 
         let mut config = Config::test();
-        config.sumeragi.trusted_peers = WithOrigin::inline(UniqueVec::from_iter(
-            self.peers().map(|peer| &peer.id).cloned(),
-        ));
+        config.sumeragi.trusted_peers.value_mut().others =
+            UniqueVec::from_iter(self.peers().map(|peer| &peer.id).cloned());
 
         let peer = PeerBuilder::new()
             .with_config(config)
@@ -275,9 +274,8 @@ impl Network {
             .collect::<Result<Vec<_>>>()?;
 
         let mut config = default_config.unwrap_or_else(Config::test);
-        config.sumeragi.trusted_peers = WithOrigin::inline(UniqueVec::from_iter(
-            peers.iter().map(|peer| peer.id.clone()),
-        ));
+        config.sumeragi.trusted_peers.value_mut().others =
+            UniqueVec::from_iter(peers.iter().map(|peer| peer.id.clone()));
 
         let mut genesis_peer = peers.remove(0);
         let genesis_builder = builders.remove(0).with_config(config.clone());
@@ -626,7 +624,7 @@ impl PeerBuilder {
     pub async fn start_with_peer(self, peer: &mut Peer) {
         let config = self.config.unwrap_or_else(|| {
             let mut config = Config::test();
-            config.sumeragi.trusted_peers = WithOrigin::inline(unique_vec![peer.id.clone()]);
+            config.sumeragi.trusted_peers.value_mut().others = unique_vec![peer.id.clone()];
             config
         });
         let genesis = match self.genesis {

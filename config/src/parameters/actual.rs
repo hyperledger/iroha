@@ -155,15 +155,29 @@ impl Default for Queue {
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct Sumeragi {
-    /// **Must** contain id of the peer itself
-    pub trusted_peers: WithOrigin<UniqueVec<PeerId>>,
+    pub trusted_peers: WithOrigin<TrustedPeers>,
     pub debug_force_soft_fork: bool,
+}
+
+#[derive(Debug, Clone)]
+#[allow(missing_docs)]
+pub struct TrustedPeers {
+    pub myself: PeerId,
+    pub others: UniqueVec<PeerId>,
+}
+
+impl TrustedPeers {
+    /// Returns a list of trusted peers which is guaranteed to have at
+    /// least one element - the id of the peer itself.
+    pub fn into_non_empty_vec(self) -> UniqueVec<PeerId> {
+        std::iter::once(self.myself).chain(self.others).collect()
+    }
 }
 
 impl Sumeragi {
     /// Tells whether a trusted peers list has some other peers except for the peer itself
     pub fn contains_other_trusted_peers(&self) -> bool {
-        self.trusted_peers.value().len() > 1
+        self.trusted_peers.value().others.len() > 1
     }
 }
 

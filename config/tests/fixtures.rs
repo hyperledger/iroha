@@ -243,6 +243,8 @@ fn self_is_presented_in_trusted_peers() {
         .sumeragi
         .trusted_peers
         .value()
+        .clone()
+        .into_non_empty_vec()
         .contains(&config.common.peer_id()));
 }
 

@@ -247,7 +247,12 @@ impl Iroha<ToriiNotStarted> {
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
             [genesis_domain(config.genesis.public_key().clone())],
-            config.sumeragi.trusted_peers.value().clone(),
+            config
+                .sumeragi
+                .trusted_peers
+                .value()
+                .clone()
+                .into_non_empty_vec(),
         );
 
         let kura = Kura::new(&config.kura).change_context(StartError::InitKura)?;
