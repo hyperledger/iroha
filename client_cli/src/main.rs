@@ -156,7 +156,6 @@ trait RunArgs {
     ///
     /// # Errors
     /// if inner command errors
-    // TODO: replace `eyre::Result` with `error_stack::Result`
     fn run(self, context: &mut dyn RunContext) -> Result<()>;
 }
 
