@@ -10,7 +10,6 @@
 #![allow(missing_docs)]
 
 use std::{
-    error::Error,
     fmt::Debug,
     fs::File,
     io::Read,
@@ -21,7 +20,7 @@ use std::{
 
 pub use boilerplate::*;
 use eyre::{eyre, Report, WrapErr};
-use iroha_config_base::{Emitter, ErrorsCollection, HumanBytes, Merge, ParseEnvResult, ReadEnv};
+use iroha_config_base::{Emitter, ErrorsCollection, HumanBytes, Merge};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
@@ -277,71 +276,6 @@ fn validate_directory_path(
 #[derive(Copy, Clone)]
 pub struct CliContext {
     pub submit_genesis: bool,
-}
-
-pub(crate) fn private_key_from_env<E: Error>(
-    emitter: &mut Emitter<Report>,
-    env: &impl ReadEnv<E>,
-    env_key_base: impl AsRef<str>,
-    name_base: impl AsRef<str>,
-) -> ParseEnvResult<PrivateKey> {
-    let alg_env = format!("{}_ALGORITHM", env_key_base.as_ref());
-    let alg_name = format!("{}.algorithm", name_base.as_ref());
-    let payload_env = format!("{}_PAYLOAD", env_key_base.as_ref());
-    let payload_name = format!("{}.payload", name_base.as_ref());
-
-    let algorithm = ParseEnvResult::parse_simple(emitter, env, &alg_env, &alg_name);
-
-    // FIXME: errors handling is a mess
-    let payload = match env
-        .read_env(&payload_env)
-        .map_err(|err| eyre!("failed to read {payload_name}: {err}"))
-        .wrap_err("oops")
-    {
-        Ok(Some(value)) => ParseEnvResult::Value(value),
-        Ok(None) => ParseEnvResult::None,
-        Err(err) => {
-            emitter.emit(err);
-            ParseEnvResult::Error
-        }
-    };
-
-    match (algorithm, payload) {
-        (ParseEnvResult::Value(algorithm), ParseEnvResult::Value(payload)) => {
-            match PrivateKey::from_hex(algorithm, payload).wrap_err_with(|| {
-                eyre!(
-                    "failed to construct `{}` from `{}` and `{}` environment variables",
-                    name_base.as_ref(),
-                    &alg_env,
-                    &payload_env
-                )
-            }) {
-                Ok(value) => return ParseEnvResult::Value(value),
-                Err(report) => {
-                    emitter.emit(report);
-                }
-            }
-        }
-        (ParseEnvResult::None, ParseEnvResult::None) => return ParseEnvResult::None,
-        (ParseEnvResult::Value(_), ParseEnvResult::None) => emitter.emit(eyre!(
-            "`{}` env was provided, but `{}` was not",
-            &alg_env,
-            &payload_env
-        )),
-        (ParseEnvResult::None, ParseEnvResult::Value(_)) => {
-            emitter.emit(eyre!(
-                "`{}` env was provided, but `{}` was not",
-                &payload_env,
-                &alg_env
-            ));
-        }
-        (ParseEnvResult::Error, _) | (_, ParseEnvResult::Error) => {
-            // emitter already has these errors
-            // adding this branch for exhaustiveness
-        }
-    }
-
-    ParseEnvResult::Error
 }
 
 #[derive(Debug)]
@@ -667,8 +601,7 @@ mod tests {
     #[test]
     fn parses_private_key_from_env() {
         let env = TestEnv::new()
-            .set("PRIVATE_KEY_ALGORITHM", "ed25519")
-            .set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
+            .set("PRIVATE_KEY", "8026408F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB");
 
         let private_key = RootPartial::from_env(&env)
             .expect("input is valid, should not fail")
@@ -682,49 +615,12 @@ mod tests {
     }
 
     #[test]
-    fn fails_to_parse_private_key_in_env_without_payload() {
-        let env = TestEnv::new().set("PRIVATE_KEY_ALGORITHM", "ed25519");
-        let error =
-            RootPartial::from_env(&env).expect_err("private key is incomplete, should fail");
-        let expected = expect_test::expect![
-            "`PRIVATE_KEY_ALGORITHM` env was provided, but `PRIVATE_KEY_PAYLOAD` was not"
-        ];
-        expected.assert_eq(&format!("{error:#}"));
-    }
-
-    #[test]
-    fn fails_to_parse_private_key_in_env_without_algorithm() {
-        let env = TestEnv::new().set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
-        let error =
-            RootPartial::from_env(&env).expect_err("private key is incomplete, should fail");
-        let expected = expect_test::expect![
-            "`PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_ALGORITHM` was not"
-        ];
-        expected.assert_eq(&format!("{error:#}"));
-    }
-
-    #[test]
-    fn fails_to_parse_private_key_from_env_with_invalid_payload() {
-        let env = TestEnv::new()
-            .set("PRIVATE_KEY_ALGORITHM", "ed25519")
-            .set("PRIVATE_KEY_PAYLOAD", "foo");
-
+    fn fails_to_parse_private_key_from_env_with_invalid_value() {
+        let env = TestEnv::new().set("PRIVATE_KEY", "foo");
         let error = RootPartial::from_env(&env).expect_err("input is invalid, should fail");
-
-        let expected = expect_test::expect!["failed to construct `iroha.private_key` from `PRIVATE_KEY_ALGORITHM` and `PRIVATE_KEY_PAYLOAD` environment variables"];
-        expected.assert_eq(&format!("{error:#}"));
-    }
-
-    #[test]
-    fn when_payload_provided_but_alg_is_invalid() {
-        let env = TestEnv::new()
-            .set("PRIVATE_KEY_ALGORITHM", "foo")
-            .set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
-
-        let error = RootPartial::from_env(&env).expect_err("input is invalid, should fail");
-
-        // TODO: print the bad value and supported ones
-        let expected = expect_test::expect!["failed to parse `iroha.private_key.algorithm` field from `PRIVATE_KEY_ALGORITHM` env variable"];
+        let expected = expect_test::expect![
+            "failed to parse `iroha.private_key` field from `PRIVATE_KEY` env variable"
+        ];
         expected.assert_eq(&format!("{error:#}"));
     }
 
