@@ -56,7 +56,7 @@ pub fn build_schemas() -> MetaMap {
         MerkleTree<SignedTransaction>,
 
         // Genesis file - used by SDKs to generate the genesis block
-        iroha_genesis::RawGenesisBlock,
+        iroha_genesis::RawGenesisBlockFile,
     }
 }
 
