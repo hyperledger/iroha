@@ -1,9 +1,4 @@
-use std::convert::Infallible;
-
-use iroha_config_base::{
-    read::{CustomEnvFetcher, CustomEnvRead, CustomEnvReadError},
-    ReadConfig, WithOrigin,
-};
+use iroha_config_base::{ReadConfig, WithOrigin};
 
 #[derive(ReadConfig)]
 struct Test {
@@ -21,26 +16,11 @@ struct Test {
     nested: Nested,
     #[config(env = "TEST", default = "true")]
     with_default_expr_and_env: bool,
-    #[config(env_custom)]
-    foo_bar: FooBar,
 }
 
 #[derive(ReadConfig)]
 struct Nested {
     foo: Option<u32>,
-}
-
-#[derive(serde::Deserialize)]
-struct FooBar(u32);
-
-impl CustomEnvRead for FooBar {
-    type Context = Infallible;
-
-    fn read(
-        _fetcher: &mut CustomEnvFetcher,
-    ) -> Result<Option<Self>, CustomEnvReadError<Self::Context>> {
-        todo!();
-    }
 }
 
 pub fn main() {}

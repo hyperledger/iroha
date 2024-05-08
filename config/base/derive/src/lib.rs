@@ -34,13 +34,10 @@ use crate::ast::Input;
 /// Supported field attributes:
 ///
 /// - `env = "<env var name>"` - read parameter from env (bound: `T: FromEnvStr`)
-/// - `env_custom` - for a type that implements `CustomEnvRead`. Conflicts with `env`.
 /// - `default` - fallback to default value (bound: `T: Default`)
 /// - `default = "<expr>"` - fallback to a default value specified as an expression
 /// - `nested` - delegates further reading (bound: `T: ReadConfig`).
 ///   It uses the field name as a namespace. Conflicts with others.
-///
-/// A bound of `T: Deserialize` is required unless `env_only` is set.
 ///
 /// Supported field shapes (if `nested` is not specified):
 ///
@@ -84,7 +81,7 @@ mod ast {
     use proc_macro2::{Ident, Span, TokenStream, TokenTree};
     use syn::{parse::ParseStream, punctuated::Punctuated, Token};
 
-    use crate::{codegen, codegen::ParameterEnv};
+    use crate::codegen;
 
     // TODO: `attributes(config)` rejects all unknown fields
     //       it would be better to emit an error "we don't support struct attrs" instead
@@ -192,7 +189,7 @@ mod ast {
         Nested,
         Parameter {
             default: Option<AttrDefault>,
-            env: Option<ParameterEnv>,
+            env: Option<syn::LitStr>,
         },
     }
 
@@ -220,7 +217,6 @@ mod ast {
             struct Accumulator {
                 default: Option<AttrDefault>,
                 env: Option<(Span, syn::LitStr)>,
-                env_custom: Option<()>,
                 nested: Option<Span>,
             }
 
@@ -247,7 +243,6 @@ mod ast {
                     AttrItem::Env(span, value) => {
                         reject_duplicate(&mut acc.env, span, (span, value))?
                     }
-                    AttrItem::EnvCustom(span) => reject_duplicate(&mut acc.env_custom, span, ())?,
                     AttrItem::Nested(span) => reject_duplicate(&mut acc.nested, span, span)?,
                 }
             }
@@ -257,7 +252,6 @@ mod ast {
                     nested: Some(_),
                     default: None,
                     env: None,
-                    env_custom: None,
                 } => Self::Nested,
                 Accumulator {
                     nested: Some(span), ..
@@ -267,27 +261,9 @@ mod ast {
                         "attributes conflict: `nested` cannot be set with other attributes",
                     ))
                 }
-                Accumulator {
-                    env: Some((span, _)),
-                    env_custom: Some(()),
-                    ..
-                } => {
-                    return Err(syn::Error::new(
-                        span,
-                        "attributes conflict: set either `env` or `env_custom`, not both",
-                    ))
-                }
-                Accumulator {
-                    default,
-                    env_custom: Some(()),
-                    ..
-                } => Self::Parameter {
-                    default,
-                    env: Some(ParameterEnv::Custom),
-                },
                 Accumulator { default, env, .. } => Self::Parameter {
                     default,
-                    env: env.map(|(_, lit)| ParameterEnv::Plain(lit)),
+                    env: env.map(|(_, lit)| lit),
                 },
             };
 
@@ -300,7 +276,6 @@ mod ast {
     enum AttrItem {
         Default(Span, AttrDefault),
         Env(Span, syn::LitStr),
-        EnvCustom(Span),
         Nested(Span),
     }
 
@@ -308,7 +283,7 @@ mod ast {
         fn parse(input: ParseStream) -> syn::Result<Self> {
             input.step(|cursor| {
                 const EXPECTED_IDENT: &str =
-                    "unexpected token; expected `default`, `env`, `env_only`, or `nested`";
+                    "unexpected token; expected `default`, `env`, or `nested`";
 
                 let Some((ident, cursor)) = cursor.ident() else {
                     Err(syn::Error::new(cursor.span(), EXPECTED_IDENT))?
@@ -336,9 +311,6 @@ mod ast {
                             ));
                         };
                         Ok((Self::Env(ident.span(), lit), cursor))
-                    }
-                    "env_custom" => {
-                        Ok((Self::EnvCustom(ident.span()), cursor))
                     }
                     other => Err(syn::Error::new(cursor.span(), EXPECTED_IDENT)),
                 }
@@ -485,7 +457,7 @@ mod ast {
 
             let Attrs::Parameter {
                 default: Some(AttrDefault::Flag),
-                env: Some(ParameterEnv::Plain(var)),
+                env: Some(var),
             } = attrs
             else {
                 panic!("expectation failed")
@@ -597,10 +569,8 @@ mod codegen {
                     let mut read = quote! {
                         let #ident = __reader.read_parameter([stringify!(#ident)])
                     };
-                    match env {
-                        Some(ParameterEnv::Plain(var)) => read.extend(quote! { .env(#var) }),
-                        Some(ParameterEnv::Custom) => read.extend(quote! { .env_custom() }),
-                        None => {}
+                    if let Some(var) = env {
+                        read.extend(quote! { .env(#var) })
                     }
                     read.extend(match evaluation {
                         Evaluation::Required => quote! { .value_required() },
@@ -631,17 +601,11 @@ mod codegen {
 
     pub enum EntryKind {
         Parameter {
-            env: Option<ParameterEnv>,
+            env: Option<syn::LitStr>,
             evaluation: Evaluation,
             with_origin: bool,
         },
         Nested,
-    }
-
-    #[derive(Debug)]
-    pub enum ParameterEnv {
-        Plain(syn::LitStr),
-        Custom,
     }
 
     pub enum Evaluation {
@@ -663,7 +627,7 @@ mod codegen {
             let entry = Entry {
                 ident: parse_quote!(test),
                 kind: EntryKind::Parameter {
-                    env: Some(ParameterEnv::Plain(parse_quote!("TEST_ENV"))),
+                    env: Some(parse_quote!("TEST_ENV")),
                     evaluation: Evaluation::Required,
                     with_origin: false,
                 },

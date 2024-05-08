@@ -21,11 +21,10 @@ use error_stack::{Result, ResultExt};
 use iroha_config_base::{
     attach::ConfigValueAndOrigin,
     env::FromEnvStr,
-    read::{CustomEnvFetcher, CustomEnvRead, CustomEnvReadError},
     util::{Emitter, EmitterResultExt, HumanBytes, HumanDuration},
     ReadConfig, WithOrigin,
 };
-use iroha_crypto::PrivateKey;
+use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
     LengthLimits, Level,
@@ -37,10 +36,7 @@ use url::Url;
 use crate::{
     kura::InitMode as KuraInitMode,
     logger::Format as LoggerFormat,
-    parameters::{
-        actual, defaults,
-        util::{read_private_key_from_env, PrivateKeyFromEnvError},
-    },
+    parameters::{actual, defaults},
     snapshot::Mode as SnapshotMode,
 };
 
@@ -63,9 +59,9 @@ pub struct Root {
     #[config(env = "CHAIN_ID")]
     chain_id: ChainIdInConfig,
     #[config(env = "PUBLIC_KEY")]
-    public_key: WithOrigin<iroha_crypto::PublicKey>,
-    #[config(env_custom)]
-    private_key: WithOrigin<RootPrivateKey>,
+    public_key: WithOrigin<PublicKey>,
+    #[config(env = "PRIVATE_KEY")]
+    private_key: WithOrigin<PrivateKey>,
     #[config(nested)]
     genesis: Genesis,
     #[config(nested)]
@@ -89,19 +85,6 @@ pub struct Root {
     chain_wide: ChainWide,
 }
 
-#[derive(Debug, Deserialize)]
-struct RootPrivateKey(PrivateKey);
-
-impl CustomEnvRead for RootPrivateKey {
-    type Context = PrivateKeyFromEnvError;
-
-    fn read<'a>(
-        fetcher: &'a mut CustomEnvFetcher<'a>,
-    ) -> std::result::Result<Option<Self>, CustomEnvReadError<Self::Context>> {
-        read_private_key_from_env(fetcher, "PRIVATE_KEY_").map(|x| x.map(RootPrivateKey))
-    }
-}
-
 #[derive(thiserror::Error, Debug, Copy, Clone)]
 pub enum ParseError {
     #[error("Failed to construct the key pair")]
@@ -121,7 +104,7 @@ impl Root {
 
         let (private_key, private_key_origin) = self.private_key.into_tuple();
         let (public_key, public_key_origin) = self.public_key.into_tuple();
-        let key_pair = iroha_crypto::KeyPair::new(public_key, private_key.0)
+        let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
             .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", public_key_origin))
             .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", private_key_origin))
             .change_context(ParseError::BadKeyPair)
@@ -188,24 +171,11 @@ impl Root {
 #[derive(Debug, ReadConfig)]
 pub struct Genesis {
     #[config(env = "GENESIS_PUBLIC_KEY")]
-    pub public_key: WithOrigin<iroha_crypto::PublicKey>,
-    #[config(env_custom)]
-    pub private_key: Option<WithOrigin<GenesisPrivateKey>>,
+    pub public_key: WithOrigin<PublicKey>,
+    #[config(env = "GENESIS_PRIVATE_KEY")]
+    pub private_key: Option<WithOrigin<PrivateKey>>,
     #[config(env = "GENESIS_FILE")]
     pub file: Option<WithOrigin<PathBuf>>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct GenesisPrivateKey(PrivateKey);
-
-impl CustomEnvRead for GenesisPrivateKey {
-    type Context = PrivateKeyFromEnvError;
-
-    fn read<'a>(
-        fetcher: &'a mut CustomEnvFetcher<'a>,
-    ) -> std::result::Result<Option<Self>, CustomEnvReadError<Self::Context>> {
-        read_private_key_from_env(fetcher, "GENESIS_PRIVATE_KEY_").map(|x| x.map(GenesisPrivateKey))
-    }
 }
 
 impl Genesis {
@@ -217,7 +187,7 @@ impl Genesis {
             (Some(private_key), Some(file)) => {
                 let (private_key, priv_key_origin) = private_key.into_tuple();
                 let (public_key, pub_key_origin) = self.public_key.into_tuple();
-                let key_pair = iroha_crypto::KeyPair::new(public_key, private_key.0)
+                let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
                     .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", pub_key_origin))
                     .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", priv_key_origin))
                     .change_context(GenesisConfigError::KeyPair)?;
@@ -388,7 +358,7 @@ pub struct Queue {
     /// The upper limit of the number of transactions waiting in the queue.
     #[config(default = "defaults::queue::CAPACITY")]
     pub capacity: NonZeroUsize,
-    /// The upper limit of the number of transactions waiting in the queue for single user.
+    /// The upper limit of the number of transactions waiting in the queue for a single user.
     /// Use this option to apply throttling.
     #[config(default = "defaults::queue::CAPACITY_PER_USER")]
     pub capacity_per_user: NonZeroUsize,

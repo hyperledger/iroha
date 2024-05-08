@@ -8,14 +8,10 @@ use iroha_config_base::{env::MockEnv, read::ConfigReader, toml::TomlSource};
 use toml::toml;
 
 pub mod sample_config {
-    use std::{net::SocketAddr, path::PathBuf, str::FromStr};
+    use std::{net::SocketAddr, path::PathBuf};
 
-    use error_stack::ResultExt;
     use iroha_config_base::{
-        read::{
-            ConfigReader, CustomEnvFetcher, CustomEnvRead, CustomEnvReadError, FinalWrap,
-            ReadConfig,
-        },
+        read::{ConfigReader, FinalWrap, ReadConfig},
         WithOrigin,
     };
     use serde::Deserialize;
@@ -27,7 +23,6 @@ pub mod sample_config {
         pub kura: Kura,
         pub telemetry: Telemetry,
         pub logger: Logger,
-        pub private_key: Option<RootPrivateKey>,
     }
 
     impl ReadConfig for Root {
@@ -49,19 +44,12 @@ pub mod sample_config {
 
             let logger = reader.read_nested("logger");
 
-            let private_key = reader
-                .read_parameter(["private_key"])
-                .env_custom()
-                .value_optional()
-                .finish();
-
             FinalWrap::value_fn(move || Self {
                 chain_id: chain_id.unwrap(),
                 torii: torii.unwrap(),
                 kura: kura.unwrap(),
                 telemetry: telemetry.unwrap(),
                 logger: logger.unwrap(),
-                private_key: private_key.unwrap(),
             })
         }
     }
@@ -176,56 +164,6 @@ pub mod sample_config {
         Info,
         Warning,
         Error,
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct RootPrivateKey(pub PrivateKey);
-
-    #[derive(thiserror::Error, Debug, Copy, Clone)]
-    pub enum PrivateKeyFromEnvError {
-        #[error("inconsistent environment variables for private key: _ALGORITHM and _PAYLOAD should be set together.")]
-        InconsistentEnvs,
-    }
-
-    impl CustomEnvRead for RootPrivateKey {
-        type Context = PrivateKeyFromEnvError;
-
-        fn read<'a>(
-            fetcher: &'a mut CustomEnvFetcher<'a>,
-        ) -> Result<Option<Self>, CustomEnvReadError<Self::Context>> {
-            let algorithm = fetcher.fetch_env::<String>("PRIVATE_KEY_ALGORITHM")?;
-            let payload = fetcher.fetch_env::<Hex>("PRIVATE_KEY_PAYLOAD")?;
-            match (algorithm, payload) {
-                (Some(algorithm), Some(payload)) => Ok(Some(Self(PrivateKey {
-                    algorithm: algorithm.into_value(),
-                    payload: payload.into_value(),
-                }))),
-                (None, None) => Ok(None),
-                (Some(_), None) => Err(PrivateKeyFromEnvError::InconsistentEnvs)
-                    .attach_printable("missing payload")?,
-                (None, Some(_)) => Err(PrivateKeyFromEnvError::InconsistentEnvs)
-                    .attach_printable("missing algorithm")?,
-            }
-        }
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct PrivateKey {
-        pub algorithm: String,
-        pub payload: Hex,
-    }
-
-    #[serde_with::serde_as]
-    #[derive(Debug, Deserialize, Eq, PartialEq)]
-    pub struct Hex(#[serde_as(as = "serde_with::hex::Hex")] pub Vec<u8>);
-
-    impl FromStr for Hex {
-        type Err = hex::FromHexError;
-
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            let bytes = hex::decode(s)?;
-            Ok(Self(bytes))
-        }
     }
 }
 
@@ -430,7 +368,6 @@ fn minimal_config_ok() {
             logger: Logger {
                 level: Info,
             },
-            private_key: None,
         }"#]]
     .assert_eq(&format!("{value:#?}"));
 }
@@ -498,7 +435,6 @@ fn full_config_ok() {
             logger: Logger {
                 level: Error,
             },
-            private_key: None,
         }"#]]
     .assert_eq(&format!("{value:#?}"));
 }
@@ -549,60 +485,4 @@ fn multiple_env_parsing_errors() {
             ╰─▶ Matching variant not found
                 ╰╴value: LOG_LEVEL=error or whatever"#]]
     .assert_eq_report(&report);
-}
-
-#[test]
-fn private_key_is_read_from_file() {
-    let value = ConfigReader::new()
-        .with_toml_source(TomlSource::new(
-            PathBuf::from("config.toml"),
-            toml! {
-                chain_id = "ok"
-
-                [private_key]
-                algorithm = "algalg"
-                payload = "112233"
-            },
-        ))
-        .read_and_complete::<sample_config::Root>()
-        .expect("config is valid");
-
-    let pk = value.private_key.unwrap().0;
-    assert_eq!(pk.algorithm, "algalg");
-    assert_eq!(pk.payload.0, vec![0x11u8, 0x22, 0x33]);
-}
-
-#[test]
-fn private_key_is_read_from_env() {
-    let value = ConfigReader::new()
-        .with_env(MockEnv::from([
-            ("PRIVATE_KEY_ALGORITHM", "algo"),
-            ("PRIVATE_KEY_PAYLOAD", "deadbeef"),
-            ("CHAIN_ID", "whatever"),
-        ]))
-        .read_and_complete::<sample_config::Root>()
-        .expect("config is valid");
-
-    let pk = value.private_key.unwrap().0;
-    assert_eq!(pk.algorithm, "algo");
-    assert_eq!(pk.payload.0, vec![0xde_u8, 0xad, 0xbe, 0xef]);
-}
-
-#[test]
-fn private_key_inconsistent_env() {
-    let report = ConfigReader::new()
-        .with_env(MockEnv::from([
-            ("PRIVATE_KEY_ALGORITHM", "algo"),
-            ("CHAIN_ID", "whatever"),
-        ]))
-        .read_and_complete::<sample_config::Root>()
-        .expect_err("invalid config");
-
-    expect![[r#"
-        Errors occurred while reading from environment variables
-        │
-        ├─▶ Failed to parse parameter `private_key`
-        │
-        ╰─▶ inconsistent environment variables for private key: _ALGORITHM and _PAYLOAD should be set together.
-            ╰╴missing payload"#]].assert_eq_report(&report);
 }
