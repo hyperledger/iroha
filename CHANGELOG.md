@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.0.0-pre-rc.21.3] - 2024-05-08
+
+### Fixed
+
+- replace RawGenesisBlock with RawGenesisBlockFile in schema
+
 ## [2.0.0-pre-rc.21.2] - 2024-05-03
 
 ### Fixed

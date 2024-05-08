@@ -1,6 +1,6 @@
 [workspace.package]
 edition = "2021"
-version = "2.0.0-pre-rc.21.2"
+version = "2.0.0-pre-rc.21.3"
 # TODO: teams are being deprecated update the authors URL
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 
@@ -28,10 +28,10 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [workspace.dependencies]
-iroha_smart_contract = { version = "=2.0.0-pre-rc.21.2", path = "../../../../smart_contract", features = ["debug"]}
-iroha_trigger = { version = "=2.0.0-pre-rc.21.2", path = "../../../../smart_contract/trigger", features = ["debug"]}
-iroha_executor = { version = "=2.0.0-pre-rc.21.2", path = "../../../../smart_contract/executor" }
-iroha_schema = { version = "=2.0.0-pre-rc.21.2", path = "../../../../schema" }
+iroha_smart_contract = { version = "=2.0.0-pre-rc.21.3", path = "../../../../smart_contract", features = ["debug"]}
+iroha_trigger = { version = "=2.0.0-pre-rc.21.3", path = "../../../../smart_contract/trigger", features = ["debug"]}
+iroha_executor = { version = "=2.0.0-pre-rc.21.3", path = "../../../../smart_contract/executor" }
+iroha_schema = { version = "=2.0.0-pre-rc.21.3", path = "../../../../schema" }
 
 parity-scale-codec = { version = "3.2.1", default-features = false }
 anyhow = { version = "1.0.71", default-features = false }

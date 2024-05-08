@@ -2,7 +2,7 @@
 name = "iroha_default_executor"
 
 edition = "2021"
-version = "2.0.0-pre-rc.21.2"
+version = "2.0.0-pre-rc.21.3"
 # TODO: teams are being deprecated update the authors URL
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 
@@ -24,7 +24,7 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [dependencies]
-iroha_executor = { version = "2.0.0-pre-rc.21.2", path = "../smart_contract/executor", features = ["debug"] }
+iroha_executor = { version = "2.0.0-pre-rc.21.3", path = "../smart_contract/executor", features = ["debug"] }
 getrandom = { version = "0.2", features = ["custom"] }
 
 lol_alloc = "0.4.0"
