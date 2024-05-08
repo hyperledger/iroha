@@ -9,7 +9,6 @@ use iroha_client::{
     },
 };
 use iroha_config::parameters::actual::Root as Config;
-use iroha_config_base::WithOrigin;
 use iroha_primitives::unique_vec;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
