@@ -3053,15 +3053,15 @@
       }
     ]
   },
-  "RawGenesisBlock": {
+  "RawGenesisBlockFile": {
     "Struct": [
       {
         "name": "transactions",
         "type": "Vec<GenesisTransactionBuilder>"
       },
       {
-        "name": "executor",
-        "type": "Executor"
+        "name": "executor_file",
+        "type": "String"
       }
     ]
   },

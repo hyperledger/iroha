@@ -72,7 +72,7 @@ impl GenesisNetwork {
 /// The initial block of the network
 ///
 /// Use [`RawGenesisBlockFile`] to read it from a file.
-#[derive(Debug, Clone, IntoSchema)]
+#[derive(Debug, Clone)]
 pub struct RawGenesisBlock {
     /// Transactions
     transactions: Vec<GenesisTransactionBuilder>,
@@ -93,22 +93,27 @@ impl RawGenesisBlock {
 /// A (de-)serializable version of [`RawGenesisBlock`].
 ///
 /// The conversion is performed using [`TryFrom`].
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
 pub struct RawGenesisBlockFile {
     /// Transactions
     transactions: Vec<GenesisTransactionBuilder>,
     /// Path to the [`Executor`] file
-    executor_file: PathBuf,
+    executor_file: ExecutorPath,
 }
+
+/// Path to [`Executor`] file
+#[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
+#[schema(transparent = "String")]
+pub struct ExecutorPath(PathBuf);
 
 impl TryFrom<RawGenesisBlockFile> for RawGenesisBlock {
     type Error = Report;
 
     fn try_from(value: RawGenesisBlockFile) -> Result<Self> {
-        let wasm = fs::read(&value.executor_file).wrap_err_with(|| {
+        let wasm = fs::read(&value.executor_file.0).wrap_err_with(|| {
             eyre!(
                 "failed to read the executor from {}",
-                &value.executor_file.display()
+                &value.executor_file.0.display()
             )
         })?;
         Ok(Self {
@@ -143,11 +148,11 @@ impl RawGenesisBlockFile {
                 path.as_ref().display()
             )
         })?;
-        value.executor_file = path
+        value.executor_file.0 = path
             .as_ref()
             .parent()
             .expect("genesis must be a file in some directory")
-            .join(value.executor_file);
+            .join(value.executor_file.0);
         Ok(value)
     }
 
@@ -296,7 +301,7 @@ impl RawGenesisBlockBuilder<executor_state::SetPath> {
     pub fn build(self) -> RawGenesisBlockFile {
         RawGenesisBlockFile {
             transactions: vec![self.transaction],
-            executor_file: self.state.0,
+            executor_file: ExecutorPath(self.state.0),
         }
     }
 }
