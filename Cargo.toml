@@ -121,7 +121,7 @@ serde = { version = "1.0.201", default-features = false }
 serde_json = { version = "1.0.116", default-features = false }
 serde_yaml = "0.9.34"
 serde_with = { version = "3.8.1", default-features = false }
-parity-scale-codec = { version = "3.6.9", default-features = false }
+parity-scale-codec = { version = "3.6.12", default-features = false }
 json5 = "0.4.1"
 toml = "0.8.12"
 
