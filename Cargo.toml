@@ -84,7 +84,7 @@ hex = { version = "0.4.3", default-features = false }
 nonzero_ext = { version = "0.3.0", default-features = false }
 
 url = "2.5.0"
-prometheus = { version = "0.13.3", default-features = false }
+prometheus = { version = "0.13.4", default-features = false }
 
 clap = "4.5.4"
 owo-colors = "3.5.0"
