@@ -70,7 +70,7 @@ jobs:
           path: lcov.info
 
   # include: client/tests/integration/
-  # exclude: "unstable_network"
+  # exclude: client/tests/integration/extra_functional
   integration:
     runs-on: [self-hosted, Linux, iroha2]
     container:
@@ -80,10 +80,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Run tests, with no-default-features
-        run: mold --run cargo test --no-default-features --no-fail-fast -p iroha_client integration -- --skip unstable_network
+        run: mold --run cargo test --no-default-features --no-fail-fast -p iroha_client integration -- --skip extra_functional
 
-  # include: client/tests/integration/, "unstable_network"
-  unstable:
+  # include: client/tests/integration/extra_functional
+  extra_functional:
     runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
@@ -92,7 +92,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: mold --run cargo test --no-default-features --no-fail-fast -p iroha_client unstable_network
+        run: mold --run cargo test --no-default-features --no-fail-fast -p iroha_client extra_functional
 
   # Run the job to check that the docker containers are properly buildable
   pr-generator-build:
