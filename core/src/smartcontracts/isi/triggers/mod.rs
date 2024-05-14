@@ -96,7 +96,7 @@ pub mod isi {
             let trigger_id = self.object_id.clone();
 
             let triggers = &mut state_transaction.world.triggers;
-            if triggers.remove(&trigger_id) {
+            if triggers.remove(trigger_id.clone()) {
                 state_transaction
                     .world
                     .emit_events(Some(TriggerEvent::Deleted(self.object_id)));
@@ -299,7 +299,7 @@ pub mod query {
     };
 
     use super::*;
-    use crate::{prelude::*, state::StateReadOnly};
+    use crate::{prelude::*, smartcontracts::triggers::set::SetReadOnly, state::StateReadOnly};
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
@@ -307,7 +307,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = TriggerId> + 'state>, Error> {
-            Ok(Box::new(state_ro.world().triggers().ids().cloned()))
+            Ok(Box::new(state_ro.world().triggers().ids_iter().cloned()))
         }
     }
 

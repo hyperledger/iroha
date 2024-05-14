@@ -55,7 +55,7 @@ iroha_trigger_derive = { version = "=2.0.0-pre-rc.21", path = "smart_contract/tr
 
 test_network = { version = "=2.0.0-pre-rc.21", path = "core/test_network" }
 proc-macro2 = "1.0.81"
-syn = { version = "2.0.60", default-features = false }
+syn = { version = "2.0.63", default-features = false }
 quote = "1.0.36"
 manyhow = { version = "0.8.1", features = ["darling"] }
 darling = "0.20.8"
@@ -97,7 +97,7 @@ expect-test = "1.5.0"
 
 eyre = "0.6.12"
 color-eyre = "0.6.3"
-thiserror = { version = "1.0.59", default-features = false }
+thiserror = { version = "1.0.60", default-features = false }
 displaydoc = { version = "0.2.4", default-features = false }
 
 cfg-if = "1.0.0"
@@ -117,11 +117,11 @@ tracing-subscriber = { version = "0.3.18", default-features = false }
 dashmap = "5.5.3"
 rustc-hash = "1.1.0"
 
-serde = { version = "1.0.200", default-features = false }
+serde = { version = "1.0.201", default-features = false }
 serde_json = { version = "1.0.117", default-features = false }
 serde_yaml = "0.9.34"
 serde_with = { version = "3.8.1", default-features = false }
-parity-scale-codec = { version = "3.6.9", default-features = false }
+parity-scale-codec = { version = "3.6.12", default-features = false }
 json5 = "0.4.1"
 toml = "0.8.12"
 
