@@ -46,9 +46,8 @@ use crate::{
         triggers::{
             self,
             set::{
-                LoadedWasm, Set as TriggerSet, SetBlock as TriggerSetBlock,
-                SetReadOnly as TriggerSetReadOnly, SetTransaction as TriggerSetTransaction,
-                SetView as TriggerSetView,
+                Set as TriggerSet, SetBlock as TriggerSetBlock, SetReadOnly as TriggerSetReadOnly,
+                SetTransaction as TriggerSetTransaction, SetView as TriggerSetView,
             },
             specialized::LoadedActionTrait,
         },
@@ -1419,20 +1418,26 @@ impl StateTransaction<'_, '_> {
         action: &dyn LoadedActionTrait,
         event: EventBox,
     ) -> Result<()> {
-        use triggers::set::LoadedExecutable::*;
+        use triggers::set::ExecutableRef::*;
         let authority = action.authority();
 
         match action.executable() {
             Instructions(instructions) => {
                 self.process_instructions(instructions.iter().cloned(), authority)
             }
-            Wasm(LoadedWasm { module, .. }) => {
+            Wasm(blob_hash) => {
+                let module = self
+                    .world
+                    .triggers
+                    .get_compiled_contract(blob_hash)
+                    .expect("contract is not present it's a bug")
+                    .clone();
                 let mut wasm_runtime = wasm::RuntimeBuilder::<wasm::state::Trigger>::new()
                     .with_config(self.config.wasm_runtime)
                     .with_engine(self.engine.clone()) // Cloning engine is cheap
                     .build()?;
                 wasm_runtime
-                    .execute_trigger_module(self, id, authority.clone(), module, event)
+                    .execute_trigger_module(self, id, authority.clone(), &module, event)
                     .map_err(Into::into)
             }
         }
