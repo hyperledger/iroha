@@ -293,7 +293,7 @@ fn domain_owner_trigger_permissions() -> Result<()> {
     // check that "alice@wonderland" as owner of domain can grant and revoke trigger related permission tokens in her domain
     let token = PermissionToken::new(
         "CanUnregisterUserTrigger".parse().unwrap(),
-        &json!({ "trigger_id": trigger_id }),
+        &json!({ "account_id": bob_id }),
     );
     test_client.submit_blocking(Grant::permission(token.clone(), bob_id.clone()))?;
     test_client.submit_blocking(Revoke::permission(token, bob_id))?;

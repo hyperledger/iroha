@@ -9,8 +9,10 @@ use iroha_client::{
         transaction::{Executable, WasmSmartContract},
     },
 };
+use iroha_crypto::KeyPair;
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::info;
+use serde_json::json;
 use test_network::*;
 use test_samples::ALICE_ID;
 
@@ -267,8 +269,82 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
 }
 
 #[test]
-fn unregister_trigger() -> Result<()> {
+fn only_account_with_permission_can_register_trigger() -> Result<()> {
+    // Building a configuration
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_035).start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let domain_id = ALICE_ID.domain_id().clone();
+    let alice_account_id = ALICE_ID.clone();
+    let rabbit_keys = KeyPair::random();
+    let rabbit_account_id = AccountId::new(domain_id, rabbit_keys.public_key().clone());
+    let rabbit_account = Account::new(rabbit_account_id.clone());
+
+    let mut rabbit_client = test_client.clone();
+    rabbit_client.account_id = rabbit_account_id.clone();
+    rabbit_client.key_pair = rabbit_keys;
+
+    // Permission token for the trigger registration
+    // on behalf of alice
+    let permission_on_registration = PermissionToken::new(
+        "CanRegisterUserTrigger".parse().unwrap(),
+        &json!({ "account_id": ALICE_ID.clone(), }),
+    );
+
+    // Trigger with 'alice' as authority
+    let trigger_id = TriggerId::from_str("alice_trigger")?;
+    let trigger = Trigger::new(
+        trigger_id.clone(),
+        Action::new(
+            Vec::<InstructionBox>::new(),
+            Repeats::Indefinitely,
+            alice_account_id.clone(),
+            ExecuteTriggerEventFilter::new()
+                .for_trigger(trigger_id.clone())
+                .under_authority(alice_account_id.clone()),
+        ),
+    );
+
+    // Register rabbit's account
+    test_client.submit_blocking(Register::account(rabbit_account))?;
+
+    let find_rabbit = FindAccountById {
+        id: rabbit_account_id.clone(),
+    };
+    test_client.request(find_rabbit).expect("Account not found");
+    info!("Rabbit is found.");
+
+    // Trying register the trigger without permissions
+    let _ = rabbit_client
+        .submit_blocking(Register::trigger(trigger.clone()))
+        .expect_err("Trigger should not be registered!");
+    info!("Rabbit couldn't register the trigger");
+
+    // Give permissions to the rabbit
+    test_client.submit_blocking(Grant::permission(
+        permission_on_registration,
+        rabbit_account_id,
+    ))?;
+    info!("Rabbit has got the permission");
+
+    // Trying register the trigger with permissions
+    rabbit_client
+        .submit_blocking(Register::trigger(trigger))
+        .expect("Trigger should be registered!");
+
+    let find_trigger = FindTriggerById {
+        id: trigger_id.clone(),
+    };
+    let found_trigger = test_client.request(find_trigger)?;
+
+    assert_eq!(found_trigger.id, trigger_id);
+
+    Ok(())
+}
+
+#[test]
+fn unregister_trigger() -> Result<()> {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_040).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let account_id = ALICE_ID.clone();
@@ -368,7 +444,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
         .with_genesis(genesis)
-        .with_port(10_040)
+        .with_port(10_045)
         .start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
