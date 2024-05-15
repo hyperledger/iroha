@@ -10,7 +10,7 @@ use iroha_data_model::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::smartcontracts::triggers::set::{LoadedExecutable, LoadedWasm};
+use crate::smartcontracts::triggers::set::ExecutableRef;
 
 /// Same as [`iroha_data_model::trigger::action::Action`] but generic over the filter type
 ///
@@ -110,10 +110,10 @@ impl_try_from_box! {
 
 /// Same as [`iroha_data_model::trigger::action::Action`] but with
 /// executable in pre-loaded form
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LoadedAction<F> {
     /// The executable linked to this action in loaded form
-    pub(super) executable: LoadedExecutable,
+    pub(super) executable: ExecutableRef,
     /// The repeating scheme of the action. It's kept as part of the
     /// action and not inside the [`Trigger`] type, so that further
     /// sanity checking can be done.
@@ -129,8 +129,8 @@ pub struct LoadedAction<F> {
 impl<F> LoadedAction<F> {
     pub(super) fn extract_blob_hash(&self) -> Option<HashOf<WasmSmartContract>> {
         match self.executable {
-            LoadedExecutable::Wasm(LoadedWasm { blob_hash, .. }) => Some(blob_hash),
-            LoadedExecutable::Instructions(_) => None,
+            ExecutableRef::Wasm(blob_hash) => Some(blob_hash),
+            ExecutableRef::Instructions(_) => None,
         }
     }
 }
@@ -138,7 +138,7 @@ impl<F> LoadedAction<F> {
 /// Trait common for all `LoadedAction`s
 pub trait LoadedActionTrait {
     /// Get action executable
-    fn executable(&self) -> &LoadedExecutable;
+    fn executable(&self) -> &ExecutableRef;
 
     /// Get action repeats enum
     fn repeats(&self) -> &Repeats;
@@ -168,7 +168,7 @@ pub trait LoadedActionTrait {
 impl<F: EventFilter + Into<TriggeringEventFilterBox> + Clone> LoadedActionTrait
     for LoadedAction<F>
 {
-    fn executable(&self) -> &LoadedExecutable {
+    fn executable(&self) -> &ExecutableRef {
         &self.executable
     }
 
