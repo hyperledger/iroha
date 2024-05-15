@@ -132,95 +132,6 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<PublicKey, Account> {
-        #[metrics(+"mint_account_public_key")]
-        fn execute(
-            self,
-            _authority: &AccountId,
-            state_transaction: &mut StateTransaction<'_, '_>,
-        ) -> Result<(), Error> {
-            let account_id = self.destination_id;
-            let public_key = self.object;
-
-            state_transaction
-                .world
-                .account_mut(&account_id)
-                .map_err(Error::from)
-                .and_then(|account| {
-                    if account.contains_signatory(&public_key) {
-                        return Err(RepetitionError {
-                            instruction_type: InstructionType::Mint,
-                            id: account_id.clone().into(),
-                        }
-                        .into());
-                    }
-
-                    account.add_signatory(public_key);
-                    Ok(())
-                })?;
-
-            state_transaction
-                .world
-                .emit_events(Some(AccountEvent::AuthenticationAdded(account_id.clone())));
-
-            Ok(())
-        }
-    }
-
-    impl Execute for Burn<PublicKey, Account> {
-        #[metrics(+"burn_account_public_key")]
-        fn execute(
-            self,
-            _authority: &AccountId,
-            state_transaction: &mut StateTransaction<'_, '_>,
-        ) -> Result<(), Error> {
-            let account_id = self.destination_id;
-            let public_key = self.object;
-
-            state_transaction.world.account_mut(&account_id)
-                .map_err(Error::from)
-                .and_then(|account| {
-                    match account.remove_signatory(&public_key) {
-                        None => Err(Error::InvariantViolation(String::from(
-                            "Public keys cannot be burned to nothing, \
-                            if you want to delete the account, please use an unregister instruction",
-                        ))),
-                        Some(false) => Err(FindError::PublicKey(public_key).into()),
-                        Some(true) => Ok(())
-                    }
-                })?;
-
-            state_transaction
-                .world
-                .emit_events(Some(AccountEvent::AuthenticationRemoved(account_id)));
-
-            Ok(())
-        }
-    }
-
-    impl Execute for Mint<SignatureCheckCondition, Account> {
-        #[metrics(+"mint_account_signature_check_condition")]
-        fn execute(
-            self,
-            _authority: &AccountId,
-            state_transaction: &mut StateTransaction<'_, '_>,
-        ) -> Result<(), Error> {
-            let account_id = self.destination_id;
-            let signature_check_condition = self.object;
-
-            state_transaction
-                .world
-                .account_mut(&account_id)?
-                .signature_check_condition = signature_check_condition;
-
-            state_transaction
-                .world
-                .emit_events(Some(AccountEvent::AuthenticationAdded(account_id.clone())));
-
-            Ok(())
-        }
-    }
-
     impl Execute for Transfer<Account, AssetDefinitionId, Account> {
         fn execute(
             self,
@@ -575,12 +486,13 @@ pub mod isi {
     #[cfg(test)]
     mod test {
         use iroha_data_model::{prelude::AssetDefinition, ParseError};
+        use test_samples::gen_account_in;
 
         use crate::smartcontracts::isi::Registrable as _;
 
         #[test]
         fn cannot_forbid_minting_on_asset_mintable_infinitely() -> Result<(), ParseError> {
-            let authority = "alice@wonderland".parse()?;
+            let (authority, _authority_keypair) = gen_account_in("wonderland");
             let mut definition = AssetDefinition::numeric("test#hello".parse()?).build(&authority);
             assert!(super::forbid_minting(&mut definition).is_err());
             Ok(())
@@ -655,31 +567,6 @@ pub mod query {
                 .world()
                 .map_account(id, Clone::clone)
                 .map_err(Into::into)
-        }
-    }
-
-    impl ValidQuery for FindAccountsByName {
-        #[metrics(+"find_account_by_name")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
-            let name = self.name.clone();
-            iroha_logger::trace!(%name);
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .domains_iter()
-                    .flat_map(move |domain| {
-                        let name = name.clone();
-
-                        domain
-                            .accounts
-                            .values()
-                            .filter(move |account| account.id().name == name)
-                    })
-                    .cloned(),
-            ))
         }
     }
 

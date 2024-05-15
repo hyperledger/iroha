@@ -9,29 +9,41 @@ use iroha_client::{
 use iroha_logger::info;
 use serde_json::json;
 use test_network::*;
+use test_samples::ALICE_ID;
+
+const ADMIN_PUBLIC_KEY_MULTIHASH: &str =
+    "ed012076E5CA9698296AF9BE2CA45F525CB3BCFDEB7EE068BA56F973E9DD90564EF4FC";
+const ADMIN_PRIVATE_KEY_MULTIHASH: &str = "802640A4DE33BCA99A254ED6265D1F0FB69DFE42B77F89F6C2E478498E1831BF6D81F276E5CA9698296AF9BE2CA45F525CB3BCFDEB7EE068BA56F973E9DD90564EF4FC";
 
 #[test]
 fn executor_upgrade_should_work() -> Result<()> {
     let chain_id = ChainId::from("0");
+    let admin_id: AccountId = format!("{ADMIN_PUBLIC_KEY_MULTIHASH}@admin")
+        .parse()
+        .unwrap();
+    let admin_keypair = KeyPair::new(
+        admin_id.signatory().clone(),
+        ADMIN_PRIVATE_KEY_MULTIHASH.parse().unwrap(),
+    )
+    .unwrap();
 
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_795).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Register `admin` domain and account
-    let admin_domain = Domain::new("admin".parse()?);
+    let admin_domain = Domain::new(admin_id.domain_id().clone());
     let register_admin_domain = Register::domain(admin_domain);
     client.submit_blocking(register_admin_domain)?;
 
-    let admin_id: AccountId = "admin@admin".parse()?;
-    let admin_keypair = KeyPair::random();
-    let admin_account = Account::new(admin_id.clone(), admin_keypair.public_key().clone());
+    let admin_account = Account::new(admin_id.clone());
     let register_admin_account = Register::account(admin_account);
     client.submit_blocking(register_admin_account)?;
 
     // Check that admin isn't allowed to transfer alice's rose by default
-    let alice_rose: AssetId = "rose##alice@wonderland".parse()?;
-    let admin_rose: AccountId = "admin@admin".parse()?;
-    let transfer_alice_rose = Transfer::asset_numeric(alice_rose, 1u32, admin_rose);
+    let alice_rose: AssetId = format!("rose##{}", ALICE_ID.clone())
+        .parse()
+        .expect("should be valid");
+    let transfer_alice_rose = Transfer::asset_numeric(alice_rose, 1u32, admin_id.clone());
     let transfer_rose_tx = TransactionBuilder::new(chain_id.clone(), admin_id.clone())
         .with_instructions([transfer_alice_rose.clone()])
         .sign(&admin_keypair);
@@ -46,7 +58,7 @@ fn executor_upgrade_should_work() -> Result<()> {
 
     // Check that admin can transfer alice's rose now
     // Creating new transaction instead of cloning, because we need to update it's creation time
-    let transfer_rose_tx = TransactionBuilder::new(chain_id, admin_id)
+    let transfer_rose_tx = TransactionBuilder::new(chain_id, admin_id.clone())
         .with_instructions([transfer_alice_rose])
         .sign(&admin_keypair);
     client
@@ -71,7 +83,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
         .any(|id| id == &can_unregister_domain_token_id));
 
     // Check that Alice has permission to unregister Wonderland
-    let alice_id: AccountId = "alice@wonderland".parse().unwrap();
+    let alice_id = ALICE_ID.clone();
     let alice_tokens = client
         .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()
@@ -147,7 +159,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
         .contains(&can_unregister_domain_token));
 
     // Check that Alice has permission
-    let alice_id: AccountId = "alice@wonderland".parse()?;
+    let alice_id = ALICE_ID.clone();
     assert!(client
         .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()?

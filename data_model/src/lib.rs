@@ -97,12 +97,9 @@ mod seal {
         Unregister<Role>,
         Unregister<Trigger>,
 
-        Mint<PublicKey, Account>,
-        Mint<SignatureCheckCondition, Account>,
         Mint<Numeric, Asset>,
         Mint<u32, Trigger>,
 
-        Burn<PublicKey, Account>,
         Burn<Numeric, Asset>,
         Burn<u32, Trigger>,
 
@@ -131,7 +128,6 @@ mod seal {
         FindAllAccounts,
         FindAccountById,
         FindAccountKeyValueByIdAndKey,
-        FindAccountsByName,
         FindAccountsByDomainId,
         FindAccountsWithAsset,
         FindAllAssets,
@@ -619,6 +615,7 @@ pub mod parameter {
 }
 
 #[model]
+#[allow(clippy::redundant_pub_crate)]
 mod model {
     use super::*;
 

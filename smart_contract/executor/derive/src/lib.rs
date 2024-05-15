@@ -88,7 +88,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 ///     CanDoSomethingWithAsset {
 ///        some_data: "some data".to_owned(),
-///        asset_id: parse!("rose#wonderland" as AssetId),
+///        asset_id: parse!(AssetId, "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"),
 ///     }.is_owned_by(&authority)
 /// }
 /// ```

@@ -134,22 +134,19 @@ class ClientCli:
         self.execute()
         return self
 
-    def account(self, account: str, domain: str, key: str):
+    def account(self, signatory: str, domain: str):
         """
-        Executes the 'account' command for the given account, domain, and key.
+        Executes the 'account' command for the given signatory and domain.
 
-        :param account: The account to be queried.
-        :type account: str
+        :param signatory: The signatory of the account.
+        :type signatory: str
         :param domain: The domain of the account.
         :type domain: str
-        :param key: The key for the account.
-        :type key: str
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
         self.command.insert(2, "account")
-        self.command.append("--id=" + account + "@" + domain)
-        self.command.append("--key=ed0120" + key)
+        self.command.append("--id=" + signatory + "@" + domain)
         self.execute()
         return self
 
@@ -172,11 +169,11 @@ class ClientCli:
                 "--asset-id="
                 + asset_definition.name
                 + "#"
-                + account.domain
-                + "#"
-                + account.name
-                + "@"
                 + asset_definition.domain
+                + "#"
+                + account.signatory
+                + "@"
+                + account.domain
             )
             self.command.append("--quantity=" + value_of_value_type)
             self.execute()
@@ -204,11 +201,11 @@ class ClientCli:
             "--asset-id="
             + asset.name
             + "#"
-            + source_account.domain
-            + "#"
-            + source_account.name
-            + "@"
             + asset.domain
+            + "#"
+            + source_account.signatory
+            + "@"
+            + source_account.domain
         )
         self.command.append("--quantity=" + quantity)
         self.execute()
@@ -232,11 +229,11 @@ class ClientCli:
             "--asset-id="
             + asset.name
             + "#"
-            + account.domain
-            + "#"
-            + account.name
-            + "@"
             + asset.domain
+            + "#"
+            + account.signatory
+            + "@"
+            + account.domain
         )
         self.command.append("--quantity=" + quantity)
         self.execute()

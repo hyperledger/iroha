@@ -54,6 +54,8 @@ iroha_executor_derive = { version = "=2.0.0-pre-rc.21", path = "smart_contract/e
 iroha_trigger_derive = { version = "=2.0.0-pre-rc.21", path = "smart_contract/trigger/derive" }
 
 test_network = { version = "=2.0.0-pre-rc.21", path = "core/test_network" }
+test_samples = { version = "=2.0.0-pre-rc.21", path = "test_samples" }
+
 proc-macro2 = "1.0.81"
 syn = { version = "2.0.63", default-features = false }
 quote = "1.0.36"
@@ -228,6 +230,7 @@ members = [
     "smart_contract/executor",
     "smart_contract/executor/derive",
     "telemetry",
+    "test_samples",
     "tools/kagami",
     "tools/kura_inspector",
     "tools/parity_scale_cli",

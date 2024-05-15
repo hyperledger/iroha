@@ -25,10 +25,8 @@ def test_register_empty_domain(
 ):
     with allure.step("WHEN client_cli registers an empty domain"):
         client_cli.register().domain("")
-    with allure.step(
-        f'THEN client_cli should have the domain error: "{Stderr.CANNOT_BE_EMPTY}"'
-    ):
-        client_cli.should(have.error(Stderr.CANNOT_BE_EMPTY.value))
+    with allure.step(f'THEN client_cli should have the domain error: "{Stderr.EMPTY}"'):
+        client_cli.should(have.error(Stderr.EMPTY.value))
 
 
 @allure.label("sdk_test_id", "register_existing_domain")
@@ -38,7 +36,7 @@ def test_register_existing_domain(GIVEN_registered_domain):
     ):
         client_cli.register().domain(GIVEN_registered_domain.name)
     with allure.step(
-        f'THEN client_cli should have the domain error:  "{GIVEN_registered_domain.name}"'
+        f'THEN client_cli should have the domain error: "{GIVEN_registered_domain.name}"'
     ):
         client_cli.should(have.error(Stderr.REPETITION.value))
 

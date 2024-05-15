@@ -100,7 +100,9 @@ class _Peer:
         logging.info(f"Peer {self.name} generating key pair...")
 
         command = [self.out_dir / "kagami", "crypto", "-j"]
-        if args.peer_name_as_seed:
+        if nth == 0:
+            command.extend(["-s", "Iroha" + "genesis"])
+        elif args.peer_name_as_seed:
             command.extend(["-s", self.name])
         kagami = subprocess.run(command, capture_output=True)
         if kagami.returncode:
@@ -109,7 +111,6 @@ class _Peer:
         str_keypair = kagami.stdout
         # dict with `{ public_key: string, private_key: { algorithm: string, payload: string } }`
         self.key_pair = json.loads(str_keypair)
-
         os.makedirs(self.peer_dir, exist_ok=True)
 
         config = {

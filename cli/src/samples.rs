@@ -62,18 +62,24 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
 pub fn get_user_config(
     peers: &UniqueVec<PeerId>,
     chain_id: Option<ChainId>,
-    key_pair: Option<KeyPair>,
+    peer_key_pair: Option<KeyPair>,
+    genesis_key_pair: Option<KeyPair>,
 ) -> UserConfig {
     let chain_id = chain_id.unwrap_or_else(|| ChainId::from("0"));
 
-    let (public_key, private_key) = key_pair.unwrap_or_else(KeyPair::random).into_parts();
-    iroha_logger::info!(%public_key);
+    let (peer_public_key, peer_private_key) =
+        peer_key_pair.unwrap_or_else(KeyPair::random).into_parts();
+    iroha_logger::info!(%peer_public_key);
+    let (genesis_public_key, genesis_private_key) = genesis_key_pair
+        .unwrap_or_else(KeyPair::random)
+        .into_parts();
+    iroha_logger::info!(%genesis_public_key);
 
     let mut config = UserConfig::new();
 
     config.chain_id.set(chain_id);
-    config.public_key.set(public_key.clone());
-    config.private_key.set(private_key.clone());
+    config.public_key.set(peer_public_key);
+    config.private_key.set(peer_private_key);
     config.network.address.set(DEFAULT_P2P_ADDR);
     config
         .chain_wide
@@ -89,8 +95,8 @@ pub fn get_user_config(
         .network
         .block_gossip_period
         .set(HumanDuration(Duration::from_millis(500)));
-    config.genesis.private_key.set(private_key);
-    config.genesis.public_key.set(public_key);
+    config.genesis.private_key.set(genesis_private_key);
+    config.genesis.public_key.set(genesis_public_key);
     config.genesis.file.set("./genesis.json".into());
     // There is no need in persistency in tests
     // If required to should be set explicitly not to overlap with other existing tests
@@ -109,9 +115,10 @@ pub fn get_user_config(
 pub fn get_config(
     trusted_peers: &UniqueVec<PeerId>,
     chain_id: Option<ChainId>,
-    key_pair: Option<KeyPair>,
+    peer_key_pair: Option<KeyPair>,
+    genesis_key_pair: Option<KeyPair>,
 ) -> Config {
-    get_user_config(trusted_peers, chain_id, key_pair)
+    get_user_config(trusted_peers, chain_id, peer_key_pair, genesis_key_pair)
         .unwrap_partial()
         .expect("config should build as all required fields were provided")
         .parse(CliContext {

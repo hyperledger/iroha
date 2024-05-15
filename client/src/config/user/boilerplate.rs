@@ -9,7 +9,7 @@ use iroha_config::base::{
     UserField,
 };
 use iroha_crypto::{PrivateKey, PublicKey};
-use iroha_data_model::{account::AccountId, ChainId};
+use iroha_data_model::{domain::DomainId, ChainId};
 use serde::Deserialize;
 
 use crate::config::{
@@ -89,7 +89,7 @@ impl UnwrapPartial for RootPartial {
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
 pub struct AccountPartial {
-    pub id: UserField<AccountId>,
+    pub domain_id: UserField<DomainId>,
     pub public_key: UserField<PublicKey>,
     pub private_key: UserField<PrivateKey>,
 }
@@ -100,8 +100,8 @@ impl UnwrapPartial for AccountPartial {
     fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
         let mut emitter = Emitter::new();
 
-        if self.id.is_none() {
-            emitter.emit_missing_field("account.id");
+        if self.domain_id.is_none() {
+            emitter.emit_missing_field("account.domain_id");
         }
         if self.public_key.is_none() {
             emitter.emit_missing_field("account.public_key");
@@ -113,7 +113,7 @@ impl UnwrapPartial for AccountPartial {
         emitter.finish()?;
 
         Ok(Account {
-            id: self.id.get().unwrap(),
+            domian_id: self.domain_id.get().unwrap(),
             public_key: self.public_key.get().unwrap(),
             private_key: self.private_key.get().unwrap(),
         })

@@ -1202,6 +1202,7 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
 #[cfg(test)]
 mod tests {
     use iroha_primitives::{unique_vec, unique_vec::UniqueVec};
+    use test_samples::gen_account_in;
     use tokio::test;
 
     use super::*;
@@ -1217,12 +1218,11 @@ mod tests {
         chain_id: &ChainId,
         topology: &Topology,
         leader_key_pair: &KeyPair,
-        tx_signer_key_pair: &KeyPair,
-    ) -> (State, Arc<Kura>, SignedBlock) {
+    ) -> (State, Arc<Kura>, SignedBlock, PublicKey) {
         // Predefined world state
-        let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
-        let account = Account::new(alice_id.clone(), tx_signer_key_pair.public_key().clone())
-            .build(&alice_id);
+        let (alice_id, alice_keypair) = gen_account_in("wonderland");
+        let genesis_public_key = alice_keypair.public_key().clone();
+        let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = "wonderland".parse().expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());
@@ -1239,7 +1239,7 @@ mod tests {
         // Making two transactions that have the same instruction
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_box])
-            .sign(tx_signer_key_pair);
+            .sign(&alice_keypair);
         let tx = AcceptedTransaction::accept(
             tx,
             chain_id,
@@ -1273,7 +1273,7 @@ mod tests {
 
             let tx1 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
                 .with_instructions([create_asset_definition1])
-                .sign(tx_signer_key_pair);
+                .sign(&alice_keypair);
             let tx1 = AcceptedTransaction::accept(
                 tx1,
                 chain_id,
@@ -1283,7 +1283,7 @@ mod tests {
             .expect("Valid");
             let tx2 = TransactionBuilder::new(chain_id.clone(), alice_id)
                 .with_instructions([create_asset_definition2])
-                .sign(tx_signer_key_pair);
+                .sign(&alice_keypair);
             let tx2 = AcceptedTransaction::accept(
                 tx2,
                 chain_id,
@@ -1299,55 +1299,47 @@ mod tests {
                 .unpack(|_| {})
         };
 
-        (state, kura, block.into())
+        (state, kura, block.into(), genesis_public_key)
     }
 
     #[test]
     #[allow(clippy::redundant_clone)]
     async fn block_sync_invalid_block() {
         let chain_id = ChainId::from("0");
-        let tx_signer_key_pair = KeyPair::random();
 
         let leader_key_pair = KeyPair::random();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, _, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, _, mut block, genesis_public_key) =
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         // Malform block to make it invalid
         payload_mut(&mut block).commit_topology.clear();
 
-        let result = handle_block_sync(
-            &chain_id,
-            tx_signer_key_pair.public_key(),
-            block,
-            &state,
-            &|_| {},
-        );
+        let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(result, Err((_, BlockSyncError::BlockNotValid(_)))))
     }
 
     #[test]
     async fn block_sync_invalid_soft_fork_block() {
         let chain_id = ChainId::from("0");
-        let tx_signer_key_pair = KeyPair::random();
 
         let leader_key_pair = KeyPair::random();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, kura, mut block, genesis_public_key) =
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         let mut state_block = state.block();
         let committed_block = ValidBlock::validate(
             block.clone(),
             &topology,
             &chain_id,
-            tx_signer_key_pair.public_key(),
+            &genesis_public_key,
             &mut state_block,
         )
         .unpack(|_| {})
@@ -1363,13 +1355,7 @@ mod tests {
         payload_mut(&mut block).commit_topology.clear();
         payload_mut(&mut block).header.view_change_index = 1;
 
-        let result = handle_block_sync(
-            &chain_id,
-            tx_signer_key_pair.public_key(),
-            block,
-            &state,
-            &|_| {},
-        );
+        let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(
             result,
             Err((_, BlockSyncError::SoftForkBlockNotValid(_)))
@@ -1380,23 +1366,16 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     async fn block_sync_not_proper_height() {
         let chain_id = ChainId::from("0");
-        let tx_signer_key_pair = KeyPair::random();
 
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::random();
-        let (state, _, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, _, mut block, genesis_public_key) =
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         // Change block height
         payload_mut(&mut block).header.height = 42;
 
-        let result = handle_block_sync(
-            &chain_id,
-            tx_signer_key_pair.public_key(),
-            block,
-            &state,
-            &|_| {},
-        );
+        let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(
             result,
             Err((
@@ -1413,44 +1392,36 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     async fn block_sync_commit_block() {
         let chain_id = ChainId::from("0");
-        let tx_signer_key_pair = KeyPair::random();
 
         let leader_key_pair = KeyPair::random();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, _, block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
-        let result = handle_block_sync(
-            &chain_id,
-            tx_signer_key_pair.public_key(),
-            block,
-            &state,
-            &|_| {},
-        );
+        let (state, _, block, genesis_public_key) =
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
+        let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(result, Ok(BlockSyncOk::CommitBlock(_, _))))
     }
 
     #[test]
     async fn block_sync_replace_top_block() {
         let chain_id = ChainId::from("0");
-        let tx_signer_key_pair = KeyPair::random();
 
         let leader_key_pair = KeyPair::random();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, kura, mut block, genesis_public_key) =
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         let mut state_block = state.block();
         let committed_block = ValidBlock::validate(
             block.clone(),
             &topology,
             &chain_id,
-            tx_signer_key_pair.public_key(),
+            &genesis_public_key,
             &mut state_block,
         )
         .unpack(|_| {})
@@ -1467,28 +1438,21 @@ mod tests {
         // Increase block view change index
         payload_mut(&mut block).header.view_change_index = 42;
 
-        let result = handle_block_sync(
-            &chain_id,
-            tx_signer_key_pair.public_key(),
-            block,
-            &state,
-            &|_| {},
-        );
+        let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(result, Ok(BlockSyncOk::ReplaceTopBlock(_, _))))
     }
 
     #[test]
     async fn block_sync_small_view_change_index() {
         let chain_id = ChainId::from("0");
-        let tx_signer_key_pair = KeyPair::random();
 
         let leader_key_pair = KeyPair::random();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, kura, mut block, genesis_public_key) =
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         // Increase block view change index
         payload_mut(&mut block).header.view_change_index = 42;
@@ -1498,7 +1462,7 @@ mod tests {
             block.clone(),
             &topology,
             &chain_id,
-            tx_signer_key_pair.public_key(),
+            &genesis_public_key,
             &mut state_block,
         )
         .unpack(|_| {})
@@ -1514,13 +1478,7 @@ mod tests {
         // Decrease block view change index back
         payload_mut(&mut block).header.view_change_index = 0;
 
-        let result = handle_block_sync(
-            &chain_id,
-            tx_signer_key_pair.public_key(),
-            block,
-            &state,
-            &|_| {},
-        );
+        let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(
             result,
             Err((
@@ -1537,25 +1495,18 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     async fn block_sync_genesis_block_do_not_replace() {
         let chain_id = ChainId::from("0");
-        let tx_signer_key_pair = KeyPair::random();
 
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::random();
-        let (state, _, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair, &tx_signer_key_pair);
+        let (state, _, mut block, genesis_public_key) =
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         // Change block height and view change index
         // Soft-fork on genesis block is not possible
         payload_mut(&mut block).header.view_change_index = 42;
         payload_mut(&mut block).header.height = 1;
 
-        let result = handle_block_sync(
-            &chain_id,
-            tx_signer_key_pair.public_key(),
-            block,
-            &state,
-            &|_| {},
-        );
+        let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(
             result,
             Err((

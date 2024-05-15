@@ -119,10 +119,8 @@ def test_register_asset_with_empty_name(GIVEN_registered_domain):
         client_cli.register().asset().definition(
             asset="", domain=GIVEN_registered_domain.name, value_type="Numeric"
         )
-    with allure.step(
-        f'THEN сlient_cli should have the asset error: "{Stderr.CANNOT_BE_EMPTY}"'
-    ):
-        client_cli.should(have.error(Stderr.CANNOT_BE_EMPTY.value))
+    with allure.step(f'THEN сlient_cli should have the asset error: "{Stderr.EMPTY}"'):
+        client_cli.should(have.error(Stderr.EMPTY.value))
 
 
 @allure.label("sdk_test_id", "register_asset_with_not_existing_domain")

@@ -157,11 +157,8 @@ impl_instruction! {
     Unregister<Asset>,
     Unregister<Role>,
     Unregister<Trigger>,
-    Mint<PublicKey, Account>,
-    Mint<SignatureCheckCondition, Account>,
     Mint<Numeric, Asset>,
     Mint<u32, Trigger>,
-    Burn<PublicKey, Account>,
     Burn<Numeric, Asset>,
     Burn<u32, Trigger>,
     Transfer<Account, DomainId, Account>,
@@ -646,29 +643,6 @@ mod transparent {
         }
     }
 
-    impl Mint<PublicKey, Account> {
-        /// Constructs a new [`Mint`] for a [`PublicKey`] for [`Account`].
-        pub fn account_public_key(public_key: PublicKey, account_id: AccountId) -> Self {
-            Self {
-                object: public_key,
-                destination_id: account_id,
-            }
-        }
-    }
-
-    impl Mint<SignatureCheckCondition, Account> {
-        /// Constructs a new [`Mint`] for a [`SignatureCheckCondition`] for [`Account`].
-        pub fn account_signature_check_condition(
-            signature_check_condition: SignatureCheckCondition,
-            account_id: AccountId,
-        ) -> Self {
-            Self {
-                object: signature_check_condition,
-                destination_id: account_id,
-            }
-        }
-    }
-
     impl Mint<Numeric, Asset> {
         /// Constructs a new [`Mint`] for an [`Asset`] of [`Numeric`] type.
         pub fn asset_numeric(object: impl Into<Numeric>, asset_id: AssetId) -> Self {
@@ -702,15 +676,6 @@ mod transparent {
     }
 
     impl_into_box! {
-        Mint<PublicKey, Account> |
-        Mint<SignatureCheckCondition, Account>
-    => AccountMintBox => MintBox[Account],
-    => AccountMintBoxRef<'a> => MintBoxRef<'a>[Account]
-    }
-
-    impl_into_box! {
-        Mint<PublicKey, Account> |
-        Mint<SignatureCheckCondition, Account> |
         Mint<Numeric, Asset> |
         Mint<u32, Trigger>
     => MintBox => InstructionBox[Mint],
@@ -725,16 +690,6 @@ mod transparent {
             pub object: O,
             /// Destination object [`Identifiable::Id`].
             pub destination_id: D::Id,
-        }
-    }
-
-    impl Burn<PublicKey, Account> {
-        /// Constructs a new [`Burn`] for a [`PublicKey`] for [`Account`].
-        pub fn account_public_key(public_key: PublicKey, account_id: AccountId) -> Self {
-            Self {
-                object: public_key,
-                destination_id: account_id,
-            }
         }
     }
 
@@ -771,7 +726,6 @@ mod transparent {
     }
 
     impl_into_box! {
-        Burn<PublicKey, Account> |
         Burn<Numeric, Asset> |
         Burn<u32, Trigger>
     => BurnBox => InstructionBox[Burn],
@@ -1172,28 +1126,10 @@ isi_box! {
     )]
     /// Enum with all supported [`Mint`] instructions.
     pub enum MintBox {
-        /// Mint for [`Account`].
-        #[enum_ref(transparent)]
-        Account(AccountMintBox),
         /// Mint for [`Asset`].
         Asset(Mint<Numeric, Asset>),
         /// Mint [`Trigger`] repetitions.
         TriggerRepetitions(Mint<u32, Trigger>),
-    }
-}
-
-isi_box! {
-    #[strum_discriminants(
-        vis(pub(crate)),
-        name(AccountMintType),
-        derive(Encode),
-    )]
-    /// Enum with all supported [`Mint`] instructions related to [`Account`].
-    pub enum AccountMintBox {
-        /// Mint [`PublicKey`].
-        PublicKey(Mint<PublicKey, Account>),
-        /// Mint [`SignatureCheckCondition`].
-        SignatureCheckCondition(Mint<SignatureCheckCondition, Account>),
     }
 }
 
@@ -1205,8 +1141,6 @@ isi_box! {
     )]
     /// Enum with all supported [`Burn`] instructions.
     pub enum BurnBox {
-        /// Burn [`PublicKey`] for [`Account`].
-        AccountPublicKey(Burn<PublicKey, Account>),
         /// Burn [`Asset`].
         Asset(Burn<Numeric, Asset>),
         /// Burn [`Trigger`] repetitions.
@@ -1584,9 +1518,9 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        AccountMintBox, AssetTransferBox, Burn, BurnBox, ExecuteTrigger, Fail, Grant, GrantBox,
-        InstructionBox, Log, Mint, MintBox, NewParameter, Register, RegisterBox, RemoveKeyValue,
-        RemoveKeyValueBox, Revoke, RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer,
-        TransferBox, Unregister, UnregisterBox, Upgrade,
+        AssetTransferBox, Burn, BurnBox, ExecuteTrigger, Fail, Grant, GrantBox, InstructionBox,
+        Log, Mint, MintBox, NewParameter, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox,
+        Revoke, RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer, TransferBox,
+        Unregister, UnregisterBox, Upgrade,
     };
 }

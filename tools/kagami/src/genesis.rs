@@ -12,8 +12,11 @@ use iroha_data_model::{
     parameter::{default::*, ParametersBuilder},
     prelude::AssetId,
 };
-use iroha_genesis::{executor_state, RawGenesisBlockBuilder, RawGenesisBlockFile};
+use iroha_genesis::{
+    executor_state, RawGenesisBlockBuilder, RawGenesisBlockFile, GENESIS_DOMAIN_ID,
+};
 use serde_json::json;
+use test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
 
 use super::*;
 
@@ -22,6 +25,8 @@ pub struct Args {
     /// Specifies the `executor_file` <PATH> that will be inserted into the genesis JSON as-is.
     #[clap(long, value_name = "PATH")]
     executor_path_in_genesis: PathBuf,
+    #[clap(long, value_name = "MULTI_HASH")]
+    genesis_public_key: PublicKey,
     #[clap(subcommand)]
     mode: Option<Mode>,
 }
@@ -55,17 +60,24 @@ impl<T: Write> RunArgs<T> for Args {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
         let Self {
             executor_path_in_genesis,
+            genesis_public_key,
             mode,
         } = self;
 
         let builder = RawGenesisBlockBuilder::default().executor_file(executor_path_in_genesis);
         let genesis = match mode.unwrap_or_default() {
-            Mode::Default => generate_default(builder),
+            Mode::Default => generate_default(builder, genesis_public_key),
             Mode::Synthetic {
                 domains,
                 accounts_per_domain,
                 assets_per_domain,
-            } => generate_synthetic(builder, domains, accounts_per_domain, assets_per_domain),
+            } => generate_synthetic(
+                builder,
+                genesis_public_key,
+                domains,
+                accounts_per_domain,
+                assets_per_domain,
+            ),
         }?;
         writeln!(writer, "{}", serde_json::to_string_pretty(&genesis)?)
             .wrap_err("failed to write serialized genesis to the buffer")
@@ -75,25 +87,23 @@ impl<T: Write> RunArgs<T> for Args {
 #[allow(clippy::too_many_lines)]
 pub fn generate_default(
     builder: RawGenesisBlockBuilder<executor_state::SetPath>,
+    genesis_public_key: PublicKey,
 ) -> color_eyre::Result<RawGenesisBlockFile> {
+    let genesis_account_id = AccountId::new(GENESIS_DOMAIN_ID.clone(), genesis_public_key);
     let mut meta = Metadata::new();
     meta.insert_with_limits("key".parse()?, "value".to_owned(), Limits::new(1024, 1024))?;
 
     let mut genesis = builder
         .domain_with_metadata("wonderland".parse()?, meta.clone())
-        .account_with_metadata(
-            "alice".parse()?,
-            crate::DEFAULT_PUBLIC_KEY.parse()?,
-            meta.clone(),
-        )
-        .account_with_metadata("bob".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?, meta)
+        .account_with_metadata(ALICE_ID.signatory().clone(), meta.clone())
+        .account_with_metadata(BOB_ID.signatory().clone(), meta)
         .asset(
             "rose".parse()?,
             AssetValueType::Numeric(NumericSpec::default()),
         )
         .finish_domain()
         .domain("garden_of_live_flowers".parse()?)
-        .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
+        .account(CARPENTER_ID.signatory().clone())
         .asset(
             "cabbage".parse()?,
             AssetValueType::Numeric(NumericSpec::default()),
@@ -101,33 +111,37 @@ pub fn generate_default(
         .finish_domain()
         .build();
 
-    let alice_id = AccountId::from_str("alice@wonderland")?;
     let mint = Mint::asset_numeric(
         13u32,
-        AssetId::new("rose#wonderland".parse()?, alice_id.clone()),
+        AssetId::new("rose#wonderland".parse()?, ALICE_ID.clone()),
     );
     let mint_cabbage = Mint::asset_numeric(
         44u32,
-        AssetId::new("cabbage#garden_of_live_flowers".parse()?, alice_id.clone()),
+        AssetId::new("cabbage#garden_of_live_flowers".parse()?, ALICE_ID.clone()),
     );
     let grant_permission_to_set_parameters = Grant::permission(
         PermissionToken::new("CanSetParameters".parse()?, &json!(null)),
-        alice_id.clone(),
+        ALICE_ID.clone(),
     );
-    let transfer_domain_ownerhip = Transfer::domain(
-        "genesis@genesis".parse()?,
+    let transfer_rose_ownership = Transfer::asset_definition(
+        genesis_account_id.clone(),
+        "rose#wonderland".parse()?,
+        ALICE_ID.clone(),
+    );
+    let transfer_wonderland_ownership = Transfer::domain(
+        genesis_account_id.clone(),
         "wonderland".parse()?,
-        alice_id.clone(),
+        ALICE_ID.clone(),
     );
     let register_user_metadata_access = Register::role(
         Role::new("ALICE_METADATA_ACCESS".parse()?)
             .add_permission(PermissionToken::new(
                 "CanSetKeyValueInAccount".parse()?,
-                &json!({ "account_id": alice_id }),
+                &json!({ "account_id": ALICE_ID.clone() }),
             ))
             .add_permission(PermissionToken::new(
                 "CanRemoveKeyValueInAccount".parse()?,
-                &json!({ "account_id": alice_id }),
+                &json!({ "account_id": ALICE_ID.clone() }),
             )),
     )
     .into();
@@ -176,7 +190,8 @@ pub fn generate_default(
     for isi in [
         mint.into(),
         mint_cabbage.into(),
-        transfer_domain_ownerhip.into(),
+        transfer_rose_ownership.into(),
+        transfer_wonderland_ownership.into(),
         grant_permission_to_set_parameters.into(),
     ]
     .into_iter()
@@ -191,12 +206,13 @@ pub fn generate_default(
 
 fn generate_synthetic(
     builder: RawGenesisBlockBuilder<executor_state::SetPath>,
+    genesis_public_key: PublicKey,
     domains: u64,
     accounts_per_domain: u64,
     assets_per_domain: u64,
 ) -> color_eyre::Result<RawGenesisBlockFile> {
     // Synthetic genesis is extension of default one
-    let mut genesis = generate_default(builder)?;
+    let mut genesis = generate_default(builder, genesis_public_key)?;
 
     let first_transaction = genesis
         .first_transaction_mut()
@@ -207,12 +223,10 @@ fn generate_synthetic(
         first_transaction
             .append_instruction(Register::domain(Domain::new(domain_id.clone())).into());
 
-        for account in 0..accounts_per_domain {
-            let (public_key, _) = iroha_crypto::KeyPair::random().into_parts();
-            let account_id: AccountId = format!("account_{account}@{domain_id}").parse()?;
-            first_transaction.append_instruction(
-                Register::account(Account::new(account_id.clone(), public_key)).into(),
-            );
+        for _ in 0..accounts_per_domain {
+            let (account_id, _account_keypair) = gen_account_in(&domain_id);
+            first_transaction
+                .append_instruction(Register::account(Account::new(account_id.clone())).into());
         }
 
         for asset in 0..assets_per_domain {

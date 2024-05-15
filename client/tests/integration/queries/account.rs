@@ -6,8 +6,7 @@ use iroha_client::{
     data_model::prelude::*,
 };
 use test_network::*;
-
-use crate::integration::new_account_with_random_public_key;
+use test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 fn find_accounts_with_asset() -> Result<()> {
@@ -30,11 +29,11 @@ fn find_accounts_with_asset() -> Result<()> {
     ));
 
     let accounts: [AccountId; 5] = [
-        "alice@wonderland".parse().expect("Valid"),
-        "mad_hatter@wonderland".parse().expect("Valid"),
-        "cheshire_cat@wonderland".parse().expect("Valid"),
-        "caterpillar@wonderland".parse().expect("Valid"),
-        "white_rabbit@wonderland".parse().expect("Valid"),
+        ALICE_ID.clone(),
+        gen_account_in("wonderland").0,
+        gen_account_in("wonderland").0,
+        gen_account_in("wonderland").0,
+        gen_account_in("wonderland").0,
     ];
 
     // Registering accounts
@@ -42,7 +41,7 @@ fn find_accounts_with_asset() -> Result<()> {
         .iter()
         .skip(1) // Alice has already been registered in genesis
         .cloned()
-        .map(|account_id| Register::account(new_account_with_random_public_key(account_id)))
+        .map(|account_id| Register::account(Account::new(account_id)))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 

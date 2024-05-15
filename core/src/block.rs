@@ -800,7 +800,8 @@ mod tests {
 
     use iroha_crypto::SignatureVerificationFail;
     use iroha_data_model::prelude::*;
-    use iroha_genesis::{GENESIS_ACCOUNT_ID, GENESIS_DOMAIN_ID};
+    use iroha_genesis::GENESIS_DOMAIN_ID;
+    use test_samples::gen_account_in;
 
     use super::*;
     use crate::{
@@ -826,10 +827,8 @@ mod tests {
         let chain_id = ChainId::from("0");
 
         // Predefined world state
-        let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let alice_keys = KeyPair::random();
-        let account =
-            Account::new(alice_id.clone(), alice_keys.public_key().clone()).build(&alice_id);
+        let (alice_id, alice_keypair) = gen_account_in("wonderland");
+        let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());
@@ -848,7 +847,7 @@ mod tests {
         let transaction_limits = &state_block.transaction_executor().transaction_limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([create_asset_definition])
-            .sign(&alice_keys);
+            .sign(&alice_keypair);
         let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
@@ -856,7 +855,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
             .chain(0, &mut state_block)
-            .sign(&alice_keys)
+            .sign(&alice_keypair)
             .unpack(|_| {});
 
         // The first transaction should be confirmed
@@ -883,10 +882,8 @@ mod tests {
         let chain_id = ChainId::from("0");
 
         // Predefined world state
-        let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let alice_keys = KeyPair::random();
-        let account =
-            Account::new(alice_id.clone(), alice_keys.public_key().clone()).build(&alice_id);
+        let (alice_id, alice_keypair) = gen_account_in("wonderland");
+        let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());
@@ -905,7 +902,7 @@ mod tests {
         let transaction_limits = &state_block.transaction_executor().transaction_limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([create_asset_definition])
-            .sign(&alice_keys);
+            .sign(&alice_keypair);
         let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
 
         let fail_mint = Mint::asset_numeric(
@@ -918,12 +915,12 @@ mod tests {
 
         let tx0 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_mint])
-            .sign(&alice_keys);
+            .sign(&alice_keypair);
         let tx0 = AcceptedTransaction::accept(tx0, &chain_id, transaction_limits).expect("Valid");
 
         let tx2 = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([succeed_mint])
-            .sign(&alice_keys);
+            .sign(&alice_keypair);
         let tx2 = AcceptedTransaction::accept(tx2, &chain_id, transaction_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
@@ -931,7 +928,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
             .chain(0, &mut state_block)
-            .sign(&alice_keys)
+            .sign(&alice_keypair)
             .unpack(|_| {});
 
         // The first transaction should fail
@@ -958,15 +955,13 @@ mod tests {
         let chain_id = ChainId::from("0");
 
         // Predefined world state
-        let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let alice_keys = KeyPair::random();
-        let account =
-            Account::new(alice_id.clone(), alice_keys.public_key().clone()).build(&alice_id);
+        let (alice_id, alice_keypair) = gen_account_in("wonderland");
+        let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(
             domain.add_account(account).is_none(),
-            "`alice@wonderland` already exist in the blockchain"
+            "{alice_id} already exist in the blockchain"
         );
         let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
@@ -987,12 +982,12 @@ mod tests {
         let instructions_accept: [InstructionBox; 2] = [create_domain.into(), create_asset.into()];
         let tx_fail = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions(instructions_fail)
-            .sign(&alice_keys);
+            .sign(&alice_keypair);
         let tx_fail =
             AcceptedTransaction::accept(tx_fail, &chain_id, transaction_limits).expect("Valid");
         let tx_accept = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions(instructions_accept)
-            .sign(&alice_keys);
+            .sign(&alice_keypair);
         let tx_accept =
             AcceptedTransaction::accept(tx_accept, &chain_id, transaction_limits).expect("Valid");
 
@@ -1001,7 +996,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
             .chain(0, &mut state_block)
-            .sign(&alice_keys)
+            .sign(&alice_keypair)
             .unpack(|_| {});
 
         // The first transaction should be rejected
@@ -1036,13 +1031,19 @@ mod tests {
         // Predefined world state
         let genesis_correct_key = KeyPair::random();
         let genesis_wrong_key = KeyPair::random();
-        let mut genesis_domain = Domain::new(GENESIS_DOMAIN_ID.clone()).build(&GENESIS_ACCOUNT_ID);
-        let genesis_account = Account::new(
-            GENESIS_ACCOUNT_ID.clone(),
+        let genesis_correct_account_id = AccountId::new(
+            GENESIS_DOMAIN_ID.clone(),
+            genesis_correct_key.public_key().clone(),
+        );
+        let genesis_wrong_account_id = AccountId::new(
+            GENESIS_DOMAIN_ID.clone(),
             genesis_wrong_key.public_key().clone(),
-        )
-        .build(&GENESIS_ACCOUNT_ID);
-        assert!(genesis_domain.add_account(genesis_account).is_none(),);
+        );
+        let mut genesis_domain =
+            Domain::new(GENESIS_DOMAIN_ID.clone()).build(&genesis_correct_account_id);
+        let genesis_wrong_account =
+            Account::new(genesis_wrong_account_id.clone()).build(&genesis_wrong_account_id);
+        assert!(genesis_domain.add_account(genesis_wrong_account).is_none(),);
         let world = World::with([genesis_domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
@@ -1057,7 +1058,7 @@ mod tests {
 
         // Create genesis transaction
         // Sign with `genesis_wrong_key` as peer which has incorrect genesis key pair
-        let tx = TransactionBuilder::new(chain_id.clone(), GENESIS_ACCOUNT_ID.clone())
+        let tx = TransactionBuilder::new(chain_id.clone(), genesis_wrong_account_id.clone())
             .with_instructions([isi])
             .sign(&genesis_wrong_key);
         let tx = AcceptedTransaction::accept_genesis(

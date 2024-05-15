@@ -382,19 +382,26 @@ impl<T: Into<Numeric>> From<T> for AssetValue {
 impl FromStr for AssetDefinitionId {
     type Err = ParseError;
 
-    fn from_str(string: &str) -> Result<Self, Self::Err> {
-        let mut split = string.split('#');
-        match (split.next(), split.next(), split.next()) {
-            (Some(""), _, _) => Err(ParseError {
-                reason: "Asset Definition ID cannot be empty",
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.rsplit_once('#') {
+            None => Err(ParseError {
+                reason: "Asset Definition ID should have format `name#domain`",
             }),
-            (Some(name), Some(domain_id), None) if !domain_id.is_empty() => Ok(Self {
-                name: name.parse()?,
-                domain_id: domain_id.parse()?,
+            Some(("", _)) => Err(ParseError {
+                reason: "Empty `name` part in `name#domain`",
             }),
-            _ => Err(ParseError {
-                reason: "Asset Definition ID should have format `asset#domain`",
+            Some((_, "")) => Err(ParseError {
+                reason: "Empty `domain` part in `name#domain`",
             }),
+            Some((name_candidate, domain_id_candidate)) => {
+                let name = name_candidate.parse().map_err(|_| ParseError {
+                    reason: "Failed to parse `name` part in `name#domain`",
+                })?;
+                let domain_id = domain_id_candidate.parse().map_err(|_| ParseError {
+                    reason: "Failed to parse `domain` part in `name#domain`",
+                })?;
+                Ok(Self::new(domain_id, name))
+            }
         }
     }
 }
@@ -415,42 +422,26 @@ impl fmt::Debug for AssetId {
     }
 }
 
-/// Asset Identification, represented by
-/// `name#asset_domain#account_name@account_domain`. If the domains of
-/// the asset and account match, the name can be shortened to
-/// `asset##account@domain`.
 impl FromStr for AssetId {
     type Err = ParseError;
 
-    fn from_str(string: &str) -> Result<Self, Self::Err> {
-        if let Some((asset_definition_candidate, account_id_candidate)) = string.rsplit_once('#') {
-            let account_id: AccountId = account_id_candidate.parse()
-                .map_err(|_err| ParseError {
-                    reason: "Failed to parse the `account_id` part of the `asset_id`. Please ensure that it has the form `account@domain`"
-                })?;
-            let definition_id = {
-                if let Ok(def_id) = asset_definition_candidate.parse() {
-                    def_id
-                } else if let Some((name, "")) = asset_definition_candidate.rsplit_once('#') {
-                    AssetDefinitionId::new(
-                        account_id.domain_id.clone(),
-                        name.parse().map_err(|_e| ParseError {
-                            reason: "The `name` part of the `definition_id` part of the `asset_id` failed to parse as a valid `Name`. You might have forbidden characters like `#` or `@` in the first part."
-                        })?
-                    )
-                } else {
-                    return Err(ParseError { reason: "The `definition_id` part of the `asset_id` failed to parse. Ensure that you have it in the right format: `name#domain_of_asset#account_name@domain_of_account` or `name##account_name@domain_of_account` in case of same domain" });
-                }
-            };
-            Ok(Self {
-                definition_id,
-                account_id,
-            })
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (definition_id_candidate, account_id_candidate) =
+            s.rsplit_once('#').ok_or(ParseError {
+                reason: "Asset ID should have format `asset#domain#account@domain`, or `asset##account@domain` for the same domains",
+            })?;
+        let account_id = account_id_candidate.parse::<AccountId>().map_err(|_| ParseError {
+                reason: "Failed to parse `account@domain` part in `asset#domain#account@domain`. `account` should have multihash format e.g. `ed0120...`"
+            })?;
+        let domain_complement = if definition_id_candidate.ends_with('#') {
+            account_id.domain_id.name.as_ref()
         } else {
-            Err(ParseError {
-                reason: "The `AssetId` did not contain the `#` character. ",
-            })
-        }
+            ""
+        };
+        let definition_id = format!("{definition_id_candidate}{domain_complement}").parse().map_err(|_| ParseError {
+            reason: "Failed to parse `asset#domain` (or `asset#`) part in `asset#domain#account@domain` (or `asset##account@domain`)",
+        })?;
+        Ok(Self::new(definition_id, account_id))
     }
 }
 
@@ -494,9 +485,38 @@ pub mod prelude {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn test_error_for_asset_id() {
-        let _invalid_asset_id = AssetId::from_str("store#alice@wonderland")
-            .expect_err("store#alice@wonderland should not be a valid AssetId");
+    fn parse_definition_id() {
+        let _ok = "asset#domain"
+            .parse::<AssetDefinitionId>()
+            .expect("should be valid");
+        let _err_empty_asset = "#domain"
+            .parse::<AssetDefinitionId>()
+            .expect_err("#domain should not be valid");
+        let _err_empty_domain = "asset#"
+            .parse::<AssetDefinitionId>()
+            .expect_err("asset# should not be valid");
+        let _err_violates_format = "asset@domain"
+            .parse::<AssetDefinitionId>()
+            .expect_err("asset@domain should not be valid");
+    }
+
+    #[test]
+    fn parse_asset_id() {
+        const SIGNATORY: &str =
+            "ed0120EDF6D7B52C7032D03AEC696F2068BD53101528F3C7B6081BFF05A1662D7FC245";
+        let _account_id = format!("{SIGNATORY}@domain")
+            .parse::<AccountId>()
+            .expect("should be valid");
+        let _ok = format!("asset#domain#{SIGNATORY}@domain")
+            .parse::<AssetId>()
+            .expect("should be valid");
+        let _ok_short = format!("asset##{SIGNATORY}@domain")
+            .parse::<AssetId>()
+            .expect("should be valid");
+        let _err = format!("asset#{SIGNATORY}@domain")
+            .parse::<AssetId>()
+            .expect_err("asset#signatory@domain should not be valid");
     }
 }

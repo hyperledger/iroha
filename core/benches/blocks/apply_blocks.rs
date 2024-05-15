@@ -1,6 +1,6 @@
 use eyre::Result;
 use iroha_core::{block::CommittedBlock, prelude::*, state::State};
-use iroha_data_model::prelude::*;
+use test_samples::gen_account_in;
 
 #[path = "./common.rs"]
 mod common;
@@ -19,24 +19,23 @@ impl StateApplyBlocks {
     /// - Failed to parse [`AccountId`]
     /// - Failed to generate [`KeyPair`]
     /// - Failed to create instructions for block
-    pub fn setup(rt: &tokio::runtime::Handle) -> Result<Self> {
+    pub fn setup(rt: &tokio::runtime::Handle) -> Self {
         let domains = 100;
         let accounts_per_domain = 1000;
         let assets_per_domain = 1000;
-        let account_id: AccountId = "alice@wonderland".parse()?;
-        let key_pair = KeyPair::random();
-        let state = build_state(rt, &account_id, &key_pair);
+        let (alice_id, alice_keypair) = gen_account_in("wonderland");
+        let state = build_state(rt, &alice_id);
 
         let nth = 100;
         let instructions = [
-            populate_state(domains, accounts_per_domain, assets_per_domain, &account_id),
+            populate_state(domains, accounts_per_domain, assets_per_domain, &alice_id),
             delete_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
             restore_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
         ];
 
         let blocks = {
             // Create empty state because it will be changed during creation of block
-            let state = build_state(rt, &account_id, &key_pair);
+            let state = build_state(rt, &alice_id);
             instructions
                 .into_iter()
                 .map(|instructions| {
@@ -44,8 +43,8 @@ impl StateApplyBlocks {
                     let block = create_block(
                         &mut state_block,
                         instructions,
-                        account_id.clone(),
-                        &key_pair,
+                        alice_id.clone(),
+                        &alice_keypair,
                     );
                     let _events = state_block.apply_without_execution(&block);
                     state_block.commit();
@@ -54,7 +53,7 @@ impl StateApplyBlocks {
                 .collect::<Vec<_>>()
         };
 
-        Ok(Self { state, blocks })
+        Self { state, blocks }
     }
 
     /// Run benchmark body.

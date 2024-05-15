@@ -28,7 +28,7 @@ pub fn migrate(_block_height: u64) -> MigrationResult {
     // Performing side-effects to check in the test that it won't be applied after failure
 
     // Registering a new domain (using ISI)
-    let domain_id = parse!("failed_migration_test_domain" as DomainId);
+    let domain_id = parse!(DomainId, "failed_migration_test_domain");
     Register::domain(Domain::new(domain_id))
         .execute()
         .map_err(|error| {

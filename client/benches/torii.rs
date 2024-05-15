@@ -6,13 +6,13 @@ use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use iroha::samples::{construct_executor, get_config};
 use iroha_client::{
     client::{asset, Client},
-    crypto::KeyPair,
     data_model::prelude::*,
 };
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use iroha_version::Encode;
 use test_network::{get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
+use test_samples::gen_account_in;
 use tokio::runtime::Runtime;
 
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
@@ -24,17 +24,15 @@ fn query_requests(criterion: &mut Criterion) {
     let configuration = get_config(
         &unique_vec![peer.id.clone()],
         Some(chain_id.clone()),
-        Some(get_key_pair()),
+        Some(get_key_pair(test_network::Signatory::Peer)),
+        Some(get_key_pair(test_network::Signatory::Genesis)),
     );
 
     let rt = Runtime::test();
     let genesis = GenesisNetwork::new(
         RawGenesisBlockBuilder::default()
             .domain("wonderland".parse().expect("Valid"))
-            .account(
-                "alice".parse().expect("Valid"),
-                get_key_pair().public_key().clone(),
-            )
+            .account(get_key_pair(test_network::Signatory::Alice).into_parts().0)
             .finish_domain()
             .executor_blob(
                 construct_executor("../default_executor").expect("Failed to construct executor"),
@@ -60,11 +58,10 @@ fn query_requests(criterion: &mut Criterion) {
     });
     let mut group = criterion.benchmark_group("query-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");
-    let create_domain = Register::domain(Domain::new(domain_id.clone()));
-    let account_id = AccountId::new(domain_id.clone(), "account".parse().expect("Valid"));
-    let (public_key, _) = KeyPair::random().into_parts();
-    let create_account = Register::account(Account::new(account_id.clone(), public_key));
-    let asset_definition_id = AssetDefinitionId::new(domain_id, "xor".parse().expect("Valid"));
+    let create_domain = Register::domain(Domain::new(domain_id));
+    let (account_id, _account_keypair) = gen_account_in("domain");
+    let create_account = Register::account(Account::new(account_id.clone()));
+    let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let mint_asset = Mint::asset_numeric(
@@ -73,7 +70,7 @@ fn query_requests(criterion: &mut Criterion) {
     );
     let client_config = iroha_client::samples::get_client_config(
         get_chain_id(),
-        get_key_pair(),
+        get_key_pair(test_network::Signatory::Alice),
         format!("http://{}", peer.api_address).parse().unwrap(),
     );
 
@@ -132,15 +129,13 @@ fn instruction_submits(criterion: &mut Criterion) {
     let configuration = get_config(
         &unique_vec![peer.id.clone()],
         Some(chain_id.clone()),
-        Some(get_key_pair()),
+        Some(get_key_pair(test_network::Signatory::Peer)),
+        Some(get_key_pair(test_network::Signatory::Genesis)),
     );
     let genesis = GenesisNetwork::new(
         RawGenesisBlockBuilder::default()
             .domain("wonderland".parse().expect("Valid"))
-            .account(
-                "alice".parse().expect("Valid"),
-                configuration.common.key_pair.public_key().clone(),
-            )
+            .account(configuration.common.key_pair.public_key().clone())
             .finish_domain()
             .executor_blob(
                 construct_executor("../default_executor").expect("Failed to construct executor"),
@@ -158,14 +153,13 @@ fn instruction_submits(criterion: &mut Criterion) {
     rt.block_on(builder.start_with_peer(&mut peer));
     let mut group = criterion.benchmark_group("instruction-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");
-    let create_domain: InstructionBox = Register::domain(Domain::new(domain_id.clone())).into();
-    let account_id = AccountId::new(domain_id.clone(), "account".parse().expect("Valid"));
-    let (public_key, _) = KeyPair::random().into_parts();
-    let create_account = Register::account(Account::new(account_id.clone(), public_key)).into();
-    let asset_definition_id = AssetDefinitionId::new(domain_id, "xor".parse().expect("Valid"));
+    let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
+    let (account_id, _account_keypair) = gen_account_in("domain");
+    let create_account = Register::account(Account::new(account_id.clone())).into();
+    let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
     let client_config = iroha_client::samples::get_client_config(
         get_chain_id(),
-        get_key_pair(),
+        get_key_pair(test_network::Signatory::Alice),
         format!("http://{}", peer.api_address).parse().unwrap(),
     );
     let iroha_client = Client::new(client_config);

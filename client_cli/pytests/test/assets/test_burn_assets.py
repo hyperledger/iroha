@@ -16,7 +16,7 @@ def test_burn_asset_for_account_in_same_domain(
     GIVEN_currently_account_quantity_with_two_quantity_of_asset,
 ):
     with allure.step(
-        f"WHEN {GIVEN_currently_authorized_account.name} burns 1"
+        f"WHEN {GIVEN_currently_authorized_account.signatory} burns 1"
         f"of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}"
     ):
         client_cli.burn(
@@ -25,7 +25,7 @@ def test_burn_asset_for_account_in_same_domain(
             quantity="1",
         )
     with allure.step(
-        f"THEN {GIVEN_currently_authorized_account.name} "
+        f"THEN {GIVEN_currently_authorized_account.signatory} "
         f"has 1 of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}"
     ):
         iroha.should(

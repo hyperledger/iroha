@@ -1,0 +1,29 @@
+[package]
+name = "test_samples"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iroha_crypto = { workspace = true }
+iroha_data_model = { workspace = true }
+
+once_cell = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["rand"]
+rand = ["iroha_crypto/rand"]

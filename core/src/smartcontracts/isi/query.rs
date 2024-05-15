@@ -72,13 +72,10 @@ impl ValidQueryRequest {
         query: SignedQuery,
         state_ro: &impl StateReadOnly,
     ) -> Result<Self, ValidationFail> {
-        let account_has_public_key = state_ro
-            .world()
-            .map_account(query.authority(), |account| {
-                account.contains_signatory(query.signature().public_key())
-            })
-            .map_err(Error::from)?;
-        if !account_has_public_key {
+        if !query
+            .authority()
+            .signatory_matches(query.signature().public_key())
+        {
             return Err(Error::Signature(String::from(
                 "Signature public key doesn't correspond to the account.",
             ))
@@ -155,7 +152,6 @@ impl ValidQuery for QueryBox {
             }
 
             FindAllAccounts,
-            FindAccountsByName,
             FindAccountsByDomainId,
             FindAccountsWithAsset,
             FindAllAssets,
@@ -186,12 +182,12 @@ impl ValidQuery for QueryBox {
 mod tests {
     use std::str::FromStr as _;
 
-    use iroha_crypto::{Hash, HashOf, KeyPair};
+    use iroha_crypto::{Hash, HashOf};
     use iroha_data_model::{
         metadata::MetadataValueBox, query::error::FindError, transaction::TransactionLimits,
     };
     use iroha_primitives::unique_vec::UniqueVec;
-    use once_cell::sync::Lazy;
+    use test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use tokio::test;
 
     use super::*;
@@ -206,15 +202,10 @@ mod tests {
         PeersIds,
     };
 
-    static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(KeyPair::random);
-    static ALICE_ID: Lazy<AccountId> =
-        Lazy::new(|| AccountId::from_str("alice@wonderland").expect("Valid"));
-
     fn world_with_test_domains() -> World {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build(&ALICE_ID);
-        let account =
-            Account::new(ALICE_ID.clone(), ALICE_KEYS.public_key().clone()).build(&ALICE_ID);
+        let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
         assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
@@ -227,8 +218,7 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         let mut domain =
             Domain::new(DomainId::from_str("wonderland").expect("Valid")).build(&ALICE_ID);
-        let mut account =
-            Account::new(ALICE_ID.clone(), ALICE_KEYS.public_key().clone()).build(&ALICE_ID);
+        let mut account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
         assert!(domain
             .add_asset_definition(
                 AssetDefinition::numeric(asset_definition_id.clone()).build(&ALICE_ID)
@@ -260,7 +250,7 @@ mod tests {
         )?;
 
         let mut domain = Domain::new(DomainId::from_str("wonderland")?).build(&ALICE_ID);
-        let account = Account::new(ALICE_ID.clone(), ALICE_KEYS.public_key().clone())
+        let account = Account::new(ALICE_ID.clone())
             .with_metadata(metadata)
             .build(&ALICE_ID);
         assert!(domain.add_account(account).is_none());
@@ -298,14 +288,14 @@ mod tests {
                 let instructions: [InstructionBox; 0] = [];
                 let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                     .with_instructions(instructions)
-                    .sign(&ALICE_KEYS);
+                    .sign(&ALICE_KEYPAIR);
                 AcceptedTransaction::accept(tx, &chain_id, &limits)?
             };
             let invalid_tx = {
                 let isi = Fail::new("fail".to_owned());
                 let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                     .with_instructions([isi.clone(), isi])
-                    .sign(&ALICE_KEYS);
+                    .sign(&ALICE_KEYPAIR);
                 AcceptedTransaction::accept(tx, &chain_id, &huge_limits)?
             };
 
@@ -315,7 +305,7 @@ mod tests {
             let topology = Topology::new(UniqueVec::new());
             let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                 .chain(0, &mut state_block)
-                .sign(&ALICE_KEYS)
+                .sign(&ALICE_KEYPAIR)
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
@@ -327,7 +317,7 @@ mod tests {
             for _ in 1u64..blocks {
                 let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                     .chain(0, &mut state_block)
-                    .sign(&ALICE_KEYS)
+                    .sign(&ALICE_KEYPAIR)
                     .unpack(|_| {})
                     .commit(&topology)
                     .unpack(|_| {})
@@ -461,7 +451,7 @@ mod tests {
         let instructions: [InstructionBox; 0] = [];
         let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
             .with_instructions(instructions)
-            .sign(&ALICE_KEYS);
+            .sign(&ALICE_KEYPAIR);
 
         let tx_limits = &state_block.transaction_executor().transaction_limits;
         let va_tx = AcceptedTransaction::accept(tx, &chain_id, tx_limits)?;
@@ -469,7 +459,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
             .chain(0, &mut state_block)
-            .sign(&ALICE_KEYS)
+            .sign(&ALICE_KEYPAIR)
             .unpack(|_| {})
             .commit(&topology)
             .unpack(|_| {})
@@ -482,8 +472,8 @@ mod tests {
         let state_view = state.view();
 
         let unapplied_tx = TransactionBuilder::new(chain_id, ALICE_ID.clone())
-            .with_instructions([Unregister::account("account@domain".parse().unwrap())])
-            .sign(&ALICE_KEYS);
+            .with_instructions([Unregister::account(gen_account_in("domain").0)])
+            .sign(&ALICE_KEYPAIR);
         let wrong_hash = unapplied_tx.hash();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&state_view);
         assert!(matches!(
@@ -515,8 +505,7 @@ mod tests {
             let mut domain = Domain::new(DomainId::from_str("wonderland")?)
                 .with_metadata(metadata)
                 .build(&ALICE_ID);
-            let account =
-                Account::new(ALICE_ID.clone(), ALICE_KEYS.public_key().clone()).build(&ALICE_ID);
+            let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
             assert!(domain.add_account(account).is_none());
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             assert!(domain

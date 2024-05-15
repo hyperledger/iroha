@@ -71,7 +71,7 @@ impl Name {
 
         if candidate.is_empty() {
             return Err(ParseError {
-                reason: "`Name` cannot be empty",
+                reason: "Empty `Name`",
             });
         }
         if candidate.chars().any(char::is_whitespace) {

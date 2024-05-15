@@ -9,8 +9,7 @@ use iroha_config::parameters::defaults::chain_wide::DEFAULT_CONSENSUS_ESTIMATION
 use iroha_data_model::events::pipeline::{BlockEventFilter, BlockStatus};
 use iroha_logger::info;
 use test_network::*;
-
-use crate::integration::new_account_with_random_public_key;
+use test_samples::{gen_account_in, ALICE_ID};
 
 fn curr_time() -> core::time::Duration {
     use std::time::SystemTime;
@@ -47,7 +46,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
 
-    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let account_id = ALICE_ID.clone();
     let asset_definition_id = "rose#wonderland".parse().expect("Valid");
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
@@ -107,7 +106,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     let event_listener = get_block_committed_event_listener(&test_client)?;
 
     let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
-    let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+    let account_id = ALICE_ID.clone();
     let key = Name::from_str("petal")?;
 
     let schedule = TimeSchedule::starting_at(start_time + PERIOD);
@@ -148,7 +147,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse().expect("Valid");
-    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
     let mut prev_value = get_asset_value(&mut test_client, asset_id.clone());
@@ -193,14 +192,14 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let alice_id = "alice@wonderland".parse::<AccountId>().expect("Valid");
+    let alice_id = ALICE_ID.clone();
 
     let accounts: Vec<AccountId> = vec![
         alice_id.clone(),
-        "mad_hatter@wonderland".parse().expect("Valid"),
-        "cheshire_cat@wonderland".parse().expect("Valid"),
-        "caterpillar@wonderland".parse().expect("Valid"),
-        "white_rabbit@wonderland".parse().expect("Valid"),
+        gen_account_in("wonderland").0,
+        gen_account_in("wonderland").0,
+        gen_account_in("wonderland").0,
+        gen_account_in("wonderland").0,
     ];
 
     // Registering accounts
@@ -208,7 +207,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         .iter()
         .skip(1) // Alice has already been registered in genesis
         .cloned()
-        .map(|account_id| Register::account(new_account_with_random_public_key(account_id)))
+        .map(|account_id| Register::account(Account::new(account_id)))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 
@@ -255,7 +254,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     // Checking results
     for account_id in accounts {
         let start_pattern = "nft_number_";
-        let end_pattern = format!("_for_{}#{}", account_id.name, account_id.domain_id);
+        let end_pattern = format!("_for_{}#{}", account_id.signatory, account_id.domain_id);
         let assets = test_client
             .request(client::asset::by_account_id(account_id.clone()))?
             .collect::<QueryResult<Vec<_>>>()?;

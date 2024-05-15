@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use iroha_client::{
     client::{self, ClientQueryError},
     data_model::{
@@ -7,6 +5,7 @@ use iroha_client::{
         query::error::{FindError, QueryExecutionFail},
     },
 };
+use test_samples::gen_account_in;
 
 #[test]
 fn non_existent_account_is_specific_error() {
@@ -16,9 +15,7 @@ fn non_existent_account_is_specific_error() {
     // we cannot wait for genesis committment
 
     let err = client
-        .request(client::account::by_id(
-            AccountId::from_str("john_doe@regalia").unwrap(),
-        ))
+        .request(client::account::by_id(gen_account_in("regalia").0))
         .expect_err("Should error");
 
     match err {

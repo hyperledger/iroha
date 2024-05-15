@@ -8,6 +8,7 @@ use iroha_client::{
 use iroha_config::parameters::actual::Root as Config;
 use nonzero_ext::nonzero;
 use test_network::*;
+use test_samples::ALICE_ID;
 
 #[ignore = "ignore, more in #2851"]
 #[test]
@@ -18,7 +19,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     let pipeline_time = Config::pipeline_time();
 
     // Given
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));

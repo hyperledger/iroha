@@ -10,14 +10,6 @@
         "type": "SortedMap<AssetId, Asset>"
       },
       {
-        "name": "signatories",
-        "type": "SortedVec<PublicKey>"
-      },
-      {
-        "name": "signature_check_condition",
-        "type": "SignatureCheckCondition"
-      },
-      {
         "name": "metadata",
         "type": "Metadata"
       }
@@ -152,22 +144,8 @@
         "type": "DomainId"
       },
       {
-        "name": "name",
-        "type": "Name"
-      }
-    ]
-  },
-  "AccountMintBox": {
-    "Enum": [
-      {
-        "tag": "PublicKey",
-        "discriminant": 0,
-        "type": "Mint<PublicKey, Account>"
-      },
-      {
-        "tag": "SignatureCheckCondition",
-        "discriminant": 1,
-        "type": "Mint<SignatureCheckCondition, Account>"
+        "name": "signatory",
+        "type": "PublicKey"
       }
     ]
   },
@@ -713,18 +691,6 @@
       }
     ]
   },
-  "Burn<PublicKey, Account>": {
-    "Struct": [
-      {
-        "name": "object",
-        "type": "PublicKey"
-      },
-      {
-        "name": "destination_id",
-        "type": "AccountId"
-      }
-    ]
-  },
   "Burn<u32, Trigger>": {
     "Struct": [
       {
@@ -740,18 +706,13 @@
   "BurnBox": {
     "Enum": [
       {
-        "tag": "AccountPublicKey",
-        "discriminant": 0,
-        "type": "Burn<PublicKey, Account>"
-      },
-      {
         "tag": "Asset",
-        "discriminant": 1,
+        "discriminant": 0,
         "type": "Burn<Numeric, Asset>"
       },
       {
         "tag": "TriggerRepetitions",
-        "discriminant": 2,
+        "discriminant": 1,
         "type": "Burn<u32, Trigger>"
       }
     ]
@@ -1259,14 +1220,6 @@
       {
         "name": "domain_id",
         "type": "DomainId"
-      }
-    ]
-  },
-  "FindAccountsByName": {
-    "Struct": [
-      {
-        "name": "name",
-        "type": "Name"
       }
     ]
   },
@@ -2270,30 +2223,6 @@
       }
     ]
   },
-  "Mint<PublicKey, Account>": {
-    "Struct": [
-      {
-        "name": "object",
-        "type": "PublicKey"
-      },
-      {
-        "name": "destination_id",
-        "type": "AccountId"
-      }
-    ]
-  },
-  "Mint<SignatureCheckCondition, Account>": {
-    "Struct": [
-      {
-        "name": "object",
-        "type": "SignatureCheckCondition"
-      },
-      {
-        "name": "destination_id",
-        "type": "AccountId"
-      }
-    ]
-  },
   "Mint<u32, Trigger>": {
     "Struct": [
       {
@@ -2309,18 +2238,13 @@
   "MintBox": {
     "Enum": [
       {
-        "tag": "Account",
-        "discriminant": 0,
-        "type": "AccountMintBox"
-      },
-      {
         "tag": "Asset",
-        "discriminant": 1,
+        "discriminant": 0,
         "type": "Mint<Numeric, Asset>"
       },
       {
         "tag": "TriggerRepetitions",
-        "discriminant": 2,
+        "discriminant": 1,
         "type": "Mint<u32, Trigger>"
       }
     ]
@@ -2371,10 +2295,6 @@
       {
         "name": "id",
         "type": "AccountId"
-      },
-      {
-        "name": "signatories",
-        "type": "SortedVec<PublicKey>"
       },
       {
         "name": "metadata",
@@ -2732,188 +2652,183 @@
         "type": "FindAccountKeyValueByIdAndKey"
       },
       {
-        "tag": "FindAccountsByName",
-        "discriminant": 3,
-        "type": "FindAccountsByName"
-      },
-      {
         "tag": "FindAccountsByDomainId",
-        "discriminant": 4,
+        "discriminant": 3,
         "type": "FindAccountsByDomainId"
       },
       {
         "tag": "FindAccountsWithAsset",
-        "discriminant": 5,
+        "discriminant": 4,
         "type": "FindAccountsWithAsset"
       },
       {
         "tag": "FindAllAssets",
-        "discriminant": 6,
+        "discriminant": 5,
         "type": "FindAllAssets"
       },
       {
         "tag": "FindAllAssetsDefinitions",
-        "discriminant": 7,
+        "discriminant": 6,
         "type": "FindAllAssetsDefinitions"
       },
       {
         "tag": "FindAssetById",
-        "discriminant": 8,
+        "discriminant": 7,
         "type": "FindAssetById"
       },
       {
         "tag": "FindAssetDefinitionById",
-        "discriminant": 9,
+        "discriminant": 8,
         "type": "FindAssetDefinitionById"
       },
       {
         "tag": "FindAssetsByName",
-        "discriminant": 10,
+        "discriminant": 9,
         "type": "FindAssetsByName"
       },
       {
         "tag": "FindAssetsByAccountId",
-        "discriminant": 11,
+        "discriminant": 10,
         "type": "FindAssetsByAccountId"
       },
       {
         "tag": "FindAssetsByAssetDefinitionId",
-        "discriminant": 12,
+        "discriminant": 11,
         "type": "FindAssetsByAssetDefinitionId"
       },
       {
         "tag": "FindAssetsByDomainId",
-        "discriminant": 13,
+        "discriminant": 12,
         "type": "FindAssetsByDomainId"
       },
       {
         "tag": "FindAssetsByDomainIdAndAssetDefinitionId",
-        "discriminant": 14,
+        "discriminant": 13,
         "type": "FindAssetsByDomainIdAndAssetDefinitionId"
       },
       {
         "tag": "FindAssetQuantityById",
-        "discriminant": 15,
+        "discriminant": 14,
         "type": "FindAssetQuantityById"
       },
       {
         "tag": "FindTotalAssetQuantityByAssetDefinitionId",
-        "discriminant": 16,
+        "discriminant": 15,
         "type": "FindTotalAssetQuantityByAssetDefinitionId"
       },
       {
         "tag": "FindAssetKeyValueByIdAndKey",
-        "discriminant": 17,
+        "discriminant": 16,
         "type": "FindAssetKeyValueByIdAndKey"
       },
       {
         "tag": "FindAssetDefinitionKeyValueByIdAndKey",
-        "discriminant": 18,
+        "discriminant": 17,
         "type": "FindAssetDefinitionKeyValueByIdAndKey"
       },
       {
         "tag": "FindAllDomains",
-        "discriminant": 19,
+        "discriminant": 18,
         "type": "FindAllDomains"
       },
       {
         "tag": "FindDomainById",
-        "discriminant": 20,
+        "discriminant": 19,
         "type": "FindDomainById"
       },
       {
         "tag": "FindDomainKeyValueByIdAndKey",
-        "discriminant": 21,
+        "discriminant": 20,
         "type": "FindDomainKeyValueByIdAndKey"
       },
       {
         "tag": "FindAllPeers",
-        "discriminant": 22,
+        "discriminant": 21,
         "type": "FindAllPeers"
       },
       {
         "tag": "FindAllBlocks",
-        "discriminant": 23,
+        "discriminant": 22,
         "type": "FindAllBlocks"
       },
       {
         "tag": "FindAllBlockHeaders",
-        "discriminant": 24,
+        "discriminant": 23,
         "type": "FindAllBlockHeaders"
       },
       {
         "tag": "FindBlockHeaderByHash",
-        "discriminant": 25,
+        "discriminant": 24,
         "type": "FindBlockHeaderByHash"
       },
       {
         "tag": "FindAllTransactions",
-        "discriminant": 26,
+        "discriminant": 25,
         "type": "FindAllTransactions"
       },
       {
         "tag": "FindTransactionsByAccountId",
-        "discriminant": 27,
+        "discriminant": 26,
         "type": "FindTransactionsByAccountId"
       },
       {
         "tag": "FindTransactionByHash",
-        "discriminant": 28,
+        "discriminant": 27,
         "type": "FindTransactionByHash"
       },
       {
         "tag": "FindPermissionTokensByAccountId",
-        "discriminant": 29,
+        "discriminant": 28,
         "type": "FindPermissionTokensByAccountId"
       },
       {
         "tag": "FindPermissionTokenSchema",
-        "discriminant": 30,
+        "discriminant": 29,
         "type": "FindPermissionTokenSchema"
       },
       {
         "tag": "FindAllActiveTriggerIds",
-        "discriminant": 31,
+        "discriminant": 30,
         "type": "FindAllActiveTriggerIds"
       },
       {
         "tag": "FindTriggerById",
-        "discriminant": 32,
+        "discriminant": 31,
         "type": "FindTriggerById"
       },
       {
         "tag": "FindTriggerKeyValueByIdAndKey",
-        "discriminant": 33,
+        "discriminant": 32,
         "type": "FindTriggerKeyValueByIdAndKey"
       },
       {
         "tag": "FindTriggersByDomainId",
-        "discriminant": 34,
+        "discriminant": 33,
         "type": "FindTriggersByDomainId"
       },
       {
         "tag": "FindAllRoles",
-        "discriminant": 35,
+        "discriminant": 34,
         "type": "FindAllRoles"
       },
       {
         "tag": "FindAllRoleIds",
-        "discriminant": 36,
+        "discriminant": 35,
         "type": "FindAllRoleIds"
       },
       {
         "tag": "FindRoleByRoleId",
-        "discriminant": 37,
+        "discriminant": 36,
         "type": "FindRoleByRoleId"
       },
       {
         "tag": "FindRolesByAccountId",
-        "discriminant": 38,
+        "discriminant": 37,
         "type": "FindRolesByAccountId"
       },
       {
         "tag": "FindAllParameters",
-        "discriminant": 39,
+        "discriminant": 38,
         "type": "FindAllParameters"
       }
     ]
@@ -3577,20 +3492,6 @@
       }
     ]
   },
-  "SignatureCheckCondition": {
-    "Enum": [
-      {
-        "tag": "AnyAccountSignatureOr",
-        "discriminant": 0,
-        "type": "Vec<PublicKey>"
-      },
-      {
-        "tag": "AllAccountSignaturesAnd",
-        "discriminant": 1,
-        "type": "Vec<PublicKey>"
-      }
-    ]
-  },
   "SignatureOf<BlockPayload>": "Signature",
   "SignatureOf<QueryPayload>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
@@ -3599,14 +3500,6 @@
       {
         "name": "signatures",
         "type": "SortedVec<SignatureOf<BlockPayload>>"
-      }
-    ]
-  },
-  "SignaturesOf<TransactionPayload>": {
-    "Struct": [
-      {
-        "name": "signatures",
-        "type": "SortedVec<SignatureOf<TransactionPayload>>"
       }
     ]
   },
@@ -3664,8 +3557,8 @@
   "SignedTransactionV1": {
     "Struct": [
       {
-        "name": "signatures",
-        "type": "SignaturesOf<TransactionPayload>"
+        "name": "signature",
+        "type": "SignatureOf<TransactionPayload>"
       },
       {
         "name": "payload",
@@ -3773,14 +3666,8 @@
   "SortedVec<PermissionToken>": {
     "Vec": "PermissionToken"
   },
-  "SortedVec<PublicKey>": {
-    "Vec": "PublicKey"
-  },
   "SortedVec<SignatureOf<BlockPayload>>": {
     "Vec": "SignatureOf<BlockPayload>"
-  },
-  "SortedVec<SignatureOf<TransactionPayload>>": {
-    "Vec": "SignatureOf<TransactionPayload>"
   },
   "String": "String",
   "StringPredicate": {
@@ -4428,9 +4315,6 @@
   },
   "Vec<PeerId>": {
     "Vec": "PeerId"
-  },
-  "Vec<PublicKey>": {
-    "Vec": "PublicKey"
   },
   "Vec<QueryOutputBox>": {
     "Vec": "QueryOutputBox"

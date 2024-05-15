@@ -38,7 +38,7 @@ fn main(_id: TriggerId, _owner: AccountId, _event: EventBox) {
         let mut metadata = Metadata::new();
         let name = format!(
             "nft_for_{}_in_{}",
-            account.id().name(),
+            account.id().signatory(),
             account.id().domain_id()
         )
         .parse()
@@ -78,7 +78,7 @@ fn generate_new_nft_id(account_id: &AccountId) -> AssetDefinitionId {
     format!(
         "nft_number_{}_for_{}#{}",
         new_number,
-        account_id.name(),
+        account_id.signatory(),
         account_id.domain_id()
     )
     .parse()

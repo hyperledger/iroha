@@ -3,7 +3,6 @@ use std::{str::FromStr as _, thread};
 use eyre::Result;
 use iroha_client::{
     client::{self, QueryResult},
-    crypto::KeyPair,
     data_model::{
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
         prelude::*,
@@ -11,6 +10,7 @@ use iroha_client::{
 };
 use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
+use test_samples::gen_account_in;
 
 #[test]
 // This test is also covered at the UI level in the iroha_client_cli tests
@@ -30,9 +30,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
 
     let create_domain: InstructionBox =
         Register::domain(Domain::new(DomainId::from_str("domain")?)).into();
-    let account_id = AccountId::from_str("account@domain")?;
-    let (public_key, _) = KeyPair::random().into_parts();
-    let create_account = Register::account(Account::new(account_id.clone(), public_key)).into();
+    let (account_id, _account_keypair) = gen_account_in("domain");
+    let create_account = Register::account(Account::new(account_id.clone())).into();
     let asset_definition_id = AssetDefinitionId::from_str("xor#domain")?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();

@@ -8,7 +8,7 @@ pub use boilerplate::*;
 use eyre::{eyre, Context, Report};
 use iroha_config::base::{Emitter, ErrorsCollection};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
-use iroha_data_model::{account::AccountId, ChainId};
+use iroha_data_model::prelude::{AccountId, ChainId, DomainId};
 use merge::Merge;
 use serde_with::DeserializeFromStr;
 use url::Url;
@@ -67,7 +67,7 @@ impl Root {
             basic_auth,
             account:
                 Account {
-                    id: account_id,
+                    domian_id,
                     public_key,
                     private_key,
                 },
@@ -92,6 +92,8 @@ impl Root {
                 "transaction status timeout should be smaller than its time-to-live"
             ))
         }
+
+        let account_id = AccountId::new(domian_id, public_key.clone());
 
         let key_pair = KeyPair::new(public_key, private_key)
             .wrap_err("failed to construct a key pair")
@@ -121,7 +123,7 @@ impl Root {
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct Account {
-    pub id: AccountId,
+    pub domian_id: DomainId,
     pub public_key: PublicKey,
     pub private_key: PrivateKey,
 }

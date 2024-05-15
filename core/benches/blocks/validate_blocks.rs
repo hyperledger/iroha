@@ -1,5 +1,6 @@
 use iroha_core::{prelude::*, state::State};
 use iroha_data_model::{isi::InstructionBox, prelude::*};
+use test_samples::gen_account_in;
 
 #[path = "./common.rs"]
 mod common;
@@ -16,7 +17,8 @@ pub struct StateValidateBlocks {
 impl StateValidateBlocks {
     /// Create [`State`] and blocks for benchmarking
     ///
-    /// # Errors
+    /// # Panics
+    ///
     /// - Failed to parse [`AccountId`]
     /// - Failed to generate [`KeyPair`]
     /// - Failed to create instructions for block
@@ -24,13 +26,12 @@ impl StateValidateBlocks {
         let domains = 100;
         let accounts_per_domain = 1000;
         let assets_per_domain = 1000;
-        let account_id: AccountId = "alice@wonderland".parse().unwrap();
-        let key_pair = KeyPair::random();
-        let state = build_state(rt, &account_id, &key_pair);
+        let (alice_id, alice_keypair) = gen_account_in("wonderland");
+        let state = build_state(rt, &alice_id);
 
         let nth = 100;
         let instructions = [
-            populate_state(domains, accounts_per_domain, assets_per_domain, &account_id),
+            populate_state(domains, accounts_per_domain, assets_per_domain, &alice_id),
             delete_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
             restore_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
         ]
@@ -40,8 +41,8 @@ impl StateValidateBlocks {
         Self {
             state,
             instructions,
-            key_pair,
-            account_id,
+            key_pair: alice_keypair,
+            account_id: alice_id,
         }
     }
 

@@ -486,18 +486,18 @@ impl Iroha {
 }
 
 fn genesis_account(public_key: PublicKey) -> Account {
-    Account::new(iroha_genesis::GENESIS_ACCOUNT_ID.clone(), public_key)
-        .build(&iroha_genesis::GENESIS_ACCOUNT_ID)
+    let genesis_account_id = AccountId::new(iroha_genesis::GENESIS_DOMAIN_ID.clone(), public_key);
+    Account::new(genesis_account_id.clone()).build(&genesis_account_id)
 }
 
 fn genesis_domain(public_key: PublicKey) -> Domain {
-    let mut domain = Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone())
-        .build(&iroha_genesis::GENESIS_ACCOUNT_ID);
+    let genesis_account = genesis_account(public_key);
+    let mut domain =
+        Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone()).build(&genesis_account.id);
 
-    domain.accounts.insert(
-        iroha_genesis::GENESIS_ACCOUNT_ID.clone(),
-        genesis_account(public_key),
-    );
+    domain
+        .accounts
+        .insert(genesis_account.id.clone(), genesis_account);
 
     domain
 }

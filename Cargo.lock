@@ -2855,6 +2855,7 @@ dependencies = [
  "serde_with",
  "tempfile",
  "test_network",
+ "test_samples",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
@@ -2967,6 +2968,7 @@ dependencies = [
  "serde_json",
  "storage",
  "tempfile",
+ "test_samples",
  "thiserror",
  "tokio",
  "uuid",
@@ -3176,6 +3178,7 @@ dependencies = [
  "once_cell",
  "serde",
  "serde_json",
+ "test_samples",
  "tracing",
 ]
 
@@ -3681,6 +3684,7 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "serde_json",
+ "test_samples",
 ]
 
 [[package]]
@@ -4251,6 +4255,7 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "serde_json",
+ "test_samples",
 ]
 
 [[package]]
@@ -5702,8 +5707,20 @@ dependencies = [
  "rand",
  "serde_json",
  "tempfile",
+ "test_samples",
  "tokio",
  "unique_port",
+]
+
+[[package]]
+name = "test_samples"
+version = "2.0.0-pre-rc.21"
+dependencies = [
+ "iroha_crypto",
+ "iroha_data_model",
+ "once_cell",
+ "serde",
+ "toml 0.8.12",
 ]
 
 [[package]]

@@ -1,19 +1,13 @@
 //! Structures, traits and impls related to `Account`s.
 #[cfg(not(feature = "std"))]
-use alloc::{
-    collections::{btree_map, btree_set},
-    format,
-    string::String,
-    vec::Vec,
-};
+use alloc::{collections::btree_map, format, string::String, vec::Vec};
 use core::str::FromStr;
 #[cfg(feature = "std")]
-use std::collections::{btree_map, btree_set};
+use std::collections::btree_map;
 
 use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
-use iroha_primitives::const_vec::ConstVec;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -27,27 +21,28 @@ use crate::{
     },
     domain::prelude::*,
     metadata::Metadata,
-    name::Name,
     HasMetadata, Identifiable, ParseError, PublicKey, Registered,
 };
 
 /// API to work with collections of [`Id`] : [`Account`] mappings.
 pub type AccountsMap = btree_map::BTreeMap<AccountId, Account>;
 
-type Signatories = btree_set::BTreeSet<PublicKey>;
-
 #[model]
 mod model {
     use super::*;
 
-    /// Identification of an [`Account`]. Consists of Account name and Domain name.
+    /// Identification of [`Account`] by the combination of the [`PublicKey`] as its sole signatory and the [`Domain`](crate::domain::Domain) it belongs to.
+    /// TODO #4373 include multi-signatory use.
     ///
     /// # Examples
     ///
     /// ```rust
     /// use iroha_data_model::account::AccountId;
     ///
-    /// let id = "user@company".parse::<AccountId>().expect("Valid");
+    /// let id: AccountId =
+    ///     "ed0120BDF918243253B1E731FA096194C8928DA37C4D3226F97EEBD18CF5523D758D6C@domain"
+    ///         .parse()
+    ///         .expect("multihash@domain should be valid format");
     /// ```
     #[derive(
         DebugCustom,
@@ -66,140 +61,63 @@ mod model {
         SerializeDisplay,
         IntoSchema,
     )]
-    #[display(fmt = "{name}@{domain_id}")]
-    #[debug(fmt = "{name}@{domain_id}")]
+    #[display(fmt = "{signatory}@{domain_id}")]
+    #[debug(fmt = "{signatory}@{domain_id}")]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct AccountId {
-        /// [`Account`]'s [`Domain`](`crate::domain::Domain`) id.
+        /// [`Domain`](crate::domain::Domain) that the [`Account`] belongs to.
         pub domain_id: DomainId,
-        /// [`Account`]'s name.
-        pub name: Name,
+        /// Sole signatory of the [`Account`].
+        pub signatory: PublicKey,
     }
 
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
     #[derive(
-        Debug, Display, Clone, IdEqOrdHash, Getters, Encode, Deserialize, Serialize, IntoSchema,
-    )]
-    #[allow(clippy::multiple_inherent_impl)]
-    #[display(fmt = "({id})")] // TODO: Add more?
-    #[ffi_type]
-    #[serde(try_from = "candidate::Account")]
-    pub struct Account {
-        /// An Identification of the [`Account`].
-        pub id: AccountId,
-        /// Assets in this [`Account`].
-        pub assets: AssetsMap,
-        /// [`Account`]'s signatories.
-        pub(super) signatories: Signatories,
-        /// Condition which checks if the account has the right signatures.
-        #[getset(get = "pub")]
-        pub signature_check_condition: SignatureCheckCondition,
-        /// Metadata of this account as a key-value store.
-        pub metadata: Metadata,
-    }
-
-    /// Builder which should be submitted in a transaction to create a new [`Account`]
-    #[derive(
-        DebugCustom, Display, Clone, IdEqOrdHash, Encode, Serialize, Deserialize, IntoSchema,
-    )]
-    #[display(fmt = "[{id}]")]
-    #[debug(fmt = "[{id:?}] {{ signatories: {signatories:?}, metadata: {metadata} }}")]
-    #[ffi_type]
-    #[serde(try_from = "candidate::NewAccount")]
-    pub struct NewAccount {
-        /// Identification
-        pub id: AccountId,
-        /// Signatories, i.e. signatures attached to this message.
-        /// Cannot be empty, guaranteed by constructors.
-        pub(super) signatories: Signatories,
-        /// Metadata that should be submitted with the builder
-        pub metadata: Metadata,
-    }
-
-    /// Condition which checks if the account has the right signatures.
-    #[derive(
         Debug,
         Display,
         Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
+        IdEqOrdHash,
+        Getters,
         Decode,
         Encode,
         Deserialize,
         Serialize,
         IntoSchema,
     )]
-    #[ffi_type(opaque)]
-    #[allow(clippy::enum_variant_names)]
-    pub enum SignatureCheckCondition {
-        #[display(fmt = "AnyAccountSignatureOr({_0:?})")]
-        AnyAccountSignatureOr(ConstVec<PublicKey>),
-        #[display(fmt = "AllAccountSignaturesAnd({_0:?})")]
-        AllAccountSignaturesAnd(ConstVec<PublicKey>),
+    #[allow(clippy::multiple_inherent_impl)]
+    #[display(fmt = "({id})")] // TODO: Add more?
+    #[ffi_type]
+    pub struct Account {
+        /// Identification of the [`Account`].
+        pub id: AccountId,
+        /// Assets in this [`Account`].
+        pub assets: AssetsMap,
+        /// Metadata of this account as a key-value store.
+        pub metadata: Metadata,
+    }
+
+    /// Builder which should be submitted in a transaction to create a new [`Account`]
+    #[derive(
+        DebugCustom, Display, Clone, IdEqOrdHash, Decode, Encode, Serialize, Deserialize, IntoSchema,
+    )]
+    #[display(fmt = "[{id}]")]
+    #[debug(fmt = "[{id:?}] {{ metadata: {metadata} }}")]
+    #[ffi_type]
+    pub struct NewAccount {
+        /// Identification
+        pub id: AccountId,
+        /// Metadata that should be submitted with the builder
+        pub metadata: Metadata,
     }
 }
 
-mod candidate {
-    //! Contains structs for deserialization checks
-
-    use super::*;
-
-    #[derive(Decode, Deserialize)]
-    /// [`Account`] candidate used for deserialization checks
-    pub struct Account {
-        id: AccountId,
-        assets: AssetsMap,
-        signatories: Signatories,
-        signature_check_condition: SignatureCheckCondition,
-        metadata: Metadata,
-    }
-
-    impl TryFrom<Account> for super::Account {
-        type Error = &'static str;
-
-        fn try_from(candidate: Account) -> Result<Self, Self::Error> {
-            check_signatories(&candidate.signatories)?;
-
-            Ok(Self {
-                id: candidate.id,
-                assets: candidate.assets,
-                signatories: candidate.signatories,
-                signature_check_condition: candidate.signature_check_condition,
-                metadata: candidate.metadata,
-            })
-        }
-    }
-
-    /// [`NewAccount`] candidate used for deserialization checks
-    #[derive(Decode, Deserialize)]
-    pub struct NewAccount {
-        id: AccountId,
-        signatories: Signatories,
-        metadata: Metadata,
-    }
-
-    impl TryFrom<NewAccount> for super::NewAccount {
-        type Error = &'static str;
-
-        fn try_from(candidate: NewAccount) -> Result<Self, Self::Error> {
-            check_signatories(&candidate.signatories)?;
-
-            Ok(Self {
-                id: candidate.id,
-                signatories: candidate.signatories,
-                metadata: candidate.metadata,
-            })
-        }
-    }
-
-    fn check_signatories(signatories: &Signatories) -> Result<(), &'static str> {
-        if signatories.is_empty() {
-            return Err("Signatories cannot be empty");
-        }
-        Ok(())
+impl AccountId {
+    /// Return `true` if the account signatory matches the given `public_key`.
+    #[inline]
+    #[cfg(feature = "transparent_api")]
+    pub fn signatory_matches(&self, public_key: &PublicKey) -> bool {
+        self.signatory() == public_key
     }
 }
 
@@ -207,14 +125,14 @@ impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatory.
     #[inline]
     #[must_use]
-    pub fn new(id: AccountId, signatory: PublicKey) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, signatory)
+    pub fn new(id: AccountId) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id)
     }
 
-    /// Get an iterator over [`signatories`](PublicKey) of the `Account`
+    /// Return a reference to the `Account` signatory.
     #[inline]
-    pub fn signatories(&self) -> impl ExactSizeIterator<Item = &PublicKey> {
-        self.signatories.iter()
+    pub fn signatory(&self) -> &PublicKey {
+        &self.id.signatory
     }
 
     /// Return a reference to the [`Asset`] corresponding to the asset id.
@@ -227,12 +145,6 @@ impl Account {
     #[inline]
     pub fn assets(&self) -> impl ExactSizeIterator<Item = &Asset> {
         self.assets.values()
-    }
-
-    /// Return `true` if the `Account` contains the given signatory
-    #[inline]
-    pub fn contains_signatory(&self, signatory: &PublicKey) -> bool {
-        self.signatories.contains(signatory)
     }
 }
 
@@ -249,65 +161,14 @@ impl Account {
     pub fn remove_asset(&mut self, asset_id: &AssetId) -> Option<Asset> {
         self.assets.remove(asset_id)
     }
-
-    /// Add [`signatory`](PublicKey) into the [`Account`].
-    ///
-    /// If [`Account`] did not have this signatory present, `true` is returned.
-    /// If [`Account`] did have this signatory present, `false` is returned.
-    #[inline]
-    pub fn add_signatory(&mut self, signatory: PublicKey) -> bool {
-        self.signatories.insert(signatory)
-    }
-
-    /// Remove a signatory from the [`Account`].
-    ///
-    /// Does nothing and returns [`None`] if only one signature is left.
-    /// Otherwise returns whether the signatory was presented in the Account.
-    #[inline]
-    pub fn remove_signatory(&mut self, signatory: &PublicKey) -> Option<bool> {
-        if self.signatories.len() < 2 {
-            return None;
-        }
-
-        Some(self.signatories.remove(signatory))
-    }
-
-    /// Checks whether the transaction contains all the signatures required by the
-    /// [`SignatureCheckCondition`] stored in this account.
-    #[must_use]
-    pub fn check_signature_check_condition(
-        &self,
-        transaction_signatories: &btree_set::BTreeSet<PublicKey>,
-    ) -> bool {
-        self.signature_check_condition
-            .check(&self.signatories, transaction_signatories)
-    }
-}
-
-impl Decode for Account {
-    fn decode<I: parity_scale_codec::Input>(
-        input: &mut I,
-    ) -> Result<Self, parity_scale_codec::Error> {
-        let candidate = candidate::Account::decode(input)?;
-        Self::try_from(candidate).map_err(Into::into)
-    }
 }
 
 impl NewAccount {
-    fn new(id: AccountId, signatory: PublicKey) -> Self {
+    fn new(id: AccountId) -> Self {
         Self {
             id,
-            signatories: Signatories::from([signatory]),
             metadata: Metadata::default(),
         }
-    }
-
-    /// Add signatory to account.
-    #[inline]
-    #[must_use]
-    pub fn add_signatory(mut self, signatory: PublicKey) -> Self {
-        self.signatories.insert(signatory);
-        self
     }
 
     /// Add [`Metadata`] to the account replacing any previously defined metadata
@@ -325,9 +186,7 @@ impl NewAccount {
     pub fn into_account(self) -> Account {
         Account {
             id: self.id,
-            signatories: self.signatories,
             assets: AssetsMap::default(),
-            signature_check_condition: SignatureCheckCondition::default(),
             metadata: self.metadata,
         }
     }
@@ -336,15 +195,6 @@ impl NewAccount {
 impl HasMetadata for NewAccount {
     fn metadata(&self) -> &Metadata {
         &self.metadata
-    }
-}
-
-impl Decode for NewAccount {
-    fn decode<I: parity_scale_codec::Input>(
-        input: &mut I,
-    ) -> Result<Self, parity_scale_codec::Error> {
-        let candidate = candidate::NewAccount::decode(input)?;
-        Self::try_from(candidate).map_err(Into::into)
     }
 }
 
@@ -358,207 +208,57 @@ impl Registered for Account {
     type With = NewAccount;
 }
 
-/// Account Identification is represented by `name@domain_name` string.
 impl FromStr for AccountId {
     type Err = ParseError;
 
-    fn from_str(string: &str) -> Result<Self, Self::Err> {
-        let split = string.rsplit_once('@');
-        match split {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.rsplit_once('@') {
+            None => Err(ParseError {
+                reason: "Account ID should have format `signatory@domain`",
+            }),
             Some(("", _)) => Err(ParseError {
-                reason: "`AccountId` cannot be empty",
+                reason: "Empty `signatory` part in `signatory@domain`",
             }),
-            Some((name, domain_id)) if !name.is_empty() && !domain_id.is_empty() => Ok(AccountId {
-                name: name.parse()?,
-                domain_id: domain_id.parse()?,
+            Some((_, "")) => Err(ParseError {
+                reason: "Empty `domain` part in `signatory@domain`",
             }),
-            _ => Err(ParseError {
-                reason: "`AccountId` should have format `name@domain_name`",
-            }),
+            Some((signatory_candidate, domain_id_candidate)) => {
+                let signatory = signatory_candidate.parse().map_err(|_| ParseError {
+                    reason: r#"Failed to parse `signatory` part in `signatory@domain`. `signatory` should have multihash format e.g. "ed0120...""#,
+                })?;
+                let domain_id = domain_id_candidate.parse().map_err(|_| ParseError {
+                    reason: "Failed to parse `domain` part in `signatory@domain`",
+                })?;
+                Ok(Self::new(domain_id, signatory))
+            }
         }
-    }
-}
-
-impl Default for SignatureCheckCondition {
-    fn default() -> Self {
-        Self::AnyAccountSignatureOr(ConstVec::new_empty())
-    }
-}
-
-impl SignatureCheckCondition {
-    /// Shorthand to create a [`SignatureCheckCondition::AnyAccountSignatureOr`] variant without additional allowed signatures.
-    #[inline]
-    pub fn any_account_signature() -> Self {
-        Self::AnyAccountSignatureOr(ConstVec::new_empty())
-    }
-
-    /// Shorthand to create a [`SignatureCheckCondition::AllAccountSignaturesAnd`] variant without additional required signatures.
-    #[inline]
-    pub fn all_account_signatures() -> Self {
-        Self::AllAccountSignaturesAnd(ConstVec::new_empty())
-    }
-
-    #[must_use]
-    #[cfg(feature = "transparent_api")]
-    fn check(
-        &self,
-        account_signatories: &btree_set::BTreeSet<PublicKey>,
-        transaction_signatories: &btree_set::BTreeSet<PublicKey>,
-    ) -> bool {
-        let result = match &self {
-            SignatureCheckCondition::AnyAccountSignatureOr(additional_allowed_signatures) => {
-                account_signatories
-                    .iter()
-                    .chain(additional_allowed_signatures.as_ref())
-                    .any(|allowed| transaction_signatories.contains(allowed))
-            }
-            SignatureCheckCondition::AllAccountSignaturesAnd(additional_required_signatures) => {
-                account_signatories
-                    .iter()
-                    .chain(additional_required_signatures.as_ref())
-                    .all(|required_signature| transaction_signatories.contains(required_signature))
-            }
-        };
-
-        result
     }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    pub use super::{Account, AccountId, SignatureCheckCondition};
+    pub use super::{Account, AccountId};
 }
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::{vec, vec::Vec};
-    use core::cmp::Ordering;
-
-    use iroha_crypto::{KeyPair, PublicKey};
-
-    use super::{AccountId, SignatureCheckCondition};
-    use crate::{domain::DomainId, name::Name};
-
-    fn make_key() -> PublicKey {
-        KeyPair::random().public_key().clone()
-    }
-
-    fn check_signature_check_condition(
-        condition: &SignatureCheckCondition,
-        account_signatories: &[&PublicKey],
-        tx_signatories: &[&PublicKey],
-        result: bool,
-    ) {
-        let account_signatories = account_signatories.iter().copied().cloned().collect();
-        let tx_signatories = tx_signatories.iter().copied().cloned().collect();
-
-        assert_eq!(
-            condition.check(&account_signatories, &tx_signatories,),
-            result
-        );
-    }
+    use super::*;
 
     #[test]
-    fn signature_check_condition_default() {
-        let key1 = make_key();
-        let key2 = make_key();
-        let key3 = make_key();
-        let condition = SignatureCheckCondition::default();
-
-        check_signature_check_condition(&condition, &[], &[], false);
-        check_signature_check_condition(&condition, &[&key1], &[], false);
-        check_signature_check_condition(&condition, &[], &[&key1], false);
-        check_signature_check_condition(&condition, &[&key1], &[&key1], true);
-        check_signature_check_condition(&condition, &[&key1], &[&key2], false);
-        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key1], true);
-        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key2], true);
-        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key3], true);
-    }
-
-    #[test]
-    fn signature_check_condition_all() {
-        let key1 = make_key();
-        let key2 = make_key();
-        let key3 = make_key();
-        let condition = SignatureCheckCondition::all_account_signatures();
-
-        // technically, `\forall x \in \emptyset, check(x)` is true for any `check`, so this evaluate to true
-        // maybe not the logic we want?
-        check_signature_check_condition(&condition, &[], &[], true);
-        check_signature_check_condition(&condition, &[], &[&key1], true);
-
-        check_signature_check_condition(&condition, &[&key1], &[], false);
-        check_signature_check_condition(&condition, &[&key1], &[&key1], true);
-        check_signature_check_condition(&condition, &[&key1], &[&key2], false);
-        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key1], false);
-        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key2], false);
-        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key3], false);
-        check_signature_check_condition(&condition, &[&key1, &key2], &[&key1, &key2, &key3], true);
-        check_signature_check_condition(&condition, &[&key1, &key2], &[&key1, &key2], true);
-        check_signature_check_condition(&condition, &[&key1, &key2], &[&key2, &key3], false);
-    }
-
-    #[test]
-    fn signature_check_condition_any_or() {
-        let key1 = make_key();
-        let key2 = make_key();
-        let key3 = make_key();
-        let condition = SignatureCheckCondition::AnyAccountSignatureOr(vec![key3.clone()].into());
-
-        check_signature_check_condition(&condition, &[], &[], false);
-        check_signature_check_condition(&condition, &[], &[&key3], true);
-        check_signature_check_condition(&condition, &[], &[&key2], false);
-        check_signature_check_condition(&condition, &[], &[&key1, &key2], false);
-        check_signature_check_condition(&condition, &[&key2], &[&key2], true);
-        check_signature_check_condition(&condition, &[&key2, &key3], &[&key2], true);
-        check_signature_check_condition(&condition, &[&key1, &key2], &[&key2], true);
-    }
-
-    #[test]
-    fn signature_check_condition_all_and() {
-        let key1 = make_key();
-        let key2 = make_key();
-        let key3 = make_key();
-        let condition = SignatureCheckCondition::AllAccountSignaturesAnd(vec![key3.clone()].into());
-
-        check_signature_check_condition(&condition, &[], &[], false);
-        check_signature_check_condition(&condition, &[], &[&key3], true);
-        check_signature_check_condition(&condition, &[&key1], &[&key3], false);
-        check_signature_check_condition(&condition, &[&key1], &[&key1, &key3], true);
-        check_signature_check_condition(&condition, &[&key2], &[&key1, &key3], false);
-        check_signature_check_condition(&condition, &[&key2], &[&key1, &key2, &key3], true);
-    }
-
-    #[test]
-    fn cmp_account_id() {
-        let domain_id_a: DomainId = "a".parse().expect("failed to parse DomainId");
-        let domain_id_b: DomainId = "b".parse().expect("failed to parse DomainId");
-        let name_a: Name = "a".parse().expect("failed to parse Name");
-        let name_b: Name = "b".parse().expect("failed to parse Name");
-
-        let mut account_ids = Vec::new();
-        for name in [&name_a, &name_b] {
-            for domain_id in [&domain_id_a, &domain_id_b] {
-                account_ids.push(AccountId::new(domain_id.clone(), name.clone()));
-            }
-        }
-
-        for account_id_1 in &account_ids {
-            for account_id_2 in &account_ids {
-                match (
-                    account_id_1.domain_id.cmp(&account_id_2.domain_id),
-                    account_id_1.name.cmp(&account_id_2.name),
-                ) {
-                    // `DomainId` take precedence in comparison
-                    // if `DomainId`s are equal than comparison based on `Name`s
-                    (Ordering::Equal, ordering) | (ordering, _) => assert_eq!(
-                        account_id_1.cmp(account_id_2),
-                        ordering,
-                        "{account_id_1:?} and {account_id_2:?} are expected to be {ordering:?}"
-                    ),
-                }
-            }
-        }
+    fn parse_account_id() {
+        const SIGNATORY: &str =
+            "ed0120EDF6D7B52C7032D03AEC696F2068BD53101528F3C7B6081BFF05A1662D7FC245";
+        let _ok = format!("{SIGNATORY}@domain")
+            .parse::<AccountId>()
+            .expect("should be valid");
+        let _err_empty_signatory = "@domain"
+            .parse::<AccountId>()
+            .expect_err("@domain should not be valid");
+        let _err_empty_domain = format!("{SIGNATORY}@")
+            .parse::<AccountId>()
+            .expect_err("signatory@ should not be valid");
+        let _err_violates_format = format!("{SIGNATORY}#domain")
+            .parse::<AccountId>()
+            .expect_err("signatory#domain should not be valid");
     }
 }

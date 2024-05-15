@@ -247,7 +247,6 @@ enum TryWriteError {
 mod tests {
     use std::{fs::File, io::Write};
 
-    use iroha_crypto::KeyPair;
     use tempfile::tempdir;
     use tokio::test;
 
@@ -255,11 +254,10 @@ mod tests {
     use crate::query::store::LiveQueryStore;
 
     fn state_factory() -> State {
-        let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         State::new(
-            crate::queue::tests::world_with_test_domains([alice_key.public_key().clone()]),
+            crate::queue::tests::world_with_test_domains(),
             kura,
             query_handle,
         )

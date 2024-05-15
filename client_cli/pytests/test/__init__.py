@@ -3,7 +3,6 @@ This module provides access to fixtures for testing.
 """
 
 from .conftest import (
-    GIVEN_127_length_name,
     GIVEN_128_length_name,
     GIVEN_129_length_name,
     GIVEN_currently_account_quantity_with_two_quantity_of_asset,

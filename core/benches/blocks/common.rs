@@ -74,9 +74,9 @@ pub fn populate_state(
             owner_id.clone(),
         );
         instructions.push(can_unregister_domain.into());
-        for j in 0..accounts_per_domain {
-            let account_id = construct_account_id(j, domain_id.clone());
-            let account = Account::new(account_id.clone(), KeyPair::random().into_parts().0);
+        for _ in 0..accounts_per_domain {
+            let account_id = generate_account_id(domain_id.clone());
+            let account = Account::new(account_id.clone());
             instructions.push(Register::account(account).into());
             let can_unregister_account = Grant::permission(
                 PermissionToken::new(
@@ -118,7 +118,7 @@ pub fn delete_every_nth(
         } else {
             for j in 0..accounts_per_domain {
                 if j % nth == 0 {
-                    let account_id = construct_account_id(j, domain_id.clone());
+                    let account_id = generate_account_id(domain_id.clone());
                     instructions.push(Unregister::account(account_id.clone()).into());
                 }
             }
@@ -148,8 +148,8 @@ pub fn restore_every_nth(
         }
         for j in 0..accounts_per_domain {
             if j % nth == 0 || i % nth == 0 {
-                let account_id = construct_account_id(j, domain_id.clone());
-                let account = Account::new(account_id.clone(), KeyPair::random().into_parts().0);
+                let account_id = generate_account_id(domain_id.clone());
+                let account = Account::new(account_id.clone());
                 instructions.push(Register::account(account).into());
             }
         }
@@ -164,11 +164,7 @@ pub fn restore_every_nth(
     instructions
 }
 
-pub fn build_state(
-    rt: &tokio::runtime::Handle,
-    account_id: &AccountId,
-    key_pair: &KeyPair,
-) -> State {
+pub fn build_state(rt: &tokio::runtime::Handle, account_id: &AccountId) -> State {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let query_handle = {
         let _guard = rt.enter();
@@ -177,7 +173,7 @@ pub fn build_state(
     let mut domain = Domain::new(account_id.domain_id.clone()).build(account_id);
     domain.accounts.insert(
         account_id.clone(),
-        Account::new(account_id.clone(), key_pair.public_key().clone()).build(account_id),
+        Account::new(account_id.clone()).build(account_id),
     );
     let state = State::new(World::with([domain], UniqueVec::new()), kura, query_handle);
 
@@ -209,11 +205,8 @@ fn construct_domain_id(i: usize) -> DomainId {
     DomainId::from_str(&format!("non_inlinable_domain_name_{i}")).unwrap()
 }
 
-fn construct_account_id(i: usize, domain_id: DomainId) -> AccountId {
-    AccountId::new(
-        domain_id,
-        Name::from_str(&format!("non_inlinable_account_name_{i}")).unwrap(),
-    )
+fn generate_account_id(domain_id: DomainId) -> AccountId {
+    AccountId::new(domain_id, KeyPair::random().into_parts().0)
 }
 
 fn construct_asset_definition_id(i: usize, domain_id: DomainId) -> AssetDefinitionId {

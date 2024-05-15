@@ -12,6 +12,7 @@ use iroha_client::{
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::info;
 use test_network::*;
+use test_samples::ALICE_ID;
 
 const TRIGGER_NAME: &str = "mint_rose";
 
@@ -21,7 +22,7 @@ fn call_execute_trigger() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id = "alice@wonderland".parse()?;
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id);
     let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
@@ -45,7 +46,7 @@ fn execute_trigger_should_produce_event() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id: AccountId = "alice@wonderland".parse()?;
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
     let instruction = Mint::asset_numeric(1u32, asset_id.clone());
@@ -81,7 +82,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id = "alice@wonderland".parse()?;
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id);
     let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
     let call_trigger = ExecuteTrigger::new(trigger_id);
@@ -108,7 +109,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
     // Registering trigger that should fail on execution
@@ -164,7 +165,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let trigger_id = TriggerId::from_str("self_modifying_trigger")?;
 
@@ -224,7 +225,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let trigger_id = TriggerId::from_str("self_modifying_trigger")?;
 
@@ -270,7 +271,7 @@ fn unregister_trigger() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_035).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
 
     // Registering trigger
     let trigger_id = TriggerId::from_str("empty_trigger")?;
@@ -346,7 +347,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
 
     let engine = base64::engine::general_purpose::STANDARD;
     let wasm_base64 = serde_json::json!(base64::engine::Engine::encode(&engine, wasm)).to_string();
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let trigger_id = TriggerId::from_str("genesis_trigger")?;
 
     let trigger = Trigger::new(
@@ -399,7 +400,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let trigger_id_unregister = TriggerId::from_str("unregister_other_trigger")?;
     let trigger_id_to_be_unregistered = TriggerId::from_str("should_be_unregistered_trigger")?;
@@ -459,7 +460,7 @@ fn trigger_burn_repetitions() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let trigger_id = TriggerId::from_str("trigger")?;
 
@@ -494,7 +495,7 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_105).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let account_id = AccountId::from_str("alice@wonderland")?;
+    let account_id = ALICE_ID.clone();
     let first_trigger_id = TriggerId::from_str("mint_rose_1")?;
     let second_trigger_id = TriggerId::from_str("mint_rose_2")?;
 

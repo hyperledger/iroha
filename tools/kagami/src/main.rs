@@ -1,10 +1,7 @@
 //! CLI for generating iroha sample configuration, genesis and
 //! cryptographic key pairs. To be used with all compliant Iroha
 //! installations.
-use std::{
-    io::{stdout, BufWriter, Write},
-    str::FromStr as _,
-};
+use std::io::{stdout, BufWriter, Write};
 
 use clap::{Args as ClapArgs, Parser};
 use color_eyre::eyre::WrapErr as _;
@@ -16,12 +13,6 @@ mod schema;
 
 /// Outcome shorthand used throughout this crate
 pub(crate) type Outcome = color_eyre::Result<()>;
-
-// The reason for hard-coding this default is to ensure that the
-// algorithm is matched to the public key in Ed25519 format. If
-// you need to change either, you should definitely change both.
-const DEFAULT_PUBLIC_KEY: &str =
-    "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0";
 
 fn main() -> Outcome {
     color_eyre::install()?;

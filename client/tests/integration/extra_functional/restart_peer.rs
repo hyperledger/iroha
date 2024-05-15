@@ -8,11 +8,12 @@ use iroha_client::{
 use iroha_config::parameters::actual::Root as Config;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
+use test_samples::ALICE_ID;
 use tokio::runtime::Runtime;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
-    let account_id = AccountId::from_str("alice@wonderland").unwrap();
+    let account_id = ALICE_ID.clone();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
     let quantity = numeric!(200);
 
