@@ -5,15 +5,12 @@
 use std::borrow::Borrow;
 
 use error::*;
-use import::traits::{
-    ExecuteOperations as _, GetExecutorPayloads as _, SetPermissionTokenSchema as _,
-};
+use import::traits::{ExecuteOperations as _, GetExecutorPayloads as _, SetDataModel as _};
 use iroha_config::parameters::actual::WasmRuntime as Config;
 use iroha_data_model::{
     account::AccountId,
-    executor::{self, MigrationResult},
+    executor::{self, ExecutorDataModel, MigrationResult},
     isi::InstructionBox,
-    permission::PermissionTokenSchema,
     prelude::*,
     query::{QueryBox, QueryId, QueryOutputBox, QueryRequest, QueryWithParameters},
     smart_contract::payloads::{self, Validate},
@@ -49,7 +46,7 @@ mod export {
     pub const GET_VALIDATE_TRANSACTION_PAYLOAD: &str = "get_validate_transaction_payload";
     pub const GET_VALIDATE_INSTRUCTION_PAYLOAD: &str = "get_validate_instruction_payload";
     pub const GET_VALIDATE_QUERY_PAYLOAD: &str = "get_validate_query_payload";
-    pub const SET_PERMISSION_TOKEN_SCHEMA: &str = "set_permission_token_schema";
+    pub const SET_DATA_MODEL: &str = "set_data_model";
 
     pub const DBG: &str = "dbg";
     pub const LOG: &str = "log";
@@ -104,9 +101,9 @@ mod import {
             fn get_validate_query_payload(state: &S) -> Validate<QueryBox>;
         }
 
-        pub trait SetPermissionTokenSchema<S> {
+        pub trait SetDataModel<S> {
             #[codec::wrap_trait_fn]
-            fn set_permission_token_schema(schema: PermissionTokenSchema, state: &mut S);
+            fn set_data_model(data_model: ExecutorDataModel, state: &mut S);
         }
     }
 }
@@ -1081,17 +1078,17 @@ where
 ///
 /// Useful because *Executor* exposes more entrypoints than just `migrate()` which is the
 /// only entrypoint allowed to execute operations on permission tokens.
-trait FakeSetPermissionTokenSchema<S> {
+trait FakeSetExecutorDataModel<S> {
     /// Entrypoint function name for panic message
     const ENTRYPOINT_FN_NAME: &'static str;
 }
 
-impl<R, S> import::traits::SetPermissionTokenSchema<S> for R
+impl<R, S> import::traits::SetDataModel<S> for R
 where
-    R: FakeSetPermissionTokenSchema<S>,
+    R: FakeSetExecutorDataModel<S>,
 {
     #[codec::wrap]
-    fn set_permission_token_schema(_schema: PermissionTokenSchema, _state: &mut S) {
+    fn set_data_model(_model: ExecutorDataModel, _state: &mut S) {
         panic!(
             "Executor `{}()` entrypoint should not set permission token schema",
             Self::ENTRYPOINT_FN_NAME
@@ -1173,7 +1170,7 @@ impl<'wrld, 'block, 'state>
     }
 }
 
-impl<'wrld> FakeSetPermissionTokenSchema<state::executor::ValidateTransaction<'wrld, '_, '_>>
+impl<'wrld> FakeSetExecutorDataModel<state::executor::ValidateTransaction<'wrld, '_, '_>>
     for Runtime<state::executor::ValidateTransaction<'wrld, '_, '_>>
 {
     const ENTRYPOINT_FN_NAME: &'static str = "validate_transaction";
@@ -1253,7 +1250,7 @@ impl<'wrld, 'block, 'state>
     }
 }
 
-impl<'wrld> FakeSetPermissionTokenSchema<state::executor::ValidateInstruction<'wrld, '_, '_>>
+impl<'wrld> FakeSetExecutorDataModel<state::executor::ValidateInstruction<'wrld, '_, '_>>
     for Runtime<state::executor::ValidateInstruction<'wrld, '_, '_>>
 {
     const ENTRYPOINT_FN_NAME: &'static str = "validate_instruction";
@@ -1349,7 +1346,7 @@ impl<'wrld, S: StateReadOnly>
     }
 }
 
-impl<'wrld, S: StateReadOnly> FakeSetPermissionTokenSchema<state::executor::ValidateQuery<'wrld, S>>
+impl<'wrld, S: StateReadOnly> FakeSetExecutorDataModel<state::executor::ValidateQuery<'wrld, S>>
     for Runtime<state::executor::ValidateQuery<'wrld, S>>
 {
     const ENTRYPOINT_FN_NAME: &'static str = "validate_query";
@@ -1448,17 +1445,17 @@ impl<'wrld, 'block, 'state>
 }
 
 impl<'wrld, 'block, 'state>
-    import::traits::SetPermissionTokenSchema<state::executor::Migrate<'wrld, 'block, 'state>>
+    import::traits::SetDataModel<state::executor::Migrate<'wrld, 'block, 'state>>
     for Runtime<state::executor::Migrate<'wrld, 'block, 'state>>
 {
     #[codec::wrap]
-    fn set_permission_token_schema(
-        schema: PermissionTokenSchema,
+    fn set_data_model(
+        data_model: ExecutorDataModel,
         state: &mut state::executor::Migrate<'wrld, 'block, 'state>,
     ) {
-        debug!(%schema, "Setting permission token schema");
+        debug!(%data_model, "Setting executor data model");
 
-        state.state.0.world.set_permission_token_schema(schema)
+        state.state.0.world.set_executor_data_model(data_model)
     }
 }
 
@@ -1603,7 +1600,7 @@ impl<'wrld, 'block, 'state>
                 export::GET_VALIDATE_TRANSACTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>| Runtime::get_validate_transaction_payload(caller),
                 export::GET_VALIDATE_INSTRUCTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>| Runtime::get_validate_instruction_payload(caller),
                 export::GET_VALIDATE_QUERY_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>| Runtime::get_validate_query_payload(caller),
-                export::SET_PERMISSION_TOKEN_SCHEMA => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>, offset, len| Runtime::set_permission_token_schema(caller, offset, len),
+                export::SET_DATA_MODEL => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>, offset, len| Runtime::set_data_model(caller, offset, len),
             )?;
             Ok(linker)
         })
@@ -1631,7 +1628,7 @@ impl<'wrld, 'block, 'state>
                 export::GET_VALIDATE_TRANSACTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>| Runtime::get_validate_transaction_payload(caller),
                 export::GET_VALIDATE_INSTRUCTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>| Runtime::get_validate_instruction_payload(caller),
                 export::GET_VALIDATE_QUERY_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>| Runtime::get_validate_query_payload(caller),
-                export::SET_PERMISSION_TOKEN_SCHEMA => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>, offset, len| Runtime::set_permission_token_schema(caller, offset, len),
+                export::SET_DATA_MODEL => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>, offset, len| Runtime::set_data_model(caller, offset, len),
             )?;
             Ok(linker)
         })
@@ -1656,7 +1653,7 @@ impl<'wrld, S: StateReadOnly> RuntimeBuilder<state::executor::ValidateQuery<'wrl
                 export::GET_VALIDATE_TRANSACTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_validate_transaction_payload(caller),
                 export::GET_VALIDATE_INSTRUCTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_validate_instruction_payload(caller),
                 export::GET_VALIDATE_QUERY_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_validate_query_payload(caller),
-                export::SET_PERMISSION_TOKEN_SCHEMA => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>, offset, len| Runtime::set_permission_token_schema(caller, offset, len),
+                export::SET_DATA_MODEL => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>, offset, len| Runtime::set_data_model(caller, offset, len),
             )?;
             Ok(linker)
         })
@@ -1680,7 +1677,7 @@ impl<'wrld, 'block, 'state> RuntimeBuilder<state::executor::Migrate<'wrld, 'bloc
                 export::GET_VALIDATE_TRANSACTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>| Runtime::get_validate_transaction_payload(caller),
                 export::GET_VALIDATE_INSTRUCTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>| Runtime::get_validate_instruction_payload(caller),
                 export::GET_VALIDATE_QUERY_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>| Runtime::get_validate_query_payload(caller),
-                export::SET_PERMISSION_TOKEN_SCHEMA => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>, offset, len| Runtime::set_permission_token_schema(caller, offset, len),
+                export::SET_DATA_MODEL => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>, offset, len| Runtime::set_data_model(caller, offset, len),
             )?;
             Ok(linker)
         })

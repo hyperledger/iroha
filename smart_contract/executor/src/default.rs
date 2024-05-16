@@ -28,7 +28,7 @@ pub use executor::visit_upgrade;
 pub use fail::visit_fail;
 use iroha_smart_contract::data_model::isi::InstructionBox;
 pub use log::visit_log;
-pub use parameter::{visit_new_parameter, visit_set_parameter};
+pub use parameter::visit_set_parameter;
 pub use peer::{visit_register_peer, visit_unregister_peer};
 pub use permission_token::{visit_grant_account_permission, visit_revoke_account_permission};
 pub use role::{
@@ -42,20 +42,6 @@ pub use trigger::{
 };
 
 use crate::{permission, permission::Token as _, prelude::*};
-
-pub fn default_permission_token_schema() -> PermissionTokenSchema {
-    let mut schema = iroha_executor::PermissionTokenSchema::default();
-
-    macro_rules! add_to_schema {
-        ($token_ty:ty) => {
-            schema.insert::<$token_ty>();
-        };
-    }
-
-    tokens::map_token_type!(add_to_schema);
-
-    schema
-}
 
 // NOTE: If any new `visit_..` functions are introduced in this module, one should
 // not forget to update the default executor boilerplate too, specifically the
@@ -96,9 +82,6 @@ pub fn visit_instruction<V: Validate + ?Sized>(
     isi: &InstructionBox,
 ) {
     match isi {
-        InstructionBox::NewParameter(isi) => {
-            executor.visit_new_parameter(authority, isi);
-        }
         InstructionBox::SetParameter(isi) => {
             executor.visit_set_parameter(authority, isi);
         }
@@ -1234,25 +1217,6 @@ pub mod parameter {
     use super::*;
 
     #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_new_parameter<V: Validate + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &NewParameter,
-    ) {
-        if is_genesis(executor) {
-            execute!(executor, isi);
-        }
-        if tokens::parameter::CanCreateParameters.is_owned_by(authority) {
-            execute!(executor, isi);
-        }
-
-        deny!(
-            executor,
-            "Can't create new configuration parameters outside genesis without permission"
-        );
-    }
-
-    #[allow(clippy::needless_pass_by_value)]
     pub fn visit_set_parameter<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
@@ -1267,7 +1231,7 @@ pub mod parameter {
 
         deny!(
             executor,
-            "Can't set configuration parameters without permission"
+            "Can't set executor configuration parameters without permission"
         );
     }
 }

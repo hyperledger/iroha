@@ -341,7 +341,8 @@ impl Sumeragi {
         Strategy::kura_store_block(&self.kura, block);
 
         // Parameters are updated before updating public copy of sumeragi
-        self.update_params(&state_block);
+        // TODO: update chain-wide static parameters here, later
+
         self.cache_transaction(&state_block);
 
         self.current_topology = new_topology;
@@ -352,23 +353,6 @@ impl Sumeragi {
         // NOTE: This sends "Block committed" event,
         // so it should be done AFTER public facing state update
         state_events.into_iter().for_each(|e| self.send_event(e));
-    }
-
-    fn update_params(&mut self, state_block: &StateBlock<'_>) {
-        use iroha_data_model::parameter::default::*;
-
-        if let Some(block_time) = state_block.world.query_param(BLOCK_TIME) {
-            self.block_time = Duration::from_millis(block_time);
-        }
-        if let Some(commit_time) = state_block.world.query_param(COMMIT_TIME_LIMIT) {
-            self.commit_time = Duration::from_millis(commit_time);
-        }
-        if let Some(max_txs_in_block) = state_block
-            .world
-            .query_param::<u32, _>(MAX_TRANSACTIONS_IN_BLOCK)
-        {
-            self.max_txs_in_block = max_txs_in_block as usize;
-        }
     }
 
     fn cache_transaction(&mut self, state_block: &StateBlock<'_>) {

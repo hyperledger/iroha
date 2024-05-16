@@ -55,7 +55,6 @@ impl Execute for InstructionBox {
             Self::Revoke(isi) => isi.execute(authority, state_transaction),
             Self::ExecuteTrigger(isi) => isi.execute(authority, state_transaction),
             Self::SetParameter(isi) => isi.execute(authority, state_transaction),
-            Self::NewParameter(isi) => isi.execute(authority, state_transaction),
             Self::Upgrade(isi) => isi.execute(authority, state_transaction),
             Self::Log(isi) => isi.execute(authority, state_transaction),
         }

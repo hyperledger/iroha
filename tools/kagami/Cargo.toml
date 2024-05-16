@@ -13,7 +13,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-iroha_crypto = { workspace = true }
+iroha_crypto = { workspace = true, features = ["rand"] }
 iroha_config = { workspace = true }
 iroha_data_model = { workspace = true }
 iroha_schema_gen = { workspace = true }

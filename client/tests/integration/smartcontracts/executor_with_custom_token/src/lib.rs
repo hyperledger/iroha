@@ -16,12 +16,10 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use alloc::{borrow::ToOwned, string::String};
+use alloc::string::String;
 
 use anyhow::anyhow;
-use iroha_executor::{
-    default::default_permission_token_schema, permission::Token as _, prelude::*,
-};
+use iroha_executor::{permission::Token as _, prelude::*, DataModelBuilder};
 use iroha_schema::IntoSchema;
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 use parity_scale_codec::{Decode, Encode};
@@ -97,7 +95,9 @@ impl Executor {
                 })?;
 
                 if let Ok(can_unregister_domain_token) =
-                    iroha_executor::default::tokens::domain::CanUnregisterDomain::try_from(&token)
+                    iroha_executor::default::tokens::domain::CanUnregisterDomain::try_from_object(
+                        &token,
+                    )
                 {
                     found_accounts.push((account, can_unregister_domain_token.domain_id));
                     break;
@@ -109,13 +109,10 @@ impl Executor {
     }
 
     fn replace_token(accounts: &[(Account, DomainId)]) -> MigrationResult {
-        let can_unregister_domain_definition_id = PermissionTokenId::try_from(
-            iroha_executor::default::tokens::domain::CanUnregisterDomain::type_name(),
-        )
-        .unwrap();
+        let can_unregister_domain_definition_id =
+            iroha_executor::default::tokens::domain::CanUnregisterDomain::definition_id();
 
-        let can_control_domain_lives_definition_id =
-            PermissionTokenId::try_from(token::CanControlDomainLives::type_name()).unwrap();
+        let can_control_domain_lives_definition_id = token::CanControlDomainLives::definition_id();
 
         accounts
             .iter()
@@ -204,14 +201,13 @@ fn visit_unregister_domain(
 pub fn migrate(_block_height: u64) -> MigrationResult {
     let accounts = Executor::get_all_accounts_with_can_unregister_domain_permission()?;
 
-    let mut schema = default_permission_token_schema();
-    schema.remove::<iroha_executor::default::tokens::domain::CanUnregisterDomain>();
-    schema.insert::<token::CanControlDomainLives>();
+    let mut data_model = DataModelBuilder::new();
+    data_model.extend_with_default_permission_tokens();
+    data_model
+        .remove_permission_token::<iroha_executor::default::tokens::domain::CanUnregisterDomain>();
+    data_model.add_permission_token::<token::CanControlDomainLives>();
 
-    let (token_ids, schema_str) = schema.serialize();
-    iroha_executor::set_permission_token_schema(
-        &iroha_executor::data_model::permission::PermissionTokenSchema::new(token_ids, schema_str),
-    );
+    iroha_executor::set_data_model(&data_model.serialize());
 
     Executor::replace_token(&accounts)
 }

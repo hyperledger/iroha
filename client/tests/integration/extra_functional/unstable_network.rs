@@ -60,11 +60,16 @@ fn unstable_network(
         {
             configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
         }
-        let network = Network::new_with_offline_peers(
-            Some(configuration),
-            n_peers + n_offline_peers,
-            0,
-            Some(port),
+        let network = Network::new(
+            NetworkOptions::with_n_peers(n_peers + n_offline_peers)
+                .with_start_port(port)
+                .with_max_txs_in_block(MAX_TRANSACTIONS_IN_BLOCK.try_into().unwrap())
+                .with_config_mut(|cfg| {
+                    #[cfg(debug_assertions)]
+                    {
+                        cfg.sumeragi.debug_force_soft_fork = force_soft_fork;
+                    }
+                }),
         )
         .await
         .expect("Failed to init peers");

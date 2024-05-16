@@ -140,6 +140,8 @@ types!(
     ExecutorEvent,
     ExecutorEventFilter,
     ExecutorEventSet,
+    ExecutorUpgraded,
+    ExecutorDataModel,
     Fail,
     EventFilterBox,
     FindAccountById,
@@ -173,7 +175,6 @@ types!(
     FindDomainById,
     FindDomainKeyValueByIdAndKey,
     FindError,
-    FindPermissionTokenSchema,
     FindPermissionTokensByAccountId,
     FindRoleByRoleId,
     FindRolesByAccountId,
@@ -229,7 +230,6 @@ types!(
     NewAccount,
     NewAssetDefinition,
     NewDomain,
-    NewParameter,
     NewRole,
     NonTrivial<PredicateBox>,
     NonZeroU32,
@@ -251,7 +251,6 @@ types!(
     Option<NonZeroU32>,
     Option<NonZeroU64>,
     Option<Option<u64>>,
-    Option<ParameterId>,
     Option<PeerId>,
     Option<RoleId>,
     Option<String>,
@@ -262,7 +261,6 @@ types!(
     Option<TriggerId>,
     Parameter,
     ParameterId,
-    ParameterValueBox,
     Peer,
     PeerEvent,
     PeerEventFilter,
@@ -270,8 +268,6 @@ types!(
     PeerId,
     RolePermissionChanged,
     PermissionToken,
-    PermissionTokenSchema,
-    PermissionTokenSchemaUpdateEvent,
     PipelineEventBox,
     PipelineEventFilterBox,
     PredicateBox,
@@ -403,16 +399,17 @@ types!(
     u8,
 );
 
-#[cfg(test)]
-mod tests {
-    use core::num::{NonZeroU32, NonZeroU64};
-    use std::{
+pub mod complete_data_model {
+    //! Complete set of types participating in the schema
+
+    pub use core::num::{NonZeroU32, NonZeroU64};
+    pub use std::{
         collections::{BTreeMap, BTreeSet, HashMap, HashSet},
         time::Duration,
     };
 
-    use iroha_crypto::*;
-    use iroha_data_model::{
+    pub use iroha_crypto::*;
+    pub use iroha_data_model::{
         account::NewAccount,
         asset::NewAssetDefinition,
         block::{
@@ -432,8 +429,6 @@ mod tests {
             InstructionType,
         },
         metadata::{MetadataError, MetadataValueBox, SizeError},
-        parameter::ParameterValueBox,
-        permission::JsonString,
         prelude::*,
         query::{
             error::{FindError, QueryExecutionFail},
@@ -449,17 +444,20 @@ mod tests {
             error::TransactionLimitError, SignedTransactionV1, TransactionLimits,
             TransactionPayload,
         },
-        BatchedResponse, BatchedResponseV1, Level,
+        BatchedResponse, BatchedResponseV1, JsonString, Level,
     };
-    use iroha_primitives::{
+    pub use iroha_primitives::{
         addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
         const_vec::ConstVec,
         conststr::ConstString,
         unique_vec::UniqueVec,
     };
-    use iroha_schema::Compact;
+    pub use iroha_schema::Compact;
+}
 
-    use super::IntoSchema;
+#[cfg(test)]
+mod tests {
+    use super::{complete_data_model::*, IntoSchema};
 
     fn is_const_generic(generic: &str) -> bool {
         generic.parse::<usize>().is_ok()

@@ -3,27 +3,62 @@
 use alloc::borrow::ToOwned as _;
 
 use iroha_schema::IntoSchema;
-use iroha_smart_contract::{data_model::permission::PermissionToken, QueryOutputCursor};
+use iroha_smart_contract::QueryOutputCursor;
 use iroha_smart_contract_utils::debug::DebugExpectExt as _;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::{data_model::prelude::*, prelude::*};
+use crate::{
+    data_model::{
+        executor::ExecutorDataModelObject,
+        prelude::{PermissionToken as PermissionTokenObject, *},
+    },
+    prelude::*,
+    ConvertDataModelObject, ConvertDataModelObjectError,
+};
 
-/// [`Token`] trait is used to check if the token is owned by the account.
+/// Is used to check if the permission token is owned by the account.
+///
+/// To convert to/from [`PermissionTokenObject`], use [`TokenConvertWrap`].
 pub trait Token:
     Serialize + DeserializeOwned + IntoSchema + PartialEq<Self> + ValidateGrantRevoke
-where
-    for<'a> Self: TryFrom<&'a PermissionToken, Error = PermissionTokenConversionError>,
 {
-    /// Return name of this permission token
-    fn name() -> Name {
-        <Self as iroha_schema::IntoSchema>::type_name()
-            .parse()
-            .dbg_expect("Failed to parse permission token as `Name`")
+    /// Check if the account owns this token
+    fn is_owned_by(&self, account_id: &AccountId) -> bool;
+
+    /// Token's id, according to [`IntoSchema`].
+    fn definition_id() -> PermissionTokenId {
+        PermissionTokenId::new(
+            <Self as iroha_schema::IntoSchema>::type_name()
+                .parse()
+                .dbg_expect("Failed to parse permission token id as `Name`"),
+        )
     }
 
-    /// Check if token is owned by the account
-    fn is_owned_by(&self, account_id: &AccountId) -> bool;
+    /// Try to convert from [`PermissionTokenObject`]
+    /// # Errors
+    /// See [`ConvertDataModelObject::try_from_object`]
+    fn try_from_object(
+        object: &PermissionTokenObject,
+    ) -> Result<Self, ConvertDataModelObjectError> {
+        TokenConvertWrap::try_from_object(object).map(|x| x.0)
+    }
+
+    /// Convert into [`PermissionTokenObject`]
+    fn into_object(self) -> PermissionTokenObject {
+        TokenConvertWrap(self).into_object()
+    }
+}
+
+/// Utility to convert between `T`: [`Token`] and [`PermissionTokenObject`].
+#[derive(Serialize, Deserialize)]
+pub(crate) struct TokenConvertWrap<T>(pub T);
+
+impl<T: Token> ConvertDataModelObject for TokenConvertWrap<T> {
+    type Object = PermissionTokenObject;
+
+    fn definition_id() -> <Self::Object as ExecutorDataModelObject>::DefinitionId {
+        T::definition_id()
+    }
 }
 
 /// Trait that should be implemented for all permission tokens.
@@ -41,15 +76,6 @@ pub trait ValidateGrantRevoke {
 pub trait PassCondition {
     #[allow(missing_docs, clippy::missing_errors_doc)]
     fn validate(&self, authority: &AccountId, block_height: u64) -> Result;
-}
-
-/// Error type for `TryFrom<PermissionToken>` implementations.
-#[derive(Debug)]
-pub enum PermissionTokenConversionError {
-    /// Unexpected token id.
-    Id(PermissionTokenId),
-    /// Failed to deserialize JSON
-    Deserialize(serde_json::Error),
 }
 
 pub mod derive_conversions {
@@ -334,7 +360,8 @@ impl<T: Token> From<&T> for OnlyGenesis {
 }
 
 /// Iterator over all accounts and theirs permission tokens
-pub(crate) fn accounts_permission_tokens() -> impl Iterator<Item = (AccountId, PermissionToken)> {
+pub(crate) fn accounts_permission_tokens(
+) -> impl Iterator<Item = (AccountId, PermissionTokenObject)> {
     FindAllAccounts
         .execute()
         .dbg_expect("failed to query all accounts")
@@ -351,7 +378,7 @@ pub(crate) fn accounts_permission_tokens() -> impl Iterator<Item = (AccountId, P
 }
 
 /// Iterator over all roles and theirs permission tokens
-pub(crate) fn roles_permission_tokens() -> impl Iterator<Item = (RoleId, PermissionToken)> {
+pub(crate) fn roles_permission_tokens() -> impl Iterator<Item = (RoleId, PermissionTokenObject)> {
     FindAllRoles
         .execute()
         .dbg_expect("failed to query all accounts")
@@ -364,4 +391,30 @@ pub(crate) fn roles_permission_tokens() -> impl Iterator<Item = (RoleId, Permiss
                 .into_iter()
                 .map(move |token| (role.id().clone(), token))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::{format, string::String};
+
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn convert_token() {
+        #[derive(Serialize, Deserialize, IntoSchema, PartialEq, ValidateGrantRevoke, Token)]
+        #[validate(AlwaysPass)]
+        struct SampleToken {
+            can_do_whatever: bool,
+        }
+
+        let object = PermissionToken::new(
+            "SampleToken".parse().unwrap(),
+            json!({ "can_do_whatever": false }),
+        );
+        let parsed = SampleToken::try_from_object(&object).expect("valid");
+
+        assert_eq!(parsed.can_do_whatever, false);
+    }
 }

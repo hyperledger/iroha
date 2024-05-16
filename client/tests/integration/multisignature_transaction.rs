@@ -6,26 +6,22 @@ use iroha_client::{
     client::{Client, QueryResult},
     config::Config as ClientConfig,
     crypto::KeyPair,
-    data_model::{
-        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-        prelude::*,
-    },
+    data_model::prelude::*,
 };
 use iroha_config::parameters::actual::Root as Config;
+use nonzero_ext::nonzero;
 use test_network::*;
 
 #[allow(clippy::too_many_lines)]
 #[test]
 fn multisignature_transactions_should_be_accepted_after_fully_signed() -> Result<()> {
-    let (_rt, network, client) = Network::start_test_with_runtime(4, Some(10_945));
+    let (_rt, network, client) = Network::start_test_with_runtime(
+        NetworkOptions::with_n_peers(4)
+            .with_start_port(10_945)
+            .with_max_txs_in_block(nonzero!(1u32)),
+    );
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Config::pipeline_time();
-
-    client.submit_all_blocking(
-        ParametersBuilder::new()
-            .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
-            .into_set_parameters(),
-    )?;
 
     let alice_id = AccountId::from_str("alice@wonderland")?;
     let alice_key_pair = get_key_pair();

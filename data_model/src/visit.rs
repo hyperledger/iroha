@@ -41,7 +41,6 @@ pub trait Visit {
         visit_upgrade(&Upgrade),
 
         visit_execute_trigger(&ExecuteTrigger),
-        visit_new_parameter(&NewParameter),
         visit_set_parameter(&SetParameter),
         visit_log(&Log),
 
@@ -60,7 +59,6 @@ pub trait Visit {
         visit_find_all_domains(&FindAllDomains),
         visit_find_all_parameters(&FindAllParameters),
         visit_find_all_peers(&FindAllPeers),
-        visit_find_permission_token_schema(&FindPermissionTokenSchema),
         visit_find_all_role_ids(&FindAllRoleIds),
         visit_find_all_roles(&FindAllRoles),
         visit_find_all_transactions(&FindAllTransactions),
@@ -86,6 +84,7 @@ pub trait Visit {
         visit_find_trigger_by_id(&FindTriggerById),
         visit_find_trigger_key_value_by_id_and_key(&FindTriggerKeyValueByIdAndKey),
         visit_find_triggers_by_domain_id(&FindTriggersByDomainId),
+        visit_find_executor_data_model(&FindExecutorDataModel),
 
         // Visit RegisterBox
         visit_register_peer(&Register<Peer>),
@@ -189,7 +188,6 @@ pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, qu
         visit_find_all_domains(FindAllDomains),
         visit_find_all_parameters(FindAllParameters),
         visit_find_all_peers(FindAllPeers),
-        visit_find_permission_token_schema(FindPermissionTokenSchema),
         visit_find_all_role_ids(FindAllRoleIds),
         visit_find_all_roles(FindAllRoles),
         visit_find_all_transactions(FindAllTransactions),
@@ -215,6 +213,7 @@ pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, qu
         visit_find_trigger_by_id(FindTriggerById),
         visit_find_trigger_key_value_by_id_and_key(FindTriggerKeyValueByIdAndKey),
         visit_find_triggers_by_domain_id(FindTriggersByDomainId),
+        visit_find_executor_data_model(FindExecutorDataModel),
     }
 }
 
@@ -236,9 +235,6 @@ pub fn visit_instruction<V: Visit + ?Sized>(
     isi: &InstructionBox,
 ) {
     match isi {
-        InstructionBox::NewParameter(variant_value) => {
-            visitor.visit_new_parameter(authority, variant_value)
-        }
         InstructionBox::SetParameter(variant_value) => {
             visitor.visit_set_parameter(authority, variant_value)
         }
@@ -440,7 +436,6 @@ leaf_visitors! {
     visit_mint_trigger_repetitions(&Mint<u32, Trigger>),
     visit_burn_trigger_repetitions(&Burn<u32, Trigger>),
     visit_upgrade(&Upgrade),
-    visit_new_parameter(&NewParameter),
     visit_set_parameter(&SetParameter),
     visit_execute_trigger(&ExecuteTrigger),
     visit_fail(&Fail),
@@ -461,7 +456,6 @@ leaf_visitors! {
     visit_find_all_domains(&FindAllDomains),
     visit_find_all_parameters(&FindAllParameters),
     visit_find_all_peers(&FindAllPeers),
-    visit_find_permission_token_schema(&FindPermissionTokenSchema),
     visit_find_all_role_ids(&FindAllRoleIds),
     visit_find_all_roles(&FindAllRoles),
     visit_find_all_transactions(&FindAllTransactions),
@@ -487,4 +481,5 @@ leaf_visitors! {
     visit_find_trigger_by_id(&FindTriggerById),
     visit_find_trigger_key_value_by_id_and_key(&FindTriggerKeyValueByIdAndKey),
     visit_find_triggers_by_domain_id(&FindTriggersByDomainId),
+    visit_find_executor_data_model(&FindExecutorDataModel),
 }

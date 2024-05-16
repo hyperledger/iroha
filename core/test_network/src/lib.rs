@@ -2,7 +2,7 @@
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicBool;
-use std::{collections::BTreeMap, path::Path, sync::Arc, thread};
+use std::{collections::BTreeMap, num::NonZeroU32, path::Path, sync::Arc, thread};
 
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
@@ -88,22 +88,22 @@ impl TestGenesis for GenesisNetwork {
 
         let mint_rose_permission = PermissionToken::new(
             "CanMintAssetWithDefinition".parse().unwrap(),
-            &json!({ "asset_definition_id": rose_definition_id }),
+            json!({ "asset_definition_id": rose_definition_id }),
         );
         let burn_rose_permission = PermissionToken::new(
             "CanBurnAssetWithDefinition".parse().unwrap(),
-            &json!({ "asset_definition_id": rose_definition_id }),
+            json!({ "asset_definition_id": rose_definition_id }),
         );
         let unregister_any_peer_permission =
-            PermissionToken::new("CanUnregisterAnyPeer".parse().unwrap(), &json!(null));
+            PermissionToken::new("CanUnregisterAnyPeer".parse().unwrap(), json!(null));
         let unregister_any_role_permission =
-            PermissionToken::new("CanUnregisterAnyRole".parse().unwrap(), &json!(null));
+            PermissionToken::new("CanUnregisterAnyRole".parse().unwrap(), json!(null));
         let unregister_wonderland_domain = PermissionToken::new(
             "CanUnregisterDomain".parse().unwrap(),
-            &json!({ "domain_id": DomainId::from_str("wonderland").unwrap() } ),
+            json!({ "domain_id": DomainId::from_str("wonderland").unwrap() } ),
         );
         let upgrade_executor_permission =
-            PermissionToken::new("CanUpgradeExecutor".parse().unwrap(), &json!(null));
+            PermissionToken::new("CanUpgradeExecutor".parse().unwrap(), json!(null));
 
         let first_transaction = genesis
             .first_transaction_mut()
@@ -139,6 +139,47 @@ impl TestGenesis for GenesisNetwork {
     }
 }
 
+pub struct NetworkOptions {
+    n_peers: u32,
+    config: Config,
+    start_port: Option<u16>,
+    offline_peers: u32,
+}
+
+impl NetworkOptions {
+    pub fn with_n_peers(n_peers: u32) -> Self {
+        let mut config = Config::test();
+        config.logger.level = Level::INFO;
+
+        Self {
+            n_peers,
+            start_port: None,
+            offline_peers: 0,
+            config,
+        }
+    }
+
+    pub fn with_start_port(mut self, value: u16) -> Self {
+        self.start_port = Some(value);
+        self
+    }
+
+    pub fn with_offline_peers(mut self, value: u32) -> Self {
+        self.offline_peers = value;
+        self
+    }
+
+    pub fn with_max_txs_in_block(mut self, value: NonZeroU32) -> Self {
+        self.config.chain_wide.max_transactions_in_block = value;
+        self
+    }
+
+    pub fn with_config_mut(mut self, fun: impl Fn(&mut Config)) -> Self {
+        fun(&mut self.config);
+        self
+    }
+}
+
 impl Network {
     /// Collect the freeze handles from all the peers in the network.
     #[cfg(debug_assertions)]
@@ -152,54 +193,25 @@ impl Network {
     /// Starts network with peers with default configuration and
     /// specified options in a new async runtime.  Returns its info
     /// and client for connecting to it.
-    pub fn start_test_with_runtime(
-        n_peers: u32,
-        start_port: Option<u16>,
-    ) -> (Runtime, Self, Client) {
+    pub fn start_test_with_runtime(options: NetworkOptions) -> (Runtime, Self, Client) {
         let rt = Runtime::test();
-        let (network, client) = rt.block_on(Self::start_test(n_peers, start_port));
+        let (network, client) = rt.block_on(Self::start_test(options));
         (rt, network, client)
     }
 
     /// Starts network with peers with default configuration and
     /// specified options.  Returns its info and client for connecting
     /// to it.
-    pub async fn start_test(n_peers: u32, start_port: Option<u16>) -> (Self, Client) {
-        Self::start_test_with_offline(n_peers, 0, start_port).await
-    }
-
-    /// Starts network with peers with default configuration and
-    /// specified options.  Returns its info and client for connecting
-    /// to it.
-    pub async fn start_test_with_offline_and_set_n_shifts(
-        n_peers: u32,
-        offline_peers: u32,
-        start_port: Option<u16>,
-    ) -> (Self, Client) {
-        let mut config = Config::test();
-        config.logger.level = Level::INFO;
-        let network =
-            Network::new_with_offline_peers(Some(config), n_peers, offline_peers, start_port)
-                .await
-                .expect("Failed to init peers");
+    pub async fn start_test(options: NetworkOptions) -> (Self, Client) {
+        let network = Network::new(options).await.expect("Failed to init peers");
         let client = Client::test(
-            &Network::peers(&network)
+            &network
+                .peers()
                 .choose(&mut thread_rng())
                 .unwrap()
                 .api_address,
         );
         (network, client)
-    }
-
-    /// Starts network with peers with default configuration and
-    /// specified options.  Returns its info and client for connecting
-    /// to it.
-    pub async fn start_test_with_offline(
-        n_peers: u32,
-        offline_peers: u32,
-        start_port: Option<u16>,
-    ) -> (Self, Client) {
-        Self::start_test_with_offline_and_set_n_shifts(n_peers, offline_peers, start_port).await
     }
 
     /// Adds peer to network and waits for it to start block
@@ -241,16 +253,11 @@ impl Network {
     /// # Errors
     /// - (RARE) Creating new peers and collecting into a [`HashMap`] fails.
     /// - Creating new [`Peer`] instance fails.
-    pub async fn new_with_offline_peers(
-        default_config: Option<Config>,
-        n_peers: u32,
-        offline_peers: u32,
-        start_port: Option<u16>,
-    ) -> Result<Self> {
+    pub async fn new(options: NetworkOptions) -> Result<Self> {
         let mut builders = core::iter::repeat_with(PeerBuilder::new)
             .enumerate()
             .map(|(n, builder)| {
-                if let Some(port) = start_port {
+                if let Some(port) = options.start_port {
                     let offset: u16 = (n * 5)
                         .try_into()
                         .expect("The `n_peers` is too large to fit into `u16`");
@@ -260,14 +267,14 @@ impl Network {
                 }
             })
             .map(|(n, builder)| builder.with_into_genesis((n == 0).then(GenesisNetwork::test)))
-            .take(n_peers as usize)
+            .take(options.n_peers as usize)
             .collect::<Vec<_>>();
         let mut peers = builders
             .iter_mut()
             .map(PeerBuilder::build)
             .collect::<Result<Vec<_>>>()?;
 
-        let mut config = default_config.unwrap_or_else(Config::test);
+        let mut config = options.config;
         config.sumeragi.trusted_peers =
             UniqueVec::from_iter(peers.iter().map(|peer| peer.id.clone()));
 
@@ -275,7 +282,7 @@ impl Network {
         let genesis_builder = builders.remove(0).with_config(config.clone());
 
         // Offset by one to account for genesis
-        let online_peers = n_peers - offline_peers - 1;
+        let online_peers = options.n_peers - options.offline_peers - 1;
         let rng = &mut rand::thread_rng();
         let futures = FuturesUnordered::new();
 
@@ -290,7 +297,7 @@ impl Network {
         }
         futures.collect::<()>().await;
 
-        time::sleep(Duration::from_millis(500) * (n_peers + 1)).await;
+        time::sleep(Duration::from_millis(500) * (options.n_peers + 1)).await;
 
         Ok(Self {
             genesis: genesis_peer,

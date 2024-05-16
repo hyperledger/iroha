@@ -1,7 +1,12 @@
 //! Definition of Iroha default permission tokens
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
-use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
+use alloc::{
+    borrow::{Borrow, ToOwned},
+    format,
+    string::String,
+    vec::Vec,
+};
 
 use iroha_executor_derive::ValidateGrantRevoke;
 use iroha_smart_contract::data_model::{executor::Result, prelude::*};
@@ -43,15 +48,15 @@ macro_rules! declare_tokens {
         }
 
         impl TryFrom<&$crate::data_model::permission::PermissionToken> for AnyPermissionToken {
-            type Error = $crate::permission::PermissionTokenConversionError;
+            type Error = $crate::ConvertDataModelObjectError;
 
             fn try_from(token: &$crate::data_model::permission::PermissionToken) -> Result<Self, Self::Error> {
-                match token.definition_id().as_ref() { $(
+                match token.id().borrow() { $(
                     stringify!($token_ty) => {
-                        let token = <$($token_path::)+$token_ty>::try_from(token)?;
+                        let token = <$($token_path::)+$token_ty>::try_from_object(token)?;
                         Ok(Self::$token_ty(token))
                     } )+
-                    _ => Err(Self::Error::Id(token.definition_id().clone()))
+                    _ => Err(Self::Error::Id(token.id().clone().into()))
                 }
             }
         }
@@ -59,7 +64,7 @@ macro_rules! declare_tokens {
         impl From<AnyPermissionToken> for $crate::data_model::permission::PermissionToken {
             fn from(token: AnyPermissionToken) -> Self {
                 match token { $(
-                    AnyPermissionToken::$token_ty(token) => Self::from(token), )*
+                    AnyPermissionToken::$token_ty(token) => token.into_object(), )*
                 }
             }
         }

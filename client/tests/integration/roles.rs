@@ -178,20 +178,19 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
 
 #[test]
 #[allow(deprecated)]
-fn role_permissions_unified() {
+fn role_permissions_are_deduplicated() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_235).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let allow_alice_to_transfer_rose_1 = PermissionToken::from_str_unchecked(
+    let allow_alice_to_transfer_rose_1 = PermissionToken::new(
         "CanTransferUserAsset".parse().unwrap(),
-        // NOTE: Introduced additional whitespaces in the serialized form
-        "{ \"asset_id\" : \"rose#wonderland#alice@wonderland\" }",
+        json!({ "asset_id": "rose#wonderland#alice@wonderland" }),
     );
 
-    let allow_alice_to_transfer_rose_2 = PermissionToken::from_str_unchecked(
+    // Different content, but same meaning
+    let allow_alice_to_transfer_rose_2 = PermissionToken::new(
         "CanTransferUserAsset".parse().unwrap(),
-        // NOTE: Introduced additional whitespaces in the serialized form
-        "{ \"asset_id\" : \"rose##alice@wonderland\" }",
+        json!({ "asset_id": "rose##alice@wonderland" }),
     );
 
     let role_id: RoleId = "role_id".parse().expect("Valid");

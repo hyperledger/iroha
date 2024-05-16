@@ -341,8 +341,8 @@ pub mod isi {
 
             if !state_transaction
                 .world
-                .permission_token_schema
-                .token_ids
+                .executor_data_model
+                .permission_token_ids
                 .contains(&permission_id)
             {
                 return Err(FindError::PermissionToken(permission_id).into());
@@ -354,7 +354,7 @@ pub mod isi {
             {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Grant,
-                    id: permission.definition_id.into(),
+                    id: permission_id.into(),
                 }
                 .into());
             }

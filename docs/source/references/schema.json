@@ -179,7 +179,7 @@
       },
       {
         "name": "permission_id",
-        "type": "Name"
+        "type": "PermissionTokenId"
       }
     ]
   },
@@ -768,26 +768,12 @@
       {
         "tag": "Changed",
         "discriminant": 0,
-        "type": "ParameterId"
-      },
-      {
-        "tag": "Created",
-        "discriminant": 1,
-        "type": "ParameterId"
-      },
-      {
-        "tag": "Deleted",
-        "discriminant": 2,
-        "type": "ParameterId"
+        "type": "Parameter"
       }
     ]
   },
   "ConfigurationEventFilter": {
     "Struct": [
-      {
-        "name": "id_matcher",
-        "type": "Option<ParameterId>"
-      },
       {
         "name": "event_set",
         "type": "ConfigurationEventSet"
@@ -801,14 +787,6 @@
         {
           "name": "Changed",
           "mask": 1
-        },
-        {
-          "name": "Created",
-          "mask": 2
-        },
-        {
-          "name": "Deleted",
-          "mask": 4
         }
       ]
     }
@@ -855,18 +833,13 @@
         "type": "RoleEvent"
       },
       {
-        "tag": "PermissionToken",
-        "discriminant": 4,
-        "type": "PermissionTokenSchemaUpdateEvent"
-      },
-      {
         "tag": "Configuration",
-        "discriminant": 5,
+        "discriminant": 4,
         "type": "ConfigurationEvent"
       },
       {
         "tag": "Executor",
-        "discriminant": 6,
+        "discriminant": 5,
         "type": "ExecutorEvent"
       }
     ]
@@ -913,17 +886,13 @@
         "type": "RoleEventFilter"
       },
       {
-        "tag": "PermissionTokenSchemaUpdate",
-        "discriminant": 8
-      },
-      {
         "tag": "Configuration",
-        "discriminant": 9,
+        "discriminant": 8,
         "type": "ConfigurationEventFilter"
       },
       {
         "tag": "Executor",
-        "discriminant": 10,
+        "discriminant": 9,
         "type": "ExecutorEventFilter"
       }
     ]
@@ -1199,11 +1168,28 @@
       }
     ]
   },
+  "ExecutorDataModel": {
+    "Struct": [
+      {
+        "name": "schema",
+        "type": "JsonString"
+      },
+      {
+        "name": "permission_token_ids",
+        "type": "SortedVec<PermissionTokenId>"
+      },
+      {
+        "name": "parameter_ids",
+        "type": "SortedVec<ParameterId>"
+      }
+    ]
+  },
   "ExecutorEvent": {
     "Enum": [
       {
         "tag": "Upgraded",
-        "discriminant": 0
+        "discriminant": 0,
+        "type": "ExecutorUpgraded"
       }
     ]
   },
@@ -1225,6 +1211,14 @@
         }
       ]
     }
+  },
+  "ExecutorUpgraded": {
+    "Struct": [
+      {
+        "name": "new_data_model",
+        "type": "ExecutorDataModel"
+      }
+    ]
   },
   "Fail": {
     "Struct": [
@@ -1465,7 +1459,7 @@
       {
         "tag": "PermissionToken",
         "discriminant": 10,
-        "type": "Name"
+        "type": "PermissionTokenId"
       },
       {
         "tag": "Parameter",
@@ -1479,7 +1473,7 @@
       }
     ]
   },
-  "FindPermissionTokenSchema": null,
+  "FindExecutorDataModel": null,
   "FindPermissionTokensByAccountId": {
     "Struct": [
       {
@@ -1691,7 +1685,7 @@
       {
         "tag": "PermissionTokenId",
         "discriminant": 7,
-        "type": "Name"
+        "type": "PermissionTokenId"
       },
       {
         "tag": "ParameterId",
@@ -1822,23 +1816,18 @@
         "type": "SetParameter"
       },
       {
-        "tag": "NewParameter",
-        "discriminant": 11,
-        "type": "NewParameter"
-      },
-      {
         "tag": "Upgrade",
-        "discriminant": 12,
+        "discriminant": 11,
         "type": "Upgrade"
       },
       {
         "tag": "Log",
-        "discriminant": 13,
+        "discriminant": 12,
         "type": "Log"
       },
       {
         "tag": "Fail",
-        "discriminant": 14,
+        "discriminant": 13,
         "type": "Fail"
       }
     ]
@@ -1980,20 +1969,16 @@
         "discriminant": 10
       },
       {
-        "tag": "NewParameter",
+        "tag": "Upgrade",
         "discriminant": 11
       },
       {
-        "tag": "Upgrade",
+        "tag": "Log",
         "discriminant": 12
       },
       {
-        "tag": "Log",
-        "discriminant": 13
-      },
-      {
         "tag": "Fail",
-        "discriminant": 14
+        "discriminant": 13
       }
     ]
   },
@@ -2014,18 +1999,6 @@
   "Ipv4Addr": "Array<u8, 4>",
   "Ipv6Addr": "Array<u16, 8>",
   "JsonString": "String",
-  "LengthLimits": {
-    "Struct": [
-      {
-        "name": "min",
-        "type": "u32"
-      },
-      {
-        "name": "max",
-        "type": "u32"
-      }
-    ]
-  },
   "Level": {
     "Enum": [
       {
@@ -2422,14 +2395,6 @@
       }
     ]
   },
-  "NewParameter": {
-    "Struct": [
-      {
-        "name": "parameter",
-        "type": "Parameter"
-      }
-    ]
-  },
   "NewRole": {
     "Struct": [
       {
@@ -2500,9 +2465,6 @@
   "Option<Option<u64>>": {
     "Option": "Option<u64>"
   },
-  "Option<ParameterId>": {
-    "Option": "ParameterId"
-  },
   "Option<PeerId>": {
     "Option": "PeerId"
   },
@@ -2536,12 +2498,12 @@
   "Parameter": {
     "Struct": [
       {
-        "name": "id",
+        "name": "definition_id",
         "type": "ParameterId"
       },
       {
-        "name": "val",
-        "type": "ParameterValueBox"
+        "name": "payload",
+        "type": "JsonString"
       }
     ]
   },
@@ -2550,30 +2512,6 @@
       {
         "name": "name",
         "type": "Name"
-      }
-    ]
-  },
-  "ParameterValueBox": {
-    "Enum": [
-      {
-        "tag": "TransactionLimits",
-        "discriminant": 0,
-        "type": "TransactionLimits"
-      },
-      {
-        "tag": "MetadataLimits",
-        "discriminant": 1,
-        "type": "Limits"
-      },
-      {
-        "tag": "LengthLimits",
-        "discriminant": 2,
-        "type": "LengthLimits"
-      },
-      {
-        "tag": "Numeric",
-        "discriminant": 3,
-        "type": "Numeric"
       }
     ]
   },
@@ -2642,7 +2580,7 @@
     "Struct": [
       {
         "name": "definition_id",
-        "type": "Name"
+        "type": "PermissionTokenId"
       },
       {
         "name": "payload",
@@ -2650,27 +2588,11 @@
       }
     ]
   },
-  "PermissionTokenSchema": {
+  "PermissionTokenId": {
     "Struct": [
       {
-        "name": "token_ids",
-        "type": "Vec<Name>"
-      },
-      {
-        "name": "schema",
-        "type": "String"
-      }
-    ]
-  },
-  "PermissionTokenSchemaUpdateEvent": {
-    "Struct": [
-      {
-        "name": "old_schema",
-        "type": "PermissionTokenSchema"
-      },
-      {
-        "name": "new_schema",
-        "type": "PermissionTokenSchema"
+        "name": "name",
+        "type": "Name"
       }
     ]
   },
@@ -2867,54 +2789,54 @@
         "type": "FindPermissionTokensByAccountId"
       },
       {
-        "tag": "FindPermissionTokenSchema",
-        "discriminant": 30,
-        "type": "FindPermissionTokenSchema"
-      },
-      {
         "tag": "FindAllActiveTriggerIds",
-        "discriminant": 31,
+        "discriminant": 30,
         "type": "FindAllActiveTriggerIds"
       },
       {
         "tag": "FindTriggerById",
-        "discriminant": 32,
+        "discriminant": 31,
         "type": "FindTriggerById"
       },
       {
         "tag": "FindTriggerKeyValueByIdAndKey",
-        "discriminant": 33,
+        "discriminant": 32,
         "type": "FindTriggerKeyValueByIdAndKey"
       },
       {
         "tag": "FindTriggersByDomainId",
-        "discriminant": 34,
+        "discriminant": 33,
         "type": "FindTriggersByDomainId"
       },
       {
         "tag": "FindAllRoles",
-        "discriminant": 35,
+        "discriminant": 34,
         "type": "FindAllRoles"
       },
       {
         "tag": "FindAllRoleIds",
-        "discriminant": 36,
+        "discriminant": 35,
         "type": "FindAllRoleIds"
       },
       {
         "tag": "FindRoleByRoleId",
-        "discriminant": 37,
+        "discriminant": 36,
         "type": "FindRoleByRoleId"
       },
       {
         "tag": "FindRolesByAccountId",
-        "discriminant": 38,
+        "discriminant": 37,
         "type": "FindRolesByAccountId"
       },
       {
         "tag": "FindAllParameters",
-        "discriminant": 39,
+        "discriminant": 38,
         "type": "FindAllParameters"
+      },
+      {
+        "tag": "FindExecutorDataModel",
+        "discriminant": 39,
+        "type": "FindExecutorDataModel"
       }
     ]
   },
@@ -2968,29 +2890,29 @@
         "type": "PermissionToken"
       },
       {
-        "tag": "PermissionTokenSchema",
-        "discriminant": 4,
-        "type": "PermissionTokenSchema"
-      },
-      {
         "tag": "LimitedMetadata",
-        "discriminant": 5,
+        "discriminant": 4,
         "type": "MetadataValueBox"
       },
       {
         "tag": "Numeric",
-        "discriminant": 6,
+        "discriminant": 5,
         "type": "Numeric"
       },
       {
         "tag": "BlockHeader",
-        "discriminant": 7,
+        "discriminant": 6,
         "type": "BlockHeader"
       },
       {
         "tag": "Block",
-        "discriminant": 8,
+        "discriminant": 7,
         "type": "SignedBlock"
+      },
+      {
+        "tag": "ExecutorDataModel",
+        "discriminant": 8,
+        "type": "ExecutorDataModel"
       },
       {
         "tag": "Vec",
@@ -3399,7 +3321,7 @@
       },
       {
         "name": "permission_token_id",
-        "type": "Name"
+        "type": "PermissionTokenId"
       }
     ]
   },
@@ -3770,8 +3692,14 @@
       "value": "MetadataValueBox"
     }
   },
+  "SortedVec<ParameterId>": {
+    "Vec": "ParameterId"
+  },
   "SortedVec<PermissionToken>": {
     "Vec": "PermissionToken"
+  },
+  "SortedVec<PermissionTokenId>": {
+    "Vec": "PermissionTokenId"
   },
   "SortedVec<PublicKey>": {
     "Vec": "PublicKey"
@@ -3869,18 +3797,6 @@
       {
         "name": "reason",
         "type": "String"
-      }
-    ]
-  },
-  "TransactionLimits": {
-    "Struct": [
-      {
-        "name": "max_instruction_number",
-        "type": "u64"
-      },
-      {
-        "name": "max_wasm_size_bytes",
-        "type": "u64"
       }
     ]
   },
@@ -4422,9 +4338,6 @@
   },
   "Vec<MetadataValueBox>": {
     "Vec": "MetadataValueBox"
-  },
-  "Vec<Name>": {
-    "Vec": "Name"
   },
   "Vec<PeerId>": {
     "Vec": "PeerId"

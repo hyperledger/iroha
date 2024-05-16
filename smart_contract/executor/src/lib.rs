@@ -5,19 +5,29 @@
 extern crate alloc;
 extern crate self as iroha_executor;
 
-use alloc::vec::Vec;
+use alloc::collections::BTreeSet;
 
-use data_model::{executor::Result, permission::PermissionTokenId, visit::Visit, ValidationFail};
+use data_model::{
+    executor::{ExecutorDataModel, Result},
+    visit::Visit,
+    ValidationFail,
+};
 #[cfg(not(test))]
 use data_model::{prelude::*, smart_contract::payloads};
+use iroha_executor::data_model::executor::ExecutorDataModelObject;
 pub use iroha_schema::MetaMap;
 pub use iroha_smart_contract as smart_contract;
+use iroha_smart_contract_utils::debug::DebugExpectExt;
 pub use iroha_smart_contract_utils::{debug, encode_with_length_prefix};
 #[cfg(not(test))]
 use iroha_smart_contract_utils::{decode_with_length_prefix_from_raw, encode_and_execute};
+use serde::{de::DeserializeOwned, Serialize};
 pub use smart_contract::{data_model, parse, stub_getrandom};
 
+use crate::data_model::JsonString;
+
 pub mod default;
+pub mod parameter;
 pub mod permission;
 
 pub mod utils {
@@ -78,7 +88,7 @@ pub fn get_migrate_payload() -> payloads::Migrate {
     unsafe { decode_with_length_prefix_from_raw(host::get_migrate_payload()) }
 }
 
-/// Set new [`PermissionTokenSchema`].
+/// Set new [`ExecutorDataModel`].
 ///
 /// # Errors
 ///
@@ -89,9 +99,9 @@ pub fn get_migrate_payload() -> payloads::Migrate {
 /// Host side will generate a trap if this function was not called from a
 /// executor's `migrate()` entrypoint.
 #[cfg(not(test))]
-pub fn set_permission_token_schema(schema: &data_model::permission::PermissionTokenSchema) {
+pub fn set_data_model(data_model: &ExecutorDataModel) {
     // Safety: - ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { encode_and_execute(&schema, host::set_permission_token_schema) }
+    unsafe { encode_and_execute(&data_model, host::set_data_model) }
 }
 
 #[cfg(not(test))]
@@ -126,8 +136,8 @@ mod host {
         /// This function does transfer ownership of the result to the caller
         pub(super) fn get_migrate_payload() -> *const u8;
 
-        /// Set new [`PermissionTokenSchema`].
-        pub(super) fn set_permission_token_schema(ptr: *const u8, len: usize);
+        /// Set new [`ExecutorDataModel`].
+        pub(super) fn set_data_model(ptr: *const u8, len: usize);
     }
 }
 
@@ -172,34 +182,113 @@ macro_rules! deny {
     }};
 }
 
-/// Collection of all permission tokens defined by the executor
-#[derive(Debug, Clone, Default)]
-pub struct PermissionTokenSchema(Vec<PermissionTokenId>, MetaMap);
+/// Convert a type to and from [`ExecutorDataModelObject`].
+pub trait ConvertDataModelObject: Serialize + DeserializeOwned {
+    /// Target object.
+    type Object: ExecutorDataModelObject;
 
-impl PermissionTokenSchema {
-    /// Remove permission token from this collection
-    pub fn remove<T: permission::Token>(&mut self) {
-        let to_remove = <T as permission::Token>::name();
+    /// Implementor's type ID as specified in the data model schema.
+    fn definition_id() -> <Self::Object as ExecutorDataModelObject>::DefinitionId;
 
-        if let Some(pos) = self.0.iter().position(|token_id| *token_id == to_remove) {
-            self.0.remove(pos);
-            <T as iroha_schema::IntoSchema>::remove_from_schema(&mut self.1);
+    /// Try to convert an object to the type
+    /// # Errors
+    /// - If object id doesn't match with type id
+    /// - If fails to deserialize object payload into the type
+    fn try_from_object(object: &Self::Object) -> Result<Self, ConvertDataModelObjectError> {
+        let expected_id = Self::definition_id();
+
+        if *object.object_definition_id() != expected_id {
+            return Err(ConvertDataModelObjectError::Id(
+                object.object_definition_id().clone().into(),
+            ));
         }
+
+        object
+            .object_payload()
+            .deserialize_to()
+            .map_err(ConvertDataModelObjectError::Deserialize)
     }
 
-    /// Insert new permission token into this collection
-    pub fn insert<T: permission::Token>(&mut self) {
-        <T as iroha_schema::IntoSchema>::update_schema_map(&mut self.1);
-        self.0.push(<T as permission::Token>::name());
+    /// Convert the type into its object representation
+    fn into_object(self) -> Self::Object {
+        let id = Self::definition_id();
+
+        let payload = DebugExpectExt::dbg_expect(
+            serde_json::to_value(self),
+            "failed to serialize concrete data model entity; this is a bug",
+        );
+
+        Self::Object::new(id, JsonString::from(&payload))
+    }
+}
+
+/// An error that might occur while converting an [`ExecutorDataModelObject`]
+/// into a native executor type.
+#[derive(Debug)]
+pub enum ConvertDataModelObjectError {
+    /// Unexpected object id
+    Id(data_model::prelude::Name),
+    /// Failed to deserialize object payload
+    Deserialize(serde_json::Error),
+}
+
+/// A convenience to build [`ExecutorDataModel`] from within the executor
+#[derive(Debug, Clone, Default)]
+pub struct DataModelBuilder {
+    schema: MetaMap,
+    permission_tokens: BTreeSet<prelude::PermissionTokenId>,
+    parameters: BTreeSet<prelude::ParameterId>,
+}
+
+impl DataModelBuilder {
+    /// Constructor
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// Serializes schema into a JSON string representation
-    pub fn serialize(mut self) -> (Vec<PermissionTokenId>, alloc::string::String) {
-        self.0.sort();
+    /// Define a permission token in the data model
+    pub fn add_permission_token<T: permission::Token>(&mut self) {
+        <T as iroha_schema::IntoSchema>::update_schema_map(&mut self.schema);
+        self.permission_tokens.insert(T::definition_id());
+    }
 
-        (
-            self.0,
-            serde_json::to_string(&self.1).expect("schema serialization must not fail"),
+    /// Remove a permission token from the builder
+    pub fn remove_permission_token<T: permission::Token>(&mut self) {
+        <T as iroha_schema::IntoSchema>::remove_from_schema(&mut self.schema);
+        self.permission_tokens.remove(&T::definition_id());
+    }
+
+    /// Adds all tokens defined in [`default::tokens`].
+    pub fn extend_with_default_permission_tokens(&mut self) {
+        macro_rules! add_to_schema {
+            ($token_ty:ty) => {
+                self.add_permission_token::<$token_ty>();
+            };
+        }
+
+        default::tokens::map_token_type!(add_to_schema);
+    }
+
+    /// Define a configuration parameter in the data model
+    pub fn add_parameter<T: parameter::Parameter>(&mut self) {
+        <T as iroha_schema::IntoSchema>::update_schema_map(&mut self.schema);
+        self.parameters.insert(T::definition_id());
+    }
+
+    /// Serializes into a type that is part of Iroha data model, the type
+    /// that the _other_ side (i.e. Iroha, not Executor) can work with.
+    /// # Errors
+    /// If fails to serialize schema as JSON
+    pub fn serialize(self) -> ExecutorDataModel {
+        ExecutorDataModel::new(
+            // FIXME: reduce extra conversion & allocation
+            //        current:  MetaMap -> JsonValue (borrowed) -> JsonString(string)
+            //        fixed:    MetaMap -> JsonString(string)
+            JsonString::from(
+                &serde_json::to_value(self.schema).expect("schema serialization must not fail"),
+            ),
+            self.permission_tokens,
+            self.parameters,
         )
     }
 }
@@ -232,6 +321,6 @@ pub mod prelude {
             visit::Visit,
             ValidationFail,
         },
-        deny, execute, PermissionTokenSchema, Validate,
+        deny, execute, DataModelBuilder, Validate,
     };
 }

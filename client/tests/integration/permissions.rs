@@ -316,10 +316,9 @@ fn stored_vs_granted_token_payload() -> Result<()> {
     // Allow alice to mint mouse asset and mint initial value
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission(
-        PermissionToken::from_str_unchecked(
+        PermissionToken::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
-            // NOTE: Introduced additional whitespaces in the serialized form
-            "{ \"asset_id\" : \"xor#wonderland#mouse@wonderland\" }",
+            json!({ "asset_id": "xor#wonderland#mouse@wonderland" }),
         ),
         alice_id,
     );
@@ -350,19 +349,18 @@ fn permission_tokens_are_unified() {
     let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
 
     let allow_alice_to_transfer_rose_1 = Grant::permission(
-        PermissionToken::from_str_unchecked(
+        PermissionToken::new(
             "CanTransferUserAsset".parse().unwrap(),
-            // NOTE: Introduced additional whitespaces in the serialized form
-            "{ \"asset_id\" : \"rose#wonderland#alice@wonderland\" }",
+            json!({ "asset_id": "rose#wonderland#alice@wonderland" }),
         ),
         alice_id.clone(),
     );
 
     let allow_alice_to_transfer_rose_2 = Grant::permission(
-        PermissionToken::from_str_unchecked(
+        PermissionToken::new(
             "CanTransferUserAsset".parse().unwrap(),
-            // NOTE: Introduced additional whitespaces in the serialized form
-            "{ \"asset_id\" : \"rose##alice@wonderland\" }",
+            // different content, but same meaning
+            json!({ "asset_id": "rose##alice@wonderland" }),
         ),
         alice_id,
     );
@@ -373,7 +371,7 @@ fn permission_tokens_are_unified() {
 
     let _ = iroha_client
         .submit_blocking(allow_alice_to_transfer_rose_2)
-        .expect_err("permission tokens are not unified");
+        .expect_err("should reject due to duplication");
 }
 
 #[test]

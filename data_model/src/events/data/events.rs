@@ -89,8 +89,6 @@ mod model {
         Trigger(trigger::TriggerEvent),
         /// Role event
         Role(role::RoleEvent),
-        /// Permission token event
-        PermissionToken(permission::PermissionTokenSchemaUpdateEvent),
         /// Configuration event
         Configuration(config::ConfigurationEvent),
         /// Executor event
@@ -287,44 +285,6 @@ mod role {
     }
 }
 
-mod permission {
-    //! This module contains [`PermissionTokenSchemaUpdateEvent`]
-
-    pub use self::model::*;
-    use super::*;
-    use crate::permission::PermissionTokenSchema;
-
-    #[model]
-    mod model {
-        use super::*;
-
-        /// Information about permission tokens update.
-        /// Only happens when registering new executor
-        #[derive(
-            Debug,
-            Clone,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            Getters,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-        )]
-        #[getset(get = "pub")]
-        #[ffi_type]
-        pub struct PermissionTokenSchemaUpdateEvent {
-            /// Previous set of permission tokens
-            pub old_schema: PermissionTokenSchema,
-            /// New set of permission tokens
-            pub new_schema: PermissionTokenSchema,
-        }
-    }
-}
-
 mod account {
     //! This module contains `AccountEvent` and its impls
 
@@ -332,7 +292,6 @@ mod account {
 
     pub use self::model::*;
     use super::*;
-    use crate::name::Name;
 
     type AccountMetadataChanged = MetadataChanged<AccountId>;
 
@@ -414,7 +373,7 @@ mod account {
 
     impl AccountPermissionChanged {
         /// Get permission id
-        pub fn permission_id(&self) -> &Name {
+        pub fn permission_id(&self) -> &PermissionTokenId {
             &self.permission_id
         }
     }
@@ -535,9 +494,8 @@ mod config {
     data_event! {
         #[has_origin(origin = Parameter)]
         pub enum ConfigurationEvent {
-            Changed(ParameterId),
-            Created(ParameterId),
-            Deleted(ParameterId),
+            #[has_origin(parameter => &parameter.definition_id)]
+            Changed(Parameter),
         }
     }
 }
@@ -558,10 +516,10 @@ mod executor {
         // this is used in no_std
         #[allow(unused)]
         use super::*;
+        use crate::executor::ExecutorDataModel;
 
         #[derive(
             Debug,
-            Copy,
             Clone,
             PartialEq,
             Eq,
@@ -575,11 +533,38 @@ mod executor {
             EventSet,
         )]
         #[non_exhaustive]
-        #[ffi_type]
+        #[ffi_type(opaque)]
         #[serde(untagged)] // Unaffected by #3330, as single unit variant
         #[repr(transparent)]
         pub enum ExecutorEvent {
-            Upgraded,
+            Upgraded(ExecutorUpgraded),
+        }
+
+        /// Information about the updated executor data model.
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
+        #[ffi_type]
+        #[repr(transparent)]
+        pub struct ExecutorUpgraded {
+            /// Updated data model
+            pub new_data_model: ExecutorDataModel,
+        }
+    }
+
+    impl ExecutorUpgraded {
+        pub fn new_data_model(&self) -> &ExecutorDataModel {
+            &self.new_data_model
         }
     }
 }
@@ -616,11 +601,7 @@ impl DataEvent {
         match self {
             Self::Domain(event) => Some(event.origin_id()),
             Self::Trigger(event) => event.origin_id().domain_id.as_ref(),
-            Self::Peer(_)
-            | Self::Configuration(_)
-            | Self::Role(_)
-            | Self::PermissionToken(_)
-            | Self::Executor(_) => None,
+            Self::Peer(_) | Self::Configuration(_) | Self::Role(_) | Self::Executor(_) => None,
         }
     }
 }
@@ -635,9 +616,8 @@ pub mod prelude {
         },
         config::{ConfigurationEvent, ConfigurationEventSet},
         domain::{DomainEvent, DomainEventSet, DomainOwnerChanged},
-        executor::{ExecutorEvent, ExecutorEventSet},
+        executor::{ExecutorEvent, ExecutorEventSet, ExecutorUpgraded},
         peer::{PeerEvent, PeerEventSet},
-        permission::PermissionTokenSchemaUpdateEvent,
         role::{RoleEvent, RoleEventSet, RolePermissionChanged},
         trigger::{TriggerEvent, TriggerEventSet, TriggerNumberOfExecutionsChanged},
         DataEvent, HasOrigin, MetadataChanged,

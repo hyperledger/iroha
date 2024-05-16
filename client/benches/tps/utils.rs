@@ -1,13 +1,7 @@
 use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr as _, sync::mpsc, thread, time};
 
 use eyre::{Result, WrapErr};
-use iroha_client::{
-    client::Client,
-    data_model::{
-        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-        prelude::*,
-    },
-};
+use iroha_client::{client::Client, data_model::prelude::*};
 use iroha_data_model::events::pipeline::{BlockEventFilter, BlockStatus};
 use nonzero_ext::nonzero;
 use serde::Deserialize;
@@ -49,15 +43,12 @@ impl Config {
 
     pub fn measure(self) -> Result<Tps> {
         // READY
-        let (_rt, network, client) = Network::start_test_with_runtime(self.peers, None);
+        let (_rt, network, client) = Network::start_test_with_runtime(
+            NetworkOptions::with_n_peers(self.peers)
+                .with_max_txs_in_block(self.max_txs_per_block.try_into().unwrap()),
+        );
         let clients = network.clients();
         wait_for_genesis_committed_with_max_retries(&clients, 0, self.genesis_max_retries);
-
-        client.submit_all_blocking(
-            ParametersBuilder::new()
-                .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, self.max_txs_per_block)?
-                .into_set_parameters(),
-        )?;
 
         let unit_names = (UnitName::MIN..).take(self.peers as usize);
         let units = clients

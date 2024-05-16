@@ -7,7 +7,7 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use iroha_executor::{default::default_permission_token_schema, prelude::*};
+use iroha_executor::{default::tokens::domain::CanUnregisterDomain, prelude::*, DataModelBuilder};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
@@ -25,13 +25,11 @@ struct Executor {
 pub fn migrate(_block_height: u64) -> MigrationResult {
     // Note that actually migration will reset token schema to default (minus `CanUnregisterDomain`)
     // So any added custom permission tokens will be also removed
-    let mut schema = default_permission_token_schema();
-    schema.remove::<iroha_executor::default::tokens::domain::CanUnregisterDomain>();
+    let mut data_model = DataModelBuilder::new();
+    data_model.extend_with_default_permission_tokens();
+    data_model.remove_permission_token::<CanUnregisterDomain>();
 
-    let (token_ids, schema_str) = schema.serialize();
-    iroha_executor::set_permission_token_schema(
-        &iroha_executor::data_model::permission::PermissionTokenSchema::new(token_ids, schema_str),
-    );
+    iroha_executor::set_data_model(&data_model.serialize());
 
     Ok(())
 }

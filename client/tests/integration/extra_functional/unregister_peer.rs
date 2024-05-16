@@ -4,12 +4,10 @@ use eyre::Result;
 use iroha_client::{
     client::{self, QueryResult},
     crypto::KeyPair,
-    data_model::{
-        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-        prelude::*,
-    },
+    data_model::prelude::*,
 };
 use iroha_config::parameters::actual::Root as Config;
+use nonzero_ext::nonzero;
 use test_network::*;
 
 // Note the test is marked as `unstable`,  not the network.
@@ -114,12 +112,13 @@ fn init() -> Result<(
     AccountId,
     AssetDefinitionId,
 )> {
-    let (rt, network, client) = Network::start_test_with_runtime(4, Some(10_925));
+    let (rt, network, client) = Network::start_test_with_runtime(
+        NetworkOptions::with_n_peers(4)
+            .with_start_port(10_925)
+            .with_max_txs_in_block(nonzero!(1u32)),
+    );
     let pipeline_time = Config::pipeline_time();
     iroha_logger::info!("Started");
-    let parameters = ParametersBuilder::new()
-        .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
-        .into_set_parameters();
     let create_domain = Register::domain(Domain::new("domain".parse()?));
     let account_id: AccountId = "account@domain".parse()?;
     let (public_key, _) = KeyPair::random().into_parts();
@@ -127,12 +126,12 @@ fn init() -> Result<(
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let instructions = parameters.into_iter().chain([
+    let isi: [InstructionBox; 3] = [
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
-    ]);
-    client.submit_all_blocking(instructions)?;
+    ];
+    client.submit_all_blocking(isi)?;
     iroha_logger::info!("Init");
     Ok((
         rt,

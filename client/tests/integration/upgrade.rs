@@ -1,4 +1,4 @@
-use std::{path::Path, str::FromStr as _};
+use std::{path::Path, str::FromStr as _, sync::mpsc, thread, time::Duration};
 
 use eyre::Result;
 use iroha_client::{
@@ -64,9 +64,9 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     let can_unregister_domain_token_id = "CanUnregisterDomain".parse().unwrap();
 
     // Check that `CanUnregisterDomain` exists
-    let definitions = client.request(FindPermissionTokenSchema)?;
+    let definitions = client.request(FindExecutorDataModel)?;
     assert!(definitions
-        .token_ids()
+        .permission_token_ids()
         .iter()
         .any(|id| id == &can_unregister_domain_token_id));
 
@@ -87,16 +87,16 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     )?;
 
     // Check that `CanUnregisterDomain` doesn't exist
-    let definitions = client.request(FindPermissionTokenSchema)?;
-    assert!(!definitions
-        .token_ids()
+    let data_model = client.request(FindExecutorDataModel)?;
+    assert!(!data_model
+        .permission_token_ids()
         .iter()
         .any(|id| id == &can_unregister_domain_token_id));
 
     let can_control_domain_lives_token_id = "CanControlDomainLives".parse().unwrap();
 
-    assert!(definitions
-        .token_ids()
+    assert!(data_model
+        .permission_token_ids()
         .iter()
         .any(|id| id == &can_control_domain_lives_token_id));
 
@@ -132,8 +132,8 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that permission exists
     assert!(client
-        .request(FindPermissionTokenSchema)?
-        .token_ids()
+        .request(FindExecutorDataModel)?
+        .permission_token_ids()
         .contains(&can_unregister_domain_token.definition_id));
 
     // Check that `TEST_ROLE` has permission
@@ -160,8 +160,8 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that permission doesn't exist
     assert!(!client
-        .request(FindPermissionTokenSchema)?
-        .token_ids()
+        .request(FindExecutorDataModel)?
+        .permission_token_ids()
         .contains(&can_unregister_domain_token.definition_id));
 
     // Check that `TEST_ROLE` doesn't have permission
@@ -213,7 +213,45 @@ fn migration_fail_should_not_cause_any_effects() {
     // been changed, because `executor_with_migration_fail` does not allow any queries
 }
 
-fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
+// TODO: check that upgrade event contains data model
+
+#[test]
+fn migration_should_cause_upgrade_event() {
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_996).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    let (sender, receiver) = mpsc::channel();
+    let events_client = client.clone();
+    let _handle = thread::spawn(move || {
+        for event in events_client
+            .listen_for_events([ExecutorEventFilter::new()])
+            .unwrap()
+            .map(Result::unwrap)
+        {
+            if let EventBox::Data(DataEvent::Executor(ExecutorEvent::Upgraded(
+                ExecutorUpgraded { new_data_model },
+            ))) = event
+            {
+                let _ = sender.send(new_data_model);
+            }
+        }
+    });
+
+    upgrade_executor(
+        &client,
+        "tests/integration/smartcontracts/executor_with_custom_token",
+    )
+    .unwrap();
+
+    let data_model = receiver
+        .recv_timeout(Duration::from_secs(5))
+        .expect("should receive upgraded event immediately after upgrade");
+
+    assert_eq!(data_model.permission_token_ids.len(), 40);
+    assert_eq!(data_model.parameter_ids.len(), 0);
+}
+
+pub fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
     info!("Building executor");
 
     let wasm = iroha_wasm_builder::Builder::new(executor.as_ref())
