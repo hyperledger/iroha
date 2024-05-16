@@ -2,8 +2,7 @@
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicBool;
-use std::{collections::BTreeMap,ops::Deref,
-    path::Path, sync::Arc, thread};
+use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc, thread};
 
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
@@ -13,7 +12,7 @@ use iroha_client::{
     config::Config as ClientConfig,
     data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level},
 };
-use iroha_config::{base::WithOrigin, parameters::actual::Root as Config};
+use iroha_config::parameters::actual::Root as Config;
 pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair};
 use iroha_data_model::{query::QueryOutputBox, ChainId};
