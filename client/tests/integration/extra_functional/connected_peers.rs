@@ -17,17 +17,18 @@ use tokio::runtime::Runtime;
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn connected_peers_with_f_2_1_2() -> Result<()> {
-    connected_peers_with_f(2, Some(11_020))
+    connected_peers_with_f(2, 11_020)
 }
 
 #[test]
 fn connected_peers_with_f_1_0_1() -> Result<()> {
-    connected_peers_with_f(1, Some(11_000))
+    connected_peers_with_f(1, 11_000)
 }
 
 #[test]
 fn register_new_peer() -> Result<()> {
-    let (_rt, network, _) = Network::start_test_with_runtime(4, Some(11_180));
+    let (_rt, network, _) =
+        Network::start_test_with_runtime(NetworkOptions::with_n_peers(4).with_start_port(11_180));
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Config::pipeline_time();
 
@@ -65,14 +66,16 @@ fn register_new_peer() -> Result<()> {
 }
 
 /// Test the number of connected peers, changing the number of faults tolerated down and up
-fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
+fn connected_peers_with_f(faults: u64, start_port: u16) -> Result<()> {
     let n_peers = 3 * faults + 1;
 
     let (_rt, network, _) = Network::start_test_with_runtime(
-        (n_peers)
-            .try_into()
-            .wrap_err("`faults` argument `u64` value too high, cannot convert to `u32`")?,
-        start_port,
+        NetworkOptions::with_n_peers(
+            (n_peers)
+                .try_into()
+                .wrap_err("`faults` argument `u64` value too high, cannot convert to `u32`")?,
+        )
+        .with_start_port(start_port),
     );
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Config::pipeline_time();

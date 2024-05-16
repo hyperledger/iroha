@@ -580,7 +580,6 @@ pub mod error {
                 Revoke(_) => "revoke",
                 ExecuteTrigger(_) => "execute trigger",
                 SetParameter(_) => "set parameter",
-                NewParameter(_) => "new parameter",
                 Upgrade(_) => "upgrade",
                 Log(_) => "log",
             };

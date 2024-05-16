@@ -6,7 +6,7 @@ use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
 use iroha_executor_derive::ValidateGrantRevoke;
 use iroha_smart_contract::data_model::{executor::Result, prelude::*};
 
-use crate::permission::{self, Token as _};
+use crate::permission::{self, Permission as _};
 
 /// Declare token types of current module. Use it with a full path to the token.
 /// Used to iterate over tokens to validate `Grant` and `Revoke` instructions.
@@ -27,9 +27,9 @@ use crate::permission::{self, Token as _};
 ///     pub struct MyToken;
 /// }
 /// ```
-macro_rules! declare_tokens {
+macro_rules! declare_permissions {
     ($($($token_path:ident ::)+ { $token_ty:ident }),+ $(,)?) => {
-        macro_rules! map_token_type {
+        macro_rules! map_default_permissions {
             ($callback:ident) => { $(
                 $callback!($($token_path::)+$token_ty); )+
             };
@@ -43,15 +43,15 @@ macro_rules! declare_tokens {
         }
 
         impl TryFrom<&$crate::data_model::permission::Permission> for AnyPermission {
-            type Error = $crate::permission::PermissionConversionError;
+            type Error = $crate::TryFromDataModelObjectError;
 
             fn try_from(token: &$crate::data_model::permission::Permission) -> Result<Self, Self::Error> {
-                match token.definition_id().as_ref() { $(
+                match token.id().name().as_ref() { $(
                     stringify!($token_ty) => {
-                        let token = <$($token_path::)+$token_ty>::try_from(token)?;
+                        let token = <$($token_path::)+$token_ty>::try_from_object(token)?;
                         Ok(Self::$token_ty(token))
                     } )+
-                    _ => Err(Self::Error::Id(token.definition_id().clone()))
+                    _ => Err(Self::Error::Id(token.id().name().clone()))
                 }
             }
         }
@@ -59,7 +59,7 @@ macro_rules! declare_tokens {
         impl From<AnyPermission> for $crate::data_model::permission::Permission {
             fn from(token: AnyPermission) -> Self {
                 match token { $(
-                    AnyPermission::$token_ty(token) => Self::from(token), )*
+                    AnyPermission::$token_ty(token) => token.to_object(), )*
                 }
             }
         }
@@ -78,76 +78,76 @@ macro_rules! declare_tokens {
             }
         }
 
-        pub(crate) use map_token_type;
+        pub(crate) use map_default_permissions;
     };
 }
 
-macro_rules! token {
+macro_rules! permission {
     ($($meta:meta)* $item:item) => {
         #[derive(PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-        #[derive(Clone, iroha_executor_derive::Token)]
+        #[derive(Clone, iroha_executor_derive::Permission)]
         #[derive(iroha_schema::IntoSchema)]
         $($meta)*
         $item
     };
 }
 
-declare_tokens! {
-    crate::default::tokens::peer::{CanUnregisterAnyPeer},
+declare_permissions! {
+    crate::default::permissions::peer::{CanUnregisterAnyPeer},
 
-    crate::default::tokens::domain::{CanUnregisterDomain},
-    crate::default::tokens::domain::{CanSetKeyValueInDomain},
-    crate::default::tokens::domain::{CanRemoveKeyValueInDomain},
-    crate::default::tokens::domain::{CanRegisterAccountInDomain},
-    crate::default::tokens::domain::{CanRegisterAssetDefinitionInDomain},
+    crate::default::permissions::domain::{CanUnregisterDomain},
+    crate::default::permissions::domain::{CanSetKeyValueInDomain},
+    crate::default::permissions::domain::{CanRemoveKeyValueInDomain},
+    crate::default::permissions::domain::{CanRegisterAccountInDomain},
+    crate::default::permissions::domain::{CanRegisterAssetDefinitionInDomain},
 
-    crate::default::tokens::account::{CanUnregisterAccount},
-    crate::default::tokens::account::{CanMintUserPublicKeys},
-    crate::default::tokens::account::{CanBurnUserPublicKeys},
-    crate::default::tokens::account::{CanMintUserSignatureCheckConditions},
-    crate::default::tokens::account::{CanSetKeyValueInAccount},
-    crate::default::tokens::account::{CanRemoveKeyValueInAccount},
+    crate::default::permissions::account::{CanUnregisterAccount},
+    crate::default::permissions::account::{CanMintUserPublicKeys},
+    crate::default::permissions::account::{CanBurnUserPublicKeys},
+    crate::default::permissions::account::{CanMintUserSignatureCheckConditions},
+    crate::default::permissions::account::{CanSetKeyValueInAccount},
+    crate::default::permissions::account::{CanRemoveKeyValueInAccount},
 
-    crate::default::tokens::asset_definition::{CanUnregisterAssetDefinition},
-    crate::default::tokens::asset_definition::{CanSetKeyValueInAssetDefinition},
-    crate::default::tokens::asset_definition::{CanRemoveKeyValueInAssetDefinition},
+    crate::default::permissions::asset_definition::{CanUnregisterAssetDefinition},
+    crate::default::permissions::asset_definition::{CanSetKeyValueInAssetDefinition},
+    crate::default::permissions::asset_definition::{CanRemoveKeyValueInAssetDefinition},
 
-    crate::default::tokens::asset::{CanRegisterAssetWithDefinition},
-    crate::default::tokens::asset::{CanUnregisterAssetWithDefinition},
-    crate::default::tokens::asset::{CanUnregisterUserAsset},
-    crate::default::tokens::asset::{CanBurnAssetWithDefinition},
-    crate::default::tokens::asset::{CanMintAssetWithDefinition},
-    crate::default::tokens::asset::{CanMintUserAsset},
-    crate::default::tokens::asset::{CanBurnUserAsset},
-    crate::default::tokens::asset::{CanTransferAssetWithDefinition},
-    crate::default::tokens::asset::{CanTransferUserAsset},
-    crate::default::tokens::asset::{CanSetKeyValueInUserAsset},
-    crate::default::tokens::asset::{CanRemoveKeyValueInUserAsset},
+    crate::default::permissions::asset::{CanRegisterAssetWithDefinition},
+    crate::default::permissions::asset::{CanUnregisterAssetWithDefinition},
+    crate::default::permissions::asset::{CanUnregisterUserAsset},
+    crate::default::permissions::asset::{CanBurnAssetWithDefinition},
+    crate::default::permissions::asset::{CanMintAssetWithDefinition},
+    crate::default::permissions::asset::{CanMintUserAsset},
+    crate::default::permissions::asset::{CanBurnUserAsset},
+    crate::default::permissions::asset::{CanTransferAssetWithDefinition},
+    crate::default::permissions::asset::{CanTransferUserAsset},
+    crate::default::permissions::asset::{CanSetKeyValueInUserAsset},
+    crate::default::permissions::asset::{CanRemoveKeyValueInUserAsset},
 
-    crate::default::tokens::parameter::{CanGrantPermissionToCreateParameters},
-    crate::default::tokens::parameter::{CanRevokePermissionToCreateParameters},
-    crate::default::tokens::parameter::{CanCreateParameters},
-    crate::default::tokens::parameter::{CanGrantPermissionToSetParameters},
-    crate::default::tokens::parameter::{CanRevokePermissionToSetParameters},
-    crate::default::tokens::parameter::{CanSetParameters},
+    crate::default::permissions::parameter::{CanGrantPermissionToCreateParameters},
+    crate::default::permissions::parameter::{CanRevokePermissionToCreateParameters},
+    crate::default::permissions::parameter::{CanCreateParameters},
+    crate::default::permissions::parameter::{CanGrantPermissionToSetParameters},
+    crate::default::permissions::parameter::{CanRevokePermissionToSetParameters},
+    crate::default::permissions::parameter::{CanSetParameters},
 
-    crate::default::tokens::role::{CanUnregisterAnyRole},
+    crate::default::permissions::role::{CanUnregisterAnyRole},
 
-    crate::default::tokens::trigger::{CanRegisterUserTrigger},
-    crate::default::tokens::trigger::{CanExecuteUserTrigger},
-    crate::default::tokens::trigger::{CanUnregisterUserTrigger},
-    crate::default::tokens::trigger::{CanMintUserTrigger},
-    crate::default::tokens::trigger::{CanBurnUserTrigger},
-    crate::default::tokens::trigger::{CanSetKeyValueInTrigger},
-    crate::default::tokens::trigger::{CanRemoveKeyValueInTrigger},
+    crate::default::permissions::trigger::{CanRegisterUserTrigger},
+    crate::default::permissions::trigger::{CanExecuteUserTrigger},
+    crate::default::permissions::trigger::{CanUnregisterUserTrigger},
+    crate::default::permissions::trigger::{CanMintUserTrigger},
+    crate::default::permissions::trigger::{CanBurnUserTrigger},
+    crate::default::permissions::trigger::{CanSetKeyValueInTrigger},
+    crate::default::permissions::trigger::{CanRemoveKeyValueInTrigger},
 
-    crate::default::tokens::executor::{CanUpgradeExecutor},
+    crate::default::permissions::executor::{CanUpgradeExecutor},
 }
 
 pub mod peer {
     use super::*;
 
-    token! {
+    permission! {
         #[derive(Copy, ValidateGrantRevoke)]
         #[validate(permission::OnlyGenesis)]
         pub struct CanUnregisterAnyPeer;
@@ -157,7 +157,7 @@ pub mod peer {
 pub mod domain {
     use super::*;
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanUnregisterDomain {
@@ -165,7 +165,7 @@ pub mod domain {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanSetKeyValueInDomain {
@@ -173,7 +173,7 @@ pub mod domain {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanRemoveKeyValueInDomain {
@@ -181,7 +181,7 @@ pub mod domain {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanRegisterAccountInDomain {
@@ -189,7 +189,7 @@ pub mod domain {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanRegisterAssetDefinitionInDomain {
@@ -201,42 +201,42 @@ pub mod domain {
 pub mod account {
     use super::*;
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanUnregisterAccount {
             pub account_id: AccountId,
         }
     }
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanMintUserPublicKeys {
             pub account_id: AccountId,
         }
     }
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanBurnUserPublicKeys {
             pub account_id: AccountId,
         }
     }
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanMintUserSignatureCheckConditions {
             pub account_id: AccountId,
         }
     }
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanSetKeyValueInAccount {
             pub account_id: AccountId,
         }
     }
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanRemoveKeyValueInAccount {
@@ -248,7 +248,7 @@ pub mod account {
 pub mod asset_definition {
     use super::*;
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanUnregisterAssetDefinition {
@@ -256,7 +256,7 @@ pub mod asset_definition {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanSetKeyValueInAssetDefinition {
@@ -264,7 +264,7 @@ pub mod asset_definition {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanRemoveKeyValueInAssetDefinition {
@@ -276,7 +276,7 @@ pub mod asset_definition {
 pub mod asset {
     use super::*;
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanRegisterAssetWithDefinition {
@@ -284,7 +284,7 @@ pub mod asset {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanUnregisterAssetWithDefinition {
@@ -292,7 +292,7 @@ pub mod asset {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanUnregisterUserAsset {
@@ -300,7 +300,7 @@ pub mod asset {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanBurnAssetWithDefinition {
@@ -308,7 +308,7 @@ pub mod asset {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanBurnUserAsset {
@@ -316,7 +316,7 @@ pub mod asset {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanMintAssetWithDefinition {
@@ -324,7 +324,7 @@ pub mod asset {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanMintUserAsset {
@@ -332,7 +332,7 @@ pub mod asset {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanTransferAssetWithDefinition {
@@ -340,7 +340,7 @@ pub mod asset {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanTransferUserAsset {
@@ -348,7 +348,7 @@ pub mod asset {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanSetKeyValueInUserAsset {
@@ -356,7 +356,7 @@ pub mod asset {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanRemoveKeyValueInUserAsset {
@@ -370,36 +370,36 @@ pub mod parameter {
 
     use super::*;
 
-    token! {
+    permission! {
         #[derive(Copy, ValidateGrantRevoke)]
         #[validate(permission::OnlyGenesis)]
         pub struct CanGrantPermissionToCreateParameters;
     }
 
-    token! {
+    permission! {
         #[derive(Copy, ValidateGrantRevoke)]
         #[validate(permission::OnlyGenesis)]
         pub struct CanRevokePermissionToCreateParameters;
     }
 
-    token! {
+    permission! {
         #[derive(Copy)]
         pub struct CanCreateParameters;
     }
 
-    token! {
+    permission! {
         #[derive(Copy, ValidateGrantRevoke)]
         #[validate(permission::OnlyGenesis)]
         pub struct CanGrantPermissionToSetParameters;
     }
 
-    token! {
+    permission! {
         #[derive(Copy, ValidateGrantRevoke)]
         #[validate(permission::OnlyGenesis)]
         pub struct CanRevokePermissionToSetParameters;
     }
 
-    token! {
+    permission! {
         #[derive(Copy)]
         pub struct CanSetParameters;
     }
@@ -456,7 +456,7 @@ pub mod parameter {
 pub mod role {
     use super::*;
 
-    token! {
+    permission! {
         #[derive(Copy, ValidateGrantRevoke)]
         #[validate(permission::OnlyGenesis)]
         pub struct CanUnregisterAnyRole;
@@ -478,7 +478,7 @@ pub mod trigger {
             )+};
         }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanRegisterUserTrigger {
@@ -486,7 +486,7 @@ pub mod trigger {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanExecuteUserTrigger {
@@ -494,7 +494,7 @@ pub mod trigger {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanUnregisterUserTrigger {
@@ -502,7 +502,7 @@ pub mod trigger {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanMintUserTrigger {
@@ -510,7 +510,7 @@ pub mod trigger {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanBurnUserTrigger {
@@ -518,7 +518,7 @@ pub mod trigger {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanSetKeyValueInTrigger {
@@ -526,7 +526,7 @@ pub mod trigger {
         }
     }
 
-    token! {
+    permission! {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanRemoveKeyValueInTrigger {
@@ -546,7 +546,7 @@ pub mod trigger {
 pub mod executor {
     use super::*;
 
-    token! {
+    permission! {
         #[derive(Copy, ValidateGrantRevoke)]
         #[validate(permission::OnlyGenesis)]
         pub struct CanUpgradeExecutor;

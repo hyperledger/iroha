@@ -26,8 +26,8 @@ pub use sorting::Sorting;
 
 pub use self::model::*;
 use self::{
-    account::*, asset::*, block::*, domain::*, peer::*, permission::*, predicate::*, role::*,
-    transaction::*, trigger::*,
+    account::*, asset::*, block::*, domain::*, executor::*, peer::*, permission::*, predicate::*,
+    role::*, transaction::*, trigger::*,
 };
 use crate::{
     account::{Account, AccountId},
@@ -188,7 +188,6 @@ mod model {
         FindTransactionsByAccountId(FindTransactionsByAccountId),
         FindTransactionByHash(FindTransactionByHash),
         FindPermissionsByAccountId(FindPermissionsByAccountId),
-        FindPermissionSchema(FindPermissionSchema),
         FindAllActiveTriggerIds(FindAllActiveTriggerIds),
         FindTriggerById(FindTriggerById),
         FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
@@ -198,6 +197,7 @@ mod model {
         FindRoleByRoleId(FindRoleByRoleId),
         FindRolesByAccountId(FindRolesByAccountId),
         FindAllParameters(FindAllParameters),
+        FindExecutorDataModel(FindExecutorDataModel),
     }
 
     /// Sized container for all possible [`Query::Output`]s
@@ -221,11 +221,11 @@ mod model {
         Identifiable(IdentifiableBox),
         Transaction(TransactionQueryOutput),
         Permission(crate::permission::Permission),
-        PermissionSchema(crate::permission::PermissionSchema),
         LimitedMetadata(MetadataValueBox),
         Numeric(Numeric),
         BlockHeader(BlockHeader),
         Block(crate::block::SignedBlock),
+        ExecutorDataModel(crate::executor::ExecutorDataModel),
 
         Vec(
             #[skip_from]
@@ -359,7 +359,6 @@ impl_query! {
     FindAllRoleIds => Vec<crate::role::RoleId>,
     FindRolesByAccountId => Vec<crate::role::RoleId>,
     FindRoleByRoleId => crate::role::Role,
-    FindPermissionSchema => crate::permission::PermissionSchema,
     FindPermissionsByAccountId => Vec<crate::permission::Permission>,
     FindAllAccounts => Vec<crate::account::Account>,
     FindAccountById => crate::account::Account,
@@ -394,6 +393,7 @@ impl_query! {
     FindAllBlocks => Vec<SignedBlock>,
     FindAllBlockHeaders => Vec<crate::block::BlockHeader>,
     FindBlockHeaderByHash => crate::block::BlockHeader,
+    FindExecutorDataModel => crate::executor::ExecutorDataModel
 }
 
 impl Query for QueryBox {
@@ -412,11 +412,11 @@ impl core::fmt::Display for QueryOutputBox {
             QueryOutputBox::Identifiable(v) => core::fmt::Display::fmt(&v, f),
             QueryOutputBox::Transaction(_) => write!(f, "TransactionQueryOutput"),
             QueryOutputBox::Permission(v) => core::fmt::Display::fmt(&v, f),
-            QueryOutputBox::PermissionSchema(v) => core::fmt::Display::fmt(&v, f),
             QueryOutputBox::Block(v) => core::fmt::Display::fmt(&v, f),
             QueryOutputBox::BlockHeader(v) => core::fmt::Display::fmt(&v, f),
             QueryOutputBox::Numeric(v) => core::fmt::Display::fmt(&v, f),
             QueryOutputBox::LimitedMetadata(v) => core::fmt::Display::fmt(&v, f),
+            QueryOutputBox::ExecutorDataModel(v) => core::fmt::Display::fmt(&v, f),
 
             QueryOutputBox::Vec(v) => {
                 // TODO: Remove so we can derive.
@@ -621,17 +621,9 @@ pub mod permission {
     use parity_scale_codec::Encode;
 
     use super::{Query, QueryType};
-    use crate::{
-        permission::{self, PermissionSchema},
-        prelude::*,
-    };
+    use crate::prelude::*;
 
     queries! {
-        /// Finds all registered permission tokens
-        #[derive(Copy, Display)]
-        #[ffi_type]
-        pub struct FindPermissionSchema;
-
         /// [`FindPermissionsByAccountId`] Iroha Query finds all [`Permission`]s
         /// for a specified account.
         #[derive(Display)]
@@ -647,7 +639,7 @@ pub mod permission {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
-        pub use super::{FindPermissionSchema, FindPermissionsByAccountId};
+        pub use super::FindPermissionsByAccountId;
     }
 }
 
@@ -954,7 +946,7 @@ pub mod domain {
 }
 
 pub mod peer {
-    //! Queries related to [`Domain`](crate::domain::Domain).
+    //! Queries related to [`crate::peer`].
 
     #[cfg(not(feature = "std"))]
     use alloc::{format, string::String, vec::Vec};
@@ -970,18 +962,39 @@ pub mod peer {
         #[display(fmt = "Find all peers")]
         #[ffi_type]
         pub struct FindAllPeers;
+    }
 
-        /// [`FindAllParameters`] Iroha Query finds all [`Peer`]s parameters.
+    /// The prelude re-exports most commonly used traits, structs and macros from this crate.
+    pub mod prelude {
+        pub use super::FindAllPeers;
+    }
+}
+
+pub mod executor {
+    //! Queries related to [`crate::executor`].
+
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
+
+    use derive_more::Display;
+
+    queries! {
+        /// [`FindExecutorDataModel`] Iroha Query finds the data model of the current executor.
+        #[derive(Copy, Display)]
+        #[display(fmt = "Find executor data model")]
+        #[ffi_type]
+        pub struct FindExecutorDataModel;
+
+        /// [`FindAllParameters`] Iroha Query finds all defined executor configuration parameters.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all peers parameters")]
-        // TODO: Unused query. Remove?
         #[ffi_type]
         pub struct FindAllParameters;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAllParameters, FindAllPeers};
+        pub use super::{FindAllParameters, FindExecutorDataModel};
     }
 }
 
@@ -1495,7 +1508,8 @@ pub mod prelude {
     pub use super::http::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
-        peer::prelude::*, permission::prelude::*, predicate::PredicateTrait, role::prelude::*,
-        transaction::*, trigger::prelude::*, FetchSize, QueryBox, QueryId, TransactionQueryOutput,
+        executor::prelude::*, peer::prelude::*, permission::prelude::*, predicate::PredicateTrait,
+        role::prelude::*, transaction::prelude::*, trigger::prelude::*, FetchSize, QueryBox,
+        QueryId, TransactionQueryOutput,
     };
 }

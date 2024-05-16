@@ -3,12 +3,10 @@ use std::thread;
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
-    data_model::{
-        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-        prelude::*,
-    },
+    data_model::prelude::*,
 };
 use iroha_config::parameters::actual::Root as Config;
+use nonzero_ext::nonzero;
 use test_network::*;
 use test_samples::gen_account_in;
 
@@ -18,15 +16,13 @@ const N_BLOCKS: usize = 510;
 #[test]
 fn long_multiple_blocks_created() -> Result<()> {
     // Given
-    let (_rt, network, client) = Network::start_test_with_runtime(4, Some(10_965));
+    let (_rt, network, client) = Network::start_test_with_runtime(
+        NetworkOptions::with_n_peers(4)
+            .with_start_port(10_965)
+            .with_max_txs_in_block(nonzero!(1u32)),
+    );
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Config::pipeline_time();
-
-    client.submit_all_blocking(
-        ParametersBuilder::new()
-            .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
-            .into_set_parameters(),
-    )?;
 
     let create_domain: InstructionBox = Register::domain(Domain::new("domain".parse()?)).into();
     let (account_id, _account_keypair) = gen_account_in("domain");

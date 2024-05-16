@@ -1,13 +1,7 @@
 use std::thread::{self, JoinHandle};
 
 use eyre::Result;
-use iroha_client::{
-    crypto::HashOf,
-    data_model::{
-        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-        prelude::*,
-    },
-};
+use iroha_client::{crypto::HashOf, data_model::prelude::*};
 use iroha_config::parameters::actual::Root as Config;
 use iroha_data_model::{
     events::pipeline::{
@@ -17,6 +11,7 @@ use iroha_data_model::{
     transaction::error::TransactionRejectionReason,
     ValidationFail,
 };
+use nonzero_ext::nonzero;
 use test_network::*;
 
 // Needed to re-enable ignored tests.
@@ -49,17 +44,14 @@ fn test_with_instruction_and_status_and_port(
     should_be: &TransactionStatus,
     port: u16,
 ) -> Result<()> {
-    let (_rt, network, client) =
-        Network::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), Some(port));
+    let (_rt, network, client) = Network::start_test_with_runtime(
+        NetworkOptions::with_n_peers(PEER_COUNT.try_into().unwrap())
+            .with_start_port(port)
+            .with_max_txs_in_block(nonzero!(1u32)),
+    );
     let clients = network.clients();
     wait_for_genesis_committed(&clients, 0);
     let pipeline_time = Config::pipeline_time();
-
-    client.submit_all_blocking(
-        ParametersBuilder::new()
-            .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
-            .into_set_parameters(),
-    )?;
 
     // Given
     let submitter = client;

@@ -111,8 +111,6 @@ mod model {
         #[debug(fmt = "{_0:?}")]
         SetParameter(SetParameter),
         #[debug(fmt = "{_0:?}")]
-        NewParameter(NewParameter),
-        #[debug(fmt = "{_0:?}")]
         Upgrade(Upgrade),
         #[debug(fmt = "{_0:?}")]
         Log(Log),
@@ -172,7 +170,6 @@ impl_instruction! {
     Revoke<RoleId, Account>,
     Revoke<Permission, Role>,
     SetParameter,
-    NewParameter,
     Upgrade,
     ExecuteTrigger,
     Log,
@@ -246,27 +243,13 @@ mod transparent {
     }
 
     isi! {
-        /// Generic instruction for setting a chain-wide config parameter.
+        /// Setting an executor configuration parameter
         #[derive(Constructor, Display)]
         #[display(fmt = "SET `{parameter}`")]
         #[serde(transparent)]
         #[repr(transparent)]
         pub struct SetParameter {
             /// The configuration parameter being changed.
-            #[serde(flatten)]
-            pub parameter: Parameter,
-        }
-    }
-
-    isi! {
-        /// Sized structure for all possible on-chain configuration parameters when they are first created.
-        /// Generic instruction for setting a chain-wide config parameter.
-        #[derive(Constructor, Display)]
-        #[display(fmt = "SET `{parameter}`")]
-        #[serde(transparent)]
-        #[repr(transparent)]
-        pub struct NewParameter {
-            /// Parameter to be changed.
             #[serde(flatten)]
             pub parameter: Parameter,
         }
@@ -1519,8 +1502,8 @@ pub mod error {
 pub mod prelude {
     pub use super::{
         AssetTransferBox, Burn, BurnBox, ExecuteTrigger, Fail, Grant, GrantBox, InstructionBox,
-        Log, Mint, MintBox, NewParameter, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox,
-        Revoke, RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer, TransferBox,
-        Unregister, UnregisterBox, Upgrade,
+        Log, Mint, MintBox, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke,
+        RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer, TransferBox, Unregister,
+        UnregisterBox, Upgrade,
     };
 }

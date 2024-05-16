@@ -522,7 +522,7 @@ mod account {
 
     use iroha_client::client::{self};
 
-    use super::{Permission as DataModelPermission, *};
+    use super::{Permission as PermissionObject, *};
 
     /// subcommands for account subcommand
     #[derive(clap::Subcommand, Debug)]
@@ -608,9 +608,9 @@ mod account {
         pub metadata: MetadataArgs,
     }
 
-    /// [`DataModelPermission`] wrapper implementing [`FromStr`]
+    /// [`PermissionObject`] wrapper implementing [`FromStr`]
     #[derive(Debug, Clone)]
-    pub struct Permission(DataModelPermission);
+    pub struct Permission(PermissionObject);
 
     impl FromStr for Permission {
         type Err = Error;
@@ -618,7 +618,7 @@ mod account {
         fn from_str(s: &str) -> Result<Self> {
             let content = fs::read_to_string(s)
                 .wrap_err(format!("Failed to read the permission token file {}", &s))?;
-            let permission: DataModelPermission = json5::from_str(&content).wrap_err(format!(
+            let permission: PermissionObject = json5::from_str(&content).wrap_err(format!(
                 "Failed to deserialize the permission token from file {}",
                 &s
             ))?;

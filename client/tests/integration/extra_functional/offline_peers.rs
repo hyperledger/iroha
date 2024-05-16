@@ -18,10 +18,10 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
     // Given
     let rt = Runtime::test();
 
-    let (network, client) = rt.block_on(Network::start_test_with_offline_and_set_n_shifts(
-        4,
-        1,
-        Some(10_560),
+    let (network, client) = rt.block_on(Network::start_test(
+        NetworkOptions::with_n_peers(4)
+            .with_offline_peers(1)
+            .with_start_port(10_560),
     ));
     wait_for_genesis_committed(&network.clients(), 1);
 
@@ -44,9 +44,8 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
 
 #[test]
 fn register_offline_peer() -> Result<()> {
-    let n_peers = 4;
-
-    let (_rt, network, client) = Network::start_test_with_runtime(n_peers, Some(11_160));
+    let (_rt, network, client) =
+        Network::start_test_with_runtime(NetworkOptions::with_n_peers(4).with_start_port(11_160));
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Config::pipeline_time();
     let peer_clients = Network::clients(&network);

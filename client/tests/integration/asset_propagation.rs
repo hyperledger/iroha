@@ -3,12 +3,10 @@ use std::{str::FromStr as _, thread};
 use eyre::Result;
 use iroha_client::{
     client::{self, QueryResult},
-    data_model::{
-        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-        prelude::*,
-    },
+    data_model::prelude::*,
 };
 use iroha_config::parameters::actual::Root as Config;
+use nonzero_ext::nonzero;
 use test_network::*;
 use test_samples::gen_account_in;
 
@@ -18,15 +16,13 @@ use test_samples::gen_account_in;
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
 ) -> Result<()> {
     // Given
-    let (_rt, network, client) = Network::start_test_with_runtime(4, Some(10_450));
+    let (_rt, network, client) = Network::start_test_with_runtime(
+        NetworkOptions::with_n_peers(4)
+            .with_start_port(10_450)
+            .with_max_txs_in_block(nonzero!(1u32)),
+    );
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Config::pipeline_time();
-
-    client.submit_all_blocking(
-        ParametersBuilder::new()
-            .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
-            .into_set_parameters(),
-    )?;
 
     let create_domain: InstructionBox =
         Register::domain(Domain::new(DomainId::from_str("domain")?)).into();

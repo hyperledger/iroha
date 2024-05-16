@@ -328,7 +328,7 @@ impl_query_output! {
     crate::data_model::block::BlockHeader,
     crate::data_model::metadata::MetadataValueBox,
     crate::data_model::query::TransactionQueryOutput,
-    crate::data_model::permission::PermissionSchema,
+    crate::data_model::executor::ExecutorDataModel,
     crate::data_model::trigger::Trigger,
     crate::data_model::prelude::Numeric,
 }
@@ -1517,11 +1517,6 @@ pub mod permission {
     //! Module with queries for permission tokens
     use super::*;
 
-    /// Construct a query to get all registered [`PermissionDefinition`]s
-    pub const fn permission_schema() -> FindPermissionSchema {
-        FindPermissionSchema {}
-    }
-
     /// Construct a query to get all [`Permission`] granted
     /// to account with given [`Id`][AccountId]
     pub fn by_account_id(account_id: AccountId) -> FindPermissionsByAccountId {
@@ -1561,6 +1556,16 @@ pub mod parameter {
     /// Construct a query to retrieve all config parameters
     pub const fn all() -> FindAllParameters {
         FindAllParameters
+    }
+}
+
+pub mod executor {
+    //! Queries for executor entities
+    use super::*;
+
+    /// Retrieve executor data model
+    pub const fn data_model() -> FindExecutorDataModel {
+        FindExecutorDataModel
     }
 }
 

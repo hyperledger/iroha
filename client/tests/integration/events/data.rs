@@ -240,13 +240,13 @@ fn produce_multiple_events() -> Result<()> {
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_1.definition_id.clone(),
+                permission_id: token_1.id.clone(),
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_2.definition_id.clone(),
+                permission_id: token_2.id.clone(),
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
@@ -258,13 +258,13 @@ fn produce_multiple_events() -> Result<()> {
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_1.definition_id,
+                permission_id: token_1.id,
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_2.definition_id,
+                permission_id: token_2.id,
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(

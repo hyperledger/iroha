@@ -44,7 +44,7 @@ mod model {
     #[repr(transparent)]
     #[ffi_type(opaque)]
     pub struct RoleId {
-        /// Role name, should be unique .
+        /// Role name. Should be unique.
         pub name: Name,
     }
 

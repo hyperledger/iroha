@@ -15,51 +15,7 @@ use std::{
 use clap::Parser;
 use colored::*;
 use eyre::{eyre, Result};
-use iroha_crypto::*;
-use iroha_data_model::{
-    account::NewAccount,
-    asset::NewAssetDefinition,
-    block::{
-        error::BlockRejectionReason,
-        stream::{BlockMessage, BlockSubscriptionRequest},
-        BlockHeader, BlockPayload, SignedBlock, SignedBlockV1,
-    },
-    domain::NewDomain,
-    events::pipeline::{BlockEventFilter, TransactionEventFilter},
-    executor::Executor,
-    ipfs::IpfsPath,
-    isi::{
-        error::{
-            InstructionEvaluationError, InstructionExecutionError, InvalidParameterError,
-            MathError, MintabilityError, Mismatch, RepetitionError, TypeError,
-        },
-        InstructionType,
-    },
-    metadata::{MetadataError, MetadataValueBox, SizeError},
-    parameter::ParameterValueBox,
-    permission::JsonString,
-    prelude::*,
-    query::{
-        error::{FindError, QueryExecutionFail},
-        predicate::{
-            numerical::{SemiInterval, SemiRange},
-            string::StringPredicate,
-            value::{AtIndex, Container, QueryOutputPredicate},
-            GenericPredicateBox, NonTrivial, PredicateBox,
-        },
-        ForwardCursor, Pagination, QueryOutputBox, Sorting,
-    },
-    transaction::{
-        error::TransactionLimitError, SignedTransactionV1, TransactionLimits, TransactionPayload,
-    },
-    BatchedResponse, BatchedResponseV1, Level,
-};
-use iroha_primitives::{
-    addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
-    const_vec::ConstVec,
-    conststr::ConstString,
-    unique_vec::UniqueVec,
-};
+use iroha_schema_gen::complete_data_model::*;
 use parity_scale_codec::{DecodeAll, Encode};
 use serde::{de::DeserializeOwned, Serialize};
 

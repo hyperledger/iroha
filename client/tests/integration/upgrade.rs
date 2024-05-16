@@ -1,6 +1,7 @@
 use std::{path::Path, str::FromStr as _};
 
 use eyre::Result;
+use futures_util::TryStreamExt as _;
 use iroha_client::{
     client::{self, Client, QueryResult},
     crypto::KeyPair,
@@ -10,6 +11,7 @@ use iroha_logger::info;
 use serde_json::json;
 use test_network::*;
 use test_samples::ALICE_ID;
+use tokio::sync::mpsc;
 
 const ADMIN_PUBLIC_KEY_MULTIHASH: &str =
     "ed012076E5CA9698296AF9BE2CA45F525CB3BCFDEB7EE068BA56F973E9DD90564EF4FC";
@@ -76,7 +78,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     let can_unregister_domain_token_id = "CanUnregisterDomain".parse().unwrap();
 
     // Check that `CanUnregisterDomain` exists
-    let definitions = client.request(FindPermissionSchema)?;
+    let definitions = client.request(FindExecutorDataModel)?;
     assert!(definitions
         .permissions()
         .iter()
@@ -99,15 +101,15 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     )?;
 
     // Check that `CanUnregisterDomain` doesn't exist
-    let definitions = client.request(FindPermissionSchema)?;
-    assert!(!definitions
+    let data_model = client.request(FindExecutorDataModel)?;
+    assert!(!data_model
         .permissions()
         .iter()
         .any(|id| id == &can_unregister_domain_token_id));
 
     let can_control_domain_lives_token_id = "CanControlDomainLives".parse().unwrap();
 
-    assert!(definitions
+    assert!(data_model
         .permissions()
         .iter()
         .any(|id| id == &can_control_domain_lives_token_id));
@@ -144,9 +146,9 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that permission exists
     assert!(client
-        .request(FindPermissionSchema)?
+        .request(FindExecutorDataModel)?
         .permissions()
-        .contains(&can_unregister_domain_token.definition_id));
+        .contains(&can_unregister_domain_token.id));
 
     // Check that `TEST_ROLE` has permission
     assert!(client
@@ -172,9 +174,9 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that permission doesn't exist
     assert!(!client
-        .request(FindPermissionSchema)?
+        .request(FindExecutorDataModel)?
         .permissions()
-        .contains(&can_unregister_domain_token.definition_id));
+        .contains(&can_unregister_domain_token.id));
 
     // Check that `TEST_ROLE` doesn't have permission
     assert!(!client
@@ -225,7 +227,48 @@ fn migration_fail_should_not_cause_any_effects() {
     // been changed, because `executor_with_migration_fail` does not allow any queries
 }
 
-fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
+#[test]
+fn migration_should_cause_upgrade_event() {
+    let (rt, _peer, client) = <PeerBuilder>::new().with_port(10_996).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    let (sender, mut receiver) = mpsc::channel(1);
+    let events_client = client.clone();
+
+    let _handle = rt.spawn(async move {
+        let mut stream = events_client
+            .listen_for_events_async([ExecutorEventFilter::new()])
+            .await
+            .unwrap();
+        while let Some(event) = stream.try_next().await.unwrap() {
+            if let EventBox::Data(DataEvent::Executor(ExecutorEvent::Upgraded(ExecutorUpgrade {
+                new_data_model,
+            }))) = event
+            {
+                let _ = sender.send(new_data_model).await;
+            }
+        }
+    });
+
+    upgrade_executor(
+        &client,
+        "tests/integration/smartcontracts/executor_with_custom_permission",
+    )
+    .unwrap();
+
+    let data_model = rt
+        .block_on(async {
+            tokio::time::timeout(std::time::Duration::from_secs(60), receiver.recv()).await
+        })
+        .ok()
+        .flatten()
+        .expect("should receive upgraded event immediately after upgrade");
+
+    assert!(!data_model.permissions.is_empty());
+    assert!(data_model.parameters.is_empty());
+}
+
+pub fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
     info!("Building executor");
 
     let wasm = iroha_wasm_builder::Builder::new(executor.as_ref())

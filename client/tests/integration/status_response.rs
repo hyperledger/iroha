@@ -16,7 +16,8 @@ fn status_eq_excluding_uptime_and_queue(lhs: &Status, rhs: &Status) -> bool {
 
 #[test]
 fn json_and_scale_statuses_equality() -> Result<()> {
-    let (_rt, network, client) = Network::start_test_with_runtime(2, Some(11_200));
+    let (_rt, network, client) =
+        Network::start_test_with_runtime(NetworkOptions::with_n_peers(4).with_start_port(11_200));
     wait_for_genesis_committed(&network.clients(), 0);
 
     let json_status_zero = get_status_json(&client).unwrap();

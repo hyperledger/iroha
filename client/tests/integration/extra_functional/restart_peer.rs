@@ -20,7 +20,9 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     let mut removed_peer = {
         let n_peers = 4;
 
-        let (_rt, network, _) = Network::start_test_with_runtime(n_peers, Some(11_205));
+        let (_rt, network, _) = Network::start_test_with_runtime(
+            NetworkOptions::with_n_peers(n_peers).with_start_port(11_205),
+        );
         wait_for_genesis_committed(&network.clients(), 0);
         let pipeline_time = Config::pipeline_time();
         let peer_clients = Network::clients(&network);

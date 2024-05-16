@@ -17,8 +17,9 @@ impl Registrable for NewRole {
 
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
+    use std::collections::BTreeSet;
+
     use eyre::Result;
-    use indexmap::IndexSet;
     use iroha_data_model::{
         isi::error::{InstructionExecutionError, InvalidParameterError, RepetitionError},
         prelude::*,
@@ -162,11 +163,11 @@ pub mod isi {
             for permission in &role.permissions {
                 if !state_transaction
                     .world
-                    .permission_schema
-                    .token_ids
-                    .contains(&permission.definition_id)
+                    .executor_data_model
+                    .permissions
+                    .contains(&permission.id)
                 {
-                    return Err(FindError::Permission(permission.definition_id.clone()).into());
+                    return Err(FindError::Permission(permission.id.clone()).into());
                 }
             }
 
@@ -227,15 +228,14 @@ pub mod isi {
         ) -> Result<(), Error> {
             let role_id = self.destination_id;
             let permission = self.object;
-            let permission_id = permission.definition_id.clone();
 
             if !state_transaction
                 .world
-                .permission_schema
-                .token_ids
-                .contains(&permission_id)
+                .executor_data_model
+                .permissions
+                .contains(&permission.id)
             {
-                return Err(FindError::Permission(permission_id).into());
+                return Err(FindError::Permission(permission.id).into());
             }
 
             let Some(role) = state_transaction.world.roles.get_mut(&role_id) else {
@@ -245,7 +245,7 @@ pub mod isi {
             if !role.permissions.insert(permission.clone()) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Grant,
-                    id: permission.definition_id.into(),
+                    id: permission.id.into(),
                 }
                 .into());
             }
@@ -254,7 +254,7 @@ pub mod isi {
                 .world
                 .emit_events(Some(RoleEvent::PermissionAdded(RolePermissionChanged {
                     role_id,
-                    permission_id,
+                    permission_id: permission.id,
                 })));
 
             Ok(())
@@ -270,21 +270,20 @@ pub mod isi {
         ) -> Result<(), Error> {
             let role_id = self.destination_id;
             let permission = self.object;
-            let permission_id = permission.definition_id.clone();
 
             let Some(role) = state_transaction.world.roles.get_mut(&role_id) else {
                 return Err(FindError::Role(role_id).into());
             };
 
             if !role.permissions.remove(&permission) {
-                return Err(FindError::Permission(permission_id).into());
+                return Err(FindError::Permission(permission.id).into());
             }
 
             state_transaction
                 .world
                 .emit_events(Some(RoleEvent::PermissionRemoved(RolePermissionChanged {
                     role_id,
-                    permission_id,
+                    permission_id: permission.id,
                 })));
 
             Ok(())
@@ -299,41 +298,14 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let parameter = self.parameter;
-            let parameter_id = parameter.id.clone();
-
             let world = &mut state_transaction.world;
-            if !world.parameters.remove(&parameter) {
-                return Err(FindError::Parameter(parameter_id).into());
+
+            if !world.executor_data_model.parameters.contains(&parameter.id) {
+                return Err(FindError::Parameter(parameter.id).into());
             }
 
-            world.parameters.insert(parameter);
-
-            world.emit_events(Some(ConfigurationEvent::Changed(parameter_id)));
-
-            Ok(())
-        }
-    }
-
-    impl Execute for NewParameter {
-        #[metrics(+"new_parameter")]
-        fn execute(
-            self,
-            _authority: &AccountId,
-            state_transaction: &mut StateTransaction<'_, '_>,
-        ) -> Result<(), Error> {
-            let parameter = self.parameter;
-            let parameter_id = parameter.id.clone();
-
-            let world = &mut state_transaction.world;
-            if !world.parameters.insert(parameter) {
-                return Err(RepetitionError {
-                    instruction_type: InstructionType::NewParameter,
-                    id: IdBox::ParameterId(parameter_id),
-                }
-                .into());
-            }
-
-            world.emit_events(Some(ConfigurationEvent::Created(parameter_id)));
+            let _maybe_previous = world.parameters.replace(parameter.clone());
+            world.emit_events(Some(ConfigurationEvent::Changed(parameter)));
 
             Ok(())
         }
@@ -348,7 +320,11 @@ pub mod isi {
         ) -> Result<(), Error> {
             let raw_executor = self.executor;
 
-            let permissions_before = state_transaction.world.permission_schema.token_ids.clone();
+            let permissions_before = state_transaction
+                .world
+                .executor_data_model
+                .permissions
+                .clone();
 
             // Cloning executor to avoid multiple mutable borrows of `state_transaction`.
             // Also it's a cheap operation.
@@ -365,10 +341,13 @@ pub mod isi {
             *state_transaction.world.executor.get_mut() = upgraded_executor;
 
             revoke_removed_permissions(authority, state_transaction, permissions_before)?;
+            prune_unknown_parameters(state_transaction);
 
             state_transaction
                 .world
-                .emit_events(std::iter::once(ExecutorEvent::Upgraded));
+                .emit_events(std::iter::once(ExecutorEvent::Upgraded(ExecutorUpgrade {
+                    new_data_model: state_transaction.world.executor_data_model.clone(),
+                })));
 
             Ok(())
         }
@@ -377,18 +356,14 @@ pub mod isi {
     fn revoke_removed_permissions(
         authority: &AccountId,
         state_transaction: &mut StateTransaction,
-        permissions_before: Vec<PermissionId>,
+        permissions_before: BTreeSet<PermissionId>,
     ) -> Result<(), Error> {
         let world = state_transaction.world();
-        let permissions_after = world
-            .permission_schema()
-            .token_ids
-            .iter()
-            .collect::<IndexSet<_>>();
+        let permissions_after = &world.executor_data_model().permissions;
         let permissions_removed = permissions_before
             .into_iter()
             .filter(|permission| !permissions_after.contains(permission))
-            .collect::<IndexSet<_>>();
+            .collect::<BTreeSet<_>>();
         if permissions_removed.is_empty() {
             return Ok(());
         }
@@ -407,9 +382,23 @@ pub mod isi {
         Ok(())
     }
 
+    fn prune_unknown_parameters(state_transaction: &mut StateTransaction) {
+        state_transaction
+            .world
+            .parameters
+            .get_mut()
+            .retain(|parameter| {
+                state_transaction
+                    .world
+                    .executor_data_model
+                    .parameters
+                    .contains(&parameter.id)
+            });
+    }
+
     fn find_related_accounts(
         world: &impl WorldReadOnly,
-        permissions: &IndexSet<PermissionId>,
+        permissions: &BTreeSet<PermissionId>,
     ) -> Vec<(AccountId, Permission)> {
         world
             .account_permissions()
@@ -417,7 +406,7 @@ pub mod isi {
             .flat_map(|(account_id, account_permissions)| {
                 account_permissions
                     .iter()
-                    .filter(|permission| permissions.contains(&permission.definition_id))
+                    .filter(|permission| permissions.contains(&permission.id))
                     .map(|permission| (account_id.clone(), permission.clone()))
             })
             .collect()
@@ -425,7 +414,7 @@ pub mod isi {
 
     fn find_related_roles(
         world: &impl WorldReadOnly,
-        permissions: &IndexSet<PermissionId>,
+        permissions: &BTreeSet<PermissionId>,
     ) -> Vec<(RoleId, Permission)> {
         world
             .roles()
@@ -433,7 +422,7 @@ pub mod isi {
             .flat_map(|(role_id, role)| {
                 role.permissions
                     .iter()
-                    .filter(|permission| permissions.contains(&permission.definition_id))
+                    .filter(|permission| permissions.contains(&permission.id))
                     .map(|permission| (role_id.clone(), permission.clone()))
             })
             .collect()
@@ -464,9 +453,9 @@ pub mod isi {
 pub mod query {
     use eyre::Result;
     use iroha_data_model::{
+        executor::ExecutorDataModel,
         parameter::Parameter,
         peer::Peer,
-        permission::PermissionSchema,
         prelude::*,
         query::error::{FindError, QueryExecutionFail as Error},
         role::{Role, RoleId},
@@ -534,10 +523,10 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindPermissionSchema {
-        #[metrics("find_permission_schema")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<PermissionSchema, Error> {
-            Ok(state_ro.world().permission_schema().clone())
+    impl ValidQuery for FindExecutorDataModel {
+        #[metrics("find_executor_data_model")]
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<ExecutorDataModel, Error> {
+            Ok(state_ro.world().executor_data_model().clone())
         }
     }
 
