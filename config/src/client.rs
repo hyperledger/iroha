@@ -144,7 +144,7 @@ impl ConfigurationProxy {
             }
         }
         if let Some(api_url) = &self.torii_api_url {
-            if api_url.scheme() != "http" {
+            if api_url.scheme() != "http" && api_url.scheme() != "https" {
                 eyre::bail!(ConfigError::InsaneValue {
                     field: "TORII_API_URL",
                     value: api_url.to_string(),
