@@ -128,22 +128,8 @@ impl Sumeragi {
     ) -> (Option<BlockMessage>, bool) {
         const MAX_CONTROL_MSG_IN_A_ROW: usize = 25;
 
-        let mut block_msg = None;
-
         let mut should_sleep = true;
         for _ in 0..MAX_CONTROL_MSG_IN_A_ROW {
-            let maybe_block = block_msg.take().or_else(|| {
-                self.message_receiver
-                    .try_recv()
-                    .map_err(|recv_error| {
-                        assert!(
-                            recv_error != mpsc::TryRecvError::Disconnected,
-                            "Sumeragi message pump disconnected. This is not a recoverable error."
-                        )
-                    })
-                    .ok()
-            });
-
             if let Ok(msg) = self.control_message_receiver
                 .try_recv()
                 .map_err(|recv_error| {
@@ -161,42 +147,57 @@ impl Sumeragi {
                 ) {
                     trace!(%error, "Failed to add proofs into view change proof chain")
                 }
-
-                let current_view_change_index = view_change_proof_chain.verify_with_state(
-                    &self.current_topology.ordered_peers,
-                    self.current_topology.max_faults(),
-                    state_view.latest_block_hash(),
-                ) as u64;
-
-                let mut should_prune = false;
-
-                if let Some(msg) = block_msg.as_ref() {
-                    let vc_index : Option<u64> = match msg {
-                        BlockMessage::BlockCreated(bc) => Some(bc.block.header().view_change_index),
-                        // Signed and Committed contain no block.
-                        // Block sync updates are exempt from early pruning.
-                        BlockMessage::BlockSigned(_) | BlockMessage::BlockCommitted(_) | BlockMessage::BlockSyncUpdate(_) => None,
-                    };
-                    if let Some(vc_index) = vc_index {
-                        if vc_index < current_view_change_index {
-                            should_prune = true;
-                        }
-                    }
-                }
-
-                block_msg = if should_prune {
-                    None
-                } else {
-                     maybe_block
-                };
             } else {
-                block_msg = maybe_block;
                 break;
             }
         }
 
+        let block_msg =
+            self.receive_block_message_network_packet(state_view, view_change_proof_chain);
+
         should_sleep &= block_msg.is_none();
         (block_msg, should_sleep)
+    }
+
+    fn receive_block_message_network_packet(
+        &self,
+        state_view: &StateView,
+        view_change_proof_chain: &ProofChain,
+    ) -> Option<BlockMessage> {
+        let current_view_change_index = view_change_proof_chain.verify_with_state(
+            &self.current_topology.ordered_peers,
+            self.current_topology.max_faults(),
+            state_view.latest_block_hash(),
+        ) as u64;
+
+        loop {
+            let block_msg = self
+                .message_receiver
+                .try_recv()
+                .map_err(|recv_error| {
+                    assert!(
+                        recv_error != mpsc::TryRecvError::Disconnected,
+                        "Sumeragi message pump disconnected. This is not a recoverable error."
+                    )
+                })
+                .ok()?;
+
+            let block_vc_index: Option<u64> = match &block_msg {
+                BlockMessage::BlockCreated(bc) => Some(bc.block.header().view_change_index),
+                // Signed and Committed contain no block.
+                // Block sync updates are exempt from early pruning.
+                BlockMessage::BlockSigned(_)
+                | BlockMessage::BlockCommitted(_)
+                | BlockMessage::BlockSyncUpdate(_) => None,
+            };
+            if let Some(block_vc_index) = block_vc_index {
+                if block_vc_index < current_view_change_index {
+                    // ignore block_message
+                    continue;
+                }
+            }
+            return Some(block_msg);
+        }
     }
 
     fn init_listen_for_genesis(
