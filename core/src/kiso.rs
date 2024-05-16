@@ -148,7 +148,7 @@ impl Actor {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, time::Duration};
+    use std::time::Duration;
 
     use iroha_config::{
         base::{read::ConfigReader, toml::TomlSource},
@@ -161,12 +161,7 @@ mod tests {
     fn test_config() -> Root {
         // if it fails, it is probably a bug
         ConfigReader::new()
-            .with_toml_source(
-                TomlSource::from_file(
-                    PathBuf::from(file!()).join("../../config/iroha_test_config.toml"),
-                )
-                .unwrap(),
-            )
+            .with_toml_source(TomlSource::from_file("../config/iroha_test_config.toml").unwrap())
             .read_and_complete::<UserConfig>()
             .unwrap()
             .parse()
