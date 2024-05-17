@@ -1,7 +1,5 @@
 //! User configuration view.
 
-use std::str::FromStr;
-
 use error_stack::{Report, ResultExt};
 use iroha_config_base::{
     attach::ConfigValueAndOrigin,
@@ -10,7 +8,6 @@ use iroha_config_base::{
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::prelude::{AccountId, ChainId, DomainId};
-use serde_with::DeserializeFromStr;
 use url::Url;
 
 use crate::config::BasicAuth;
@@ -21,7 +18,7 @@ use crate::config::BasicAuth;
 pub struct Root {
     pub chain_id: ChainId,
     #[config(env = "TORII_URL")]
-    pub torii_url: OnlyHttpUrl,
+    pub torii_url: WithOrigin<Url>,
     pub basic_auth: Option<BasicAuth>,
     #[config(nested)]
     pub account: Account,
@@ -35,6 +32,8 @@ pub enum ParseError {
     TxTimeoutVsTtl,
     #[error("Failed to construct a key pair from provided public and private keys")]
     KeyPair,
+    #[error("Unsupported URL scheme: `{scheme}`")]
+    UnsupportedUrlScheme { scheme: String },
 }
 
 impl Root {
@@ -76,6 +75,17 @@ impl Root {
             )
         }
 
+        match torii_url.value().scheme() {
+            "http" | "https" => {}
+            scheme => emitter.emit(
+                Report::new(ParseError::UnsupportedUrlScheme {
+                    scheme: scheme.to_string(),
+                })
+                .attach_printable(torii_url.clone().into_attachment())
+                .attach_printable("Note: only `http` and `https` protocols are supported"),
+            ),
+        }
+
         let (public_key, public_key_origin) = public_key.into_tuple();
         let (private_key, private_key_origin) = private_key.into_tuple();
         let account_id = AccountId::new(domain_id, public_key.clone());
@@ -91,7 +101,7 @@ impl Root {
             chain_id,
             account_id,
             key_pair: key_pair.unwrap(),
-            torii_api_url: torii_url.0,
+            torii_api_url: torii_url.into_value(),
             basic_auth,
             transaction_ttl: tx_ttl.into_value().get(),
             transaction_status_timeout: tx_timeout.into_value().get(),
@@ -119,39 +129,6 @@ pub struct Transaction {
     pub nonce: bool,
 }
 
-/// A [`Url`] that might only have HTTP scheme inside
-#[derive(Debug, Clone, Eq, PartialEq, DeserializeFromStr)]
-pub struct OnlyHttpUrl(Url);
-
-impl FromStr for OnlyHttpUrl {
-    type Err = ParseHttpUrlError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let url = Url::from_str(s)?;
-        if url.scheme() == "http" {
-            Ok(Self(url))
-        } else {
-            Err(ParseHttpUrlError::NotHttp {
-                found: url.scheme().to_owned(),
-            })
-        }
-    }
-}
-
-/// Possible errors that might occur for [`FromStr::from_str`] for [`OnlyHttpUrl`].
-#[derive(Debug, thiserror::Error)]
-pub enum ParseHttpUrlError {
-    /// Unable to parse the url
-    #[error(transparent)]
-    Parse(#[from] url::ParseError),
-    /// Parsed fine, but doesn't contain HTTP
-    #[error("expected `http` scheme, found: `{found}`")]
-    NotHttp {
-        /// What scheme was actually found
-        found: String,
-    },
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -171,14 +148,5 @@ mod tests {
 
         assert_eq!(env.unvisited(), HashSet::new());
         assert_eq!(env.unknown(), HashSet::new());
-    }
-
-    #[test]
-    fn non_http_url_error() {
-        let error = "https://localhost:1123"
-            .parse::<OnlyHttpUrl>()
-            .expect_err("should not allow https");
-
-        assert_eq!(format!("{error}"), "expected `http` scheme, found: `https`");
     }
 }
