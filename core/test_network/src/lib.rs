@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc, thread};
 
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
-use iroha::Iroha;
+use iroha::{Iroha, ToriiStarted};
 use iroha_client::{
     client::{Client, QueryOutput},
     config::Config as ClientConfig,
@@ -14,7 +14,7 @@ use iroha_client::{
 };
 use iroha_config::parameters::actual::Root as Config;
 pub use iroha_core::state::StateReadOnly;
-use iroha_crypto::KeyPair;
+use iroha_crypto::{ExposedPrivateKey, KeyPair};
 use iroha_data_model::{query::QueryOutputBox, ChainId};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockFile};
 use iroha_logger::{warn, InstrumentFutures};
@@ -150,7 +150,7 @@ impl Network {
     pub fn get_freeze_status_handles(&self) -> Vec<Arc<AtomicBool>> {
         self.peers()
             .filter_map(|peer| peer.iroha.as_ref())
-            .map(|iroha| iroha.freeze_status.clone())
+            .map(|iroha| iroha.freeze_status().clone())
             .collect()
     }
 
@@ -218,7 +218,7 @@ impl Network {
         );
 
         let mut config = Config::test();
-        config.sumeragi.trusted_peers =
+        config.sumeragi.trusted_peers.value_mut().others =
             UniqueVec::from_iter(self.peers().map(|peer| &peer.id).cloned());
 
         let peer = PeerBuilder::new()
@@ -273,7 +273,7 @@ impl Network {
             .collect::<Result<Vec<_>>>()?;
 
         let mut config = default_config.unwrap_or_else(Config::test);
-        config.sumeragi.trusted_peers =
+        config.sumeragi.trusted_peers.value_mut().others =
             UniqueVec::from_iter(peers.iter().map(|peer| peer.id.clone()));
 
         let mut genesis_peer = peers.remove(0);
@@ -388,7 +388,7 @@ pub struct Peer {
     /// Shutdown handle
     shutdown: Option<JoinHandle<()>>,
     /// Iroha itself
-    pub iroha: Option<Iroha>,
+    pub iroha: Option<Iroha<ToriiStarted>>,
     /// Temporary directory
     // Note: last field to be dropped after Iroha (struct fields drops in FIFO RFC 1857)
     pub temp_dir: Option<Arc<TempDir>>,
@@ -417,7 +417,10 @@ impl Drop for Peer {
 impl Peer {
     /// Returns per peer config with all addresses, keys, and id set up.
     fn get_config(&self, config: Config) -> Config {
-        use iroha_config::parameters::actual::{Common, Network, Torii};
+        use iroha_config::{
+            base::WithOrigin,
+            parameters::actual::{Common, Network, Torii},
+        };
 
         Config {
             common: Common {
@@ -426,11 +429,11 @@ impl Peer {
                 ..config.common
             },
             network: Network {
-                address: self.p2p_address.clone(),
+                address: WithOrigin::inline(self.p2p_address.clone()),
                 ..config.network
             },
             torii: Torii {
-                address: self.api_address.clone(),
+                address: WithOrigin::inline(self.api_address.clone()),
                 ..config.torii
             },
             ..config
@@ -445,7 +448,7 @@ impl Peer {
         temp_dir: Arc<TempDir>,
     ) {
         let mut config = self.get_config(config);
-        config.kura.store_dir = temp_dir.path().to_str().unwrap().into();
+        *config.kura.store_dir.value_mut() = temp_dir.path().to_str().unwrap().into();
         let info_span = iroha_logger::info_span!(
             "test-peer",
             p2p_addr = %self.p2p_address,
@@ -456,10 +459,10 @@ impl Peer {
 
         let handle = task::spawn(
             async move {
-                let mut iroha = Iroha::new(config, genesis, logger)
+                let iroha = Iroha::start_network(config, genesis, logger)
                     .await
                     .expect("Failed to start iroha");
-                let job_handle = iroha.start_as_task().unwrap();
+                let (job_handle, iroha) = iroha.start_torii_as_task();
                 sender.send(iroha).unwrap();
                 job_handle.await.unwrap().unwrap();
             }
@@ -620,7 +623,7 @@ impl PeerBuilder {
     pub async fn start_with_peer(self, peer: &mut Peer) {
         let config = self.config.unwrap_or_else(|| {
             let mut config = Config::test();
-            config.sumeragi.trusted_peers = unique_vec![peer.id.clone()];
+            config.sumeragi.trusted_peers.value_mut().others = unique_vec![peer.id.clone()];
             config
         });
         let genesis = match self.genesis {
@@ -778,29 +781,21 @@ impl TestRuntime for Runtime {
 
 impl TestConfig for Config {
     fn test() -> Self {
-        use iroha_config::{
-            base::{FromEnv as _, StdEnv, UnwrapPartial as _},
-            parameters::user::{CliContext, RootPartial},
-        };
+        use iroha_config::base::toml::TomlSource;
 
-        let mut layer = iroha::samples::get_user_config(
-            &UniqueVec::new(),
-            Some(get_chain_id()),
-            Some(get_key_pair(Signatory::Peer)),
-            Some(get_key_pair(Signatory::Genesis)),
-        )
-        .merge(RootPartial::from_env(&StdEnv).expect("test env variables should parse properly"));
+        let mut raw = iroha::samples::get_config_toml(
+            <_>::default(),
+            get_chain_id(),
+            get_key_pair(Signatory::Peer),
+            get_key_pair(Signatory::Genesis),
+        );
 
         let (public_key, private_key) = KeyPair::random().into_parts();
-        layer.public_key.set(public_key);
-        layer.private_key.set(private_key);
+        iroha_config::base::toml::Writer::new(&mut raw)
+            .write("public_key", public_key)
+            .write("private_key", ExposedPrivateKey(private_key));
 
-        layer
-            .unwrap_partial()
-            .expect("should not fail as all fields are present")
-            .parse(CliContext {
-                submit_genesis: true,
-            })
+        Config::from_toml_source(TomlSource::inline(raw))
             .expect("Test Iroha config failed to build. This is likely to be a bug.")
     }
 

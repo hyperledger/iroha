@@ -6,18 +6,16 @@ use std::{
     str::FromStr,
 };
 
-use color_eyre::{
-    eyre::{eyre, Error, WrapErr},
-    Result,
-};
-// FIXME: sync with `kagami` (it uses `inquiry`, migrate both to something single)
 use erased_serde::Serialize;
+use error_stack::{fmt::ColorMode, IntoReportCompat, ResultExt};
+use eyre::{eyre, Error, Result, WrapErr};
 use iroha_client::{
     client::{Client, QueryResult},
     config::Config,
     data_model::{metadata::MetadataValueBox, prelude::*},
 };
 use iroha_primitives::addr::SocketAddr;
+use thiserror::Error;
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
 /// Should be combined with `#[command(flatten)]` attr.
@@ -45,7 +43,7 @@ impl MetadataArgs {
                             path.display()
                         )
                     })?;
-                Ok::<_, color_eyre::Report>(metadata)
+                Ok::<_, eyre::Report>(metadata)
             })
             .transpose()?;
 
@@ -176,22 +174,35 @@ impl RunArgs for Subcommand {
     }
 }
 
-fn main() -> Result<()> {
-    color_eyre::install()?;
+#[derive(Error, Debug)]
+enum MainError {
+    #[error("Failed to load Iroha Client CLI configuration")]
+    Config,
+    #[error("Failed to serialize config")]
+    SerializeConfig,
+    #[error("Failed to run the command")]
+    Subcommand,
+}
 
+fn main() -> error_stack::Result<(), MainError> {
     let Args {
         config: config_path,
         subcommand,
         verbose,
     } = clap::Parser::parse();
 
-    let config = Config::load(config_path)?;
+    error_stack::Report::set_color_mode(color_mode());
 
+    let config = Config::load(config_path)
+        // FIXME: would be nice to NOT change the context, it's unnecessary
+        .change_context(MainError::Config)
+        .attach_printable("config path was set by `--config` argument")?;
     if verbose {
         eprintln!(
             "Configuration: {}",
             &serde_json::to_string_pretty(&config)
-                .wrap_err("Failed to serialize configuration.")?
+                .change_context(MainError::SerializeConfig)
+                .attach_printable("caused by `--verbose` argument")?
         );
     }
 
@@ -199,8 +210,22 @@ fn main() -> Result<()> {
         write: stdout(),
         config,
     };
+    subcommand
+        .run(&mut context)
+        .into_report()
+        .map_err(|report| report.change_context(MainError::Subcommand))?;
 
-    subcommand.run(&mut context)
+    Ok(())
+}
+
+fn color_mode() -> ColorMode {
+    if supports_color::on(supports_color::Stream::Stdout).is_some()
+        && supports_color::on(supports_color::Stream::Stderr).is_some()
+    {
+        ColorMode::Color
+    } else {
+        ColorMode::None
+    }
 }
 
 /// Submit instruction with metadata to network.

@@ -152,10 +152,13 @@ impl SumeragiHandle {
             });
 
             current_topology = match state_view.height() {
-                0 => {
-                    assert!(!sumeragi_config.trusted_peers.is_empty());
-                    Topology::new(sumeragi_config.trusted_peers.clone())
-                }
+                0 => Topology::new(
+                    sumeragi_config
+                        .trusted_peers
+                        .value()
+                        .clone()
+                        .into_non_empty_vec(),
+                ),
                 height => {
                     let block_ref = kura.get_block_by_height(height).expect(
                         "Sumeragi could not load block that was reported as present. \

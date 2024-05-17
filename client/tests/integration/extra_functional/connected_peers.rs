@@ -39,7 +39,7 @@ fn register_new_peer() -> Result<()> {
 
     // Start new peer
     let mut configuration = Config::test();
-    configuration.sumeragi.trusted_peers =
+    configuration.sumeragi.trusted_peers.value_mut().others =
         unique_vec![peer_clients.choose(&mut thread_rng()).unwrap().0.id.clone()];
     let rt = Runtime::test();
     let new_peer = rt.block_on(

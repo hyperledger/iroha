@@ -10,21 +10,21 @@ license.workspace = true
 [lints]
 workspace = true
 
-[features]
-# enables some JSON-related features
-json = ["serde_json"]
-
 [dependencies]
-merge = "0.1.0"
+iroha_config_base_derive = { workspace = true }
+
 drop_bomb = { workspace = true }
-derive_more = { workspace = true, features = ["from", "deref", "deref_mut"] }
-eyre = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true, features = ["macros", "std"] }
 thiserror = { workspace = true }
 num-traits = "0.2.19"
-
-serde_json = { version = "1", optional = true }
+toml = { workspace = true }
+error-stack = { workspace = true }
+log = "0.4"
+derive_more = { workspace = true, features = ["constructor", "display"] }
 
 [dev-dependencies]
-toml = { workspace = true }
+expect-test = { workspace = true }
+strum = { workspace = true, features = ["derive", "std"] }
+hex = { workspace = true, features = ["std"] }
+serde_with = { workspace = true, features = ["hex"] }

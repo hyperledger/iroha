@@ -1266,18 +1266,7 @@ impl<'state> StateBlock<'state> {
 
     /// Create time event using previous and current blocks
     fn create_time_event(&self, block: &CommittedBlock) -> TimeEvent {
-        use iroha_config::parameters::defaults::chain_wide::{
-            DEFAULT_BLOCK_TIME, DEFAULT_COMMIT_TIME,
-        };
-
-        const DEFAULT_CONSENSUS_ESTIMATION: Duration =
-            match DEFAULT_BLOCK_TIME.checked_add(match DEFAULT_COMMIT_TIME.checked_div(2) {
-                Some(x) => x,
-                None => unreachable!(),
-            }) {
-                Some(x) => x,
-                None => unreachable!(),
-            };
+        use iroha_config::parameters::defaults::chain_wide::CONSENSUS_ESTIMATION as DEFAULT_CONSENSUS_ESTIMATION;
 
         let prev_interval = self.latest_block_ref().map(|latest_block| {
             let header = &latest_block.as_ref().header();

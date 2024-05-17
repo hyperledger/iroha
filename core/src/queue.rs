@@ -92,17 +92,25 @@ pub struct Failure {
 
 impl Queue {
     /// Makes queue from configuration
-    pub fn from_config(cfg: Config, events_sender: EventsSender) -> Self {
+    pub fn from_config(
+        Config {
+            capacity,
+            capacity_per_user,
+            transaction_time_to_live,
+            future_threshold,
+        }: Config,
+        events_sender: EventsSender,
+    ) -> Self {
         Self {
             events_sender,
-            tx_hashes: ArrayQueue::new(cfg.capacity.get()),
+            tx_hashes: ArrayQueue::new(capacity.get()),
             accepted_txs: DashMap::new(),
             txs_per_user: DashMap::new(),
-            capacity: cfg.capacity,
-            capacity_per_user: cfg.capacity_per_user,
+            capacity,
+            capacity_per_user,
             time_source: TimeSource::new_system(),
-            tx_time_to_live: cfg.transaction_time_to_live,
-            future_threshold: cfg.future_threshold,
+            tx_time_to_live: transaction_time_to_live,
+            future_threshold,
         }
     }
 

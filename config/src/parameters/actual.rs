@@ -2,12 +2,13 @@
 //! structures in a way that is efficient for Iroha internally.
 
 use std::{
-    num::NonZeroU32,
-    path::{Path, PathBuf},
+    num::{NonZeroU32, NonZeroUsize},
+    path::PathBuf,
     time::Duration,
 };
 
-use iroha_config_base::{FromEnv, StdEnv, UnwrapPartial};
+use error_stack::{Result, ResultExt};
+use iroha_config_base::{read::ConfigReader, toml::TomlSource, WithOrigin};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
@@ -16,14 +17,11 @@ use iroha_data_model::{
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::{Deserialize, Serialize};
 use url::Url;
-pub use user::{DevTelemetry, Logger, Queue, Snapshot};
+pub use user::{DevTelemetry, Logger, Snapshot};
 
 use crate::{
     kura::InitMode,
-    parameters::{
-        defaults, user,
-        user::{CliContext, RootPartial},
-    },
+    parameters::{defaults, user},
 };
 
 /// Parsed configuration root
@@ -47,22 +45,23 @@ pub struct Root {
     pub chain_wide: ChainWide,
 }
 
+/// See [`Root::from_toml_source`]
+#[derive(thiserror::Error, Debug, Copy, Clone)]
+#[error("Failed to read configuration from a given TOML source")]
+pub struct FromTomlSourceError;
+
 impl Root {
-    /// Loads configuration from a file and environment variables
-    ///
+    /// A shorthand to read config from a single provided TOML.
+    /// For testing purposes.
     /// # Errors
-    /// - unable to load config from a TOML file
-    /// - unable to parse config from envs
-    /// - the config is invalid
-    pub fn load<P: AsRef<Path>>(path: Option<P>, cli: CliContext) -> Result<Self, eyre::Report> {
-        let from_file = path.map(RootPartial::from_toml).transpose()?;
-        let from_env = RootPartial::from_env(&StdEnv)?;
-        let merged = match from_file {
-            Some(x) => x.merge(from_env),
-            None => from_env,
-        };
-        let config = merged.unwrap_partial()?.parse(cli)?;
-        Ok(config)
+    /// If config reading/parsing fails.
+    pub fn from_toml_source(src: TomlSource) -> Result<Self, FromTomlSourceError> {
+        ConfigReader::new()
+            .with_toml_source(src)
+            .read_and_complete::<user::Root>()
+            .change_context(FromTomlSourceError)?
+            .parse()
+            .change_context(FromTomlSourceError)
     }
 }
 
@@ -86,7 +85,7 @@ impl Common {
 #[allow(missing_docs)]
 #[derive(Debug, Clone)]
 pub struct Network {
-    pub address: SocketAddr,
+    pub address: WithOrigin<SocketAddr>,
     pub idle_timeout: Duration,
 }
 
@@ -102,8 +101,8 @@ pub enum Genesis {
     Full {
         /// Genesis account key pair
         key_pair: KeyPair,
-        /// Path to the [`RawGenesisBlock`]
-        file: PathBuf,
+        /// Path to `RawGenesisBlock`
+        file: WithOrigin<PathBuf>,
     },
 }
 
@@ -126,20 +125,29 @@ impl Genesis {
 }
 
 #[allow(missing_docs)]
+#[derive(Debug, Clone, Copy)]
+pub struct Queue {
+    pub capacity: NonZeroUsize,
+    pub capacity_per_user: NonZeroUsize,
+    pub transaction_time_to_live: Duration,
+    pub future_threshold: Duration,
+}
+
+#[allow(missing_docs)]
 #[derive(Debug, Clone)]
 pub struct Kura {
     pub init_mode: InitMode,
-    pub store_dir: PathBuf,
+    pub store_dir: WithOrigin<PathBuf>,
     pub debug_output_new_blocks: bool,
 }
 
 impl Default for Queue {
     fn default() -> Self {
         Self {
-            transaction_time_to_live: defaults::queue::DEFAULT_TRANSACTION_TIME_TO_LIVE,
-            future_threshold: defaults::queue::DEFAULT_FUTURE_THRESHOLD,
-            capacity: defaults::queue::DEFAULT_MAX_TRANSACTIONS_IN_QUEUE,
-            capacity_per_user: defaults::queue::DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER,
+            transaction_time_to_live: defaults::queue::TRANSACTION_TIME_TO_LIVE,
+            future_threshold: defaults::queue::FUTURE_THRESHOLD,
+            capacity: defaults::queue::CAPACITY,
+            capacity_per_user: defaults::queue::CAPACITY_PER_USER,
         }
     }
 }
@@ -147,8 +155,30 @@ impl Default for Queue {
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct Sumeragi {
-    pub trusted_peers: UniqueVec<PeerId>,
+    pub trusted_peers: WithOrigin<TrustedPeers>,
     pub debug_force_soft_fork: bool,
+}
+
+#[derive(Debug, Clone)]
+#[allow(missing_docs)]
+pub struct TrustedPeers {
+    pub myself: PeerId,
+    pub others: UniqueVec<PeerId>,
+}
+
+impl TrustedPeers {
+    /// Returns a list of trusted peers which is guaranteed to have at
+    /// least one element - the id of the peer itself.
+    pub fn into_non_empty_vec(self) -> UniqueVec<PeerId> {
+        std::iter::once(self.myself).chain(self.others).collect()
+    }
+}
+
+impl Sumeragi {
+    /// Tells whether a trusted peers list has some other peers except for the peer itself
+    pub fn contains_other_trusted_peers(&self) -> bool {
+        self.trusted_peers.value().others.len() > 1
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -160,7 +190,7 @@ pub struct LiveQueryStore {
 impl Default for LiveQueryStore {
     fn default() -> Self {
         Self {
-            idle_time: defaults::torii::DEFAULT_QUERY_IDLE_TIME,
+            idle_time: defaults::torii::QUERY_IDLE_TIME,
         }
     }
 }
@@ -206,16 +236,16 @@ impl ChainWide {
 impl Default for ChainWide {
     fn default() -> Self {
         Self {
-            max_transactions_in_block: defaults::chain_wide::DEFAULT_MAX_TXS,
-            block_time: defaults::chain_wide::DEFAULT_BLOCK_TIME,
-            commit_time: defaults::chain_wide::DEFAULT_COMMIT_TIME,
-            transaction_limits: defaults::chain_wide::DEFAULT_TRANSACTION_LIMITS,
-            domain_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            account_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            asset_definition_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            asset_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            trigger_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            ident_length_limits: defaults::chain_wide::DEFAULT_IDENT_LENGTH_LIMITS,
+            max_transactions_in_block: defaults::chain_wide::MAX_TXS,
+            block_time: defaults::chain_wide::BLOCK_TIME,
+            commit_time: defaults::chain_wide::COMMIT_TIME,
+            transaction_limits: defaults::chain_wide::TRANSACTION_LIMITS,
+            domain_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
+            account_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
+            asset_definition_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
+            asset_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
+            trigger_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
+            ident_length_limits: defaults::chain_wide::IDENT_LENGTH_LIMITS,
             executor_runtime: WasmRuntime::default(),
             wasm_runtime: WasmRuntime::default(),
         }
@@ -233,8 +263,8 @@ pub struct WasmRuntime {
 impl Default for WasmRuntime {
     fn default() -> Self {
         Self {
-            fuel_limit: defaults::chain_wide::DEFAULT_WASM_FUEL_LIMIT,
-            max_memory_bytes: defaults::chain_wide::DEFAULT_WASM_MAX_MEMORY_BYTES,
+            fuel_limit: defaults::chain_wide::WASM_FUEL_LIMIT,
+            max_memory_bytes: defaults::chain_wide::WASM_MAX_MEMORY_BYTES,
         }
     }
 }
@@ -242,7 +272,7 @@ impl Default for WasmRuntime {
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct Torii {
-    pub address: SocketAddr,
+    pub address: WithOrigin<SocketAddr>,
     pub max_content_len_bytes: u64,
 }
 

@@ -2,6 +2,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
+    net::ToSocketAddrs,
     time::Duration,
 };
 
@@ -75,7 +76,8 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             idle_timeout,
         }: Config,
     ) -> Result<Self, Error> {
-        let listener = TcpListener::bind(&listen_addr.to_string()).await?;
+        // TODO: enhance the error by reporting the origin of `listen_addr`
+        let listener = TcpListener::bind(listen_addr.value().to_socket_addrs()?.as_slice()).await?;
         iroha_logger::info!("Network bound to listener");
         let (online_peers_sender, online_peers_receiver) = watch::channel(HashSet::new());
         let (subscribe_to_peers_messages_sender, subscribe_to_peers_messages_receiver) =
@@ -86,7 +88,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
         let (peer_message_sender, peer_message_receiver) = mpsc::channel(1);
         let (service_message_sender, service_message_receiver) = mpsc::channel(1);
         let network = NetworkBase {
-            listen_addr,
+            listen_addr: listen_addr.into_value(),
             listener,
             peers: HashMap::new(),
             connecting_peers: HashMap::new(),

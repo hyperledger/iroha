@@ -85,7 +85,7 @@ impl Torii {
             state,
             #[cfg(feature = "telemetry")]
             metrics_reporter,
-            address: config.address,
+            address: config.address.into_value(),
             transaction_max_content_length: config.max_content_len_bytes,
         }
     }
@@ -243,27 +243,24 @@ impl Torii {
     fn start_api(self: Arc<Self>) -> eyre::Result<Vec<task::JoinHandle<()>>> {
         let torii_address = &self.address;
 
-        let mut handles = vec![];
-        match torii_address.to_socket_addrs() {
-            Ok(addrs) => {
-                for addr in addrs {
-                    let torii = Arc::clone(&self);
+        let handles = torii_address
+            .to_socket_addrs()?
+            .map(|addr| {
+                let torii = Arc::clone(&self);
 
-                    let api_router = torii.create_api_router();
-                    let signal_fut = async move { torii.notify_shutdown.notified().await };
-                    let (_, serve_fut) =
-                        warp::serve(api_router).bind_with_graceful_shutdown(addr, signal_fut);
+                let api_router = torii.create_api_router();
+                let signal_fut = async move { torii.notify_shutdown.notified().await };
+                // FIXME: warp panics if fails to bind!
+                //        handle this properly, report address origin after Axum
+                //        migration: https://github.com/hyperledger/iroha/issues/3776
+                let (_, serve_fut) =
+                    warp::serve(api_router).bind_with_graceful_shutdown(addr, signal_fut);
 
-                    handles.push(task::spawn(serve_fut));
-                }
+                task::spawn(serve_fut)
+            })
+            .collect();
 
-                Ok(handles)
-            }
-            Err(error) => {
-                iroha_logger::error!(%torii_address, %error, "API address configuration parse error");
-                Err(eyre::Error::new(error))
-            }
-        }
+        Ok(handles)
     }
 
     /// To handle incoming requests `Torii` should be started first.

@@ -50,12 +50,13 @@ impl Kura {
     /// to access the block store indicated by the provided
     /// path.
     pub fn new(config: &Config) -> Result<Arc<Self>> {
-        let mut block_store = BlockStore::new(&config.store_dir, LockStatus::Unlocked);
+        let store_dir = config.store_dir.resolve_relative_path();
+        let mut block_store = BlockStore::new(&store_dir, LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist()?;
 
         let block_plain_text_path = config
             .debug_output_new_blocks
-            .then(|| config.store_dir.join("blocks.json"));
+            .then(|| store_dir.join("blocks.json"));
 
         let kura = Arc::new(Self {
             mode: config.init_mode,
@@ -1050,7 +1051,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         Kura::new(&Config {
             init_mode: InitMode::Strict,
-            store_dir: temp_dir.path().to_str().unwrap().into(),
+            store_dir: iroha_config::base::WithOrigin::inline(
+                temp_dir.path().to_str().unwrap().into(),
+            ),
             debug_output_new_blocks: false,
         })
         .unwrap()

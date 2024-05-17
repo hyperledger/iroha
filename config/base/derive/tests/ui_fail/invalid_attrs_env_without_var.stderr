@@ -1,0 +1,5 @@
+error: expected `env` to be set as `env = "VARIABLE_NAME"
+ --> tests/ui_fail/invalid_attrs_env_without_var.rs:5:14
+  |
+5 |     #[config(env)] // without `= "VAR"`
+  |              ^^^

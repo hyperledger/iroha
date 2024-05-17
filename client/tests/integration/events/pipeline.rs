@@ -128,7 +128,7 @@ fn applied_block_must_be_available_in_kura() {
     peer.iroha
         .as_ref()
         .expect("Must be some")
-        .kura
+        .kura()
         .get_block_by_height(event.header().height())
         .expect("Block applied event was received earlier");
 }

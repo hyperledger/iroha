@@ -1,11 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use iroha_config::parameters::defaults::chain_wide::{
-    DEFAULT_BLOCK_TIME, DEFAULT_COMMIT_TIME, DEFAULT_IDENT_LENGTH_LIMITS, DEFAULT_MAX_TXS,
-    DEFAULT_METADATA_LIMITS, DEFAULT_TRANSACTION_LIMITS, DEFAULT_WASM_FUEL_LIMIT,
-    DEFAULT_WASM_MAX_MEMORY_BYTES,
-};
+use iroha_config::parameters::defaults::chain_wide as chain_wide_defaults;
 use iroha_data_model::{
     asset::{AssetDefinitionId, AssetValueType},
     metadata::Limits,
@@ -149,38 +145,56 @@ pub fn generate_default(
     let parameter_defaults = ParametersBuilder::new()
         .add_parameter(
             MAX_TRANSACTIONS_IN_BLOCK,
-            Numeric::new(DEFAULT_MAX_TXS.get().into(), 0),
+            Numeric::new(chain_wide_defaults::MAX_TXS.get().into(), 0),
         )?
-        .add_parameter(BLOCK_TIME, Numeric::new(DEFAULT_BLOCK_TIME.as_millis(), 0))?
+        .add_parameter(
+            BLOCK_TIME,
+            Numeric::new(chain_wide_defaults::BLOCK_TIME.as_millis(), 0),
+        )?
         .add_parameter(
             COMMIT_TIME_LIMIT,
-            Numeric::new(DEFAULT_COMMIT_TIME.as_millis(), 0),
+            Numeric::new(chain_wide_defaults::COMMIT_TIME.as_millis(), 0),
         )?
-        .add_parameter(TRANSACTION_LIMITS, DEFAULT_TRANSACTION_LIMITS)?
-        .add_parameter(WSV_DOMAIN_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
+        .add_parameter(TRANSACTION_LIMITS, chain_wide_defaults::TRANSACTION_LIMITS)?
+        .add_parameter(
+            WSV_DOMAIN_METADATA_LIMITS,
+            chain_wide_defaults::METADATA_LIMITS,
+        )?
         .add_parameter(
             WSV_ASSET_DEFINITION_METADATA_LIMITS,
-            DEFAULT_METADATA_LIMITS,
+            chain_wide_defaults::METADATA_LIMITS,
         )?
-        .add_parameter(WSV_ACCOUNT_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
-        .add_parameter(WSV_ASSET_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
-        .add_parameter(WSV_TRIGGER_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
-        .add_parameter(WSV_IDENT_LENGTH_LIMITS, DEFAULT_IDENT_LENGTH_LIMITS)?
+        .add_parameter(
+            WSV_ACCOUNT_METADATA_LIMITS,
+            chain_wide_defaults::METADATA_LIMITS,
+        )?
+        .add_parameter(
+            WSV_ASSET_METADATA_LIMITS,
+            chain_wide_defaults::METADATA_LIMITS,
+        )?
+        .add_parameter(
+            WSV_TRIGGER_METADATA_LIMITS,
+            chain_wide_defaults::METADATA_LIMITS,
+        )?
+        .add_parameter(
+            WSV_IDENT_LENGTH_LIMITS,
+            chain_wide_defaults::IDENT_LENGTH_LIMITS,
+        )?
         .add_parameter(
             EXECUTOR_FUEL_LIMIT,
-            Numeric::new(DEFAULT_WASM_FUEL_LIMIT.into(), 0),
+            Numeric::new(chain_wide_defaults::WASM_FUEL_LIMIT.into(), 0),
         )?
         .add_parameter(
             EXECUTOR_MAX_MEMORY,
-            Numeric::new(DEFAULT_WASM_MAX_MEMORY_BYTES.into(), 0),
+            Numeric::new(chain_wide_defaults::WASM_MAX_MEMORY_BYTES.into(), 0),
         )?
         .add_parameter(
             WASM_FUEL_LIMIT,
-            Numeric::new(DEFAULT_WASM_FUEL_LIMIT.into(), 0),
+            Numeric::new(chain_wide_defaults::WASM_FUEL_LIMIT.into(), 0),
         )?
         .add_parameter(
             WASM_MAX_MEMORY,
-            Numeric::new(DEFAULT_WASM_MAX_MEMORY_BYTES.into(), 0),
+            Numeric::new(chain_wide_defaults::WASM_MAX_MEMORY_BYTES.into(), 0),
         )?
         .into_create_parameters();
 

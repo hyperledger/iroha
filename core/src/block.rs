@@ -6,7 +6,7 @@
 //! [`Block`]s are organised into a linear sequence over time (also known as the block chain).
 use std::error::Error as _;
 
-use iroha_config::parameters::defaults::chain_wide::DEFAULT_CONSENSUS_ESTIMATION;
+use iroha_config::parameters::defaults::chain_wide::CONSENSUS_ESTIMATION as DEFAULT_CONSENSUS_ESTIMATION;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     block::*,

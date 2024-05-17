@@ -22,10 +22,10 @@ fn query_requests(criterion: &mut Criterion) {
 
     let chain_id = get_chain_id();
     let configuration = get_config(
-        &unique_vec![peer.id.clone()],
-        Some(chain_id.clone()),
-        Some(get_key_pair(test_network::Signatory::Peer)),
-        Some(get_key_pair(test_network::Signatory::Genesis)),
+        unique_vec![peer.id.clone()],
+        chain_id.clone(),
+        get_key_pair(test_network::Signatory::Peer),
+        get_key_pair(test_network::Signatory::Genesis),
     );
 
     let rt = Runtime::test();
@@ -127,10 +127,10 @@ fn instruction_submits(criterion: &mut Criterion) {
 
     let chain_id = get_chain_id();
     let configuration = get_config(
-        &unique_vec![peer.id.clone()],
-        Some(chain_id.clone()),
-        Some(get_key_pair(test_network::Signatory::Peer)),
-        Some(get_key_pair(test_network::Signatory::Genesis)),
+        unique_vec![peer.id.clone()],
+        chain_id.clone(),
+        get_key_pair(test_network::Signatory::Peer),
+        get_key_pair(test_network::Signatory::Genesis),
     );
     let genesis = GenesisNetwork::new(
         RawGenesisBlockBuilder::default()

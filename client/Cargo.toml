@@ -49,8 +49,10 @@ tls-rustls-webpki-roots = [
 
 [dependencies]
 iroha_config = { workspace = true }
+iroha_config_base = { workspace = true }
 iroha_crypto = { workspace = true }
-iroha_data_model = { workspace = true, features = ["http"] }
+# FIXME: should remove `transparent_api` feature?
+iroha_data_model = { workspace = true, features = ["http", "transparent_api"] }
 iroha_primitives = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_telemetry = { workspace = true }
@@ -60,6 +62,7 @@ test_samples = { workspace = true }
 
 attohttpc = { version = "0.28.0", default-features = false }
 eyre = { workspace = true }
+error-stack = { workspace = true }
 http = "1.1.0"
 url = { workspace = true }
 rand = { workspace = true }
@@ -75,7 +78,6 @@ tokio = { workspace = true, features = ["rt"] }
 tokio-tungstenite = { workspace = true }
 tungstenite = { workspace = true }
 futures-util = "0.3.30"
-merge = "0.1.0"
 toml = { workspace = true }
 nonzero_ext = { workspace = true }
 

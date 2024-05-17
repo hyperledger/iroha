@@ -1,0 +1,5 @@
+error: expected `,`
+ --> tests/ui_fail/invalid_attrs_no_comma_between_attrs.rs:5:22
+  |
+5 |     #[config(default env = "1234")]
+  |                      ^^^

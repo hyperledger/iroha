@@ -4,7 +4,7 @@ use std::str::FromStr as _;
 
 use byte_unit::{Byte, UnitType};
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha_config::parameters::actual::Kura as Config;
+use iroha_config::{base::WithOrigin, parameters::actual::Kura as Config};
 use iroha_core::{
     block::*,
     kura::{BlockStore, LockStatus},
@@ -40,7 +40,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let cfg = Config {
         init_mode: iroha_config::kura::InitMode::Strict,
         debug_output_new_blocks: false,
-        store_dir: dir.path().to_path_buf(),
+        store_dir: WithOrigin::inline(dir.path().to_path_buf()),
     };
     let kura = iroha_core::kura::Kura::new(&cfg).unwrap();
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
