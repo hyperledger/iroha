@@ -641,7 +641,7 @@
       },
       {
         "name": "transactions",
-        "type": "Vec<TransactionValue>"
+        "type": "Vec<CommittedTransaction>"
       },
       {
         "name": "event_recommendations",
@@ -743,6 +743,18 @@
       {
         "name": "fetch_size",
         "type": "FetchSize"
+      }
+    ]
+  },
+  "CommittedTransaction": {
+    "Struct": [
+      {
+        "name": "value",
+        "type": "SignedTransaction"
+      },
+      {
+        "name": "error",
+        "type": "Option<TransactionRejectionReason>"
       }
     ]
   },
@@ -3858,7 +3870,7 @@
       },
       {
         "name": "transaction",
-        "type": "TransactionValue"
+        "type": "CommittedTransaction"
       }
     ]
   },
@@ -3909,18 +3921,6 @@
         "tag": "Rejected",
         "discriminant": 3,
         "type": "TransactionRejectionReason"
-      }
-    ]
-  },
-  "TransactionValue": {
-    "Struct": [
-      {
-        "name": "value",
-        "type": "SignedTransaction"
-      },
-      {
-        "name": "error",
-        "type": "Option<TransactionRejectionReason>"
       }
     ]
   },
@@ -4342,6 +4342,9 @@
       }
     ]
   },
+  "Vec<CommittedTransaction>": {
+    "Vec": "CommittedTransaction"
+  },
   "Vec<EventBox>": {
     "Vec": "EventBox"
   },
@@ -4365,9 +4368,6 @@
   },
   "Vec<QueryOutputBox>": {
     "Vec": "QueryOutputBox"
-  },
-  "Vec<TransactionValue>": {
-    "Vec": "TransactionValue"
   },
   "Vec<u8>": {
     "Vec": "u8"
