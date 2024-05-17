@@ -92,7 +92,7 @@ mod model {
         /// Topology of the network at the time of block commit.
         pub commit_topology: UniqueVec<peer::PeerId>,
         /// array of transactions, which successfully passed validation and consensus step.
-        pub transactions: Vec<TransactionValue>,
+        pub transactions: Vec<CommittedTransaction>,
         /// Event recommendations.
         pub event_recommendations: Vec<EventBox>,
     }
@@ -149,7 +149,7 @@ impl SignedBlock {
 
     /// Block transactions
     #[inline]
-    pub fn transactions(&self) -> impl ExactSizeIterator<Item = &TransactionValue> {
+    pub fn transactions(&self) -> impl ExactSizeIterator<Item = &CommittedTransaction> {
         let SignedBlock::V1(block) = self;
         block.payload.transactions.iter()
     }

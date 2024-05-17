@@ -178,7 +178,7 @@ mod model {
     )]
     #[ffi_type]
     #[getset(get = "pub")]
-    pub struct TransactionValue {
+    pub struct CommittedTransaction {
         /// Committed transaction
         #[getset(skip)]
         pub value: SignedTransaction,
@@ -335,7 +335,7 @@ impl SignedTransactionV1 {
     }
 }
 
-impl AsRef<SignedTransaction> for TransactionValue {
+impl AsRef<SignedTransaction> for CommittedTransaction {
     fn as_ref(&self) -> &SignedTransaction {
         &self.value
     }
@@ -759,7 +759,7 @@ pub mod prelude {
     #[cfg(feature = "http")]
     pub use super::http::TransactionBuilder;
     pub use super::{
-        error::prelude::*, Executable, SignedTransaction, TransactionValue, WasmSmartContract,
+        error::prelude::*, CommittedTransaction, Executable, SignedTransaction, WasmSmartContract,
     };
 }
 

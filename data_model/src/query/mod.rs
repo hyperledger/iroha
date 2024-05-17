@@ -35,7 +35,7 @@ use crate::{
     events::TriggeringEventFilterBox,
     metadata::MetadataValueBox,
     seal,
-    transaction::{SignedTransaction, TransactionPayload, TransactionValue},
+    transaction::{CommittedTransaction, SignedTransaction, TransactionPayload},
     IdBox, Identifiable, IdentifiableBox,
 };
 
@@ -256,7 +256,7 @@ mod model {
         pub block_hash: HashOf<SignedBlock>,
         /// Transaction
         #[getset(skip)]
-        pub transaction: TransactionValue,
+        pub transaction: CommittedTransaction,
     }
 
     /// Request type clients (like http clients or wasm) can send to a query endpoint.
@@ -528,8 +528,8 @@ where
     }
 }
 
-impl AsRef<TransactionValue> for TransactionQueryOutput {
-    fn as_ref(&self) -> &TransactionValue {
+impl AsRef<CommittedTransaction> for TransactionQueryOutput {
+    fn as_ref(&self) -> &CommittedTransaction {
         &self.transaction
     }
 }

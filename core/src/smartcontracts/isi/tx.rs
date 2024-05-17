@@ -11,7 +11,7 @@ use iroha_data_model::{
         error::{FindError, QueryExecutionFail},
         TransactionQueryOutput,
     },
-    transaction::TransactionValue,
+    transaction::CommittedTransaction,
 };
 use iroha_telemetry::metrics;
 
@@ -54,7 +54,7 @@ impl BlockTransactionRef {
             .as_ref()
             .authority()
     }
-    fn value(&self) -> TransactionValue {
+    fn value(&self) -> CommittedTransaction {
         self.0
             .transactions()
             .nth(self.1)

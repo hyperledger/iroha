@@ -103,7 +103,7 @@ pub struct BlockBuilder<B>(B);
 mod pending {
     use std::time::SystemTime;
 
-    use iroha_data_model::transaction::TransactionValue;
+    use iroha_data_model::transaction::CommittedTransaction;
 
     use super::*;
     use crate::state::StateBlock;
@@ -148,7 +148,7 @@ mod pending {
             previous_height: u64,
             prev_block_hash: Option<HashOf<SignedBlock>>,
             view_change_index: u64,
-            transactions: &[TransactionValue],
+            transactions: &[CommittedTransaction],
         ) -> BlockHeader {
             BlockHeader {
                 height: previous_height + 1,
@@ -175,12 +175,12 @@ mod pending {
         fn categorize_transactions(
             transactions: Vec<AcceptedTransaction>,
             state_block: &mut StateBlock<'_>,
-        ) -> Vec<TransactionValue> {
+        ) -> Vec<CommittedTransaction> {
             transactions
                 .into_iter()
                 .map(
                     |tx| match state_block.transaction_executor().validate(tx, state_block) {
-                        Ok(tx) => TransactionValue {
+                        Ok(tx) => CommittedTransaction {
                             value: tx,
                             error: None,
                         },
@@ -190,7 +190,7 @@ mod pending {
                                 caused_by = ?error.source(),
                                 "Transaction validation failed",
                             );
-                            TransactionValue {
+                            CommittedTransaction {
                                 value: tx,
                                 error: Some(error),
                             }
@@ -374,7 +374,7 @@ mod valid {
                 .transactions()
                 // TODO: Unnecessary clone?
                 .cloned()
-                .try_for_each(|TransactionValue { value, error }| {
+                .try_for_each(|CommittedTransaction { value, error }| {
                     let transaction_executor = state_block.transaction_executor();
                     let limits = &transaction_executor.transaction_limits;
 
