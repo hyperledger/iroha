@@ -42,7 +42,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
         debug_output_new_blocks: false,
         store_dir: WithOrigin::inline(dir.path().to_path_buf()),
     };
-    let kura = iroha_core::kura::Kura::new(&cfg).unwrap();
+    let (kura, _) = iroha_core::kura::Kura::new(&cfg).unwrap();
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
 
     let query_handle = LiveQueryStore::test().start();

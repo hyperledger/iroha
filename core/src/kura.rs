@@ -49,7 +49,7 @@ impl Kura {
     /// Fails if there are filesystem errors when trying
     /// to access the block store indicated by the provided
     /// path.
-    pub fn new(config: &Config) -> Result<Arc<Self>> {
+    pub fn new(config: &Config) -> Result<(Arc<Self>, BlockCount)> {
         let store_dir = config.store_dir.resolve_relative_path();
         let mut block_store = BlockStore::new(&store_dir, LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist()?;
@@ -65,7 +65,9 @@ impl Kura {
             block_plain_text_path,
         });
 
-        Ok(kura)
+        let block_count = kura.init()?;
+
+        Ok((kura, block_count))
     }
 
     /// Create a kura instance that doesn't write to disk. Instead it serves as a handler
@@ -104,7 +106,7 @@ impl Kura {
     /// - file storage is unavailable
     /// - data in file storage is invalid or corrupted
     #[iroha_logger::log(skip_all, name = "kura_init")]
-    pub fn init(self: &Arc<Self>) -> Result<BlockCount> {
+    fn init(self: &Arc<Self>) -> Result<BlockCount> {
         let mut block_store = self.block_store.lock();
 
         let block_index_count: usize = block_store
@@ -1056,8 +1058,6 @@ mod tests {
             ),
             debug_output_new_blocks: false,
         })
-        .unwrap()
-        .init()
         .unwrap();
     }
 }

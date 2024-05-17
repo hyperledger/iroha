@@ -255,11 +255,9 @@ impl Iroha<ToriiNotStarted> {
                 .into_non_empty_vec(),
         );
 
-        let kura = Kura::new(&config.kura).change_context(StartError::InitKura)?;
+        let (kura, block_count) = Kura::new(&config.kura).change_context(StartError::InitKura)?;
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
         let live_query_store_handle = LiveQueryStore::from_config(config.live_query_store).start();
-
-        let block_count = kura.init().change_context(StartError::InitKura)?;
 
         let state = match try_read_snapshot(
             config.snapshot.store_dir.resolve_relative_path(),
