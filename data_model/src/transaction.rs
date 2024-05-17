@@ -169,7 +169,10 @@ pub mod model {
     }
 
     /// Transaction Value used in Instructions and Queries
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
+    #[getset(get = "pub")]
     #[ffi_type]
     pub struct TransactionValue {
         /// Committed transaction
