@@ -277,7 +277,6 @@ mod transparent {
         #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct SetKeyValue<O: Identifiable> {
             /// Where to set key value.
-            #[serde(flatten)]
             pub object_id: O::Id,
             /// Key.
             pub key: Name,
@@ -378,7 +377,6 @@ mod transparent {
         #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct RemoveKeyValue<O: Identifiable> {
             /// From where to remove key value.
-            #[serde(flatten)]
             pub object_id: O::Id,
             /// Key of the pair to remove.
             pub key: Name,
