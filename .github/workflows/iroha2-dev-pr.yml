@@ -8,6 +8,7 @@ on:
       - '**.json'
       - '**.toml'
       - '**.lock'
+      - '**.py'
       - '.github/workflows/iroha2-dev-pr.yml'
 
 concurrency:
@@ -94,7 +95,7 @@ jobs:
           # This context specification is required
           context: .
 
-  client-cli-tests:
+  torii-api-and-client-cli-tests:
     runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
@@ -112,7 +113,15 @@ jobs:
       - name: Mark binaries as executable
         run: |
           chmod +x ${{ env.CLIENT_CLI_DIR }}
-      - name: Install dependencies using Poetry
+      - name: Install torii api dependencies using Poetry
+        working-directory: torii/pytests
+        run: |
+          poetry install
+      - name: Run torii api tests
+        working-directory: torii/pytests
+        run: |
+          poetry run pytest
+      - name: Install client cli dependencies using Poetry
         working-directory: client_cli/pytests
         run: |
           poetry install
