@@ -235,15 +235,8 @@ mod chained {
     impl BlockBuilder<Chained> {
         /// Sign this block and get [`SignedBlock`].
         pub fn sign(self, key_pair: &KeyPair) -> WithEvents<ValidBlock> {
-            let signature = SignatureOf::new(key_pair, &self.0 .0);
-
-            WithEvents::new(ValidBlock(
-                SignedBlockV1 {
-                    payload: self.0 .0,
-                    signatures: SignaturesOf::from(signature),
-                }
-                .into(),
-            ))
+            let signed_block = SignedBlockV1::new(self.0 .0, key_pair);
+            WithEvents::new(ValidBlock(signed_block.into()))
         }
     }
 }
@@ -352,14 +345,7 @@ mod valid {
                 return WithEvents::new(Err((block, error.into())));
             }
 
-            let SignedBlock::V1(block) = block;
-            WithEvents::new(Ok(ValidBlock(
-                SignedBlockV1 {
-                    payload: block.payload,
-                    signatures: block.signatures,
-                }
-                .into(),
-            )))
+            WithEvents::new(Ok(ValidBlock(block)))
         }
 
         fn validate_transactions(
@@ -492,7 +478,12 @@ mod valid {
 
         #[cfg(test)]
         pub(crate) fn new_dummy() -> Self {
-            BlockBuilder(Chained(BlockPayload {
+            Self::new_dummy_and_modify_payload(|_| {})
+        }
+
+        #[cfg(test)]
+        pub(crate) fn new_dummy_and_modify_payload(f: impl FnOnce(&mut BlockPayload)) -> Self {
+            let mut payload = BlockPayload {
                 header: BlockHeader {
                     height: 2,
                     previous_block_hash: None,
@@ -507,9 +498,11 @@ mod valid {
                 transactions: Vec::new(),
                 commit_topology: UniqueVec::new(),
                 event_recommendations: Vec::new(),
-            }))
-            .sign(&KeyPair::random())
-            .unpack(|_| {})
+            };
+            f(&mut payload);
+            BlockBuilder(Chained(payload))
+                .sign(&KeyPair::random())
+                .unpack(|_| {})
         }
 
         /// Check if block's signatures meet requirements for given topology.
@@ -576,7 +569,7 @@ mod valid {
 
         fn payload(block: &ValidBlock) -> &BlockPayload {
             let SignedBlock::V1(signed) = &block.0;
-            &signed.payload
+            &signed.payload()
         }
 
         #[test]
