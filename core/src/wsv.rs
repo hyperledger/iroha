@@ -377,7 +377,7 @@ impl Clone for WorldStateView {
             config: self.config,
             block_hashes: self.block_hashes.clone(),
             transactions: self.transactions.clone(),
-            events_buffer: Vec::new(),
+            events_buffer: self.events_buffer.clone(),
             new_tx_amounts: Arc::clone(&self.new_tx_amounts),
             engine: self.engine.clone(),
             kura: Arc::clone(&self.kura),
