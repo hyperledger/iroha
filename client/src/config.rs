@@ -60,7 +60,6 @@ pub struct Config {
     pub account_id: AccountId,
     pub key_pair: KeyPair,
     pub basic_auth: Option<BasicAuth>,
-    // FIXME: or use `OnlyHttpUrl` here?
     pub torii_api_url: Url,
     pub transaction_ttl: Duration,
     pub transaction_status_timeout: Duration,
@@ -91,6 +90,8 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+    use iroha_config_base::env::MockEnv;
+
     use super::*;
 
     #[test]
@@ -103,9 +104,8 @@ mod tests {
         let _err = WebLogin::from_str("alice:wonderland").expect_err("input has `:`");
     }
 
-    #[test]
-    fn parse_full_toml_config() {
-        let input = toml::toml! {
+    fn config_sample() -> toml::Table {
+        toml::toml! {
             chain_id = "00000000-0000-0000-0000-000000000000"
             torii_url = "http://127.0.0.1:8080/"
 
@@ -122,11 +122,33 @@ mod tests {
             time_to_live = 100_000
             status_timeout = 100_000
             nonce = false
-        };
+        }
+    }
 
+    #[test]
+    fn parse_full_toml_config() {
         ConfigReader::new()
-            .with_toml_source(TomlSource::inline(input))
+            .with_toml_source(TomlSource::inline(config_sample()))
             .read_and_complete::<user::Root>()
             .unwrap();
+    }
+
+    #[test]
+    fn torii_url_scheme_support() {
+        fn with_scheme(scheme: &str) -> error_stack::Result<Config, user::ParseError> {
+            ConfigReader::new()
+                .with_toml_source(TomlSource::inline(config_sample()))
+                .with_env(MockEnv::from([(
+                    "TORII_URL",
+                    format!("{scheme}://127.0.0.1:8080"),
+                )]))
+                .read_and_complete::<user::Root>()
+                .unwrap()
+                .parse()
+        }
+
+        let _ = with_scheme("http").expect("should be fine");
+        let _ = with_scheme("https").expect("should be fine");
+        let _ = with_scheme("ws").expect_err("not supported");
     }
 }
