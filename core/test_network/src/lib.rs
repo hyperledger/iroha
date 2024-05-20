@@ -12,7 +12,7 @@ use iroha_client::{
     config::Config as ClientConfig,
     data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level},
 };
-use iroha_config::parameters::actual::Root as Config;
+use iroha_config::parameters::actual::{Root as Config, Sumeragi, TrustedPeers};
 pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair};
 use iroha_data_model::{query::QueryOutputBox, ChainId};
@@ -20,7 +20,6 @@ use iroha_genesis::{GenesisNetwork, RawGenesisBlockFile};
 use iroha_logger::{warn, InstrumentFutures};
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
-    unique_vec,
     unique_vec::UniqueVec,
 };
 use rand::{seq::IteratorRandom, thread_rng};
@@ -422,10 +421,11 @@ impl Peer {
             parameters::actual::{Common, Network, Torii},
         };
 
+        let peer_id = PeerId::new(self.p2p_address.clone(), self.key_pair.public_key().clone());
         Config {
             common: Common {
                 key_pair: self.key_pair.clone(),
-                peer_id: PeerId::new(self.p2p_address.clone(), self.key_pair.public_key().clone()),
+                peer_id: peer_id.clone(),
                 ..config.common
             },
             network: Network {
@@ -435,6 +435,13 @@ impl Peer {
             torii: Torii {
                 address: WithOrigin::inline(self.api_address.clone()),
                 ..config.torii
+            },
+            sumeragi: Sumeragi {
+                trusted_peers: WithOrigin::inline(TrustedPeers {
+                    myself: peer_id,
+                    others: config.sumeragi.trusted_peers.into_value().others,
+                }),
+                ..config.sumeragi
             },
             ..config
         }
@@ -621,11 +628,7 @@ impl PeerBuilder {
 
     /// Accept a peer and starts it.
     pub async fn start_with_peer(self, peer: &mut Peer) {
-        let config = self.config.unwrap_or_else(|| {
-            let mut config = Config::test();
-            config.sumeragi.trusted_peers.value_mut().others = unique_vec![peer.id.clone()];
-            config
-        });
+        let config = self.config.unwrap_or_else(Config::test);
         let genesis = match self.genesis {
             WithGenesis::Default => Some(GenesisNetwork::test()),
             WithGenesis::None => None,
