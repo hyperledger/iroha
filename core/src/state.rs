@@ -1773,20 +1773,18 @@ mod tests {
     };
 
     /// Used to inject faulty payload for testing
-    fn payload_mut(block: &mut CommittedBlock) -> &mut BlockPayload {
-        let SignedBlock::V1(signed) = block.as_mut();
-        &mut signed.payload
+    fn new_dummy_block_with_payload(f: impl FnOnce(&mut BlockPayload)) -> CommittedBlock {
+        let topology = Topology::new(UniqueVec::new());
+        ValidBlock::new_dummy_and_modify_payload(f)
+            .commit(&topology)
+            .unpack(|_| {})
+            .unwrap()
     }
 
     #[tokio::test]
     async fn get_block_hashes_after_hash() {
         const BLOCK_CNT: usize = 10;
 
-        let topology = Topology::new(UniqueVec::new());
-        let block = ValidBlock::new_dummy()
-            .commit(&topology)
-            .unpack(|_| {})
-            .unwrap();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(World::default(), kura, query_handle);
@@ -1794,10 +1792,10 @@ mod tests {
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
-            let mut block = block.clone();
-
-            payload_mut(&mut block).header.height = i as u64;
-            payload_mut(&mut block).header.previous_block_hash = block_hashes.last().copied();
+            let block = new_dummy_block_with_payload(|payload| {
+                payload.header.height = i as u64;
+                payload.header.previous_block_hash = block_hashes.last().copied();
+            });
 
             block_hashes.push(block.as_ref().hash());
             let _events = state_block.apply(&block).unwrap();
@@ -1813,19 +1811,15 @@ mod tests {
     async fn get_blocks_from_height() {
         const BLOCK_CNT: usize = 10;
 
-        let topology = Topology::new(UniqueVec::new());
-        let block = ValidBlock::new_dummy()
-            .commit(&topology)
-            .unpack(|_| {})
-            .unwrap();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(World::default(), kura.clone(), query_handle);
         let mut state_block = state.block();
 
         for i in 1..=BLOCK_CNT {
-            let mut block = block.clone();
-            payload_mut(&mut block).header.height = i as u64;
+            let block = new_dummy_block_with_payload(|payload| {
+                payload.header.height = i as u64;
+            });
 
             let _events = state_block.apply(&block).unwrap();
             kura.store_block(block);

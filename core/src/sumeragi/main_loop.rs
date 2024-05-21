@@ -1209,9 +1209,16 @@ mod tests {
     use crate::{query::store::LiveQueryStore, smartcontracts::Registrable};
 
     /// Used to inject faulty payload for testing
-    fn payload_mut(block: &mut SignedBlock) -> &mut BlockPayload {
+    fn clone_and_modify_payload(
+        block: &SignedBlock,
+        key_pair: &KeyPair,
+        f: impl FnOnce(&mut BlockPayload),
+    ) -> SignedBlock {
         let SignedBlock::V1(signed) = block;
-        &mut signed.payload
+        let mut payload = signed.payload().clone();
+        f(&mut payload);
+
+        SignedBlock::V1(SignedBlockV1::new(payload, &key_pair))
     }
 
     fn create_data_for_test(
@@ -1312,11 +1319,13 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, _, mut block, genesis_public_key) =
+        let (state, _, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         // Malform block to make it invalid
-        payload_mut(&mut block).commit_topology.clear();
+        let block = clone_and_modify_payload(&block, &leader_key_pair, |payload| {
+            payload.commit_topology.clear();
+        });
 
         let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(result, Err((_, BlockSyncError::BlockNotValid(_)))))
@@ -1331,7 +1340,7 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, kura, mut block, genesis_public_key) =
+        let (state, kura, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         let mut state_block = state.block();
@@ -1352,8 +1361,10 @@ mod tests {
         kura.store_block(committed_block);
 
         // Malform block to make it invalid
-        payload_mut(&mut block).commit_topology.clear();
-        payload_mut(&mut block).header.view_change_index = 1;
+        let block = clone_and_modify_payload(&block, &leader_key_pair, |payload| {
+            payload.commit_topology.clear();
+            payload.header.view_change_index = 1;
+        });
 
         let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(
@@ -1369,11 +1380,13 @@ mod tests {
 
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::random();
-        let (state, _, mut block, genesis_public_key) =
+        let (state, _, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         // Change block height
-        payload_mut(&mut block).header.height = 42;
+        let block = clone_and_modify_payload(&block, &leader_key_pair, |payload| {
+            payload.header.height = 42;
+        });
 
         let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(
@@ -1413,7 +1426,7 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, kura, mut block, genesis_public_key) =
+        let (state, kura, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         let mut state_block = state.block();
@@ -1436,7 +1449,9 @@ mod tests {
         assert_eq!(state.view().latest_block_view_change_index(), 0);
 
         // Increase block view change index
-        payload_mut(&mut block).header.view_change_index = 42;
+        let block = clone_and_modify_payload(&block, &leader_key_pair, |payload| {
+            payload.header.view_change_index = 42;
+        });
 
         let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(result, Ok(BlockSyncOk::ReplaceTopBlock(_, _))))
@@ -1451,11 +1466,13 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (state, kura, mut block, genesis_public_key) =
+        let (state, kura, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         // Increase block view change index
-        payload_mut(&mut block).header.view_change_index = 42;
+        let block = clone_and_modify_payload(&block, &leader_key_pair, |payload| {
+            payload.header.view_change_index = 42;
+        });
 
         let mut state_block = state.block();
         let committed_block = ValidBlock::validate(
@@ -1476,7 +1493,9 @@ mod tests {
         assert_eq!(state.view().latest_block_view_change_index(), 42);
 
         // Decrease block view change index back
-        payload_mut(&mut block).header.view_change_index = 0;
+        let block = clone_and_modify_payload(&block, &leader_key_pair, |payload| {
+            payload.header.view_change_index = 0;
+        });
 
         let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(
@@ -1498,13 +1517,15 @@ mod tests {
 
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::random();
-        let (state, _, mut block, genesis_public_key) =
+        let (state, _, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_key_pair);
 
         // Change block height and view change index
         // Soft-fork on genesis block is not possible
-        payload_mut(&mut block).header.view_change_index = 42;
-        payload_mut(&mut block).header.height = 1;
+        let block = clone_and_modify_payload(&block, &leader_key_pair, |payload| {
+            payload.header.view_change_index = 42;
+            payload.header.height = 1;
+        });
 
         let result = handle_block_sync(&chain_id, &genesis_public_key, block, &state, &|_| {});
         assert!(matches!(

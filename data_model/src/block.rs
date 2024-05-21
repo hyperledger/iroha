@@ -107,9 +107,9 @@ mod model {
     #[ffi_type]
     pub struct SignedBlockV1 {
         /// Signatures of peers which approved this block.
-        pub signatures: SignaturesOf<BlockPayload>,
+        pub(super) signatures: SignaturesOf<BlockPayload>,
         /// Block payload
-        pub payload: BlockPayload,
+        pub(super) payload: BlockPayload,
     }
 }
 
@@ -133,6 +133,23 @@ impl BlockHeader {
 }
 
 impl SignedBlockV1 {
+    /// Create new signed block, using `key_pair` to sign `payload`
+    #[cfg(feature = "transparent_api")]
+    pub fn new(payload: BlockPayload, key_pair: &iroha_crypto::KeyPair) -> SignedBlockV1 {
+        let signature = iroha_crypto::SignatureOf::new(key_pair, &payload);
+        let signatures = SignaturesOf::from(signature);
+        SignedBlockV1 {
+            signatures,
+            payload,
+        }
+    }
+
+    /// Block payload. Used for tests
+    #[cfg(feature = "transparent_api")]
+    pub fn payload(&self) -> &BlockPayload {
+        &self.payload
+    }
+
     #[cfg(feature = "std")]
     fn hash(&self) -> iroha_crypto::HashOf<SignedBlock> {
         iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::HashOf::new(self).into())
