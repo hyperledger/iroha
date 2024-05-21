@@ -39,7 +39,7 @@ case $1 in
         }
 
         command_base_for_default() {
-            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/swarm --health-check --image hyperledger/iroha2:dev"
+            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/swarm --health-check --image hyperledger/iroha:dev"
         }
 
 

@@ -4,7 +4,7 @@
 version: '3.8'
 services:
   iroha0:
-    image: hyperledger/iroha2:dev
+    image: hyperledger/iroha:dev
     platform: linux/amd64
     environment:
       CHAIN_ID: 00000000-0000-0000-0000-000000000000
@@ -30,7 +30,7 @@ services:
       retries: 30
       start_period: 4s
   iroha1:
-    image: hyperledger/iroha2:dev
+    image: hyperledger/iroha:dev
     platform: linux/amd64
     environment:
       CHAIN_ID: 00000000-0000-0000-0000-000000000000
@@ -53,7 +53,7 @@ services:
       retries: 30
       start_period: 4s
   iroha2:
-    image: hyperledger/iroha2:dev
+    image: hyperledger/iroha:dev
     platform: linux/amd64
     environment:
       CHAIN_ID: 00000000-0000-0000-0000-000000000000
@@ -76,7 +76,7 @@ services:
       retries: 30
       start_period: 4s
   iroha3:
-    image: hyperledger/iroha2:dev
+    image: hyperledger/iroha:dev
     platform: linux/amd64
     environment:
       CHAIN_ID: 00000000-0000-0000-0000-000000000000

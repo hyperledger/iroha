@@ -17,7 +17,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           push: true
-          tags: hyperledger/iroha2:dev-nightly-${{ github.sha }}
+          tags: hyperledger/iroha:dev-nightly-${{ github.sha }}
           labels: commit=${{ github.sha }}
           build-args: TAG=dev
           # This context specification is required

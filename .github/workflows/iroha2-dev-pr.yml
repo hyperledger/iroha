@@ -36,39 +36,6 @@ jobs:
         if: always()
         run: ./scripts/tests/consistency.sh docker-compose
 
-  # exclude: client/tests/integration/
-  with_coverage:
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Run tests, with coverage
-        run: |
-          mold --run cargo test --all-features --no-fail-fast --workspace --exclude iroha_client
-          mold --run cargo test --all-features --no-fail-fast -p iroha_client -- --skip integration
-        env:
-          RUSTFLAGS: "-C instrument-coverage"
-          LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
-      - name: Generate lcov report
-        if: always()
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/client_cli" --ignore "**/main.rs" -o lcov.info
-      - name: Upload coverage to coveralls.io
-        if: always()
-        uses: coverallsapp/github-action@v2
-        with:
-          file: lcov.info
-          compare-ref: ${{ github.base_ref }}
-          compare-sha: ${{ github.event.pull_request.base.sha}}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload lcov report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lcov.info
-          path: lcov.info
-
   # include: client/tests/integration/
   # exclude: client/tests/integration/extra_functional
   integration:
