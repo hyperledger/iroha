@@ -24,16 +24,16 @@ New to our project? [Make your first contribution](#your-first-code-contribution
 - Ensure you follow our [style guides](#style-guides) for code and documentation.
 - Write [tests](https://doc.rust-lang.org/cargo/commands/cargo-test.html). Ensure they all pass (`cargo test --workspace`).
 - Perform pre-commit routine like formatting & artifacts regeneration (see [`pre-commit.sample`](./hooks/pre-commit.sample))
-- With the `upstream` set to track [Hyperledger Iroha repository](https://github.com/hyperledger/iroha), `git pull -r upstream main`, `git commit -s`, `git push <your-fork>`, and [create a pull request](https://github.com/hyperledger/iroha/compare) to the `main` branch. Ensure the PR has the `[type] #<issue number>: Description` [title](#pull-request-titles).
+- With the `upstream` set to track [Hyperledger Iroha repository](https://github.com/hyperledger/iroha), `git pull -r upstream main`, `git commit -s`, `git push <your-fork>`, and [create a pull request](https://github.com/hyperledger/iroha/compare) to the `main` branch. Ensure it follows the [pull request guidelines](#pull-request-etiquette).
 
 ### Reporting Bugs
 
 A *bug* is an error, design flaw, failure or fault in Iroha that causes it to produce an incorrect, unexpected, or unintended result or behaviour.
 
-We track Iroha 2 bugs via [Github Issues](https://github.com/hyperledger/iroha/issues?q=is%3Aopen+is%3Aissue+label%3Airoha2+label%3ABug) with the combination of `iroha2` and `Bug` tags.
+We track Iroha bugs via [Github Issues](https://github.com/hyperledger/iroha/issues?q=is%3Aopen+is%3Aissue+label%3ABug) labeled with the `Bug` tag.
 
 When you create a new issue, there is a template for you to fill in. Here's the checklist of what you should do when you are reporting bugs:
-- [ ] Add the `iroha2` tag
+- [ ] Add the `Bug` tag
 - [ ] Explain the issue
 - [ ] Provide a minimum working example
 - [ ] Attach a screenshot
@@ -92,7 +92,11 @@ If you intend to implement the suggestion yourself, do the following:
 3. When you are ready to open a pull request, make sure you follow the [pull request guidelines](#pull-request-etiquette) and mark it as implementing the previously created issue:
 
    ```
-   [feature] #<issue number>: Description
+   feat: Description of the feature
+
+   Explanation of the feature
+
+   Closes #1234
    ```
 
 4. If your change requires an API change, use the `api-changes` tag.
@@ -148,40 +152,13 @@ Merging your work:
 
 We parse the titles of all the merged pull requests to generate changelogs. We also check that the title follows the convention via the *`check-PR-title`* check.
 
-To pass the *`check-PR-title`* check, the pull request should have the title that follows this schema:
-
-```
-[type] #<issue number>: Description
-```
+To pass the *`check-PR-title`* check, the pull request title must adhere to the following guidelines:
 
 <details> <summary> Expand to read the detailed title guidelines</summary>
 
-1. Put the type of pull request into square brackets as the first part of the title. This can be `feature`, `fix`, `ci`, `documentation`, and `refactor`. Example:
-
-    ```
-    [feature] #1623: Implement a `RawGenesisBlockBuilder`
-    ```
-
-2. Add the issue number to the pull request addresses:
-
-   - For `feature` and `fix` adding the issue number to the title is mandatory.
-   - For all other types it is optional but highly encouraged.
-
-   If your pull request solves multiple issues simultaneously, you can chain them with commas:
-
-   ```
-   [fix] #1234, #2345, #4567: Fix lots of problems
-   ```
-
-3. Add the colon before the description:
-
-   ```
-   [refactor]: Tidy `p2p` crate
-   [feature] #1623: Implement a `RawGenesisBlockBuilder`
-   [fix] #1234, #2345, #4567: Fix lots of problems
-   ```
-
-4. Start the description using imperative verb in present tense. Examples: Implement, Add, Update.
+1. Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#commit-message-with-multi-paragraph-body-and-multiple-footers) format.
+   
+2. If the pull request has a single commit, the PR title should be the same as the commit message.
 
 </details>
 
@@ -202,7 +179,7 @@ Follow these commit guidelines:
 
   You may use [the `commit-msg` hook](./hooks/) to automatically sign-off your commits.
 
-- Follow the same naming schema as for [pull request titles](#pull-request-titles): `[type] #<issue number>: Description`. This means:
+- Commit messages must follow [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#commit-message-with-multi-paragraph-body-and-multiple-footers) and the same naming schema as for [pull request titles](#pull-request-titles). This means:
   - **Use present tense** ("Add feature", not "Added feature")
   - **Use imperative mood** ("Deploy to docker..." not "Deploys to docker...")
 - Write a meaningful commit message.
@@ -283,7 +260,7 @@ Then start iroha and attach profiler of your choice to the iroha pid.
 Alternatively it's possible to build iroha inside docker with profiler support and profile iroha this way.
 
 ```bash
-docker build -f Dockerfile.glibc --build-arg="PROFILE=profiling" --build-arg='RUSTFLAGS=-C force-frame-pointers=on' --build-arg='FEATURES=profiling' --build-arg='CARGOFLAGS=-Z build-std' -t iroha2:profiling .
+docker build -f Dockerfile.glibc --build-arg="PROFILE=profiling" --build-arg='RUSTFLAGS=-C force-frame-pointers=on' --build-arg='FEATURES=profiling' --build-arg='CARGOFLAGS=-Z build-std' -t iroha:profiling .
 ```
 
 E.g. using perf (available only on linux):
