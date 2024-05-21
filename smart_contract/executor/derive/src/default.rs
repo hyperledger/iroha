@@ -173,6 +173,21 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn::DeriveInput) -> Tok
     })
     .collect();
 
+    for custom_fn_name in custom.as_ref().map_or(&[][..], |custom| &custom.0) {
+        let found = default_visit_sigs
+            .iter()
+            .any(|visit_sig| &visit_sig.ident == custom_fn_name);
+        if !found {
+            emit!(
+                emitter,
+                custom_fn_name.span(),
+                "Unknown custom visit function: {}",
+                custom_fn_name
+            );
+            return quote!();
+        }
+    }
+
     let visit_items = default_visit_sigs
         .iter()
         .map(|visit_sig| {
