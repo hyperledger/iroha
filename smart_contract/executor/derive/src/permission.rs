@@ -40,10 +40,8 @@ pub fn impl_derive_permission(input: &syn::DeriveInput) -> TokenStream {
                 if *value.id() != <Self as ::iroha_executor::permission::Permission>::id() {
                     return Err(Self::Error::Id(value.id().name().clone()));
                 }
-                value
-                    .payload()
-                    .deserialize()
-                    .map_err(Self::Error::Deserialize)
+
+                serde_json::from_str::<Self>(value.payload().as_ref()).map_err(Self::Error::Deserialize)
             }
         }
 
@@ -51,8 +49,8 @@ pub fn impl_derive_permission(input: &syn::DeriveInput) -> TokenStream {
             fn from(value: #ident #ty_generics) -> Self {
                 ::iroha_executor::data_model::permission::Permission::new(
                     <#ident as ::iroha_executor::permission::Permission>::id(),
-                    ::iroha_executor::data_model::JsonString::serialize(&value)
-                        .expect("failed to serialize concrete data model entity; this is a bug"),
+                    ::serde_json::to_value::<#ident #ty_generics>(value)
+                        .expect("INTERNAL BUG: Failed to serialize Executor data model entity"),
                 )
             }
         }

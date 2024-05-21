@@ -153,7 +153,7 @@ pub async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyr
             }
             // This branch sends blocks
             _ = interval.tick() => {
-                if let Some(block) = kura.get_block_by_height(from_height.get()) {
+                if let Some(block) = kura.get_block_by_height(from_height.try_into().expect("INTERNAL BUG: Number of blocks exceeds usize::MAX")) {
                     stream
                         // TODO: to avoid clone `BlockMessage` could be split into sending and receiving parts
                         .send(BlockMessage(SignedBlock::clone(&block)))

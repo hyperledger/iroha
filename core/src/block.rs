@@ -48,9 +48,9 @@ pub enum BlockValidationError {
     /// Mismatch between the actual and expected height of the latest block. Expected: {expected}, actual: {actual}
     LatestBlockHeightMismatch {
         /// Expected value
-        expected: u64,
+        expected: usize,
         /// Actual value
-        actual: u64,
+        actual: usize,
     },
     /// Mismatch between the actual and expected hashes of the current block. Expected: {expected:?}, actual: {actual:?}
     IncorrectHash {
@@ -145,14 +145,18 @@ mod pending {
         }
 
         fn make_header(
-            previous_height: u64,
+            prev_height: usize,
             prev_block_hash: Option<HashOf<SignedBlock>>,
-            view_change_index: u64,
+            view_change_index: usize,
             transactions: &[CommittedTransaction],
         ) -> BlockHeader {
             BlockHeader {
-                height: previous_height + 1,
-                previous_block_hash: prev_block_hash,
+                height: prev_height
+                    .checked_add(1)
+                    .expect("INTERNAL BUG: Blockchain height exceeds usize::MAX")
+                    .try_into()
+                    .expect("INTERNAL BUG: Number of blocks exceeds u64::MAX"),
+                prev_block_hash,
                 transactions_hash: transactions
                     .iter()
                     .map(|value| value.as_ref().hash())
@@ -160,15 +164,17 @@ mod pending {
                     .hash(),
                 timestamp_ms: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get the current system time")
+                    .expect("INTERNAL BUG: Failed to get the current system time")
                     .as_millis()
                     .try_into()
-                    .expect("Time should fit into u64"),
-                view_change_index,
+                    .expect("INTERNAL BUG: Time should fit into u64"),
+                view_change_index: view_change_index
+                    .try_into()
+                    .expect("INTERNAL BUG: Number of view changes exceeds u32::MAX"),
                 consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION
                     .as_millis()
                     .try_into()
-                    .expect("Time should fit into u64"),
+                    .expect("INTERNAL BUG: Time should fit into u64"),
             }
         }
 
@@ -205,7 +211,7 @@ mod pending {
         /// Upon executing this method current timestamp is stored in the block header.
         pub fn chain(
             self,
-            view_change_index: u64,
+            view_change_index: usize,
             state: &mut StateBlock<'_>,
         ) -> BlockBuilder<Chained> {
             let transactions = Self::categorize_transactions(self.0.transactions, state);
@@ -273,7 +279,11 @@ mod valid {
             state_block: &mut StateBlock<'_>,
         ) -> WithEvents<Result<ValidBlock, (SignedBlock, BlockValidationError)>> {
             let expected_block_height = state_block.height() + 1;
-            let actual_height = block.header().height;
+            let actual_height = block
+                .header()
+                .height
+                .try_into()
+                .expect("INTERNAL BUG: Block height exceeds usize::MAX");
 
             if expected_block_height != actual_height {
                 return WithEvents::new(Err((
@@ -286,7 +296,7 @@ mod valid {
             }
 
             let expected_prev_block_hash = state_block.latest_block_hash();
-            let actual_prev_block_hash = block.header().previous_block_hash;
+            let actual_prev_block_hash = block.header().prev_block_hash;
 
             if expected_prev_block_hash != actual_prev_block_hash {
                 return WithEvents::new(Err((
@@ -486,7 +496,7 @@ mod valid {
             let mut payload = BlockPayload {
                 header: BlockHeader {
                     height: 2,
-                    previous_block_hash: None,
+                    prev_block_hash: None,
                     transactions_hash: None,
                     timestamp_ms: 0,
                     view_change_index: 0,

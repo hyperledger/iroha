@@ -26,7 +26,9 @@ pub struct MintAssetForAllAccounts {
 
 impl From<CustomInstructionBox> for Custom {
     fn from(isi: CustomInstructionBox) -> Self {
-        let payload = JsonString::serialize(&isi).expect("Couldn't serialize custom instruction");
+        let payload = serde_json::to_value(&isi)
+            .expect("INTERNAL BUG: Couldn't serialize custom instruction");
+
         Self::new(payload)
     }
 }
@@ -41,6 +43,6 @@ impl TryFrom<&JsonString> for CustomInstructionBox {
     type Error = serde_json::Error;
 
     fn try_from(payload: &JsonString) -> serde_json::Result<Self> {
-        payload.deserialize()
+        serde_json::from_str::<Self>(payload.as_ref())
     }
 }

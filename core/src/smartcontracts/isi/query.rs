@@ -41,6 +41,11 @@ impl LazyQueryOutput<'_> {
     /// - sorting
     /// - pagination
     /// - batching
+    ///
+    /// # Errors
+    ///
+    /// - if fetch size is too big
+    /// - defined pagination parameter for a query that returns singular result
     pub fn apply_postprocessing(
         self,
         filter: &PredicateBox,

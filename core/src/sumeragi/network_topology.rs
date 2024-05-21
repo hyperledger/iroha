@@ -138,17 +138,9 @@ impl Topology {
     }
 
     /// Rotate peers n times where n is a number of failed attempt to create a block.
-    pub fn rotate_all_n(&mut self, n: u64) {
-        let len = self
-            .ordered_peers
-            .len()
-            .try_into()
-            .expect("`usize` should fit into `u64`");
+    pub fn rotate_all_n(&mut self, n: usize) {
+        let len = self.ordered_peers.len();
         if let Some(rem) = n.checked_rem(len) {
-            let rem = rem.try_into().expect(
-                "`rem` is smaller than `usize::MAX`, because remainder is always smaller than divisor",
-            );
-
             self.modify_peers_directly(|peers| peers.rotate_left(rem));
         }
     }
@@ -178,7 +170,7 @@ impl Topology {
     /// Recreate topology for given block and view change index
     pub fn recreate_topology(
         block: &SignedBlock,
-        view_change_index: u64,
+        view_change_index: usize,
         new_peers: UniqueVec<PeerId>,
     ) -> Self {
         let mut topology = Topology::new(block.commit_topology().clone());
@@ -198,10 +190,7 @@ impl Topology {
             // FIXME: This is a hack to prevent consensus from running amock due to
             // a bug in the implementation by reverting to predictable ordering
 
-            let view_change_limit: usize = view_change_index
-                .saturating_sub(10)
-                .try_into()
-                .expect("u64 must fit into usize");
+            let view_change_limit: usize = view_change_index.saturating_sub(10);
 
             if view_change_limit > 1 {
                 iroha_logger::error!("Restarting consensus(internal bug). Report to developers");

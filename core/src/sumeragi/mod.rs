@@ -3,6 +3,7 @@
 //! `Consensus` trait is now implemented only by `Sumeragi` for now.
 use std::{
     fmt::{self, Debug, Formatter},
+    num::NonZeroUsize,
     sync::{mpsc, Arc},
     time::{Duration, Instant},
 };
@@ -75,7 +76,7 @@ impl SumeragiHandle {
         recreate_topology: RecreateTopologyByViewChangeIndex,
     ) -> RecreateTopologyByViewChangeIndex {
         // NOTE: topology need to be updated up to block's view_change_index
-        let current_topology = recreate_topology(block.header().view_change_index);
+        let current_topology = recreate_topology(block.header().view_change_index as usize);
 
         let block = ValidBlock::validate(
             block.clone(),
@@ -144,7 +145,7 @@ impl SumeragiHandle {
             let state_view = state.view();
             let skip_block_count = state_view.block_hashes.len();
             blocks_iter = (skip_block_count + 1..=block_count).map(|block_height| {
-                kura.get_block_by_height(block_height as u64).expect(
+                NonZeroUsize::new(block_height).and_then(|height| kura.get_block_by_height(height)).expect(
                     "Sumeragi should be able to load the block that was reported as presented. \
                     If not, the block storage was probably disconnected.",
                 )
@@ -161,10 +162,12 @@ impl SumeragiHandle {
                     Box::new(move |_view_change_index| Topology::new(peers))
                 }
                 height => {
-                    let block_ref = kura.get_block_by_height(height).expect(
-                        "Sumeragi could not load block that was reported as present. \
-                        Please check that the block storage was not disconnected.",
-                    );
+                    let block_ref = NonZeroUsize::new(height)
+                        .and_then(|height| kura.get_block_by_height(height))
+                        .expect(
+                            "Sumeragi could not load block that was reported as present. \
+                             Please check that the block storage was not disconnected.",
+                        );
                     let peers = state_view.world.peers_ids().iter().cloned().collect();
                     Box::new(move |view_change_index| {
                         Topology::recreate_topology(&block_ref, view_change_index, peers)
@@ -247,7 +250,7 @@ impl SumeragiHandle {
 }
 
 /// Closure to get topology recreated at certain view change index
-type RecreateTopologyByViewChangeIndex = Box<dyn FnOnce(u64) -> Topology>;
+type RecreateTopologyByViewChangeIndex = Box<dyn FnOnce(usize) -> Topology>;
 
 /// The interval at which sumeragi checks if there are tx in the
 /// `queue`.  And will create a block if is leader and the voting is

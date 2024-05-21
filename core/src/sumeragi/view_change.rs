@@ -24,7 +24,7 @@ struct ProofPayload {
     /// Hash of the latest committed block.
     latest_block_hash: Option<HashOf<SignedBlock>>,
     /// Within a round, what is the index of the view change this proof is trying to prove.
-    view_change_index: u64,
+    view_change_index: u32,
 }
 
 /// The proof of a view change. It needs to be signed by f+1 peers for proof to be valid and view change to happen.
@@ -41,7 +41,11 @@ pub struct ProofBuilder(SignedProof);
 
 impl ProofBuilder {
     /// Constructor from index.
-    pub fn new(latest_block_hash: Option<HashOf<SignedBlock>>, view_change_index: u64) -> Self {
+    pub fn new(latest_block_hash: Option<HashOf<SignedBlock>>, view_change_index: usize) -> Self {
+        let view_change_index = view_change_index
+            .try_into()
+            .expect("View change index should fit into usize");
+
         let proof = SignedProof {
             payload: ProofPayload {
                 latest_block_hash,
@@ -106,9 +110,9 @@ impl ProofChain {
     ) -> usize {
         self.iter()
             .enumerate()
-            .take_while(|(i, proof)| {
+            .take_while(|&(i, proof)| {
                 proof.payload.latest_block_hash == latest_block_hash
-                    && proof.payload.view_change_index == (*i as u64)
+                    && proof.payload.view_change_index as usize == i
                     && proof.verify(peers, max_faults)
             })
             .count()
@@ -119,9 +123,9 @@ impl ProofChain {
         let valid_count = self
             .iter()
             .enumerate()
-            .take_while(|(i, proof)| {
+            .take_while(|&(i, proof)| {
                 proof.payload.latest_block_hash == latest_block_hash
-                    && proof.payload.view_change_index == (*i as u64)
+                    && proof.payload.view_change_index as usize == i
             })
             .count();
         self.truncate(valid_count);
@@ -144,7 +148,7 @@ impl ProofChain {
         }
         let next_unfinished_view_change =
             self.verify_with_state(peers, max_faults, latest_block_hash);
-        if new_proof.payload.view_change_index != (next_unfinished_view_change as u64) {
+        if new_proof.payload.view_change_index as usize != next_unfinished_view_change {
             return Err(Error::ViewChangeNotFound); // We only care about the current view change that may or may not happen.
         }
 

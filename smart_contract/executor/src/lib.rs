@@ -188,9 +188,9 @@ pub enum TryFromDataModelObjectError {
 /// A convenience to build [`ExecutorDataModel`] from within the executor
 #[derive(Debug, Clone)]
 pub struct DataModelBuilder {
-    schema: MetaMap,
     permissions: BTreeSet<prelude::PermissionId>,
     custom_instruction: Option<Ident>,
+    schema: MetaMap,
 }
 
 impl DataModelBuilder {
@@ -199,9 +199,9 @@ impl DataModelBuilder {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            schema: <_>::default(),
             permissions: <_>::default(),
             custom_instruction: None,
+            schema: <_>::default(),
         }
     }
 
@@ -253,8 +253,9 @@ impl DataModelBuilder {
         set_data_model(&ExecutorDataModel::new(
             self.permissions,
             self.custom_instruction,
-            data_model::JsonString::serialize(&self.schema)
-                .expect("schema serialization must not fail"),
+            serde_json::to_value(&self.schema)
+                .expect("INTERNAL BUG: Failed to serialize Executor data model entity")
+                .into(),
         ))
     }
 }

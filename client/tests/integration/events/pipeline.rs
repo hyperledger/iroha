@@ -1,4 +1,7 @@
-use std::thread::{self, JoinHandle};
+use std::{
+    num::NonZeroUsize,
+    thread::{self, JoinHandle},
+};
 
 use eyre::Result;
 use iroha::{
@@ -129,6 +132,8 @@ fn applied_block_must_be_available_in_kura() {
         .as_ref()
         .expect("Must be some")
         .kura()
-        .get_block_by_height(event.header().height())
+        .get_block_by_height(
+            NonZeroUsize::new(event.header().height().try_into().unwrap()).unwrap(),
+        )
         .expect("Block applied event was received earlier");
 }

@@ -127,6 +127,8 @@ impl BlockSynchronizer {
 
 pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
+    use std::num::NonZeroUsize;
+
     use super::*;
 
     /// Get blocks after some block
@@ -204,14 +206,20 @@ pub mod message {
                                 error!(?prev_hash, "Block hash not found");
                                 return;
                             }
-                            Some(height) => height + 1, // It's get blocks *after*, so we add 1.
+                            // It's get blocks *after*, so we add 1.
+                            Some(height) => height
+                                .checked_add(1)
+                                .expect("INTERNAL BUG: Block height exceeds usize::MAX"),
                         },
-                        None => 1,
+                        None => nonzero_ext::nonzero!(1_usize),
                     };
 
-                    let blocks = (start_height..)
-                        .take(1 + block_sync.gossip_max_size.get() as usize)
-                        .map_while(|height| block_sync.kura.get_block_by_height(height))
+                    let blocks = (start_height.get()..)
+                        .take(block_sync.gossip_max_size.get() as usize + 1)
+                        .map_while(|height| {
+                            NonZeroUsize::new(height)
+                                .and_then(|height| block_sync.kura.get_block_by_height(height))
+                        })
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
                         .map(|block| (*block).clone())
                         .collect::<Vec<_>>();

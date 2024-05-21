@@ -1151,7 +1151,7 @@ impl<'wrld, 'block, 'state>
     ) -> Validate<SignedTransaction> {
         Validate {
             authority: state.authority.clone(),
-            block_height: state.state.0.height(),
+            block_height: state.state.0.height() as u64,
             target: state.specific_state.to_validate.clone(),
         }
     }
@@ -1238,7 +1238,7 @@ impl<'wrld, 'block, 'state>
     ) -> Validate<InstructionBox> {
         Validate {
             authority: state.authority.clone(),
-            block_height: state.state.0.height(),
+            block_height: state.state.0.height() as u64,
             target: state.specific_state.to_validate.clone(),
         }
     }
@@ -1341,7 +1341,7 @@ impl<'wrld, S: StateReadOnly>
     ) -> Validate<QueryBox> {
         Validate {
             authority: state.authority.clone(),
-            block_height: state.state.0.height(),
+            block_height: state.state.0.height() as u64,
             target: state.specific_state.to_validate.clone(),
         }
     }
@@ -1419,7 +1419,7 @@ impl<'wrld, 'block, 'state>
         state: &state::executor::Migrate<'wrld, 'block, 'state>,
     ) -> payloads::Migrate {
         payloads::Migrate {
-            block_height: state.state.0.height(),
+            block_height: state.state.0.height() as u64,
         }
     }
 
