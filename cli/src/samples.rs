@@ -57,7 +57,7 @@ pub fn get_config_toml(
     peer_key_pair: KeyPair,
     genesis_key_pair: KeyPair,
 ) -> toml::Table {
-    let (public_key, private_key) = peer_key_pair.clone().into_parts();
+    let (public_key, private_key) = peer_key_pair.into_parts();
     let (genesis_public_key, genesis_private_key) = genesis_key_pair.into_parts();
 
     iroha_logger::info!(%public_key, "sample configuration public key");

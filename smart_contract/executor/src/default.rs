@@ -391,8 +391,11 @@ pub mod domain {
             AnyPermissionToken::CanRemoveKeyValueInAccount(permission) => {
                 permission.account_id.domain_id() == domain_id
             }
+            AnyPermissionToken::CanRegisterUserTrigger(permission) => {
+                permission.account_id.domain_id() == domain_id
+            }
             AnyPermissionToken::CanUnregisterUserTrigger(permission) => {
-                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
+                permission.account_id.domain_id() == domain_id
             }
             AnyPermissionToken::CanExecuteUserTrigger(permission) => {
                 permission.trigger_id.domain_id().as_ref() == Some(domain_id)
@@ -595,8 +598,13 @@ pub mod account {
             AnyPermissionToken::CanMintUserAsset(permission) => {
                 permission.asset_id.account_id() == account_id
             }
-            AnyPermissionToken::CanUnregisterUserTrigger(_)
-            | AnyPermissionToken::CanExecuteUserTrigger(_)
+            AnyPermissionToken::CanRegisterUserTrigger(permission) => {
+                &permission.account_id == account_id
+            }
+            AnyPermissionToken::CanUnregisterUserTrigger(permission) => {
+                &permission.account_id == account_id
+            }
+            AnyPermissionToken::CanExecuteUserTrigger(_)
             | AnyPermissionToken::CanBurnUserTrigger(_)
             | AnyPermissionToken::CanMintUserTrigger(_)
             | AnyPermissionToken::CanSetKeyValueInTrigger(_)
@@ -850,6 +858,7 @@ pub mod asset_definition {
             | AnyPermissionToken::CanMintUserSignatureCheckConditions(_)
             | AnyPermissionToken::CanSetKeyValueInAccount(_)
             | AnyPermissionToken::CanRemoveKeyValueInAccount(_)
+            | AnyPermissionToken::CanRegisterUserTrigger(_)
             | AnyPermissionToken::CanUnregisterUserTrigger(_)
             | AnyPermissionToken::CanExecuteUserTrigger(_)
             | AnyPermissionToken::CanBurnUserTrigger(_)
@@ -1351,6 +1360,7 @@ pub mod role {
 }
 
 pub mod trigger {
+    use iroha_executor::permission::trigger::find_trigger;
     use iroha_smart_contract::data_model::{permission::PermissionToken, trigger::Trigger};
     use permission::{
         accounts_permission_tokens, roles_permission_tokens, trigger::is_trigger_owner,
@@ -1358,13 +1368,32 @@ pub mod trigger {
     use tokens::AnyPermissionToken;
 
     use super::*;
+    use crate::permission::domain::is_domain_owner;
 
     pub fn visit_register_trigger<V: Validate + ?Sized>(
         executor: &mut V,
-        _authority: &AccountId,
+        authority: &AccountId,
         isi: &Register<Trigger>,
     ) {
-        execute!(executor, isi)
+        let trigger = isi.object();
+
+        if is_genesis(executor)
+            || {
+                match is_domain_owner(trigger.action().authority().domain_id(), authority) {
+                    Err(err) => deny!(executor, err),
+                    Ok(is_domain_owner) => is_domain_owner,
+                }
+            }
+            || {
+                let can_register_user_trigger_token = tokens::trigger::CanRegisterUserTrigger {
+                    account_id: isi.object().action().authority().clone(),
+                };
+                can_register_user_trigger_token.is_owned_by(authority)
+            }
+        {
+            execute!(executor, isi)
+        }
+        deny!(executor, "Can't register trigger owned by another account");
     }
 
     pub fn visit_unregister_trigger<V: Validate + ?Sized>(
@@ -1381,7 +1410,11 @@ pub mod trigger {
             }
             || {
                 let can_unregister_user_trigger_token = tokens::trigger::CanUnregisterUserTrigger {
-                    trigger_id: trigger_id.clone(),
+                    account_id: find_trigger(trigger_id)
+                        .unwrap()
+                        .action()
+                        .authority()
+                        .clone(),
                 };
                 can_unregister_user_trigger_token.is_owned_by(authority)
             }
@@ -1552,9 +1585,6 @@ pub mod trigger {
             return false;
         };
         match permission {
-            AnyPermissionToken::CanUnregisterUserTrigger(permission) => {
-                &permission.trigger_id == trigger_id
-            }
             AnyPermissionToken::CanExecuteUserTrigger(permission) => {
                 &permission.trigger_id == trigger_id
             }
@@ -1570,7 +1600,9 @@ pub mod trigger {
             AnyPermissionToken::CanRemoveKeyValueInTrigger(permission) => {
                 &permission.trigger_id == trigger_id
             }
-            AnyPermissionToken::CanUnregisterAnyPeer(_)
+            AnyPermissionToken::CanRegisterUserTrigger(_)
+            | AnyPermissionToken::CanUnregisterUserTrigger(_)
+            | AnyPermissionToken::CanUnregisterAnyPeer(_)
             | AnyPermissionToken::CanUnregisterDomain(_)
             | AnyPermissionToken::CanSetKeyValueInDomain(_)
             | AnyPermissionToken::CanRemoveKeyValueInDomain(_)

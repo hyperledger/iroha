@@ -212,30 +212,34 @@ pub mod account {
 pub mod trigger {
     //! Module with pass conditions for trigger related tokens
     use super::*;
+    use crate::permission::domain::is_domain_owner;
 
     /// Check if `authority` is the owner of `trigger_id`.
     ///
     /// `authority` is owner of `trigger_id` if:
     /// - `trigger.action.authority` is `authority`
+    /// - `trigger.action.authority.domain_id` is owned by `authority`
     /// - `trigger.domain_id` is not none and domain is owned by `authority`
     ///
     /// # Errors
     /// - `FindTrigger` fails
     /// - `is_domain_owner` fails
     pub fn is_trigger_owner(trigger_id: &TriggerId, authority: &AccountId) -> Result<bool> {
+        let trigger = find_trigger(trigger_id)?;
+
+        Ok(trigger.action().authority() == authority
+            || is_domain_owner(trigger.action().authority().domain_id(), authority)?
+            || match trigger_id.domain_id() {
+                Some(domain) => is_domain_owner(domain, authority)?,
+                None => false,
+            })
+    }
+    /// Returns the trigger.
+    pub(crate) fn find_trigger(trigger_id: &TriggerId) -> Result<Trigger> {
         let trigger = FindTriggerById::new(trigger_id.clone())
             .execute()
             .map(QueryOutputCursor::into_inner)?;
-        if trigger.action().authority() == authority {
-            Ok(true)
-        } else {
-            trigger_id
-                .domain_id()
-                .as_ref()
-                .map_or(Ok(false), |domain_id| {
-                    crate::permission::domain::is_domain_owner(domain_id, authority)
-                })
-        }
+        Ok(trigger)
     }
 
     /// Pass condition that checks if `authority` is the owner of `trigger_id`.

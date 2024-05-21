@@ -133,6 +133,7 @@ declare_tokens! {
 
     crate::default::tokens::role::{CanUnregisterAnyRole},
 
+    crate::default::tokens::trigger::{CanRegisterUserTrigger},
     crate::default::tokens::trigger::{CanExecuteUserTrigger},
     crate::default::tokens::trigger::{CanUnregisterUserTrigger},
     crate::default::tokens::trigger::{CanMintUserTrigger},
@@ -478,6 +479,14 @@ pub mod trigger {
         }
 
     token! {
+        #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
+        #[validate(permission::account::Owner)]
+        pub struct CanRegisterUserTrigger {
+            pub account_id: AccountId,
+        }
+    }
+
+    token! {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanExecuteUserTrigger {
@@ -486,10 +495,10 @@ pub mod trigger {
     }
 
     token! {
-        #[derive(ValidateGrantRevoke)]
-        #[validate(permission::trigger::Owner)]
+        #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
+        #[validate(permission::account::Owner)]
         pub struct CanUnregisterUserTrigger {
-            pub trigger_id: TriggerId,
+            pub account_id: AccountId,
         }
     }
 
@@ -526,7 +535,6 @@ pub mod trigger {
     }
 
     impl_froms!(
-        CanUnregisterUserTrigger,
         CanMintUserTrigger,
         CanBurnUserTrigger,
         CanExecuteUserTrigger,
