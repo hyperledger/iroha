@@ -13,12 +13,12 @@ pub use self::model::*;
 use crate::name::Name;
 
 /// Collection of [`Token`]s
-pub type Permissions = BTreeSet<PermissionToken>;
+pub type Permissions = BTreeSet<Permission>;
 
 use super::*;
 
-/// Unique id of [`PermissionToken`]
-pub type PermissionTokenId = Name;
+/// Unique id of [`Permission`]
+pub type PermissionId = Name;
 
 #[model]
 mod model {
@@ -46,9 +46,9 @@ mod model {
         IntoSchema,
     )]
     #[ffi_type]
-    pub struct PermissionToken {
+    pub struct Permission {
         /// Token identifier
-        pub definition_id: PermissionTokenId,
+        pub definition_id: PermissionId,
         /// JSON encoded token payload
         pub payload: JsonString,
     }
@@ -71,9 +71,9 @@ mod model {
     )]
     #[display(fmt = "{token_ids:#?}")]
     #[ffi_type]
-    pub struct PermissionTokenSchema {
+    pub struct PermissionSchema {
         /// Ids of all permission tokens, sorted.
-        pub token_ids: Vec<PermissionTokenId>,
+        pub token_ids: Vec<PermissionId>,
         /// Type schema of permission tokens
         ///
         /// At the time of writing this doc a complete schema is returned but it's
@@ -89,19 +89,19 @@ mod model {
 }
 
 // TODO: Use getset to derive this
-impl PermissionTokenSchema {
-    /// Construct new [`PermissionTokenSchema`]
-    pub fn new(token_ids: Vec<PermissionTokenId>, schema: String) -> Self {
+impl PermissionSchema {
+    /// Construct new [`PermissionSchema`]
+    pub fn new(token_ids: Vec<PermissionId>, schema: String) -> Self {
         Self { token_ids, schema }
     }
 
     /// Return id of this token
-    pub fn token_ids(&self) -> &[PermissionTokenId] {
+    pub fn permissions(&self) -> &[PermissionId] {
         &self.token_ids
     }
 }
 
-impl PermissionToken {
+impl Permission {
     /// Construct [`Self`] from a raw string slice. The caller of the function
     /// must make sure that the given string slice can be parsed as valid JSON.
     ///
@@ -109,7 +109,7 @@ impl PermissionToken {
     #[cfg(debug_assertions)]
     // TODO: Remove after integration tests have been moved to python tests
     #[deprecated(note = "Will be removed after integration tests are removed from iroha_client")]
-    pub fn from_str_unchecked(definition_id: PermissionTokenId, payload: &str) -> Self {
+    pub fn from_str_unchecked(definition_id: PermissionId, payload: &str) -> Self {
         Self {
             definition_id,
             payload: JsonString(payload.to_owned()),
@@ -117,7 +117,7 @@ impl PermissionToken {
     }
 
     /// Construct [`Self`]
-    pub fn new(definition_id: PermissionTokenId, payload: &serde_json::Value) -> Self {
+    pub fn new(definition_id: PermissionId, payload: &serde_json::Value) -> Self {
         Self {
             definition_id,
             payload: JsonString::new(payload),
@@ -137,7 +137,7 @@ impl PermissionToken {
     }
 }
 
-impl core::fmt::Display for PermissionToken {
+impl core::fmt::Display for Permission {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.definition_id)
     }
@@ -208,5 +208,5 @@ impl Ord for JsonString {
 
 pub mod prelude {
     //! The prelude re-exports most commonly used traits, structs and macros from this crate.
-    pub use super::{PermissionToken, PermissionTokenId, PermissionTokenSchema};
+    pub use super::{Permission, PermissionId, PermissionSchema};
 }

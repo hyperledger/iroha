@@ -3,7 +3,7 @@
 use alloc::borrow::ToOwned as _;
 
 use iroha_schema::IntoSchema;
-use iroha_smart_contract::{data_model::permission::PermissionToken, QueryOutputCursor};
+use iroha_smart_contract::{data_model::permission::Permission, QueryOutputCursor};
 use iroha_smart_contract_utils::debug::DebugExpectExt as _;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -13,7 +13,7 @@ use crate::{data_model::prelude::*, prelude::*};
 pub trait Token:
     Serialize + DeserializeOwned + IntoSchema + PartialEq<Self> + ValidateGrantRevoke
 where
-    for<'a> Self: TryFrom<&'a PermissionToken, Error = PermissionTokenConversionError>,
+    for<'a> Self: TryFrom<&'a Permission, Error = PermissionConversionError>,
 {
     /// Return name of this permission token
     fn name() -> Name {
@@ -43,11 +43,11 @@ pub trait PassCondition {
     fn validate(&self, authority: &AccountId, block_height: u64) -> Result;
 }
 
-/// Error type for `TryFrom<PermissionToken>` implementations.
+/// Error type for `TryFrom<Permission>` implementations.
 #[derive(Debug)]
-pub enum PermissionTokenConversionError {
+pub enum PermissionConversionError {
     /// Unexpected token id.
-    Id(PermissionTokenId),
+    Id(PermissionId),
     /// Failed to deserialize JSON
     Deserialize(serde_json::Error),
 }
@@ -338,14 +338,14 @@ impl<T: Token> From<&T> for OnlyGenesis {
 }
 
 /// Iterator over all accounts and theirs permission tokens
-pub(crate) fn accounts_permission_tokens() -> impl Iterator<Item = (AccountId, PermissionToken)> {
+pub(crate) fn accounts_permissions() -> impl Iterator<Item = (AccountId, Permission)> {
     FindAllAccounts
         .execute()
         .dbg_expect("failed to query all accounts")
         .into_iter()
         .map(|account| account.dbg_expect("failed to retrieve account"))
         .flat_map(|account| {
-            FindPermissionTokensByAccountId::new(account.id().clone())
+            FindPermissionsByAccountId::new(account.id().clone())
                 .execute()
                 .dbg_expect("failed to query permssion token for account")
                 .into_iter()
@@ -355,7 +355,7 @@ pub(crate) fn accounts_permission_tokens() -> impl Iterator<Item = (AccountId, P
 }
 
 /// Iterator over all roles and theirs permission tokens
-pub(crate) fn roles_permission_tokens() -> impl Iterator<Item = (RoleId, PermissionToken)> {
+pub(crate) fn roles_permissions() -> impl Iterator<Item = (RoleId, Permission)> {
     FindAllRoles
         .execute()
         .dbg_expect("failed to query all accounts")

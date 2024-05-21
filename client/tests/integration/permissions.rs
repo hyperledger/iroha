@@ -7,7 +7,7 @@ use iroha_client::{
     data_model::prelude::*,
 };
 use iroha_data_model::{
-    permission::PermissionToken, role::RoleId, transaction::error::TransactionRejectionReason,
+    permission::Permission, role::RoleId, transaction::error::TransactionRejectionReason,
 };
 use iroha_genesis::GenesisNetwork;
 use serde_json::json;
@@ -22,7 +22,7 @@ fn genesis_transactions_are_validated() {
     // Setting up genesis
 
     let genesis = GenesisNetwork::test_with_instructions([Grant::permission(
-        PermissionToken::new("InvalidToken".parse().unwrap(), &json!(null)),
+        Permission::new("InvalidToken".parse().unwrap(), &json!(null)),
         ALICE_ID.clone(),
     )
     .into()]);
@@ -230,7 +230,7 @@ fn permissions_differ_not_only_by_names() {
     // Granting permission to Alice to modify metadata in Mouse's hats
     let mouse_hat_id = AssetId::new(hat_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_hats = Grant::permission(
-        PermissionToken::new(
+        Permission::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
             &json!({ "asset_id": mouse_hat_id }),
         ),
@@ -266,7 +266,7 @@ fn permissions_differ_not_only_by_names() {
 
     // Granting permission to Alice to modify metadata in Mouse's shoes
     let allow_alice_to_set_key_value_in_shoes = Grant::permission(
-        PermissionToken::new(
+        Permission::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
             &json!({ "asset_id": mouse_shoes_id }),
         ),
@@ -315,7 +315,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
     // Allow alice to mint mouse asset and mint initial value
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission(
-        PermissionToken::from_str_unchecked(
+        Permission::from_str_unchecked(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
             // NOTE: Introduced additional whitespaces in the serialized form
             &*format!(r###"{{ "asset_id" : "xor#wonderland#{mouse_id}" }}"###),
@@ -341,7 +341,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
 
 #[test]
 #[allow(deprecated)]
-fn permission_tokens_are_unified() {
+fn permissions_are_unified() {
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_230).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);
 
@@ -349,7 +349,7 @@ fn permission_tokens_are_unified() {
     let alice_id = ALICE_ID.clone();
 
     let allow_alice_to_transfer_rose_1 = Grant::permission(
-        PermissionToken::from_str_unchecked(
+        Permission::from_str_unchecked(
             "CanTransferUserAsset".parse().unwrap(),
             // NOTE: Introduced additional whitespaces in the serialized form
             &*format!(r###"{{ "asset_id" : "rose#wonderland#{alice_id}" }}"###),
@@ -358,7 +358,7 @@ fn permission_tokens_are_unified() {
     );
 
     let allow_alice_to_transfer_rose_2 = Grant::permission(
-        PermissionToken::from_str_unchecked(
+        Permission::from_str_unchecked(
             "CanTransferUserAsset".parse().unwrap(),
             // NOTE: Introduced additional whitespaces in the serialized form
             &*format!(r###"{{ "asset_id" : "rose##{alice_id}" }}"###),
@@ -376,7 +376,7 @@ fn permission_tokens_are_unified() {
 }
 
 #[test]
-fn associated_permission_tokens_removed_on_unregister() {
+fn associated_permissions_removed_on_unregister() {
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_240).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);
 
@@ -386,7 +386,7 @@ fn associated_permission_tokens_removed_on_unregister() {
 
     // register kingdom and give bob permissions in this domain
     let register_domain = Register::domain(kingdom);
-    let bob_to_set_kv_in_domain_token = PermissionToken::new(
+    let bob_to_set_kv_in_domain_token = Permission::new(
         "CanSetKeyValueInDomain".parse().unwrap(),
         &json!({ "domain_id": kingdom_id }),
     );
@@ -403,7 +403,7 @@ fn associated_permission_tokens_removed_on_unregister() {
     // check that bob indeed have granted permission
     assert!(iroha_client
         .request(client::permission::by_account_id(bob_id.clone()))
-        .and_then(std::iter::Iterator::collect::<QueryResult<Vec<PermissionToken>>>)
+        .and_then(std::iter::Iterator::collect::<QueryResult<Vec<Permission>>>)
         .expect("failed to get permissions for bob")
         .into_iter()
         .any(|token| { token == bob_to_set_kv_in_domain_token }));
@@ -416,14 +416,14 @@ fn associated_permission_tokens_removed_on_unregister() {
     // check that permission is removed from bob
     assert!(iroha_client
         .request(client::permission::by_account_id(bob_id))
-        .and_then(std::iter::Iterator::collect::<QueryResult<Vec<PermissionToken>>>)
+        .and_then(std::iter::Iterator::collect::<QueryResult<Vec<Permission>>>)
         .expect("failed to get permissions for bob")
         .into_iter()
         .all(|token| { token != bob_to_set_kv_in_domain_token }));
 }
 
 #[test]
-fn associated_permission_tokens_removed_from_role_on_unregister() {
+fn associated_permissions_removed_from_role_on_unregister() {
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_255).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);
 
@@ -433,7 +433,7 @@ fn associated_permission_tokens_removed_from_role_on_unregister() {
 
     // register kingdom and give bob permissions in this domain
     let register_domain = Register::domain(kingdom);
-    let set_kv_in_domain_token = PermissionToken::new(
+    let set_kv_in_domain_token = Permission::new(
         "CanSetKeyValueInDomain".parse().unwrap(),
         &json!({ "domain_id": kingdom_id }),
     );

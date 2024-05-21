@@ -7,7 +7,7 @@ extern crate self as iroha_executor;
 
 use alloc::vec::Vec;
 
-use data_model::{executor::Result, permission::PermissionTokenId, visit::Visit, ValidationFail};
+use data_model::{executor::Result, permission::PermissionId, visit::Visit, ValidationFail};
 #[cfg(not(test))]
 use data_model::{prelude::*, smart_contract::payloads};
 pub use iroha_schema::MetaMap;
@@ -78,7 +78,7 @@ pub fn get_migrate_payload() -> payloads::Migrate {
     unsafe { decode_with_length_prefix_from_raw(host::get_migrate_payload()) }
 }
 
-/// Set new [`PermissionTokenSchema`].
+/// Set new [`PermissionSchema`].
 ///
 /// # Errors
 ///
@@ -89,9 +89,9 @@ pub fn get_migrate_payload() -> payloads::Migrate {
 /// Host side will generate a trap if this function was not called from a
 /// executor's `migrate()` entrypoint.
 #[cfg(not(test))]
-pub fn set_permission_token_schema(schema: &data_model::permission::PermissionTokenSchema) {
+pub fn set_permission_schema(schema: &data_model::permission::PermissionSchema) {
     // Safety: - ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { encode_and_execute(&schema, host::set_permission_token_schema) }
+    unsafe { encode_and_execute(&schema, host::set_permission_schema) }
 }
 
 #[cfg(not(test))]
@@ -126,8 +126,8 @@ mod host {
         /// This function does transfer ownership of the result to the caller
         pub(super) fn get_migrate_payload() -> *const u8;
 
-        /// Set new [`PermissionTokenSchema`].
-        pub(super) fn set_permission_token_schema(ptr: *const u8, len: usize);
+        /// Set new [`PermissionSchema`].
+        pub(super) fn set_permission_schema(ptr: *const u8, len: usize);
     }
 }
 
@@ -174,9 +174,9 @@ macro_rules! deny {
 
 /// Collection of all permission tokens defined by the executor
 #[derive(Debug, Clone, Default)]
-pub struct PermissionTokenSchema(Vec<PermissionTokenId>, MetaMap);
+pub struct PermissionSchema(Vec<PermissionId>, MetaMap);
 
-impl PermissionTokenSchema {
+impl PermissionSchema {
     /// Remove permission token from this collection
     pub fn remove<T: permission::Token>(&mut self) {
         let to_remove = <T as permission::Token>::name();
@@ -194,7 +194,7 @@ impl PermissionTokenSchema {
     }
 
     /// Serializes schema into a JSON string representation
-    pub fn serialize(mut self) -> (Vec<PermissionTokenId>, alloc::string::String) {
+    pub fn serialize(mut self) -> (Vec<PermissionId>, alloc::string::String) {
         self.0.sort();
 
         (
@@ -232,6 +232,6 @@ pub mod prelude {
             visit::Visit,
             ValidationFail,
         },
-        deny, execute, PermissionTokenSchema, Validate,
+        deny, execute, PermissionSchema, Validate,
     };
 }

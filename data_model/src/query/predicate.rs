@@ -601,7 +601,7 @@ pub mod string {
                 IdBox::PeerId(id) => self.applies(&id.to_string()),
                 IdBox::TriggerId(id) => self.applies(&id.to_string()),
                 IdBox::RoleId(id) => self.applies(&id.to_string()),
-                IdBox::PermissionTokenId(id) => self.applies(&id.to_string()),
+                IdBox::PermissionId(id) => self.applies(&id.to_string()),
                 IdBox::ParameterId(id) => self.applies(&id.to_string()),
             }
         }

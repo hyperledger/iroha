@@ -236,7 +236,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Grant<PermissionToken, Account> {
+    impl Execute for Grant<Permission, Account> {
         #[metrics(+"grant_account_permission")]
         fn execute(
             self,
@@ -252,11 +252,11 @@ pub mod isi {
 
             if !state_transaction
                 .world
-                .permission_token_schema
+                .permission_schema
                 .token_ids
                 .contains(&permission_id)
             {
-                return Err(FindError::PermissionToken(permission_id).into());
+                return Err(FindError::Permission(permission_id).into());
             }
 
             if state_transaction
@@ -287,7 +287,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Revoke<PermissionToken, Account> {
+    impl Execute for Revoke<Permission, Account> {
         #[metrics(+"revoke_account_permission")]
         fn execute(
             self,
@@ -304,7 +304,7 @@ pub mod isi {
                 .world
                 .remove_account_permission(&account_id, &permission)
             {
-                return Err(FindError::PermissionToken(permission.definition_id).into());
+                return Err(FindError::Permission(permission.definition_id).into());
             }
 
             state_transaction
@@ -505,7 +505,7 @@ pub mod query {
 
     use eyre::Result;
     use iroha_data_model::{
-        account::Account, metadata::MetadataValueBox, permission::PermissionToken,
+        account::Account, metadata::MetadataValueBox, permission::Permission,
         query::error::QueryExecutionFail as Error,
     };
 
@@ -526,17 +526,17 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindPermissionTokensByAccountId {
-        #[metrics(+"find_permission_tokens_by_account_id")]
+    impl ValidQuery for FindPermissionsByAccountId {
+        #[metrics(+"find_permissions_by_account_id")]
         fn execute<'state>(
             &self,
             state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = PermissionToken> + 'state>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Permission> + 'state>, Error> {
             let account_id = &self.id;
             Ok(Box::new(
                 state_ro
                     .world()
-                    .account_permission_tokens_iter(account_id)?
+                    .account_permissions_iter(account_id)?
                     .cloned(),
             ))
         }

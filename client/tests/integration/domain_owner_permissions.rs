@@ -46,7 +46,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
     test_client.submit_blocking(Unregister::asset_definition(coin_id))?;
 
     // Granting a respective token also allows "bob@kingdom" to do so
-    let token = PermissionToken::new(
+    let token = Permission::new(
         "CanRegisterAssetDefinitionInDomain".parse().unwrap(),
         &json!({ "domain_id": kingdom_id }),
     );
@@ -64,7 +64,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
     test_client.submit_blocking(RemoveKeyValue::domain(kingdom_id.clone(), key))?;
 
     // check that "alice@wonderland" as owner of domain can grant and revoke domain related permission tokens
-    let token = PermissionToken::new(
+    let token = Permission::new(
         "CanUnregisterDomain".parse().unwrap(),
         &json!({ "domain_id": kingdom_id }),
     );
@@ -104,7 +104,7 @@ fn domain_owner_account_permissions() -> Result<()> {
 
     // check that "alice@wonderland" as owner of domain can grant and revoke account related permission tokens in her domain
     let bob_id = BOB_ID.clone();
-    let token = PermissionToken::new(
+    let token = Permission::new(
         "CanUnregisterAccount".parse().unwrap(),
         &json!({ "account_id": mad_hatter_id }),
     );
@@ -139,7 +139,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     test_client.submit_blocking(Register::account(rabbit))?;
 
     // Grant permission to register asset definitions to "bob@kingdom"
-    let token = PermissionToken::new(
+    let token = Permission::new(
         "CanRegisterAssetDefinitionInDomain".parse().unwrap(),
         &json!({ "domain_id": kingdom_id }),
     );
@@ -170,7 +170,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     test_client.submit_blocking(RemoveKeyValue::asset_definition(coin_id.clone(), key))?;
 
     // check that "alice@wonderland" as owner of domain can grant and revoke asset definition related permission tokens in her domain
-    let token = PermissionToken::new(
+    let token = Permission::new(
         "CanUnregisterAssetDefinition".parse().unwrap(),
         &json!({ "asset_definition_id": coin_id }),
     );
@@ -204,7 +204,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
     test_client.submit_blocking(Register::account(bob))?;
 
     // Grant permission to register asset definitions to "bob@kingdom"
-    let token = PermissionToken::new(
+    let token = Permission::new(
         "CanRegisterAssetDefinitionInDomain".parse().unwrap(),
         &json!({ "domain_id": kingdom_id }),
     );
@@ -240,7 +240,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
     test_client.submit_blocking(RemoveKeyValue::asset(bob_store_id.clone(), key))?;
 
     // check that "alice@wonderland" as owner of domain can grant and revoke asset related permission tokens in her domain
-    let token = PermissionToken::new(
+    let token = Permission::new(
         "CanUnregisterUserAsset".parse().unwrap(),
         &json!({ "asset_id": bob_store_id }),
     );
@@ -291,7 +291,7 @@ fn domain_owner_trigger_permissions() -> Result<()> {
     let _result = test_client.submit_blocking(execute_trigger)?;
 
     // check that "alice@wonderland" as owner of domain can grant and revoke trigger related permission tokens in her domain
-    let token = PermissionToken::new(
+    let token = Permission::new(
         "CanUnregisterUserTrigger".parse().unwrap(),
         &json!({ "account_id": bob_id }),
     );

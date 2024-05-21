@@ -58,7 +58,7 @@ pub trait Visit {
         visit_find_all_domains(&FindAllDomains),
         visit_find_all_parameters(&FindAllParameters),
         visit_find_all_peers(&FindAllPeers),
-        visit_find_permission_token_schema(&FindPermissionTokenSchema),
+        visit_find_permission_schema(&FindPermissionSchema),
         visit_find_all_role_ids(&FindAllRoleIds),
         visit_find_all_roles(&FindAllRoles),
         visit_find_all_transactions(&FindAllTransactions),
@@ -75,7 +75,7 @@ pub trait Visit {
         visit_find_block_header_by_hash(&FindBlockHeaderByHash),
         visit_find_domain_by_id(&FindDomainById),
         visit_find_domain_key_value_by_id_and_key(&FindDomainKeyValueByIdAndKey),
-        visit_find_permission_tokens_by_account_id(&FindPermissionTokensByAccountId),
+        visit_find_permissions_by_account_id(&FindPermissionsByAccountId),
         visit_find_role_by_role_id(&FindRoleByRoleId),
         visit_find_roles_by_account_id(&FindRolesByAccountId),
         visit_find_total_asset_quantity_by_asset_definition_id(&FindTotalAssetQuantityByAssetDefinitionId),
@@ -133,14 +133,14 @@ pub trait Visit {
         visit_remove_trigger_key_value(&RemoveKeyValue<Trigger>),
 
         // Visit GrantBox
-        visit_grant_account_permission(&Grant<PermissionToken, Account>),
+        visit_grant_account_permission(&Grant<Permission, Account>),
         visit_grant_account_role(&Grant<RoleId, Account>),
-        visit_grant_role_permission(&Grant<PermissionToken, Role>),
+        visit_grant_role_permission(&Grant<Permission, Role>),
 
         // Visit RevokeBox
-        visit_revoke_account_permission(&Revoke<PermissionToken, Account>),
+        visit_revoke_account_permission(&Revoke<Permission, Account>),
         visit_revoke_account_role(&Revoke<RoleId, Account>),
-        visit_revoke_role_permission(&Revoke<PermissionToken, Role>),
+        visit_revoke_role_permission(&Revoke<Permission, Role>),
     }
 }
 
@@ -183,7 +183,7 @@ pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, qu
         visit_find_all_domains(FindAllDomains),
         visit_find_all_parameters(FindAllParameters),
         visit_find_all_peers(FindAllPeers),
-        visit_find_permission_token_schema(FindPermissionTokenSchema),
+        visit_find_permission_schema(FindPermissionSchema),
         visit_find_all_role_ids(FindAllRoleIds),
         visit_find_all_roles(FindAllRoles),
         visit_find_all_transactions(FindAllTransactions),
@@ -200,7 +200,7 @@ pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, qu
         visit_find_block_header_by_hash(FindBlockHeaderByHash),
         visit_find_domain_by_id(FindDomainById),
         visit_find_domain_key_value_by_id_and_key(FindDomainKeyValueByIdAndKey),
-        visit_find_permission_tokens_by_account_id(FindPermissionTokensByAccountId),
+        visit_find_permissions_by_account_id(FindPermissionsByAccountId),
         visit_find_role_by_role_id(FindRoleByRoleId),
         visit_find_roles_by_account_id(FindRolesByAccountId),
         visit_find_total_asset_quantity_by_asset_definition_id(FindTotalAssetQuantityByAssetDefinitionId),
@@ -361,17 +361,17 @@ pub fn visit_remove_key_value<V: Visit + ?Sized>(
 
 pub fn visit_grant<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &GrantBox) {
     match isi {
-        GrantBox::PermissionToken(obj) => visitor.visit_grant_account_permission(authority, obj),
+        GrantBox::Permission(obj) => visitor.visit_grant_account_permission(authority, obj),
         GrantBox::Role(obj) => visitor.visit_grant_account_role(authority, obj),
-        GrantBox::RolePermissionToken(obj) => visitor.visit_grant_role_permission(authority, obj),
+        GrantBox::RolePermission(obj) => visitor.visit_grant_role_permission(authority, obj),
     }
 }
 
 pub fn visit_revoke<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &RevokeBox) {
     match isi {
-        RevokeBox::PermissionToken(obj) => visitor.visit_revoke_account_permission(authority, obj),
+        RevokeBox::Permission(obj) => visitor.visit_revoke_account_permission(authority, obj),
         RevokeBox::Role(obj) => visitor.visit_revoke_account_role(authority, obj),
-        RevokeBox::RolePermissionToken(obj) => visitor.visit_revoke_role_permission(authority, obj),
+        RevokeBox::RolePermission(obj) => visitor.visit_revoke_role_permission(authority, obj),
     }
 }
 
@@ -411,14 +411,14 @@ leaf_visitors! {
     visit_remove_domain_key_value(&RemoveKeyValue<Domain>),
     visit_register_peer(&Register<Peer>),
     visit_unregister_peer(&Unregister<Peer>),
-    visit_grant_account_permission(&Grant<PermissionToken, Account>),
-    visit_revoke_account_permission(&Revoke<PermissionToken, Account>),
+    visit_grant_account_permission(&Grant<Permission, Account>),
+    visit_revoke_account_permission(&Revoke<Permission, Account>),
     visit_register_role(&Register<Role>),
     visit_unregister_role(&Unregister<Role>),
     visit_grant_account_role(&Grant<RoleId, Account>),
     visit_revoke_account_role(&Revoke<RoleId, Account>),
-    visit_grant_role_permission(&Grant<PermissionToken, Role>),
-    visit_revoke_role_permission(&Revoke<PermissionToken, Role>),
+    visit_grant_role_permission(&Grant<Permission, Role>),
+    visit_revoke_role_permission(&Revoke<Permission, Role>),
     visit_register_trigger(&Register<Trigger>),
     visit_unregister_trigger(&Unregister<Trigger>),
     visit_mint_trigger_repetitions(&Mint<u32, Trigger>),
@@ -444,7 +444,7 @@ leaf_visitors! {
     visit_find_all_domains(&FindAllDomains),
     visit_find_all_parameters(&FindAllParameters),
     visit_find_all_peers(&FindAllPeers),
-    visit_find_permission_token_schema(&FindPermissionTokenSchema),
+    visit_find_permission_schema(&FindPermissionSchema),
     visit_find_all_role_ids(&FindAllRoleIds),
     visit_find_all_roles(&FindAllRoles),
     visit_find_all_transactions(&FindAllTransactions),
@@ -461,7 +461,7 @@ leaf_visitors! {
     visit_find_block_header_by_hash(&FindBlockHeaderByHash),
     visit_find_domain_by_id(&FindDomainById),
     visit_find_domain_key_value_by_id_and_key(&FindDomainKeyValueByIdAndKey),
-    visit_find_permission_tokens_by_account_id(&FindPermissionTokensByAccountId),
+    visit_find_permissions_by_account_id(&FindPermissionsByAccountId),
     visit_find_role_by_role_id(&FindRoleByRoleId),
     visit_find_roles_by_account_id(&FindRolesByAccountId),
     visit_find_total_asset_quantity_by_asset_definition_id(&FindTotalAssetQuantityByAssetDefinitionId),

@@ -1,5 +1,5 @@
 [package]
-name = "executor_remove_token"
+name = "executor_with_custom_permission"
 
 edition.workspace = true
 version.workspace = true

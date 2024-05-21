@@ -15,7 +15,7 @@ use iroha_data_model::{
     },
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::{Parameter, ParameterValueBox},
-    permission::{PermissionTokenSchema, Permissions},
+    permission::{PermissionSchema, Permissions},
     prelude::*,
     query::error::{FindError, QueryExecutionFail},
     role::RoleId,
@@ -70,11 +70,11 @@ pub struct World {
     /// Roles. [`Role`] pairs.
     pub(crate) roles: Storage<RoleId, Role>,
     /// Permission tokens of an account.
-    pub(crate) account_permission_tokens: Storage<AccountId, Permissions>,
+    pub(crate) account_permissions: Storage<AccountId, Permissions>,
     /// Roles of an account.
     pub(crate) account_roles: Storage<RoleIdWithOwner, ()>,
     /// Registered permission token ids.
-    pub(crate) permission_token_schema: Cell<PermissionTokenSchema>,
+    pub(crate) permission_schema: Cell<PermissionSchema>,
     /// Triggers
     pub(crate) triggers: TriggerSet,
     /// Runtime Executor
@@ -92,11 +92,11 @@ pub struct WorldBlock<'world> {
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageBlock<'world, RoleId, Role>,
     /// Permission tokens of an account.
-    pub(crate) account_permission_tokens: StorageBlock<'world, AccountId, Permissions>,
+    pub(crate) account_permissions: StorageBlock<'world, AccountId, Permissions>,
     /// Roles of an account.
     pub(crate) account_roles: StorageBlock<'world, RoleIdWithOwner, ()>,
     /// Registered permission token ids.
-    pub(crate) permission_token_schema: CellBlock<'world, PermissionTokenSchema>,
+    pub(crate) permission_schema: CellBlock<'world, PermissionSchema>,
     /// Triggers
     pub(crate) triggers: TriggerSetBlock<'world>,
     /// Runtime Executor
@@ -116,12 +116,11 @@ pub struct WorldTransaction<'block, 'world> {
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageTransaction<'block, 'world, RoleId, Role>,
     /// Permission tokens of an account.
-    pub(crate) account_permission_tokens:
-        StorageTransaction<'block, 'world, AccountId, Permissions>,
+    pub(crate) account_permissions: StorageTransaction<'block, 'world, AccountId, Permissions>,
     /// Roles of an account.
     pub(crate) account_roles: StorageTransaction<'block, 'world, RoleIdWithOwner, ()>,
     /// Registered permission token ids.
-    pub(crate) permission_token_schema: CellTransaction<'block, 'world, PermissionTokenSchema>,
+    pub(crate) permission_schema: CellTransaction<'block, 'world, PermissionSchema>,
     /// Triggers
     pub(crate) triggers: TriggerSetTransaction<'block, 'world>,
     /// Runtime Executor
@@ -149,11 +148,11 @@ pub struct WorldView<'world> {
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageView<'world, RoleId, Role>,
     /// Permission tokens of an account.
-    pub(crate) account_permission_tokens: StorageView<'world, AccountId, Permissions>,
+    pub(crate) account_permissions: StorageView<'world, AccountId, Permissions>,
     /// Roles of an account.
     pub(crate) account_roles: StorageView<'world, RoleIdWithOwner, ()>,
     /// Registered permission token ids.
-    pub(crate) permission_token_schema: CellView<'world, PermissionTokenSchema>,
+    pub(crate) permission_schema: CellView<'world, PermissionSchema>,
     /// Triggers
     pub(crate) triggers: TriggerSetView<'world>,
     /// Runtime Executor
@@ -283,9 +282,9 @@ impl World {
             trusted_peers_ids: self.trusted_peers_ids.block(),
             domains: self.domains.block(),
             roles: self.roles.block(),
-            account_permission_tokens: self.account_permission_tokens.block(),
+            account_permissions: self.account_permissions.block(),
             account_roles: self.account_roles.block(),
-            permission_token_schema: self.permission_token_schema.block(),
+            permission_schema: self.permission_schema.block(),
             triggers: self.triggers.block(),
             executor: self.executor.block(),
             events_buffer: Vec::new(),
@@ -299,9 +298,9 @@ impl World {
             trusted_peers_ids: self.trusted_peers_ids.block_and_revert(),
             domains: self.domains.block_and_revert(),
             roles: self.roles.block_and_revert(),
-            account_permission_tokens: self.account_permission_tokens.block_and_revert(),
+            account_permissions: self.account_permissions.block_and_revert(),
             account_roles: self.account_roles.block_and_revert(),
-            permission_token_schema: self.permission_token_schema.block_and_revert(),
+            permission_schema: self.permission_schema.block_and_revert(),
             triggers: self.triggers.block_and_revert(),
             executor: self.executor.block_and_revert(),
             events_buffer: Vec::new(),
@@ -315,9 +314,9 @@ impl World {
             trusted_peers_ids: self.trusted_peers_ids.view(),
             domains: self.domains.view(),
             roles: self.roles.view(),
-            account_permission_tokens: self.account_permission_tokens.view(),
+            account_permissions: self.account_permissions.view(),
             account_roles: self.account_roles.view(),
-            permission_token_schema: self.permission_token_schema.view(),
+            permission_schema: self.permission_schema.view(),
             triggers: self.triggers.view(),
             executor: self.executor.view(),
         }
@@ -331,9 +330,9 @@ pub trait WorldReadOnly {
     fn trusted_peers_ids(&self) -> &PeersIds;
     fn domains(&self) -> &impl StorageReadOnly<DomainId, Domain>;
     fn roles(&self) -> &impl StorageReadOnly<RoleId, Role>;
-    fn account_permission_tokens(&self) -> &impl StorageReadOnly<AccountId, Permissions>;
+    fn account_permissions(&self) -> &impl StorageReadOnly<AccountId, Permissions>;
     fn account_roles(&self) -> &impl StorageReadOnly<RoleIdWithOwner, ()>;
-    fn permission_token_schema(&self) -> &PermissionTokenSchema;
+    fn permission_schema(&self) -> &PermissionSchema;
     fn triggers(&self) -> &impl TriggerSetReadOnly;
     fn executor(&self) -> &Executor;
 
@@ -434,14 +433,14 @@ pub trait WorldReadOnly {
     /// # Errors
     ///
     /// - if `account_id` is not found in `self`
-    fn account_permission_tokens_iter<'slf>(
+    fn account_permissions_iter<'slf>(
         &'slf self,
         account_id: &AccountId,
-    ) -> Result<std::collections::btree_set::IntoIter<&'slf PermissionToken>, FindError> {
+    ) -> Result<std::collections::btree_set::IntoIter<&'slf Permission>, FindError> {
         self.account(account_id)?;
 
         let mut tokens = self
-            .account_inherent_permission_tokens(account_id)
+            .account_inherent_permissions(account_id)
             .collect::<BTreeSet<_>>();
 
         for role_id in self.account_roles_iter(account_id) {
@@ -458,11 +457,11 @@ pub trait WorldReadOnly {
     /// # Errors
     ///
     /// - `account_id` is not found in `self.world`.
-    fn account_inherent_permission_tokens<'slf>(
+    fn account_inherent_permissions<'slf>(
         &'slf self,
         account_id: &AccountId,
-    ) -> std::collections::btree_set::Iter<'slf, PermissionToken> {
-        self.account_permission_tokens()
+    ) -> std::collections::btree_set::Iter<'slf, Permission> {
+        self.account_permissions()
             .get(account_id)
             .map_or_else(Default::default, std::collections::BTreeSet::iter)
     }
@@ -472,9 +471,9 @@ pub trait WorldReadOnly {
     fn account_contains_inherent_permission(
         &self,
         account: &AccountId,
-        token: &PermissionToken,
+        token: &Permission,
     ) -> bool {
-        self.account_permission_tokens()
+        self.account_permissions()
             .get(account)
             .map_or(false, |permissions| permissions.contains(token))
     }
@@ -573,14 +572,14 @@ macro_rules! impl_world_ro {
             fn roles(&self) -> &impl StorageReadOnly<RoleId, Role> {
                 &self.roles
             }
-            fn account_permission_tokens(&self) -> &impl StorageReadOnly<AccountId, Permissions> {
-                &self.account_permission_tokens
+            fn account_permissions(&self) -> &impl StorageReadOnly<AccountId, Permissions> {
+                &self.account_permissions
             }
             fn account_roles(&self) -> &impl StorageReadOnly<RoleIdWithOwner, ()> {
                 &self.account_roles
             }
-            fn permission_token_schema(&self) -> &PermissionTokenSchema {
-                &self.permission_token_schema
+            fn permission_schema(&self) -> &PermissionSchema {
+                &self.permission_schema
             }
             fn triggers(&self) -> &impl TriggerSetReadOnly {
                 &self.triggers
@@ -604,9 +603,9 @@ impl<'world> WorldBlock<'world> {
             trusted_peers_ids: self.trusted_peers_ids.transaction(),
             domains: self.domains.transaction(),
             roles: self.roles.transaction(),
-            account_permission_tokens: self.account_permission_tokens.transaction(),
+            account_permissions: self.account_permissions.transaction(),
             account_roles: self.account_roles.transaction(),
-            permission_token_schema: self.permission_token_schema.transaction(),
+            permission_schema: self.permission_schema.transaction(),
             triggers: self.triggers.transaction(),
             executor: self.executor.transaction(),
             events_buffer: TransactionEventBuffer {
@@ -621,9 +620,9 @@ impl<'world> WorldBlock<'world> {
         // IMPORTANT!!! Commit fields in reverse order, this way consistent results are insured
         self.executor.commit();
         self.triggers.commit();
-        self.permission_token_schema.commit();
+        self.permission_schema.commit();
         self.account_roles.commit();
-        self.account_permission_tokens.commit();
+        self.account_permissions.commit();
         self.roles.commit();
         self.domains.commit();
         self.trusted_peers_ids.commit();
@@ -636,9 +635,9 @@ impl WorldTransaction<'_, '_> {
     pub fn apply(mut self) {
         self.executor.apply();
         self.triggers.apply();
-        self.permission_token_schema.apply();
+        self.permission_schema.apply();
         self.account_roles.apply();
-        self.account_permission_tokens.apply();
+        self.account_permissions.apply();
         self.roles.apply();
         self.domains.apply();
         self.trusted_peers_ids.apply();
@@ -671,14 +670,14 @@ impl WorldTransaction<'_, '_> {
         })
     }
 
-    /// Add [`permission`](PermissionToken) to the [`Account`] if the account does not have this permission yet.
+    /// Add [`permission`](Permission) to the [`Account`] if the account does not have this permission yet.
     ///
     /// Return a Boolean value indicating whether or not the  [`Account`] already had this permission.
-    pub fn add_account_permission(&mut self, account: &AccountId, token: PermissionToken) -> bool {
+    pub fn add_account_permission(&mut self, account: &AccountId, token: Permission) -> bool {
         // `match` here instead of `map_or_else` to avoid cloning token into each closure
-        match self.account_permission_tokens.get_mut(account) {
+        match self.account_permissions.get_mut(account) {
             None => {
-                self.account_permission_tokens
+                self.account_permissions
                     .insert(account.clone(), BTreeSet::from([token]));
                 true
             }
@@ -692,14 +691,10 @@ impl WorldTransaction<'_, '_> {
         }
     }
 
-    /// Remove a [`permission`](PermissionToken) from the [`Account`] if the account has this permission.
+    /// Remove a [`permission`](Permission) from the [`Account`] if the account has this permission.
     /// Return a Boolean value indicating whether the [`Account`] had this permission.
-    pub fn remove_account_permission(
-        &mut self,
-        account: &AccountId,
-        token: &PermissionToken,
-    ) -> bool {
-        self.account_permission_tokens
+    pub fn remove_account_permission(&mut self, account: &AccountId, token: &Permission) -> bool {
+        self.account_permissions
             .get_mut(account)
             .map_or(false, |permissions| permissions.remove(token))
     }
@@ -842,12 +837,12 @@ impl WorldTransaction<'_, '_> {
 
     /// Set new permission token schema.
     ///
-    /// Produces [`PermissionTokenSchemaUpdateEvent`].
-    pub fn set_permission_token_schema(&mut self, schema: PermissionTokenSchema) {
-        let old_schema: PermissionTokenSchema =
-            std::mem::replace(&mut self.permission_token_schema, schema.clone());
-        self.emit_events(std::iter::once(DataEvent::PermissionToken(
-            PermissionTokenSchemaUpdateEvent {
+    /// Produces [`PermissionSchemaUpdateEvent`].
+    pub fn set_permission_schema(&mut self, schema: PermissionSchema) {
+        let old_schema: PermissionSchema =
+            std::mem::replace(&mut self.permission_schema, schema.clone());
+        self.emit_events(std::iter::once(DataEvent::Permission(
+            PermissionSchemaUpdateEvent {
                 old_schema,
                 new_schema: schema,
             },
@@ -1592,9 +1587,9 @@ pub(crate) mod deserialize {
                     let mut trusted_peers_ids = None;
                     let mut domains = None;
                     let mut roles = None;
-                    let mut account_permission_tokens = None;
+                    let mut account_permissions = None;
                     let mut account_roles = None;
-                    let mut permission_token_schema = None;
+                    let mut permission_schema = None;
                     let mut triggers = None;
                     let mut executor = None;
 
@@ -1612,14 +1607,14 @@ pub(crate) mod deserialize {
                             "roles" => {
                                 roles = Some(map.next_value()?);
                             }
-                            "account_permission_tokens" => {
-                                account_permission_tokens = Some(map.next_value()?);
+                            "account_permissions" => {
+                                account_permissions = Some(map.next_value()?);
                             }
                             "account_roles" => {
                                 account_roles = Some(map.next_value()?);
                             }
-                            "permission_token_schema" => {
-                                permission_token_schema = Some(map.next_value()?);
+                            "permission_schema" => {
+                                permission_schema = Some(map.next_value()?);
                             }
                             "triggers" => {
                                 triggers =
@@ -1642,14 +1637,13 @@ pub(crate) mod deserialize {
                         domains: domains
                             .ok_or_else(|| serde::de::Error::missing_field("domains"))?,
                         roles: roles.ok_or_else(|| serde::de::Error::missing_field("roles"))?,
-                        account_permission_tokens: account_permission_tokens.ok_or_else(|| {
-                            serde::de::Error::missing_field("account_permission_tokens")
+                        account_permissions: account_permissions.ok_or_else(|| {
+                            serde::de::Error::missing_field("account_permissions")
                         })?,
                         account_roles: account_roles
                             .ok_or_else(|| serde::de::Error::missing_field("account_roles"))?,
-                        permission_token_schema: permission_token_schema.ok_or_else(|| {
-                            serde::de::Error::missing_field("permission_token_schema")
-                        })?,
+                        permission_schema: permission_schema
+                            .ok_or_else(|| serde::de::Error::missing_field("permission_schema"))?,
                         triggers: triggers
                             .ok_or_else(|| serde::de::Error::missing_field("triggers"))?,
                         executor: executor
@@ -1665,9 +1659,9 @@ pub(crate) mod deserialize {
                     "trusted_peers_ids",
                     "domains",
                     "roles",
-                    "account_permission_tokens",
+                    "account_permissions",
                     "account_roles",
-                    "permission_token_schema",
+                    "permission_schema",
                     "triggers",
                     "executor",
                 ],

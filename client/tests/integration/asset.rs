@@ -296,7 +296,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let alice_id = ALICE_ID.clone();
     let alice_can_transfer_asset = |asset_id: AssetId, owner_key_pair: KeyPair| {
         let instruction = Grant::permission(
-            PermissionToken::new(
+            Permission::new(
                 "CanTransferUserAsset".parse().unwrap(),
                 &json!({ "asset_id": asset_id }),
             ),
