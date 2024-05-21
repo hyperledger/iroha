@@ -1121,6 +1121,53 @@ impl Client {
         Ok(None)
     }
 
+    /// Find the original transaction in the pending local tx
+    /// queue.  Should be used for an MST case.  Takes pagination as
+    /// parameter.
+    ///
+    /// # Errors
+    /// - if subscribing to websocket fails
+    pub fn get_original_transaction_by_hash(
+        &self,
+        hash: HashOf<SignedTransaction>,
+        retry_count: u32,
+        retry_in: Duration,
+    ) -> Result<Option<SignedTransaction>> {
+        let pagination: Vec<_> = Pagination::default().into();
+        for _ in 0..retry_count {
+            let response = DefaultRequestBuilder::new(
+                HttpMethod::GET,
+                self.torii_url
+                    .join(crate::config::torii::PENDING_TRANSACTIONS)
+                    .expect("Valid URI"),
+            )
+            .params(pagination.clone())
+            .headers(self.headers.clone())
+            .build()?
+            .send()?;
+
+            if response.status() == StatusCode::OK {
+                let pending_transactions: Vec<SignedTransaction> =
+                    DecodeAll::decode_all(&mut response.body().as_slice())?;
+
+                let transaction = pending_transactions
+                    .into_iter()
+                    .find(|pending_transaction| pending_transaction.hash() == hash);
+                if transaction.is_some() {
+                    return Ok(transaction);
+                }
+                thread::sleep(retry_in);
+            } else {
+                return Err(eyre!(
+                    "Failed to make query request with HTTP status: {}, {}",
+                    response.status(),
+                    std::str::from_utf8(response.body()).unwrap_or(""),
+                ));
+            }
+        }
+        Ok(None)
+    }
+
     /// Find the original transaction in the local pending tx queue.
     /// Should be used for an MST case.
     ///
