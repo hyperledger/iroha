@@ -113,7 +113,7 @@
       },
       {
         "Grant": {
-          "PermissionToken": {
+          "Permission": {
             "object": {
               "definition_id": "CanSetParameters",
               "payload": null
