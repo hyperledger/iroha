@@ -328,7 +328,7 @@ impl_query_output! {
     crate::data_model::block::BlockHeader,
     crate::data_model::metadata::MetadataValueBox,
     crate::data_model::query::TransactionQueryOutput,
-    crate::data_model::permission::PermissionTokenSchema,
+    crate::data_model::permission::PermissionSchema,
     crate::data_model::trigger::Trigger,
     crate::data_model::prelude::Numeric,
 }
@@ -1517,15 +1517,15 @@ pub mod permission {
     //! Module with queries for permission tokens
     use super::*;
 
-    /// Construct a query to get all registered [`PermissionTokenDefinition`]s
-    pub const fn permission_token_schema() -> FindPermissionTokenSchema {
-        FindPermissionTokenSchema {}
+    /// Construct a query to get all registered [`PermissionDefinition`]s
+    pub const fn permission_schema() -> FindPermissionSchema {
+        FindPermissionSchema {}
     }
 
-    /// Construct a query to get all [`PermissionToken`] granted
+    /// Construct a query to get all [`Permission`] granted
     /// to account with given [`Id`][AccountId]
-    pub fn by_account_id(account_id: AccountId) -> FindPermissionTokensByAccountId {
-        FindPermissionTokensByAccountId::new(account_id)
+    pub fn by_account_id(account_id: AccountId) -> FindPermissionsByAccountId {
+        FindPermissionsByAccountId::new(account_id)
     }
 }
 

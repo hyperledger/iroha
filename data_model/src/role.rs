@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
 use crate::{
-    permission::{PermissionToken, Permissions},
+    permission::{Permission, Permissions},
     Identifiable, Name, Registered,
 };
 
@@ -92,9 +92,9 @@ impl Role {
         NewRole::new(id)
     }
 
-    /// Get an iterator over [`permissions`](PermissionToken) of the `Role`
+    /// Get an iterator over [`permissions`](Permission) of the `Role`
     #[inline]
-    pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
+    pub fn permissions(&self) -> impl ExactSizeIterator<Item = &Permission> {
         self.permissions.iter()
     }
 }
@@ -115,7 +115,7 @@ impl NewRole {
     /// Add permission to the [`Role`]
     #[must_use]
     #[inline]
-    pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
+    pub fn add_permission(mut self, perm: impl Into<Permission>) -> Self {
         self.inner.permissions.insert(perm.into());
         self
     }

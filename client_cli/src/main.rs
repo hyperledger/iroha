@@ -522,7 +522,7 @@ mod account {
 
     use iroha_client::client::{self};
 
-    use super::*;
+    use super::{Permission as DataModelPermission, *};
 
     /// subcommands for account subcommand
     #[derive(clap::Subcommand, Debug)]
@@ -608,9 +608,9 @@ mod account {
         pub metadata: MetadataArgs,
     }
 
-    /// [`PermissionToken`] wrapper implementing [`FromStr`]
+    /// [`DataModelPermission`] wrapper implementing [`FromStr`]
     #[derive(Debug, Clone)]
-    pub struct Permission(PermissionToken);
+    pub struct Permission(DataModelPermission);
 
     impl FromStr for Permission {
         type Err = Error;
@@ -618,11 +618,11 @@ mod account {
         fn from_str(s: &str) -> Result<Self> {
             let content = fs::read_to_string(s)
                 .wrap_err(format!("Failed to read the permission token file {}", &s))?;
-            let permission_token: PermissionToken = json5::from_str(&content).wrap_err(format!(
+            let permission: DataModelPermission = json5::from_str(&content).wrap_err(format!(
                 "Failed to deserialize the permission token from file {}",
                 &s
             ))?;
-            Ok(Self(permission_token))
+            Ok(Self(permission))
         }
     }
 
@@ -650,7 +650,7 @@ mod account {
     impl RunArgs for ListPermissions {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
-            let find_all_permissions = FindPermissionTokensByAccountId::new(self.id);
+            let find_all_permissions = FindPermissionsByAccountId::new(self.id);
             let permissions = client
                 .request(find_all_permissions)
                 .wrap_err("Failed to get all account permissions")?;

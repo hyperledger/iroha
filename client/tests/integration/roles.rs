@@ -28,7 +28,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
-    let token = PermissionToken::new("token".parse()?, &json!(null));
+    let token = Permission::new("token".parse()?, &json!(null));
     let role = Role::new(role_id).add_permission(token);
 
     test_client.submit(Register::role(role))?;
@@ -62,11 +62,11 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     // Registering role
     let role_id = RoleId::from_str("ACCESS_TO_MOUSE_METADATA")?;
     let role = Role::new(role_id.clone())
-        .add_permission(PermissionToken::new(
+        .add_permission(Permission::new(
             "CanSetKeyValueInAccount".parse()?,
             &json!({ "account_id": mouse_id }),
         ))
-        .add_permission(PermissionToken::new(
+        .add_permission(Permission::new(
             "CanRemoveKeyValueInAccount".parse()?,
             &json!({ "account_id": mouse_id }),
         ));
@@ -111,12 +111,10 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(register_mouse)?;
 
     // Register root role
-    let register_role = Register::role(Role::new(role_id.clone()).add_permission(
-        PermissionToken::new(
-            "CanSetKeyValueInAccount".parse()?,
-            &json!({ "account_id": alice_id }),
-        ),
-    ));
+    let register_role = Register::role(Role::new(role_id.clone()).add_permission(Permission::new(
+        "CanSetKeyValueInAccount".parse()?,
+        &json!({ "account_id": alice_id }),
+    )));
     test_client.submit_blocking(register_role)?;
 
     // Grant root role to Mouse
@@ -151,7 +149,7 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
     let rose_asset_id: AssetId = format!("rose##{}", ALICE_ID.clone())
         .parse()
         .expect("should be valid");
-    let role = Role::new(role_id).add_permission(PermissionToken::new(
+    let role = Role::new(role_id).add_permission(Permission::new(
         "CanSetKeyValueInAccount".parse()?,
         &json!({ "account_id": rose_asset_id }),
     ));
@@ -178,13 +176,13 @@ fn role_permissions_unified() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_235).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let allow_alice_to_transfer_rose_1 = PermissionToken::from_str_unchecked(
+    let allow_alice_to_transfer_rose_1 = Permission::from_str_unchecked(
         "CanTransferUserAsset".parse().unwrap(),
         // NOTE: Introduced additional whitespaces in the serialized form
         "{ \"asset_id\" : \"rose#wonderland#ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland\" }",
     );
 
-    let allow_alice_to_transfer_rose_2 = PermissionToken::from_str_unchecked(
+    let allow_alice_to_transfer_rose_2 = Permission::from_str_unchecked(
         "CanTransferUserAsset".parse().unwrap(),
         // NOTE: Introduced additional whitespaces in the serialized form
         "{ \"asset_id\" : \"rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland\" }",
@@ -248,7 +246,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
         Name::from_str("key").expect("Valid"),
         "value".to_owned(),
     );
-    let permission = PermissionToken::new(
+    let permission = Permission::new(
         "CanSetKeyValueInAccount".parse()?,
         &json!({ "account_id": mouse_id }),
     );
@@ -257,7 +255,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
 
     // Alice can't modify Mouse's metadata without proper permission token
     let found_permissions = test_client
-        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .request(FindPermissionsByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()?;
     assert!(!found_permissions.contains(&permission));
     let _ = test_client
@@ -270,7 +268,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
         .sign(&mouse_keypair);
     test_client.submit_transaction_blocking(&grant_role_permission_tx)?;
     let found_permissions = test_client
-        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .request(FindPermissionsByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()?;
     assert!(found_permissions.contains(&permission));
     test_client.submit_blocking(set_key_value.clone())?;
@@ -281,7 +279,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
         .sign(&mouse_keypair);
     test_client.submit_transaction_blocking(&revoke_role_permission_tx)?;
     let found_permissions = test_client
-        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .request(FindPermissionsByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()?;
     assert!(!found_permissions.contains(&permission));
     let _ = test_client

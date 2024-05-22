@@ -128,7 +128,7 @@ mod model {
     use strum::EnumDiscriminants;
 
     use super::*;
-    use crate::{block::SignedBlock, permission::PermissionTokenId};
+    use crate::{block::SignedBlock, permission::PermissionId};
 
     /// Sized container for all possible Queries.
     #[allow(clippy::enum_variant_names)]
@@ -187,8 +187,8 @@ mod model {
         FindAllTransactions(FindAllTransactions),
         FindTransactionsByAccountId(FindTransactionsByAccountId),
         FindTransactionByHash(FindTransactionByHash),
-        FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
-        FindPermissionTokenSchema(FindPermissionTokenSchema),
+        FindPermissionsByAccountId(FindPermissionsByAccountId),
+        FindPermissionSchema(FindPermissionSchema),
         FindAllActiveTriggerIds(FindAllActiveTriggerIds),
         FindTriggerById(FindTriggerById),
         FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
@@ -220,8 +220,8 @@ mod model {
         Id(IdBox),
         Identifiable(IdentifiableBox),
         Transaction(TransactionQueryOutput),
-        PermissionToken(crate::permission::PermissionToken),
-        PermissionTokenSchema(crate::permission::PermissionTokenSchema),
+        Permission(crate::permission::Permission),
+        PermissionSchema(crate::permission::PermissionSchema),
         LimitedMetadata(MetadataValueBox),
         Numeric(Numeric),
         BlockHeader(BlockHeader),
@@ -359,8 +359,8 @@ impl_query! {
     FindAllRoleIds => Vec<crate::role::RoleId>,
     FindRolesByAccountId => Vec<crate::role::RoleId>,
     FindRoleByRoleId => crate::role::Role,
-    FindPermissionTokenSchema => crate::permission::PermissionTokenSchema,
-    FindPermissionTokensByAccountId => Vec<crate::permission::PermissionToken>,
+    FindPermissionSchema => crate::permission::PermissionSchema,
+    FindPermissionsByAccountId => Vec<crate::permission::Permission>,
     FindAllAccounts => Vec<crate::account::Account>,
     FindAccountById => crate::account::Account,
     FindAccountKeyValueByIdAndKey => MetadataValueBox,
@@ -411,8 +411,8 @@ impl core::fmt::Display for QueryOutputBox {
             QueryOutputBox::Id(v) => core::fmt::Display::fmt(&v, f),
             QueryOutputBox::Identifiable(v) => core::fmt::Display::fmt(&v, f),
             QueryOutputBox::Transaction(_) => write!(f, "TransactionQueryOutput"),
-            QueryOutputBox::PermissionToken(v) => core::fmt::Display::fmt(&v, f),
-            QueryOutputBox::PermissionTokenSchema(v) => core::fmt::Display::fmt(&v, f),
+            QueryOutputBox::Permission(v) => core::fmt::Display::fmt(&v, f),
+            QueryOutputBox::PermissionSchema(v) => core::fmt::Display::fmt(&v, f),
             QueryOutputBox::Block(v) => core::fmt::Display::fmt(&v, f),
             QueryOutputBox::BlockHeader(v) => core::fmt::Display::fmt(&v, f),
             QueryOutputBox::Numeric(v) => core::fmt::Display::fmt(&v, f),
@@ -612,7 +612,7 @@ pub mod role {
 }
 
 pub mod permission {
-    //! Queries related to [`PermissionToken`].
+    //! Queries related to [`Permission`].
 
     #[cfg(not(feature = "std"))]
     use alloc::{format, string::String, vec::Vec};
@@ -622,7 +622,7 @@ pub mod permission {
 
     use super::{Query, QueryType};
     use crate::{
-        permission::{self, PermissionTokenSchema},
+        permission::{self, PermissionSchema},
         prelude::*,
     };
 
@@ -630,16 +630,16 @@ pub mod permission {
         /// Finds all registered permission tokens
         #[derive(Copy, Display)]
         #[ffi_type]
-        pub struct FindPermissionTokenSchema;
+        pub struct FindPermissionSchema;
 
-        /// [`FindPermissionTokensByAccountId`] Iroha Query finds all [`PermissionToken`]s
+        /// [`FindPermissionsByAccountId`] Iroha Query finds all [`Permission`]s
         /// for a specified account.
         #[derive(Display)]
         #[display(fmt = "Find permission tokens specified for `{id}` account")]
         #[repr(transparent)]
-        // SAFETY: `FindPermissionTokensByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
+        // SAFETY: `FindPermissionsByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
         #[ffi_type(unsafe {robust})]
-        pub struct FindPermissionTokensByAccountId {
+        pub struct FindPermissionsByAccountId {
             /// `Id` of an account to find.
             pub id: AccountId,
         }
@@ -647,7 +647,7 @@ pub mod permission {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
-        pub use super::{FindPermissionTokenSchema, FindPermissionTokensByAccountId};
+        pub use super::{FindPermissionSchema, FindPermissionsByAccountId};
     }
 }
 
@@ -1478,8 +1478,8 @@ pub mod error {
             Trigger(TriggerId),
             /// Role with id `{0}` not found
             Role(RoleId),
-            /// Failed to find [`PermissionToken`] by id.
-            PermissionToken(PermissionTokenId),
+            /// Failed to find [`Permission`] by id.
+            Permission(PermissionId),
             /// Parameter with id `{0}` not found
             Parameter(ParameterId),
             /// Failed to find public key: `{0}`

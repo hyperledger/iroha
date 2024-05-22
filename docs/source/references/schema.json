@@ -856,9 +856,9 @@
         "type": "RoleEvent"
       },
       {
-        "tag": "PermissionToken",
+        "tag": "Permission",
         "discriminant": 4,
-        "type": "PermissionTokenSchemaUpdateEvent"
+        "type": "PermissionSchemaUpdateEvent"
       },
       {
         "tag": "Configuration",
@@ -914,7 +914,7 @@
         "type": "RoleEventFilter"
       },
       {
-        "tag": "PermissionTokenSchemaUpdate",
+        "tag": "PermissionSchemaUpdate",
         "discriminant": 8
       },
       {
@@ -1464,7 +1464,7 @@
         "type": "RoleId"
       },
       {
-        "tag": "PermissionToken",
+        "tag": "Permission",
         "discriminant": 10,
         "type": "Name"
       },
@@ -1480,8 +1480,8 @@
       }
     ]
   },
-  "FindPermissionTokenSchema": null,
-  "FindPermissionTokensByAccountId": {
+  "FindPermissionSchema": null,
+  "FindPermissionsByAccountId": {
     "Struct": [
       {
         "name": "id",
@@ -1593,11 +1593,11 @@
       }
     ]
   },
-  "Grant<PermissionToken, Account>": {
+  "Grant<Permission, Account>": {
     "Struct": [
       {
         "name": "object",
-        "type": "PermissionToken"
+        "type": "Permission"
       },
       {
         "name": "destination_id",
@@ -1605,11 +1605,11 @@
       }
     ]
   },
-  "Grant<PermissionToken, Role>": {
+  "Grant<Permission, Role>": {
     "Struct": [
       {
         "name": "object",
-        "type": "PermissionToken"
+        "type": "Permission"
       },
       {
         "name": "destination_id",
@@ -1632,9 +1632,9 @@
   "GrantBox": {
     "Enum": [
       {
-        "tag": "PermissionToken",
+        "tag": "Permission",
         "discriminant": 0,
-        "type": "Grant<PermissionToken, Account>"
+        "type": "Grant<Permission, Account>"
       },
       {
         "tag": "Role",
@@ -1642,9 +1642,9 @@
         "type": "Grant<RoleId, Account>"
       },
       {
-        "tag": "RolePermissionToken",
+        "tag": "RolePermission",
         "discriminant": 2,
-        "type": "Grant<PermissionToken, Role>"
+        "type": "Grant<Permission, Role>"
       }
     ]
   },
@@ -1690,7 +1690,7 @@
         "type": "RoleId"
       },
       {
-        "tag": "PermissionTokenId",
+        "tag": "PermissionId",
         "discriminant": 7,
         "type": "Name"
       },
@@ -2621,7 +2621,7 @@
       }
     ]
   },
-  "PermissionToken": {
+  "Permission": {
     "Struct": [
       {
         "name": "definition_id",
@@ -2633,7 +2633,7 @@
       }
     ]
   },
-  "PermissionTokenSchema": {
+  "PermissionSchema": {
     "Struct": [
       {
         "name": "token_ids",
@@ -2645,15 +2645,15 @@
       }
     ]
   },
-  "PermissionTokenSchemaUpdateEvent": {
+  "PermissionSchemaUpdateEvent": {
     "Struct": [
       {
         "name": "old_schema",
-        "type": "PermissionTokenSchema"
+        "type": "PermissionSchema"
       },
       {
         "name": "new_schema",
-        "type": "PermissionTokenSchema"
+        "type": "PermissionSchema"
       }
     ]
   },
@@ -2840,14 +2840,14 @@
         "type": "FindTransactionByHash"
       },
       {
-        "tag": "FindPermissionTokensByAccountId",
+        "tag": "FindPermissionsByAccountId",
         "discriminant": 28,
-        "type": "FindPermissionTokensByAccountId"
+        "type": "FindPermissionsByAccountId"
       },
       {
-        "tag": "FindPermissionTokenSchema",
+        "tag": "FindPermissionSchema",
         "discriminant": 29,
-        "type": "FindPermissionTokenSchema"
+        "type": "FindPermissionSchema"
       },
       {
         "tag": "FindAllActiveTriggerIds",
@@ -2945,14 +2945,14 @@
         "type": "TransactionQueryOutput"
       },
       {
-        "tag": "PermissionToken",
+        "tag": "Permission",
         "discriminant": 3,
-        "type": "PermissionToken"
+        "type": "Permission"
       },
       {
-        "tag": "PermissionTokenSchema",
+        "tag": "PermissionSchema",
         "discriminant": 4,
-        "type": "PermissionTokenSchema"
+        "type": "PermissionSchema"
       },
       {
         "tag": "LimitedMetadata",
@@ -3223,11 +3223,11 @@
       }
     ]
   },
-  "Revoke<PermissionToken, Account>": {
+  "Revoke<Permission, Account>": {
     "Struct": [
       {
         "name": "object",
-        "type": "PermissionToken"
+        "type": "Permission"
       },
       {
         "name": "destination_id",
@@ -3235,11 +3235,11 @@
       }
     ]
   },
-  "Revoke<PermissionToken, Role>": {
+  "Revoke<Permission, Role>": {
     "Struct": [
       {
         "name": "object",
-        "type": "PermissionToken"
+        "type": "Permission"
       },
       {
         "name": "destination_id",
@@ -3262,9 +3262,9 @@
   "RevokeBox": {
     "Enum": [
       {
-        "tag": "PermissionToken",
+        "tag": "Permission",
         "discriminant": 0,
-        "type": "Revoke<PermissionToken, Account>"
+        "type": "Revoke<Permission, Account>"
       },
       {
         "tag": "Role",
@@ -3272,9 +3272,9 @@
         "type": "Revoke<RoleId, Account>"
       },
       {
-        "tag": "RolePermissionToken",
+        "tag": "RolePermission",
         "discriminant": 2,
-        "type": "Revoke<PermissionToken, Role>"
+        "type": "Revoke<Permission, Role>"
       }
     ]
   },
@@ -3286,7 +3286,7 @@
       },
       {
         "name": "permissions",
-        "type": "SortedVec<PermissionToken>"
+        "type": "SortedVec<Permission>"
       }
     ]
   },
@@ -3364,7 +3364,7 @@
         "type": "RoleId"
       },
       {
-        "name": "permission_token_id",
+        "name": "permission_id",
         "type": "Name"
       }
     ]
@@ -3714,8 +3714,8 @@
       "value": "MetadataValueBox"
     }
   },
-  "SortedVec<PermissionToken>": {
-    "Vec": "PermissionToken"
+  "SortedVec<Permission>": {
+    "Vec": "Permission"
   },
   "SortedVec<SignatureOf<BlockPayload>>": {
     "Vec": "SignatureOf<BlockPayload>"

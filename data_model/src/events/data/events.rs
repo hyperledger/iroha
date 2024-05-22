@@ -90,7 +90,7 @@ mod model {
         /// Role event
         Role(role::RoleEvent),
         /// Permission token event
-        PermissionToken(permission::PermissionTokenSchemaUpdateEvent),
+        Permission(permission::PermissionSchemaUpdateEvent),
         /// Configuration event
         Configuration(config::ConfigurationEvent),
         /// Executor event
@@ -246,11 +246,11 @@ mod role {
             #[has_origin(role => role.id())]
             Created(Role),
             Deleted(RoleId),
-            /// [`PermissionToken`]s with particular [`Id`](crate::permission::token::PermissionTokenId)
+            /// [`Permission`]s with particular [`PermissionId`]
             /// were removed from the role.
             #[has_origin(permission_removed => &permission_removed.role_id)]
             PermissionRemoved(RolePermissionChanged),
-            /// [`PermissionToken`]s with particular [`Id`](crate::permission::token::PermissionTokenId)
+            /// [`Permission`]s with particular [`PermissionId`]
             /// were removed added to the role.
             #[has_origin(permission_added => &permission_added.role_id)]
             PermissionAdded(RolePermissionChanged),
@@ -282,17 +282,17 @@ mod role {
             pub role_id: RoleId,
             // TODO: Skipped temporarily because of FFI
             #[getset(skip)]
-            pub permission_token_id: PermissionTokenId,
+            pub permission_id: PermissionId,
         }
     }
 }
 
 mod permission {
-    //! This module contains [`PermissionTokenSchemaUpdateEvent`]
+    //! This module contains [`PermissionSchemaUpdateEvent`]
 
     pub use self::model::*;
     use super::*;
-    use crate::permission::PermissionTokenSchema;
+    use crate::permission::PermissionSchema;
 
     #[model]
     mod model {
@@ -316,11 +316,11 @@ mod permission {
         )]
         #[getset(get = "pub")]
         #[ffi_type]
-        pub struct PermissionTokenSchemaUpdateEvent {
+        pub struct PermissionSchemaUpdateEvent {
             /// Previous set of permission tokens
-            pub old_schema: PermissionTokenSchema,
+            pub old_schema: PermissionSchema,
             /// New set of permission tokens
-            pub new_schema: PermissionTokenSchema,
+            pub new_schema: PermissionSchema,
         }
     }
 }
@@ -386,7 +386,7 @@ mod account {
             pub account_id: AccountId,
             // TODO: Skipped temporarily because of FFI
             #[getset(skip)]
-            pub permission_id: PermissionTokenId,
+            pub permission_id: PermissionId,
         }
 
         /// Depending on the wrapping event, [`AccountRoleChanged`] represents the granted or revoked role
@@ -619,7 +619,7 @@ impl DataEvent {
             Self::Peer(_)
             | Self::Configuration(_)
             | Self::Role(_)
-            | Self::PermissionToken(_)
+            | Self::Permission(_)
             | Self::Executor(_) => None,
         }
     }
@@ -637,7 +637,7 @@ pub mod prelude {
         domain::{DomainEvent, DomainEventSet, DomainOwnerChanged},
         executor::{ExecutorEvent, ExecutorEventSet},
         peer::{PeerEvent, PeerEventSet},
-        permission::PermissionTokenSchemaUpdateEvent,
+        permission::PermissionSchemaUpdateEvent,
         role::{RoleEvent, RoleEventSet, RolePermissionChanged},
         trigger::{TriggerEvent, TriggerEventSet, TriggerNumberOfExecutionsChanged},
         DataEvent, HasOrigin, MetadataChanged,

@@ -108,13 +108,13 @@ mod seal {
         Transfer<Asset, Numeric, Account>,
         Transfer<Asset, Metadata, Account>,
 
-        Grant<PermissionToken, Account>,
+        Grant<Permission, Account>,
         Grant<RoleId, Account>,
-        Grant<PermissionToken, Role>,
+        Grant<Permission, Role>,
 
-        Revoke<PermissionToken, Account>,
+        Revoke<Permission, Account>,
         Revoke<RoleId, Account>,
-        Revoke<PermissionToken, Role>,
+        Revoke<Permission, Role>,
 
         SetParameter,
         NewParameter,
@@ -153,8 +153,8 @@ mod seal {
         FindAllTransactions,
         FindTransactionsByAccountId,
         FindTransactionByHash,
-        FindPermissionTokensByAccountId,
-        FindPermissionTokenSchema,
+        FindPermissionsByAccountId,
+        FindPermissionSchema,
         FindAllActiveTriggerIds,
         FindTriggerById,
         FindTriggerKeyValueByIdAndKey,
@@ -675,8 +675,8 @@ mod model {
         TriggerId(trigger::TriggerId),
         /// [`RoleId`](`role::RoleId`) variant.
         RoleId(role::RoleId),
-        /// [`PermissionToken`](`permission::PermissionToken`) variant.
-        PermissionTokenId(permission::PermissionTokenId),
+        /// [`Permission`](`permission::Permission`) variant.
+        PermissionId(permission::PermissionId),
         /// [`ParameterId`](`parameter::ParameterId`) variant.
         ParameterId(parameter::ParameterId),
     }
@@ -899,7 +899,7 @@ impl_encode_as_id_box! {
     asset::AssetDefinitionId,
     asset::AssetId,
     trigger::TriggerId,
-    permission::PermissionTokenId,
+    permission::PermissionId,
     role::RoleId,
     parameter::ParameterId,
 }
@@ -1044,7 +1044,7 @@ mod ffi {
         asset::Asset,
         domain::Domain,
         metadata::Metadata,
-        permission::PermissionToken,
+        permission::Permission,
         role::Role,
     }
 
@@ -1052,10 +1052,10 @@ mod ffi {
     iroha_ffi::decl_ffi_fns! { link_prefix="iroha_data_model" Drop, Clone, Eq, Ord }
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     iroha_ffi::def_ffi_fns! { link_prefix="iroha_data_model"
-        Drop: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::PermissionToken, role::Role },
-        Clone: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::PermissionToken, role::Role },
-        Eq: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::PermissionToken, role::Role },
-        Ord: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::PermissionToken, role::Role },
+        Drop: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::Permission, role::Role },
+        Clone: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::Permission, role::Role },
+        Eq: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::Permission, role::Role },
+        Ord: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::Permission, role::Role },
     }
 
     // NOTE: Makes sure that only one `dealloc` is exported per generated dynamic library

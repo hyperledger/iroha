@@ -162,11 +162,11 @@ pub mod isi {
             for permission in &role.permissions {
                 if !state_transaction
                     .world
-                    .permission_token_schema
+                    .permission_schema
                     .token_ids
                     .contains(&permission.definition_id)
                 {
-                    return Err(FindError::PermissionToken(permission.definition_id.clone()).into());
+                    return Err(FindError::Permission(permission.definition_id.clone()).into());
                 }
             }
 
@@ -218,7 +218,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Grant<PermissionToken, Role> {
+    impl Execute for Grant<Permission, Role> {
         #[metrics(+"grant_role_permission")]
         fn execute(
             self,
@@ -226,26 +226,26 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let role_id = self.destination_id;
-            let permission_token = self.object;
-            let permission_token_id = permission_token.definition_id.clone();
+            let permission = self.object;
+            let permission_id = permission.definition_id.clone();
 
             if !state_transaction
                 .world
-                .permission_token_schema
+                .permission_schema
                 .token_ids
-                .contains(&permission_token_id)
+                .contains(&permission_id)
             {
-                return Err(FindError::PermissionToken(permission_token_id).into());
+                return Err(FindError::Permission(permission_id).into());
             }
 
             let Some(role) = state_transaction.world.roles.get_mut(&role_id) else {
                 return Err(FindError::Role(role_id).into());
             };
 
-            if !role.permissions.insert(permission_token.clone()) {
+            if !role.permissions.insert(permission.clone()) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Grant,
-                    id: permission_token.definition_id.into(),
+                    id: permission.definition_id.into(),
                 }
                 .into());
             }
@@ -254,14 +254,14 @@ pub mod isi {
                 .world
                 .emit_events(Some(RoleEvent::PermissionAdded(RolePermissionChanged {
                     role_id,
-                    permission_token_id,
+                    permission_id,
                 })));
 
             Ok(())
         }
     }
 
-    impl Execute for Revoke<PermissionToken, Role> {
+    impl Execute for Revoke<Permission, Role> {
         #[metrics(+"grant_role_permission")]
         fn execute(
             self,
@@ -269,22 +269,22 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let role_id = self.destination_id;
-            let permission_token = self.object;
-            let permission_token_id = permission_token.definition_id.clone();
+            let permission = self.object;
+            let permission_id = permission.definition_id.clone();
 
             let Some(role) = state_transaction.world.roles.get_mut(&role_id) else {
                 return Err(FindError::Role(role_id).into());
             };
 
-            if !role.permissions.remove(&permission_token) {
-                return Err(FindError::PermissionToken(permission_token_id).into());
+            if !role.permissions.remove(&permission) {
+                return Err(FindError::Permission(permission_id).into());
             }
 
             state_transaction
                 .world
                 .emit_events(Some(RoleEvent::PermissionRemoved(RolePermissionChanged {
                     role_id,
-                    permission_token_id,
+                    permission_id,
                 })));
 
             Ok(())
@@ -348,11 +348,7 @@ pub mod isi {
         ) -> Result<(), Error> {
             let raw_executor = self.executor;
 
-            let permissions_before = state_transaction
-                .world
-                .permission_token_schema
-                .token_ids
-                .clone();
+            let permissions_before = state_transaction.world.permission_schema.token_ids.clone();
 
             // Cloning executor to avoid multiple mutable borrows of `state_transaction`.
             // Also it's a cheap operation.
@@ -381,11 +377,11 @@ pub mod isi {
     fn revoke_removed_permissions(
         authority: &AccountId,
         state_transaction: &mut StateTransaction,
-        permissions_before: Vec<PermissionTokenId>,
+        permissions_before: Vec<PermissionId>,
     ) -> Result<(), Error> {
         let world = state_transaction.world();
         let permissions_after = world
-            .permission_token_schema()
+            .permission_schema()
             .token_ids
             .iter()
             .collect::<IndexSet<_>>();
@@ -413,10 +409,10 @@ pub mod isi {
 
     fn find_related_accounts(
         world: &impl WorldReadOnly,
-        permissions: &IndexSet<PermissionTokenId>,
-    ) -> Vec<(AccountId, PermissionToken)> {
+        permissions: &IndexSet<PermissionId>,
+    ) -> Vec<(AccountId, Permission)> {
         world
-            .account_permission_tokens()
+            .account_permissions()
             .iter()
             .flat_map(|(account_id, account_permissions)| {
                 account_permissions
@@ -429,8 +425,8 @@ pub mod isi {
 
     fn find_related_roles(
         world: &impl WorldReadOnly,
-        permissions: &IndexSet<PermissionTokenId>,
-    ) -> Vec<(RoleId, PermissionToken)> {
+        permissions: &IndexSet<PermissionId>,
+    ) -> Vec<(RoleId, Permission)> {
         world
             .roles()
             .iter()
@@ -470,7 +466,7 @@ pub mod query {
     use iroha_data_model::{
         parameter::Parameter,
         peer::Peer,
-        permission::PermissionTokenSchema,
+        permission::PermissionSchema,
         prelude::*,
         query::error::{FindError, QueryExecutionFail as Error},
         role::{Role, RoleId},
@@ -538,10 +534,10 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindPermissionTokenSchema {
-        #[metrics("find_permission_token_schema")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<PermissionTokenSchema, Error> {
-            Ok(state_ro.world().permission_token_schema().clone())
+    impl ValidQuery for FindPermissionSchema {
+        #[metrics("find_permission_schema")]
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<PermissionSchema, Error> {
+            Ok(state_ro.world().permission_schema().clone())
         }
     }
 

@@ -208,9 +208,9 @@ impl Execute for GrantBox {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         match self {
-            Self::PermissionToken(sub_isi) => sub_isi.execute(authority, state_transaction),
+            Self::Permission(sub_isi) => sub_isi.execute(authority, state_transaction),
             Self::Role(sub_isi) => sub_isi.execute(authority, state_transaction),
-            Self::RolePermissionToken(sub_isi) => sub_isi.execute(authority, state_transaction),
+            Self::RolePermission(sub_isi) => sub_isi.execute(authority, state_transaction),
         }
     }
 }
@@ -223,9 +223,9 @@ impl Execute for RevokeBox {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         match self {
-            Self::PermissionToken(sub_isi) => sub_isi.execute(authority, state_transaction),
+            Self::Permission(sub_isi) => sub_isi.execute(authority, state_transaction),
             Self::Role(sub_isi) => sub_isi.execute(authority, state_transaction),
-            Self::RolePermissionToken(sub_isi) => sub_isi.execute(authority, state_transaction),
+            Self::RolePermission(sub_isi) => sub_isi.execute(authority, state_transaction),
         }
     }
 }

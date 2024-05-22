@@ -19,9 +19,7 @@ extern crate panic_halt;
 use alloc::{borrow::ToOwned, string::String};
 
 use anyhow::anyhow;
-use iroha_executor::{
-    default::default_permission_token_schema, permission::Token as _, prelude::*,
-};
+use iroha_executor::{default::default_permission_schema, permission::Token as _, prelude::*};
 use iroha_schema::IntoSchema;
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 use parity_scale_codec::{Decode, Encode};
@@ -76,7 +74,7 @@ impl Executor {
             let account = account.map_err(|error| {
                 format!("{:?}", anyhow!(error).context("Failed to get account"))
             })?;
-            let permission_tokens = FindPermissionTokensByAccountId::new(account.id().clone())
+            let permissions = FindPermissionsByAccountId::new(account.id().clone())
                 .execute()
                 .map_err(|error| {
                     format!(
@@ -88,7 +86,7 @@ impl Executor {
                     )
                 })?;
 
-            for token in permission_tokens {
+            for token in permissions {
                 let token = token.map_err(|error| {
                     format!(
                         "{:?}",
@@ -109,19 +107,19 @@ impl Executor {
     }
 
     fn replace_token(accounts: &[(Account, DomainId)]) -> MigrationResult {
-        let can_unregister_domain_definition_id = PermissionTokenId::try_from(
+        let can_unregister_domain_definition_id = PermissionId::try_from(
             iroha_executor::default::tokens::domain::CanUnregisterDomain::type_name(),
         )
         .unwrap();
 
         let can_control_domain_lives_definition_id =
-            PermissionTokenId::try_from(token::CanControlDomainLives::type_name()).unwrap();
+            PermissionId::try_from(token::CanControlDomainLives::type_name()).unwrap();
 
         accounts
             .iter()
             .try_for_each(|(account, domain_id)| {
                 Revoke::permission(
-                    PermissionToken::new(
+                    Permission::new(
                         can_unregister_domain_definition_id.clone(),
                         &json!({ "domain_id": domain_id }),
                     ),
@@ -140,10 +138,7 @@ impl Executor {
                 })?;
 
                 Grant::permission(
-                    PermissionToken::new(
-                        can_control_domain_lives_definition_id.clone(),
-                        &json!(null),
-                    ),
+                    Permission::new(can_control_domain_lives_definition_id.clone(), &json!(null)),
                     account.id().clone(),
                 )
                 .execute()
@@ -204,13 +199,13 @@ fn visit_unregister_domain(
 pub fn migrate(_block_height: u64) -> MigrationResult {
     let accounts = Executor::get_all_accounts_with_can_unregister_domain_permission()?;
 
-    let mut schema = default_permission_token_schema();
+    let mut schema = default_permission_schema();
     schema.remove::<iroha_executor::default::tokens::domain::CanUnregisterDomain>();
     schema.insert::<token::CanControlDomainLives>();
 
     let (token_ids, schema_str) = schema.serialize();
-    iroha_executor::set_permission_token_schema(
-        &iroha_executor::data_model::permission::PermissionTokenSchema::new(token_ids, schema_str),
+    iroha_executor::set_permission_schema(
+        &iroha_executor::data_model::permission::PermissionSchema::new(token_ids, schema_str),
     );
 
     Executor::replace_token(&accounts)

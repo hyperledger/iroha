@@ -286,7 +286,7 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
 
     // Permission token for the trigger registration
     // on behalf of alice
-    let permission_on_registration = PermissionToken::new(
+    let permission_on_registration = Permission::new(
         "CanRegisterUserTrigger".parse().unwrap(),
         &json!({ "account_id": ALICE_ID.clone(), }),
     );

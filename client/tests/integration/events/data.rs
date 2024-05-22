@@ -199,11 +199,11 @@ fn produce_multiple_events() -> Result<()> {
     // Registering role
     let alice_id = ALICE_ID.clone();
     let role_id = RoleId::from_str("TEST_ROLE")?;
-    let token_1 = PermissionToken::new(
+    let token_1 = Permission::new(
         "CanRemoveKeyValueInAccount".parse()?,
         &json!({ "account_id": alice_id }),
     );
-    let token_2 = PermissionToken::new(
+    let token_2 = Permission::new(
         "CanSetKeyValueInAccount".parse()?,
         &json!({ "account_id": alice_id }),
     );

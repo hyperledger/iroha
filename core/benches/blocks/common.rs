@@ -67,7 +67,7 @@ pub fn populate_state(
         let domain = Domain::new(domain_id.clone());
         instructions.push(Register::domain(domain).into());
         let can_unregister_domain = Grant::permission(
-            PermissionToken::new(
+            Permission::new(
                 "CanUnregisterDomain".parse().unwrap(),
                 &json!({ "domain_id": domain_id.clone() }),
             ),
@@ -79,7 +79,7 @@ pub fn populate_state(
             let account = Account::new(account_id.clone());
             instructions.push(Register::account(account).into());
             let can_unregister_account = Grant::permission(
-                PermissionToken::new(
+                Permission::new(
                     "CanUnregisterAccount".parse().unwrap(),
                     &json!({ "account_id": account_id.clone() }),
                 ),
@@ -92,7 +92,7 @@ pub fn populate_state(
             let asset_definition = AssetDefinition::numeric(asset_definition_id.clone());
             instructions.push(Register::asset_definition(asset_definition).into());
             let can_unregister_asset_definition = Grant::permission(
-                PermissionToken::new(
+                Permission::new(
                     "CanUnregisterAssetDefinition".parse().unwrap(),
                     &json!({ "asset_definition_id": asset_definition_id }),
                 ),

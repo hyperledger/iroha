@@ -76,48 +76,48 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     let can_unregister_domain_token_id = "CanUnregisterDomain".parse().unwrap();
 
     // Check that `CanUnregisterDomain` exists
-    let definitions = client.request(FindPermissionTokenSchema)?;
+    let definitions = client.request(FindPermissionSchema)?;
     assert!(definitions
-        .token_ids()
+        .permissions()
         .iter()
         .any(|id| id == &can_unregister_domain_token_id));
 
     // Check that Alice has permission to unregister Wonderland
     let alice_id = ALICE_ID.clone();
     let alice_tokens = client
-        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .request(FindPermissionsByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
-    assert!(alice_tokens.contains(&PermissionToken::new(
+    assert!(alice_tokens.contains(&Permission::new(
         can_unregister_domain_token_id.clone(),
         &json!({ "domain_id": DomainId::from_str("wonderland").unwrap() }),
     )));
 
     upgrade_executor(
         &client,
-        "tests/integration/smartcontracts/executor_with_custom_token",
+        "tests/integration/smartcontracts/executor_with_custom_permission",
     )?;
 
     // Check that `CanUnregisterDomain` doesn't exist
-    let definitions = client.request(FindPermissionTokenSchema)?;
+    let definitions = client.request(FindPermissionSchema)?;
     assert!(!definitions
-        .token_ids()
+        .permissions()
         .iter()
         .any(|id| id == &can_unregister_domain_token_id));
 
     let can_control_domain_lives_token_id = "CanControlDomainLives".parse().unwrap();
 
     assert!(definitions
-        .token_ids()
+        .permissions()
         .iter()
         .any(|id| id == &can_control_domain_lives_token_id));
 
     // Check that Alice has `can_control_domain_lives` permission
     let alice_tokens = client
-        .request(FindPermissionTokensByAccountId::new(alice_id))?
+        .request(FindPermissionsByAccountId::new(alice_id))?
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
-    assert!(alice_tokens.contains(&PermissionToken::new(
+    assert!(alice_tokens.contains(&Permission::new(
         can_control_domain_lives_token_id,
         &json!(null),
     )));
@@ -131,7 +131,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Permission which will be removed by executor
-    let can_unregister_domain_token = PermissionToken::new(
+    let can_unregister_domain_token = Permission::new(
         "CanUnregisterDomain".parse()?,
         &json!({ "domain_id": DomainId::from_str("wonderland")? }),
     );
@@ -144,8 +144,8 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that permission exists
     assert!(client
-        .request(FindPermissionTokenSchema)?
-        .token_ids()
+        .request(FindPermissionSchema)?
+        .permissions()
         .contains(&can_unregister_domain_token.definition_id));
 
     // Check that `TEST_ROLE` has permission
@@ -161,19 +161,19 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
     // Check that Alice has permission
     let alice_id = ALICE_ID.clone();
     assert!(client
-        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .request(FindPermissionsByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()?
         .contains(&can_unregister_domain_token));
 
     upgrade_executor(
         &client,
-        "tests/integration/smartcontracts/executor_remove_token",
+        "tests/integration/smartcontracts/executor_remove_permission",
     )?;
 
     // Check that permission doesn't exist
     assert!(!client
-        .request(FindPermissionTokenSchema)?
-        .token_ids()
+        .request(FindPermissionSchema)?
+        .permissions()
         .contains(&can_unregister_domain_token.definition_id));
 
     // Check that `TEST_ROLE` doesn't have permission
@@ -188,7 +188,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that Alice doesn't have permission
     assert!(!client
-        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .request(FindPermissionsByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()?
         .contains(&can_unregister_domain_token));
 

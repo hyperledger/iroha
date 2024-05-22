@@ -165,12 +165,12 @@ impl_instruction! {
     Transfer<Account, AssetDefinitionId, Account>,
     Transfer<Asset, Numeric, Account>,
     Transfer<Asset, Metadata, Account>,
-    Grant<PermissionToken, Account>,
+    Grant<Permission, Account>,
     Grant<RoleId, Account>,
-    Grant<PermissionToken, Role>,
-    Revoke<PermissionToken, Account>,
+    Grant<Permission, Role>,
+    Revoke<Permission, Account>,
     Revoke<RoleId, Account>,
-    Revoke<PermissionToken, Role>,
+    Revoke<Permission, Role>,
     SetParameter,
     NewParameter,
     Upgrade,
@@ -849,11 +849,11 @@ mod transparent {
         }
     }
 
-    impl Grant<PermissionToken, Account> {
-        /// Constructs a new [`Grant`] for a [`PermissionToken`].
-        pub fn permission(permission_token: PermissionToken, to: AccountId) -> Self {
+    impl Grant<Permission, Account> {
+        /// Constructs a new [`Grant`] for a [`Permission`].
+        pub fn permission(permission: Permission, to: AccountId) -> Self {
             Self {
-                object: permission_token,
+                object: permission,
                 destination_id: to,
             }
         }
@@ -869,11 +869,11 @@ mod transparent {
         }
     }
 
-    impl Grant<PermissionToken, Role> {
-        /// Constructs a new [`Grant`] for giving a [`PermissionToken`] to [`Role`].
-        pub fn role_permission(permission_token: PermissionToken, to: RoleId) -> Self {
+    impl Grant<Permission, Role> {
+        /// Constructs a new [`Grant`] for giving a [`Permission`] to [`Role`].
+        pub fn role_permission(permission: Permission, to: RoleId) -> Self {
             Self {
-                object: permission_token,
+                object: permission,
                 destination_id: to,
             }
         }
@@ -892,9 +892,9 @@ mod transparent {
     }
 
     impl_into_box! {
-        Grant<PermissionToken, Account> |
+        Grant<Permission, Account> |
         Grant<RoleId, Account> |
-        Grant<PermissionToken, Role>
+        Grant<Permission, Role>
     => GrantBox => InstructionBox[Grant],
     => GrantBoxRef<'a> => InstructionBoxRef<'a>[Grant]
     }
@@ -910,11 +910,11 @@ mod transparent {
         }
     }
 
-    impl Revoke<PermissionToken, Account> {
-        /// Constructs a new [`Revoke`] for a [`PermissionToken`].
-        pub fn permission(permission_token: PermissionToken, from: AccountId) -> Self {
+    impl Revoke<Permission, Account> {
+        /// Constructs a new [`Revoke`] for a [`Permission`].
+        pub fn permission(permission: Permission, from: AccountId) -> Self {
             Self {
-                object: permission_token,
+                object: permission,
                 destination_id: from,
             }
         }
@@ -930,11 +930,11 @@ mod transparent {
         }
     }
 
-    impl Revoke<PermissionToken, Role> {
-        /// Constructs a new [`Revoke`] for removing a [`PermissionToken`] from [`Role`].
-        pub fn role_permission(permission_token: PermissionToken, from: RoleId) -> Self {
+    impl Revoke<Permission, Role> {
+        /// Constructs a new [`Revoke`] for removing a [`Permission`] from [`Role`].
+        pub fn role_permission(permission: Permission, from: RoleId) -> Self {
             Self {
-                object: permission_token,
+                object: permission,
                 destination_id: from,
             }
         }
@@ -953,9 +953,9 @@ mod transparent {
     }
 
     impl_into_box! {
-        Revoke<PermissionToken, Account> |
+        Revoke<Permission, Account> |
         Revoke<RoleId, Account> |
-        Revoke<PermissionToken, Role>
+        Revoke<Permission, Role>
     => RevokeBox => InstructionBox[Revoke],
     => RevokeBoxRef<'a> => InstructionBoxRef<'a>[Revoke]
     }
@@ -1187,12 +1187,12 @@ isi_box! {
     )]
     /// Enum with all supported [`Grant`] instructions.
     pub enum GrantBox {
-        /// Grant [`PermissionToken`] to [`Account`].
-        PermissionToken(Grant<PermissionToken, Account>),
+        /// Grant [`Permission`] to [`Account`].
+        Permission(Grant<Permission, Account>),
         /// Grant [`Role`] to [`Account`].
         Role(Grant<RoleId, Account>),
-        /// Grant [`PermissionToken`] to [`Role`].
-        RolePermissionToken(Grant<PermissionToken, Role>),
+        /// Grant [`Permission`] to [`Role`].
+        RolePermission(Grant<Permission, Role>),
     }
 }
 
@@ -1204,12 +1204,12 @@ isi_box! {
     )]
     /// Enum with all supported [`Revoke`] instructions.
     pub enum RevokeBox {
-        /// Revoke [`PermissionToken`] from [`Account`].
-        PermissionToken(Revoke<PermissionToken, Account>),
+        /// Revoke [`Permission`] from [`Account`].
+        Permission(Revoke<Permission, Account>),
         /// Revoke [`Role`] from [`Account`].
         Role(Revoke<RoleId, Account>),
-        /// Revoke [`PermissionToken`] from [`Role`].
-        RolePermissionToken(Revoke<PermissionToken, Role>),
+        /// Revoke [`Permission`] from [`Role`].
+        RolePermission(Revoke<Permission, Role>),
     }
 }
 
