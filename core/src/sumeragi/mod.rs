@@ -229,10 +229,10 @@ impl SumeragiHandle {
     fn replay_block(
         block: &SignedBlock,
         wsv: &mut WorldStateView,
-        mut current_topology: Topology,
-    ) -> Topology {
+        recreate_topology: RecreateTopologyByViewChangeIndex,
+    ) -> RecreateTopologyByViewChangeIndex {
         // NOTE: topology need to be updated up to block's view_change_index
-        current_topology.rotate_all_n(block.payload().header.view_change_index);
+        let current_topology = recreate_topology(block.payload().header.view_change_index);
 
         let block = ValidBlock::validate(block.clone(), &current_topology, wsv)
             .expect("Kura blocks should be valid")
@@ -248,7 +248,10 @@ impl SumeragiHandle {
              Blocks loaded from kura assumed to be valid",
         );
 
-        Topology::recreate_topology(block.as_ref(), 0, wsv.peers().cloned().collect())
+        let peers = wsv.peers().cloned().collect();
+        Box::new(move |view_change_index| {
+            Topology::recreate_topology(block.as_ref(), view_change_index, peers)
+        })
     }
 
     /// Start [`Sumeragi`] actor and return handle to it.
@@ -279,32 +282,39 @@ impl SumeragiHandle {
             )
         });
 
-        let mut current_topology = match wsv.height() {
+        let mut recreate_topology: RecreateTopologyByViewChangeIndex = match wsv.height() {
             0 => {
                 assert!(!configuration.trusted_peers.peers.is_empty());
-                Topology::new(configuration.trusted_peers.peers.clone())
+                let peers = configuration.trusted_peers.peers.clone();
+                Box::new(|_view_change_index| Topology::new(peers))
             }
             height => {
                 let block_ref = kura.get_block_by_height(height).expect(
                     "Sumeragi could not load block that was reported as present. \
                      Please check that the block storage was not disconnected.",
                 );
-                Topology::recreate_topology(&block_ref, 0, wsv.peers().cloned().collect())
+                let peers = wsv.peers().cloned().collect();
+                Box::new(move |view_change_index| {
+                    Topology::recreate_topology(&block_ref, view_change_index, peers)
+                })
             }
         };
 
         let block_iter_except_last =
             (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
         for block in block_iter_except_last {
-            current_topology = Self::replay_block(&block, &mut wsv, current_topology);
+            recreate_topology = Self::replay_block(&block, &mut wsv, recreate_topology);
         }
 
         // finalized_wsv is one block behind
         let finalized_wsv = wsv.clone();
 
         if let Some(block) = blocks_iter.next() {
-            current_topology = Self::replay_block(&block, &mut wsv, current_topology);
+            recreate_topology = Self::replay_block(&block, &mut wsv, recreate_topology);
         }
+
+        // There is no more blocks so we pick 0 as view change index
+        let current_topology = recreate_topology(0);
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");
 
@@ -371,6 +381,9 @@ impl SumeragiHandle {
         }
     }
 }
+
+/// Closure to get topology recreated at certain view change index
+type RecreateTopologyByViewChangeIndex = Box<dyn FnOnce(u64) -> Topology>;
 
 /// The interval at which sumeragi checks if there are tx in the
 /// `queue`.  And will create a block if is leader and the voting is
