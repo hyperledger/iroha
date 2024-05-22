@@ -34,7 +34,7 @@ mod validate;
 /// }
 ///
 /// #[entrypoint]
-/// pub fn validate_instruction(authority: AccountId, instruction: InstructionExpr, block_height: u64) -> Result {
+/// pub fn validate_instruction(authority: AccountId, instruction: InstructionBox, block_height: u64) -> Result {
 ///     todo!()
 /// }
 ///
@@ -237,9 +237,8 @@ pub fn derive_ref_into_domain_owner(input: TokenStream) -> Result<TokenStream> {
 /// this trait has a `iroha_executor::prelude::Visit` at least this one should be implemented as well.
 ///
 /// Emits a compile error if the struct didn't have all the expected fields with corresponding
-/// types, i.e. `verdict`: `iroha_executor::prelude::Result`, `block_height`: `u64` and
-/// `host`: `iroha_executor::smart_contract::Host`, though technically only `verdict` and
-/// `block_height` are needed. The types can be unqualified, but not aliased.
+/// types, i.e. `verdict`: `iroha_executor::prelude::Result` and `block_height`: `u64`.
+/// The types can be unqualified, but not aliased.
 #[manyhow]
 #[proc_macro_derive(Validate)]
 pub fn derive_validate(input: TokenStream) -> TokenStream {
@@ -261,21 +260,19 @@ pub fn derive_validate(input: TokenStream) -> TokenStream {
 /// implementation from `iroha_executor::default` module is used.
 ///
 /// Emits a compile error if the struct didn't have all the expected fields with corresponding
-/// types, i.e. `verdict`: `iroha_executor::prelude::Result`, `block_height`: `u64` and
-/// `host`: `iroha_executor::smart_contract::Host`, though technically only `verdict`
-/// is needed. The types can be unqualified, but not aliased.
+/// types, i.e. `verdict`: `iroha_executor::prelude::Result` and `block_height`: `u64`,
+/// though technically only `verdict` is needed. The types can be unqualified, but not aliased.
 ///
 /// # Example
 ///
 /// ```ignore
-/// use iroha_executor::{smart_contract, prelude::*};
+/// use iroha_executor::prelude::*;
 ///
-/// #[derive(Constructor, Entrypoints, Validate, Visit)]
+/// #[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
 /// #[visit(custom(visit_query)]
 /// pub struct Executor {
 ///    verdict: Result,
 ///    block_height: u64,
-///    host: smart_contract::Host,
 /// }
 ///
 /// // Custom visit function should supply a `&mut Executor` as first argument
@@ -308,21 +305,19 @@ pub fn derive_visit(input: TokenStream) -> TokenStream {
 /// supplying corresponding entrypoint function names inside of it.
 ///
 /// Emits a compile error if the struct didn't have all the expected fields with corresponding
-/// types, i.e. `verdict`: `iroha_executor::prelude::Result`, `block_height`: `u64` and
-/// `host`: `iroha_executor::smart_contract::Host`, though technically only `verdict`
-/// is needed. The types can be unqualified, but not aliased.
+/// types, i.e. `verdict`: `iroha_executor::prelude::Result` and `block_height`: `u64`,
+/// though technically only `verdict` is needed. The types can be unqualified, but not aliased.
 ///
 /// # Example
 ///
 /// ```ignore
-/// use iroha_executor::{smart_contract, prelude::*};
+/// use iroha_executor::prelude::*;
 ///
-/// #[derive(Constructor, Entrypoints, Validate, Visit)]
+/// #[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
 /// #[entrypoints(custom(validate_query))]
 /// pub struct Executor {
 ///    verdict: Result,
 ///    block_height: u64,
-///    host: smart_contract::Host,
 /// }
 /// ```
 #[manyhow]
@@ -345,8 +340,8 @@ pub fn derive_entrypoints(input: TokenStream) -> TokenStream {
 /// only the `block_height` needs to be supplied manually.
 ///
 /// Emits a compile error if the struct didn't have all the expected fields with corresponding
-/// types, i.e. `verdict`: `iroha_executor::prelude::Result`, `block_height`: `u64` and
-/// `host`: `iroha_executor::smart_contract::Host`. The types can be unqualified, but not aliased.
+/// types, i.e. `verdict`: `iroha_executor::prelude::Result` and `block_height`: `u64`.
+/// The types can be unqualified, but not aliased.
 #[manyhow]
 #[proc_macro_derive(Constructor)]
 pub fn derive_constructor(input: TokenStream) -> TokenStream {
