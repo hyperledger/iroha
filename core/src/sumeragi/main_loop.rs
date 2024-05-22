@@ -250,7 +250,7 @@ impl Sumeragi {
 
                     *state_block.world.trusted_peers_ids = block.as_ref().commit_topology().clone();
                     self.commit_block(block, state_block);
-                    return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
+                    return Ok(());
                 }
                 Err(mpsc::TryRecvError::Disconnected) => return Err(EarlyReturn::Disconnected),
                 _ => (),
@@ -827,25 +827,25 @@ pub(crate) fn run(
     sumeragi.connect_peers(&sumeragi.current_topology);
 
     let span = span!(tracing::Level::TRACE, "genesis").entered();
-    let is_genesis_peer = if state.view().height() == 0
-        || state.view().latest_block_hash().is_none()
-    {
-        if let Some(genesis) = genesis_network.genesis {
-            sumeragi.sumeragi_init_commit_genesis(genesis, &genesis_network.public_key, &state);
-            true
-        } else {
-            sumeragi
-                .init_listen_for_genesis(
+    let is_genesis_peer =
+        if state.view().height() == 0 || state.view().latest_block_hash().is_none() {
+            if let Some(genesis) = genesis_network.genesis {
+                sumeragi.sumeragi_init_commit_genesis(genesis, &genesis_network.public_key, &state);
+                true
+            } else {
+                if let Err(err) = sumeragi.init_listen_for_genesis(
                     &genesis_network.public_key,
                     &state,
                     &mut shutdown_receiver,
-                )
-                .unwrap_or_else(|err| assert_ne!(EarlyReturn::Disconnected, err, "Disconnected"));
+                ) {
+                    info!(?err, "Sumeragi Thread is being shut down.");
+                    return;
+                }
+                false
+            }
+        } else {
             false
-        }
-    } else {
-        false
-    };
+        };
     span.exit();
 
     info!(
@@ -1038,8 +1038,6 @@ fn add_signatures<const EXPECT_VALID: bool>(
 /// FromResidual`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EarlyReturn {
-    /// Genesis block received and committed
-    GenesisBlockReceivedAndCommitted,
     /// Shutdown message received.
     ShutdownMessageReceived,
     /// Disconnected

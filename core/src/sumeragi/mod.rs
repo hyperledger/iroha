@@ -72,10 +72,10 @@ impl SumeragiHandle {
         block: &SignedBlock,
         state_block: &mut StateBlock<'_>,
         events_sender: &EventsSender,
-        mut current_topology: Topology,
-    ) -> Topology {
+        recreate_topology: RecreateTopologyByViewChangeIndex,
+    ) -> RecreateTopologyByViewChangeIndex {
         // NOTE: topology need to be updated up to block's view_change_index
-        current_topology.rotate_all_n(block.header().view_change_index);
+        let current_topology = recreate_topology(block.header().view_change_index);
 
         let block = ValidBlock::validate(
             block.clone(),
@@ -105,11 +105,10 @@ impl SumeragiHandle {
                 let _ = events_sender.send(e);
             });
 
-        Topology::recreate_topology(
-            block.as_ref(),
-            0,
-            state_block.world.peers().cloned().collect(),
-        )
+        let peers = state_block.world.peers().cloned().collect();
+        Box::new(move |view_change_index| {
+            Topology::recreate_topology(block.as_ref(), view_change_index, peers)
+        })
     }
 
     /// Start [`Sumeragi`] actor and return handle to it.
@@ -139,7 +138,7 @@ impl SumeragiHandle {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
         let blocks_iter;
-        let mut current_topology;
+        let mut recreate_topology: RecreateTopologyByViewChangeIndex;
 
         {
             let state_view = state.view();
@@ -151,40 +150,44 @@ impl SumeragiHandle {
                 )
             });
 
-            current_topology = match state_view.height() {
-                0 => Topology::new(
-                    sumeragi_config
+            recreate_topology = match state_view.height() {
+                // View change index of the next block doesn't affect init topology
+                0 => {
+                    let peers = sumeragi_config
                         .trusted_peers
                         .value()
                         .clone()
-                        .into_non_empty_vec(),
-                ),
+                        .into_non_empty_vec();
+                    Box::new(move |_view_change_index| Topology::new(peers))
+                }
                 height => {
                     let block_ref = kura.get_block_by_height(height).expect(
                         "Sumeragi could not load block that was reported as present. \
                         Please check that the block storage was not disconnected.",
                     );
-                    Topology::recreate_topology(
-                        &block_ref,
-                        0,
-                        state_view.world.peers_ids().iter().cloned().collect(),
-                    )
+                    let peers = state_view.world.peers_ids().iter().cloned().collect();
+                    Box::new(move |view_change_index| {
+                        Topology::recreate_topology(&block_ref, view_change_index, peers)
+                    })
                 }
             };
         }
 
         for block in blocks_iter {
             let mut state_block = state.block();
-            current_topology = Self::replay_block(
+            recreate_topology = Self::replay_block(
                 &common_config.chain_id,
                 &genesis_network.public_key,
                 &block,
                 &mut state_block,
                 &events_sender,
-                current_topology,
+                recreate_topology,
             );
             state_block.commit();
         }
+
+        // There is no more blocks so we pick 0 as view change index
+        let current_topology = recreate_topology(0);
 
         info!("Sumeragi has finished loading blocks and setting up the state");
 
@@ -242,6 +245,9 @@ impl SumeragiHandle {
         }
     }
 }
+
+/// Closure to get topology recreated at certain view change index
+type RecreateTopologyByViewChangeIndex = Box<dyn FnOnce(u64) -> Topology>;
 
 /// The interval at which sumeragi checks if there are tx in the
 /// `queue`.  And will create a block if is leader and the voting is
