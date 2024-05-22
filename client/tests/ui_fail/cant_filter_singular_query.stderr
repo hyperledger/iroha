@@ -1,0 +1,24 @@
+error[E0599]: the method `with_filter` exists for struct `QueryRequestBuilder<'_, FindPermissionSchema>`, but its trait bounds were not satisfied
+  --> tests/ui_fail/cant_filter_singular_query.rs:14:10
+   |
+12 |       let result = client
+   |  __________________-
+13 | |         .build_query(client::permission::permission_schema())
+14 | |         .with_filter(PredicateBox::new(
+   | |         -^^^^^^^^^^^ method cannot be called on `QueryRequestBuilder<'_, FindPermissionSchema>` due to unsatisfied trait bounds
+   | |_________|
+   |
+   |
+  ::: $WORKSPACE/data_model/src/query/mod.rs
+   |
+   | /     queries! {
+   | |         /// Finds all registered permission tokens
+   | |         #[derive(Copy, Display)]
+   | |         #[ffi_type]
+...  |
+   | |         }
+   | |     }
+   | |_____- doesn't satisfy `_: IterableQuery`
+   |
+   = note: the following trait bounds were not satisfied:
+           `iroha_client::iroha_data_model::prelude::FindPermissionSchema: IterableQuery`
