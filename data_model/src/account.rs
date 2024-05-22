@@ -244,6 +244,7 @@ pub mod prelude {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "transparent_api")]
     #[test]
     fn parse_account_id() {
         const SIGNATORY: &str =
