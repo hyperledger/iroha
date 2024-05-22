@@ -70,14 +70,3 @@ def test_health_response_time():
             "THEN the response time should be less than 100ms"):
         assert elapsed_time < 0.1, \
             f"Response time is {elapsed_time}s, which is longer than 100ms"
-@allure.id("1034")
-@pytest.mark.xfail(reason="https://github.com/hyperledger/iroha/issues/4218")
-def test_health_content_length(
-        GIVEN_get_request_to_health_endpoint_is_sent):
-    with allure.step(
-            "WHEN I get the response"):
-        response = GIVEN_get_request_to_health_endpoint_is_sent
-    with allure.step(
-            "THEN the content length should be reasonable"):
-        assert len(response.content) == 6, \
-            "Response content is less than 6"

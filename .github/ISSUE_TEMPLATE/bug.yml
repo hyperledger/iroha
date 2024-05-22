@@ -1,17 +1,17 @@
-name: "\U0001F41E Bug report: (iroha2)"
-description: Submit a bug you found in the Iroha
+name: "\U0001F41E Bug report:"
+description: Submit a bug you found in Iroha
 title: "[BUG] "
-labels: [ "Bug", "iroha2" ]
+labels: [ "Bug" ]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to fill out this form! You may refer to the [contributing guide](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md#reporting-bugs) for further details on filling the bug reports.
+        Thanks for taking the time to fill out this form! You may refer to the [contributing guide](https://github.com/hyperledger/iroha/blob/main/CONTRIBUTING.md#reporting-bugs) for further details on filling bug reports.
 
         Please be aware that SDK issues belong to other repositories:
-         - JavaScript library for Iroha, [`iroha-javascript`](https://github.com/hyperledger/iroha-javascript)
-         - Java 8 client library for Iroha, [`iroha-java`](https://github.com/hyperledger/iroha-java)
-         - Python 3 client library for Iroha, [`iroha-python`](https://github.com/hyperledger/iroha-python)
+         - JavaScript: [`iroha-javascript`](https://github.com/hyperledger/iroha-javascript)
+         - Java/Kotlin: [`iroha-java`](https://github.com/hyperledger/iroha-java)
+         - Python: [`iroha-python`](https://github.com/hyperledger/iroha-python)
   - type: input
     id: env
     attributes:
