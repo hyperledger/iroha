@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "peers": {
+      "type": "integer"
+    },
+    "blocks": {
+      "type": "integer"
+    },
+    "txs_accepted": {
+      "type": "integer"
+    },
+    "txs_rejected": {
+      "type": "integer"
+    },
+    "uptime": {
+      "type": "object",
+      "properties": {
+        "secs": {
+          "type": "integer"
+        },
+        "nanos": {
+          "type": "integer"
+        }
+      },
+      "required": ["secs", "nanos"]
+    },
+    "view_changes": {
+      "type": "integer"
+    },
+    "queue_size": {
+      "type": "integer"
+    }
+  },
+  "required": ["peers", "blocks", "txs_accepted", "txs_rejected", "uptime", "view_changes", "queue_size"]
+}

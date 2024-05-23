@@ -1,0 +1,108 @@
+name: "\U0001F41E Bug report:"
+description: Submit a bug you found in Iroha
+title: "[BUG] "
+labels: [ "Bug" ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this form! You may refer to the [contributing guide](https://github.com/hyperledger/iroha/blob/main/CONTRIBUTING.md#reporting-bugs) for further details on filling bug reports.
+
+        Please be aware that SDK issues belong to other repositories:
+         - JavaScript: [`iroha-javascript`](https://github.com/hyperledger/iroha-javascript)
+         - Java/Kotlin: [`iroha-java`](https://github.com/hyperledger/iroha-java)
+         - Python: [`iroha-python`](https://github.com/hyperledger/iroha-python)
+  - type: input
+    id: env
+    attributes:
+      label: OS and Environment
+      description: |
+        Which operating system did you use when you encountered the issue?
+        Did you build Iroha from the source code or pulled it from [Docker Hub](https://hub.docker.com/) or [Nix](https://search.nixos.org/packages) packages?
+      placeholder: Ubuntu, Docker Hub
+    validations:
+      required: true       
+  - type: input
+    id: commit-hash
+    attributes:
+      label: GIT commit hash
+      description: |
+        What is the commit hash of your Iroha version?
+        You can use the `git rev-parse --short HEAD` command to retrieve it.
+        Note that older versions may have more bugs.
+      placeholder: 4936869d
+    validations:
+      required: true
+  - type: textarea
+    id: mwe
+    attributes:
+      label: Minimum working example / Steps to reproduce
+      description: |
+        Please share a minimal working code that allows us to reproduce the issue.
+        Make sure you enable [syntax highlighting](https://help.github.com/en/github/writing-on-github/creating-and-highlighting-code-blocks#syntax-highlighting).
+      value: |
+        ```rust
+        fn main() {
+        }
+        ```
+    validations:
+      required: true
+  - type: textarea
+    id: actual-behaviour
+    attributes:
+      label: Actual result
+      description: What is the result or behaviour you got?
+      placeholder: |
+        I get an error message when running Iroha:
+
+        Example error #123 
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behaviour
+    attributes:
+      label: Expected result
+      description: What is the result or behaviour you expected to get?
+      placeholder: I expected Iroha to run normally on bare-metal after building Iroha.
+    validations:
+      required: true
+  - type: textarea
+    id: json-logs
+    attributes:
+      label: Logs
+      description: |
+        Provide an output log in JSON format, so we could determine what caused the issue faster.
+        To configure a file path and level for logs, check the [reference documentation](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md#logger) or [peer configuration](https://hyperledger.github.io/iroha-2-docs/guide/configure/peer-configuration.html#logger).
+        **Please** leave JSON [syntax highlighting](https://help.github.com/en/github/writing-on-github/creating-and-highlighting-code-blocks#syntax-highlighting) and [collapsed sections](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/organizing-information-with-collapsed-sections) (`<details>` tag) enabled.
+        If the log indentation is broken, use the [js-beautify](https://beautifier.io/) service to format it.
+      value: |
+        <details>
+          <summary>Log contents</summary>
+          
+          ```json
+          Replace this text with a JSON log,
+          so it doesn't grow too large and has highlighting.
+          ```
+        </details>
+    validations:
+      required: true
+  - type: input
+    id: who-can-help
+    attributes:
+      label: Who can help to reproduce?
+      description: |
+        If you figure out the right person to tag, your issue might be resolved faster.
+        You can use `git blame` or check the following list of people **you can tag** based on what the issue is connected to:
+
+         - Documentation issues: Ekaterina Mekhnetsova (`@outoftardis`)
+         - Quality Assurance (`@AlexStroke`)
+         - WASM: Marin Veršić (`@mversic`)
+         - Triggers: Daniil Polyakov (`@Arjentix`)
+      placeholder: "@Username ..."
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: |
+        For example specify the type of LibC you're using (`GNU libc` or `musl libc`) and its version etc. Use the `ldd --version ldd` command to determine it.
+      placeholder: Any useful information

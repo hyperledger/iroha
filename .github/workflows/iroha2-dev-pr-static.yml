@@ -40,19 +40,37 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies using Poetry
+      - name: Install dependencies using Poetry for client_cli/pytests
         working-directory: client_cli/pytests
         run: |
+          poetry lock --no-update
           poetry install
-      - name: Check code formatting with Black
+      - name: Install dependencies using Poetry for torii/pytests
+        working-directory: torii/pytests
+        run: |
+          poetry lock --no-update
+          poetry install
+      - name: Check code formatting with Black in client_cli/pytests
         working-directory: client_cli/pytests
         run: |
           poetry run black --check .
-      - name: Run mypy (Type Checker)
+      - name: Check code formatting with Black in torii/pytests
+        working-directory: torii/pytests
+        run: |
+          poetry run black --check .
+      - name: Run mypy (Type Checker) in client_cli/pytests
         working-directory: client_cli/pytests
         run: |
-          poetry run mypy --explicit-package-bases .
-      - name: Run flake8 (Linter)
+          poetry run mypy --explicit-package-bases --ignore-missing-imports .
+      - name: Run mypy (Type Checker) in torii/pytests
+        working-directory: torii/pytests
+        run: |
+          poetry run mypy --explicit-package-bases --ignore-missing-imports .
+      - name: Run flake8 (Linter) in client_cli/pytests
         working-directory: client_cli/pytests
+        run: |
+          poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
+      - name: Run flake8 (Linter) in torii/pytests
+        working-directory: torii/pytests
         run: |
           poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203

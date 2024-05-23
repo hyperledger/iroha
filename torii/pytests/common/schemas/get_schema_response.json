@@ -1,0 +1,162 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "patternProperties": {
+    "^[a-zA-Z0-9_]+$": {
+      "oneOf": [
+        { "$ref": "#/definitions/UnitType" },
+        { "$ref": "#/definitions/DirectAlias" },
+        { "$ref": "#/definitions/MapDefinition" },
+        { "$ref": "#/definitions/VecDefinition" },
+        { "$ref": "#/definitions/OptionDefinition" },
+        { "$ref": "#/definitions/NamedStructDefinition" },
+        { "$ref": "#/definitions/EnumDefinition" },
+        { "$ref": "#/definitions/ArrayDefinition" },
+        { "$ref": "#/definitions/IntDefinition" },
+        { "$ref": "#/definitions/FixedPointDefinition" },
+        { "$ref": "#/definitions/TupleDef" },
+        { "$ref": "#/definitions/BitmapDef" }
+      ]
+    }
+  },
+  "definitions": {
+    "UnitType": {
+      "type": "null"
+    },
+    "DirectAlias": {
+      "type": "string"
+    },
+    "MapDefinition": {
+      "type": "object",
+      "properties": {
+        "Map": {
+          "type": "object",
+          "properties": {
+            "key": { "type": "string" },
+            "value": { "type": "string" }
+          },
+          "required": ["key", "value"]
+        }
+      },
+      "required": ["Map"]
+    },
+    "TupleDef": {
+      "type": "object",
+      "properties": {
+        "Tuple": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["Tuple"]
+    },
+    "VecDefinition": {
+      "type": "object",
+      "properties": {
+        "Vec": { "type": "string" }
+      },
+      "required": ["Vec"]
+    },
+    "ArrayDefinition": {
+      "type": "object",
+      "properties": {
+        "Array": {
+          "type": "object",
+          "properties": {
+            "len": { "type": "integer" },
+            "type": { "type": "string" }
+          },
+          "required": ["len", "type"]
+        }
+      },
+      "required": ["Array"]
+    },
+    "OptionDefinition": {
+      "type": "object",
+      "properties": {
+        "Option": { "type": "string" }
+      },
+      "required": ["Option"]
+    },
+    "NamedStructDefinition": {
+      "type": "object",
+      "properties": {
+        "Struct": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "type": "string" }
+            },
+            "required": ["name", "type"]
+          }
+        }
+      },
+      "required": ["Struct"]
+    },
+    "EnumDefinition": {
+      "type": "object",
+      "properties": {
+        "Enum": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tag": { "type": "string" },
+              "discriminant": { "type": "integer" },
+              "type": { "type": "string" }
+            },
+            "required": ["tag", "discriminant"]
+          }
+        }
+      },
+      "required": ["Enum"]
+    },
+    "IntDefinition": {
+      "type": "object",
+      "properties": {
+        "Int": { "type": "string" }
+      },
+      "required": ["Int"]
+    },
+    "FixedPointDefinition": {
+      "type": "object",
+      "properties": {
+        "FixedPoint": {
+          "type": "object",
+          "properties": {
+            "base": { "type": "string" },
+            "decimal_places": { "type": "integer" }
+          },
+          "required": ["base", "decimal_places"]
+        }
+      },
+      "required": ["FixedPoint"]
+    },
+    "BitmapDef": {
+      "type": "object",
+      "properties": {
+        "Bitmap": {
+          "type": "object",
+          "properties": {
+            "repr": { "type": "string" },
+            "masks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "mask": { "type": "integer" }
+                },
+                "required": ["name", "mask"]
+              }
+            }
+          },
+          "required": ["repr", "masks"]
+        }
+      },
+      "required": ["Bitmap"]
+    }
+  }
+}
