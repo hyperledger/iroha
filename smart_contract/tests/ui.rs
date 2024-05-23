@@ -1,7 +1,8 @@
 #![cfg(not(coverage))]
+#![cfg(not(target_arch = "wasm32"))]
+
 use trybuild::TestCases;
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn ui() {
     let test_cases = TestCases::new();
