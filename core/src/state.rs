@@ -1011,24 +1011,17 @@ pub trait StateReadOnly {
     fn query_handle(&self) -> &LiveQueryStoreHandle;
     fn new_tx_amounts(&self) -> &Mutex<Vec<f64>>;
 
-    // Block-related methods
-
     /// Get a reference to the latest block. Returns none if genesis is not committed.
+    ///
+    /// If you only need hash of the latest block prefer using [`Self::latest_block_hash`]
     #[inline]
-    fn latest_block_ref(&self) -> Option<Arc<SignedBlock>> {
+    fn latest_block(&self) -> Option<Arc<SignedBlock>> {
         NonZeroUsize::new(self.height()).and_then(|height| self.kura().get_block_by_height(height))
     }
 
     /// Return the hash of the latest block
     fn latest_block_hash(&self) -> Option<HashOf<SignedBlock>> {
         self.block_hashes().iter().nth_back(0).copied()
-    }
-
-    /// Return the view change index of the latest block
-    fn latest_block_view_change_index(&self) -> usize {
-        NonZeroUsize::new(self.height())
-            .and_then(|height| self.kura().get_block_by_height(height))
-            .map_or(0, |block| block.header().view_change_index as usize)
     }
 
     /// Return the hash of the block one before the latest block
@@ -1106,7 +1099,7 @@ pub trait StateReadOnly {
         }
     }
 
-    /// Check if this [`SignedTransaction`] is already committed or rejected.
+    /// Check if [`SignedTransaction`] is already committed
     #[inline]
     fn has_transaction(&self, hash: HashOf<SignedTransaction>) -> bool {
         self.transactions().get(&hash).is_some()
@@ -1273,7 +1266,7 @@ impl<'state> StateBlock<'state> {
 
     /// Create time event using previous and current blocks
     fn create_time_event(&self, block: &CommittedBlock) -> TimeEvent {
-        let prev_interval = self.latest_block_ref().map(|latest_block| {
+        let prev_interval = self.latest_block().map(|latest_block| {
             let header = &latest_block.as_ref().header();
 
             TimeInterval {

@@ -59,8 +59,6 @@ pub fn get_config_toml(
 ) -> toml::Table {
     let (public_key, private_key) = peer_key_pair.into_parts();
 
-    iroha_logger::info!(%public_key, "sample configuration public key");
-
     let mut raw = toml::Table::new();
     iroha_config::base::toml::Writer::new(&mut raw)
         .write("chain", chain_id)

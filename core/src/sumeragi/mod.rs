@@ -33,6 +33,7 @@ use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, Ne
 /// Handle to `Sumeragi` actor
 #[derive(Clone)]
 pub struct SumeragiHandle {
+    peer_id: PeerId,
     /// Counter for amount of dropped messages by sumeragi
     dropped_messages_metric: iroha_telemetry::metrics::DroppedMessagesCounter,
     _thread_handle: Arc<ThreadHandler>,
@@ -46,7 +47,9 @@ impl SumeragiHandle {
     pub fn incoming_control_flow_message(&self, msg: ControlFlowMessage) {
         if let Err(error) = self.control_message_sender.try_send(msg) {
             self.dropped_messages_metric.inc();
+
             error!(
+                peer_id=%self.peer_id,
                 ?error,
                 "This peer is faulty. \
                  Incoming control messages have to be dropped due to low processing speed."
@@ -55,10 +58,12 @@ impl SumeragiHandle {
     }
 
     /// Deposit a sumeragi network message.
-    pub fn incoming_block_message(&self, msg: BlockMessage) {
-        if let Err(error) = self.message_sender.try_send(msg) {
+    pub fn incoming_block_message(&self, msg: impl Into<BlockMessage>) {
+        if let Err(error) = self.message_sender.try_send(msg.into()) {
             self.dropped_messages_metric.inc();
+
             error!(
+                peer_id=%self.peer_id,
                 ?error,
                 "This peer is faulty. \
                  Incoming messages have to be dropped due to low processing speed."
@@ -75,7 +80,7 @@ impl SumeragiHandle {
         topology: &mut Topology,
     ) {
         // NOTE: topology need to be updated up to block's view_change_index
-        topology.rotate_all_n(block.header().view_change_index as usize);
+        topology.nth_rotation(block.header().view_change_index as usize);
 
         let block = ValidBlock::validate(
             block.clone(),
@@ -197,10 +202,11 @@ impl SumeragiHandle {
         #[cfg(not(debug_assertions))]
         let debug_force_soft_fork = false;
 
+        let peer_id = common_config.peer;
         let sumeragi = main_loop::Sumeragi {
             chain_id: common_config.chain,
             key_pair: common_config.key_pair,
-            peer_id: common_config.peer,
+            peer_id: peer_id.clone(),
             queue: Arc::clone(&queue),
             events_sender,
             commit_time: state.view().config.commit_time,
@@ -214,6 +220,8 @@ impl SumeragiHandle {
             topology,
             transaction_cache: Vec::new(),
             view_changes_metric: view_changes,
+            was_commit: false,
+            round_start_time: Instant::now(),
         };
 
         // Oneshot channel to allow forcefully stopping the thread.
@@ -237,6 +245,7 @@ impl SumeragiHandle {
 
         let thread_handle = ThreadHandler::new(Box::new(shutdown), thread_handle);
         SumeragiHandle {
+            peer_id,
             dropped_messages_metric: dropped_messages,
             control_message_sender,
             message_sender,
@@ -261,7 +270,7 @@ pub struct VotingBlock<'state> {
     /// At what time has this peer voted for this block
     pub voted_at: Instant,
     /// [`WorldState`] after applying transactions to it but before it was committed
-    pub state_block: StateBlock<'state>,
+    pub block_state: StateBlock<'state>,
 }
 
 impl AsRef<ValidBlock> for VotingBlock<'_> {
@@ -272,11 +281,11 @@ impl AsRef<ValidBlock> for VotingBlock<'_> {
 
 impl VotingBlock<'_> {
     /// Construct new `VotingBlock` with current time.
-    pub fn new(block: ValidBlock, state_block: StateBlock<'_>) -> VotingBlock {
+    fn new(block: ValidBlock, state_block: StateBlock<'_>) -> VotingBlock {
         VotingBlock {
             block,
             voted_at: Instant::now(),
-            state_block,
+            block_state: state_block,
         }
     }
 }

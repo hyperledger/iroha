@@ -18,7 +18,7 @@ use tokio::runtime::Runtime;
 fn generate_genesis(
     num_triggers: u32,
     chain_id: ChainId,
-    genesis_key_pair: &KeyPair,
+    genesis_key_pair: &iroha_crypto::KeyPair,
 ) -> Result<GenesisTransaction, Box<dyn std::error::Error>> {
     let builder = GenesisTransactionBuilder::default();
 

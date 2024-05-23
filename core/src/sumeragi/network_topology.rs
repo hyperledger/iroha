@@ -20,7 +20,7 @@ use iroha_data_model::{
 ///
 /// Above is an illustration of how the various operations work for a f = 2 topology.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Topology(Vec<PeerId>);
+pub struct Topology(Vec<PeerId>, usize);
 
 /// Topology with at least one peer
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Deref)]
@@ -59,7 +59,7 @@ impl Topology {
             "Topology must contain at least one peer"
         );
 
-        Topology(topology.into_iter().collect())
+        Topology(topology.into_iter().collect(), 0)
     }
 
     pub(crate) fn position(&self, peer: &PublicKey) -> Option<usize> {
@@ -172,17 +172,26 @@ impl Topology {
         self.0.extend(new_peers);
     }
 
-    /// Rotate peers n times where n is a number of failed attempt to create a block.
-    pub fn rotate_all_n(&mut self, n: usize) {
-        let len = self.0.len();
+    /// Rotate peers n times
+    pub fn nth_rotation(&mut self, n: usize) -> usize {
+        assert!(n >= self.1, "View change index must monotonically increase");
 
-        if let Some(rem) = n.checked_rem(len) {
+        let rotations = n - self.1;
+        if let Some(rem) = rotations.checked_rem(self.0.len()) {
             self.0.rotate_left(rem);
         }
+
+        self.1 = n;
+        rotations
+    }
+
+    /// Return current view change index of topology
+    pub fn view_change_index(&self) -> usize {
+        self.1
     }
 
     /// Re-arrange the set of peers after each successful block commit.
-    pub fn rotate_set_a(&mut self) {
+    fn rotate_set_a(&mut self) {
         let rotate_at = self.min_votes_for_commit();
         self.0[..rotate_at].rotate_left(1);
     }
@@ -209,6 +218,7 @@ impl Topology {
         self.lift_up_peers(block.signatures().map(|s| s.0 as usize));
         self.rotate_set_a();
         self.update_peer_list(new_peers);
+        self.1 = 0;
     }
 }
 
@@ -708,6 +718,34 @@ mod tests {
                 .as_ref()
                 .map(ConsensusTopology::observing_peers),
             Some(empty_peer_slice)
+        );
+    }
+
+    #[test]
+    fn validating_peers_empty() {
+        let peers = test_peers![0, 1];
+        let topology = Topology::new(peers);
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::validating_peers),
+            None,
+        );
+    }
+
+    #[test]
+    fn observing_peers_empty() {
+        let peers = test_peers![0, 1, 2];
+        let topology = Topology::new(peers);
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::observing_peers),
+            None,
         );
     }
 }

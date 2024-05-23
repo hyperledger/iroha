@@ -234,7 +234,7 @@ mod run {
                                 break;
                             }
                             Err(error) => {
-                                iroha_logger::error!(%error, "Error while reading message from peer.");
+                                iroha_logger::error!(?error, "Error while reading message from peer.");
                                 break;
                             }
                         };

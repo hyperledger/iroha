@@ -58,6 +58,7 @@ mod model {
         pub prev_block_hash: Option<HashOf<SignedBlock>>,
         /// Hash of merkle tree root of transactions' hashes.
         #[getset(get = "pub")]
+        // TODO: How can it be `None`???
         pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
@@ -111,7 +112,7 @@ mod model {
         IntoSchema,
     )]
     pub struct BlockSignature(
-        /// Index of the block in the topology
+        /// Index of the peer in the topology
         pub u64,
         /// Payload
         pub SignatureOf<BlockPayload>,

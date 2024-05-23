@@ -1,7 +1,6 @@
 //! Module for starting peers and networks. Used only for tests
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
 #[cfg(debug_assertions)]
-use std::sync::atomic::AtomicBool;
 use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc, thread};
 
 use eyre::Result;
@@ -136,10 +135,11 @@ impl TestGenesis for GenesisTransaction {
 impl Network {
     /// Collect the freeze handles from all the peers in the network.
     #[cfg(debug_assertions)]
-    pub fn get_freeze_status_handles(&self) -> Vec<Arc<AtomicBool>> {
+    pub fn get_freeze_status_handles(&self) -> Vec<irohad::FreezeStatus> {
         self.peers()
             .filter_map(|peer| peer.irohad.as_ref())
-            .map(|irohad| irohad.freeze_status().clone())
+            .map(|iroha| iroha.freeze_status())
+            .cloned()
             .collect()
     }
 

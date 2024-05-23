@@ -255,7 +255,7 @@ pub async fn handle_version(state: Arc<State>) -> Json {
 
     let state_view = state.view();
     let string = state_view
-        .latest_block_ref()
+        .latest_block()
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
         .version()
         .to_string();

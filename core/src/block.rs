@@ -294,6 +294,7 @@ mod valid {
             block: &SignedBlock,
             topology: &Topology,
         ) -> Result<(), SignatureVerificationError> {
+            // TODO: ?
             //let roles: &[Role] = if topology.view_change_index() >= 1 {
             //    &[Role::ValidatingPeer, Role::ObservingPeer]
             //} else {
@@ -355,7 +356,7 @@ mod valid {
             let proxy_tail_index = topology.proxy_tail_index();
             let mut signatures = block.signatures().rev();
 
-            match signatures.next() {
+            let proxy_tail_signature = match signatures.next() {
                 Some(BlockSignature(signatory, signature))
                     if usize::try_from(*signatory)
                         .map_err(|_err| SignatureVerificationError::ProxyTailMissing)?
@@ -371,13 +372,15 @@ mod valid {
                     }
 
                     signature
-                        .verify(topology.proxy_tail().public_key(), block.payload())
-                        .map_err(|_err| SignatureVerificationError::ProxyTailMissing)?;
                 }
                 _ => {
                     return Err(SignatureVerificationError::ProxyTailMissing);
                 }
-            }
+            };
+
+            proxy_tail_signature
+                .verify(topology.proxy_tail().public_key(), block.payload())
+                .map_err(|_err| SignatureVerificationError::ProxyTailMissing)?;
 
             Ok(())
         }
@@ -435,7 +438,7 @@ mod valid {
 
             if !block.header().is_genesis() {
                 if let Err(err) = Self::verify_leader_signature(&block, topology)
-                    .map(|()| Self::verify_validator_signatures(&block, topology))
+                    .and_then(|()| Self::verify_validator_signatures(&block, topology))
                 {
                     return WithEvents::new(Err((block, err.into())));
                 }
@@ -549,7 +552,7 @@ mod valid {
             let prev_signatures = self.0.replace_signatures_unchecked(signatures);
 
             if let Err(err) = Self::verify_leader_signature(self.as_ref(), topology)
-                .map(|()| Self::verify_validator_signatures(self.as_ref(), topology))
+                .and_then(|()| Self::verify_validator_signatures(self.as_ref(), topology))
             {
                 self.0.replace_signatures_unchecked(prev_signatures);
                 WithEvents::new(Err(err))
@@ -641,9 +644,13 @@ mod valid {
     #[cfg(test)]
     mod tests {
         use iroha_crypto::SignatureOf;
+        use iroha_primitives::unique_vec::UniqueVec;
 
         use super::*;
-        use crate::sumeragi::network_topology::test_peers;
+        use crate::{
+            kura::Kura, query::store::LiveQueryStore, state::State,
+            sumeragi::network_topology::test_peers,
+        };
 
         #[test]
         fn signature_verification_ok() {

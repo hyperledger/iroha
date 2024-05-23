@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use super::network_topology::Topology;
 
-type ViewChangeProofSignature = (PublicKey, SignatureOf<ProofPayload>);
+type ViewChangeProofSignature = (PublicKey, SignatureOf<ViewChangeProofPayload>);
 
 /// Error emerge during insertion of `Proof` into `ProofChain`
 #[derive(Error, displaydoc::Display, Debug, Clone, Copy)]
@@ -22,86 +22,32 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone, Decode, Encode)]
-struct ProofPayload {
+struct ViewChangeProofPayload {
     /// Hash of the latest committed block.
-    latest_block_hash: Option<HashOf<SignedBlock>>,
+    latest_block: HashOf<SignedBlock>,
     /// Within a round, what is the index of the view change this proof is trying to prove.
     view_change_index: u32,
 }
 
 /// The proof of a view change. It needs to be signed by f+1 peers for proof to be valid and view change to happen.
 #[derive(Debug, Clone, Encode)]
-pub struct SignedProof {
+pub struct SignedViewChangeProof {
     signatures: Vec<ViewChangeProofSignature>,
-    payload: ProofPayload,
-}
-
-mod candidate {
-    use indexmap::IndexSet;
-    use parity_scale_codec::Input;
-
-    use super::*;
-
-    #[derive(Decode)]
-    struct SignedProofCandidate {
-        signatures: Vec<ViewChangeProofSignature>,
-        payload: ProofPayload,
-    }
-
-    impl SignedProofCandidate {
-        fn validate(self) -> Result<SignedProof, &'static str> {
-            self.validate_signatures()?;
-
-            Ok(SignedProof {
-                payload: self.payload,
-                signatures: self.signatures,
-            })
-        }
-
-        fn validate_signatures(&self) -> Result<(), &'static str> {
-            self.signatures
-                .iter()
-                .try_fold(IndexSet::new(), |mut acc, elem| {
-                    if !acc.insert(elem) {
-                        return Err("Duplicate signature in proof");
-                    }
-
-                    Ok(acc)
-                })?;
-
-            self.signatures
-                .iter()
-                .try_for_each(|(public_key, payload)| {
-                    payload
-                        .verify(public_key, &self.payload)
-                        .map_err(|_| "Invalid signature")
-                })?;
-
-            Ok(())
-        }
-    }
-
-    impl Decode for SignedProof {
-        fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
-            SignedProofCandidate::decode(input)?
-                .validate()
-                .map_err(Into::into)
-        }
-    }
+    payload: ViewChangeProofPayload,
 }
 
 /// Builder for proofs
 #[repr(transparent)]
-pub struct ProofBuilder(SignedProof);
+pub struct ProofBuilder(SignedViewChangeProof);
 
 impl ProofBuilder {
     /// Constructor from index.
-    pub fn new(latest_block_hash: Option<HashOf<SignedBlock>>, view_change_index: usize) -> Self {
+    pub fn new(latest_block: HashOf<SignedBlock>, view_change_index: usize) -> Self {
         let view_change_index = view_change_index as u32;
 
-        let proof = SignedProof {
-            payload: ProofPayload {
-                latest_block_hash,
+        let proof = SignedViewChangeProof {
+            payload: ViewChangeProofPayload {
+                latest_block,
                 view_change_index,
             },
             signatures: Vec::new(),
@@ -111,14 +57,14 @@ impl ProofBuilder {
     }
 
     /// Sign this message with the peer's private key.
-    pub fn sign(mut self, key_pair: &iroha_crypto::KeyPair) -> SignedProof {
+    pub fn sign(mut self, key_pair: &iroha_crypto::KeyPair) -> SignedViewChangeProof {
         let signature = SignatureOf::new(key_pair.private_key(), &self.0.payload);
         self.0.signatures = vec![(key_pair.public_key().clone(), signature)];
         self.0
     }
 }
 
-impl SignedProof {
+impl SignedViewChangeProof {
     /// Verify the signatures of `other` and add them to this proof.
     fn merge_signatures(&mut self, other: Vec<ViewChangeProofSignature>, topology: &Topology) {
         for (public_key, signature) in other {
@@ -144,36 +90,36 @@ impl SignedProof {
 }
 
 /// Structure representing sequence of view change proofs.
-#[derive(Debug, Clone, Encode, Decode, Default)]
-pub struct ProofChain(Vec<SignedProof>);
+#[derive(Debug, Clone, Encode, Default)]
+pub struct ProofChain(Vec<SignedViewChangeProof>);
 
 impl ProofChain {
     /// Verify the view change proof chain.
     pub fn verify_with_state(
         &self,
         topology: &Topology,
-        latest_block_hash: Option<HashOf<SignedBlock>>,
+        latest_block: HashOf<SignedBlock>,
     ) -> usize {
         self.0
             .iter()
             .enumerate()
-            .take_while(|&(i, proof)| {
-                proof.payload.latest_block_hash == latest_block_hash
-                    && proof.payload.view_change_index as usize == i
+            .take_while(|(i, proof)| {
+                proof.payload.latest_block == latest_block
+                    && proof.payload.view_change_index as usize == *i
                     && proof.verify(topology)
             })
             .count()
     }
 
     /// Remove invalid proofs from the chain.
-    pub fn prune(&mut self, latest_block_hash: Option<HashOf<SignedBlock>>) {
+    pub fn prune(&mut self, latest_block: HashOf<SignedBlock>) {
         let valid_count = self
             .0
             .iter()
             .enumerate()
-            .take_while(|&(i, proof)| {
-                proof.payload.latest_block_hash == latest_block_hash
-                    && proof.payload.view_change_index as usize == i
+            .take_while(|(i, proof)| {
+                proof.payload.latest_block == latest_block
+                    && proof.payload.view_change_index as usize == *i
             })
             .count();
         self.0.truncate(valid_count);
@@ -186,14 +132,14 @@ impl ProofChain {
     /// - If proof view change number differs from view change number
     pub fn insert_proof(
         &mut self,
-        new_proof: SignedProof,
+        new_proof: SignedViewChangeProof,
         topology: &Topology,
-        latest_block_hash: Option<HashOf<SignedBlock>>,
+        latest_block: HashOf<SignedBlock>,
     ) -> Result<(), Error> {
-        if new_proof.payload.latest_block_hash != latest_block_hash {
+        if new_proof.payload.latest_block != latest_block {
             return Err(Error::BlockHashMismatch);
         }
-        let next_unfinished_view_change = self.verify_with_state(topology, latest_block_hash);
+        let next_unfinished_view_change = self.verify_with_state(topology, latest_block);
         if new_proof.payload.view_change_index as usize != next_unfinished_view_change {
             return Err(Error::ViewChangeNotFound); // We only care about the current view change that may or may not happen.
         }
@@ -216,15 +162,15 @@ impl ProofChain {
         &mut self,
         mut other: Self,
         topology: &Topology,
-        latest_block_hash: Option<HashOf<SignedBlock>>,
+        latest_block: HashOf<SignedBlock>,
     ) -> Result<(), Error> {
-        other.prune(latest_block_hash);
+        other.prune(latest_block);
 
         if other.0.is_empty() {
             return Err(Error::BlockHashMismatch);
         }
 
-        let next_unfinished_view_change = self.verify_with_state(topology, latest_block_hash);
+        let next_unfinished_view_change = self.verify_with_state(topology, latest_block);
         let is_proof_chain_incomplete = next_unfinished_view_change < self.0.len();
         let other_contain_additional_proofs = next_unfinished_view_change < other.0.len();
 
@@ -251,5 +197,64 @@ impl ProofChain {
         }
 
         Ok(())
+    }
+}
+
+mod candidate {
+    use indexmap::IndexSet;
+    use parity_scale_codec::Input;
+
+    use super::*;
+
+    #[derive(Decode)]
+    struct SignedProofCandidate {
+        signatures: Vec<ViewChangeProofSignature>,
+        payload: ViewChangeProofPayload,
+    }
+
+    impl SignedProofCandidate {
+        fn validate(self) -> Result<SignedViewChangeProof, &'static str> {
+            self.validate_signatures()?;
+
+            // TODO: If it is possible, we should instead reject decoding proofs that
+            // have duplicated signatures. This would require change in the code as well
+            let unique_signatures = self.signatures.into_iter().collect::<IndexSet<_>>();
+
+            Ok(SignedViewChangeProof {
+                payload: self.payload,
+                signatures: unique_signatures.into_iter().collect(),
+            })
+        }
+
+        fn validate_signatures(&self) -> Result<(), &'static str> {
+            self.signatures
+                .iter()
+                .try_for_each(|(public_key, payload)| {
+                    payload
+                        .verify(public_key, &self.payload)
+                        .map_err(|_| "Invalid signature")
+                })?;
+
+            Ok(())
+        }
+    }
+
+    impl Decode for SignedViewChangeProof {
+        fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+            SignedProofCandidate::decode(input)?
+                .validate()
+                .map_err(Into::into)
+        }
+    }
+    impl Decode for ProofChain {
+        fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+            let proofs = Vec::<SignedViewChangeProof>::decode(input)?;
+
+            if proofs.is_empty() {
+                return Err("Empty proof chain".into());
+            }
+
+            Ok(ProofChain(proofs))
+        }
     }
 }

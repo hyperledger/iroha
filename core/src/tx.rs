@@ -33,21 +33,12 @@ use crate::{
 pub struct AcceptedTransaction(pub(crate) SignedTransaction);
 
 /// Verification failed of some signature due to following reason
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignatureVerificationFail {
     /// Signature which verification has failed
     pub signature: SignatureOf<TransactionPayload>,
     /// Error which happened during verification
     pub reason: String,
-}
-
-impl core::fmt::Debug for SignatureVerificationFail {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("SignatureVerificationFail")
-            .field("signature", &self.signature)
-            .field("reason", &self.reason)
-            .finish()
-    }
 }
 
 impl core::fmt::Display for SignatureVerificationFail {

@@ -41,7 +41,7 @@ pub mod isi {
                 }
             }
 
-            let last_block_estimation = state_transaction.latest_block_ref().map(|block| {
+            let last_block_estimation = state_transaction.latest_block().map(|block| {
                 block.header().timestamp()
                     + Duration::from_millis(block.header().consensus_estimation_ms)
             });

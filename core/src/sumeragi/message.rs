@@ -43,10 +43,11 @@ pub struct BlockCreated {
     pub block: SignedBlock,
 }
 
-impl From<ValidBlock> for BlockCreated {
-    fn from(block: ValidBlock) -> Self {
+impl From<&ValidBlock> for BlockCreated {
+    fn from(block: &ValidBlock) -> Self {
         Self {
-            block: block.into(),
+            // TODO: Redundant clone
+            block: block.clone().into(),
         }
     }
 }
@@ -91,8 +92,11 @@ pub struct BlockSyncUpdate {
     pub block: SignedBlock,
 }
 
-impl From<SignedBlock> for BlockSyncUpdate {
-    fn from(block: SignedBlock) -> Self {
-        Self { block }
+impl From<&SignedBlock> for BlockSyncUpdate {
+    fn from(block: &SignedBlock) -> Self {
+        // TODO: Redundant clone
+        Self {
+            block: block.clone(),
+        }
     }
 }
