@@ -3341,6 +3341,7 @@ dependencies = [
  "iroha_smart_contract_utils",
  "parity-scale-codec",
  "test_samples",
+ "trybuild",
  "webassembly-test",
 ]
 
