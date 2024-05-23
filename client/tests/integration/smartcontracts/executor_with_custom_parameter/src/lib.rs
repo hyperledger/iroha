@@ -30,12 +30,13 @@ fn visit_set_parameter(executor: &mut Executor, _authority: &AccountId, isi: &Se
 }
 
 fn visit_register_domain(executor: &mut Executor, _authority: &AccountId, isi: &Register<Domain>) {
-    // FIXME: unwrap is ok here?
     let required_prefix = FindAllParameters
         .execute()
-        .unwrap()
+        .expect("Iroha should not fail to provide parameters, it is a bug")
         .into_iter()
-        .map(Result::unwrap)
+        .map(|result| {
+            result.expect("each parameter retrieval should not fail as well, it is a bug")
+        })
         .find_map(|parameter| EnforceDomainPrefix::try_from_object(&parameter).ok());
 
     if let Some(EnforceDomainPrefix { prefix }) = required_prefix {
