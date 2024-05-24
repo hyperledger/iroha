@@ -19,6 +19,7 @@ pub use asset_definition::{
     visit_set_asset_definition_key_value, visit_transfer_asset_definition,
     visit_unregister_asset_definition,
 };
+pub use custom::visit_custom;
 pub use domain::{
     visit_register_domain, visit_remove_domain_key_value, visit_set_domain_key_value,
     visit_transfer_domain, visit_unregister_domain,
@@ -129,6 +130,9 @@ pub fn visit_instruction<V: Validate + Visit + ?Sized>(
         }
         InstructionBox::Upgrade(isi) => {
             executor.visit_upgrade(authority, isi);
+        }
+        InstructionBox::Custom(isi) => {
+            executor.visit_custom(authority, isi);
         }
     }
 }
@@ -1699,6 +1703,21 @@ pub mod log {
         isi: &Log,
     ) {
         execute!(executor, isi)
+    }
+}
+
+pub mod custom {
+    use super::*;
+
+    pub fn visit_custom<V: Validate + ?Sized>(
+        executor: &mut V,
+        _authority: &AccountId,
+        _isi: &Custom,
+    ) {
+        deny!(
+            executor,
+            "Custom instructions should be handled in custom executor"
+        )
     }
 }
 

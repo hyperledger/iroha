@@ -7,10 +7,11 @@ use iroha::{
     crypto::KeyPair,
     data_model::prelude::*,
 };
+use iroha_data_model::parameter::{default::EXECUTOR_FUEL_LIMIT, ParametersBuilder};
 use iroha_logger::info;
 use serde_json::json;
 use test_network::*;
-use test_samples::ALICE_ID;
+use test_samples::{ALICE_ID, BOB_ID};
 use tokio::sync::mpsc;
 
 const ADMIN_PUBLIC_KEY_MULTIHASH: &str =
@@ -193,6 +194,121 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
         .request(FindPermissionsByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()?
         .contains(&can_unregister_domain_token));
+
+    Ok(())
+}
+
+#[test]
+fn executor_custom_instructions_simple() -> Result<()> {
+    use executor_custom_data_model::simple::{CustomInstructionBox, MintAssetForAllAccounts};
+
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_170).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    upgrade_executor(
+        &client,
+        "tests/integration/smartcontracts/executor_custom_instructions_simple",
+    )?;
+
+    let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().unwrap();
+
+    // Give 1 rose to bob
+    let bob_rose = AssetId::new(asset_definition_id.clone(), BOB_ID.clone());
+    client.submit_blocking(Mint::asset_numeric(Numeric::from(1u32), bob_rose.clone()))?;
+
+    // Check that bob has 1 rose
+    assert_eq!(
+        client.request(FindAssetQuantityById::new(bob_rose.clone()))?,
+        Numeric::from(1u32)
+    );
+
+    // Give 1 rose to all
+    let isi = MintAssetForAllAccounts {
+        asset_definition_id,
+        quantity: Numeric::from(1u32),
+    };
+    let isi = CustomInstructionBox::MintAssetForAllAccounts(isi);
+    client.submit_blocking(isi.into_instruction())?;
+
+    // Check that bob has 2 roses
+    assert_eq!(
+        client.request(FindAssetQuantityById::new(bob_rose.clone()))?,
+        Numeric::from(2u32)
+    );
+
+    Ok(())
+}
+
+#[test]
+fn executor_custom_instructions_complex() -> Result<()> {
+    use executor_custom_data_model::complex::{
+        ConditionalExpr, CoreExpr, CustomInstructionExpr, EvaluatesTo, Expression, Greater,
+    };
+    use iroha_config::parameters::actual::Root as Config;
+
+    let mut config = Config::test();
+    // Note that this value will be overwritten by genesis block with NewParameter ISI
+    // But it will be needed after NewParameter removal in #4597
+    config.chain_wide.executor_runtime.fuel_limit = 1_000_000_000;
+
+    let (_rt, _peer, client) = PeerBuilder::new()
+        .with_port(11_185)
+        .with_config(config)
+        .start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    // Remove this after #4597 - config value will be used (see above)
+    let parameters = ParametersBuilder::new()
+        .add_parameter(EXECUTOR_FUEL_LIMIT, Numeric::from(1_000_000_000_u32))?
+        .into_set_parameters();
+    client.submit_all_blocking(parameters)?;
+
+    upgrade_executor(
+        &client,
+        "tests/integration/smartcontracts/executor_custom_instructions_complex",
+    )?;
+
+    // Give 6 roses to bob
+    let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().unwrap();
+    let bob_rose = AssetId::new(asset_definition_id.clone(), BOB_ID.clone());
+    client.submit_blocking(Mint::asset_numeric(Numeric::from(6u32), bob_rose.clone()))?;
+
+    // Check that bob has 6 roses
+    assert_eq!(
+        client.request(FindAssetQuantityById::new(bob_rose.clone()))?,
+        Numeric::from(6u32)
+    );
+
+    // If bob has more then 5 roses, then burn 1 rose
+    let burn_bob_rose_if_more_then_5 = || -> Result<()> {
+        let condition = Greater::new(
+            EvaluatesTo::new_unchecked(Expression::Query(
+                FindAssetQuantityById::new(bob_rose.clone()).into(),
+            )),
+            Numeric::from(5u32),
+        );
+        let then = Burn::asset_numeric(Numeric::from(1u32), bob_rose.clone());
+        let then: InstructionBox = then.into();
+        let then = CustomInstructionExpr::Core(CoreExpr::new(then));
+        let isi = CustomInstructionExpr::If(Box::new(ConditionalExpr::new(condition, then)));
+        client.submit_blocking(isi.into_instruction())?;
+        Ok(())
+    };
+    burn_bob_rose_if_more_then_5()?;
+
+    // Check that bob has 5 roses
+    assert_eq!(
+        client.request(FindAssetQuantityById::new(bob_rose.clone()))?,
+        Numeric::from(5u32)
+    );
+
+    burn_bob_rose_if_more_then_5()?;
+
+    // Check that bob has 5 roses
+    assert_eq!(
+        client.request(FindAssetQuantityById::new(bob_rose.clone()))?,
+        Numeric::from(5u32)
+    );
 
     Ok(())
 }

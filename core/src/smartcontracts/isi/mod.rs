@@ -58,6 +58,9 @@ impl Execute for InstructionBox {
             Self::NewParameter(isi) => isi.execute(authority, state_transaction),
             Self::Upgrade(isi) => isi.execute(authority, state_transaction),
             Self::Log(isi) => isi.execute(authority, state_transaction),
+            Self::Custom(_) => {
+                panic!("Custom instructions should be handled in custom executor");
+            }
         }
     }
 }

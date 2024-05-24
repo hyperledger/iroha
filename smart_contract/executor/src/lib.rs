@@ -10,6 +10,7 @@ use alloc::collections::BTreeSet;
 use data_model::{executor::Result, ValidationFail};
 #[cfg(not(test))]
 use data_model::{prelude::*, smart_contract::payloads};
+use iroha_schema::Ident;
 pub use iroha_schema::MetaMap;
 pub use iroha_smart_contract as smart_contract;
 pub use iroha_smart_contract_utils::{debug, encode_with_length_prefix};
@@ -189,6 +190,7 @@ pub enum TryFromDataModelObjectError {
 pub struct DataModelBuilder {
     schema: MetaMap,
     permissions: BTreeSet<prelude::PermissionId>,
+    custom_instruction: Option<Ident>,
 }
 
 impl DataModelBuilder {
@@ -199,6 +201,7 @@ impl DataModelBuilder {
         Self {
             schema: <_>::default(),
             permissions: <_>::default(),
+            custom_instruction: None,
         }
     }
 
@@ -226,6 +229,15 @@ impl DataModelBuilder {
         self
     }
 
+    /// Define a type of custom instruction in the data model.
+    /// Corresponds to payload of `InstructionBox::Custom`.
+    #[must_use]
+    pub fn with_custom_instruction<T: iroha_schema::IntoSchema>(mut self) -> Self {
+        T::update_schema_map(&mut self.schema);
+        self.custom_instruction = Some(T::type_name());
+        self
+    }
+
     /// Remove a permission from the data model
     #[must_use]
     pub fn remove_permission<T: permission::Permission>(mut self) -> Self {
@@ -240,6 +252,7 @@ impl DataModelBuilder {
     pub fn build_and_set(self) {
         set_data_model(&ExecutorDataModel::new(
             self.permissions,
+            self.custom_instruction,
             data_model::JsonString::serialize(&self.schema)
                 .expect("schema serialization must not fail"),
         ))

@@ -1606,6 +1606,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "executor_custom_data_model"
+version = "2.0.0-pre-rc.21"
+dependencies = [
+ "iroha_data_model",
+ "iroha_schema",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "expect-test"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2785,6 +2795,7 @@ dependencies = [
  "derive_more",
  "displaydoc 0.2.4 (git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const)",
  "error-stack",
+ "executor_custom_data_model",
  "eyre",
  "futures-util",
  "hex",

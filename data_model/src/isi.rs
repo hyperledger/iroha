@@ -116,6 +116,8 @@ mod model {
         Upgrade(Upgrade),
         #[debug(fmt = "{_0:?}")]
         Log(Log),
+        #[debug(fmt = "{_0:?}")]
+        Custom(Custom),
 
         #[debug(fmt = "{_0:?}")]
         Fail(Fail),
@@ -176,6 +178,7 @@ impl_instruction! {
     Upgrade,
     ExecuteTrigger,
     Log,
+    Custom,
     Fail,
 }
 
@@ -187,7 +190,7 @@ impl Instruction for InstructionBox {
 
 mod transparent {
     use super::*;
-    use crate::{account::NewAccount, domain::NewDomain, metadata::Metadata};
+    use crate::{account::NewAccount, domain::NewDomain, metadata::Metadata, JsonString};
 
     macro_rules! isi {
         ($($meta:meta)* $item:item) => {
@@ -997,6 +1000,32 @@ mod transparent {
             pub msg: String,
         }
     }
+
+    isi! {
+        /// Custom instruction with arbitrary payload.
+        /// Should be handled in custom executor, where it will be translated to usual ISIs.
+        /// Can be used to extend instruction set or add expression system.
+        /// See `executor_custom_instructions_simple` and `executor_custom_instructions_complex`
+        /// examples in `client/tests/integration/smartcontracts`.
+        ///
+        /// Note: If using custom instructions, it is recommended
+        /// to set `ExecutorDataModel::custom_instruction` in custom executor `migrate` entrypoint.
+        #[derive(Display)]
+        #[display(fmt = "CUSTOM({payload})")]
+        pub struct Custom {
+            /// Custom payload
+            pub payload: JsonString,
+        }
+    }
+
+    impl Custom {
+        /// Constructor
+        pub fn new(payload: impl Into<JsonString>) -> Self {
+            Self {
+                payload: payload.into(),
+            }
+        }
+    }
 }
 
 macro_rules! isi_box {
@@ -1518,9 +1547,9 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        AssetTransferBox, Burn, BurnBox, ExecuteTrigger, Fail, Grant, GrantBox, InstructionBox,
-        Log, Mint, MintBox, NewParameter, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox,
-        Revoke, RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer, TransferBox,
-        Unregister, UnregisterBox, Upgrade,
+        AssetTransferBox, Burn, BurnBox, Custom, ExecuteTrigger, Fail, Grant, GrantBox,
+        InstructionBox, Log, Mint, MintBox, NewParameter, Register, RegisterBox, RemoveKeyValue,
+        RemoveKeyValueBox, Revoke, RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer,
+        TransferBox, Unregister, UnregisterBox, Upgrade,
     };
 }

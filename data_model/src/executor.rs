@@ -17,6 +17,8 @@ use crate::{permission::PermissionId, transaction::WasmSmartContract, JsonString
 
 #[model]
 mod model {
+    use iroha_schema::Ident;
+
     use super::*;
 
     /// executor that checks if an operation satisfies some conditions.
@@ -81,6 +83,14 @@ mod model {
         ///
         /// These IDs refer to the types in the schema.
         pub permissions: BTreeSet<PermissionId>,
+        /// Type id in the schema.
+        /// Corresponds to payload of `InstructionBox::Custom`.
+        ///
+        /// Note that technically it is not needed
+        /// (custom instructions can be used without specifying it),
+        /// however it is recommended to set it,
+        /// so clients could retrieve it through Iroha API.
+        pub custom_instruction: Option<Ident>,
         /// Data model JSON schema, typically produced by [`IntoSchema`].
         pub schema: JsonString,
     }
