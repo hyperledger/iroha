@@ -19,7 +19,7 @@ extern crate panic_halt;
 use alloc::string::String;
 
 use anyhow::anyhow;
-use iroha_executor::{permission::Permission as _, prelude::*, DataModelBuilder};
+use iroha_executor::{prelude::*, DataModelBuilder};
 use iroha_schema::IntoSchema;
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 use parity_scale_codec::{Decode, Encode};
@@ -118,7 +118,7 @@ impl Executor {
             .iter()
             .try_for_each(|(account, domain_id)| {
                 Revoke::permission(
-                    PermissionObject::new(
+                    Permission::new(
                         can_unregister_domain_definition_id.clone(),
                         &json!({ "domain_id": domain_id }),
                     ),
@@ -137,10 +137,7 @@ impl Executor {
                 })?;
 
                 Grant::permission(
-                    PermissionObject::new(
-                        can_control_domain_lives_definition_id.clone(),
-                        &json!(null),
-                    ),
+                    Permission::new(can_control_domain_lives_definition_id.clone(), &json!(null)),
                     account.id().clone(),
                 )
                 .execute()

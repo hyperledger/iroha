@@ -41,7 +41,10 @@ pub use trigger::{
     visit_unregister_trigger,
 };
 
-use crate::{permission::Permission as _, prelude::*};
+use crate::{
+    permission::Permission as _,
+    prelude::{Permission as PermissionObject, *},
+};
 
 // NOTE: If any new `visit_..` functions are introduced in this module, one should
 // not forget to update the default executor boilerplate too, specifically the

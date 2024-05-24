@@ -7,7 +7,10 @@ use iroha_smart_contract::{data_model::JsonString, QueryOutputCursor};
 use iroha_smart_contract_utils::debug::DebugExpectExt as _;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{prelude::*, TryFromDataModelObjectError};
+use crate::{
+    prelude::{Permission as PermissionObject, *},
+    TryFromDataModelObjectError,
+};
 
 /// Is used to check if the permission token is owned by the account.
 pub trait Permission:

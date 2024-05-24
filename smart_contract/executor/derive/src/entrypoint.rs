@@ -144,9 +144,8 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
 
     let migrate_fn_name = syn::Ident::new(export::EXECUTOR_MIGRATE, proc_macro2::Span::call_site());
 
-    // FIXME: is doc accurate?
     quote! {
-        /// Executor `permission_schema` entrypoint
+        /// Executor `data_model_schema` entrypoint
         ///
         /// # Memory safety
         ///

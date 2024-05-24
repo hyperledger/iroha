@@ -79,10 +79,6 @@ pub fn get_migrate_payload() -> payloads::Migrate {
     unsafe { decode_with_length_prefix_from_raw(host::get_migrate_payload()) }
 }
 
-// pub trait IntoDataModel {
-//     fn into_data_model(&self) -> &ExecutorDataModel;
-// }
-
 /// Set new [`ExecutorDataModel`].
 ///
 /// # Errors
@@ -291,9 +287,7 @@ pub mod prelude {
         entrypoint, Constructor, Permission, Validate, ValidateEntrypoints, ValidateGrantRevoke,
         Visit,
     };
-    pub use iroha_smart_contract::prelude::{
-        Parameter as ParameterObject, Permission as PermissionObject, *,
-    };
+    pub use iroha_smart_contract::prelude::*;
 
     pub use super::{
         data_model::{
@@ -302,8 +296,8 @@ pub mod prelude {
             ValidationFail,
         },
         deny, execute,
-        parameter::Parameter,
-        permission::Permission,
+        parameter::Parameter as ParameterTrait,
+        permission::Permission as PermissionTrait,
         DataModelBuilder, Validate,
     };
 }

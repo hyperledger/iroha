@@ -626,6 +626,13 @@ impl JsonString {
         // so it should be a valid JSON string
         Ok(Self(serialized))
     }
+
+    /// Create without checking whether the input is a valid JSON string.
+    ///
+    /// The caller must guarantee that the value is valid.
+    pub fn from_json_string_unchecked(value: String) -> Self {
+        Self(value)
+    }
 }
 
 impl From<&serde_json::Value> for JsonString {

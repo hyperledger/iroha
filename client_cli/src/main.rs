@@ -522,7 +522,7 @@ mod account {
 
     use iroha_client::client::{self};
 
-    use super::{Permission as PermissionObject, *};
+    use super::*;
 
     /// subcommands for account subcommand
     #[derive(clap::Subcommand, Debug)]
@@ -603,22 +603,22 @@ mod account {
         pub id: AccountId,
         /// The JSON/JSON5 file with a permission token
         #[arg(short, long)]
-        pub permission: Permission,
+        pub permission: PermissionWrap,
         #[command(flatten)]
         pub metadata: MetadataArgs,
     }
 
-    /// [`PermissionObject`] wrapper implementing [`FromStr`]
+    /// [`Permission`] wrapper implementing [`FromStr`]
     #[derive(Debug, Clone)]
-    pub struct Permission(PermissionObject);
+    pub struct PermissionWrap(Permission);
 
-    impl FromStr for Permission {
+    impl FromStr for PermissionWrap {
         type Err = Error;
 
         fn from_str(s: &str) -> Result<Self> {
             let content = fs::read_to_string(s)
                 .wrap_err(format!("Failed to read the permission token file {}", &s))?;
-            let permission: PermissionObject = json5::from_str(&content).wrap_err(format!(
+            let permission: Permission = json5::from_str(&content).wrap_err(format!(
                 "Failed to deserialize the permission token from file {}",
                 &s
             ))?;

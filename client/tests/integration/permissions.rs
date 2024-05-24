@@ -8,6 +8,7 @@ use iroha_client::{
 };
 use iroha_data_model::{
     permission::Permission, role::RoleId, transaction::error::TransactionRejectionReason,
+    JsonString,
 };
 use iroha_genesis::GenesisNetwork;
 use serde_json::json;
@@ -317,7 +318,12 @@ fn stored_vs_granted_token_payload() -> Result<()> {
     let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission(
         Permission::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
-            json!({ "asset_id": format!("xor#wonderland#{mouse_id}") }),
+            JsonString::from_json_string_unchecked(format!(
+                // Introducing some whitespaces
+                // This way, if the executor compares just JSON strings, this test would fail
+                r##"{{ "asset_id"   :   "xor#wonderland#{}" }}"##,
+                mouse_id
+            )),
         ),
         alice_id,
     );

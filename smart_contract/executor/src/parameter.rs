@@ -1,11 +1,14 @@
 //! Executor-defined configuration parameters
 
-use iroha_executor::prelude::{ParameterId, ParameterObject};
 use iroha_schema::IntoSchema;
 use iroha_smart_contract_utils::debug::DebugExpectExt;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{data_model::JsonString, TryFromDataModelObjectError};
+use crate::{
+    data_model::JsonString,
+    prelude::{Parameter as ParameterObject, *},
+    TryFromDataModelObjectError,
+};
 
 /// Marker trait for parameters.
 ///
@@ -36,9 +39,7 @@ pub trait Parameter: Serialize + DeserializeOwned + IntoSchema {
     /// Try to convert from [`ParameterObject`]
     /// # Errors
     /// See [`TryFromDataModelObjectError`]
-    fn try_from_object(
-        object: &ParameterObject,
-    ) -> crate::prelude::Result<Self, TryFromDataModelObjectError> {
+    fn try_from_object(object: &ParameterObject) -> Result<Self, TryFromDataModelObjectError> {
         if *object.id() != <Self as Parameter>::id() {
             return Err(TryFromDataModelObjectError::Id(object.id().name().clone()));
         }
