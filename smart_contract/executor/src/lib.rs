@@ -7,7 +7,7 @@ extern crate self as iroha_executor;
 
 use alloc::vec::Vec;
 
-use data_model::{executor::Result, permission::PermissionId, visit::Visit, ValidationFail};
+use data_model::{executor::Result, permission::PermissionId, ValidationFail};
 #[cfg(not(test))]
 use data_model::{prelude::*, smart_contract::payloads};
 pub use iroha_schema::MetaMap;
@@ -205,7 +205,7 @@ impl PermissionSchema {
 }
 
 /// Executor of Iroha operations
-pub trait Validate: Visit {
+pub trait Validate {
     /// Executor verdict.
     fn verdict(&self) -> &Result;
 

@@ -67,7 +67,7 @@ pub fn default_permission_schema() -> PermissionSchema {
 ///
 /// Each instruction is executed in sequence following successful validation.
 /// [`Executable::Wasm`] is not executed because it is validated on the host side.
-pub fn visit_transaction<V: Validate + ?Sized>(
+pub fn visit_transaction<V: Validate + Visit + ?Sized>(
     executor: &mut V,
     authority: &AccountId,
     transaction: &SignedTransaction,
@@ -89,7 +89,7 @@ pub fn visit_transaction<V: Validate + ?Sized>(
 /// # Warning
 ///
 /// Instruction is executed following successful validation
-pub fn visit_instruction<V: Validate + ?Sized>(
+pub fn visit_instruction<V: Validate + Visit + ?Sized>(
     executor: &mut V,
     authority: &AccountId,
     isi: &InstructionBox,
@@ -146,7 +146,7 @@ pub fn visit_instruction<V: Validate + ?Sized>(
 pub mod peer {
     use super::*;
 
-    pub fn visit_register_peer<V: Validate + ?Sized>(
+    pub fn visit_register_peer<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         _authority: &AccountId,
         isi: &Register<Peer>,
@@ -155,7 +155,7 @@ pub mod peer {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_unregister_peer<V: Validate + ?Sized>(
+    pub fn visit_unregister_peer<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Unregister<Peer>,
@@ -180,7 +180,7 @@ pub mod domain {
         account::is_account_owner, accounts_permissions, domain::is_domain_owner, roles_permissions,
     };
 
-    pub fn visit_register_domain<V: Validate + ?Sized>(
+    pub fn visit_register_domain<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         _authority: &AccountId,
         isi: &Register<Domain>,
@@ -188,7 +188,7 @@ pub mod domain {
         execute!(executor, isi)
     }
 
-    pub fn visit_unregister_domain<V: Validate + ?Sized>(
+    pub fn visit_unregister_domain<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Unregister<Domain>,
@@ -228,7 +228,7 @@ pub mod domain {
         deny!(executor, "Can't unregister domain");
     }
 
-    pub fn visit_transfer_domain<V: Validate + ?Sized>(
+    pub fn visit_transfer_domain<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Transfer<Account, DomainId, Account>,
@@ -253,7 +253,7 @@ pub mod domain {
         deny!(executor, "Can't transfer domain of another account");
     }
 
-    pub fn visit_set_domain_key_value<V: Validate + ?Sized>(
+    pub fn visit_set_domain_key_value<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &SetKeyValue<Domain>,
@@ -278,7 +278,7 @@ pub mod domain {
         deny!(executor, "Can't set key value in domain metadata");
     }
 
-    pub fn visit_remove_domain_key_value<V: Validate + ?Sized>(
+    pub fn visit_remove_domain_key_value<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &RemoveKeyValue<Domain>,
@@ -427,7 +427,7 @@ pub mod account {
     use super::*;
     use crate::permission::{account::is_account_owner, accounts_permissions, roles_permissions};
 
-    pub fn visit_register_account<V: Validate + ?Sized>(
+    pub fn visit_register_account<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Register<Account>,
@@ -453,7 +453,7 @@ pub mod account {
         );
     }
 
-    pub fn visit_unregister_account<V: Validate + ?Sized>(
+    pub fn visit_unregister_account<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Unregister<Account>,
@@ -493,7 +493,7 @@ pub mod account {
         deny!(executor, "Can't unregister another account");
     }
 
-    pub fn visit_set_account_key_value<V: Validate + ?Sized>(
+    pub fn visit_set_account_key_value<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &SetKeyValue<Account>,
@@ -521,7 +521,7 @@ pub mod account {
         );
     }
 
-    pub fn visit_remove_account_key_value<V: Validate + ?Sized>(
+    pub fn visit_remove_account_key_value<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &RemoveKeyValue<Account>,
@@ -636,7 +636,7 @@ pub mod asset_definition {
         asset_definition::is_asset_definition_owner, roles_permissions,
     };
 
-    pub fn visit_register_asset_definition<V: Validate + ?Sized>(
+    pub fn visit_register_asset_definition<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Register<AssetDefinition>,
@@ -663,7 +663,7 @@ pub mod asset_definition {
         );
     }
 
-    pub fn visit_unregister_asset_definition<V: Validate + ?Sized>(
+    pub fn visit_unregister_asset_definition<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Unregister<AssetDefinition>,
@@ -707,7 +707,7 @@ pub mod asset_definition {
         );
     }
 
-    pub fn visit_transfer_asset_definition<V: Validate + ?Sized>(
+    pub fn visit_transfer_asset_definition<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Transfer<Account, AssetDefinitionId, Account>,
@@ -735,7 +735,7 @@ pub mod asset_definition {
         );
     }
 
-    pub fn visit_set_asset_definition_key_value<V: Validate + ?Sized>(
+    pub fn visit_set_asset_definition_key_value<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &SetKeyValue<AssetDefinition>,
@@ -764,7 +764,7 @@ pub mod asset_definition {
         );
     }
 
-    pub fn visit_remove_asset_definition_key_value<V: Validate + ?Sized>(
+    pub fn visit_remove_asset_definition_key_value<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &RemoveKeyValue<AssetDefinition>,
@@ -883,7 +883,7 @@ pub mod asset {
     use super::*;
     use crate::permission::{asset::is_asset_owner, asset_definition::is_asset_definition_owner};
 
-    pub fn visit_register_asset<V: Validate + ?Sized>(
+    pub fn visit_register_asset<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Register<Asset>,
@@ -912,7 +912,7 @@ pub mod asset {
         );
     }
 
-    pub fn visit_unregister_asset<V: Validate + ?Sized>(
+    pub fn visit_unregister_asset<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Unregister<Asset>,
@@ -951,7 +951,7 @@ pub mod asset {
 
     fn validate_mint_asset<V, Q>(executor: &mut V, authority: &AccountId, isi: &Mint<Q, Asset>)
     where
-        V: Validate + ?Sized,
+        V: Validate + Visit + ?Sized,
         Q: Into<AssetValue>,
         Mint<Q, Asset>: Instruction + Encode,
     {
@@ -983,7 +983,7 @@ pub mod asset {
         );
     }
 
-    pub fn visit_mint_asset_numeric<V: Validate + ?Sized>(
+    pub fn visit_mint_asset_numeric<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Mint<Numeric, Asset>,
@@ -993,7 +993,7 @@ pub mod asset {
 
     fn validate_burn_asset<V, Q>(executor: &mut V, authority: &AccountId, isi: &Burn<Q, Asset>)
     where
-        V: Validate + ?Sized,
+        V: Validate + Visit + ?Sized,
         Q: Into<AssetValue>,
         Burn<Q, Asset>: Instruction + Encode,
     {
@@ -1027,7 +1027,7 @@ pub mod asset {
         deny!(executor, "Can't burn assets from another account");
     }
 
-    pub fn visit_burn_asset_numeric<V: Validate + ?Sized>(
+    pub fn visit_burn_asset_numeric<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Burn<Numeric, Asset>,
@@ -1040,7 +1040,7 @@ pub mod asset {
         authority: &AccountId,
         isi: &Transfer<Asset, Q, Account>,
     ) where
-        V: Validate + ?Sized,
+        V: Validate + Visit + ?Sized,
         Q: Into<AssetValue>,
         Transfer<Asset, Q, Account>: Instruction + Encode,
     {
@@ -1075,7 +1075,7 @@ pub mod asset {
         deny!(executor, "Can't transfer assets of another account");
     }
 
-    pub fn visit_transfer_asset_numeric<V: Validate + ?Sized>(
+    pub fn visit_transfer_asset_numeric<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Transfer<Asset, Numeric, Account>,
@@ -1083,7 +1083,7 @@ pub mod asset {
         validate_transfer_asset(executor, authority, isi);
     }
 
-    pub fn visit_transfer_asset_store<V: Validate + ?Sized>(
+    pub fn visit_transfer_asset_store<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Transfer<Asset, Metadata, Account>,
@@ -1091,7 +1091,7 @@ pub mod asset {
         validate_transfer_asset(executor, authority, isi);
     }
 
-    pub fn visit_set_asset_key_value<V: Validate + ?Sized>(
+    pub fn visit_set_asset_key_value<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &SetKeyValue<Asset>,
@@ -1120,7 +1120,7 @@ pub mod asset {
         );
     }
 
-    pub fn visit_remove_asset_key_value<V: Validate + ?Sized>(
+    pub fn visit_remove_asset_key_value<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &RemoveKeyValue<Asset>,
@@ -1154,7 +1154,7 @@ pub mod parameter {
     use super::*;
 
     #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_new_parameter<V: Validate + ?Sized>(
+    pub fn visit_new_parameter<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &NewParameter,
@@ -1173,7 +1173,7 @@ pub mod parameter {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_set_parameter<V: Validate + ?Sized>(
+    pub fn visit_set_parameter<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &SetParameter,
@@ -1266,7 +1266,7 @@ pub mod role {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_register_role<V: Validate + ?Sized>(
+    pub fn visit_register_role<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         _authority: &AccountId,
         isi: &Register<Role>,
@@ -1302,7 +1302,7 @@ pub mod role {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_unregister_role<V: Validate + ?Sized>(
+    pub fn visit_unregister_role<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Unregister<Role>,
@@ -1317,7 +1317,7 @@ pub mod role {
         deny!(executor, "Can't unregister role");
     }
 
-    pub fn visit_grant_account_role<V: Validate + ?Sized>(
+    pub fn visit_grant_account_role<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Grant<RoleId, Account>,
@@ -1325,7 +1325,7 @@ pub mod role {
         impl_validate_grant_revoke_account_role!(executor, isi, authority, validate_grant);
     }
 
-    pub fn visit_revoke_account_role<V: Validate + ?Sized>(
+    pub fn visit_revoke_account_role<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Revoke<RoleId, Account>,
@@ -1333,7 +1333,7 @@ pub mod role {
         impl_validate_grant_revoke_account_role!(executor, isi, authority, validate_revoke);
     }
 
-    pub fn visit_grant_role_permission<V: Validate + ?Sized>(
+    pub fn visit_grant_role_permission<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Grant<Permission, Role>,
@@ -1341,7 +1341,7 @@ pub mod role {
         impl_validate_grant_revoke_role_permission!(executor, isi, authority, validate_grant, Grant<Permission, Role>);
     }
 
-    pub fn visit_revoke_role_permission<V: Validate + ?Sized>(
+    pub fn visit_revoke_role_permission<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Revoke<Permission, Role>,
@@ -1360,7 +1360,7 @@ pub mod trigger {
         accounts_permissions, domain::is_domain_owner, roles_permissions, trigger::is_trigger_owner,
     };
 
-    pub fn visit_register_trigger<V: Validate + ?Sized>(
+    pub fn visit_register_trigger<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Register<Trigger>,
@@ -1386,7 +1386,7 @@ pub mod trigger {
         deny!(executor, "Can't register trigger owned by another account");
     }
 
-    pub fn visit_unregister_trigger<V: Validate + ?Sized>(
+    pub fn visit_unregister_trigger<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Unregister<Trigger>,
@@ -1433,7 +1433,7 @@ pub mod trigger {
         );
     }
 
-    pub fn visit_mint_trigger_repetitions<V: Validate + ?Sized>(
+    pub fn visit_mint_trigger_repetitions<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Mint<u32, Trigger>,
@@ -1461,7 +1461,7 @@ pub mod trigger {
         );
     }
 
-    pub fn visit_burn_trigger_repetitions<V: Validate + ?Sized>(
+    pub fn visit_burn_trigger_repetitions<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Burn<u32, Trigger>,
@@ -1489,7 +1489,7 @@ pub mod trigger {
         );
     }
 
-    pub fn visit_execute_trigger<V: Validate + ?Sized>(
+    pub fn visit_execute_trigger<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &ExecuteTrigger,
@@ -1514,7 +1514,7 @@ pub mod trigger {
         deny!(executor, "Can't execute trigger owned by another account");
     }
 
-    pub fn visit_set_trigger_key_value<V: Validate + ?Sized>(
+    pub fn visit_set_trigger_key_value<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &SetKeyValue<Trigger>,
@@ -1542,7 +1542,7 @@ pub mod trigger {
         );
     }
 
-    pub fn visit_remove_trigger_key_value<V: Validate + ?Sized>(
+    pub fn visit_remove_trigger_key_value<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &RemoveKeyValue<Trigger>,
@@ -1660,7 +1660,7 @@ pub mod permission {
         };
     }
 
-    pub fn visit_grant_account_permission<V: Validate + ?Sized>(
+    pub fn visit_grant_account_permission<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Grant<Permission, Account>,
@@ -1674,7 +1674,7 @@ pub mod permission {
         );
     }
 
-    pub fn visit_revoke_account_permission<V: Validate + ?Sized>(
+    pub fn visit_revoke_account_permission<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Revoke<Permission, Account>,
@@ -1693,7 +1693,7 @@ pub mod executor {
     use super::*;
 
     #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_upgrade<V: Validate + ?Sized>(
+    pub fn visit_upgrade<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
         isi: &Upgrade,
@@ -1712,7 +1712,11 @@ pub mod executor {
 pub mod log {
     use super::*;
 
-    pub fn visit_log<V: Validate + ?Sized>(executor: &mut V, _authority: &AccountId, isi: &Log) {
+    pub fn visit_log<V: Validate + Visit + ?Sized>(
+        executor: &mut V,
+        _authority: &AccountId,
+        isi: &Log,
+    ) {
         execute!(executor, isi)
     }
 }
@@ -1720,11 +1724,15 @@ pub mod log {
 pub mod fail {
     use super::*;
 
-    pub fn visit_fail<V: Validate + ?Sized>(executor: &mut V, _authority: &AccountId, isi: &Fail) {
+    pub fn visit_fail<V: Validate + Visit + ?Sized>(
+        executor: &mut V,
+        _authority: &AccountId,
+        isi: &Fail,
+    ) {
         execute!(executor, isi)
     }
 }
 
-fn is_genesis<V: Validate + ?Sized>(executor: &V) -> bool {
+fn is_genesis<V: Validate + Visit + ?Sized>(executor: &V) -> bool {
     executor.block_height() == 0
 }
