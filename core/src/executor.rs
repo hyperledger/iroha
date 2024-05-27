@@ -17,7 +17,7 @@ use serde::{
 
 use crate::{
     smartcontracts::{wasm, Execute as _},
-    state::{deserialize::WasmSeed, StateReadOnly, StateTransaction},
+    state::{deserialize::WasmSeed, StateReadOnly, StateTransaction, WorldReadOnly},
 };
 
 impl From<wasm::error::Error> for ValidationFail {
@@ -127,10 +127,12 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Executor> {
 }
 
 impl Executor {
-    /// Validate [`SignedTransaction`].
+    /// Validate [`SignedTransaction`] coming from clients.
     ///
     /// # Errors
     ///
+    /// - The authority account is not found
+    /// - The authority account is not active
     /// - Failed to prepare runtime for WASM execution;
     /// - Failed to execute the entrypoint of the WASM blob;
     /// - Executor denied the operation.
@@ -141,6 +143,8 @@ impl Executor {
         transaction: SignedTransaction,
     ) -> Result<(), ValidationFail> {
         trace!("Running transaction validation");
+
+        check_authority(state_transaction, authority)?;
 
         match self {
             Self::Initial => {
@@ -170,10 +174,12 @@ impl Executor {
         }
     }
 
-    /// Validate [`InstructionExpr`].
+    /// Validate [`InstructionBox`] coming from Wasm executables.
     ///
     /// # Errors
     ///
+    /// - The authority account is not found
+    /// - The authority account is not active
     /// - Failed to prepare runtime for WASM execution;
     /// - Failed to execute the entrypoint of the WASM blob;
     /// - Executor denied the operation.
@@ -184,6 +190,8 @@ impl Executor {
         instruction: InstructionBox,
     ) -> Result<(), ValidationFail> {
         trace!("Running instruction validation");
+
+        check_authority(state_transaction, authority)?;
 
         match self {
             Self::Initial => instruction
@@ -206,10 +214,12 @@ impl Executor {
         }
     }
 
-    /// Validate [`QueryBox`].
+    /// Validate [`QueryBox`] coming from any paths.
     ///
     /// # Errors
     ///
+    /// - The authority account is not found
+    /// - The authority account is not active
     /// - Failed to prepare runtime for WASM execution;
     /// - Failed to execute the entrypoint of the WASM blob;
     /// - Executor denied the operation.
@@ -220,6 +230,8 @@ impl Executor {
         query: QueryBox,
     ) -> Result<(), ValidationFail> {
         trace!("Running query validation");
+
+        check_authority(state_ro, authority)?;
 
         match self {
             Self::Initial => Ok(()),
@@ -336,4 +348,18 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, LoadedExecutor> {
             LoadedExecutorVisitor { loader: &self },
         )
     }
+}
+
+#[inline]
+fn check_authority(
+    state_ro: &impl StateReadOnly,
+    authority: &AccountId,
+) -> Result<(), ValidationFail> {
+    let Ok(authority_account) = state_ro.world().account(authority) else {
+        return Err(ValidationFail::UnrecognizedAuthority);
+    };
+    if !authority_account.is_active {
+        return Err(ValidationFail::InactiveAuthority);
+    }
+    Ok(())
 }

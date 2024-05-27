@@ -814,6 +814,12 @@ mod model {
             #[skip_try_from]
             String,
         ),
+        /// Your account is not recognized on chain.
+        /// Any account needs to be targeted by some creative instruction to appear on chain
+        UnrecognizedAuthority,
+        /// Your account is recognized on chain but not activated.
+        /// Please apply to some administrative account to activate your account by RegisterAccount instruction
+        InactiveAuthority,
     }
 
     /// Log level for reading from environment and (de)serializing

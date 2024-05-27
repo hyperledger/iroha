@@ -49,7 +49,8 @@ fn build_test_and_transient_state() -> State {
         {
             let (account_id, _account_keypair) = gen_account_in(&*STARTER_DOMAIN);
             let mut domain = Domain::new(STARTER_DOMAIN.clone()).build(&account_id);
-            let account = Account::new(account_id.clone()).build(&account_id);
+            let mut account = Account::new(account_id.clone()).build(&account_id);
+            account.activate();
             assert!(domain.add_account(account).is_none());
             World::with([domain], UniqueVec::new())
         },

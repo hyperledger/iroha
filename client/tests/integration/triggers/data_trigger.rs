@@ -32,7 +32,7 @@ fn must_execute_both_triggers() -> Result<()> {
             [instruction.clone()],
             Repeats::Indefinitely,
             account_id.clone(),
-            AccountEventFilter::new().for_events(AccountEventSet::Created),
+            AccountEventFilter::new().for_events(AccountEventSet::Activated),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;

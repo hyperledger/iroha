@@ -12,6 +12,10 @@
       {
         "name": "metadata",
         "type": "Metadata"
+      },
+      {
+        "name": "is_active",
+        "type": "bool"
       }
     ]
   },
@@ -23,53 +27,48 @@
         "type": "AssetEvent"
       },
       {
-        "tag": "Created",
+        "tag": "Recognized",
         "discriminant": 1,
-        "type": "Account"
+        "type": "AccountId"
       },
       {
-        "tag": "Deleted",
+        "tag": "Activated",
         "discriminant": 2,
         "type": "AccountId"
       },
       {
-        "tag": "AuthenticationAdded",
+        "tag": "Deleted",
         "discriminant": 3,
         "type": "AccountId"
       },
       {
-        "tag": "AuthenticationRemoved",
-        "discriminant": 4,
-        "type": "AccountId"
-      },
-      {
         "tag": "PermissionAdded",
-        "discriminant": 5,
+        "discriminant": 4,
         "type": "AccountPermissionChanged"
       },
       {
         "tag": "PermissionRemoved",
-        "discriminant": 6,
+        "discriminant": 5,
         "type": "AccountPermissionChanged"
       },
       {
         "tag": "RoleRevoked",
-        "discriminant": 7,
+        "discriminant": 6,
         "type": "AccountRoleChanged"
       },
       {
         "tag": "RoleGranted",
-        "discriminant": 8,
+        "discriminant": 7,
         "type": "AccountRoleChanged"
       },
       {
         "tag": "MetadataInserted",
-        "discriminant": 9,
+        "discriminant": 8,
         "type": "MetadataChanged<AccountId>"
       },
       {
         "tag": "MetadataRemoved",
-        "discriminant": 10,
+        "discriminant": 9,
         "type": "MetadataChanged<AccountId>"
       }
     ]
@@ -95,44 +94,40 @@
           "mask": 1
         },
         {
-          "name": "Created",
+          "name": "Recognized",
           "mask": 2
         },
         {
-          "name": "Deleted",
+          "name": "Activated",
           "mask": 4
         },
         {
-          "name": "AuthenticationAdded",
+          "name": "Deleted",
           "mask": 8
         },
         {
-          "name": "AuthenticationRemoved",
+          "name": "PermissionAdded",
           "mask": 16
         },
         {
-          "name": "PermissionAdded",
+          "name": "PermissionRemoved",
           "mask": 32
         },
         {
-          "name": "PermissionRemoved",
+          "name": "RoleRevoked",
           "mask": 64
         },
         {
-          "name": "RoleRevoked",
+          "name": "RoleGranted",
           "mask": 128
         },
         {
-          "name": "RoleGranted",
+          "name": "MetadataInserted",
           "mask": 256
         },
         {
-          "name": "MetadataInserted",
-          "mask": 512
-        },
-        {
           "name": "MetadataRemoved",
-          "mask": 1024
+          "mask": 512
         }
       ]
     }
@@ -4351,6 +4346,14 @@
       {
         "tag": "InternalError",
         "discriminant": 4
+      },
+      {
+        "tag": "UnrecognizedAuthority",
+        "discriminant": 5
+      },
+      {
+        "tag": "InactiveAuthority",
+        "discriminant": 6
       }
     ]
   },

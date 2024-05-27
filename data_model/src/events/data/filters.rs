@@ -770,7 +770,7 @@ mod tests {
         // the second one is an account event with a domain event inside
         // the third one is an asset event with an account event with a domain event inside
         let domain_created = DomainEvent::Created(domain).into();
-        let account_created = DomainEvent::Account(AccountEvent::Created(account)).into();
+        let account_recognized = DomainEvent::Account(AccountEvent::Recognized(account.id)).into();
         let asset_created =
             DomainEvent::Account(AccountEvent::Asset(AssetEvent::Created(asset))).into();
 
@@ -782,17 +782,17 @@ mod tests {
 
         // domain filter matches all of those, because all of those events happened in the same domain
         assert!(domain_filter.matches(&domain_created));
-        assert!(domain_filter.matches(&account_created));
+        assert!(domain_filter.matches(&account_recognized));
         assert!(domain_filter.matches(&asset_created));
 
         // account event does not match the domain created event, as it is not an account event
         assert!(!account_filter.matches(&domain_created));
-        assert!(account_filter.matches(&account_created));
+        assert!(account_filter.matches(&account_recognized));
         assert!(account_filter.matches(&asset_created));
 
         // asset event matches only the domain->account->asset event
         assert!(!asset_filter.matches(&domain_created));
-        assert!(!asset_filter.matches(&account_created));
+        assert!(!asset_filter.matches(&account_recognized));
         assert!(asset_filter.matches(&asset_created));
     }
 }

@@ -17,6 +17,7 @@ members = [
     "executor_with_migration_fail",
     "query_assets_and_save_cursor",
     "smart_contract_can_filter_queries",
+    "trigger_activate_account",
 ]
 
 [profile.dev]

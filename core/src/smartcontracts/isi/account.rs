@@ -42,10 +42,11 @@ pub mod isi {
         #[metrics(+"register_asset")]
         fn execute(
             self,
-            _authority: &AccountId,
+            authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let asset_id = self.object.id;
+            recognize_account(asset_id.account_id(), authority, state_transaction)?;
 
             match state_transaction.world.asset(&asset_id) {
                 Err(err) => match err {
@@ -58,7 +59,7 @@ pub mod isi {
                         let asset = state_transaction
                             .world
                             .asset_or_insert(asset_id.clone(), self.object.value)
-                            .expect("Account exists");
+                            .expect("account should exist");
 
                         match asset.value {
                             AssetValue::Numeric(increment) => {
@@ -134,7 +135,7 @@ pub mod isi {
     impl Execute for Transfer<Account, AssetDefinitionId, Account> {
         fn execute(
             self,
-            _authority: &AccountId,
+            authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let Transfer {
@@ -144,7 +145,7 @@ pub mod isi {
             } = self;
 
             let _ = state_transaction.world.account(&source_id)?;
-            let _ = state_transaction.world.account(&destination_id)?;
+            recognize_account(&destination_id, authority, state_transaction)?;
 
             let asset_definition = state_transaction.world.asset_definition_mut(&object)?;
 
@@ -153,6 +154,7 @@ pub mod isi {
             }
 
             asset_definition.owned_by = destination_id.clone();
+
             state_transaction
                 .world
                 .emit_events(Some(AssetDefinitionEvent::OwnerChanged(
@@ -170,27 +172,24 @@ pub mod isi {
         #[metrics(+"set_account_key_value")]
         fn execute(
             self,
-            _authority: &AccountId,
+            authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let account_id = self.object_id;
-
             let account_metadata_limits = state_transaction.config.account_metadata_limits;
+            recognize_account(&account_id, authority, state_transaction)?;
 
             state_transaction
                 .world
                 .account_mut(&account_id)
-                .map_err(Error::from)
-                .and_then(|account| {
-                    account
-                        .metadata
-                        .insert_with_limits(
-                            self.key.clone(),
-                            self.value.clone(),
-                            account_metadata_limits,
-                        )
-                        .map_err(Error::from)
-                })?;
+                .expect("account should exist")
+                .metadata
+                .insert_with_limits(
+                    self.key.clone(),
+                    self.value.clone(),
+                    account_metadata_limits,
+                )
+                .map_err(Error::from)?;
 
             state_transaction
                 .world
@@ -239,15 +238,14 @@ pub mod isi {
         #[metrics(+"grant_account_permission")]
         fn execute(
             self,
-            _authority: &AccountId,
+            authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;
             let permission_id = permission.id.clone();
 
-            // Check if account exists
-            state_transaction.world.account_mut(&account_id)?;
+            recognize_account(&account_id, authority, state_transaction)?;
 
             if !state_transaction
                 .world
@@ -323,7 +321,7 @@ pub mod isi {
         #[metrics(+"grant_account_role")]
         fn execute(
             self,
-            _authority: &AccountId,
+            authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let account_id = self.destination_id;
@@ -339,7 +337,7 @@ pub mod isi {
                 .into_iter()
                 .map(|token| token.id);
 
-            state_transaction.world.account(&account_id)?;
+            recognize_account(&account_id, authority, state_transaction)?;
 
             if state_transaction
                 .world
