@@ -2,7 +2,7 @@ name: I2::Dev::Tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [i2/remove-coveralls]
     paths:
       - '**.rs'
       - '**.json'
