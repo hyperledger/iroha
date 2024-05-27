@@ -13,7 +13,10 @@ pub type PrivateKey = ed25519_dalek::SigningKey;
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::ToString as _, vec::Vec};
 
-fn parse_fixed_size<T, E, F, const SIZE: usize>(payload: &[u8], f: F) -> Result<T, ParseError>
+fn parse_fixed_size<T, E, F, const SIZE: usize>(
+    payload: &[u8],
+    fixed_parser: F,
+) -> Result<T, ParseError>
 where
     F: FnOnce(&[u8; SIZE]) -> Result<T, E>,
     E: core::fmt::Display,
@@ -26,7 +29,7 @@ where
         ))
     })?;
 
-    f(&fixed_payload).map_err(|err| ParseError(err.to_string()))
+    fixed_parser(&fixed_payload).map_err(|err| ParseError(err.to_string()))
 }
 
 #[derive(Debug, Clone, Copy)]
