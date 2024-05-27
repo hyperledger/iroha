@@ -84,6 +84,7 @@ impl FromStr for MetadataValueArg {
 struct Args {
     /// Path to the configuration file
     #[arg(short, long, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
+    #[clap(default_value = "client.toml")]
     config: PathBuf,
     /// More verbose output
     #[arg(short, long)]

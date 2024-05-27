@@ -623,7 +623,17 @@ mod model {
 
     /// Unique id of blockchain
     #[derive(
-        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
     #[repr(transparent)]
     #[serde(transparent)]

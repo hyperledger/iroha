@@ -1,5 +1,5 @@
 //! The main event loop that powers sumeragi.
-use std::sync::mpsc;
+use std::{collections::BTreeSet, sync::mpsc};
 
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{block::*, events::pipeline::PipelineEventBox, peer::PeerId};
@@ -211,7 +211,7 @@ impl Sumeragi {
 
     fn init_listen_for_genesis(
         &mut self,
-        genesis_public_key: &PublicKey,
+        genesis_account: &AccountId,
         state: &State,
         shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>,
     ) -> Result<(), EarlyReturn> {
@@ -244,7 +244,7 @@ impl Sumeragi {
                         block,
                         &self.topology,
                         &self.chain_id,
-                        genesis_public_key,
+                        genesis_account,
                         &mut state_block,
                     )
                     .unpack(|e| self.send_event(e))
@@ -288,10 +288,10 @@ impl Sumeragi {
         }
     }
 
-    fn sumeragi_init_commit_genesis(
+    fn init_commit_genesis(
         &mut self,
         genesis_transaction: GenesisTransaction,
-        genesis_public_key: &PublicKey,
+        genesis_account: &AccountId,
         state: &State,
     ) {
         std::thread::sleep(Duration::from_millis(250)); // TODO: Why this sleep?
@@ -305,7 +305,7 @@ impl Sumeragi {
         let transaction = AcceptedTransaction::accept_genesis(
             genesis_transaction,
             &self.chain_id,
-            genesis_public_key,
+            genesis_account,
         )
         .expect("Genesis invalid");
         let transactions = vec![transaction];
@@ -356,14 +356,18 @@ impl Sumeragi {
             .block_committed(block.as_ref(), state_block.world.peers().cloned());
         self.connect_peers(&self.topology);
 
+        let block_hash = block.as_ref().hash();
+        let block_height = block.as_ref().header().height();
+        Strategy::kura_store_block(&self.kura, block);
+
         // Commit new block making it's effect visible for the rest of application
         state_block.commit();
         info!(
             peer_id=%self.peer_id,
             %prev_role,
             next_role=%self.role(),
-            block_hash=%block.as_ref().hash(),
-            new_height=%block.as_ref().header().height,
+            block_hash=%block_hash,
+            new_height=%block_height,
             "{}", Strategy::LOG_MESSAGE,
         );
         #[cfg(debug_assertions)]
@@ -373,8 +377,6 @@ impl Sumeragi {
             topology=?self.topology,
             "Topology after commit"
         );
-
-        Strategy::kura_store_block(&self.kura, block);
 
         // NOTE: This sends `BlockStatus::Applied` event,
         // so it should be done AFTER public facing state update
@@ -400,7 +402,7 @@ impl Sumeragi {
         &self,
         state: &'state State,
         topology: &Topology,
-        genesis_public_key: &PublicKey,
+        genesis_account: &AccountId,
         BlockCreated { block }: BlockCreated,
     ) -> Option<VotingBlock<'state>> {
         let mut state_block = state.block();
@@ -409,7 +411,7 @@ impl Sumeragi {
             block,
             topology,
             &self.chain_id,
-            genesis_public_key,
+            genesis_account,
             &mut state_block,
         )
         .unpack(|e| self.send_event(e))
@@ -436,14 +438,15 @@ impl Sumeragi {
     }
 
     #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_arguments)]
     fn handle_message<'state>(
         &mut self,
         message: BlockMessage,
         state: &'state State,
         voting_block: &mut Option<VotingBlock<'state>>,
         view_change_index: usize,
-        genesis_public_key: &PublicKey,
-        voting_signatures: &mut Vec<BlockSignature>,
+        genesis_account: &AccountId,
+        voting_signatures: &mut BTreeSet<BlockSignature>,
         #[cfg_attr(not(debug_assertions), allow(unused_variables))] is_genesis_peer: bool,
     ) {
         #[allow(clippy::suspicious_operation_groupings)]
@@ -459,9 +462,10 @@ impl Sumeragi {
                 // Release block writer before creating new one
                 // FIX: Restore `voting_block` if `handle_block_sync` returns Err
                 // Currently it's not possible because block writer needs to be released
+                // Look at https://github.com/hyperledger/iroha/issues/4643
                 let _ = voting_block.take();
 
-                match handle_block_sync(&self.chain_id, block, state, genesis_public_key, &|e| {
+                match handle_block_sync(&self.chain_id, block, state, genesis_account, &|e| {
                     self.send_event(e)
                 }) {
                     Ok(BlockSyncOk::CommitBlock(block, state_block, topology)) => {
@@ -548,7 +552,7 @@ impl Sumeragi {
                 let _ = voting_block.take();
 
                 if let Some(mut v_block) =
-                    self.validate_block(state, topology, genesis_public_key, block_created)
+                    self.validate_block(state, topology, genesis_account, block_created)
                 {
                     v_block.block.sign(&self.key_pair, topology);
 
@@ -559,6 +563,7 @@ impl Sumeragi {
                 } else {
                     // FIX: Restore `voting_block`
                     // Currently it's not possible because block writer needs to be released
+                    // Look at https://github.com/hyperledger/iroha/issues/4643
                 }
             }
             (BlockMessage::BlockCreated(block_created), Role::ObservingPeer) => {
@@ -571,7 +576,7 @@ impl Sumeragi {
                 let _ = voting_block.take();
 
                 if let Some(mut v_block) =
-                    self.validate_block(state, topology, genesis_public_key, block_created)
+                    self.validate_block(state, topology, genesis_account, block_created)
                 {
                     if view_change_index >= 1 {
                         v_block.block.sign(&self.key_pair, topology);
@@ -591,6 +596,7 @@ impl Sumeragi {
                 } else {
                     // FIX: Restore `voting_block`
                     // Currently it's not possible because block writer needs to be released
+                    // Look at https://github.com/hyperledger/iroha/issues/4643
                 }
             }
             (BlockMessage::BlockCreated(block_created), Role::ProxyTail) => {
@@ -605,98 +611,165 @@ impl Sumeragi {
                 let _ = voting_block.take();
 
                 if let Some(mut valid_block) =
-                    self.validate_block(state, &self.topology, genesis_public_key, block_created)
+                    self.validate_block(state, &self.topology, genesis_account, block_created)
                 {
                     // NOTE: Up until this point it was unknown which block is expected to be received,
                     // therefore all the signatures (of any hash) were collected and will now be pruned
-                    add_signatures::<false>(
-                        &mut valid_block,
-                        voting_signatures.drain(..),
-                        &self.topology,
-                    );
+
+                    for signature in core::mem::take(voting_signatures) {
+                        if let Err(error) =
+                            valid_block.block.add_signature(signature, &self.topology)
+                        {
+                            debug!(?error, "Signature not valid");
+                        }
+                    }
 
                     *voting_block = self.try_commit_block(valid_block, is_genesis_peer);
                 } else {
                     // FIX: Restore `voting_block`
                     // Currently it's not possible because block writer needs to be released
+                    // Look at https://github.com/hyperledger/iroha/issues/4643
                 }
             }
-            (BlockMessage::BlockSigned(BlockSigned { signatures }), Role::ProxyTail) => {
+            (BlockMessage::BlockSigned(BlockSigned { hash, signature }), Role::ProxyTail) => {
                 info!(
                     peer_id=%self.peer_id,
                     role=%self.role(),
                     "Received block signatures"
                 );
 
-                let roles: &[Role] = if view_change_index >= 1 {
-                    &[Role::ValidatingPeer, Role::ObservingPeer]
-                } else {
-                    &[Role::ValidatingPeer]
-                };
-                let valid_signatures = self
-                    .topology
-                    .filter_signatures_by_roles(roles, &signatures)
-                    .cloned();
+                if let Ok(signatory_idx) = usize::try_from(signature.0) {
+                    let signatory = &self.topology.as_ref()[signatory_idx];
 
-                if let Some(mut voted_block) = voting_block.take() {
-                    add_signatures::<true>(&mut voted_block, valid_signatures, &self.topology);
-                    *voting_block = self.try_commit_block(voted_block, is_genesis_peer);
+                    match self.topology.role(signatory) {
+                        Role::Leader => error!(
+                            peer_id=%self.peer_id,
+                            role=%self.role(),
+                            "Signatory is leader"
+                        ),
+                        Role::Undefined => error!(
+                            peer_id=%self.peer_id,
+                            role=%self.role(),
+                            "Unknown signatory"
+                        ),
+                        Role::ObservingPeer if view_change_index == 0 => error!(
+                            peer_id=%self.peer_id,
+                            role=%self.role(),
+                            "Signatory is observing peer"
+                        ),
+                        Role::ProxyTail => error!(
+                            peer_id=%self.peer_id,
+                            role=%self.role(),
+                            "Signatory is proxy tail"
+                        ),
+                        _ => {
+                            if let Some(mut voted_block) = voting_block.take() {
+                                let actual_hash = voted_block.block.as_ref().hash_of_payload();
+
+                                if hash != actual_hash {
+                                    error!(
+                                        peer_id=%self.peer_id,
+                                        role=%self.role(),
+                                        expected_hash=?hash,
+                                        ?actual_hash,
+                                        "Block hash mismatch"
+                                    );
+                                } else if let Err(err) =
+                                    voted_block.block.add_signature(signature, &self.topology)
+                                {
+                                    error!(
+                                        peer_id=%self.peer_id,
+                                        role=%self.role(),
+                                        ?err,
+                                        "Signature not valid"
+                                    );
+                                } else {
+                                    *voting_block =
+                                        self.try_commit_block(voted_block, is_genesis_peer);
+                                }
+                            } else {
+                                // NOTE: Due to the nature of distributed systems, signatures can sometimes be received before
+                                // the block (sent by the leader). Collect the signatures and wait for the block to be received
+                                if !voting_signatures.insert(signature) {
+                                    error!(
+                                        peer_id=%self.peer_id,
+                                        role=%self.role(),
+                                        "Duplicate signature"
+                                    );
+                                }
+                            }
+                        }
+                    }
                 } else {
-                    // NOTE: Due to the nature of distributed systems, signatures can sometimes be received before
-                    // the block (sent by the leader). Collect the signatures and wait for the block to be received
-                    voting_signatures.extend(valid_signatures);
+                    error!(
+                        peer_id=%self.peer_id,
+                        role=%self.role(),
+                        "Signatory index exceeds usize::MAX"
+                    );
                 }
             }
             (BlockMessage::BlockCommitted(BlockCommitted { .. }), Role::Leader)
                 if self.topology.is_consensus_required().is_none() => {}
             (
-                BlockMessage::BlockCommitted(BlockCommitted { signatures }),
+                BlockMessage::BlockCommitted(BlockCommitted { hash, signatures }),
                 Role::Leader | Role::ValidatingPeer | Role::ObservingPeer,
             ) => {
                 if let Some(mut voted_block) = voting_block.take() {
-                    match voted_block
-                        .block
-                        // NOTE: The manipulation of the topology relies upon all peers seeing the same signature set.
-                        // Therefore we must clear the signatures and accept what the proxy tail giveth.
-                        .replace_signatures(signatures, &self.topology)
-                        .unpack(|e| self.send_event(e))
-                    {
-                        Ok(prev_signatures) => {
-                            match voted_block
-                                .block
-                                .commit(&self.topology)
-                                .unpack(|e| self.send_event(e))
-                            {
-                                Ok(committed_block) => {
-                                    self.commit_block(committed_block, voted_block.block_state)
-                                }
-                                Err((mut block, error)) => {
-                                    error!(
-                                        peer_id=%self.peer_id,
-                                        role=%self.role(),
-                                        ?error,
-                                        "Block failed to be committed"
-                                    );
+                    let actual_hash = voted_block.block.as_ref().hash_of_payload();
 
-                                    block
-                                        .replace_signatures(prev_signatures, &self.topology)
-                                        .unpack(|e| self.send_event(e))
-                                        .expect("INTERNAL BUG: Failed to replace signatures");
-                                    voted_block.block = block;
-                                    *voting_block = Some(voted_block);
+                    if actual_hash == hash {
+                        match voted_block
+                            .block
+                            // NOTE: The manipulation of the topology relies upon all peers seeing the same signature set.
+                            // Therefore we must clear the signatures and accept what the proxy tail has giveth.
+                            .replace_signatures(signatures, &self.topology)
+                            .unpack(|e| self.send_event(e))
+                        {
+                            Ok(prev_signatures) => {
+                                match voted_block
+                                    .block
+                                    .commit(&self.topology)
+                                    .unpack(|e| self.send_event(e))
+                                {
+                                    Ok(committed_block) => {
+                                        self.commit_block(committed_block, voted_block.state_block)
+                                    }
+                                    Err((mut block, error)) => {
+                                        error!(
+                                            peer_id=%self.peer_id,
+                                            role=%self.role(),
+                                            ?error,
+                                            "Block failed to be committed"
+                                        );
+
+                                        block
+                                            .replace_signatures(prev_signatures, &self.topology)
+                                            .unpack(|e| self.send_event(e))
+                                            .expect("INTERNAL BUG: Failed to replace signatures");
+                                        voted_block.block = block;
+                                        *voting_block = Some(voted_block);
+                                    }
                                 }
                             }
-                        }
-                        Err(error) => {
-                            error!(
-                                peer_id=%self.peer_id,
-                                role=%self.role(),
-                                ?error,
-                                "Received incorrect signatures"
-                            );
+                            Err(error) => {
+                                error!(
+                                    peer_id=%self.peer_id,
+                                    role=%self.role(),
+                                    ?error,
+                                    "Received incorrect signatures"
+                                );
 
-                            *voting_block = Some(voted_block);
+                                *voting_block = Some(voted_block);
+                            }
                         }
+                    } else {
+                        error!(
+                            peer_id=%self.peer_id,
+                            role=%self.role(),
+                            expected_hash=?hash,
+                            ?actual_hash,
+                            "Block hash mismatch"
+                        );
                     }
                 } else {
                     error!(
@@ -749,7 +822,7 @@ impl Sumeragi {
                 self.broadcast_packet(msg);
             }
 
-            self.commit_block(committed_block, voting_block.block_state);
+            self.commit_block(committed_block, voting_block.state_block);
 
             return None;
         }
@@ -828,7 +901,7 @@ fn reset_state(
     was_commit: &mut bool,
     topology: &mut Topology,
     voting_block: &mut Option<VotingBlock>,
-    voting_signatures: &mut Vec<BlockSignature>,
+    voting_signatures: &mut BTreeSet<BlockSignature>,
     last_view_change_time: &mut Instant,
     view_change_time: &mut Duration,
 ) {
@@ -891,26 +964,30 @@ pub(crate) fn run(
     // Connect peers with initial topology
     sumeragi.connect_peers(&sumeragi.topology);
 
+    let genesis_account = AccountId::new(
+        iroha_genesis::GENESIS_DOMAIN_ID.clone(),
+        genesis_network.public_key.clone(),
+    );
+
     let span = span!(tracing::Level::TRACE, "genesis").entered();
-    let is_genesis_peer =
-        if state.view().height() == 0 || state.view().latest_block_hash().is_none() {
-            if let Some(genesis) = genesis_network.genesis {
-                sumeragi.sumeragi_init_commit_genesis(genesis, &genesis_network.public_key, &state);
-                true
-            } else {
-                if let Err(err) = sumeragi.init_listen_for_genesis(
-                    &genesis_network.public_key,
-                    &state,
-                    &mut shutdown_receiver,
-                ) {
-                    info!(?err, "Sumeragi Thread is being shut down.");
-                    return;
-                }
-                false
-            }
+    let is_genesis_peer = if state.view().height() == 0
+        || state.view().latest_block_hash().is_none()
+    {
+        if let Some(genesis) = genesis_network.genesis {
+            sumeragi.init_commit_genesis(genesis, &genesis_account, &state);
+            true
         } else {
+            if let Err(err) =
+                sumeragi.init_listen_for_genesis(&genesis_account, &state, &mut shutdown_receiver)
+            {
+                info!(?err, "Sumeragi Thread is being shut down.");
+                return;
+            }
             false
-        };
+        }
+    } else {
+        false
+    };
     span.exit();
 
     info!(
@@ -921,7 +998,7 @@ pub(crate) fn run(
 
     let mut voting_block = None;
     // Proxy tail collection of voting block signatures
-    let mut voting_signatures = Vec::new();
+    let mut voting_signatures = BTreeSet::new();
     let mut should_sleep = false;
     let mut view_change_proof_chain = ProofChain::default();
     // Duration after which a view change is suggested
@@ -996,7 +1073,7 @@ pub(crate) fn run(
                 &state,
                 &mut voting_block,
                 view_change_index,
-                &genesis_network.public_key,
+                &genesis_account,
                 &mut voting_signatures,
                 is_genesis_peer,
             );
@@ -1073,24 +1150,6 @@ pub(crate) fn run(
 
         if sumeragi.role() == Role::Leader && voting_block.is_none() {
             sumeragi.try_create_block(&state, &mut voting_block);
-        }
-    }
-}
-
-fn add_signatures<const EXPECT_VALID: bool>(
-    block: &mut VotingBlock,
-    signatures: impl IntoIterator<Item = BlockSignature>,
-    topology: &Topology,
-) {
-    for signature in signatures {
-        if let Err(error) = block.block.add_signature(signature, topology) {
-            let err_msg = "Signature not valid";
-
-            if EXPECT_VALID {
-                error!(?error, err_msg);
-            } else {
-                debug!(?error, err_msg);
-            }
         }
     }
 }
@@ -1176,7 +1235,7 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
     chain_id: &ChainId,
     block: SignedBlock,
     state: &'state State,
-    genesis_public_key: &PublicKey,
+    genesis_account: &AccountId,
     handle_events: &F,
 ) -> Result<BlockSyncOk<'state>, (SignedBlock, BlockSyncError)> {
     let block_height = block
@@ -1231,7 +1290,7 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
         block,
         &topology,
         chain_id,
-        genesis_public_key,
+        genesis_account,
         &mut state_block,
     )
     .unpack(handle_events)
@@ -1262,6 +1321,7 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
 
 #[cfg(test)]
 mod tests {
+    use iroha_genesis::GENESIS_DOMAIN_ID;
     use test_samples::gen_account_in;
     use tokio::test;
 
@@ -1284,10 +1344,13 @@ mod tests {
         chain_id: &ChainId,
         topology: &Topology,
         leader_private_key: &PrivateKey,
-    ) -> (State, Arc<Kura>, SignedBlock, PublicKey) {
+    ) -> (State, Arc<Kura>, SignedBlock, AccountId) {
         // Predefined world state
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
-        let genesis_public_key = alice_keypair.public_key().clone();
+        let genesis_account = AccountId::new(
+            GENESIS_DOMAIN_ID.clone(),
+            alice_keypair.public_key().clone(),
+        );
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = "wonderland".parse().expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
@@ -1305,11 +1368,11 @@ mod tests {
         // Making two transactions that have the same instruction
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_box])
-            .sign(&alice_keypair);
+            .sign(alice_keypair.private_key());
         let tx = AcceptedTransaction::accept(
             tx,
             chain_id,
-            &state_block.transaction_executor().transaction_limits,
+            state_block.transaction_executor().transaction_limits,
         )
         .expect("Valid");
 
@@ -1339,21 +1402,21 @@ mod tests {
 
             let tx1 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
                 .with_instructions([create_asset_definition1])
-                .sign(&alice_keypair);
+                .sign(alice_keypair.private_key());
             let tx1 = AcceptedTransaction::accept(
                 tx1,
                 chain_id,
-                &state_block.transaction_executor().transaction_limits,
+                state_block.transaction_executor().transaction_limits,
             )
             .map(Into::into)
             .expect("Valid");
             let tx2 = TransactionBuilder::new(chain_id.clone(), alice_id)
                 .with_instructions([create_asset_definition2])
-                .sign(&alice_keypair);
+                .sign(alice_keypair.private_key());
             let tx2 = AcceptedTransaction::accept(
                 tx2,
                 chain_id,
-                &state_block.transaction_executor().transaction_limits,
+                state_block.transaction_executor().transaction_limits,
             )
             .map(Into::into)
             .expect("Valid");
@@ -1365,7 +1428,7 @@ mod tests {
                 .unpack(|_| {})
         };
 
-        (state, kura, block.into(), genesis_public_key)
+        (state, kura, block.into(), genesis_account)
     }
 
     #[test]

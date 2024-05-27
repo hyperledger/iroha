@@ -612,7 +612,7 @@
       },
       {
         "name": "transactions_hash",
-        "type": "Option<HashOf<MerkleTree<SignedTransaction>>>"
+        "type": "HashOf<MerkleTree<SignedTransaction>>"
       },
       {
         "name": "timestamp_ms",
@@ -2498,9 +2498,6 @@
   "Option<Duration>": {
     "Option": "Duration"
   },
-  "Option<HashOf<MerkleTree<SignedTransaction>>>": {
-    "Option": "HashOf<MerkleTree<SignedTransaction>>"
-  },
   "Option<HashOf<SignedBlock>>": {
     "Option": "HashOf<SignedBlock>"
   },
@@ -2939,31 +2936,26 @@
   "QueryExecutionFail": {
     "Enum": [
       {
-        "tag": "Signature",
-        "discriminant": 0,
-        "type": "String"
-      },
-      {
         "tag": "Find",
-        "discriminant": 1,
+        "discriminant": 0,
         "type": "FindError"
       },
       {
         "tag": "Conversion",
-        "discriminant": 2,
+        "discriminant": 1,
         "type": "String"
       },
       {
         "tag": "UnknownCursor",
-        "discriminant": 3
+        "discriminant": 2
       },
       {
         "tag": "FetchSizeTooBig",
-        "discriminant": 4
+        "discriminant": 3
       },
       {
         "tag": "InvalidSingularParameters",
-        "discriminant": 5
+        "discriminant": 4
       }
     ]
   },
@@ -3054,12 +3046,7 @@
       }
     ]
   },
-  "QuerySignature": {
-    "Tuple": [
-      "PublicKey",
-      "SignatureOf<ClientQueryPayload>"
-    ]
-  },
+  "QuerySignature": "SignatureOf<ClientQueryPayload>",
   "Register<Account>": {
     "Struct": [
       {
@@ -3937,12 +3924,7 @@
       }
     ]
   },
-  "TransactionSignature": {
-    "Tuple": [
-      "PublicKey",
-      "SignatureOf<TransactionPayload>"
-    ]
-  },
+  "TransactionSignature": "SignatureOf<TransactionPayload>",
   "TransactionStatus": {
     "Enum": [
       {

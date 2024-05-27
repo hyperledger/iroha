@@ -53,7 +53,7 @@ pub async fn handle_transaction(
 ) -> Result<Empty> {
     let state_view = state.view();
     let transaction_limits = state_view.config.transaction_limits;
-    let transaction = AcceptedTransaction::accept(transaction, &chain_id, &transaction_limits)
+    let transaction = AcceptedTransaction::accept(transaction, &chain_id, transaction_limits)
         .map_err(Error::AcceptTransaction)?;
     queue
         .push(transaction, &state_view)

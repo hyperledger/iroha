@@ -20,7 +20,12 @@ use iroha_data_model::{
 ///
 /// Above is an illustration of how the various operations work for a f = 2 topology.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Topology(Vec<PeerId>, usize);
+pub struct Topology(
+    /// Ordered set of peers
+    Vec<PeerId>,
+    /// Current view change index. Reset to 0 after every block commit
+    usize,
+);
 
 /// Topology with at least one peer
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Deref)]
@@ -147,9 +152,11 @@ impl Topology {
             };
         }
 
-        signatures
-            .into_iter()
-            .filter(move |signature| filtered.contains(&(signature.0 as usize)))
+        signatures.into_iter().filter(move |signature| {
+            filtered.contains(
+                &(usize::try_from(signature.0).expect("Peer index should fit into usize")),
+            )
+        })
     }
 
     /// What role does this peer have in the topology.
@@ -209,13 +216,17 @@ impl Topology {
         self.0 = topology.into_iter().map(|(_, peer)| peer).collect();
     }
 
-    /// Recreate topology for given block
+    /// Rotate topology after a block has been committed
     pub fn block_committed(
         &mut self,
         block: &SignedBlock,
         new_peers: impl IntoIterator<Item = PeerId>,
     ) {
-        self.lift_up_peers(block.signatures().map(|s| s.0 as usize));
+        self.lift_up_peers(
+            block
+                .signatures()
+                .map(|s| s.0.try_into().expect("Peer index should fit into usize")),
+        );
         self.rotate_set_a();
         self.update_peer_list(new_peers);
         self.1 = 0;

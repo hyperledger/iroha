@@ -496,8 +496,8 @@ mod tests {
         let instructions: [InstructionBox; 0] = [];
         let tx = TransactionBuilder::new(chain_id.clone(), SAMPLE_GENESIS_ACCOUNT_ID.clone())
             .with_instructions(instructions)
-            .sign(&SAMPLE_GENESIS_ACCOUNT_KEYPAIR);
-        let tx_limits = &state_block.transaction_executor().transaction_limits;
+            .sign(SAMPLE_GENESIS_ACCOUNT_KEYPAIR.private_key());
+        let tx_limits = state_block.transaction_executor().transaction_limits;
         assert!(matches!(
             AcceptedTransaction::accept(tx, &chain_id, tx_limits),
             Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature)

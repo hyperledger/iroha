@@ -10,7 +10,7 @@ use std::{
 
 use eyre::Result;
 use iroha_config::parameters::actual::{Common as CommonConfig, Sumeragi as SumeragiConfig};
-use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_data_model::{account::AccountId, block::SignedBlock, prelude::*};
 use iroha_genesis::GenesisTransaction;
 use iroha_logger::prelude::*;
 use network_topology::{Role, Topology};
@@ -73,7 +73,7 @@ impl SumeragiHandle {
 
     fn replay_block(
         chain_id: &ChainId,
-        genesis_public_key: &PublicKey,
+        genesis_account: &AccountId,
         block: &SignedBlock,
         state_block: &mut StateBlock<'_>,
         events_sender: &EventsSender,
@@ -86,18 +86,18 @@ impl SumeragiHandle {
             block.clone(),
             topology,
             chain_id,
-            genesis_public_key,
+            genesis_account,
             state_block,
         )
         .unpack(|e| {
             let _ = events_sender.send(e.into());
         })
-        .expect("Kura: Invalid block")
+        .expect("INTERNAL BUG: Invalid block stored in Kura")
         .commit(topology)
         .unpack(|e| {
             let _ = events_sender.send(e.into());
         })
-        .expect("Kura: Invalid block");
+        .expect("INTERNAL BUG: Invalid block stored in Kura");
 
         if block.as_ref().header().is_genesis() {
             *state_block.world.trusted_peers_ids =
@@ -147,10 +147,7 @@ impl SumeragiHandle {
 
         {
             let state_view = state.view();
-            let skip_block_count: usize = state_view
-                .height()
-                .try_into()
-                .expect("Blockchain height should fit into usize");
+            let skip_block_count = state_view.height();
             blocks_iter = (skip_block_count + 1..=block_count).map(|block_height| {
                 NonZeroUsize::new(block_height).and_then(|height| kura.get_block_by_height(height)).expect(
                     "Sumeragi should be able to load the block that was reported as presented. \
@@ -181,11 +178,16 @@ impl SumeragiHandle {
             };
         }
 
+        let genesis_account = AccountId::new(
+            iroha_genesis::GENESIS_DOMAIN_ID.clone(),
+            genesis_network.public_key.clone(),
+        );
+
         for block in blocks_iter {
             let mut state_block = state.block();
             Self::replay_block(
                 &common_config.chain,
-                &genesis_network.public_key,
+                &genesis_account,
                 &block,
                 &mut state_block,
                 &events_sender,
@@ -234,7 +236,7 @@ impl SumeragiHandle {
                 .spawn(move || {
                     main_loop::run(genesis_network, sumeragi, shutdown_receiver, state);
                 })
-                .expect("Sumeragi thread spawn should not fail.")
+                .expect("INTERNAL BUG: Sumeragi thread spawn failed")
         };
 
         let shutdown = move || {
@@ -270,7 +272,7 @@ pub struct VotingBlock<'state> {
     /// At what time has this peer voted for this block
     pub voted_at: Instant,
     /// [`WorldState`] after applying transactions to it but before it was committed
-    pub block_state: StateBlock<'state>,
+    pub state_block: StateBlock<'state>,
 }
 
 impl AsRef<ValidBlock> for VotingBlock<'_> {
@@ -285,7 +287,7 @@ impl VotingBlock<'_> {
         VotingBlock {
             block,
             voted_at: Instant::now(),
-            block_state: state_block,
+            state_block,
         }
     }
 }

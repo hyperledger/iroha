@@ -2,6 +2,7 @@
 //! Where view change is a process of changing topology due to some faulty network behavior.
 
 use eyre::Result;
+use indexmap::IndexSet;
 use iroha_crypto::{HashOf, PublicKey, SignatureOf};
 use iroha_data_model::block::SignedBlock;
 use parity_scale_codec::{Decode, Encode};
@@ -43,7 +44,9 @@ pub struct ProofBuilder(SignedViewChangeProof);
 impl ProofBuilder {
     /// Constructor from index.
     pub fn new(latest_block: HashOf<SignedBlock>, view_change_index: usize) -> Self {
-        let view_change_index = view_change_index as u32;
+        let view_change_index = view_change_index
+            .try_into()
+            .expect("INTERNAL BUG: Blockchain height should fit into usize");
 
         let proof = SignedViewChangeProof {
             payload: ViewChangeProofPayload {
@@ -67,13 +70,21 @@ impl ProofBuilder {
 impl SignedViewChangeProof {
     /// Verify the signatures of `other` and add them to this proof.
     fn merge_signatures(&mut self, other: Vec<ViewChangeProofSignature>, topology: &Topology) {
-        for (public_key, signature) in other {
-            if topology.position(&public_key).is_none() {
-                continue;
-            }
+        let signatures = core::mem::take(&mut self.signatures)
+            .into_iter()
+            .collect::<IndexSet<_>>();
 
-            self.signatures.push((public_key, signature));
-        }
+        self.signatures = other
+            .into_iter()
+            .fold(signatures, |mut acc, (public_key, signature)| {
+                if topology.position(&public_key).is_some() {
+                    acc.insert((public_key, signature));
+                }
+
+                acc
+            })
+            .into_iter()
+            .collect();
     }
 
     /// Verify if the proof is valid, given the peers in `topology`.
@@ -104,8 +115,10 @@ impl ProofChain {
             .iter()
             .enumerate()
             .take_while(|(i, proof)| {
+                let view_change_index = proof.payload.view_change_index as usize;
+
                 proof.payload.latest_block == latest_block
-                    && proof.payload.view_change_index as usize == *i
+                    && view_change_index == *i
                     && proof.verify(topology)
             })
             .count()
@@ -118,8 +131,8 @@ impl ProofChain {
             .iter()
             .enumerate()
             .take_while(|(i, proof)| {
-                proof.payload.latest_block == latest_block
-                    && proof.payload.view_change_index as usize == *i
+                let view_change_index = proof.payload.view_change_index as usize;
+                proof.payload.latest_block == latest_block && view_change_index == *i
             })
             .count();
         self.0.truncate(valid_count);
@@ -216,17 +229,28 @@ mod candidate {
         fn validate(self) -> Result<SignedViewChangeProof, &'static str> {
             self.validate_signatures()?;
 
-            // TODO: If it is possible, we should instead reject decoding proofs that
-            // have duplicated signatures. This would require change in the code as well
-            let unique_signatures = self.signatures.into_iter().collect::<IndexSet<_>>();
-
             Ok(SignedViewChangeProof {
+                signatures: self.signatures,
                 payload: self.payload,
-                signatures: unique_signatures.into_iter().collect(),
             })
         }
 
         fn validate_signatures(&self) -> Result<(), &'static str> {
+            if self.signatures.is_empty() {
+                return Err("Proof missing signatures");
+            }
+
+            self.signatures
+                .iter()
+                .map(|signature| &signature.0)
+                .try_fold(IndexSet::new(), |mut acc, elem| {
+                    if !acc.insert(elem) {
+                        return Err("Duplicate signature");
+                    }
+
+                    Ok(acc)
+                })?;
+
             self.signatures
                 .iter()
                 .try_for_each(|(public_key, payload)| {

@@ -307,7 +307,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             asset_id.account().clone(),
         )
         .with_instructions([instruction])
-        .sign(&owner_key_pair);
+        .sign(owner_key_pair.private_key());
 
         test_client
             .submit_transaction_blocking(&transaction)

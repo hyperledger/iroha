@@ -1,5 +1,4 @@
 use iroha::data_model::prelude::*;
-use iroha_data_model::asset::AssetDefinitionId;
 use iroha_primitives::numeric::numeric;
 use test_network::*;
 use test_samples::gen_account_in;
@@ -45,10 +44,10 @@ fn send_tx_with_different_chain_id() {
     );
     let asset_transfer_tx_0 = TransactionBuilder::new(chain_id_0, sender_id.clone())
         .with_instructions([transfer_instruction.clone()])
-        .sign(&sender_keypair);
+        .sign(sender_keypair.private_key());
     let asset_transfer_tx_1 = TransactionBuilder::new(chain_id_1, sender_id.clone())
         .with_instructions([transfer_instruction])
-        .sign(&sender_keypair);
+        .sign(sender_keypair.private_key());
     test_client
         .submit_transaction_blocking(&asset_transfer_tx_0)
         .unwrap();

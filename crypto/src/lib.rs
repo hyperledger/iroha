@@ -839,12 +839,6 @@ pub mod error {
         /// Returned when an error occurs during key generation
         #[display(fmt = "Key generation failed. {_0}")]
         KeyGen(String),
-        /// Returned when an error occurs during digest generation
-        #[display(fmt = "Digest generation failed. {_0}")]
-        DigestGen(String),
-        /// Returned when an error occurs during creation of [`SignaturesOf`]
-        #[display(fmt = "`SignaturesOf` must contain at least one signature")]
-        EmptySignatureIter,
         /// A General purpose error message that doesn't fit in any category
         #[display(fmt = "General error. {_0}")] // This is going to cause a headache
         Other(String),

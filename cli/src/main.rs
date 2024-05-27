@@ -44,6 +44,9 @@ async fn main() -> error_stack::Result<(), MainError> {
     iroha_logger::info!(
         version = env!("CARGO_PKG_VERSION"),
         git_commit_sha = env!("VERGEN_GIT_SHA"),
+        peer = %config.common.peer,
+        chain = %config.common.chain,
+        listening_on = %config.torii.address.value(),
         "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha!"
     );
 

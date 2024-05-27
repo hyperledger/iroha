@@ -80,12 +80,12 @@ fn build_test_and_transient_state() -> State {
 fn accept_transaction(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let transaction = build_test_transaction(chain_id.clone()).sign(&STARTER_KEYPAIR);
+    let transaction = build_test_transaction(chain_id.clone()).sign(STARTER_KEYPAIR.private_key());
     let mut success_count = 0;
     let mut failures_count = 0;
     let _ = criterion.bench_function("accept", |b| {
         b.iter(|| {
-            match AcceptedTransaction::accept(transaction.clone(), &chain_id, &TRANSACTION_LIMITS) {
+            match AcceptedTransaction::accept(transaction.clone(), &chain_id, TRANSACTION_LIMITS) {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
             }
@@ -98,13 +98,13 @@ fn sign_transaction(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = build_test_transaction(chain_id);
-    let key_pair = KeyPair::random();
+    let (_, private_key) = KeyPair::random().into_parts();
     let mut count = 0;
     let _ = criterion.bench_function("sign", |b| {
         b.iter_batched(
             || transaction.clone(),
             |transaction| {
-                let _: SignedTransaction = transaction.sign(&key_pair);
+                let _: SignedTransaction = transaction.sign(&private_key);
                 count += 1;
             },
             BatchSize::SmallInput,
@@ -117,9 +117,9 @@ fn validate_transaction(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = AcceptedTransaction::accept(
-        build_test_transaction(chain_id.clone()).sign(&STARTER_KEYPAIR),
+        build_test_transaction(chain_id.clone()).sign(STARTER_KEYPAIR.private_key()),
         &chain_id,
-        &TRANSACTION_LIMITS,
+        TRANSACTION_LIMITS,
     )
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
@@ -142,9 +142,9 @@ fn sign_blocks(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = AcceptedTransaction::accept(
-        build_test_transaction(chain_id.clone()).sign(&STARTER_KEYPAIR),
+        build_test_transaction(chain_id.clone()).sign(STARTER_KEYPAIR.private_key()),
         &chain_id,
-        &TRANSACTION_LIMITS,
+        TRANSACTION_LIMITS,
     )
     .expect("Failed to accept transaction.");
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();

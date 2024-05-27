@@ -131,8 +131,6 @@ mod pending {
             commit_topology: Topology,
             event_recommendations: Vec<EventBox>,
         ) -> Self {
-            assert!(!transactions.is_empty(), "Empty block created");
-
             Self(Pending {
                 commit_topology,
                 transactions,
@@ -158,14 +156,17 @@ mod pending {
                     .iter()
                     .map(|value| value.as_ref().hash())
                     .collect::<MerkleTree<_>>()
-                    .hash(),
+                    .hash()
+                    .expect("INTERNAL BUG: Empty block created"),
                 timestamp_ms: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .expect("INTERNAL BUG: Failed to get the current system time")
                     .as_millis()
                     .try_into()
-                    .expect("INTERNAL BUG: Time should fit into u64"),
-                view_change_index: view_change_index as u32,
+                    .expect("Time should fit into u64"),
+                view_change_index: view_change_index
+                    .try_into()
+                    .expect("View change index should fit into u32"),
                 consensus_estimation_ms: consensus_estimation
                     .as_millis()
                     .try_into()
@@ -244,7 +245,7 @@ mod chained {
 
 mod valid {
     use indexmap::IndexMap;
-    use iroha_data_model::ChainId;
+    use iroha_data_model::{account::AccountId, ChainId};
 
     use super::*;
     use crate::{state::StateBlock, sumeragi::network_topology::Role};
@@ -294,24 +295,14 @@ mod valid {
             block: &SignedBlock,
             topology: &Topology,
         ) -> Result<(), SignatureVerificationError> {
-            // TODO: ?
-            //let roles: &[Role] = if topology.view_change_index() >= 1 {
-            //    &[Role::ValidatingPeer, Role::ObservingPeer]
-            //} else {
-            //    if topology
-            //        .filter_signatures_by_roles(&[Role::ObservingPeer], block.signatures())
-            //        .next()
-            //        .is_some()
-            //    {
-            //        return Err(SignatureVerificationError::UnknownSignatory);
-            //    }
-
-            //    &[Role::ValidatingPeer]
-            //};
-            let roles = &[Role::ValidatingPeer, Role::ObservingPeer];
+            let valid_roles: &[Role] = if topology.view_change_index() >= 1 {
+                &[Role::ValidatingPeer, Role::ObservingPeer]
+            } else {
+                &[Role::ValidatingPeer]
+            };
 
             topology
-                .filter_signatures_by_roles(roles, block.signatures())
+                .filter_signatures_by_roles(valid_roles, block.signatures())
                 .try_fold(IndexMap::<usize, _>::default(), |mut acc, signature| {
                     let signatory_idx = usize::try_from(signature.0)
                         .map_err(|_err| SignatureVerificationError::UnknownSignatory)?;
@@ -338,6 +329,13 @@ mod valid {
                     Ok(())
                 })?;
 
+            Ok(())
+        }
+
+        fn verify_no_undefined_signatures(
+            block: &SignedBlock,
+            topology: &Topology,
+        ) -> Result<(), SignatureVerificationError> {
             if topology
                 .filter_signatures_by_roles(&[Role::Undefined], block.signatures())
                 .next()
@@ -403,7 +401,7 @@ mod valid {
             block: SignedBlock,
             topology: &Topology,
             expected_chain_id: &ChainId,
-            genesis_public_key: &PublicKey,
+            genesis_account: &AccountId,
             state_block: &mut StateBlock<'_>,
         ) -> WithEvents<Result<ValidBlock, (SignedBlock, BlockValidationError)>> {
             let expected_block_height = state_block.height() + 1;
@@ -439,6 +437,7 @@ mod valid {
             if !block.header().is_genesis() {
                 if let Err(err) = Self::verify_leader_signature(&block, topology)
                     .and_then(|()| Self::verify_validator_signatures(&block, topology))
+                    .and_then(|()| Self::verify_no_undefined_signatures(&block, topology))
                 {
                     return WithEvents::new(Err((block, err.into())));
                 }
@@ -469,12 +468,9 @@ mod valid {
                 )));
             }
 
-            if let Err(error) = Self::validate_transactions(
-                &block,
-                expected_chain_id,
-                genesis_public_key,
-                state_block,
-            ) {
+            if let Err(error) =
+                Self::validate_transactions(&block, expected_chain_id, genesis_account, state_block)
+            {
                 return WithEvents::new(Err((block, error.into())));
             }
 
@@ -484,7 +480,7 @@ mod valid {
         fn validate_transactions(
             block: &SignedBlock,
             expected_chain_id: &ChainId,
-            genesis_public_key: &PublicKey,
+            genesis_account: &AccountId,
             state_block: &mut StateBlock<'_>,
         ) -> Result<(), TransactionValidationError> {
             let is_genesis = block.header().is_genesis();
@@ -495,16 +491,19 @@ mod valid {
                 .cloned()
                 .try_for_each(|CommittedTransaction { value, error }| {
                     let transaction_executor = state_block.transaction_executor();
-                    let limits = &transaction_executor.transaction_limits;
 
                     let tx = if is_genesis {
                         AcceptedTransaction::accept_genesis(
                             GenesisTransaction(value),
                             expected_chain_id,
-                            genesis_public_key,
+                            genesis_account,
                         )
                     } else {
-                        AcceptedTransaction::accept(value, expected_chain_id, limits)
+                        AcceptedTransaction::accept(
+                            value,
+                            expected_chain_id,
+                            transaction_executor.transaction_limits,
+                        )
                     }?;
 
                     if error.is_some() {
@@ -531,9 +530,21 @@ mod valid {
             &mut self,
             signature: BlockSignature,
             topology: &Topology,
-        ) -> Result<(), iroha_crypto::Error> {
-            let signatory = &topology.as_ref()[signature.0 as usize];
-            self.0.add_signature(signature, signatory.public_key())
+        ) -> Result<(), SignatureVerificationError> {
+            let signatory_idx = usize::try_from(signature.0)
+                .expect("INTERNAL BUG: Number of peers exceeds usize::MAX");
+            let signatory = &topology.as_ref()[signatory_idx];
+
+            assert_ne!(Role::Leader, topology.role(signatory));
+            if topology.view_change_index() == 0 {
+                assert_ne!(Role::ObservingPeer, topology.role(signatory),);
+            }
+            assert_ne!(Role::Undefined, topology.role(signatory));
+            assert_ne!(Role::ProxyTail, topology.role(signatory));
+
+            self.0
+                .add_signature(signature, signatory.public_key())
+                .map_err(|_err| SignatureVerificationError::UnknownSignature)
         }
 
         /// Replace block's signatures. Returns previous block signatures
@@ -553,6 +564,7 @@ mod valid {
 
             if let Err(err) = Self::verify_leader_signature(self.as_ref(), topology)
                 .and_then(|()| Self::verify_validator_signatures(self.as_ref(), topology))
+                .and_then(|()| Self::verify_no_undefined_signatures(self.as_ref(), topology))
             {
                 self.0.replace_signatures_unchecked(prev_signatures);
                 WithEvents::new(Err(err))
@@ -613,7 +625,9 @@ mod valid {
                 header: BlockHeader {
                     height: 2,
                     prev_block_hash: None,
-                    transactions_hash: None,
+                    transactions_hash: HashOf::from_untyped_unchecked(Hash::prehashed(
+                        [1; Hash::LENGTH],
+                    )),
                     timestamp_ms: 0,
                     view_change_index: 0,
                     consensus_estimation_ms: 4_000,
@@ -644,13 +658,9 @@ mod valid {
     #[cfg(test)]
     mod tests {
         use iroha_crypto::SignatureOf;
-        use iroha_primitives::unique_vec::UniqueVec;
 
         use super::*;
-        use crate::{
-            kura::Kura, query::store::LiveQueryStore, state::State,
-            sumeragi::network_topology::test_peers,
-        };
+        use crate::sumeragi::network_topology::test_peers;
 
         #[test]
         fn signature_verification_ok() {
@@ -901,7 +911,7 @@ mod tests {
     use iroha_data_model::prelude::*;
     use iroha_genesis::GENESIS_DOMAIN_ID;
     use iroha_primitives::unique_vec::UniqueVec;
-    use test_samples::gen_account_in;
+    use test_samples::{gen_account_in, SAMPLE_GENESIS_ACCOUNT_ID};
 
     use super::*;
     use crate::{
@@ -946,10 +956,10 @@ mod tests {
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
 
         // Making two transactions that have the same instruction
-        let transaction_limits = &state_block.transaction_executor().transaction_limits;
+        let transaction_limits = state_block.transaction_executor().transaction_limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([create_asset_definition])
-            .sign(&alice_keypair);
+            .sign(alice_keypair.private_key());
         let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
@@ -1003,10 +1013,10 @@ mod tests {
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
 
         // Making two transactions that have the same instruction
-        let transaction_limits = &state_block.transaction_executor().transaction_limits;
+        let transaction_limits = state_block.transaction_executor().transaction_limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([create_asset_definition])
-            .sign(&alice_keypair);
+            .sign(alice_keypair.private_key());
         let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
 
         let fail_mint = Mint::asset_numeric(
@@ -1019,12 +1029,12 @@ mod tests {
 
         let tx0 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_mint])
-            .sign(&alice_keypair);
+            .sign(alice_keypair.private_key());
         let tx0 = AcceptedTransaction::accept(tx0, &chain_id, transaction_limits).expect("Valid");
 
         let tx2 = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([succeed_mint])
-            .sign(&alice_keypair);
+            .sign(alice_keypair.private_key());
         let tx2 = AcceptedTransaction::accept(tx2, &chain_id, transaction_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
@@ -1074,7 +1084,7 @@ mod tests {
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
         let mut state_block = state.block();
-        let transaction_limits = &state_block.transaction_executor().transaction_limits;
+        let transaction_limits = state_block.transaction_executor().transaction_limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");
         let create_domain = Register::domain(Domain::new(domain_id));
@@ -1088,12 +1098,12 @@ mod tests {
         let instructions_accept: [InstructionBox; 2] = [create_domain.into(), create_asset.into()];
         let tx_fail = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions(instructions_fail)
-            .sign(&alice_keypair);
+            .sign(alice_keypair.private_key());
         let tx_fail =
             AcceptedTransaction::accept(tx_fail, &chain_id, transaction_limits).expect("Valid");
         let tx_accept = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions(instructions_accept)
-            .sign(&alice_keypair);
+            .sign(alice_keypair.private_key());
         let tx_accept =
             AcceptedTransaction::accept(tx_accept, &chain_id, transaction_limits).expect("Valid");
 
@@ -1168,11 +1178,11 @@ mod tests {
         // Sign with `genesis_wrong_key` as peer which has incorrect genesis key pair
         let tx = TransactionBuilder::new(chain_id.clone(), genesis_wrong_account_id.clone())
             .with_instructions([isi])
-            .sign(&genesis_wrong_key);
+            .sign(genesis_wrong_key.private_key());
         let tx = AcceptedTransaction::accept_genesis(
             iroha_genesis::GenesisTransaction(tx),
             &chain_id,
-            genesis_wrong_key.public_key(),
+            &SAMPLE_GENESIS_ACCOUNT_ID,
         )
         .expect("Valid");
 
@@ -1193,7 +1203,7 @@ mod tests {
             block,
             &topology,
             &chain_id,
-            genesis_correct_key.public_key(),
+            &SAMPLE_GENESIS_ACCOUNT_ID,
             &mut state_block,
         )
         .unpack(|_| {})

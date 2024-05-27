@@ -117,7 +117,7 @@ pub mod asset_definition {
 
     /// Check if `authority` is the owner of asset definition
 
-    /// `authority` is owner of asset_definition if:
+    /// `authority` is owner of asset definition if:
     /// - `asset_definition.owned_by` is `authority`
     /// - `asset_definition.domain_id` domain is owned by `authority`
     ///

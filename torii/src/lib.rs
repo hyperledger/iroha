@@ -338,7 +338,6 @@ impl Error {
             Config(_) | StatusSegmentNotFound(_) => StatusCode::NOT_FOUND,
             PushIntoQueue(err) => match **err {
                 queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,
-                queue::Error::SignatoryInconsistent => StatusCode::UNAUTHORIZED,
                 _ => StatusCode::BAD_REQUEST,
             },
             #[cfg(feature = "telemetry")]
@@ -363,7 +362,6 @@ impl Error {
                 Conversion(_) | UnknownCursor | FetchSizeTooBig | InvalidSingularParameters => {
                     StatusCode::BAD_REQUEST
                 }
-                Signature(_) => StatusCode::UNAUTHORIZED,
                 Find(_) => StatusCode::NOT_FOUND,
             },
             TooComplex => StatusCode::UNPROCESSABLE_ENTITY,

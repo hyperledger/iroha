@@ -1360,7 +1360,7 @@ impl StateTransaction<'_, '_> {
             ) -> Self {
                 if let Some(param) = self.0 {
                     if param.id().name().as_ref() == id {
-                        if let Some(value) = param.val.try_into().ok() {
+                        if let Ok(value) = param.val.try_into() {
                             fun(value);
                         }
                         Self(None)

@@ -2,7 +2,7 @@ use std::thread;
 
 use iroha::{
     client::{self, Client, QueryResult},
-    data_model::{prelude::*, Level},
+    data_model::prelude::*,
 };
 use iroha_config::parameters::actual::Root as Config;
 use rand::seq::SliceRandom;
@@ -55,7 +55,6 @@ fn unstable_network(
         let mut configuration = Config::test();
         configuration.chain_wide.max_transactions_in_block =
             MAX_TRANSACTIONS_IN_BLOCK.try_into().unwrap();
-        configuration.logger.level = Level::INFO;
         #[cfg(debug_assertions)]
         {
             configuration.sumeragi.debug_force_soft_fork = force_soft_fork;

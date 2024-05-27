@@ -54,12 +54,11 @@ mod model {
         #[getset(get_copy = "pub")]
         pub height: u64,
         /// Hash of the previous block in the chain.
-        #[getset(get = "pub")]
+        #[getset(get_copy = "pub")]
         pub prev_block_hash: Option<HashOf<SignedBlock>>,
         /// Hash of merkle tree root of transactions' hashes.
-        #[getset(get = "pub")]
-        // TODO: How can it be `None`???
-        pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
+        #[getset(get_copy = "pub")]
+        pub transactions_hash: HashOf<MerkleTree<SignedTransaction>>,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub timestamp_ms: u64,
@@ -236,6 +235,12 @@ impl SignedBlock {
         signature: BlockSignature,
         public_key: &iroha_crypto::PublicKey,
     ) -> Result<(), iroha_crypto::Error> {
+        if self.signatures().any(|s| signature.0 == s.0) {
+            return Err(iroha_crypto::Error::Signing(
+                "Duplicate signature".to_owned(),
+            ));
+        }
+
         signature.1.verify(public_key, self.payload())?;
 
         let SignedBlock::V1(block) = self;
@@ -297,10 +302,6 @@ mod candidate {
             self.validate_signatures()?;
             self.validate_header()?;
 
-            if self.payload.transactions.is_empty() {
-                return Err("Block is empty");
-            }
-
             Ok(SignedBlockV1 {
                 signatures: self.signatures,
                 payload: self.payload,
@@ -308,8 +309,13 @@ mod candidate {
         }
 
         fn validate_signatures(&self) -> Result<(), &'static str> {
+            if self.signatures.is_empty() {
+                return Err("Block missing signatures");
+            }
+
             self.signatures
                 .iter()
+                .map(|signature| signature.0)
                 .try_fold(BTreeSet::new(), |mut acc, elem| {
                     if !acc.insert(elem) {
                         return Err("Duplicate signature in block");
@@ -320,6 +326,7 @@ mod candidate {
 
             Ok(())
         }
+
         fn validate_header(&self) -> Result<(), &'static str> {
             let actual_txs_hash = self.payload.header.transactions_hash;
 
@@ -329,7 +336,8 @@ mod candidate {
                 .iter()
                 .map(|value| value.as_ref().hash())
                 .collect::<MerkleTree<_>>()
-                .hash();
+                .hash()
+                .ok_or("Block is empty")?;
 
             if expected_txs_hash != actual_txs_hash {
                 return Err("Transactions' hash incorrect. Expected: {expected_txs_hash:?}, actual: {actual_txs_hash:?}");

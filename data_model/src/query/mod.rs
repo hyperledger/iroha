@@ -1280,7 +1280,7 @@ pub mod http {
             Serialize,
             IntoSchema,
         )]
-        pub struct QuerySignature(pub PublicKey, pub SignatureOf<ClientQueryPayload>);
+        pub struct QuerySignature(pub SignatureOf<ClientQueryPayload>);
 
         /// I/O ready structure to send queries.
         #[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
@@ -1323,11 +1323,11 @@ pub mod http {
 
         impl SignedQueryCandidate {
             fn validate(self) -> Result<SignedQueryV1, &'static str> {
-                let QuerySignature(public_key, signature) = &self.signature;
+                let QuerySignature(signature) = &self.signature;
 
-                if signature.verify(public_key, &self.payload).is_err() {
-                    return Err("Query signature not valid");
-                }
+                signature
+                    .verify(&self.payload.authority.signatory, &self.payload)
+                    .map_err(|_| "Query signature is not valid")?;
 
                 Ok(SignedQueryV1 {
                     payload: self.payload,
@@ -1450,7 +1450,7 @@ pub mod http {
             let signature = SignatureOf::new(key_pair.private_key(), &self.payload);
 
             SignedQueryV1 {
-                signature: QuerySignature(key_pair.public_key().clone(), signature),
+                signature: QuerySignature(signature),
                 payload: self.payload,
             }
             .into()
@@ -1500,12 +1500,6 @@ pub mod error {
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         pub enum QueryExecutionFail {
-            /// Query has the wrong signature: {0}
-            Signature(
-                #[skip_from]
-                #[skip_try_from]
-                String,
-            ),
             /// {0}
             #[cfg_attr(feature = "std", error(transparent))]
             Find(FindError),

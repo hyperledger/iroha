@@ -1,5 +1,6 @@
 //! Contains message structures for p2p communication during consensus.
-use iroha_data_model::block::{BlockSignature, SignedBlock};
+use iroha_crypto::HashOf;
+use iroha_data_model::block::{BlockPayload, BlockSignature, SignedBlock};
 use iroha_macro::*;
 use parity_scale_codec::{Decode, Encode};
 
@@ -37,7 +38,6 @@ impl ControlFlowMessage {
 
 /// `BlockCreated` message structure.
 #[derive(Debug, Clone, Decode, Encode)]
-#[non_exhaustive]
 pub struct BlockCreated {
     /// The corresponding block.
     pub block: SignedBlock,
@@ -54,24 +54,32 @@ impl From<&ValidBlock> for BlockCreated {
 
 /// `BlockSigned` message structure.
 #[derive(Debug, Clone, Decode, Encode)]
-#[non_exhaustive]
 pub struct BlockSigned {
-    /// Set of signatures.
-    pub signatures: Vec<BlockSignature>,
+    /// Hash of the block being signed.
+    pub hash: HashOf<BlockPayload>,
+    /// Signature of the block
+    pub signature: BlockSignature,
 }
 
 impl From<&ValidBlock> for BlockSigned {
     fn from(block: &ValidBlock) -> Self {
         Self {
-            signatures: block.as_ref().signatures().cloned().collect(),
+            hash: block.as_ref().hash_of_payload(),
+            signature: block
+                .as_ref()
+                .signatures()
+                .last()
+                .cloned()
+                .expect("INTERNAL BUG: Block must have at least one signature"),
         }
     }
 }
 
 /// `BlockCommitted` message structure.
-#[derive(Debug, Clone, Decode, Encode)]
-#[non_exhaustive]
+#[derive(Debug, Clone, Encode)]
 pub struct BlockCommitted {
+    /// Hash of the block being signed.
+    pub hash: HashOf<BlockPayload>,
     /// Set of signatures.
     pub signatures: Vec<BlockSignature>,
 }
@@ -79,6 +87,7 @@ pub struct BlockCommitted {
 impl From<&CommittedBlock> for BlockCommitted {
     fn from(block: &CommittedBlock) -> Self {
         Self {
+            hash: block.as_ref().hash_of_payload(),
             signatures: block.as_ref().signatures().cloned().collect(),
         }
     }
@@ -86,7 +95,6 @@ impl From<&CommittedBlock> for BlockCommitted {
 
 /// `BlockSyncUpdate` message structure
 #[derive(Debug, Clone, Decode, Encode)]
-#[non_exhaustive]
 pub struct BlockSyncUpdate {
     /// The corresponding block.
     pub block: SignedBlock,
@@ -97,6 +105,59 @@ impl From<&SignedBlock> for BlockSyncUpdate {
         // TODO: Redundant clone
         Self {
             block: block.clone(),
+        }
+    }
+}
+
+mod candidate {
+    use indexmap::IndexSet;
+    use parity_scale_codec::Input;
+
+    use super::*;
+
+    #[derive(Decode)]
+    struct BlockCommittedCandidate {
+        /// Hash of the block being signed.
+        pub hash: HashOf<BlockPayload>,
+        /// Set of signatures.
+        pub signatures: Vec<BlockSignature>,
+    }
+
+    impl BlockCommittedCandidate {
+        fn validate(self) -> Result<BlockCommitted, &'static str> {
+            self.validate_signatures()?;
+
+            Ok(BlockCommitted {
+                hash: self.hash,
+                signatures: self.signatures,
+            })
+        }
+
+        fn validate_signatures(&self) -> Result<(), &'static str> {
+            if self.signatures.is_empty() {
+                return Err("No signatures in block");
+            }
+
+            self.signatures
+                .iter()
+                .map(|signature| &signature.0)
+                .try_fold(IndexSet::new(), |mut acc, elem| {
+                    if !acc.insert(elem) {
+                        return Err("Duplicate signature");
+                    }
+
+                    Ok(acc)
+                })?;
+
+            Ok(())
+        }
+    }
+
+    impl Decode for BlockCommitted {
+        fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+            BlockCommittedCandidate::decode(input)?
+                .validate()
+                .map_err(Into::into)
         }
     }
 }

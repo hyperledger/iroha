@@ -14,9 +14,7 @@ pub use iroha_data_model::prelude::*;
 use iroha_data_model::{
     isi::error::Mismatch,
     query::error::FindError,
-    transaction::{
-        error::TransactionLimitError, TransactionLimits, TransactionPayload, TransactionSignature,
-    },
+    transaction::{error::TransactionLimitError, TransactionLimits, TransactionPayload},
 };
 use iroha_genesis::GenesisTransaction;
 use iroha_logger::{debug, error};
@@ -71,7 +69,7 @@ impl AcceptedTransaction {
     pub fn accept_genesis(
         tx: GenesisTransaction,
         expected_chain_id: &ChainId,
-        genesis_public_key: &PublicKey,
+        genesis_account: &AccountId,
     ) -> Result<Self, AcceptTransactionFail> {
         let actual_chain_id = tx.0.chain();
 
@@ -82,13 +80,8 @@ impl AcceptedTransaction {
             }));
         }
 
-        let TransactionSignature(public_key, signature) = tx.0.signature();
-        if public_key != genesis_public_key {
-            return Err(SignatureVerificationFail {
-                signature: signature.clone(),
-                reason: "Signature doesn't correspond to genesis public key".to_string(),
-            }
-            .into());
+        if genesis_account != tx.0.authority() {
+            return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
         }
 
         Ok(Self(tx.0))
@@ -102,7 +95,7 @@ impl AcceptedTransaction {
     pub fn accept(
         tx: SignedTransaction,
         expected_chain_id: &ChainId,
-        limits: &TransactionLimits,
+        limits: TransactionLimits,
     ) -> Result<Self, AcceptTransactionFail> {
         let actual_chain_id = tx.chain();
 
@@ -111,10 +104,6 @@ impl AcceptedTransaction {
                 expected: expected_chain_id.clone(),
                 actual: actual_chain_id.clone(),
             }));
-        }
-
-        if *iroha_genesis::GENESIS_DOMAIN_ID == *tx.authority().domain() {
-            return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
         }
 
         match &tx.instructions() {

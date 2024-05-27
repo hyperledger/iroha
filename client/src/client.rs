@@ -469,7 +469,9 @@ impl Client {
             tx_builder.set_nonce(nonce);
         };
 
-        tx_builder.with_metadata(metadata).sign(&self.key_pair)
+        tx_builder
+            .with_metadata(metadata)
+            .sign(self.key_pair.private_key())
     }
 
     /// Signs transaction
@@ -477,7 +479,7 @@ impl Client {
     /// # Errors
     /// Fails if signature generation fails
     pub fn sign_transaction(&self, transaction: TransactionBuilder) -> SignedTransaction {
-        transaction.sign(&self.key_pair)
+        transaction.sign(self.key_pair.private_key())
     }
 
     /// Signs query
@@ -1664,20 +1666,12 @@ mod tests {
         use http::Response;
 
         use super::*;
-        use crate::data_model::{asset::Asset, query::error::QueryExecutionFail, ValidationFail};
+        use crate::data_model::{asset::Asset, ValidationFail};
 
         #[test]
         fn certain_errors() -> Result<()> {
             let mut sut = QueryResponseHandler::<Vec<Asset>>::new(QueryRequest::dummy());
-            let responses = vec![
-                (
-                    StatusCode::UNAUTHORIZED,
-                    ValidationFail::QueryFailed(QueryExecutionFail::Signature(
-                        "whatever".to_owned(),
-                    )),
-                ),
-                (StatusCode::UNPROCESSABLE_ENTITY, ValidationFail::TooComplex),
-            ];
+            let responses = vec![(StatusCode::UNPROCESSABLE_ENTITY, ValidationFail::TooComplex)];
             for (status_code, err) in responses {
                 let resp = Response::builder().status(status_code).body(err.encode())?;
 

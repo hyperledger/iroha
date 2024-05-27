@@ -110,7 +110,7 @@ impl TransactionGossiper {
 
         let state_view = self.state.view();
         for tx in txs {
-            let transaction_limits = &state_view.config.transaction_limits;
+            let transaction_limits = state_view.config.transaction_limits;
 
             match AcceptedTransaction::accept(tx, &self.chain_id, transaction_limits) {
                 Ok(tx) => match self.queue.push(tx, &state_view) {

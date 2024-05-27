@@ -187,12 +187,6 @@ impl ValidQueryRequest {
         query: SignedQuery,
         state_ro: &impl StateReadOnly,
     ) -> Result<Self, ValidationFail> {
-        if !query.authority().signatory_matches(&query.signature().0) {
-            return Err(Error::Signature(String::from(
-                "Signature public key doesn't correspond to the account.",
-            ))
-            .into());
-        }
         state_ro.world().executor().validate_query(
             state_ro,
             query.authority(),
@@ -401,15 +395,15 @@ mod tests {
                 let instructions: [InstructionBox; 0] = [];
                 let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                     .with_instructions(instructions)
-                    .sign(&ALICE_KEYPAIR);
-                AcceptedTransaction::accept(tx, &chain_id, &limits)?
+                    .sign(ALICE_KEYPAIR.private_key());
+                AcceptedTransaction::accept(tx, &chain_id, limits)?
             };
             let invalid_tx = {
                 let isi = Fail::new("fail".to_owned());
                 let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                     .with_instructions([isi.clone(), isi])
-                    .sign(&ALICE_KEYPAIR);
-                AcceptedTransaction::accept(tx, &chain_id, &huge_limits)?
+                    .sign(ALICE_KEYPAIR.private_key());
+                AcceptedTransaction::accept(tx, &chain_id, huge_limits)?
             };
 
             let mut transactions = vec![valid_tx; valid_tx_per_block];
@@ -566,9 +560,9 @@ mod tests {
         let instructions: [InstructionBox; 0] = [];
         let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
             .with_instructions(instructions)
-            .sign(&ALICE_KEYPAIR);
+            .sign(ALICE_KEYPAIR.private_key());
 
-        let tx_limits = &state_block.transaction_executor().transaction_limits;
+        let tx_limits = state_block.transaction_executor().transaction_limits;
         let va_tx = AcceptedTransaction::accept(tx, &chain_id, tx_limits)?;
 
         let (peer_public_key, _) = KeyPair::random().into_parts();
@@ -590,7 +584,7 @@ mod tests {
 
         let unapplied_tx = TransactionBuilder::new(chain_id, ALICE_ID.clone())
             .with_instructions([Unregister::account(gen_account_in("domain").0)])
-            .sign(&ALICE_KEYPAIR);
+            .sign(ALICE_KEYPAIR.private_key());
         let wrong_hash = unapplied_tx.hash();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&state_view);
         assert!(matches!(

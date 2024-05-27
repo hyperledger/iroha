@@ -158,10 +158,7 @@ mod model {
         Serialize,
         IntoSchema,
     )]
-    pub struct TransactionSignature(
-        pub iroha_crypto::PublicKey,
-        pub SignatureOf<TransactionPayload>,
-    );
+    pub struct TransactionSignature(pub SignatureOf<TransactionPayload>);
 
     /// Transaction that contains a signature
     ///
@@ -263,6 +260,13 @@ declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq,
 declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
 
 impl SignedTransaction {
+    /// Transaction payload. Used for tests
+    #[cfg(feature = "transparent_api")]
+    pub fn payload(&self) -> &TransactionPayload {
+        let SignedTransaction::V1(tx) = self;
+        &tx.payload
+    }
+
     /// Return transaction instructions
     #[inline]
     pub fn instructions(&self) -> &Executable {
@@ -383,10 +387,11 @@ mod candidate {
         }
 
         fn validate_signature(&self) -> Result<(), &'static str> {
-            let TransactionSignature(public_key, signature) = &self.signature;
+            let TransactionSignature(signature) = &self.signature;
+
             signature
-                .verify(public_key, &self.payload)
-                .map_err(|_| "Transaction contains invalid signatures")?;
+                .verify(&self.payload.authority.signatory, &self.payload)
+                .map_err(|_| "Transaction signature is invalid")?;
 
             Ok(())
         }
@@ -757,11 +762,8 @@ mod http {
 
         /// Sign transaction with provided key pair.
         #[must_use]
-        pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
-            let signature = TransactionSignature(
-                key_pair.public_key().clone(),
-                SignatureOf::new(key_pair.private_key(), &self.payload),
-            );
+        pub fn sign(self, private_key: &iroha_crypto::PrivateKey) -> SignedTransaction {
+            let signature = TransactionSignature(SignatureOf::new(private_key, &self.payload));
 
             SignedTransactionV1 {
                 signature,

@@ -22,12 +22,6 @@ use crate::{prelude::*, EventsSender};
 
 impl AcceptedTransaction {
     // TODO: We should have another type of transaction like `CheckedTransaction` in the type system?
-    fn is_signatory_consistent(&self) -> bool {
-        let authority = self.as_ref().authority();
-        let signatory = &self.as_ref().signature().0;
-        authority.signatory_matches(signatory)
-    }
-
     /// Check if [`self`] is committed or rejected.
     fn is_in_blockchain(&self, state_view: &StateView<'_>) -> bool {
         state_view.has_transaction(self.as_ref().hash())
@@ -77,8 +71,6 @@ pub enum Error {
     MaximumTransactionsPerUser,
     /// The transaction is already in the queue
     IsInQueue,
-    /// Signatories in signature and payload mismatch
-    SignatoryInconsistent,
 }
 
 /// Failure that can pop up when pushing transaction into the queue
@@ -175,8 +167,6 @@ impl Queue {
             Err(Error::Expired)
         } else if tx.is_in_blockchain(state_view) {
             Err(Error::InBlockchain)
-        } else if !tx.is_signatory_consistent() {
-            Err(Error::SignatoryInconsistent)
         } else {
             Ok(())
         }
@@ -436,12 +426,12 @@ pub mod tests {
         let tx =
             TransactionBuilder::new_with_time_source(chain_id.clone(), account_id, time_source)
                 .with_instructions(instructions)
-                .sign(key_pair);
+                .sign(key_pair.private_key());
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        AcceptedTransaction::accept(tx, &chain_id, &limits).expect("Failed to accept Transaction.")
+        AcceptedTransaction::accept(tx, &chain_id, limits).expect("Failed to accept Transaction.")
     }
 
     pub fn world_with_test_domains() -> World {
@@ -687,13 +677,13 @@ pub mod tests {
             TransactionBuilder::new_with_time_source(chain_id.clone(), alice_id, &time_source)
                 .with_instructions(instructions);
         tx.set_ttl(Duration::from_millis(TTL_MS));
-        let tx = tx.sign(&alice_keypair);
+        let tx = tx.sign(alice_keypair.private_key());
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
         let tx_hash = tx.hash();
-        let tx = AcceptedTransaction::accept(tx, &chain_id, &limits)
+        let tx = AcceptedTransaction::accept(tx, &chain_id, limits)
             .expect("Failed to accept Transaction.");
         queue
             .push(tx.clone(), &state_view)
