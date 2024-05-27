@@ -3766,9 +3766,9 @@ dependencies = [
 
 [[package]]
 name = "libsodium-sys-stable"
-version = "1.20.7"
+version = "1.20.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb55e94ce32b48f061dcef1c7272d63b855c2e8c11b5d461029320b741f266c5"
+checksum = "ad52c454200cd0178a04ef7642a240a7e81b4d8c59f0865eb98c477daf7d3b84"
 dependencies = [
  "cc",
  "libc",
@@ -3805,6 +3805,12 @@ dependencies = [
  "autocfg",
  "scopeguard",
 ]
+
+[[package]]
+name = "lockfree-object-pool"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9374ef4228402d4b7e403e5838cb880d9ee663314b0a900d5a6aabf0c213552e"
 
 [[package]]
 name = "log"
@@ -5311,6 +5317,12 @@ dependencies = [
  "digest",
  "rand_core",
 ]
+
+[[package]]
+name = "simd-adler32"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
 
 [[package]]
 name = "simdutf8"
@@ -7115,9 +7127,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "1.2.3"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c700ea425e148de30c29c580c1f9508b93ca57ad31c9f4e96b83c194c37a7a8f"
+checksum = "e2568cd0f20e86cd9a7349fe05178f7bd22f22724678448ae5a9bac266df2689"
 dependencies = [
  "arbitrary",
  "crc32fast",
@@ -7125,7 +7137,23 @@ dependencies = [
  "displaydoc",
  "flate2",
  "indexmap 2.2.6",
+ "memchr",
  "thiserror",
+ "zopfli",
+]
+
+[[package]]
+name = "zopfli"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5019f391bac5cf252e93bbcc53d039ffd62c7bfb7c150414d61369afe57e946"
+dependencies = [
+ "bumpalo",
+ "crc32fast",
+ "lockfree-object-pool",
+ "log",
+ "once_cell",
+ "simd-adler32",
 ]
 
 [[package]]
