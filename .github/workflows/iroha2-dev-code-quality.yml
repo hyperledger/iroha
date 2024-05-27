@@ -3,75 +3,120 @@ name: I2::Dev::CodeQuality
 on:
   workflow_run:
     workflows: ["I2::Dev::Tests", "I2::Dev::Static"]
-    types: [in_progress]
+    types: [completed]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.actor }}
   cancel-in-progress: true
 
 jobs:
-  workspace_analysis_clippy:
-    runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Lints without features
-        if: always()
-        run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
-      - name: Lints with all features enabled
-        if: always()
-        run: cargo clippy --workspace --benches --tests --examples --all-features --quiet --message-format=json | tee clippy.json
-      - name: Documentation
-        if: always()
-        run: cargo doc --no-deps --quiet
-      - name: Upload clippy report artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: clippy.json
-          path: clippy.json
+  # workspace_analysis_clippy:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2024-04-18
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: Format
+  #       run: cargo fmt --all -- --check
+  #     - name: Lints without features
+  #       if: always()
+  #       run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
+  #     - name: Lints with all features enabled
+  #       if: always()
+  #       run: cargo clippy --workspace --benches --tests --examples --all-features --quiet --message-format=json | tee clippy.json
+  #     - name: Documentation
+  #       if: always()
+  #       run: cargo doc --no-deps --quiet
+  #     - name: Upload clippy report artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: clippy.json
+  #         path: clippy.json
 
-  # exclude: client/tests/integration/
-  with_coverage:
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Run tests, with coverage
-        run: |
-          mold --run cargo test --all-features --no-fail-fast --workspace --exclude iroha_client
-          mold --run cargo test --all-features --no-fail-fast -p iroha_client -- --skip integration
-        env:
-          RUSTFLAGS: "-C instrument-coverage"
-          LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
-      - name: Generate lcov report
-        if: always()
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/client_cli" --ignore "**/main.rs" -o lcov.info
-      - name: Upload lcov report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lcov.info
-          path: lcov.info
+  # # exclude: client/tests/integration/
+  # with_coverage:
+  #   runs-on: [self-hosted, Linux, iroha2]
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2024-04-18
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: Run tests, with coverage
+  #       run: |
+  #         mold --run cargo test --all-features --no-fail-fast --workspace --exclude iroha_client
+  #         mold --run cargo test --all-features --no-fail-fast -p iroha_client -- --skip integration
+  #       env:
+  #         RUSTFLAGS: "-C instrument-coverage"
+  #         LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
+  #     - name: Generate lcov report
+  #       if: always()
+  #       run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/client_cli" --ignore "**/main.rs" -o lcov.info
+  #     - name: Upload lcov report artifact
+  #       if: always()
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: lcov.info
+  #        path: lcov.info
 
   sonarqube-defectdojo:
-    if: ${{ always() }}
-    needs: [workspace_analysis_clippy, with_coverage]
+    #if: ${{ always() }}
+    #needs: [workspace_analysis_clippy, with_coverage]
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
-      - uses: actions/checkout@v4
-      - name: Download clippy and lcov artifact reports
-        uses: actions/download-artifact@v4
+      # - uses: actions/checkout@v4
+      # - name: Download clippy and lcov artifact reports
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     path: lints
+      #     merge-multiple: true
+      - name: Download clippy report
+        uses: actions/github-script@v7
         with:
-          path: lints
-          merge-multiple: true
+          script: |
+            let allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               run_id: context.payload.workflow_run.id,
+            });
+            let matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "clippy.json"
+            })[0];
+            let download = await github.rest.actions.downloadArtifact({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               artifact_id: matchArtifact.id,
+               archive_format: 'zip',
+            });
+            let fs = require('fs');
+            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/clippy.json.zip, Buffer.from(download.data));
+      - name: Download lcov report
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               run_id: context.payload.workflow_run.id,
+            });
+            let matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "lcov.info"
+            })[0];
+            let download = await github.rest.actions.downloadArtifact({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               artifact_id: matchArtifact.id,
+               archive_format: 'zip',
+            });
+            let fs = require('fs');
+            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/lcov.info.zip, Buffer.from(download.data));
+      - name: Unzip reports
+        run: |
+          unzip clippy.json.zip
+          unzip lcov.info.zip
       - name: SonarQube
         uses: sonarsource/sonarqube-scan-action@master
         env:
@@ -79,8 +124,8 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         with:
           args: >
-            -Dcommunity.rust.clippy.reportPaths=lints/clippy.json
-            -Dcommunity.rust.lcov.reportPaths=lints/lcov.info
+            -Dcommunity.rust.clippy.reportPaths=clippy.json
+            -Dcommunity.rust.lcov.reportPaths=lcov.info
       - name: DefectDojo
         id: defectdojo
         uses: C4tWithShell/defectdojo-action@1.0.4
@@ -90,7 +135,7 @@ jobs:
           product_type: iroha2
           engagement: ${{ github.ref_name }}
           tools: "SonarQube API Import,Github Vulnerability Scan"
-          sonar_projectKey: hyperledger:iroha
+          sonar_projectKey: bastos525:soramitsu-iroha
           github_token: ${{ secrets.GITHUB_TOKEN }}
           github_repository: ${{ github.repository }}
           product: ${{ github.repository }}

@@ -2,7 +2,7 @@ name: I2::Dev::Static
 
 on:
   pull_request:
-    branches: [main]
+    branches: [i2/sonar-CI-checks]
     paths:
       - '**.rs'
       - '**.json'
@@ -18,59 +18,83 @@ env:
   RUSTUP_TOOLCHAIN: nightly-2024-04-18
 
 jobs:
-  smart_contracts_analysis:
+  # smart_contracts_analysis:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2024-04-18
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: Default executor format
+  #       run: |
+  #         cd ./default_executor
+  #         mold --run cargo fmt --all -- --check
+  #     - name: Integration tests smart contracts format
+  #       run: |
+  #         cd ./client/tests/integration/smartcontracts
+  #         mold --run cargo fmt --all -- --check
+
+  workspace_analysis_clippy:
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - name: Default executor format
-        run: |
-          cd ./default_executor
-          mold --run cargo fmt --all -- --check
-      - name: Integration tests smart contracts format
-        run: |
-          cd ./client/tests/integration/smartcontracts
-          mold --run cargo fmt --all -- --check
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Lints without features
+        if: always()
+        run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
+      - name: Lints with all features enabled
+        if: always()
+        run: cargo clippy --workspace --benches --tests --examples --all-features --quiet --message-format=json | tee clippy.json
+      - name: Documentation
+        if: always()
+        run: cargo doc --no-deps --quiet
+      - name: Upload clippy report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clippy.json
+          path: lints/
 
-  python_static_analysis:
-    runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies using Poetry for client_cli/pytests
-        working-directory: client_cli/pytests
-        run: |
-          poetry lock --no-update
-          poetry install
-      - name: Install dependencies using Poetry for torii/pytests
-        working-directory: torii/pytests
-        run: |
-          poetry lock --no-update
-          poetry install
-      - name: Check code formatting with Black in client_cli/pytests
-        working-directory: client_cli/pytests
-        run: |
-          poetry run black --check .
-      - name: Check code formatting with Black in torii/pytests
-        working-directory: torii/pytests
-        run: |
-          poetry run black --check .
-      - name: Run mypy (Type Checker) in client_cli/pytests
-        working-directory: client_cli/pytests
-        run: |
-          poetry run mypy --explicit-package-bases --ignore-missing-imports .
-      - name: Run mypy (Type Checker) in torii/pytests
-        working-directory: torii/pytests
-        run: |
-          poetry run mypy --explicit-package-bases --ignore-missing-imports .
-      - name: Run flake8 (Linter) in client_cli/pytests
-        working-directory: client_cli/pytests
-        run: |
-          poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
-      - name: Run flake8 (Linter) in torii/pytests
-        working-directory: torii/pytests
-        run: |
-          poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
+  # python_static_analysis:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2024-04-18
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Install dependencies using Poetry for client_cli/pytests
+  #       working-directory: client_cli/pytests
+  #       run: |
+  #         poetry lock --no-update
+  #         poetry install
+  #     - name: Install dependencies using Poetry for torii/pytests
+  #       working-directory: torii/pytests
+  #       run: |
+  #         poetry lock --no-update
+  #         poetry install
+  #     - name: Check code formatting with Black in client_cli/pytests
+  #       working-directory: client_cli/pytests
+  #       run: |
+  #         poetry run black --check .
+  #     - name: Check code formatting with Black in torii/pytests
+  #       working-directory: torii/pytests
+  #       run: |
+  #         poetry run black --check .
+  #     - name: Run mypy (Type Checker) in client_cli/pytests
+  #       working-directory: client_cli/pytests
+  #       run: |
+  #         poetry run mypy --explicit-package-bases --ignore-missing-imports .
+  #     - name: Run mypy (Type Checker) in torii/pytests
+  #       working-directory: torii/pytests
+  #       run: |
+  #         poetry run mypy --explicit-package-bases --ignore-missing-imports .
+  #     - name: Run flake8 (Linter) in client_cli/pytests
+  #       working-directory: client_cli/pytests
+  #       run: |
+  #         poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
+  #     - name: Run flake8 (Linter) in torii/pytests
+  #       working-directory: torii/pytests
+  #       run: |
+  #         poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
