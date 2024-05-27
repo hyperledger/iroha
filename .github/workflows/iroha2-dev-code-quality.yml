@@ -3,10 +3,10 @@ name: I2::Dev::CodeQuality
 on:
   workflow_run:
     workflows: ["I2::Dev::Tests", "I2::Dev::Static"]
-    types: [requested]
+    types: [in_progress]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.actor }}
   cancel-in-progress: true
 
 jobs:
@@ -52,14 +52,6 @@ jobs:
       - name: Generate lcov report
         if: always()
         run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/client_cli" --ignore "**/main.rs" -o lcov.info
-      - name: Upload coverage to coveralls.io
-        if: always()
-        uses: coverallsapp/github-action@v2
-        with:
-          file: lcov.info
-          compare-ref: ${{ github.base_ref }}
-          compare-sha: ${{ github.event.pull_request.base.sha}}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload lcov report artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,8 +96,3 @@ jobs:
           product: ${{ github.repository }}
           environment: Test
           reports: '{"Github Vulnerability Scan": "github.json"}'
-      - name: Show Defectdojo response
-        if: always()
-        run: |
-          set -e
-          printf '%s\n' '${{ steps.defectdojo.outputs.response }}'
