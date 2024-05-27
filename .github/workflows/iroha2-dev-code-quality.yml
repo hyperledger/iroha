@@ -114,10 +114,12 @@ jobs:
             let fs = require('fs');
             fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/lcov.info.zip, Buffer.from(download.data));
       - name: Unzip reports
+        if: always()
         run: |
           unzip clippy.json.zip
           unzip lcov.info.zip
       - name: SonarQube
+        if: always()
         uses: sonarsource/sonarqube-scan-action@master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -127,6 +129,7 @@ jobs:
             -Dcommunity.rust.clippy.reportPaths=clippy.json
             -Dcommunity.rust.lcov.reportPaths=lcov.info
       - name: DefectDojo
+        if: always()
         id: defectdojo
         uses: C4tWithShell/defectdojo-action@1.0.4
         with:
