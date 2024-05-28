@@ -120,6 +120,15 @@ pub trait Query: Into<QueryBox> + seal::Sealed {
     fn encode_as_query_box(&self) -> Vec<u8>;
 }
 
+/// A [`Query`] that either returns a single value or errors out
+pub trait SingularQuery: Query {}
+
+/// A [`Query`] that returns an iterable collection of values
+pub trait IterableQuery: Query {
+    /// A type of single element of the output collection
+    type Item;
+}
+
 #[model]
 mod model {
     use getset::Getters;
@@ -342,19 +351,50 @@ impl TryFrom<QueryOutputBox> for u64 {
     }
 }
 
-macro_rules! impl_query {
-    ($($ty:ty => $output:ty),+ $(,)?) => { $(
+/// Uses custom syntax to implement query-related traits on query types
+///
+/// Implements [`Query`] and, additionally, either [`SingularQuery`] or [`IterableQuery`],
+///     depending on whether the output type is wrapped into a Vec (purely syntactically)
+macro_rules! impl_queries {
+    // base case for the tt-muncher
+    () => {};
+    // we can't delegate matching over `Vec<$item:ty>` to an inner macro,
+    //   as the moment a fragment is matched as `$output:ty` it becomes opaque and unmatchable to any literal
+    //   https://doc.rust-lang.org/nightly/reference/macros-by-example.html#forwarding-a-matched-fragment
+    // hence we match at the top level with a tt-muncher and a use `@impl_query` inner macro to avoid duplication of the `impl Query`
+    ($ty:ty => Vec<$item:ty> $(, $($rest:tt)*)?) => {
+        impl_queries!(@impl_query $ty => Vec<$item>);
+
+        impl IterableQuery for $ty {
+            type Item = $item;
+        }
+
+        $(
+            impl_queries!($($rest)*);
+        )?
+    };
+    ($ty:ty => $output:ty $(, $($rest:tt)*)?) => {
+        impl_queries!(@impl_query $ty => $output);
+
+        impl SingularQuery for $ty {
+        }
+
+        $(
+            impl_queries!($($rest)*);
+        )?
+    };
+    (@impl_query $ty:ty => $output:ty) =>{
         impl Query for $ty {
             type Output = $output;
 
             fn encode_as_query_box(&self) -> Vec<u8> {
                 QueryBoxRef::from(self).encode()
             }
-        } )+
-    }
+        }
+    };
 }
 
-impl_query! {
+impl_queries! {
     FindAllRoles => Vec<crate::role::Role>,
     FindAllRoleIds => Vec<crate::role::RoleId>,
     FindRolesByAccountId => Vec<crate::role::RoleId>,

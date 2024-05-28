@@ -2842,6 +2842,7 @@ dependencies = [
  "toml 0.8.13",
  "tracing-flame",
  "tracing-subscriber",
+ "trybuild",
  "tungstenite",
  "url",
 ]
@@ -3340,6 +3341,7 @@ dependencies = [
  "iroha_smart_contract_utils",
  "parity-scale-codec",
  "test_samples",
+ "trybuild",
  "webassembly-test",
 ]
 

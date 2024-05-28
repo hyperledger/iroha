@@ -19,6 +19,7 @@ use data_model::{
 };
 use derive_more::Display;
 pub use iroha_data_model as data_model;
+use iroha_data_model::query::IterableQuery;
 pub use iroha_smart_contract_derive::main;
 pub use iroha_smart_contract_utils::{debug, error, info, log, warn};
 use iroha_smart_contract_utils::{
@@ -180,6 +181,20 @@ pub trait ExecuteQueryOnHost: Sized {
     /// Query output type.
     type Output;
 
+    /// Execute query on the host
+    ///
+    /// # Errors
+    ///
+    /// - If query validation failed
+    /// - If query execution failed
+    fn execute(&self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail>;
+}
+
+/// Extension of [`ExecuteQueryOnHost`] for iterable queries
+pub trait ExecuteIterableQueryOnHost: Sized {
+    /// Type of the iterable query output item
+    type Item;
+
     /// Apply filter to a query
     fn filter(&self, predicate: impl Into<PredicateBox>) -> SmartContractQuery<Self>;
     /// Apply sorting to a query
@@ -190,14 +205,6 @@ pub trait ExecuteQueryOnHost: Sized {
 
     /// Set fetch size for a query. Default is [`DEFAULT_FETCH_SIZE`]
     fn fetch_size(&self, fetch_size: FetchSize) -> SmartContractQuery<Self>;
-
-    /// Execute query on the host
-    ///
-    /// # Errors
-    ///
-    /// - If query validation failed
-    /// - If query execution failed
-    fn execute(&self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail>;
 }
 
 impl<Q> ExecuteQueryOnHost for Q
@@ -207,6 +214,26 @@ where
     <Q::Output as TryFrom<QueryOutputBox>>::Error: core::fmt::Debug,
 {
     type Output = Q::Output;
+
+    fn execute(&self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail> {
+        SmartContractQuery {
+            query: self,
+            filter: PredicateBox::default(),
+            sorting: Sorting::default(),
+            pagination: Pagination::default(),
+            fetch_size: FetchSize::default(),
+        }
+        .execute()
+    }
+}
+
+impl<Q> ExecuteIterableQueryOnHost for Q
+where
+    Q: IterableQuery + Encode,
+    Q::Output: DecodeAll,
+    <Q::Output as TryFrom<QueryOutputBox>>::Error: core::fmt::Debug,
+{
+    type Item = Q::Item;
 
     #[must_use]
     fn filter(&self, predicate: impl Into<PredicateBox>) -> SmartContractQuery<Self> {
@@ -251,22 +278,47 @@ where
             fetch_size,
         }
     }
-
-    fn execute(&self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail> {
-        SmartContractQuery {
-            query: self,
-            filter: PredicateBox::default(),
-            sorting: Sorting::default(),
-            pagination: Pagination::default(),
-            fetch_size: FetchSize::default(),
-        }
-        .execute()
-    }
 }
 
 impl<Q> SmartContractQuery<'_, Q>
 where
     Q: Query + Encode,
+    Q::Output: DecodeAll,
+    <Q::Output as TryFrom<QueryOutputBox>>::Error: core::fmt::Debug,
+{
+    /// Execute query on the host
+    ///
+    /// # Errors
+    ///
+    /// - If query validation failed
+    /// - If query execution failed
+    pub fn execute(self) -> Result<QueryOutputCursor<Q::Output>, ValidationFail> {
+        #[cfg(not(test))]
+        use host::execute_query as host_execute_query;
+        #[cfg(test)]
+        use tests::_iroha_smart_contract_execute_query_mock as host_execute_query;
+
+        // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
+        //         - ownership of the returned result is transferred into `_decode_from_raw`
+        let res: Result<BatchedResponse<QueryOutputBox>, ValidationFail> = unsafe {
+            decode_with_length_prefix_from_raw(encode_and_execute(
+                &QueryRequest::Query(self),
+                host_execute_query,
+            ))
+        };
+
+        let (value, cursor) = res?.into();
+        let typed_value = Q::Output::try_from(value).expect("Query output has incorrect type");
+        Ok(QueryOutputCursor {
+            batch: typed_value,
+            cursor,
+        })
+    }
+}
+
+impl<Q> SmartContractQuery<'_, Q>
+where
+    Q: IterableQuery + Encode,
     Q::Output: DecodeAll,
     <Q::Output as TryFrom<QueryOutputBox>>::Error: core::fmt::Debug,
 {
@@ -296,35 +348,6 @@ where
     pub fn fetch_size(mut self, fetch_size: FetchSize) -> Self {
         self.fetch_size = fetch_size;
         self
-    }
-
-    /// Execute query on the host
-    ///
-    /// # Errors
-    ///
-    /// - If query validation failed
-    /// - If query execution failed
-    pub fn execute(self) -> Result<QueryOutputCursor<Q::Output>, ValidationFail> {
-        #[cfg(not(test))]
-        use host::execute_query as host_execute_query;
-        #[cfg(test)]
-        use tests::_iroha_smart_contract_execute_query_mock as host_execute_query;
-
-        // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
-        //         - ownership of the returned result is transferred into `_decode_from_raw`
-        let res: Result<BatchedResponse<QueryOutputBox>, ValidationFail> = unsafe {
-            decode_with_length_prefix_from_raw(encode_and_execute(
-                &QueryRequest::Query(self),
-                host_execute_query,
-            ))
-        };
-
-        let (value, cursor) = res?.into();
-        let typed_value = Q::Output::try_from(value).expect("Query output has incorrect type");
-        Ok(QueryOutputCursor {
-            batch: typed_value,
-            cursor,
-        })
     }
 }
 
@@ -488,7 +511,9 @@ pub mod prelude {
     pub use iroha_smart_contract_derive::main;
     pub use iroha_smart_contract_utils::debug::DebugUnwrapExt;
 
-    pub use crate::{data_model::prelude::*, ExecuteOnHost, ExecuteQueryOnHost};
+    pub use crate::{
+        data_model::prelude::*, ExecuteIterableQueryOnHost, ExecuteOnHost, ExecuteQueryOnHost,
+    };
 }
 
 #[cfg(test)]
