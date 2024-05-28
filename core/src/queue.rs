@@ -436,7 +436,7 @@ pub mod tests {
         let tx =
             TransactionBuilder::new_with_time_source(chain_id.clone(), account_id, time_source)
                 .with_instructions(instructions)
-                .sign(&key_pair);
+                .sign(key_pair);
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,

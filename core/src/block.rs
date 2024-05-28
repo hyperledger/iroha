@@ -569,7 +569,7 @@ mod valid {
 
         fn payload(block: &ValidBlock) -> &BlockPayload {
             let SignedBlock::V1(signed) = &block.0;
-            &signed.payload()
+            signed.payload()
         }
 
         #[test]

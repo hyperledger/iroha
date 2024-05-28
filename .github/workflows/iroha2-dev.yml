@@ -78,11 +78,11 @@ jobs:
         with:
           name: cargo-build-release
           path: target/release/iroha
-      - name: Archive iroha_client_cli
+      - name: Archive Iroha client CLI
         uses: actions/upload-artifact@v3
         with:
           name: cargo-client-cli-build-release
-          path: target/release/iroha_client_cli
+          path: target/release/iroha
       - name: Archive kagami
         uses: actions/upload-artifact@v3
         with:
@@ -112,11 +112,11 @@ jobs:
           TELEMETRY_FILE: ../target/telemetry/debug.json.lz4
         run: |
           mkdir -p target/telemetry
-          mold --run cargo test -p iroha_client --all-features -- unstable_network || true
+          mold --run cargo test -p iroha --all-features -- unstable_network || true
       - name: Run release tests and save telemetry
         env:
           TELEMETRY_FILE: ../target/telemetry/release.json.lz4
-        run: mold --run cargo test -p iroha_client --all-features --release -- unstable_network || true
+        run: mold --run cargo test -p iroha --all-features --release -- unstable_network || true
       - name: Install script dependencies
         run: |
           apt-get update

@@ -18,7 +18,7 @@ use once_cell::sync::Lazy;
 use test_samples::gen_account_in;
 
 static STARTER_DOMAIN: Lazy<DomainId> = Lazy::new(|| "start".parse().unwrap());
-static STARTER_KEYPAIR: Lazy<KeyPair> = Lazy::new(|| KeyPair::random());
+static STARTER_KEYPAIR: Lazy<KeyPair> = Lazy::new(KeyPair::random);
 static STARTER_ID: Lazy<AccountId> =
     Lazy::new(|| AccountId::new(STARTER_DOMAIN.clone(), STARTER_KEYPAIR.public_key().clone()));
 

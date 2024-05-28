@@ -1217,7 +1217,7 @@ mod tests {
         let mut payload = signed.payload().clone();
         f(&mut payload);
 
-        SignedBlock::V1(SignedBlockV1::new(payload, &key_pair))
+        SignedBlock::V1(SignedBlockV1::new(payload, key_pair))
     }
 
     fn create_data_for_test(

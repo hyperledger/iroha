@@ -693,19 +693,19 @@ pub mod string {
             fn account_id() {
                 let alice: PublicKey = KeyPair::random().into_parts().0;
                 let id = IdBox::AccountId(format!("{alice}@wonderland").parse().expect("Valid"));
-                assert!(StringPredicate::starts_with(&*format!("{alice}@")).applies(&id));
+                assert!(StringPredicate::starts_with(&format!("{alice}@")).applies(&id));
                 assert!(StringPredicate::ends_with("@wonderland").applies(&id));
-                assert!(StringPredicate::is(&*format!("{alice}@wonderland")).applies(&id));
+                assert!(StringPredicate::is(&format!("{alice}@wonderland")).applies(&id));
                 // Should we also include a check into string
                 // predicates? If the internal predicate starts with
                 // whitespace, it can't possibly match any Id, but
                 // there's no way to enforce this at both type level
                 // and run-time.
-                assert!(!StringPredicate::starts_with(&*format!(" {alice}@")).applies(&id));
+                assert!(!StringPredicate::starts_with(&format!(" {alice}@")).applies(&id));
                 assert!(!StringPredicate::ends_with("@wonderland ").applies(&id));
-                assert!(!StringPredicate::is(&*format!("{alice}@@wonderland ")).applies(&id));
+                assert!(!StringPredicate::is(&format!("{alice}@@wonderland ")).applies(&id));
                 assert!(!StringPredicate::contains("#").applies(&id));
-                assert!(!StringPredicate::is(&*format!("{alice}#wonderland")).applies(&id));
+                assert!(!StringPredicate::is(&format!("{alice}#wonderland")).applies(&id));
             }
 
             #[test]
@@ -714,9 +714,9 @@ pub mod string {
                 let id =
                     IdBox::AssetId(format!("rose##{alice}@wonderland").parse().expect("Valid"));
                 assert!(StringPredicate::starts_with("rose##").applies(&id));
-                assert!(StringPredicate::ends_with(&*format!("#{alice}@wonderland")).applies(&id));
-                assert!(StringPredicate::is(&*format!("rose##{alice}@wonderland")).applies(&id));
-                assert!(StringPredicate::contains(&*format!("#{alice}@")).applies(&id));
+                assert!(StringPredicate::ends_with(&format!("#{alice}@wonderland")).applies(&id));
+                assert!(StringPredicate::is(&format!("rose##{alice}@wonderland")).applies(&id));
+                assert!(StringPredicate::contains(&format!("#{alice}@")).applies(&id));
             }
 
             #[test]
@@ -1241,7 +1241,7 @@ pub mod value {
             let alice_id: AccountId = format!("{alice}@wonderland").parse().expect("Valid");
             {
                 let pred = QueryOutputPredicate::Identifiable(string::StringPredicate::is(
-                    &*alice_id.to_string(),
+                    &alice_id.to_string(),
                 ));
                 println!("{pred:?}");
                 assert!(pred.applies(&QueryOutputBox::Id(IdBox::AccountId(alice_id.clone()))));
@@ -1265,7 +1265,7 @@ pub mod value {
             }
             {
                 let pred = QueryOutputPredicate::Display(string::StringPredicate::is(
-                    &*alice_id.to_string(),
+                    &alice_id.to_string(),
                 ));
                 println!("{pred:?}");
 
