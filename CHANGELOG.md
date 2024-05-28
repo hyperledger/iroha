@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.0.0-pre-rc.21.4] - 2024-05-28
+
+### Changed
+
+- improve deserialization error message
+
 ## [2.0.0-pre-rc.21.3] - 2024-05-08
 
 ### Fixed
