@@ -49,7 +49,7 @@ pub mod error {
         Serde,
         /// Parity SCALE (de)serialization issue
         #[cfg(feature = "scale")]
-        ParityScale,
+        ParityScale(String),
         /// Problem with parsing integers
         ParseInt,
         /// Input version unsupported
@@ -67,8 +67,13 @@ pub mod error {
 
     #[cfg(feature = "scale")]
     impl From<parity_scale_codec::Error> for Error {
-        fn from(_: parity_scale_codec::Error) -> Self {
-            Self::ParityScale
+        fn from(x: parity_scale_codec::Error) -> Self {
+            #[cfg(not(feature = "std"))]
+            use alloc::string::ToString as _;
+            #[cfg(feature = "std")]
+            use std::string::ToString as _;
+
+            Self::ParityScale(x.to_string())
         }
     }
 
@@ -92,7 +97,7 @@ pub mod error {
                 #[cfg(feature = "json")]
                 Self::Serde => "JSON (de)serialization issue".to_owned(),
                 #[cfg(feature = "scale")]
-                Self::ParityScale => "Parity SCALE (de)serialization issue".to_owned(),
+                Self::ParityScale(x) => format!("Parity SCALE (de)serialization issue: {x}"),
                 Self::ParseInt => "Issue with parsing integers".to_owned(),
                 Self::UnsupportedVersion(v) => {
                     format!("Input version {} is unsupported", v.version)
