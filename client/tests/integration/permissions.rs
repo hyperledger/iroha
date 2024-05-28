@@ -6,7 +6,7 @@ use iroha::{
     crypto::KeyPair,
     data_model::{
         permission::Permission, prelude::*, role::RoleId,
-        transaction::error::TransactionRejectionReason, JsonString,
+        transaction::error::TransactionRejectionReason,
     },
 };
 use iroha_genesis::GenesisBlock;
@@ -251,7 +251,7 @@ fn permissions_differ_not_only_by_names() {
         .submit_blocking(SetKeyValue::asset(
             mouse_hat_id,
             Name::from_str("color").expect("Valid"),
-            "red".to_owned(),
+            "red".parse::<JsonString>().expect("Valid"),
         ))
         .expect("Failed to modify Mouse's hats");
 
@@ -260,7 +260,7 @@ fn permissions_differ_not_only_by_names() {
     let set_shoes_color = SetKeyValue::asset(
         mouse_shoes_id.clone(),
         Name::from_str("color").expect("Valid"),
-        "yellow".to_owned(),
+        "yellow".parse::<JsonString>().expect("Valid"),
     );
     let _err = client
         .submit_blocking(set_shoes_color.clone())
@@ -315,16 +315,15 @@ fn stored_vs_granted_token_payload() -> Result<()> {
         .expect("Failed to register mouse");
 
     // Allow alice to mint mouse asset and mint initial value
+    let value_json = JsonString::from_string_unchecked(format!(
+        // Introducing some whitespaces
+        // This way, if the executor compares just JSON strings, this test would fail
+        r##"{{ "asset"   :   "xor#wonderland#{mouse_id}" }}"##
+    ));
+
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission(
-        Permission::new(
-            "CanSetKeyValueInUserAsset".parse().unwrap(),
-            JsonString::from_string_unchecked(format!(
-                // Introducing some whitespaces
-                // This way, if the executor compares just JSON strings, this test would fail
-                r##"{{ "asset"   :   "xor#wonderland#{mouse_id}" }}"##
-            )),
-        ),
+        Permission::new("CanSetKeyValueInUserAsset".parse().unwrap(), value_json),
         alice_id,
     );
 
@@ -336,7 +335,11 @@ fn stored_vs_granted_token_payload() -> Result<()> {
         .expect("Failed to grant permission to alice.");
 
     // Check that alice can indeed mint mouse asset
-    let set_key_value = SetKeyValue::asset(mouse_asset, Name::from_str("color")?, "red".to_owned());
+    let set_key_value = SetKeyValue::asset(
+        mouse_asset,
+        Name::from_str("color")?,
+        "red".parse::<JsonString>().expect("Valid"),
+    );
     iroha
         .submit_blocking(set_key_value)
         .expect("Failed to mint asset for mouse.");

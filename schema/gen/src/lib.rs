@@ -92,7 +92,7 @@ types!(
     BTreeMap<AssetDefinitionId, AssetDefinition>,
     BTreeMap<AssetDefinitionId, Numeric>,
     BTreeMap<AssetDefinitionId, Asset>,
-    BTreeMap<Name, MetadataValueBox>,
+    BTreeMap<Name, JsonString>,
     BTreeSet<Permission>,
     BTreeSet<PermissionId>,
     BatchedResponse<QueryOutputBox>,
@@ -209,6 +209,7 @@ types!(
     IpfsPath,
     Ipv4Addr,
     Ipv6Addr,
+    JsonString,
     LengthLimits,
     Level,
     Log,
@@ -222,7 +223,6 @@ types!(
     MetadataChanged<TriggerId>,
     MetadataError,
     MetadataLimits,
-    MetadataValueBox,
     Mint<u32, Trigger>,
     Mint<Numeric, Asset>,
     MintBox,
@@ -384,7 +384,7 @@ types!(
     Vec<EventBox>,
     Vec<EventFilterBox>,
     Vec<InstructionBox>,
-    Vec<MetadataValueBox>,
+    Vec<JsonString>,
     Vec<PeerId>,
     Vec<PredicateBox>,
     Vec<QueryOutputBox>,
@@ -431,7 +431,7 @@ pub mod complete_data_model {
             },
             InstructionType,
         },
-        metadata::{MetadataError, MetadataValueBox, SizeError},
+        metadata::{MetadataError, SizeError},
         parameter::ParameterValueBox,
         prelude::*,
         query::{
@@ -448,12 +448,13 @@ pub mod complete_data_model {
             error::TransactionLimitError, SignedTransactionV1, TransactionLimits,
             TransactionPayload, TransactionSignature,
         },
-        BatchedResponse, BatchedResponseV1, JsonString, Level,
+        BatchedResponse, BatchedResponseV1, Level,
     };
     pub use iroha_primitives::{
         addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
         const_vec::ConstVec,
         conststr::ConstString,
+        json::JsonString,
     };
     pub use iroha_schema::Compact;
 }

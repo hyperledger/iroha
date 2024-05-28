@@ -7,13 +7,7 @@ extern crate panic_halt;
 
 extern crate alloc;
 
-use alloc::string::ToString as _;
-
-use iroha_smart_contract::{
-    data_model::{metadata::MetadataValueBox, query::cursor::ForwardCursor},
-    parse,
-    prelude::*,
-};
+use iroha_smart_contract::{data_model::query::cursor::ForwardCursor, parse, prelude::*};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 use nonzero_ext::nonzero;
 use parity_scale_codec::{Decode, DecodeAll, Encode};
@@ -47,11 +41,7 @@ fn main(owner: AccountId) {
     SetKeyValue::account(
         owner,
         parse!(Name, "cursor"),
-        MetadataValueBox::String(
-            serde_json::to_value(&asset_cursor.cursor)
-                .dbg_expect("Failed to convert cursor to JSON")
-                .to_string(),
-        ),
+        JsonString::new(asset_cursor.cursor),
     )
     .execute()
     .dbg_expect("Failed to save cursor to the owner's metadata");

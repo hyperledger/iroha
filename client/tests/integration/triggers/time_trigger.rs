@@ -1,4 +1,4 @@
-use std::{str::FromStr as _, time::Duration};
+use std::time::Duration;
 
 use eyre::Result;
 use iroha::{
@@ -101,12 +101,14 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
 
 #[test]
 fn mint_asset_after_3_sec() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_660).start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_665).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     // Sleep to certainly bypass time interval analyzed by genesis
     std::thread::sleep(DEFAULT_CONSENSUS_ESTIMATION);
 
-    let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
+    let asset_definition_id = "rose#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
 
@@ -189,7 +191,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
         let sample_isi = SetKeyValue::account(
             account_id.clone(),
             "key".parse::<Name>()?,
-            String::from("value"),
+            "value".parse::<JsonString>()?,
         );
         test_client.submit(sample_isi)?;
     }
@@ -199,6 +201,19 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 
 #[test]
 fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
+    // Building trigger
+    info!("Building trigger");
+
+    let wasm = iroha_wasm_builder::Builder::new(
+        "tests/integration/smartcontracts/create_nft_for_every_user_trigger",
+    )
+    .show_output()
+    .build()?
+    .optimize()?
+    .into_bytes()?;
+
+    info!("WASM size is {} bytes", wasm.len());
+
     const TRIGGER_PERIOD: Duration = Duration::from_millis(1000);
     const EXPECTED_COUNT: u64 = 4;
 
@@ -224,19 +239,6 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 
-    // Building trigger
-    info!("Building trigger");
-
-    let wasm = iroha_wasm_builder::Builder::new(
-        "tests/integration/smartcontracts/create_nft_for_every_user_trigger",
-    )
-    .show_output()
-    .build()?
-    .optimize()?
-    .into_bytes()?;
-
-    info!("WASM size is {} bytes", wasm.len());
-
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
 
@@ -245,13 +247,15 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let offset = Duration::from_secs(10);
     let start_time = curr_time() + offset;
     let schedule = TimeSchedule::starting_at(start_time).with_period(TRIGGER_PERIOD);
+
+    let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
     let register_trigger = Register::trigger(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(
             WasmSmartContract::from_compiled(wasm),
             Repeats::Indefinitely,
             alice_id.clone(),
-            TimeEventFilter::new(ExecutionTime::Schedule(schedule)),
+            filter,
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -325,7 +329,7 @@ fn submit_sample_isi_on_every_block_commit(
         let sample_isi = SetKeyValue::account(
             account_id.clone(),
             "key".parse::<Name>()?,
-            String::from("value"),
+            JsonString::new("value"),
         );
         test_client.submit(sample_isi)?;
     }

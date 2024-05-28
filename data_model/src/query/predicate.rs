@@ -473,8 +473,9 @@ impl Default for PredicateBox {
 
 #[cfg(test)]
 pub mod test {
+    use iroha_primitives::json::JsonString;
+
     use super::{value, PredicateBox, PredicateSymbol, PredicateTrait as _};
-    use crate::metadata::MetadataValueBox;
 
     #[test]
     fn boolean_predicate_symbol_conformity() {
@@ -485,8 +486,8 @@ pub mod test {
     fn pass() {
         let t = PredicateBox::new(value::QueryOutputPredicate::Pass);
         let f = t.clone().negate();
-        let v_t = MetadataValueBox::from(true).into();
-        let v_f = MetadataValueBox::from(false).into();
+        let v_t = JsonString::from(true).into();
+        let v_f = JsonString::from(false).into();
         println!("t: {t:?}, f: {f:?}");
 
         assert!(t.applies(&v_t));
@@ -499,7 +500,7 @@ pub mod test {
     fn truth_table() {
         let t = PredicateBox::new(value::QueryOutputPredicate::Pass);
         let f = t.clone().negate();
-        let v = MetadataValueBox::from(true).into();
+        let v = JsonString::from(true).into();
 
         assert!(!PredicateBox::and(t.clone(), f.clone()).applies(&v));
         assert!(PredicateBox::and(t.clone(), t.clone()).applies(&v));
@@ -1231,7 +1232,7 @@ pub mod value {
         use crate::{
             account::{Account, AccountId},
             domain::{Domain, DomainId},
-            metadata::{Metadata, MetadataValueBox},
+            metadata::Metadata,
             peer::{Peer, PeerId},
         };
 
@@ -1239,6 +1240,7 @@ pub mod value {
         fn typing() {
             let alice: PublicKey = KeyPair::random().into_parts().0;
             let alice_id: AccountId = format!("{alice}@wonderland").parse().expect("Valid");
+            let alice_json: JsonString = JsonString::new(alice_id.to_string());
             {
                 let pred = QueryOutputPredicate::Identifiable(string::StringPredicate::is(
                     &alice_id.to_string(),
@@ -1250,18 +1252,18 @@ pub mod value {
                         Account::new(alice_id.clone())
                     )))
                 );
-                assert!(!pred.applies(&MetadataValueBox::from(alice_id.to_string()).into()));
+                assert!(!pred.applies(&alice_json.clone().into()));
                 assert!(!pred.applies(&QueryOutputBox::Vec(Vec::new())));
             }
             {
                 let pred = QueryOutputPredicate::Pass;
                 println!("{pred:?}");
-                assert!(pred.applies(&MetadataValueBox::from(alice_id.to_string()).into()));
+                assert!(pred.applies(&alice_json.clone().into()));
             }
             {
                 let pred = QueryOutputPredicate::TimeStamp(numerical::SemiInterval::starting(0));
                 println!("{pred:?}");
-                assert!(!pred.applies(&MetadataValueBox::from(alice_id.to_string()).into()));
+                assert!(!pred.applies(&alice_json.clone().into()));
             }
             {
                 let pred = QueryOutputPredicate::Display(string::StringPredicate::is(
@@ -1281,7 +1283,8 @@ pub mod value {
             let pred = QueryOutputPredicate::Numerical(numerical::SemiRange::Numeric(
                 (numeric!(0), numeric!(42)).into(),
             ));
-            assert!(!pred.applies(&MetadataValueBox::from(alice_id.to_string()).into()));
+
+            assert!(!pred.applies(&alice_json.into()));
             assert!(pred.applies(&numeric!(41).into()));
         }
 

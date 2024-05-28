@@ -246,10 +246,8 @@ impl LiveQueryStoreHandle {
 
 #[cfg(test)]
 mod tests {
-    use iroha_data_model::{
-        metadata::MetadataValueBox,
-        query::{predicate::PredicateBox, FetchSize, Pagination, Sorting},
-    };
+    use iroha_data_model::query::{predicate::PredicateBox, FetchSize, Pagination, Sorting};
+    use iroha_primitives::json::JsonString;
     use nonzero_ext::nonzero;
 
     use super::*;
@@ -269,9 +267,8 @@ mod tests {
             };
             let sorting = Sorting::default();
 
-            let query_output = LazyQueryOutput::Iter(Box::new(
-                (0..100).map(|_| MetadataValueBox::from(false).into()),
-            ));
+            let query_output =
+                LazyQueryOutput::Iter(Box::new((0..100).map(|_| JsonString::from(false).into())));
 
             let mut counter = 0;
 

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 
 pub use self::{model::*, transparent::*};
-use super::{metadata::MetadataValueBox, prelude::*};
+use super::prelude::*;
 use crate::{seal, Level, Registered};
 
 /// Marker trait designating instruction.
@@ -189,8 +189,10 @@ impl Instruction for InstructionBox {
 }
 
 mod transparent {
+    use iroha_primitives::json::JsonString;
+
     use super::*;
-    use crate::{account::NewAccount, domain::NewDomain, metadata::Metadata, JsonString};
+    use crate::{account::NewAccount, domain::NewDomain, metadata::Metadata};
 
     macro_rules! isi {
         ($($meta:meta)* $item:item) => {
@@ -284,13 +286,13 @@ mod transparent {
             /// Key.
             pub key: Name,
             /// Value.
-            pub value: MetadataValueBox,
+            pub value: JsonString,
         }
     }
 
     impl SetKeyValue<Domain> {
         /// Constructs a new [`SetKeyValue`] for a [`Domain`] with the given `key` and `value`.
-        pub fn domain(domain_id: DomainId, key: Name, value: impl Into<MetadataValueBox>) -> Self {
+        pub fn domain(domain_id: DomainId, key: Name, value: impl Into<JsonString>) -> Self {
             Self {
                 object: domain_id,
                 key,
@@ -301,11 +303,7 @@ mod transparent {
 
     impl SetKeyValue<Account> {
         /// Constructs a new [`SetKeyValue`] for an [`Account`] with the given `key` and `value`.
-        pub fn account(
-            account_id: AccountId,
-            key: Name,
-            value: impl Into<MetadataValueBox>,
-        ) -> Self {
+        pub fn account(account_id: AccountId, key: Name, value: impl Into<JsonString>) -> Self {
             Self {
                 object: account_id,
                 key,
@@ -319,7 +317,7 @@ mod transparent {
         pub fn asset_definition(
             asset_definition_id: AssetDefinitionId,
             key: Name,
-            value: impl Into<MetadataValueBox>,
+            value: impl Into<JsonString>,
         ) -> Self {
             Self {
                 object: asset_definition_id,
@@ -331,7 +329,7 @@ mod transparent {
 
     impl SetKeyValue<Asset> {
         /// Constructs a new [`SetKeyValue`] for an [`Asset`] with the given `key` and `value`.
-        pub fn asset(asset_id: AssetId, key: Name, value: impl Into<MetadataValueBox>) -> Self {
+        pub fn asset(asset_id: AssetId, key: Name, value: impl Into<JsonString>) -> Self {
             Self {
                 object: asset_id,
                 key,
@@ -342,11 +340,7 @@ mod transparent {
 
     impl SetKeyValue<Trigger> {
         /// Constructs a new [`SetKeyValue`] for a [`Trigger`] with the given `key` and `value`.
-        pub fn trigger(
-            trigger_id: TriggerId,
-            key: Name,
-            value: impl Into<MetadataValueBox>,
-        ) -> Self {
+        pub fn trigger(trigger_id: TriggerId, key: Name, value: impl Into<JsonString>) -> Self {
             Self {
                 object: trigger_id,
                 key,

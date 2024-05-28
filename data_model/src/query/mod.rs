@@ -15,7 +15,7 @@ pub use cursor::ForwardCursor;
 use derive_more::{Constructor, Display};
 use iroha_crypto::{PublicKey, SignatureOf};
 use iroha_data_model_derive::{model, EnumRef};
-use iroha_primitives::{numeric::Numeric, small::SmallVec};
+use iroha_primitives::{json::JsonString, numeric::Numeric, small::SmallVec};
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
 use nonzero_ext::nonzero;
@@ -33,7 +33,6 @@ use crate::{
     account::{Account, AccountId},
     block::{BlockHeader, SignedBlock},
     events::TriggeringEventFilterBox,
-    metadata::MetadataValueBox,
     seal,
     transaction::{CommittedTransaction, SignedTransaction, TransactionPayload},
     IdBox, Identifiable, IdentifiableBox,
@@ -231,7 +230,7 @@ mod model {
         Identifiable(IdentifiableBox),
         Transaction(TransactionQueryOutput),
         Permission(crate::permission::Permission),
-        LimitedMetadata(MetadataValueBox),
+        LimitedMetadata(JsonString),
         Numeric(Numeric),
         BlockHeader(BlockHeader),
         Block(crate::block::SignedBlock),
@@ -401,7 +400,7 @@ impl_queries! {
     FindPermissionsByAccountId => Vec<crate::permission::Permission>,
     FindAllAccounts => Vec<crate::account::Account>,
     FindAccountById => crate::account::Account,
-    FindAccountKeyValueByIdAndKey => MetadataValueBox,
+    FindAccountKeyValueByIdAndKey => JsonString,
     FindAccountsByDomainId => Vec<crate::account::Account>,
     FindAccountsWithAsset => Vec<crate::account::Account>,
     FindAllAssets => Vec<crate::asset::Asset>,
@@ -415,16 +414,16 @@ impl_queries! {
     FindAssetsByDomainIdAndAssetDefinitionId => Vec<crate::asset::Asset>,
     FindAssetQuantityById => Numeric,
     FindTotalAssetQuantityByAssetDefinitionId => Numeric,
-    FindAssetKeyValueByIdAndKey => MetadataValueBox,
-    FindAssetDefinitionKeyValueByIdAndKey => MetadataValueBox,
+    FindAssetKeyValueByIdAndKey => JsonString,
+    FindAssetDefinitionKeyValueByIdAndKey => JsonString,
     FindAllDomains => Vec<crate::domain::Domain>,
     FindDomainById => crate::domain::Domain,
-    FindDomainKeyValueByIdAndKey => MetadataValueBox,
+    FindDomainKeyValueByIdAndKey => JsonString,
     FindAllPeers => Vec<crate::peer::Peer>,
     FindAllParameters => Vec<crate::parameter::Parameter>,
     FindAllActiveTriggerIds => Vec<crate::trigger::TriggerId>,
     FindTriggerById => crate::trigger::Trigger,
-    FindTriggerKeyValueByIdAndKey => MetadataValueBox,
+    FindTriggerKeyValueByIdAndKey => JsonString,
     FindTriggersByAuthorityId => Vec<crate::trigger::Trigger>,
     FindTriggersByAuthorityDomainId => Vec<crate::trigger::Trigger>,
     FindAllTransactions => Vec<TransactionQueryOutput>,
@@ -692,7 +691,7 @@ pub mod account {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{MetadataValueBox, Query, QueryType};
+    use super::{JsonString, Query, QueryType};
     use crate::prelude::*;
 
     queries! {
@@ -772,7 +771,7 @@ pub mod asset {
     use iroha_primitives::numeric::Numeric;
     use parity_scale_codec::Encode;
 
-    use super::{MetadataValueBox, Query, QueryType};
+    use super::{JsonString, Query, QueryType};
     use crate::prelude::*;
 
     queries! {
@@ -945,7 +944,7 @@ pub mod domain {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{MetadataValueBox, Query, QueryType};
+    use super::{JsonString, Query, QueryType};
     use crate::prelude::*;
 
     queries! {
@@ -1046,7 +1045,7 @@ pub mod trigger {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{MetadataValueBox, Query, QueryType};
+    use super::{JsonString, Query, QueryType};
     use crate::{
         account::AccountId,
         domain::prelude::*,

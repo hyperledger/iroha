@@ -6,8 +6,7 @@ use alloc::{format, string::String, vec::Vec};
 use iroha_data_model::{
     asset::AssetDefinitionId,
     isi::{Custom, InstructionBox},
-    prelude::Numeric,
-    JsonString,
+    prelude::{JsonString, Numeric},
 };
 use iroha_schema::IntoSchema;
 use serde::{Deserialize, Serialize};

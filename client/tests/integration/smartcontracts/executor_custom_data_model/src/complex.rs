@@ -12,7 +12,7 @@ mod isi {
 
     use iroha_data_model::{
         isi::{Custom, InstructionBox},
-        JsonString,
+        prelude::JsonString,
     };
     use iroha_schema::IntoSchema;
     use serde::{Deserialize, Serialize};
