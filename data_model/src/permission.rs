@@ -77,7 +77,7 @@ pub mod model {
 
     /// String containing serialized valid JSON.
     /// This string is guaranteed to parse as JSON
-    #[derive(Debug, Clone, Eq, Encode, Decode)]
+    #[derive(Debug, Clone, Eq, Decode, Encode)]
     pub struct StringWithJson(pub(super) String);
 }
 
@@ -142,6 +142,7 @@ impl StringWithJson {
         Self(payload.to_string())
     }
 }
+
 impl PartialEq for StringWithJson {
     fn eq(&self, other: &Self) -> bool {
         serde_json::from_str::<serde_json::Value>(&self.0).unwrap()
@@ -195,7 +196,10 @@ impl PartialOrd for StringWithJson {
 
 impl Ord for StringWithJson {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.0.cmp(&other.0)
+        let first = serde_json::from_str::<serde_json::Value>(&self.0).unwrap();
+        let second = serde_json::from_str::<serde_json::Value>(&other.0).unwrap();
+
+        first.to_string().cmp(&second.to_string())
     }
 }
 

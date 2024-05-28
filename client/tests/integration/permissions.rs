@@ -317,23 +317,56 @@ fn stored_vs_granted_token_payload() -> Result<()> {
             // NOTE: Introduced additional whitespaces in the serialized form
             "{ \"asset_id\" : \"xor#wonderland#mouse@wonderland\" }",
         ),
-        alice_id,
+        alice_id.clone(),
     );
 
-    let transaction = TransactionBuilder::new(mouse_id)
+    let transaction = TransactionBuilder::new(mouse_id.clone())
         .with_instructions([allow_alice_to_set_key_value_in_mouse_asset])
-        .sign(mouse_keypair)
+        .sign(mouse_keypair.clone())
         .expect("Failed to sign mouse transaction");
     iroha_client
         .submit_transaction_blocking(&transaction)
         .expect("Failed to grant permission to alice.");
 
+    let allow_alice_to_set_key_value_in_mouse_asset_duplicate = GrantExpr::new(
+        PermissionToken::new(
+            "CanSetKeyValueInUserAsset".parse().unwrap(),
+            &json!({ "asset_id": "xor#wonderland#mouse@wonderland" }),
+        ),
+        alice_id.clone(),
+    );
+    let transaction = TransactionBuilder::new(mouse_id.clone())
+        .with_instructions([allow_alice_to_set_key_value_in_mouse_asset_duplicate])
+        .sign(mouse_keypair.clone())
+        .expect("Failed to sign mouse transaction");
+    assert!(iroha_client
+        .submit_transaction_blocking(&transaction)
+        .is_err());
+
     // Check that alice can indeed mint mouse asset
-    let set_key_value =
-        SetKeyValueExpr::new(mouse_asset, Name::from_str("color")?, "red".to_owned());
+    let set_key_value = SetKeyValueExpr::new(
+        mouse_asset.clone(),
+        Name::from_str("color")?,
+        "red".to_owned(),
+    );
     iroha_client
         .submit_blocking(set_key_value)
         .expect("Failed to mint asset for mouse.");
+
+    let disallow_alice_to_set_key_value_in_mouse_asset = RevokeExpr::new(
+        PermissionToken::new(
+            "CanSetKeyValueInUserAsset".parse().unwrap(),
+            &json!({ "asset_id": "xor#wonderland#mouse@wonderland" }),
+        ),
+        alice_id,
+    );
+    let transaction = TransactionBuilder::new(mouse_id)
+        .with_instructions([disallow_alice_to_set_key_value_in_mouse_asset])
+        .sign(mouse_keypair)
+        .expect("Failed to sign mouse transaction");
+    iroha_client
+        .submit_transaction_blocking(&transaction)
+        .expect("Failed to revoke permission from alice.");
 
     Ok(())
 }
