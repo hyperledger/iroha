@@ -122,7 +122,7 @@ tracing-subscriber = { version = "0.3.18", default-features = false }
 dashmap = "5.5.3"
 rustc-hash = "1.1.0"
 
-serde = { version = "1.0.202", default-features = false }
+serde = { version = "1.0.203", default-features = false }
 serde_json = { version = "1.0.117", default-features = false }
 serde_yaml = "0.9.34"
 serde_with = { version = "3.8.1", default-features = false }
