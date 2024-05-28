@@ -5,9 +5,9 @@
 extern crate alloc;
 extern crate self as iroha_executor;
 
-use alloc::vec::Vec;
+use alloc::collections::BTreeSet;
 
-use data_model::{executor::Result, permission::PermissionId, ValidationFail};
+use data_model::{executor::Result, ValidationFail};
 #[cfg(not(test))]
 use data_model::{prelude::*, smart_contract::payloads};
 pub use iroha_schema::MetaMap;
@@ -78,7 +78,7 @@ pub fn get_migrate_payload() -> payloads::Migrate {
     unsafe { decode_with_length_prefix_from_raw(host::get_migrate_payload()) }
 }
 
-/// Set new [`PermissionSchema`].
+/// Set new [`ExecutorDataModel`].
 ///
 /// # Errors
 ///
@@ -89,9 +89,9 @@ pub fn get_migrate_payload() -> payloads::Migrate {
 /// Host side will generate a trap if this function was not called from a
 /// executor's `migrate()` entrypoint.
 #[cfg(not(test))]
-pub fn set_permission_schema(schema: &data_model::permission::PermissionSchema) {
+pub fn set_data_model(data_model: &ExecutorDataModel) {
     // Safety: - ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { encode_and_execute(&schema, host::set_permission_schema) }
+    unsafe { encode_and_execute(&data_model, host::set_data_model) }
 }
 
 #[cfg(not(test))]
@@ -126,8 +126,8 @@ mod host {
         /// This function does transfer ownership of the result to the caller
         pub(super) fn get_migrate_payload() -> *const u8;
 
-        /// Set new [`PermissionSchema`].
-        pub(super) fn set_permission_schema(ptr: *const u8, len: usize);
+        /// Set new [`ExecutorDataModel`].
+        pub(super) fn set_data_model(ptr: *const u8, len: usize);
     }
 }
 
@@ -172,35 +172,77 @@ macro_rules! deny {
     }};
 }
 
-/// Collection of all permission tokens defined by the executor
-#[derive(Debug, Clone, Default)]
-pub struct PermissionSchema(Vec<PermissionId>, MetaMap);
+/// An error that might occur while converting a data model object (with id and payload)
+/// into a native executor type.
+///
+/// Such objects are [`data_model::prelude::Permission`] and [`data_model::prelude::Parameter`].
+#[derive(Debug)]
+pub enum TryFromDataModelObjectError {
+    /// Unexpected object id
+    Id(data_model::prelude::Name),
+    /// Failed to deserialize object payload
+    Deserialize(serde_json::Error),
+}
 
-impl PermissionSchema {
-    /// Remove permission token from this collection
-    pub fn remove<T: permission::Token>(&mut self) {
-        let to_remove = <T as permission::Token>::name();
+/// A convenience to build [`ExecutorDataModel`] from within the executor
+#[derive(Debug, Clone)]
+pub struct DataModelBuilder {
+    schema: MetaMap,
+    permissions: BTreeSet<prelude::PermissionId>,
+}
 
-        if let Some(pos) = self.0.iter().position(|token_id| *token_id == to_remove) {
-            self.0.remove(pos);
-            <T as iroha_schema::IntoSchema>::remove_from_schema(&mut self.1);
+impl DataModelBuilder {
+    /// Constructor
+    // we don't need to confuse with `with_default_permissions`
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {
+            schema: <_>::default(),
+            permissions: <_>::default(),
         }
     }
 
-    /// Insert new permission token into this collection
-    pub fn insert<T: permission::Token>(&mut self) {
-        <T as iroha_schema::IntoSchema>::update_schema_map(&mut self.1);
-        self.0.push(<T as permission::Token>::name());
+    /// Creates a data model with default permissions preset (defined in [`default::permissions`])
+    #[must_use]
+    pub fn with_default_permissions() -> Self {
+        let mut builder = Self::new();
+
+        macro_rules! add_to_schema {
+            ($token_ty:ty) => {
+                builder = builder.add_permission::<$token_ty>();
+            };
+        }
+
+        default::permissions::map_default_permissions!(add_to_schema);
+
+        builder
     }
 
-    /// Serializes schema into a JSON string representation
-    pub fn serialize(mut self) -> (Vec<PermissionId>, alloc::string::String) {
-        self.0.sort();
+    /// Define a permission in the data model
+    #[must_use]
+    pub fn add_permission<T: permission::Permission>(mut self) -> Self {
+        <T as iroha_schema::IntoSchema>::update_schema_map(&mut self.schema);
+        self.permissions.insert(<T as permission::Permission>::id());
+        self
+    }
 
-        (
-            self.0,
-            serde_json::to_string(&self.1).expect("schema serialization must not fail"),
-        )
+    /// Remove a permission from the data model
+    #[must_use]
+    pub fn remove_permission<T: permission::Permission>(mut self) -> Self {
+        <T as iroha_schema::IntoSchema>::remove_from_schema(&mut self.schema);
+        self.permissions
+            .remove(&<T as permission::Permission>::id());
+        self
+    }
+
+    /// Set the data model of the executor via [`set_data_model`]
+    #[cfg(not(test))]
+    pub fn set(self) {
+        set_data_model(&ExecutorDataModel::new(
+            self.permissions,
+            data_model::JsonString::serialize(&self.schema)
+                .expect("schema serialization must not fail"),
+        ))
     }
 }
 
@@ -222,7 +264,8 @@ pub mod prelude {
     pub use alloc::vec::Vec;
 
     pub use iroha_executor_derive::{
-        entrypoint, Constructor, Token, Validate, ValidateEntrypoints, ValidateGrantRevoke, Visit,
+        entrypoint, Constructor, Permission, Validate, ValidateEntrypoints, ValidateGrantRevoke,
+        Visit,
     };
     pub use iroha_smart_contract::prelude::*;
 
@@ -232,6 +275,8 @@ pub mod prelude {
             visit::Visit,
             ValidationFail,
         },
-        deny, execute, PermissionSchema, Validate,
+        deny, execute,
+        permission::Permission as PermissionTrait,
+        DataModelBuilder, Validate,
     };
 }

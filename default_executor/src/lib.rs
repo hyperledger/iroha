@@ -8,7 +8,7 @@ extern crate panic_halt;
 
 use alloc::borrow::ToOwned as _;
 
-use iroha_executor::{default::default_permission_schema, prelude::*};
+use iroha_executor::{prelude::*, DataModelBuilder};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
@@ -52,11 +52,7 @@ impl Executor {
 pub fn migrate(block_height: u64) -> MigrationResult {
     Executor::ensure_genesis(block_height)?;
 
-    let schema = default_permission_schema();
-    let (token_ids, schema_str) = schema.serialize();
-    iroha_executor::set_permission_schema(
-        &iroha_executor::data_model::permission::PermissionSchema::new(token_ids, schema_str),
-    );
+    DataModelBuilder::with_default_permissions().set();
 
     Ok(())
 }

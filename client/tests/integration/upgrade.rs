@@ -76,8 +76,8 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     let can_unregister_domain_token_id = "CanUnregisterDomain".parse().unwrap();
 
     // Check that `CanUnregisterDomain` exists
-    let definitions = client.request(FindPermissionSchema)?;
-    assert!(definitions
+    let data_model = client.request(FindExecutorDataModel)?;
+    assert!(data_model
         .permissions()
         .iter()
         .any(|id| id == &can_unregister_domain_token_id));
@@ -99,15 +99,15 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     )?;
 
     // Check that `CanUnregisterDomain` doesn't exist
-    let definitions = client.request(FindPermissionSchema)?;
-    assert!(!definitions
+    let data_model = client.request(FindExecutorDataModel)?;
+    assert!(!data_model
         .permissions()
         .iter()
         .any(|id| id == &can_unregister_domain_token_id));
 
     let can_control_domain_lives_token_id = "CanControlDomainLives".parse().unwrap();
 
-    assert!(definitions
+    assert!(data_model
         .permissions()
         .iter()
         .any(|id| id == &can_control_domain_lives_token_id));
@@ -144,9 +144,9 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that permission exists
     assert!(client
-        .request(FindPermissionSchema)?
+        .request(FindExecutorDataModel)?
         .permissions()
-        .contains(&can_unregister_domain_token.definition_id));
+        .contains(&can_unregister_domain_token.id));
 
     // Check that `TEST_ROLE` has permission
     assert!(client
@@ -172,9 +172,9 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that permission doesn't exist
     assert!(!client
-        .request(FindPermissionSchema)?
+        .request(FindExecutorDataModel)?
         .permissions()
-        .contains(&can_unregister_domain_token.definition_id));
+        .contains(&can_unregister_domain_token.id));
 
     // Check that `TEST_ROLE` doesn't have permission
     assert!(!client

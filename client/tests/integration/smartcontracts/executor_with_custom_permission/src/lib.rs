@@ -3,9 +3,9 @@
 //!
 //! This executor should be applied on top of the blockchain with default validation.
 //!
-//! It also doesn't have [`iroha_executor::default::tokens::domain::CanUnregisterDomain`].
+//! It also doesn't have [`iroha_executor::default::permissions::domain::CanUnregisterDomain`].
 //!
-//! In migration it replaces [`iroha_executor::default::tokens::domain::CanUnregisterDomain`]
+//! In migration it replaces [`iroha_executor::default::permissions::domain::CanUnregisterDomain`]
 //! with [`token::CanControlDomainLives`] for all accounts.
 //! So it doesn't matter which domain user was able to unregister before migration, they will
 //! get access to control all domains. Remember that this is just a test example.
@@ -16,10 +16,10 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use alloc::{borrow::ToOwned, string::String};
+use alloc::string::String;
 
 use anyhow::anyhow;
-use iroha_executor::{default::default_permission_schema, permission::Token as _, prelude::*};
+use iroha_executor::{prelude::*, DataModelBuilder};
 use iroha_schema::IntoSchema;
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 use parity_scale_codec::{Decode, Encode};
@@ -42,7 +42,7 @@ mod token {
     #[derive(
         PartialEq,
         Eq,
-        Token,
+        Permission,
         ValidateGrantRevoke,
         Decode,
         Encode,
@@ -95,7 +95,9 @@ impl Executor {
                 })?;
 
                 if let Ok(can_unregister_domain_token) =
-                    iroha_executor::default::tokens::domain::CanUnregisterDomain::try_from(&token)
+                    iroha_executor::default::permissions::domain::CanUnregisterDomain::try_from_object(
+                        &token,
+                    )
                 {
                     found_accounts.push((account, can_unregister_domain_token.domain_id));
                     break;
@@ -107,13 +109,10 @@ impl Executor {
     }
 
     fn replace_token(accounts: &[(Account, DomainId)]) -> MigrationResult {
-        let can_unregister_domain_definition_id = PermissionId::try_from(
-            iroha_executor::default::tokens::domain::CanUnregisterDomain::type_name(),
-        )
-        .unwrap();
+        let can_unregister_domain_definition_id =
+            iroha_executor::default::permissions::domain::CanUnregisterDomain::id();
 
-        let can_control_domain_lives_definition_id =
-            PermissionId::try_from(token::CanControlDomainLives::type_name()).unwrap();
+        let can_control_domain_lives_definition_id = token::CanControlDomainLives::id();
 
         accounts
             .iter()
@@ -199,14 +198,10 @@ fn visit_unregister_domain(
 pub fn migrate(_block_height: u64) -> MigrationResult {
     let accounts = Executor::get_all_accounts_with_can_unregister_domain_permission()?;
 
-    let mut schema = default_permission_schema();
-    schema.remove::<iroha_executor::default::tokens::domain::CanUnregisterDomain>();
-    schema.insert::<token::CanControlDomainLives>();
-
-    let (token_ids, schema_str) = schema.serialize();
-    iroha_executor::set_permission_schema(
-        &iroha_executor::data_model::permission::PermissionSchema::new(token_ids, schema_str),
-    );
+    DataModelBuilder::with_default_permissions()
+        .remove_permission::<iroha_executor::default::permissions::domain::CanUnregisterDomain>()
+        .add_permission::<token::CanControlDomainLives>()
+        .set();
 
     Executor::replace_token(&accounts)
 }

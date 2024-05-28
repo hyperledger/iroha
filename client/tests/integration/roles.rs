@@ -172,20 +172,19 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
 
 #[test]
 #[allow(deprecated)]
-fn role_permissions_unified() {
+fn role_permissions_are_deduplicated() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_235).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let allow_alice_to_transfer_rose_1 = Permission::from_str_unchecked(
+    let allow_alice_to_transfer_rose_1 = Permission::new(
         "CanTransferUserAsset".parse().unwrap(),
-        // NOTE: Introduced additional whitespaces in the serialized form
-        "{ \"asset_id\" : \"rose#wonderland#ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland\" }",
+        json!({ "asset_id": "rose#wonderland#ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland" }),
     );
 
-    let allow_alice_to_transfer_rose_2 = Permission::from_str_unchecked(
+    // Different content, but same meaning
+    let allow_alice_to_transfer_rose_2 = Permission::new(
         "CanTransferUserAsset".parse().unwrap(),
-        // NOTE: Introduced additional whitespaces in the serialized form
-        "{ \"asset_id\" : \"rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland\" }",
+        json!({ "asset_id": "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland" }),
     );
 
     let role_id: RoleId = "role_id".parse().expect("Valid");

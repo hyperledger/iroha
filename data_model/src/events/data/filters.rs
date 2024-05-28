@@ -47,9 +47,6 @@ mod model {
         Trigger(TriggerEventFilter),
         /// Matches [`RoleEvent`]s
         Role(RoleEventFilter),
-        /// Matches [`PermissionSchemaUpdateEvent`]s
-        // nothing to filter for, really
-        PermissionSchemaUpdate,
         /// Matches [`ConfigurationEvent`]s
         Configuration(ConfigurationEventFilter),
         /// Matches [`ExecutorEvent`]s
@@ -706,7 +703,6 @@ impl EventFilter for DataEventFilter {
             (DataEvent::Trigger(event), Trigger(filter)) => filter.matches(event),
             (DataEvent::Role(event), Role(filter)) => filter.matches(event),
             (DataEvent::Configuration(event), Configuration(filter)) => filter.matches(event),
-            (DataEvent::Permission(_), PermissionSchemaUpdate) => true,
             (DataEvent::Executor(event), Executor(filter)) => filter.matches(event),
 
             (
@@ -714,7 +710,6 @@ impl EventFilter for DataEventFilter {
                 | DataEvent::Domain(_)
                 | DataEvent::Trigger(_)
                 | DataEvent::Role(_)
-                | DataEvent::Permission(_)
                 | DataEvent::Configuration(_)
                 | DataEvent::Executor(_),
                 Any,
@@ -724,7 +719,6 @@ impl EventFilter for DataEventFilter {
                 | DataEvent::Domain(_)
                 | DataEvent::Trigger(_)
                 | DataEvent::Role(_)
-                | DataEvent::Permission(_)
                 | DataEvent::Configuration(_)
                 | DataEvent::Executor(_),
                 _,

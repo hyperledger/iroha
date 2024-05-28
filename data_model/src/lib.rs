@@ -154,7 +154,7 @@ mod seal {
         FindTransactionsByAccountId,
         FindTransactionByHash,
         FindPermissionsByAccountId,
-        FindPermissionSchema,
+        FindExecutorDataModel,
         FindAllActiveTriggerIds,
         FindTriggerById,
         FindTriggerKeyValueByIdAndKey,
@@ -617,6 +617,8 @@ pub mod parameter {
 #[model]
 #[allow(clippy::redundant_pub_crate)]
 mod model {
+    use iroha_schema::TypeId;
+
     use super::*;
 
     /// Unique id of blockchain
@@ -863,6 +865,113 @@ mod model {
         /// Index of the next element in the result set. Client will use this value
         /// in the next request to continue fetching results of the original query
         pub cursor: crate::query::cursor::ForwardCursor,
+    }
+
+    /// String containing serialized valid JSON.
+    ///
+    /// This string is guaranteed to be parsed as JSON.
+    #[derive(Display, Default, Debug, Clone, Eq, Encode, Decode, TypeId, Ord, PartialOrd)]
+    #[ffi_type(unsafe {robust})]
+    #[repr(transparent)]
+    #[display(fmt = "{}", "0")]
+    pub struct JsonString(pub(super) String);
+}
+
+/// A helper trait for polymorphism, implemented for various types
+pub trait IntoJsonString {
+    /// Converts self into [`JsonString`]
+    fn into_json_string(self) -> JsonString;
+}
+
+impl IntoJsonString for JsonString {
+    fn into_json_string(self) -> JsonString {
+        self
+    }
+}
+
+impl IntoJsonString for &serde_json::Value {
+    fn into_json_string(self) -> JsonString {
+        JsonString::from(self)
+    }
+}
+
+impl IntoJsonString for serde_json::Value {
+    fn into_json_string(self) -> JsonString {
+        (&self).into_json_string()
+    }
+}
+
+impl JsonString {
+    /// Deserialize JSON into something
+    /// # Errors
+    /// See [`serde_json::from_str`].
+    pub fn deserialize<'a, T>(&'a self) -> serde_json::Result<T>
+    where
+        T: Deserialize<'a>,
+    {
+        serde_json::from_str(&self.0)
+    }
+
+    /// Serializes a value into [`JsonString`]
+    /// # Errors
+    /// See [`serde_json::to_string`].
+    pub fn serialize<T: serde::Serialize>(value: &T) -> serde_json::Result<Self> {
+        let serialized = serde_json::to_string(value)?;
+        // the string was obtained from serde_json serialization,
+        // so it should be a valid JSON string
+        Ok(Self(serialized))
+    }
+
+    /// Create without checking whether the input is a valid JSON string.
+    ///
+    /// The caller must guarantee that the value is valid.
+    pub fn from_json_string_unchecked(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&serde_json::Value> for JsonString {
+    fn from(value: &serde_json::Value) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl PartialEq for JsonString {
+    fn eq(&self, other: &Self) -> bool {
+        serde_json::from_str::<serde_json::Value>(&self.0).unwrap()
+            == serde_json::from_str::<serde_json::Value>(&other.0).unwrap()
+    }
+}
+
+impl<'de> serde::de::Deserialize<'de> for JsonString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let json = serde_json::Value::deserialize(deserializer)?;
+        Ok(Self::from(&json))
+    }
+}
+
+impl serde::ser::Serialize for JsonString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let json = serde_json::Value::from_str(&self.0).map_err(serde::ser::Error::custom)?;
+        json.serialize(serializer)
+    }
+}
+
+impl IntoSchema for JsonString {
+    fn type_name() -> iroha_schema::Ident {
+        <Self as iroha_schema::TypeId>::id()
+    }
+
+    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(iroha_schema::Metadata::String);
+        }
     }
 }
 

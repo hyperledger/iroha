@@ -8,6 +8,7 @@ use iroha_client::{
 };
 use iroha_data_model::{
     permission::Permission, role::RoleId, transaction::error::TransactionRejectionReason,
+    JsonString,
 };
 use iroha_genesis::GenesisNetwork;
 use serde_json::json;
@@ -315,10 +316,14 @@ fn stored_vs_granted_token_payload() -> Result<()> {
     // Allow alice to mint mouse asset and mint initial value
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission(
-        Permission::from_str_unchecked(
+        Permission::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
-            // NOTE: Introduced additional whitespaces in the serialized form
-            &*format!(r###"{{ "asset_id" : "xor#wonderland#{mouse_id}" }}"###),
+            JsonString::from_json_string_unchecked(format!(
+                // Introducing some whitespaces
+                // This way, if the executor compares just JSON strings, this test would fail
+                r##"{{ "asset_id"   :   "xor#wonderland#{}" }}"##,
+                mouse_id
+            )),
         ),
         alice_id,
     );
@@ -349,19 +354,18 @@ fn permissions_are_unified() {
     let alice_id = ALICE_ID.clone();
 
     let allow_alice_to_transfer_rose_1 = Grant::permission(
-        Permission::from_str_unchecked(
+        Permission::new(
             "CanTransferUserAsset".parse().unwrap(),
-            // NOTE: Introduced additional whitespaces in the serialized form
-            &*format!(r###"{{ "asset_id" : "rose#wonderland#{alice_id}" }}"###),
+            json!({ "asset_id": format!("rose#wonderland#{alice_id}") }),
         ),
         alice_id.clone(),
     );
 
     let allow_alice_to_transfer_rose_2 = Grant::permission(
-        Permission::from_str_unchecked(
+        Permission::new(
             "CanTransferUserAsset".parse().unwrap(),
-            // NOTE: Introduced additional whitespaces in the serialized form
-            &*format!(r###"{{ "asset_id" : "rose##{alice_id}" }}"###),
+            // different content, but same meaning
+            json!({ "asset_id": format!("rose##{alice_id}") }),
         ),
         alice_id,
     );
@@ -372,7 +376,7 @@ fn permissions_are_unified() {
 
     let _ = iroha_client
         .submit_blocking(allow_alice_to_transfer_rose_2)
-        .expect_err("permission tokens are not unified");
+        .expect_err("should reject due to duplication");
 }
 
 #[test]
