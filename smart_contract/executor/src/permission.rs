@@ -382,7 +382,7 @@ mod tests {
 
         let object = PermissionObject::new(
             "SampleToken".parse().unwrap(),
-            json!({ "can_do_whatever": false }).into(),
+            json!({ "can_do_whatever": false }),
         );
         let parsed = SampleToken::try_from(&object).expect("valid");
 

@@ -23,7 +23,7 @@ fn genesis_transactions_are_validated() {
     // Setting up genesis
 
     let genesis = GenesisNetwork::test_with_instructions([Grant::permission(
-        Permission::new("InvalidToken".parse().unwrap(), json!(null).into()),
+        Permission::new("InvalidToken".parse().unwrap(), json!(null)),
         ALICE_ID.clone(),
     )
     .into()]);
@@ -233,7 +233,7 @@ fn permissions_differ_not_only_by_names() {
     let allow_alice_to_set_key_value_in_hats = Grant::permission(
         Permission::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
-            json!({ "asset_id": mouse_hat_id }).into(),
+            json!({ "asset_id": mouse_hat_id }),
         ),
         alice_id.clone(),
     );
@@ -269,7 +269,7 @@ fn permissions_differ_not_only_by_names() {
     let allow_alice_to_set_key_value_in_shoes = Grant::permission(
         Permission::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
-            json!({ "asset_id": mouse_shoes_id }).into(),
+            json!({ "asset_id": mouse_shoes_id }),
         ),
         alice_id,
     );
@@ -356,7 +356,7 @@ fn permissions_are_unified() {
     let allow_alice_to_transfer_rose_1 = Grant::permission(
         Permission::new(
             "CanTransferUserAsset".parse().unwrap(),
-            json!({ "asset_id": format!("rose#wonderland#{alice_id}") }).into(),
+            json!({ "asset_id": format!("rose#wonderland#{alice_id}") }),
         ),
         alice_id.clone(),
     );
@@ -365,7 +365,7 @@ fn permissions_are_unified() {
         Permission::new(
             "CanTransferUserAsset".parse().unwrap(),
             // different content, but same meaning
-            json!({ "asset_id": format!("rose##{alice_id}") }).into(),
+            json!({ "asset_id": format!("rose##{alice_id}") }),
         ),
         alice_id,
     );
@@ -392,7 +392,7 @@ fn associated_permissions_removed_on_unregister() {
     let register_domain = Register::domain(kingdom);
     let bob_to_set_kv_in_domain_token = Permission::new(
         "CanSetKeyValueInDomain".parse().unwrap(),
-        json!({ "domain_id": kingdom_id }).into(),
+        json!({ "domain_id": kingdom_id }),
     );
     let allow_bob_to_set_kv_in_domain =
         Grant::permission(bob_to_set_kv_in_domain_token.clone(), bob_id.clone());
@@ -439,7 +439,7 @@ fn associated_permissions_removed_from_role_on_unregister() {
     let register_domain = Register::domain(kingdom);
     let set_kv_in_domain_token = Permission::new(
         "CanSetKeyValueInDomain".parse().unwrap(),
-        json!({ "domain_id": kingdom_id }).into(),
+        json!({ "domain_id": kingdom_id }),
     );
     let role = Role::new(role_id.clone()).add_permission(set_kv_in_domain_token.clone());
     let register_role = Register::role(role);

@@ -120,7 +120,7 @@ impl Executor {
                 Revoke::permission(
                     Permission::new(
                         can_unregister_domain_definition_id.clone(),
-                        json!({ "domain_id": domain_id }).into(),
+                        json!({ "domain_id": domain_id }),
                     ),
                     account.id().clone(),
                 )
@@ -137,10 +137,7 @@ impl Executor {
                 })?;
 
                 Grant::permission(
-                    Permission::new(
-                        can_control_domain_lives_definition_id.clone(),
-                        json!(null).into(),
-                    ),
+                    Permission::new(can_control_domain_lives_definition_id.clone(), json!(null)),
                     account.id().clone(),
                 )
                 .execute()

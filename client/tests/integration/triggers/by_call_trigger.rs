@@ -288,7 +288,7 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
     // on behalf of alice
     let permission_on_registration = Permission::new(
         "CanRegisterUserTrigger".parse().unwrap(),
-        json!({ "account_id": ALICE_ID.clone(), }).into(),
+        json!({ "account_id": ALICE_ID.clone(), }),
     );
 
     // Trigger with 'alice' as authority

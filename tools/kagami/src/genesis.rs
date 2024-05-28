@@ -116,7 +116,7 @@ pub fn generate_default(
         AssetId::new("cabbage#garden_of_live_flowers".parse()?, ALICE_ID.clone()),
     );
     let grant_permission_to_set_parameters = Grant::permission(
-        Permission::new("CanSetParameters".parse()?, json!(null).into()),
+        Permission::new("CanSetParameters".parse()?, json!(null)),
         ALICE_ID.clone(),
     );
     let transfer_rose_ownership = Transfer::asset_definition(
@@ -133,11 +133,11 @@ pub fn generate_default(
         Role::new("ALICE_METADATA_ACCESS".parse()?)
             .add_permission(Permission::new(
                 "CanSetKeyValueInAccount".parse()?,
-                json!({ "account_id": ALICE_ID.clone() }).into(),
+                json!({ "account_id": ALICE_ID.clone() }),
             ))
             .add_permission(Permission::new(
                 "CanRemoveKeyValueInAccount".parse()?,
-                json!({ "account_id": ALICE_ID.clone() }).into(),
+                json!({ "account_id": ALICE_ID.clone() }),
             )),
     )
     .into();

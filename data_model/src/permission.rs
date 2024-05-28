@@ -65,7 +65,6 @@ mod model {
         IntoSchema,
         Display,
         Getters,
-        Constructor,
     )]
     #[ffi_type]
     #[display(fmt = "PERMISSION `{id}` = `{payload}`")]
@@ -83,6 +82,14 @@ mod model {
 }
 
 impl Permission {
+    /// Constructor
+    pub fn new(id: PermissionId, payload: impl Into<JsonString>) -> Self {
+        Self {
+            id,
+            payload: payload.into(),
+        }
+    }
+
     /// Getter
     // TODO: derive with getset once FFI impl is fixed
     pub fn payload(&self) -> &JsonString {
