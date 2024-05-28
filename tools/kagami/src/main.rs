@@ -1,4 +1,4 @@
-//! CLI for generating iroha sample configuration, genesis and
+//! CLI for generating Iroha sample configuration, genesis and
 //! cryptographic key pairs. To be used with all compliant Iroha
 //! installations.
 use std::io::{stdout, BufWriter, Write};

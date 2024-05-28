@@ -1,4 +1,4 @@
-//! Arbitrary precision numeric type for iroha assets
+//! Arbitrary precision numeric type for Iroha assets
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -20,10 +20,10 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 /// The finite set of values of type [`Numeric`] are of the form $m / 10^e$,
 /// where m is an integer such that $-2^96 < m < 2^96$, and e is an integer between 0 and 28 inclusive.
 ///
-/// This type provide only bare minimum of operations required to execute iroha isi.
+/// This type provide only bare minimum of operations required to execute ISI.
 /// If more rich functionality is required (e.g. in smartcontract)
 /// it's suggested to convert this type into proper decimal type (like `rust_decimal`, `bigdecimal`, `u128`, ...),
-/// perform necessary operations, and then convert back into `Numeric` when sending isi to iroha.
+/// perform necessary operations, and then convert back into `Numeric` when sending ISI to Iroha.
 #[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Numeric {

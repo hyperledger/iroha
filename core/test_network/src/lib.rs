@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc, thread};
 
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
-use iroha::{Iroha, ToriiStarted};
+use irohad::{Iroha, ToriiStarted};
 use iroha_client::{
     client::{Client, QueryOutput},
     config::Config as ClientConfig,
@@ -148,8 +148,8 @@ impl Network {
     #[cfg(debug_assertions)]
     pub fn get_freeze_status_handles(&self) -> Vec<Arc<AtomicBool>> {
         self.peers()
-            .filter_map(|peer| peer.iroha.as_ref())
-            .map(|iroha| iroha.freeze_status().clone())
+            .filter_map(|peer| peer.irohad.as_ref())
+            .map(|irohad| irohad.freeze_status().clone())
             .collect()
     }
 
@@ -386,8 +386,8 @@ pub struct Peer {
     pub key_pair: KeyPair,
     /// Shutdown handle
     shutdown: Option<JoinHandle<()>>,
-    /// Iroha itself
-    pub iroha: Option<Iroha<ToriiStarted>>,
+    /// Iroha server
+    pub irohad: Option<Iroha<ToriiStarted>>,
     /// Temporary directory
     // Note: last field to be dropped after Iroha (struct fields drops in FIFO RFC 1857)
     pub temp_dir: Option<Arc<TempDir>>,
@@ -466,17 +466,17 @@ impl Peer {
 
         let handle = task::spawn(
             async move {
-                let iroha = Iroha::start_network(config, genesis, logger)
+                let irohad = Iroha::start_network(config, genesis, logger)
                     .await
-                    .expect("Failed to start iroha");
-                let (job_handle, iroha) = iroha.start_torii_as_task();
-                sender.send(iroha).unwrap();
+                    .expect("Failed to start Iroha");
+                let (job_handle, irohad) = irohad.start_torii_as_task();
+                sender.send(irohad).unwrap();
                 job_handle.await.unwrap().unwrap();
             }
             .instrument(info_span),
         );
 
-        self.iroha = Some(receiver.recv().unwrap());
+        self.irohad = Some(receiver.recv().unwrap());
         time::sleep(Duration::from_millis(300)).await;
         self.shutdown = Some(handle);
         // Prevent temporary directory deleting
@@ -494,7 +494,7 @@ impl Peer {
         if let Some(shutdown) = self.shutdown.take() {
             shutdown.abort();
             iroha_logger::info!("Shutting down peer...");
-            self.iroha.take();
+            self.irohad.take();
             Some(())
         } else {
             None
@@ -520,7 +520,7 @@ impl Peer {
             p2p_address,
             api_address,
             shutdown,
-            iroha: None,
+            irohad: None,
             temp_dir: None,
         })
     }
@@ -786,7 +786,7 @@ impl TestConfig for Config {
     fn test() -> Self {
         use iroha_config::base::toml::TomlSource;
 
-        let mut raw = iroha::samples::get_config_toml(
+        let mut raw = irohad::samples::get_config_toml(
             <_>::default(),
             get_chain_id(),
             get_key_pair(Signatory::Peer),

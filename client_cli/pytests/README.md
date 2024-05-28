@@ -58,7 +58,7 @@ The test model has the following structure:
      # Note: make sure you have installed packages from `./scripts/requirements.txt`
 	 ```
 
-   By default, this builds `iroha`, `iroha_client_cli`, and `kagami` binaries, and runs four peers with their API exposed through the `8080`-`8083` ports.\
+   By default, this builds `irohad`, `iroha_client_cli`, and `kagami` binaries, and runs four peers with their API exposed through the `8080`-`8083` ports.\
 	 This behavior can be reconfigured. You can run `./scripts/test_env.py --help` to see the list of available commands and options.
 
 2. Install and configure [Poetry](https://python-poetry.org/).\

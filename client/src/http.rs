@@ -1,3 +1,5 @@
+//! Module with general communication primitives like an HTTP request builder.
+
 use core::borrow::Borrow;
 
 use eyre::{eyre, Result};

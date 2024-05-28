@@ -20,7 +20,7 @@ use crate::{cli::SourceParsed, util::AbsolutePath};
 const DIR_CONFIG_IN_DOCKER: &str = "/config";
 const PATH_TO_GENESIS: &str = "/config/genesis.json";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
-const COMMAND_SUBMIT_GENESIS: &str = "iroha --submit-genesis";
+const COMMAND_SUBMIT_GENESIS: &str = "irohad --submit-genesis";
 const DOCKER_COMPOSE_VERSION: &str = "3.8";
 const PLATFORM_ARCHITECTURE: &str = "linux/amd64";
 
@@ -466,7 +466,7 @@ mod peer_generator {
 
     const BASE_PORT_P2P: u16 = 1337;
     const BASE_PORT_API: u16 = 8080;
-    const BASE_SERVICE_NAME: &'_ str = "iroha";
+    const BASE_SERVICE_NAME: &'_ str = "irohad";
 
     #[derive(Clone)]
     pub struct Peer {
@@ -684,7 +684,7 @@ mod tests {
                 volumes:
                 - ./configs/peer/legacy_stable:/config
                 init: true
-                command: iroha --submit-genesis
+                command: irohad --submit-genesis
         "#]];
         expected.assert_eq(&actual);
     }
@@ -765,7 +765,7 @@ mod tests {
                 volumes:
                 - ./config:/config
                 init: true
-                command: iroha --submit-genesis
+                command: irohad --submit-genesis
                 healthcheck:
                   test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0
                   interval: 2s

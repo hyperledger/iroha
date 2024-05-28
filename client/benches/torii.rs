@@ -3,7 +3,7 @@
 use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use iroha::samples::{construct_executor, get_config};
+use irohad::samples::{construct_executor, get_config};
 use iroha_client::{
     client::{asset, Client},
     data_model::prelude::*,

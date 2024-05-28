@@ -125,7 +125,7 @@ fn applied_block_must_be_available_in_kura() {
         .try_into()
         .expect("Received unexpected event");
 
-    peer.iroha
+    peer.irohad
         .as_ref()
         .expect("Must be some")
         .kura()

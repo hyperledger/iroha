@@ -1,4 +1,4 @@
-//! Build script to extract git hash of iroha build
+//! Build script to extract git hash of Iroha build
 
 use eyre::{eyre, Result, WrapErr};
 

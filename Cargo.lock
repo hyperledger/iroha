@@ -2764,42 +2764,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha"
-version = "2.0.0-pre-rc.21"
-dependencies = [
- "assertables",
- "clap",
- "error-stack",
- "eyre",
- "futures",
- "iroha_config",
- "iroha_core",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_futures",
- "iroha_genesis",
- "iroha_logger",
- "iroha_p2p",
- "iroha_primitives",
- "iroha_telemetry",
- "iroha_torii",
- "iroha_wasm_builder",
- "json5",
- "once_cell",
- "owo-colors",
- "path-absolutize",
- "serial_test",
- "supports-color 2.1.0",
- "tempfile",
- "thiserror",
- "thread-local-panic-hook",
- "tokio",
- "toml 0.8.13",
- "tracing",
- "vergen",
-]
-
-[[package]]
 name = "iroha_client"
 version = "2.0.0-pre-rc.21"
 dependencies = [
@@ -2814,7 +2778,6 @@ dependencies = [
  "futures-util",
  "hex",
  "http 1.1.0",
- "iroha",
  "iroha_config",
  "iroha_config_base",
  "iroha_crypto",
@@ -2826,6 +2789,7 @@ dependencies = [
  "iroha_torii_const",
  "iroha_version",
  "iroha_wasm_builder",
+ "irohad",
  "nonzero_ext",
  "once_cell",
  "parity-scale-codec",
@@ -3565,6 +3529,41 @@ version = "2.0.0-pre-rc.21"
 dependencies = [
  "anyhow",
  "wasmtime",
+]
+
+[[package]]
+name = "irohad"
+version = "2.0.0-pre-rc.21"
+dependencies = [
+ "assertables",
+ "clap",
+ "error-stack",
+ "eyre",
+ "futures",
+ "iroha_config",
+ "iroha_core",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_futures",
+ "iroha_genesis",
+ "iroha_logger",
+ "iroha_primitives",
+ "iroha_telemetry",
+ "iroha_torii",
+ "iroha_wasm_builder",
+ "json5",
+ "once_cell",
+ "owo-colors",
+ "path-absolutize",
+ "serial_test",
+ "supports-color 2.1.0",
+ "tempfile",
+ "thiserror",
+ "thread-local-panic-hook",
+ "tokio",
+ "toml 0.8.13",
+ "tracing",
+ "vergen",
 ]
 
 [[package]]
@@ -5632,7 +5631,6 @@ version = "2.0.0-pre-rc.21"
 dependencies = [
  "eyre",
  "futures",
- "iroha",
  "iroha_client",
  "iroha_config",
  "iroha_core",
@@ -5641,6 +5639,7 @@ dependencies = [
  "iroha_genesis",
  "iroha_logger",
  "iroha_primitives",
+ "irohad",
  "parity-scale-codec",
  "rand",
  "serde_json",

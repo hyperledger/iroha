@@ -1,7 +1,7 @@
 //! This file contains examples from the Rust tutorial.
 use std::{thread, time::Duration};
 
-use iroha::samples::{construct_executor, get_config};
+use irohad::samples::{construct_executor, get_config};
 use iroha_client::{crypto::KeyPair, data_model::prelude::*};
 use iroha_data_model::isi::InstructionBox;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};

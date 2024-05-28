@@ -157,7 +157,7 @@ To pass the *`check-PR-title`* check, the pull request title must adhere to the 
 <details> <summary> Expand to read the detailed title guidelines</summary>
 
 1. Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#commit-message-with-multi-paragraph-body-and-multiple-footers) format.
-   
+
 2. If the pull request has a single commit, the PR title should be the same as the commit message.
 
 </details>
@@ -217,11 +217,11 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 
 ### Debugging using tokio console
 
-<details> <summary> Expand to learn how to compile iroha with tokio console support.</summary>
+<details> <summary> Expand to learn how to compile Iroha with tokio console support.</summary>
 
 Sometimes it might be helpful for debugging to analyze tokio tasks using [tokio-console](https://github.com/tokio-rs/console).
 
-In this case you should compile iroha with support of tokio console like that:
+In this case you should compile Iroha with support of tokio console like that:
 
 ```bash
 RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
@@ -230,14 +230,14 @@ RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
 Port for tokio console can by configured through `LOG_TOKIO_CONSOLE_ADDR` configuration parameter (or environment variable).
 Using tokio console require log level to be `TRACE`, can be enabled through configuration parameter or environment variable `LOG_LEVEL`.
 
-Example of running iroha with tokio console support using `scripts/test_env.sh`:
+Example of running Iroha with tokio console support using `scripts/test_env.sh`:
 
 ```bash
-# 1. Compile iroha
+# 1. Compile Iroha
 RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
-# 2. Run iroha with TRACE log level
+# 2. Run Iroha with TRACE log level
 LOG_LEVEL=TRACE ./scripts/test_env.sh setup
-# 3. Access iroha. Peers will be available on ports 5555, 5556, ...
+# 3. Access Iroha. Peers will be available on ports 5555, 5556, ...
 tokio-console http://127.0.0.1:5555
 ```
 
@@ -245,19 +245,19 @@ tokio-console http://127.0.0.1:5555
 
 ### Profiling
 
-<details> <summary> Expand to learn ho to profile iroha. </summary>
+<details> <summary> Expand to learn ho to profile Iroha. </summary>
 
-To optimize performance it's useful to profile iroha.
+To optimize performance it's useful to profile Iroha.
 
-To do that you should compile iroha with `profiling` profile and with `profiling` feature:
+To do that you should compile Iroha with `profiling` profile and with `profiling` feature:
 
 ```bash
 RUSTFLAGS="-C force-frame-pointers=on" cargo +nightly -Z build-std build --target your-desired-target --profile profiling --features profiling
 ```
 
-Then start iroha and attach profiler of your choice to the iroha pid.
+Then start Iroha and attach profiler of your choice to the Iroha pid.
 
-Alternatively it's possible to build iroha inside docker with profiler support and profile iroha this way.
+Alternatively it's possible to build Iroha inside docker with profiler support and profile Iroha this way.
 
 ```bash
 docker build -f Dockerfile.glibc --build-arg="PROFILE=profiling" --build-arg='RUSTFLAGS=-C force-frame-pointers=on' --build-arg='FEATURES=profiling' --build-arg='CARGOFLAGS=-Z build-std' -t iroha:profiling .
@@ -272,7 +272,7 @@ sudo perf record -g -p <PID>
 sudo perf report
 ```
 
-To be able to observe profile of the executor during iroha profiling, executor should be compiled without stripping symbols.
+To be able to observe profile of the executor during Iroha profiling, executor should be compiled without stripping symbols.
 It can be done by running:
 
 ```bash
@@ -280,10 +280,10 @@ It can be done by running:
 cargo run --bin iroha_wasm_builder_cli -- build ./path/to/executor --outfile executor.wasm
 ```
 
-With profiling feature enabled iroha exposes endpoint to scrap pprof profiles:
+With profiling feature enabled Iroha exposes endpoint to scrap pprof profiles:
 
 ```bash
-# profile iroha for 30 seconds and get protobuf profile
+# profile Iroha for 30 seconds and get protobuf profile
 curl host:port/debug/pprof/profile?seconds=30 -o profile.pb
 # analyze profile in browser (required installed go)
 go tool pprof -web profile.pb

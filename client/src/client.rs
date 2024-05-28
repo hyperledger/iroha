@@ -1,5 +1,6 @@
 //! Contains the end-point querying logic.  This is where you need to
 //! add any custom end-point related logic.
+
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -343,7 +344,7 @@ impl_query_output! {
 pub struct Client {
     /// Unique id of the blockchain. Used for simple replay attack protection.
     pub chain_id: ChainId,
-    /// Url for accessing iroha node
+    /// Url for accessing Iroha node
     pub torii_url: Url,
     /// Accounts keypair
     pub key_pair: KeyPair,

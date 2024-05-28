@@ -434,7 +434,7 @@ impl Iroha<ToriiNotStarted> {
         Ok(new_self)
     }
 
-    /// Starts iroha in separate tokio task.
+    /// Starts Iroha in separate tokio task.
     ///
     /// # Errors
     /// - Forwards initialisation error.
@@ -785,10 +785,10 @@ fn default_terminal_colors_str() -> clap::builder::OsStr {
     is_colouring_supported().to_string().into()
 }
 
-/// Iroha peer Command-Line Interface.
+/// Iroha server CLI
 #[derive(Parser, Debug)]
 #[command(
-    name = "iroha",
+    name = "irohad",
     version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA"), " cargo_features=", env!("VERGEN_CARGO_FEATURES")),
     author
 )]

@@ -3,7 +3,7 @@ set -e;
 
 # Gets json entries from archived file
 # Errors:
-# Forcing 0 exit code is okay, as for now iroha sometimes doesn't write whole json object to file
+# Forcing 0 exit code is okay, as for now Iroha sometimes doesn't write whole json object to file
 get_entries() { lz4cat $1 2>/dev/null | jq -e '.duration = .duration.nanos / 1000000' || true; }
 
 # Returns raw top $1 of items

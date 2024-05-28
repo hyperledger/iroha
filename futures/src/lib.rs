@@ -1,4 +1,4 @@
-//! Crate with various iroha futures
+//! Crate with various Iroha futures
 use std::{
     future::Future,
     pin::Pin,

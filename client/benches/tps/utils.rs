@@ -111,7 +111,7 @@ impl Config {
         let blocks_out_of_measure = 2 + MeasurerUnit::PREPARATION_BLOCKS_NUMBER * self.peers;
         let state_view = network
             .genesis
-            .iroha
+            .irohad
             .as_ref()
             .expect("Must be some")
             .state()

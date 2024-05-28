@@ -18,7 +18,7 @@ To this end, Iroha provides encapsulated components for use by other projects, p
 
 Having a solid distributed ledger system is not useful if there are no applications that can easily utilize it.
 To ease use, we created and opened sourced software development kits for iOS, Android, and JavaScript.
-Using these libraries, cryptographic public/private key pairs that are compatible with iroha can be created and common API functions can be conveniently called.
+Using these libraries, cryptographic public/private key pairs that are compatible with Iroha can be created and common API functions can be conveniently called.
 
 ## 2. System architecture
 

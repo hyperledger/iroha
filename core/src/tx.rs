@@ -25,7 +25,7 @@ use crate::{
     state::{StateBlock, StateTransaction, WorldReadOnly},
 };
 
-/// `AcceptedTransaction` — a transaction accepted by iroha peer.
+/// `AcceptedTransaction` — a transaction accepted by Iroha peer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 // TODO: Inner field should be private to maintain invariants
 pub struct AcceptedTransaction(pub(crate) SignedTransaction);

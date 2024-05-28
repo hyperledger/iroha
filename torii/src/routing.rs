@@ -332,10 +332,10 @@ pub mod profiling {
     #[allow(clippy::unsafe_derive_deserialize)]
     #[derive(Serialize, Deserialize, Clone, Copy)]
     pub struct ProfileParams {
-        /// How often to sample iroha
+        /// How often to sample Iroha
         #[serde(default = "ProfileParams::default_frequency")]
         frequency: NonZeroU16,
-        /// How long to sample iroha
+        /// How long to sample Iroha
         #[serde(default = "ProfileParams::default_seconds")]
         seconds: NonZeroU64,
     }

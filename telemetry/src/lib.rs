@@ -1,4 +1,4 @@
-//! Crate with iroha telemetry processing
+//! Crate with Iroha telemetry processing
 
 #[cfg(feature = "dev-telemetry")]
 pub mod dev;

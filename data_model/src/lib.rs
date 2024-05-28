@@ -222,7 +222,7 @@ pub mod parameter {
     use super::*;
     use crate::isi::InstructionBox;
 
-    /// Set of parameter names currently used by iroha
+    /// Set of parameter names currently used by Iroha
     #[allow(missing_docs)]
     pub mod default {
         pub const MAX_TRANSACTIONS_IN_BLOCK: &str = "MaxTransactionsInBlock";

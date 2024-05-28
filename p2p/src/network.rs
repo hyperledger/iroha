@@ -557,7 +557,7 @@ struct RefPeer<T: Pload> {
     conn_id: ConnectionId,
     p2p_addr: SocketAddr,
     /// Disambiguator serves purpose of resolving situation when both peers are tying to connect to each other at the same time.
-    /// Usually in iroha network only one peer is trying to connect to another peer, but if peer is misbehaving it could be useful.
+    /// Usually in Iroha network only one peer is trying to connect to another peer, but if peer is misbehaving it could be useful.
     ///
     /// Consider timeline:
     ///

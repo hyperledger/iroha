@@ -27,7 +27,7 @@ Here is the overall procedure for hot reloading Iroha in a Docker container:
 3. Copy Iroha to the current directory:
 
     ```bash
-    docker cp root/soramitsu/iroha/target/x86_64-unknown-linux-musl/release/iroha .
+    docker cp root/soramitsu/iroha/target/x86_64-unknown-linux-musl/release/irohad .
     ```
 
 4. (Optional) Make any modifications you need:
@@ -54,7 +54,7 @@ rm blocks/*
 
 The new genesis block will be automatically recommited upon container restart.
 
-## Use custom configuration files 
+## Use custom configuration files
 
 To use custom configuration files, such as `config.json` or `genesis.json`, copy (or bind mount) them to the `config/` subvolume before restarting the Docker container.
 

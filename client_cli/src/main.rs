@@ -1,4 +1,5 @@
-//! iroha client command line
+//! Iroha client CLI
+
 use std::{
     fs::{self, read as read_file},
     io::{stdin, stdout},
@@ -176,7 +177,7 @@ impl RunArgs for Subcommand {
 
 #[derive(Error, Debug)]
 enum MainError {
-    #[error("Failed to load Iroha Client CLI configuration")]
+    #[error("Failed to load Iroha client configuration")]
     Config,
     #[error("Failed to serialize config")]
     SerializeConfig,
@@ -278,7 +279,7 @@ mod events {
 
     use super::*;
 
-    /// Get event stream from iroha peer
+    /// Get event stream from Iroha peer
     #[derive(clap::Subcommand, Debug, Clone, Copy)]
     pub enum Args {
         /// Gets block pipeline events
@@ -322,7 +323,7 @@ mod blocks {
 
     use super::*;
 
-    /// Get block stream from iroha peer
+    /// Get block stream from Iroha peer
     #[derive(clap::Args, Debug, Clone, Copy)]
     pub struct Args {
         /// Block height from which to start streaming blocks

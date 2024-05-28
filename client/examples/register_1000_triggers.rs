@@ -1,8 +1,8 @@
 //! Example of registering multiple triggers
-//! Used to show iroha's trigger deduplication capabilities
+//! Used to show Iroha's trigger deduplication capabilities
 use std::str::FromStr;
 
-use iroha::samples::{construct_executor, get_config};
+use irohad::samples::{construct_executor, get_config};
 use iroha_client::{client::Client, data_model::prelude::*};
 use iroha_data_model::trigger::TriggerId;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
