@@ -46,7 +46,7 @@
 
       allBinaries = [
         "irohad"
-        "iroha_client_cli"
+        "iroha"
         "kagami"
         "kura_inspector"
         "parity_scale_cli"

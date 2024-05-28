@@ -1,5 +1,5 @@
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{asset, Client, QueryResult},
     data_model::{asset::AssetDefinition, prelude::*, query::Pagination},
 };

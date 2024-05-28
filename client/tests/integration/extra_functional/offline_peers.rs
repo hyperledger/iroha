@@ -1,5 +1,5 @@
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{self, Client, QueryResult},
     crypto::KeyPair,
     data_model::{

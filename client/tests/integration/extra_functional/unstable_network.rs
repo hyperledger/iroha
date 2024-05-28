@@ -1,7 +1,7 @@
 use core::sync::atomic::Ordering;
 use std::thread;
 
-use iroha_client::{
+use iroha::{
     client::{self, Client, QueryResult},
     data_model::{prelude::*, Level},
 };
@@ -52,7 +52,7 @@ fn unstable_network(
     }
     let rt = Runtime::test();
     // Given
-    let (network, iroha_client) = rt.block_on(async {
+    let (network, iroha) = rt.block_on(async {
         let mut configuration = Config::test();
         configuration.chain_wide.max_transactions_in_block =
             MAX_TRANSACTIONS_IN_BLOCK.try_into().unwrap();
@@ -80,7 +80,7 @@ fn unstable_network(
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
     let register_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    iroha_client
+    iroha
         .submit_blocking(register_asset)
         .expect("Failed to register asset");
     // Initially there are 0 camomile
@@ -105,13 +105,11 @@ fn unstable_network(
             quantity,
             AssetId::new(asset_definition_id.clone(), account_id.clone()),
         );
-        iroha_client
-            .submit(mint_asset)
-            .expect("Failed to create asset.");
+        iroha.submit(mint_asset).expect("Failed to create asset.");
         account_has_quantity = account_has_quantity.checked_add(quantity).unwrap();
         thread::sleep(pipeline_time);
 
-        iroha_client
+        iroha
             .poll_request_with_period(
                 client::asset::by_account_id(account_id.clone()),
                 Config::pipeline_time(),

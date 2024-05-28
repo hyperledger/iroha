@@ -168,7 +168,7 @@ class _Peer:
         stderr_file = open(self.peer_dir / ".stderr", "w")
         # These processes are created detached from the parent process already
         subprocess.Popen([self.name, "--config", self.config_path] + (["--submit-genesis"] if submit_genesis else []),
-                    executable=self.out_dir / "peers/iroha", stdout=stdout_file, stderr=stderr_file)
+                    executable=self.out_dir / "peers/irohad", stdout=stdout_file, stderr=stderr_file)
 
 def pos_int(arg):
     if int(arg) > 0:
@@ -218,7 +218,7 @@ def main(args: argparse.Namespace):
 def setup(args: argparse.Namespace):
     logging.info(f"Starting Iroha network with {args.n_peers} peers...")
     os.makedirs(args.out_dir, exist_ok=True)
-    copy_or_prompt_build_bin("iroha_client_cli", args.root_dir, args.out_dir)
+    copy_or_prompt_build_bin("iroha", args.root_dir, args.out_dir)
     with open(os.path.join(args.out_dir, "metadata.json"), "w") as f:
         f.write('{"comment":{"String": "Hello Meta!"}}')
     shutil.copy2(pathlib.Path(args.root_dir) / SWARM_CONFIGS_DIRECTORY / "client.toml", args.out_dir)

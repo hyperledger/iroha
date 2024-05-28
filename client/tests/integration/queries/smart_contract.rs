@@ -1,7 +1,7 @@
 use std::str::FromStr as _;
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::ClientQueryError,
     data_model::{
         prelude::*,

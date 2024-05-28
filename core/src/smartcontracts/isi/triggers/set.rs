@@ -150,7 +150,7 @@ pub struct SetView<'set> {
 
 /// Entry in wasm smart-contracts map
 #[derive(Debug, Clone, Serialize)]
-struct WasmSmartContractEntry {
+pub struct WasmSmartContractEntry {
     /// Original wasm binary blob
     original_contract: WasmSmartContract,
     /// Compiled with [`wasmtime`] smart-contract

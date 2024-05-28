@@ -1,7 +1,7 @@
 use std::thread;
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{self, QueryResult},
     data_model::{
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
@@ -67,12 +67,12 @@ fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
 }
 
 fn check_assets(
-    iroha_client: &client::Client,
+    iroha: &client::Client,
     account_id: &AccountId,
     asset_definition_id: &AssetDefinitionId,
     quantity: Numeric,
 ) {
-    iroha_client
+    iroha
         .poll_request_with_period(
             client::asset::by_account_id(account_id.clone()),
             Config::block_sync_gossip_time(),
@@ -109,7 +109,7 @@ fn mint(
 fn init() -> Result<(
     tokio::runtime::Runtime,
     test_network::Network,
-    iroha_client::client::Client,
+    iroha::client::Client,
     std::time::Duration,
     AccountId,
     AssetDefinitionId,

@@ -3,14 +3,14 @@
 use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use irohad::samples::{construct_executor, get_config};
-use iroha_client::{
+use iroha::{
     client::{asset, Client},
     data_model::prelude::*,
 };
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use iroha_version::Encode;
+use irohad::samples::{construct_executor, get_config};
 use test_network::{get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
 use test_samples::gen_account_in;
 use tokio::runtime::Runtime;
@@ -52,7 +52,7 @@ fn query_requests(criterion: &mut Criterion) {
     rt.block_on(builder.start_with_peer(&mut peer));
     rt.block_on(async {
         iroha_logger::test_logger()
-            .reload_level(iroha_client::data_model::Level::ERROR)
+            .reload_level(iroha::data_model::Level::ERROR)
             .await
             .unwrap()
     });
@@ -68,13 +68,13 @@ fn query_requests(criterion: &mut Criterion) {
         200u32,
         AssetId::new(asset_definition_id, account_id.clone()),
     );
-    let client_config = iroha_client::samples::get_client_config(
+    let client_config = iroha::samples::get_client_config(
         get_chain_id(),
         get_key_pair(test_network::Signatory::Alice),
         format!("http://{}", peer.api_address).parse().unwrap(),
     );
 
-    let iroha_client = Client::new(client_config);
+    let iroha = Client::new(client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
 
     let instructions: [InstructionBox; 4] = [
@@ -83,7 +83,7 @@ fn query_requests(criterion: &mut Criterion) {
         create_asset.into(),
         mint_asset.into(),
     ];
-    let _ = iroha_client
+    let _ = iroha
         .submit_all(instructions)
         .expect("Failed to prepare state");
 
@@ -94,9 +94,8 @@ fn query_requests(criterion: &mut Criterion) {
     let _dropable = group.throughput(Throughput::Bytes(request.encode().len() as u64));
     let _dropable2 = group.bench_function("query", |b| {
         b.iter(|| {
-            let iter: Result<Vec<_>, _> = iroha_client
-                .request(request.clone())
-                .and_then(Iterator::collect);
+            let iter: Result<Vec<_>, _> =
+                iroha.request(request.clone()).and_then(Iterator::collect);
 
             match iter {
                 Ok(assets) => {
@@ -157,14 +156,14 @@ fn instruction_submits(criterion: &mut Criterion) {
     let (account_id, _account_keypair) = gen_account_in("domain");
     let create_account = Register::account(Account::new(account_id.clone())).into();
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
-    let client_config = iroha_client::samples::get_client_config(
+    let client_config = iroha::samples::get_client_config(
         get_chain_id(),
         get_key_pair(test_network::Signatory::Alice),
         format!("http://{}", peer.api_address).parse().unwrap(),
     );
-    let iroha_client = Client::new(client_config);
+    let iroha = Client::new(client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
-    let _ = iroha_client
+    let _ = iroha
         .submit_all([create_domain, create_account])
         .expect("Failed to create role.");
     thread::sleep(std::time::Duration::from_millis(500));
@@ -176,7 +175,7 @@ fn instruction_submits(criterion: &mut Criterion) {
                 200u32,
                 AssetId::new(asset_definition_id.clone(), account_id.clone()),
             );
-            match iroha_client.submit(mint_asset) {
+            match iroha.submit(mint_asset) {
                 Ok(_) => success_count += 1,
                 Err(e) => {
                     eprintln!("Failed to execute instruction: {e}");

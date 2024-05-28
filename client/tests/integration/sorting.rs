@@ -1,7 +1,7 @@
 use std::{collections::HashSet, str::FromStr as _};
 
 use eyre::{Result, WrapErr as _};
-use iroha_client::{
+use iroha::{
     client::{self, QueryResult},
     crypto::KeyPair,
     data_model::{

@@ -1,7 +1,7 @@
 use std::{str::FromStr as _, thread};
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{self, QueryResult},
     data_model::{
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
@@ -13,7 +13,7 @@ use test_network::*;
 use test_samples::gen_account_in;
 
 #[test]
-// This test is also covered at the UI level in the iroha_client_cli tests
+// This test is also covered at the UI level in the iroha_cli tests
 // in test_mint_asset.py
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
 ) -> Result<()> {

@@ -6,8 +6,7 @@ use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc, thread};
 
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
-use irohad::{Iroha, ToriiStarted};
-use iroha_client::{
+use iroha::{
     client::{Client, QueryOutput},
     config::Config as ClientConfig,
     data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level},
@@ -22,6 +21,7 @@ use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
     unique_vec::UniqueVec,
 };
+use irohad::{Iroha, ToriiStarted};
 use rand::{seq::IteratorRandom, thread_rng};
 use serde_json::json;
 use tempfile::TempDir;
@@ -813,7 +813,7 @@ impl TestConfig for Config {
 
 impl TestClientConfig for ClientConfig {
     fn test(api_address: &SocketAddr) -> Self {
-        iroha_client::samples::get_client_config(
+        iroha::samples::get_client_config(
             get_chain_id(),
             get_key_pair(Signatory::Alice),
             format!("http://{api_address}")

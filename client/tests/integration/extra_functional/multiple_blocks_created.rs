@@ -1,7 +1,7 @@
 use std::thread;
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{self, Client, QueryResult},
     data_model::{
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},

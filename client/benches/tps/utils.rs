@@ -1,7 +1,7 @@
 use std::{fmt, fs::File, io::BufReader, path::Path, sync::mpsc, thread, time};
 
 use eyre::{Result, WrapErr};
-use iroha_client::{
+use iroha::{
     client::Client,
     crypto::KeyPair,
     data_model::{

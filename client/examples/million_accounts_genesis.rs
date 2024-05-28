@@ -1,11 +1,11 @@
 //! This file contains examples from the Rust tutorial.
 use std::{thread, time::Duration};
 
-use irohad::samples::{construct_executor, get_config};
-use iroha_client::{crypto::KeyPair, data_model::prelude::*};
+use iroha::{crypto::KeyPair, data_model::prelude::*};
 use iroha_data_model::isi::InstructionBox;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
+use irohad::samples::{construct_executor, get_config};
 use test_network::{
     get_chain_id, get_key_pair, wait_for_genesis_committed, Peer as TestPeer, PeerBuilder,
     TestRuntime,

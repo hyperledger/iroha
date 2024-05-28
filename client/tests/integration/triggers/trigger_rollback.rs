@@ -1,7 +1,7 @@
 use std::str::FromStr as _;
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::QueryResult,
     data_model::{prelude::*, query::asset::FindAllAssetsDefinitions, trigger::TriggerId},
 };

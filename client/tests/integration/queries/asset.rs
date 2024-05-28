@@ -1,5 +1,5 @@
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{Client, ClientQueryError},
     data_model::{
         asset::AssetValue,

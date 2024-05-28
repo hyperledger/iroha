@@ -81,7 +81,7 @@ Run API functional tests:
 ```bash
 cargo build
 chmod +x target/debug/irohad
-chmod +x target/debug/iroha_client_cli
+chmod +x target/debug/iroha
 
 bash ./scripts/test_env.sh setup
 bash ./scripts/tests/register_mint_quantity.sh
@@ -124,19 +124,18 @@ docker compose up
 With the `docker-compose` instance running, use [Iroha Client CLI](./client_cli/README.md):
 
 ```bash
-cargo run --bin iroha_client_cli -- --config ./configs/swarm/client.toml
+cargo run --bin iroha -- --config ./configs/swarm/client.toml
 ```
 
 ## Integration
 
 Iroha project mainly consists of the following crates:
 
-* [`iroha`](cli) is the command-line application for deploying an Iroha peer. Contains the routing table and definitions of API endpoints.
-* [`iroha_actor`](actor) provides a message passing model for Iroha components.
-* [`iroha_client`](client) provides a library for building clients that communicate with peers.
-* [`iroha_client_cli`](client_cli) is the reference implementation of a client.
-* [`iroha_config`](config) handles configuration and documentation generation for options and run-time changes.
+* [`iroha`](client) provides a library for building clients that communicate with peers.
+* [`irohad`](server cli) is the command-line application for deploying an Iroha peer. Contains the routing table and definitions of API endpoints.
+* [`iroha_client_cli`](client cli) is the reference implementation of a client.
 * [`iroha_core`](core) is the primary library used by all other crates, including the peer endpoint management.
+* [`iroha_config`](config) handles configuration and documentation generation for options and run-time changes.
 * [`iroha_crypto`](crypto) defines cryptographic aspects of Iroha.
 * [`kagami`](tools/kagami) is used to generate cryptographic keys, default genesis, configuration reference, and schema.
 * [`iroha_data_model`](data_model) defines common data models in Iroha.

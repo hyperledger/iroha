@@ -22,8 +22,12 @@ is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledg
 is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
 maintenance = { status = "actively-developed" }
 
+[[bin]]
+name = "iroha"
+path = "src/main.rs"
+
 [dependencies]
-iroha_client = { workspace = true }
+iroha = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_config_base = { workspace = true }
 

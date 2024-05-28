@@ -1,7 +1,7 @@
 use std::{str::FromStr as _, thread, time::Duration};
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{self, Client, QueryResult},
     crypto::KeyPair,
     data_model::prelude::*,
@@ -56,8 +56,8 @@ fn genesis_transactions_are_validated() {
     }
 }
 
-fn get_assets(iroha_client: &Client, id: &AccountId) -> Vec<Asset> {
-    iroha_client
+fn get_assets(iroha: &Client, id: &AccountId) -> Vec<Asset> {
+    iroha
         .request(client::asset::by_account_id(id.clone()))
         .expect("Failed to execute request.")
         .collect::<QueryResult<Vec<_>>>()
@@ -69,8 +69,8 @@ fn get_assets(iroha_client: &Client, id: &AccountId) -> Vec<Asset> {
 fn permissions_disallow_asset_transfer() {
     let chain_id = ChainId::from("0");
 
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
-    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
+    wait_for_genesis_committed(&[iroha.clone()], 0);
 
     // Given
     let alice_id = ALICE_ID.clone();
@@ -81,8 +81,8 @@ fn permissions_disallow_asset_transfer() {
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let mouse_keypair = KeyPair::random();
 
-    let alice_start_assets = get_assets(&iroha_client, &alice_id);
-    iroha_client
+    let alice_start_assets = get_assets(&iroha, &alice_id);
+    iroha
         .submit_blocking(create_asset)
         .expect("Failed to prepare state.");
 
@@ -91,7 +91,7 @@ fn permissions_disallow_asset_transfer() {
         quantity,
         AssetId::new(asset_definition_id.clone(), bob_id.clone()),
     );
-    iroha_client
+    iroha
         .submit_blocking(mint_asset)
         .expect("Failed to create asset.");
 
@@ -104,7 +104,7 @@ fn permissions_disallow_asset_transfer() {
     let transfer_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([transfer_asset])
         .sign(&mouse_keypair);
-    let err = iroha_client
+    let err = iroha
         .submit_transaction_blocking(&transfer_tx)
         .expect_err("Transaction was not rejected.");
     let rejection_reason = err
@@ -115,7 +115,7 @@ fn permissions_disallow_asset_transfer() {
         rejection_reason,
         &TransactionRejectionReason::Validation(ValidationFail::NotPermitted(_))
     ));
-    let alice_assets = get_assets(&iroha_client, &alice_id);
+    let alice_assets = get_assets(&iroha, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
 }
 
@@ -124,7 +124,7 @@ fn permissions_disallow_asset_transfer() {
 fn permissions_disallow_asset_burn() {
     let chain_id = ChainId::from("0");
 
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_735).start_with_runtime();
+    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_735).start_with_runtime();
 
     let alice_id = ALICE_ID.clone();
     let bob_id = BOB_ID.clone();
@@ -134,16 +134,16 @@ fn permissions_disallow_asset_burn() {
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let mouse_keypair = KeyPair::random();
 
-    let alice_start_assets = get_assets(&iroha_client, &alice_id);
+    let alice_start_assets = get_assets(&iroha, &alice_id);
 
-    iroha_client
+    iroha
         .submit_blocking(create_asset)
         .expect("Failed to prepare state.");
 
     let quantity = numeric!(200);
     let mint_asset =
         Mint::asset_numeric(quantity, AssetId::new(asset_definition_id.clone(), bob_id));
-    iroha_client
+    iroha
         .submit_blocking(mint_asset)
         .expect("Failed to create asset.");
     let burn_asset = Burn::asset_numeric(
@@ -154,7 +154,7 @@ fn permissions_disallow_asset_burn() {
         .with_instructions([burn_asset])
         .sign(&mouse_keypair);
 
-    let err = iroha_client
+    let err = iroha
         .submit_transaction_blocking(&burn_tx)
         .expect_err("Transaction was not rejected.");
     let rejection_reason = err
@@ -166,7 +166,7 @@ fn permissions_disallow_asset_burn() {
         &TransactionRejectionReason::Validation(ValidationFail::NotPermitted(_))
     ));
 
-    let alice_assets = get_assets(&iroha_client, &alice_id);
+    let alice_assets = get_assets(&iroha, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
 }
 
@@ -293,8 +293,8 @@ fn permissions_differ_not_only_by_names() {
 fn stored_vs_granted_token_payload() -> Result<()> {
     let chain_id = ChainId::from("0");
 
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
-    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
+    wait_for_genesis_committed(&[iroha.clone()], 0);
 
     // Given
     let alice_id = ALICE_ID.clone();
@@ -309,7 +309,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
         Register::account(new_mouse_account).into(),
         create_asset.into(),
     ];
-    iroha_client
+    iroha
         .submit_all_blocking(instructions)
         .expect("Failed to register mouse");
 
@@ -321,8 +321,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
             JsonString::from_string_unchecked(format!(
                 // Introducing some whitespaces
                 // This way, if the executor compares just JSON strings, this test would fail
-                r##"{{ "asset_id"   :   "xor#wonderland#{}" }}"##,
-                mouse_id
+                r##"{{ "asset_id"   :   "xor#wonderland#{mouse_id}" }}"##
             )),
         ),
         alice_id,
@@ -331,13 +330,13 @@ fn stored_vs_granted_token_payload() -> Result<()> {
     let transaction = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([allow_alice_to_set_key_value_in_mouse_asset])
         .sign(&mouse_keypair);
-    iroha_client
+    iroha
         .submit_transaction_blocking(&transaction)
         .expect("Failed to grant permission to alice.");
 
     // Check that alice can indeed mint mouse asset
     let set_key_value = SetKeyValue::asset(mouse_asset, Name::from_str("color")?, "red".to_owned());
-    iroha_client
+    iroha
         .submit_blocking(set_key_value)
         .expect("Failed to mint asset for mouse.");
 
@@ -347,8 +346,8 @@ fn stored_vs_granted_token_payload() -> Result<()> {
 #[test]
 #[allow(deprecated)]
 fn permissions_are_unified() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_230).start_with_runtime();
-    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_230).start_with_runtime();
+    wait_for_genesis_committed(&[iroha.clone()], 0);
 
     // Given
     let alice_id = ALICE_ID.clone();
@@ -370,19 +369,19 @@ fn permissions_are_unified() {
         alice_id,
     );
 
-    iroha_client
+    iroha
         .submit_blocking(allow_alice_to_transfer_rose_1)
         .expect("failed to grant permission token");
 
-    let _ = iroha_client
+    let _ = iroha
         .submit_blocking(allow_alice_to_transfer_rose_2)
         .expect_err("should reject due to duplication");
 }
 
 #[test]
 fn associated_permissions_removed_on_unregister() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_240).start_with_runtime();
-    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_240).start_with_runtime();
+    wait_for_genesis_committed(&[iroha.clone()], 0);
 
     let bob_id = BOB_ID.clone();
     let kingdom_id: DomainId = "kingdom".parse().expect("Valid");
@@ -397,7 +396,7 @@ fn associated_permissions_removed_on_unregister() {
     let allow_bob_to_set_kv_in_domain =
         Grant::permission(bob_to_set_kv_in_domain_token.clone(), bob_id.clone());
 
-    iroha_client
+    iroha
         .submit_all_blocking([
             InstructionBox::from(register_domain),
             allow_bob_to_set_kv_in_domain.into(),
@@ -405,7 +404,7 @@ fn associated_permissions_removed_on_unregister() {
         .expect("failed to register domain and grant permission");
 
     // check that bob indeed have granted permission
-    assert!(iroha_client
+    assert!(iroha
         .request(client::permission::by_account_id(bob_id.clone()))
         .and_then(std::iter::Iterator::collect::<QueryResult<Vec<Permission>>>)
         .expect("failed to get permissions for bob")
@@ -413,12 +412,12 @@ fn associated_permissions_removed_on_unregister() {
         .any(|token| { token == bob_to_set_kv_in_domain_token }));
 
     // unregister kingdom
-    iroha_client
+    iroha
         .submit_blocking(Unregister::domain(kingdom_id))
         .expect("failed to unregister domain");
 
     // check that permission is removed from bob
-    assert!(iroha_client
+    assert!(iroha
         .request(client::permission::by_account_id(bob_id))
         .and_then(std::iter::Iterator::collect::<QueryResult<Vec<Permission>>>)
         .expect("failed to get permissions for bob")
@@ -428,8 +427,8 @@ fn associated_permissions_removed_on_unregister() {
 
 #[test]
 fn associated_permissions_removed_from_role_on_unregister() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_255).start_with_runtime();
-    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_255).start_with_runtime();
+    wait_for_genesis_committed(&[iroha.clone()], 0);
 
     let role_id: RoleId = "role".parse().expect("Valid");
     let kingdom_id: DomainId = "kingdom".parse().expect("Valid");
@@ -444,12 +443,12 @@ fn associated_permissions_removed_from_role_on_unregister() {
     let role = Role::new(role_id.clone()).add_permission(set_kv_in_domain_token.clone());
     let register_role = Register::role(role);
 
-    iroha_client
+    iroha
         .submit_all_blocking([InstructionBox::from(register_domain), register_role.into()])
         .expect("failed to register domain and grant permission");
 
     // check that role indeed have permission
-    assert!(iroha_client
+    assert!(iroha
         .request(client::role::by_id(role_id.clone()))
         .map(|role| role.permissions().cloned().collect::<Vec<_>>())
         .expect("failed to get permissions for role")
@@ -457,12 +456,12 @@ fn associated_permissions_removed_from_role_on_unregister() {
         .any(|token| { token == set_kv_in_domain_token }));
 
     // unregister kingdom
-    iroha_client
+    iroha
         .submit_blocking(Unregister::domain(kingdom_id))
         .expect("failed to unregister domain");
 
     // check that permission is removed from role
-    assert!(iroha_client
+    assert!(iroha
         .request(client::role::by_id(role_id.clone()))
         .map(|role| role.permissions().cloned().collect::<Vec<_>>())
         .expect("failed to get permissions for role")

@@ -2,7 +2,7 @@
 //! <https://hyperledger.github.io/iroha-2-docs/guide/rust.html#_2-configuring-iroha-2>
 
 use eyre::{Error, WrapErr};
-use iroha_client::config::Config;
+use iroha::config::Config;
 use iroha_primitives::numeric::Numeric;
 // #region rust_config_crates
 // #endregion rust_config_crates
@@ -31,7 +31,7 @@ fn main() {
 
 fn domain_registration_test(config: Config) -> Result<(), Error> {
     // #region domain_register_example_crates
-    use iroha_client::{
+    use iroha::{
         client::Client,
         data_model::{
             metadata::UnlimitedMetadata,
@@ -52,19 +52,19 @@ fn domain_registration_test(config: Config) -> Result<(), Error> {
 
     // #region rust_client_create
     // Create an Iroha client
-    let iroha_client = Client::new(config);
+    let iroha = Client::new(config);
     // #endregion rust_client_create
 
     // #region domain_register_example_prepare_tx
     // Prepare a transaction
     let metadata = UnlimitedMetadata::default();
     let instructions: Vec<InstructionBox> = vec![create_looking_glass.into()];
-    let tx = iroha_client.build_transaction(instructions, metadata);
+    let tx = iroha.build_transaction(instructions, metadata);
     // #endregion domain_register_example_prepare_tx
 
     // #region domain_register_example_submit_tx
     // Submit a prepared domain registration transaction
-    iroha_client
+    iroha
         .submit_transaction(&tx)
         .wrap_err("Failed to submit transaction")?;
     // #endregion domain_register_example_submit_tx
@@ -75,7 +75,7 @@ fn domain_registration_test(config: Config) -> Result<(), Error> {
 
 fn account_definition_test() -> Result<(), Error> {
     // #region account_definition_comparison
-    use iroha_client::{crypto::KeyPair, data_model::prelude::AccountId};
+    use iroha::{crypto::KeyPair, data_model::prelude::AccountId};
 
     // Generate a new public key for a new account
     let (public_key, _) = KeyPair::random().into_parts();
@@ -97,7 +97,7 @@ fn account_definition_test() -> Result<(), Error> {
 
 fn account_registration_test(config: Config) -> Result<(), Error> {
     // #region register_account_crates
-    use iroha_client::{
+    use iroha::{
         client::Client,
         crypto::KeyPair,
         data_model::{
@@ -108,7 +108,7 @@ fn account_registration_test(config: Config) -> Result<(), Error> {
     // #endregion register_account_crates
 
     // Create an Iroha client
-    let iroha_client = Client::new(config);
+    let iroha = Client::new(config);
 
     // #region register_account_create
     // Generate a new public key for a new account
@@ -129,12 +129,12 @@ fn account_registration_test(config: Config) -> Result<(), Error> {
     // Account's RegisterBox
     let metadata = UnlimitedMetadata::new();
     let instructions: Vec<InstructionBox> = vec![create_account.into()];
-    let tx = iroha_client.build_transaction(instructions, metadata);
+    let tx = iroha.build_transaction(instructions, metadata);
     // #endregion register_account_prepare_tx
 
     // #region register_account_submit_tx
     // Submit a prepared account registration transaction
-    iroha_client.submit_transaction(&tx)?;
+    iroha.submit_transaction(&tx)?;
     // #endregion register_account_submit_tx
 
     // Finish the test successfully
@@ -145,7 +145,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
     // #region register_asset_crates
     use std::str::FromStr as _;
 
-    use iroha_client::{
+    use iroha::{
         client::Client,
         crypto::KeyPair,
         data_model::prelude::{
@@ -155,7 +155,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
     // #endregion register_asset_crates
 
     // Create an Iroha client
-    let iroha_client = Client::new(config);
+    let iroha = Client::new(config);
 
     // #region register_asset_create_asset
     // Create an asset
@@ -169,7 +169,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
         Register::asset_definition(AssetDefinition::numeric(asset_def_id.clone()).mintable_once());
 
     // Submit a registration time
-    iroha_client.submit(register_time)?;
+    iroha.submit(register_time)?;
     // #endregion register_asset_init_submit
 
     // Generate a new public key for a new account
@@ -184,7 +184,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
     let mint = Mint::asset_numeric(numeric!(12.34), AssetId::new(asset_def_id, account_id));
 
     // Submit a minting transaction
-    iroha_client.submit_all([mint])?;
+    iroha.submit_all([mint])?;
     // #endregion register_asset_mint_submit
 
     // Finish the test successfully
@@ -195,14 +195,14 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
     // #region mint_asset_crates
     use std::str::FromStr;
 
-    use iroha_client::{
+    use iroha::{
         client::Client,
         data_model::prelude::{AccountId, AssetDefinitionId, AssetId, Mint},
     };
     // #endregion mint_asset_crates
 
     // Create an Iroha client
-    let iroha_client = Client::new(config);
+    let iroha = Client::new(config);
 
     // Define the instances of an Asset and Account
     // #region mint_asset_define_asset_account
@@ -218,7 +218,7 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
     // #endregion mint_asset_mint
 
     // #region mint_asset_submit_tx
-    iroha_client
+    iroha
         .submit(mint_roses)
         .wrap_err("Failed to submit transaction")?;
     // #endregion mint_asset_submit_tx
@@ -236,7 +236,7 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
     // #endregion mint_asset_mint_alt
 
     // #region mint_asset_submit_tx_alt
-    iroha_client
+    iroha
         .submit(mint_roses_alt)
         .wrap_err("Failed to submit transaction")?;
     // #endregion mint_asset_submit_tx_alt
@@ -249,14 +249,14 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
     // #region burn_asset_crates
     use std::str::FromStr;
 
-    use iroha_client::{
+    use iroha::{
         client::Client,
         data_model::prelude::{AccountId, AssetDefinitionId, AssetId, Burn},
     };
     // #endregion burn_asset_crates
 
     // Create an Iroha client
-    let iroha_client = Client::new(config);
+    let iroha = Client::new(config);
 
     // #region burn_asset_define_asset_account
     // Define the instances of an Asset and Account
@@ -272,7 +272,7 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
     // #endregion burn_asset_burn
 
     // #region burn_asset_submit_tx
-    iroha_client
+    iroha
         .submit(burn_roses)
         .wrap_err("Failed to submit transaction")?;
     // #endregion burn_asset_submit_tx
@@ -290,7 +290,7 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
     // #endregion burn_asset_burn_alt
 
     // #region burn_asset_submit_tx_alt
-    iroha_client
+    iroha
         .submit(burn_roses_alt)
         .wrap_err("Failed to submit transaction")?;
     // #endregion burn_asset_submit_tx_alt
