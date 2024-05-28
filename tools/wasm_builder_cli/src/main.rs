@@ -8,7 +8,7 @@ use iroha_wasm_builder::Builder;
 use owo_colors::OwoColorize;
 
 #[derive(Parser, Debug)]
-#[command(name = "iroha_wasm_builder_cli", version, author)]
+#[command(name = "iroha_wasm_builder", version, author)]
 enum Cli {
     /// Apply `cargo check` to the smartcontract
     Check {
