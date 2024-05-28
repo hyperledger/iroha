@@ -92,7 +92,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
         .expect("Valid");
     assert!(alice_tokens.contains(&Permission::new(
         can_unregister_domain_token_id.clone(),
-        &json!({ "domain_id": DomainId::from_str("wonderland").unwrap() }),
+        json!({ "domain_id": DomainId::from_str("wonderland").unwrap() }).into(),
     )));
 
     upgrade_executor(
@@ -121,7 +121,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
         .expect("Valid");
     assert!(alice_tokens.contains(&Permission::new(
         can_control_domain_lives_token_id,
-        &json!(null),
+        json!(null).into(),
     )));
 
     Ok(())
@@ -135,7 +135,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
     // Permission which will be removed by executor
     let can_unregister_domain_token = Permission::new(
         "CanUnregisterDomain".parse()?,
-        &json!({ "domain_id": DomainId::from_str("wonderland")? }),
+        json!({ "domain_id": DomainId::from_str("wonderland")? }).into(),
     );
 
     // Register `TEST_ROLE` with permission

@@ -92,22 +92,22 @@ impl TestGenesis for GenesisNetwork {
 
         let mint_rose_permission = Permission::new(
             "CanMintAssetWithDefinition".parse().unwrap(),
-            &json!({ "asset_definition_id": rose_definition_id }),
+            json!({ "asset_definition_id": rose_definition_id }).into(),
         );
         let burn_rose_permission = Permission::new(
             "CanBurnAssetWithDefinition".parse().unwrap(),
-            &json!({ "asset_definition_id": rose_definition_id }),
+            json!({ "asset_definition_id": rose_definition_id }).into(),
         );
         let unregister_any_peer_permission =
-            Permission::new("CanUnregisterAnyPeer".parse().unwrap(), &json!(null));
+            Permission::new("CanUnregisterAnyPeer".parse().unwrap(), json!(null).into());
         let unregister_any_role_permission =
-            Permission::new("CanUnregisterAnyRole".parse().unwrap(), &json!(null));
+            Permission::new("CanUnregisterAnyRole".parse().unwrap(), json!(null).into());
         let unregister_wonderland_domain = Permission::new(
             "CanUnregisterDomain".parse().unwrap(),
-            &json!({ "domain_id": DomainId::from_str("wonderland").unwrap() } ),
+            json!({ "domain_id": DomainId::from_str("wonderland").unwrap() }).into(),
         );
         let upgrade_executor_permission =
-            Permission::new("CanUpgradeExecutor".parse().unwrap(), &json!(null));
+            Permission::new("CanUpgradeExecutor".parse().unwrap(), json!(null).into());
 
         let first_transaction = genesis
             .first_transaction_mut()

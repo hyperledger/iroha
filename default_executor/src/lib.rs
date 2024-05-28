@@ -52,7 +52,7 @@ impl Executor {
 pub fn migrate(block_height: u64) -> MigrationResult {
     Executor::ensure_genesis(block_height)?;
 
-    DataModelBuilder::with_default_permissions().set();
+    DataModelBuilder::with_default_permissions().build_and_set();
 
     Ok(())
 }

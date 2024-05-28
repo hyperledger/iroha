@@ -48,7 +48,7 @@ macro_rules! declare_permissions {
             fn try_from(token: &$crate::data_model::permission::Permission) -> Result<Self, Self::Error> {
                 match token.id().name().as_ref() { $(
                     stringify!($token_ty) => {
-                        let token = <$($token_path::)+$token_ty>::try_from_object(token)?;
+                        let token = <$($token_path::)+$token_ty>::try_from(token)?;
                         Ok(Self::$token_ty(token))
                     } )+
                     _ => Err(Self::Error::Id(token.id().name().clone()))
@@ -59,7 +59,7 @@ macro_rules! declare_permissions {
         impl From<AnyPermission> for $crate::data_model::permission::Permission {
             fn from(token: AnyPermission) -> Self {
                 match token { $(
-                    AnyPermission::$token_ty(token) => token.to_object(), )*
+                    AnyPermission::$token_ty(token) => token.into(), )*
                 }
             }
         }

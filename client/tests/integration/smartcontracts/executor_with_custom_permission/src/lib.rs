@@ -95,7 +95,7 @@ impl Executor {
                 })?;
 
                 if let Ok(can_unregister_domain_token) =
-                    iroha_executor::default::permissions::domain::CanUnregisterDomain::try_from_object(
+                    iroha_executor::default::permissions::domain::CanUnregisterDomain::try_from(
                         &token,
                     )
                 {
@@ -120,7 +120,7 @@ impl Executor {
                 Revoke::permission(
                     Permission::new(
                         can_unregister_domain_definition_id.clone(),
-                        &json!({ "domain_id": domain_id }),
+                        json!({ "domain_id": domain_id }).into(),
                     ),
                     account.id().clone(),
                 )
@@ -137,7 +137,10 @@ impl Executor {
                 })?;
 
                 Grant::permission(
-                    Permission::new(can_control_domain_lives_definition_id.clone(), &json!(null)),
+                    Permission::new(
+                        can_control_domain_lives_definition_id.clone(),
+                        json!(null).into(),
+                    ),
                     account.id().clone(),
                 )
                 .execute()
@@ -201,7 +204,7 @@ pub fn migrate(_block_height: u64) -> MigrationResult {
     DataModelBuilder::with_default_permissions()
         .remove_permission::<iroha_executor::default::permissions::domain::CanUnregisterDomain>()
         .add_permission::<token::CanControlDomainLives>()
-        .set();
+        .build_and_set();
 
     Executor::replace_token(&accounts)
 }

@@ -15,7 +15,7 @@ use iroha_data_model::{
     isi::InstructionBox,
     prelude::*,
     transaction::TransactionLimits,
-    ChainId,
+    ChainId, JsonString,
 };
 use iroha_primitives::unique_vec::UniqueVec;
 use serde_json::json;
@@ -69,7 +69,7 @@ pub fn populate_state(
         let can_unregister_domain = Grant::permission(
             Permission::new(
                 "CanUnregisterDomain".parse().unwrap(),
-                &json!({ "domain_id": domain_id.clone() }),
+                JsonString::from(&json!({ "domain_id": domain_id.clone() })),
             ),
             owner_id.clone(),
         );
@@ -81,7 +81,7 @@ pub fn populate_state(
             let can_unregister_account = Grant::permission(
                 Permission::new(
                     "CanUnregisterAccount".parse().unwrap(),
-                    &json!({ "account_id": account_id.clone() }),
+                    JsonString::from(&json!({ "account_id": account_id.clone() })),
                 ),
                 owner_id.clone(),
             );
@@ -94,7 +94,7 @@ pub fn populate_state(
             let can_unregister_asset_definition = Grant::permission(
                 Permission::new(
                     "CanUnregisterAssetDefinition".parse().unwrap(),
-                    &json!({ "asset_definition_id": asset_definition_id }),
+                    JsonString::from(&json!({ "asset_definition_id": asset_definition_id })),
                 ),
                 owner_id.clone(),
             );

@@ -28,7 +28,7 @@ pub fn migrate(_block_height: u64) -> MigrationResult {
     // So any added custom permission tokens will be also removed
     DataModelBuilder::with_default_permissions()
         .remove_permission::<CanUnregisterDomain>()
-        .set();
+        .build_and_set();
 
     Ok(())
 }

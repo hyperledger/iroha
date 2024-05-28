@@ -43,7 +43,7 @@ pub use trigger::{
 
 use crate::{
     permission::Permission as _,
-    prelude::{Permission as PermissionObject, *},
+    prelude::{Permission, *},
 };
 
 // NOTE: If any new `visit_..` functions are introduced in this module, one should
@@ -293,7 +293,7 @@ pub mod domain {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn is_token_domain_associated(permission: &PermissionObject, domain_id: &DomainId) -> bool {
+    fn is_token_domain_associated(permission: &Permission, domain_id: &DomainId) -> bool {
         let Ok(permission) = AnyPermission::try_from(permission) else {
             return false;
         };
@@ -537,7 +537,7 @@ pub mod account {
         );
     }
 
-    fn is_token_account_associated(permission: &PermissionObject, account_id: &AccountId) -> bool {
+    fn is_token_account_associated(permission: &Permission, account_id: &AccountId) -> bool {
         let Ok(permission) = AnyPermission::try_from(permission) else {
             return false;
         };
@@ -780,7 +780,7 @@ pub mod asset_definition {
     }
 
     fn is_token_asset_definition_associated(
-        permission: &PermissionObject,
+        permission: &Permission,
         asset_definition_id: &AssetDefinitionId,
     ) -> bool {
         let Ok(permission) = AnyPermission::try_from(permission) else {
@@ -1230,7 +1230,7 @@ pub mod role {
             let token = $isi.object();
 
             if let Ok(any_token) = AnyPermission::try_from(token) {
-                let token = PermissionObject::from(any_token.clone());
+                let token = Permission::from(any_token.clone());
                 let isi = <$isi_type>::role_permission(token, role_id);
                 if is_genesis($executor) {
                     execute!($executor, isi);
@@ -1268,7 +1268,7 @@ pub mod role {
             iroha_smart_contract::debug!(&format!("Checking `{token:?}`"));
 
             if let Ok(any_token) = AnyPermission::try_from(token) {
-                let token = PermissionObject::from(any_token);
+                let token = Permission::from(any_token);
                 new_role = new_role.add_permission(token);
                 continue;
             }
@@ -1324,17 +1324,17 @@ pub mod role {
     pub fn visit_grant_role_permission<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Grant<PermissionObject, Role>,
+        isi: &Grant<Permission, Role>,
     ) {
-        impl_validate_grant_revoke_role_permission!(executor, isi, authority, validate_grant, Grant<PermissionObject, Role>);
+        impl_validate_grant_revoke_role_permission!(executor, isi, authority, validate_grant, Grant<Permission, Role>);
     }
 
     pub fn visit_revoke_role_permission<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Revoke<PermissionObject, Role>,
+        isi: &Revoke<Permission, Role>,
     ) {
-        impl_validate_grant_revoke_role_permission!(executor, isi, authority, validate_revoke, Revoke<PermissionObject, Role>);
+        impl_validate_grant_revoke_role_permission!(executor, isi, authority, validate_revoke, Revoke<Permission, Role>);
     }
 }
 
@@ -1563,7 +1563,7 @@ pub mod trigger {
         );
     }
 
-    fn is_token_trigger_associated(permission: &PermissionObject, trigger_id: &TriggerId) -> bool {
+    fn is_token_trigger_associated(permission: &Permission, trigger_id: &TriggerId) -> bool {
         let Ok(permission) = AnyPermission::try_from(permission) else {
             return false;
         };
@@ -1628,7 +1628,7 @@ pub mod permission {
             let token = $isi.object();
 
             if let Ok(any_token) = AnyPermission::try_from(token) {
-                let token = PermissionObject::from(any_token.clone());
+                let token = Permission::from(any_token.clone());
                 let isi = <$isi_type>::permission(token, account_id);
                 if is_genesis($executor) {
                     execute!($executor, isi);
@@ -1654,28 +1654,28 @@ pub mod permission {
     pub fn visit_grant_account_permission<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Grant<PermissionObject, Account>,
+        isi: &Grant<Permission, Account>,
     ) {
         impl_validate!(
             executor,
             authority,
             isi,
             validate_grant,
-            Grant<PermissionObject, Account>
+            Grant<Permission, Account>
         );
     }
 
     pub fn visit_revoke_account_permission<V: Validate + Visit + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: &Revoke<PermissionObject, Account>,
+        isi: &Revoke<Permission, Account>,
     ) {
         impl_validate!(
             executor,
             authority,
             isi,
             validate_revoke,
-            Revoke<PermissionObject, Account>
+            Revoke<Permission, Account>
         );
     }
 }

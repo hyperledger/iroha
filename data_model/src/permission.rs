@@ -1,7 +1,6 @@
 //! Permission Token and related impls
 #[cfg(not(feature = "std"))]
 use alloc::{collections::BTreeSet, format, string::String, vec::Vec};
-use core::borrow::Borrow;
 #[cfg(feature = "std")]
 use std::collections::BTreeSet;
 
@@ -66,6 +65,7 @@ mod model {
         IntoSchema,
         Display,
         Getters,
+        Constructor,
     )]
     #[ffi_type]
     #[display(fmt = "PERMISSION `{id}` = `{payload}`")]
@@ -79,28 +79,6 @@ mod model {
         /// the type defined in [`crate::executor::ExecutorDataModel`].
         #[getset(skip)]
         pub payload: JsonString,
-    }
-}
-
-impl Permission {
-    /// Constructor
-    pub fn new(id: PermissionId, payload: impl IntoJsonString) -> Self {
-        Self {
-            id,
-            payload: payload.into_json_string(),
-        }
-    }
-}
-
-impl Borrow<str> for PermissionId {
-    fn borrow(&self) -> &str {
-        self.name.borrow()
-    }
-}
-
-impl Borrow<str> for Permission {
-    fn borrow(&self) -> &str {
-        self.id.borrow()
     }
 }
 

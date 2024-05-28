@@ -237,7 +237,7 @@ impl DataModelBuilder {
 
     /// Set the data model of the executor via [`set_data_model`]
     #[cfg(not(test))]
-    pub fn set(self) {
+    pub fn build_and_set(self) {
         set_data_model(&ExecutorDataModel::new(
             self.permissions,
             data_model::JsonString::serialize(&self.schema)

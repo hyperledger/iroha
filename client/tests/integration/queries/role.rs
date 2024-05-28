@@ -133,7 +133,7 @@ fn find_roles_by_account_id() -> Result<()> {
         .map(|role_id| {
             Register::role(Role::new(role_id).add_permission(Permission::new(
                 "CanSetKeyValueInAccount".parse().unwrap(),
-                &json!({ "account_id": alice_id }),
+                json!({ "account_id": alice_id }).into(),
             )))
         })
         .collect::<Vec<_>>();

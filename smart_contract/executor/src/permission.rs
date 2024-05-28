@@ -3,14 +3,11 @@
 use alloc::borrow::ToOwned as _;
 
 use iroha_schema::IntoSchema;
-use iroha_smart_contract::{data_model::JsonString, QueryOutputCursor};
+use iroha_smart_contract::QueryOutputCursor;
 use iroha_smart_contract_utils::debug::DebugExpectExt as _;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{
-    prelude::{Permission as PermissionObject, *},
-    TryFromDataModelObjectError,
-};
+use crate::prelude::{Permission as PermissionObject, *};
 
 /// Is used to check if the permission token is owned by the account.
 pub trait Permission:
@@ -25,28 +22,6 @@ pub trait Permission:
             <Self as iroha_schema::IntoSchema>::type_name()
                 .parse()
                 .dbg_expect("Failed to parse permission id as `Name`"),
-        )
-    }
-
-    /// Try to convert from [`PermissionObject`]
-    /// # Errors
-    /// See [`TryFromDataModelObjectError`]
-    fn try_from_object(object: &PermissionObject) -> Result<Self, TryFromDataModelObjectError> {
-        if *object.id() != <Self as Permission>::id() {
-            return Err(TryFromDataModelObjectError::Id(object.id().name().clone()));
-        }
-        object
-            .payload()
-            .deserialize()
-            .map_err(TryFromDataModelObjectError::Deserialize)
-    }
-
-    /// Convert into [`PermissionObject`]
-    fn to_object(&self) -> PermissionObject {
-        PermissionObject::new(
-            <Self as Permission>::id(),
-            JsonString::serialize(&self)
-                .expect("failed to serialize concrete data model entity; this is a bug"),
         )
     }
 }
@@ -407,9 +382,9 @@ mod tests {
 
         let object = PermissionObject::new(
             "SampleToken".parse().unwrap(),
-            json!({ "can_do_whatever": false }),
+            json!({ "can_do_whatever": false }).into(),
         );
-        let parsed = SampleToken::try_from_object(&object).expect("valid");
+        let parsed = SampleToken::try_from(&object).expect("valid");
 
         assert!(!parsed.can_do_whatever);
     }
