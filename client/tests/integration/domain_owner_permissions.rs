@@ -1,5 +1,5 @@
 use eyre::Result;
-use iroha_client::data_model::prelude::*;
+use iroha::data_model::prelude::*;
 use iroha_data_model::transaction::error::TransactionRejectionReason;
 use serde_json::json;
 use test_network::*;

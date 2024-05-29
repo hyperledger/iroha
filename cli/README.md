@@ -1,8 +1,6 @@
 # Iroha CLI
 
-The binary `iroha` crate contains the Iroha peer binary. The binary is used to instantiate a peer and bootstrap an Iroha-based network. The capabilities of the network are determined by the feature flags used to compile the binary.
-
-The `iroha` crate contains the Iroha peer binary, which is used to instantiate a peer and bootstrap an Iroha-based network. The capabilities of the network are determined by the feature flags used to compile said binary.
+The `irohad` crate contains the Iroha server binary. The binary is used to instantiate a peer and bootstrap an Iroha-based network. The capabilities of the network are determined by the feature flags used to compile the binary.
 
 ## Build
 
@@ -86,11 +84,11 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
 
 1. Prepare a deployment environment.
 
-    If you plan on running the `iroha` peer binary from the directory `deploy`, copy `config.json` and `genesis.json`:
+    If you plan on running the `irohad` binary from the directory `deploy`, copy `config.json` and `genesis.json`:
 
     ```bash
     # FIXME
-    # cp ./target/release/iroha
+    # cp ./target/release/irohad
     # cp ./configs/peer/config.json deploy
     # cp ./configs/peer/genesis.json deploy
     ```
@@ -109,7 +107,7 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
 
     ```bash
     cd deploy
-    ./iroha --submit-genesis
+    ./irohad --submit-genesis
     ```
 
 ### Docker

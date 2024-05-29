@@ -1,5 +1,5 @@
 [package]
-name = "iroha"
+name = "irohad"
 
 edition.workspace = true
 version.workspace = true
@@ -48,7 +48,6 @@ iroha_primitives = { workspace = true }
 iroha_telemetry = { workspace = true, optional = true }
 iroha_config = { workspace = true }
 iroha_crypto = { workspace = true }
-iroha_p2p = { workspace = true }
 iroha_torii = { workspace = true }
 iroha_genesis = { workspace = true }
 iroha_wasm_builder = { workspace = true }

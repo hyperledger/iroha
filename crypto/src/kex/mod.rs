@@ -1,7 +1,7 @@
 //! A suite of Diffie-Hellman key exchange methods.
 //!
 //! [`X25519Sha256`] is the only key exchange scheme currently supported,
-//! as it is the only one used by the iroha p2p transport protocol.
+//! as it is the only one used by the Iroha p2p transport protocol.
 
 mod x25519;
 

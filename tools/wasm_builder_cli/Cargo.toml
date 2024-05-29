@@ -9,6 +9,10 @@ license.workspace = true
 [lints]
 workspace = true
 
+[[bin]]
+name = "iroha_wasm_builder"
+path = "src/main.rs"
+
 [dependencies]
 iroha_wasm_builder.workspace = true
 

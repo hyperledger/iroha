@@ -53,7 +53,7 @@ class Network:
         with open(peers_dir / SHARED_CONFIG_FILE_NAME, "wb") as f:
             tomli_w.dump(shared_config, f)
 
-        copy_or_prompt_build_bin("iroha", args.root_dir, peers_dir)
+        copy_or_prompt_build_bin("irohad", args.root_dir, peers_dir)
 
 
     def wait_for_genesis(self, n_tries: int):
@@ -129,7 +129,7 @@ class _Peer:
             "snapshot": {
                 "store_dir": "storage/snapshot"
             },
-            # it is not available in debug iroha build
+            # it is not available in debug Iroha build
             # "logger": {
             #     "tokio_console_addr": f"{self.host_ip}:{self.tokio_console_port}",
             # }
@@ -168,7 +168,7 @@ class _Peer:
         stderr_file = open(self.peer_dir / ".stderr", "w")
         # These processes are created detached from the parent process already
         subprocess.Popen([self.name, "--config", self.config_path] + (["--submit-genesis"] if submit_genesis else []),
-                    executable=self.out_dir / "peers/iroha", stdout=stdout_file, stderr=stderr_file)
+                    executable=self.out_dir / "peers/irohad", stdout=stdout_file, stderr=stderr_file)
 
 def pos_int(arg):
     if int(arg) > 0:
@@ -216,9 +216,9 @@ def main(args: argparse.Namespace):
         cleanup(args.out_dir)
 
 def setup(args: argparse.Namespace):
-    logging.info(f"Starting iroha network with {args.n_peers} peers...")
+    logging.info(f"Starting Iroha network with {args.n_peers} peers...")
     os.makedirs(args.out_dir, exist_ok=True)
-    copy_or_prompt_build_bin("iroha_client_cli", args.root_dir, args.out_dir)
+    copy_or_prompt_build_bin("iroha", args.root_dir, args.out_dir)
     with open(os.path.join(args.out_dir, "metadata.json"), "w") as f:
         f.write('{"comment":{"String": "Hello Meta!"}}')
     shutil.copy2(pathlib.Path(args.root_dir) / SWARM_CONFIGS_DIRECTORY / "client.toml", args.out_dir)
@@ -228,7 +228,7 @@ def setup(args: argparse.Namespace):
 
 def cleanup(out_dir: pathlib.Path):
     logging.info("Killing peer processes...")
-    subprocess.run(["pkill", "-9", "iroha"])
+    subprocess.run(["pkill", "-9", "irohad"])
     logging.info(f"Cleaning up test directory `{out_dir}`...")
     shutil.rmtree(out_dir)
 
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument("--root-dir", "-r", default=".", type=pathlib.Path,
                         help="Directory containing Iroha project root. \
                         Defaults to `.`, i.e. the directory script is being run from. \
-                        This is used to locate the `iroha` binary and config files")
+                        This is used to locate the `irohad` binary and config files")
     parser.add_argument("--peer-name-as-seed", action="store_true",
                         help="Use peer name as seed for key generation. \
                         This option could be useful to preserve the same peer keys between script invocations")

@@ -1,15 +1,14 @@
-//! Crate contains iroha client which talks to iroha network via http
+//! Crate contains client which talks to Iroha network via http
 
-/// Module with iroha client itself
 pub mod client;
 pub mod config;
-/// Module with general communication primitives like an HTTP request builder.
 pub mod http;
 mod http_default;
 mod query_builder;
 
-/// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
+    //! Module containing sample configurations for tests and benchmarks.
+
     use eyre::Result;
     use iroha_telemetry::metrics::Status;
     use url::Url;

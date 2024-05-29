@@ -1,3 +1,5 @@
+//! Module with general communication primitives like an HTTP request builder.
+
 use core::borrow::Borrow;
 
 use eyre::{eyre, Result};
@@ -94,7 +96,7 @@ pub mod ws {
     ///
     /// ```rust
     /// use eyre::{eyre, Result};
-    /// use iroha_client::http::{
+    /// use iroha::http::{
     ///     ws::conn_flow::{Events as FlowEvents, Init as FlowInit, InitData},
     ///     Method, RequestBuilder,
     /// };
@@ -141,7 +143,7 @@ pub mod ws {
     ///
     /// ```rust
     /// use eyre::Result;
-    /// use iroha_client::{
+    /// use iroha::{
     ///     client::events_api::flow as events_api_flow,
     ///     data_model::prelude::EventBox,
     ///     http::{

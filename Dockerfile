@@ -29,7 +29,7 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/x86_64-linux-musl-native/bin/
 # builder stage
 WORKDIR /iroha
 COPY . .
-# FIXME: consider building only `iroha`, `iroha_client_cli`, and `kagami`?
+# FIXME: consider building only `irohad`, `iroha`, and `kagami`?
 RUN cargo build --target x86_64-unknown-linux-musl --profile deploy
 
 
@@ -66,8 +66,8 @@ RUN  set -ex && \
      chown $USER:$USER $STORAGE && \
      chown $USER:$USER $WASM_DIRECTORY
 
+COPY --from=builder $TARGET_DIR/irohad $BIN_PATH
 COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
-COPY --from=builder $TARGET_DIR/iroha_client_cli $BIN_PATH
 COPY --from=builder $TARGET_DIR/kagami $BIN_PATH
 USER $USER
-CMD ["iroha"]
+CMD ["irohad"]

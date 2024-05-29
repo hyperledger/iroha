@@ -16,9 +16,9 @@ Follow the [Iroha 2 tutorial](https://hyperledger.github.io/iroha-2-docs/guide/r
 Add the following to the manifest file of your Rust project:
 
 ```toml
-iroha_client = { git = "https://github.com/hyperledger/iroha", branch = "main" }
+iroha = { git = "https://github.com/hyperledger/iroha", branch = "main" }
 ```
 
 ## Examples
 
-We highly recommend looking at the sample [`iroha_client_cli`](../client_cli) implementation binary as well as our [tutorial](https://hyperledger.github.io/iroha-2-docs/guide/rust.html) for more examples and explanations.
+We highly recommend looking at the sample [`iroha`](../client_cli) implementation binary as well as our [tutorial](https://hyperledger.github.io/iroha-2-docs/guide/rust.html) for more examples and explanations.

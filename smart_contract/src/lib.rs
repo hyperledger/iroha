@@ -645,11 +645,11 @@ mod tests {
             filter: smart_contract_filter.clone(),
             sorting: Sorting::by_metadata_key(Name::from_str("metadata_key").unwrap()),
             pagination: Pagination {
-                limit: Some(NonZeroU32::new(12341234).unwrap()),
-                start: Some(NonZeroU64::new(43214321).unwrap()),
+                limit: Some(NonZeroU32::new(12_341_234).unwrap()),
+                start: Some(NonZeroU64::new(43_214_321).unwrap()),
             },
             fetch_size: FetchSize {
-                fetch_size: Some(NonZeroU32::new(56785678).unwrap()),
+                fetch_size: Some(NonZeroU32::new(56_785_678).unwrap()),
             },
         };
         let smart_contract_query_rq = super::QueryRequest::Query(smart_contract_query.clone());

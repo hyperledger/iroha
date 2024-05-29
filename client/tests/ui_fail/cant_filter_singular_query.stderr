@@ -21,4 +21,4 @@ error[E0599]: the method `with_filter` exists for struct `QueryRequestBuilder<'_
    | |_____- doesn't satisfy `_: IterableQuery`
    |
    = note: the following trait bounds were not satisfied:
-           `iroha_client::iroha_data_model::prelude::FindDomainById: IterableQuery`
+           `iroha::iroha_data_model::prelude::FindDomainById: IterableQuery`

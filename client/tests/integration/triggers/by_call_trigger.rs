@@ -1,7 +1,7 @@
 use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
-use iroha_client::{
+use iroha::{
     client::{self, Client},
     data_model::{
         prelude::*,

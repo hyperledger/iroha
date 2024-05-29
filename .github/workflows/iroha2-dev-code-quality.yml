@@ -44,8 +44,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run tests, with coverage
         run: |
-          mold --run cargo test --all-features --no-fail-fast --workspace --exclude iroha_client
-          mold --run cargo test --all-features --no-fail-fast -p iroha_client -- --skip integration
+          mold --run cargo test --all-features --no-fail-fast --workspace --exclude iroha
+          mold --run cargo test --all-features --no-fail-fast -p iroha -- --skip integration
         env:
           RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"

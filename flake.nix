@@ -45,8 +45,8 @@
       ];
 
       allBinaries = [
+        "irohad"
         "iroha"
-        "iroha_client_cli"
         "kagami"
         "kura_inspector"
         "parity_scale_cli"
@@ -171,7 +171,7 @@
             inherit target;
             # TODO: Cross-compilation doesn't work with multiple
             # binaries for some reason
-            binaries = ["iroha"];
+            binaries = ["irohad"];
           };
         })
         supportedTargets);
@@ -180,7 +180,7 @@
         {
           default = {
             type = "app";
-            program = "${self.packages.${system}.default}/bin/iroha";
+            program = "${self.packages.${system}.default}/bin/irohad";
           };
         }
         // builtins.listToAttrs (map (bin: {

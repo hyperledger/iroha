@@ -69,28 +69,3 @@ jobs:
             hyperledger/iroha:${{ env.TAG }}
             docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}
           labels: commit=${{ github.sha }}
-
-  configs:
-    runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: iroha2-dev
-          token: ${{ secrets.G_ACCESS_TOKEN }}
-      - name: Update configs
-        run: |
-          ./scripts/update_configs.sh lts
-          ./scripts/update_configs.sh stable
-      - name: Commit config changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: '[documentation]: Update lts/stable configs following a release'
-          branch: iroha2-dev
-          commit_options: '--signoff'
-          commit_user_name: sorabot
-          commit_user_email: <>
-          commit_author: sorabot <actions@github.com>

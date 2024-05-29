@@ -1,4 +1,5 @@
-//! iroha client command line
+//! Iroha client CLI
+
 use std::{
     fs::{self, read as read_file},
     io::{stdin, stdout},
@@ -9,7 +10,7 @@ use std::{
 use erased_serde::Serialize;
 use error_stack::{fmt::ColorMode, IntoReportCompat, ResultExt};
 use eyre::{eyre, Error, Result, WrapErr};
-use iroha_client::{
+use iroha::{
     client::{Client, QueryResult},
     config::Config,
     data_model::{metadata::MetadataValueBox, prelude::*},
@@ -79,7 +80,7 @@ impl FromStr for MetadataValueArg {
 
 /// Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.
 #[derive(clap::Parser, Debug)]
-#[command(name = "iroha_client_cli", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
+#[command(name = "iroha", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
 struct Args {
     /// Path to the configuration file
     #[arg(short, long, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
@@ -176,7 +177,7 @@ impl RunArgs for Subcommand {
 
 #[derive(Error, Debug)]
 enum MainError {
-    #[error("Failed to load Iroha Client CLI configuration")]
+    #[error("Failed to load Iroha client configuration")]
     Config,
     #[error("Failed to serialize config")]
     SerializeConfig,
@@ -238,24 +239,22 @@ fn submit(
     metadata: UnlimitedMetadata,
     context: &mut dyn RunContext,
 ) -> Result<()> {
-    let iroha_client = context.client_from_config();
+    let iroha = context.client_from_config();
     let instructions = instructions.into();
-    let tx = iroha_client.build_transaction(instructions, metadata);
+    let tx = iroha.build_transaction(instructions, metadata);
 
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to submit transaction.";
     #[cfg(debug_assertions)]
     let err_msg = format!("Failed to submit transaction {tx:?}");
-    let hash = iroha_client
-        .submit_transaction_blocking(&tx)
-        .wrap_err(err_msg)?;
+    let hash = iroha.submit_transaction_blocking(&tx).wrap_err(err_msg)?;
     context.print_data(&hash)?;
 
     Ok(())
 }
 
 mod filter {
-    use iroha_client::data_model::query::predicate::PredicateBox;
+    use iroha::data_model::query::predicate::PredicateBox;
 
     use super::*;
 
@@ -274,11 +273,11 @@ mod filter {
 
 mod events {
 
-    use iroha_client::data_model::events::pipeline::{BlockEventFilter, TransactionEventFilter};
+    use iroha::data_model::events::pipeline::{BlockEventFilter, TransactionEventFilter};
 
     use super::*;
 
-    /// Get event stream from iroha peer
+    /// Get event stream from Iroha peer
     #[derive(clap::Subcommand, Debug, Clone, Copy)]
     pub enum Args {
         /// Gets block pipeline events
@@ -307,9 +306,9 @@ mod events {
 
     fn listen(filter: impl Into<EventFilterBox>, context: &mut dyn RunContext) -> Result<()> {
         let filter = filter.into();
-        let iroha_client = context.client_from_config();
+        let iroha = context.client_from_config();
         eprintln!("Listening to events with filter: {filter:?}");
-        iroha_client
+        iroha
             .listen_for_events([filter])
             .wrap_err("Failed to listen for events.")?
             .try_for_each(|event| context.print_data(&event?))?;
@@ -322,7 +321,7 @@ mod blocks {
 
     use super::*;
 
-    /// Get block stream from iroha peer
+    /// Get block stream from Iroha peer
     #[derive(clap::Args, Debug, Clone, Copy)]
     pub struct Args {
         /// Block height from which to start streaming blocks
@@ -337,9 +336,9 @@ mod blocks {
     }
 
     fn listen(height: NonZeroU64, context: &mut dyn RunContext) -> Result<()> {
-        let iroha_client = context.client_from_config();
+        let iroha = context.client_from_config();
         eprintln!("Listening to blocks from height: {height}");
-        iroha_client
+        iroha
             .listen_for_blocks(height)
             .wrap_err("Failed to listen for blocks.")?
             .try_for_each(|event| context.print_data(&event?))?;
@@ -348,7 +347,7 @@ mod blocks {
 }
 
 mod domain {
-    use iroha_client::client;
+    use iroha::client;
 
     use super::*;
 
@@ -386,7 +385,7 @@ mod domain {
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { id, metadata } = self;
-            let create_domain = iroha_client::data_model::isi::Register::domain(Domain::new(id));
+            let create_domain = iroha::data_model::isi::Register::domain(Domain::new(id));
             submit([create_domain], metadata.load()?, context).wrap_err("Failed to create domain")
         }
     }
@@ -443,14 +442,14 @@ mod domain {
                 to,
                 metadata,
             } = self;
-            let transfer_domain = iroha_client::data_model::isi::Transfer::domain(from, id, to);
+            let transfer_domain = iroha::data_model::isi::Transfer::domain(from, id, to);
             submit([transfer_domain], metadata.load()?, context)
                 .wrap_err("Failed to transfer domain")
         }
     }
 
     mod metadata {
-        use iroha_client::data_model::domain::DomainId;
+        use iroha::data_model::domain::DomainId;
 
         use super::*;
 
@@ -520,7 +519,7 @@ mod domain {
 mod account {
     use std::fmt::Debug;
 
-    use iroha_client::client::{self};
+    use iroha::client::{self};
 
     use super::{Permission as DataModelPermission, *};
 
@@ -562,7 +561,7 @@ mod account {
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { id, metadata } = self;
-            let create_account = iroha_client::data_model::isi::Register::account(Account::new(id));
+            let create_account = iroha::data_model::isi::Register::account(Account::new(id));
             submit([create_account], metadata.load()?, context)
                 .wrap_err("Failed to register account")
         }
@@ -633,7 +632,7 @@ mod account {
                 permission,
                 metadata,
             } = self;
-            let grant = iroha_client::data_model::isi::Grant::permission(permission.0, id);
+            let grant = iroha::data_model::isi::Grant::permission(permission.0, id);
             submit([grant], metadata.load()?, context)
                 .wrap_err("Failed to grant the permission to the account")
         }
@@ -661,7 +660,7 @@ mod account {
 }
 
 mod asset {
-    use iroha_client::{
+    use iroha::{
         client::{self, asset},
         data_model::{asset::AssetDefinition, name::Name},
     };
@@ -730,7 +729,7 @@ mod asset {
                 asset_definition = asset_definition.mintable_once();
             }
             let create_asset_definition =
-                iroha_client::data_model::isi::Register::asset_definition(asset_definition);
+                iroha::data_model::isi::Register::asset_definition(asset_definition);
             submit([create_asset_definition], metadata.load()?, context)
                 .wrap_err("Failed to register asset")
         }
@@ -756,7 +755,7 @@ mod asset {
                 quantity,
                 metadata,
             } = self;
-            let mint_asset = iroha_client::data_model::isi::Mint::asset_numeric(quantity, asset_id);
+            let mint_asset = iroha::data_model::isi::Mint::asset_numeric(quantity, asset_id);
             submit([mint_asset], metadata.load()?, context)
                 .wrap_err("Failed to mint asset of type `Numeric`")
         }
@@ -782,7 +781,7 @@ mod asset {
                 quantity,
                 metadata,
             } = self;
-            let burn_asset = iroha_client::data_model::isi::Burn::asset_numeric(quantity, asset_id);
+            let burn_asset = iroha::data_model::isi::Burn::asset_numeric(quantity, asset_id);
             submit([burn_asset], metadata.load()?, context)
                 .wrap_err("Failed to burn asset of type `Numeric`")
         }
@@ -813,7 +812,7 @@ mod asset {
                 metadata,
             } = self;
             let transfer_asset =
-                iroha_client::data_model::isi::Transfer::asset_numeric(asset_id, quantity, to);
+                iroha::data_model::isi::Transfer::asset_numeric(asset_id, quantity, to);
             submit([transfer_asset], metadata.load()?, context).wrap_err("Failed to transfer asset")
         }
     }
@@ -829,8 +828,8 @@ mod asset {
     impl RunArgs for Get {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { asset_id } = self;
-            let iroha_client = context.client_from_config();
-            let asset = iroha_client
+            let iroha = context.client_from_config();
+            let asset = iroha
                 .request(asset::by_id(asset_id))
                 .wrap_err("Failed to get asset.")?;
             context.print_data(&asset)?;
@@ -886,7 +885,7 @@ mod asset {
                 value: MetadataValueArg { value },
             } = self;
 
-            let set = iroha_client::data_model::isi::SetKeyValue::asset(asset_id, key, value);
+            let set = iroha::data_model::isi::SetKeyValue::asset(asset_id, key, value);
             submit([set], UnlimitedMetadata::default(), context)?;
             Ok(())
         }
@@ -904,7 +903,7 @@ mod asset {
     impl RunArgs for RemoveKeyValue {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { asset_id, key } = self;
-            let remove = iroha_client::data_model::isi::RemoveKeyValue::asset(asset_id, key);
+            let remove = iroha::data_model::isi::RemoveKeyValue::asset(asset_id, key);
             submit([remove], UnlimitedMetadata::default(), context)?;
             Ok(())
         }
@@ -976,7 +975,7 @@ mod peer {
                 metadata,
             } = self;
             let register_peer =
-                iroha_client::data_model::isi::Register::peer(Peer::new(PeerId::new(address, key)));
+                iroha::data_model::isi::Register::peer(Peer::new(PeerId::new(address, key)));
             submit([register_peer], metadata.load()?, context).wrap_err("Failed to register peer")
         }
     }
@@ -1002,7 +1001,7 @@ mod peer {
                 metadata,
             } = self;
             let unregister_peer =
-                iroha_client::data_model::isi::Unregister::peer(PeerId::new(address, key));
+                iroha::data_model::isi::Unregister::peer(PeerId::new(address, key));
             submit([unregister_peer], metadata.load()?, context)
                 .wrap_err("Failed to unregister peer")
         }

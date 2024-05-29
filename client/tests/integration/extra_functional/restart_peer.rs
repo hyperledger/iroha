@@ -1,7 +1,7 @@
 use std::{str::FromStr, thread};
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{self, Client, QueryResult},
     data_model::prelude::*,
 };

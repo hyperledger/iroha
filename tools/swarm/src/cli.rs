@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn doesnt_allow_multiple_sources() {
-        let _ = match_args("-p 1 --build . --image hp/iroha --config-dir ./ --outfile test.yml")
+        let _ = match_args("-p 1 --build . --image hp/irohad --config-dir ./ --outfile test.yml")
             .unwrap_err();
     }
 

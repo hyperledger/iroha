@@ -186,6 +186,12 @@ mod tests {
         extends: Option<ExtendsPaths>,
     }
 
+    impl ExtendsPaths {
+        fn as_str_vec(&self) -> Vec<&str> {
+            self.iter().map(|p| p.to_str().unwrap()).collect()
+        }
+    }
+
     #[test]
     fn parse_empty_extends() {
         let value: TestExtends = toml::from_str("").expect("should be fine with empty input");
@@ -224,12 +230,6 @@ mod tests {
 
     #[test]
     fn iterating_over_extends() {
-        impl ExtendsPaths {
-            fn as_str_vec(&self) -> Vec<&str> {
-                self.iter().map(|p| p.to_str().unwrap()).collect()
-            }
-        }
-
         let single = ExtendsPaths::Single("single".into());
         assert_eq!(single.as_str_vec(), vec!["single"]);
 

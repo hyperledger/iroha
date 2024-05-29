@@ -1,4 +1,4 @@
-use iroha_client::{
+use iroha::{
     client::{self, ClientQueryError},
     data_model::{
         prelude::*,

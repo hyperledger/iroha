@@ -1,9 +1,9 @@
-//! Iroha peer command-line interface.
+//! Iroha server command-line interface.
 use std::env;
 
 use clap::Parser;
 use error_stack::{IntoReportCompat, ResultExt};
-use iroha::Args;
+use irohad::{Args, Iroha};
 
 #[derive(thiserror::Error, Debug)]
 enum MainError {
@@ -30,7 +30,7 @@ async fn main() -> error_stack::Result<(), MainError> {
     }
 
     let (config, logger_config, genesis) =
-        iroha::read_config_and_genesis(&args).change_context(MainError::Config).attach_printable_lazy(|| {
+        irohad::read_config_and_genesis(&args).change_context(MainError::Config).attach_printable_lazy(|| {
             args.config.as_ref().map_or_else(
                 || "`--config` arg was not set, therefore configuration relies fully on environment variables".to_owned(),
                 |path| format!("config path is specified by `--config` arg: {}", path.display()),
@@ -51,7 +51,7 @@ async fn main() -> error_stack::Result<(), MainError> {
         iroha_logger::debug!("Submitting genesis.");
     }
 
-    let _iroha = iroha::Iroha::start_network(config, genesis, logger)
+    let _iroha = Iroha::start_network(config, genesis, logger)
         .await
         .change_context(MainError::IrohaStart)?
         .start_torii()

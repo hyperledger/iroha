@@ -8,10 +8,11 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-iroha = { workspace = true, features = ["test-network"] }
-iroha_crypto = { workspace = true }
-iroha_client = { workspace = true }
 iroha_core = { workspace = true }
+irohad = { workspace = true, features = ["test-network"] }
+iroha = { workspace = true }
+
+iroha_crypto = { workspace = true }
 iroha_config = { workspace = true }
 iroha_data_model = { workspace = true }
 iroha_primitives = { workspace = true }

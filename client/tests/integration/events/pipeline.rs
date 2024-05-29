@@ -1,7 +1,7 @@
 use std::thread::{self, JoinHandle};
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     crypto::HashOf,
     data_model::{
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
@@ -85,7 +85,7 @@ fn test_with_instruction_and_status_and_port(
 
 #[derive(Clone)]
 struct Checker {
-    listener: iroha_client::client::Client,
+    listener: iroha::client::Client,
     hash: HashOf<SignedTransaction>,
 }
 
@@ -125,7 +125,7 @@ fn applied_block_must_be_available_in_kura() {
         .try_into()
         .expect("Received unexpected event");
 
-    peer.iroha
+    peer.irohad
         .as_ref()
         .expect("Must be some")
         .kura()

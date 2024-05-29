@@ -1,7 +1,7 @@
 use std::{collections::HashSet, str::FromStr as _};
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{self, QueryResult},
     data_model::prelude::*,
 };

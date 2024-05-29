@@ -205,7 +205,7 @@ impl GetSetRawFieldAttr {
         for attr in attrs {
             // getset crate is quite liberal in what it accepts
             // it allows both the `#[getset(get)]` and `#[get]` syntax to be used
-            // iroha doesn't use the latter form, so it is not supported by `iroha_ffi_derive`
+            // Iroha doesn't use the latter form, so it is not supported by `iroha_ffi_derive`
             if attr.path().is_ident("getset") {
                 let Some(list) = accumulator.handle(attr.meta.require_list().map_err(Into::into))
                 else {

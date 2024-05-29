@@ -1,7 +1,7 @@
 # Iroha CLI Client
 
 With the Iroha CLI Client, you can interact with Iroha Peers Web API.
-It is a "thin" wrapper around functionality exposed in the `iroha_client` crate. Specifically, it should be used as a reference for using `iroha_client`'s features, and not as a production-ready client. As such, the CLI client is not guaranteed to support all features supported by the client library.
+It is a "thin" wrapper around functionality exposed in the `iroha` crate. Specifically, it should be used as a reference for using `iroha`'s features, and not as a production-ready client. As such, the CLI client is not guaranteed to support all features supported by the client library.
 
 ## Features
 
@@ -18,7 +18,7 @@ Build Iroha and its binaries:
 cargo build
 ```
 
-The above command will produce the `iroha_client_cli` ELF executable file for Linux/BSD, the `iroha_client_cli` executable for MacOS, and the `iroha_client_cli.exe` executable for Windows, depending on your platform and configuration.
+The above command will produce the `iroha` ELF executable file for Linux/BSD, the `iroha` executable for MacOS, and the `iroha.exe` executable for Windows, depending on your platform and configuration.
 
 Check [build and installation instructions](https://hyperledger.github.io/iroha-2-docs/guide/build-and-install.html) for more details.
 
@@ -27,7 +27,7 @@ Check [build and installation instructions](https://hyperledger.github.io/iroha-
 Run Iroha Client CLI:
 
 ```
-iroha_client_cli [OPTIONS] <SUBCOMMAND>
+iroha [OPTIONS] <SUBCOMMAND>
 ```
 
 ### Options
@@ -48,7 +48,7 @@ iroha_client_cli [OPTIONS] <SUBCOMMAND>
 | `json`    | Submit multi-instructions as JSON                                                                                                           |
 | `peer`    | Execute commands related to peer administration and networking                                                                              |
 | `wasm`    | Execute commands related to WASM                                                                                                            |
-| `help`    | Print the help message for `iroha_client_cli` and/or the current subcommand other than `help` subcommand                                    |
+| `help`    | Print the help message for `iroha` and/or the current subcommand other than `help` subcommand                                    |
 
 Refer to [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions.html) for more information about Iroha instructions such as register, mint, grant, and so on.
 
@@ -56,14 +56,14 @@ Check the [Bash guide in Iroha Tutorial](https://hyperledger.github.io/iroha-2-d
 
 ## Examples
 
-:grey_exclamation: All examples below are Unix-oriented. If you're working on Windows, we would highly encourage you to consider using WSL, as most documentation assumes a POSIX-like shell running on your system. Please be advised that the differences in the syntax may go beyond executing `iroha_client_cli.exe` instead of `iroha_client_cli`.
+:grey_exclamation: All examples below are Unix-oriented. If you're working on Windows, we would highly encourage you to consider using WSL, as most documentation assumes a POSIX-like shell running on your system. Please be advised that the differences in the syntax may go beyond executing `iroha.exe` instead of `iroha`.
 
 ```bash
-./iroha_client_cli domain register --id="Soramitsu"
-./iroha_client_cli account register --id="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu"
-./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Numeric
-./iroha_client_cli asset mint --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
-./iroha_client_cli asset get --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu"
+./iroha domain register --id="Soramitsu"
+./iroha account register --id="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu"
+./iroha asset register --id="XOR#Soramitsu" --value-type=Numeric
+./iroha asset mint --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
+./iroha asset get --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu"
 ```
 
 In this section we will show you how to use Iroha CLI Client to do the following:
@@ -89,7 +89,7 @@ Let's start with domain creation. To create a domain, you need to specify the en
 For the `domain` entity, you only need to provide the `id` argument as a string that doesn't contain the `@` and `#` symbols.
 
 ```bash
-./iroha_client_cli domain register --id="Soramitsu"
+./iroha domain register --id="Soramitsu"
 ```
 
 Now you have a domain without any accounts.
@@ -99,7 +99,7 @@ Now you have a domain without any accounts.
 Let's create a new account. Like in the previous example, specify the entity type (`account`) and the command (`register`). Then define the value of the `id` argument in "signatory@domain" format, where signatory is the account's public key in multihash representation.
 
 ```bash
-./iroha_client_cli account register --id="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu"
+./iroha account register --id="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu"
 ```
 
 ### Mint Asset to Account
@@ -111,8 +111,8 @@ To do so, you must first register an Asset Definition and only then add some Ass
 Every asset has its own value spec. In this example, it is defined as `Numeric`, a 96-bit unsigned decimal. We also support `Store` for key-value structured data.
 
 ```bash
-./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Numeric
-./iroha_client_cli asset mint --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
+./iroha asset register --id="XOR#Soramitsu" --value-type=Numeric
+./iroha asset mint --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
 ```
 
 You created `XOR#Soramitsu`, an asset of type `Numeric`, and then gave `1010` units of this asset to the account `ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu`.
@@ -133,7 +133,7 @@ Let's use Get Account Assets Query as an example.
 To know how many units of a particular asset an account has, use `asset get` with the specified account and asset:
 
 ```bash
-./iroha_client_cli asset get --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu"
+./iroha asset get --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu"
 ```
 
 This query returns the quantity of `XOR#Soramitsu` asset for the `ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu` account.
@@ -143,21 +143,21 @@ It's possible to filter based on either account, asset or domain id by using the
 Generally it looks like this:
 
 ```bash
-./iroha_client_cli ENTITY list filter PREDICATE
+./iroha ENTITY list filter PREDICATE
 ```
 
-Where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON5 (check `iroha_client::data_model::predicate::value::ValuePredicate` type).
+Where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON5 (check `iroha::data_model::predicate::value::ValuePredicate` type).
 
 Examples:
 
 ```bash
 # Filter domains by id
-./iroha_client_cli domain list filter '{"Identifiable": {"Is": "wonderland"}}'
+./iroha domain list filter '{"Identifiable": {"Is": "wonderland"}}'
 # Filter accounts by domain
-./iroha_client_cli account list filter '{"Identifiable": {"EndsWith": "@wonderland"}}'
+./iroha account list filter '{"Identifiable": {"EndsWith": "@wonderland"}}'
 # It is possible to combine filters using "Or" or "And"
 # Filter asset by domain
-./iroha_client_cli asset list filter '{"Or": [{"Identifiable": {"Contains": "#wonderland#"}}, {"And": [{"Identifiable": {"Contains": "##"}}, {"Identifiable": {"EndsWith": "@wonderland"}}]}]}'
+./iroha asset list filter '{"Or": [{"Identifiable": {"Contains": "#wonderland#"}}, {"And": [{"Identifiable": {"Contains": "##"}}, {"Identifiable": {"EndsWith": "@wonderland"}}]}]}'
 ```
 
 ### Execute WASM transaction
@@ -165,23 +165,23 @@ Examples:
 Use `--file` to specify a path to the WASM file:
 
 ```bash
-./iroha_client_cli wasm --file=/path/to/file.wasm
+./iroha wasm --file=/path/to/file.wasm
 ```
 
 Or skip `--file` to read WASM from standard input:
 
 ```bash
-cat /path/to/file.wasm | ./iroha_client_cli wasm
+cat /path/to/file.wasm | ./iroha wasm
 ```
 
 These subcommands submit the provided wasm binary as an `Executable` to be executed outside a trigger context.
 
 ### Execute Multi-instruction Transactions
 
-The reference implementation of the Rust client, `iroha_client_cli`, is often used for diagnosing problems in other implementations.
+The reference implementation of the Rust client, `iroha`, is often used for diagnosing problems in other implementations.
 
 To test transactions in the JSON format (used in the genesis block and by other SDKs), pipe the transaction into the client and add the `json` subcommand to the arguments:
 
 ```bash
-cat /path/to/file.json | ./iroha_client_cli json
+cat /path/to/file.json | ./iroha json
 ```

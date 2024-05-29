@@ -13,7 +13,7 @@
 //! algorithms by using any algorithm that implements the [`Encryptor`] trait.
 //!
 //! [`ChaCha20Poly1305`] is the only algorithm currently supported,
-//! as it is the only one used by the iroha p2p transport protocol.
+//! as it is the only one used by the Iroha p2p transport protocol.
 
 mod chacha20poly1305;
 

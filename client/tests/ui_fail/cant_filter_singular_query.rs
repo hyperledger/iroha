@@ -1,4 +1,4 @@
-use iroha_client::{
+use iroha::{
     client::{self, Client},
     config::Config,
     data_model::query::predicate::{string, value, PredicateBox},

@@ -1,7 +1,7 @@
 use std::{str::FromStr as _, thread};
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{self, QueryResult},
     crypto::KeyPair,
     data_model::prelude::*,
@@ -17,7 +17,7 @@ use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 
 #[test]
-// This test is also covered at the UI level in the iroha_client_cli tests
+// This test is also covered at the UI level in the iroha_cli tests
 // in test_register_asset_definitions.py
 fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_620).start_with_runtime();
@@ -95,7 +95,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
 }
 
 #[test]
-// This test is also covered at the UI level in the iroha_client_cli tests
+// This test is also covered at the UI level in the iroha_cli tests
 // in test_mint_assets.py
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_000).start_with_runtime();
@@ -106,7 +106,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let metadata = iroha_client::data_model::metadata::UnlimitedMetadata::default();
+    let metadata = iroha::data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity = numeric!(200);
     let mint = Mint::asset_numeric(
@@ -137,7 +137,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let metadata = iroha_client::data_model::metadata::UnlimitedMetadata::default();
+    let metadata = iroha::data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity = Numeric::new(2_u128.pow(65), 0);
     let mint = Mint::asset_numeric(
@@ -168,7 +168,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let asset_definition = AssetDefinition::numeric(asset_definition_id.clone());
     let create_asset = Register::asset_definition(asset_definition);
-    let metadata = iroha_client::data_model::metadata::UnlimitedMetadata::default();
+    let metadata = iroha::data_model::metadata::UnlimitedMetadata::default();
 
     //When
     let quantity = numeric!(123.456);
@@ -210,7 +210,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
 }
 
 #[test]
-// This test is also covered at the UI level in the iroha_client_cli tests
+// This test is also covered at the UI level in the iroha_cli tests
 // in test_register_asset_definitions.py
 fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_520).start_with_runtime();

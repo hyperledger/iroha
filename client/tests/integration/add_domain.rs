@@ -1,12 +1,12 @@
 use std::thread;
 
 use eyre::Result;
-use iroha_client::{client, data_model::prelude::*};
+use iroha::{client, data_model::prelude::*};
 use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
 
 #[test]
-// This test suite is also covered at the UI level in the iroha_client_cli tests
+// This test suite is also covered at the UI level in the iroha_cli tests
 // in test_register_domains.py
 fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()>
 {

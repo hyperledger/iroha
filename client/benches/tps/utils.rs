@@ -1,7 +1,7 @@
 use std::{fmt, fs::File, io::BufReader, path::Path, sync::mpsc, thread, time};
 
 use eyre::{Result, WrapErr};
-use iroha_client::{
+use iroha::{
     client::Client,
     crypto::KeyPair,
     data_model::{
@@ -111,7 +111,7 @@ impl Config {
         let blocks_out_of_measure = 2 + MeasurerUnit::PREPARATION_BLOCKS_NUMBER * self.peers;
         let state_view = network
             .genesis
-            .iroha
+            .irohad
             .as_ref()
             .expect("Must be some")
             .state()

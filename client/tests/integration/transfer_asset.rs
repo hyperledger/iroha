@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use iroha_client::{
+use iroha::{
     client::{self, QueryResult},
     data_model::{isi::Instruction, prelude::*, Registered},
 };
@@ -14,7 +14,7 @@ use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
-// This test suite is also covered at the UI level in the iroha_client_cli tests
+// This test suite is also covered at the UI level in the iroha_cli tests
 // in test_tranfer_assets.py
 fn simulate_transfer_numeric() {
     simulate_transfer(
@@ -29,8 +29,8 @@ fn simulate_transfer_numeric() {
 
 #[test]
 fn simulate_transfer_store_asset() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_145).start_with_runtime();
-    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_145).start_with_runtime();
+    wait_for_genesis_committed(&[iroha.clone()], 0);
     let (alice_id, mouse_id) = generate_two_ids();
     let create_mouse = create_mouse(mouse_id.clone());
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().unwrap();
@@ -49,7 +49,7 @@ fn simulate_transfer_store_asset() {
         set_key_value.into(),
     ];
 
-    iroha_client
+    iroha
         .submit_all_blocking(instructions)
         .expect("Failed to prepare state.");
 
@@ -59,7 +59,7 @@ fn simulate_transfer_store_asset() {
     );
     let transfer_box: InstructionBox = transfer_asset.into();
 
-    iroha_client
+    iroha
         .submit_till(
             transfer_box,
             client::asset::by_account_id(mouse_id.clone()),
@@ -86,10 +86,10 @@ fn simulate_transfer<T>(
     Mint<T, Asset>: Instruction,
     Transfer<Asset, T, Account>: Instruction,
 {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new()
+    let (_rt, _peer, iroha) = <PeerBuilder>::new()
         .with_port(port_number)
         .start_with_runtime();
-    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+    wait_for_genesis_committed(&[iroha.clone()], 0);
 
     let (alice_id, mouse_id) = generate_two_ids();
     let create_mouse = create_mouse(mouse_id.clone());
@@ -107,7 +107,7 @@ fn simulate_transfer<T>(
         create_asset.into(),
         mint_asset.into(),
     ];
-    iroha_client
+    iroha
         .submit_all_blocking(instructions)
         .expect("Failed to prepare state.");
 
@@ -117,7 +117,7 @@ fn simulate_transfer<T>(
         amount_to_transfer.clone(),
         mouse_id.clone(),
     );
-    iroha_client
+    iroha
         .submit_till(
             transfer_asset,
             client::asset::by_account_id(mouse_id.clone()),

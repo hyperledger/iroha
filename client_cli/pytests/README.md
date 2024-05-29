@@ -58,7 +58,7 @@ The test model has the following structure:
      # Note: make sure you have installed packages from `./scripts/requirements.txt`
 	 ```
 
-   By default, this builds `iroha`, `iroha_client_cli`, and `kagami` binaries, and runs four peers with their API exposed through the `8080`-`8083` ports.\
+   By default, this builds `irohad`, `iroha`, and `kagami` binaries, and runs four peers with their API exposed through the `8080`-`8083` ports.\
 	 This behavior can be reconfigured. You can run `./scripts/test_env.py --help` to see the list of available commands and options.
 
 2. Install and configure [Poetry](https://python-poetry.org/).\
@@ -88,7 +88,7 @@ The test model has the following structure:
 
 ### Custom Test Environment with Docker Compose
 
-By default, we provide the [`test_env.py`](../../scripts/test_env.py) script to set up a test environment. This environment is composed of a running network of Iroha peers and an `iroha_client_cli` configuration to interact with it.
+By default, we provide the [`test_env.py`](../../scripts/test_env.py) script to set up a test environment. This environment is composed of a running network of Iroha peers and an Iroha client configuration to interact with it.
 
 However, if for any reason this approach is inconvenient, it is possible to set up a custom network of Iroha peers using the provided Docker Compose configurations.
 
@@ -100,26 +100,26 @@ To do so, perform the following steps:
 	 docker-compose -f docker-compose.dev.yml up
 	 ```
 
-2. Build the `iroha_client_cli` binary:
+2. Build the Iroha client CLI binary:
 
 	 ```bash
-	 cargo build --bin iroha_client_cli
+	 cargo build --bin iroha
 	 ```
 
-3. Create a new directory, then copy the `iroha_client_cli` binary and its `client.toml` configuration file into it:
+3. Create a new directory, then copy the `iroha` binary and `client.toml` configuration file into it:
 
 	 ```shell
 	 # Create a new directory:
 	 mkdir test
 	 # Copy the files:
 	 cp configs/swarm/client.toml test
-	 cp target/debug/iroha_client_cli test
+	 cp target/debug/iroha test
 	 ```
 
 4. Proceed with _Step 2_ of the [Using Test Suites](#using-test-suites) instructions.
 
 > [!NOTE]
-> Don't forget to specify the path to the directory created for the `iroha_client_cli` binary and its `client.toml` configuration file (see Step 3) in the `CLIENT_CLI_DIR` variable of the `.env` file.
+> Don't forget to specify the path to the directory created for the `iroha` binary and its `client.toml` configuration file (see Step 3) in the `CLIENT_CLI_DIR` variable of the `.env` file.
 > For details, see [Tests Configuration](#tests-configuration) below.
 
 ### Poetry Configuration
@@ -156,7 +156,7 @@ Tests are configured via environment variables. These variables can be optionall
 
 The variables:
 
-- `CLIENT_CLI_DIR` — Specifies a path to a directory containing the `iroha_client_cli` binary and its `config.json` configuration file.\
+- `CLIENT_CLI_DIR` — Specifies a path to a directory containing the `iroha` binary and its `config.json` configuration file.\
 	Set to `/client_cli`, by default.
 - `TORII_API_PORT_MIN`/`TORII_API_PORT_MAX` — This pair specifies the range of local ports through which the Iroha 2 peers are deployed. A randomly selected port from the specified range is used for each test.\
 	Set to `8080` and `8083` respectively, by default.

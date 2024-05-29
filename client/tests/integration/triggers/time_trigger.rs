@@ -1,7 +1,7 @@
 use std::{str::FromStr as _, time::Duration};
 
 use eyre::Result;
-use iroha_client::{
+use iroha::{
     client::{self, Client, QueryResult},
     data_model::{
         asset::AssetId,

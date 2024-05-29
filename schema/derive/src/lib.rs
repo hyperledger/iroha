@@ -481,7 +481,7 @@ fn variant_field(fields: &IntoSchemaFields) -> Result<Option<syn::Type>> {
             bail!("Use at most 1 field in unnamed enum variants. Check out styleguide");
         }
         Style::Struct => {
-            bail!("Please don't use named fields on enums. It is against iroha styleguide")
+            bail!("Please don't use named fields on enums. It is against Iroha styleguide")
         }
     };
     Ok(convert_field_to_codegen(field).map(|this_field| this_field.ty))

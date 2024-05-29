@@ -1,4 +1,4 @@
-//! Module for various functions and structs to build macros in iroha.
+//! Module for various functions and structs to build macros in Iroha.
 
 mod emitter;
 

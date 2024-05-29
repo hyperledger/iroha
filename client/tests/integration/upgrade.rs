@@ -2,7 +2,7 @@ use std::{path::Path, str::FromStr as _};
 
 use eyre::Result;
 use futures_util::TryStreamExt as _;
-use iroha_client::{
+use iroha::{
     client::{self, Client, QueryResult},
     crypto::KeyPair,
     data_model::prelude::*,

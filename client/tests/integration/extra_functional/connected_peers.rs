@@ -1,7 +1,7 @@
 use std::thread;
 
 use eyre::{Context, Result};
-use iroha_client::{
+use iroha::{
     client::Client,
     data_model::{
         isi::{Register, Unregister},
