@@ -199,7 +199,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
 #[test]
 fn migration_fail_should_not_cause_any_effects() {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_999).start_with_runtime();
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_998).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     let assert_domain_does_not_exist = |client: &Client, domain_id: &DomainId| {
