@@ -7,7 +7,7 @@ use proc_macro2::TokenStream;
 mod conversion;
 mod default;
 mod entrypoint;
-mod token;
+mod permission;
 mod validate;
 
 /// Annotate the user-defined function that starts the execution of a executor.
@@ -64,14 +64,14 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     emitter.finish_token_stream_with(result)
 }
 
-/// Derive macro for `Token` trait.
+/// Derive macro for `Permission` trait.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use iroha_executor::{permission, prelude::*};
 ///
-/// #[derive(Token, ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
+/// #[derive(Permission, ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
 /// #[validate(permission::asset::Owner)]
 /// struct CanDoSomethingWithAsset {
 ///     some_data: String,
@@ -93,11 +93,11 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[manyhow]
-#[proc_macro_derive(Token)]
-pub fn derive_token(input: TokenStream) -> Result<TokenStream> {
+#[proc_macro_derive(Permission)]
+pub fn derive_permission(input: TokenStream) -> Result<TokenStream> {
     let input = syn::parse2(input)?;
 
-    Ok(token::impl_derive_token(&input))
+    Ok(permission::impl_derive_permission(&input))
 }
 
 /// Derive macro for `ValidateGrantRevoke` trait.

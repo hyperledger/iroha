@@ -89,8 +89,6 @@ mod model {
         Trigger(trigger::TriggerEvent),
         /// Role event
         Role(role::RoleEvent),
-        /// Permission token event
-        Permission(permission::PermissionSchemaUpdateEvent),
         /// Configuration event
         Configuration(config::ConfigurationEvent),
         /// Executor event
@@ -287,44 +285,6 @@ mod role {
     }
 }
 
-mod permission {
-    //! This module contains [`PermissionSchemaUpdateEvent`]
-
-    pub use self::model::*;
-    use super::*;
-    use crate::permission::PermissionSchema;
-
-    #[model]
-    mod model {
-        use super::*;
-
-        /// Information about permission tokens update.
-        /// Only happens when registering new executor
-        #[derive(
-            Debug,
-            Clone,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            Getters,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-        )]
-        #[getset(get = "pub")]
-        #[ffi_type]
-        pub struct PermissionSchemaUpdateEvent {
-            /// Previous set of permission tokens
-            pub old_schema: PermissionSchema,
-            /// New set of permission tokens
-            pub new_schema: PermissionSchema,
-        }
-    }
-}
-
 mod account {
     //! This module contains `AccountEvent` and its impls
 
@@ -332,7 +292,6 @@ mod account {
 
     pub use self::model::*;
     use super::*;
-    use crate::name::Name;
 
     type AccountMetadataChanged = MetadataChanged<AccountId>;
 
@@ -414,7 +373,7 @@ mod account {
 
     impl AccountPermissionChanged {
         /// Get permission id
-        pub fn permission_id(&self) -> &Name {
+        pub fn permission_id(&self) -> &PermissionId {
             &self.permission_id
         }
     }
@@ -558,10 +517,10 @@ mod executor {
         // this is used in no_std
         #[allow(unused)]
         use super::*;
+        use crate::executor::ExecutorDataModel;
 
         #[derive(
             Debug,
-            Copy,
             Clone,
             PartialEq,
             Eq,
@@ -575,11 +534,34 @@ mod executor {
             EventSet,
         )]
         #[non_exhaustive]
-        #[ffi_type]
+        #[ffi_type(opaque)]
         #[serde(untagged)] // Unaffected by #3330, as single unit variant
         #[repr(transparent)]
         pub enum ExecutorEvent {
-            Upgraded,
+            Upgraded(ExecutorUpgrade),
+        }
+
+        /// Information about the updated executor data model.
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+            Getters,
+        )]
+        #[ffi_type]
+        #[repr(transparent)]
+        #[getset(get = "pub")]
+        pub struct ExecutorUpgrade {
+            /// Updated data model
+            pub new_data_model: ExecutorDataModel,
         }
     }
 }
@@ -616,11 +598,7 @@ impl DataEvent {
         match self {
             Self::Domain(event) => Some(event.origin_id()),
             Self::Trigger(event) => event.origin_id().domain_id.as_ref(),
-            Self::Peer(_)
-            | Self::Configuration(_)
-            | Self::Role(_)
-            | Self::Permission(_)
-            | Self::Executor(_) => None,
+            Self::Peer(_) | Self::Configuration(_) | Self::Role(_) | Self::Executor(_) => None,
         }
     }
 }
@@ -635,9 +613,8 @@ pub mod prelude {
         },
         config::{ConfigurationEvent, ConfigurationEventSet},
         domain::{DomainEvent, DomainEventSet, DomainOwnerChanged},
-        executor::{ExecutorEvent, ExecutorEventSet},
+        executor::{ExecutorEvent, ExecutorEventSet, ExecutorUpgrade},
         peer::{PeerEvent, PeerEventSet},
-        permission::PermissionSchemaUpdateEvent,
         role::{RoleEvent, RoleEventSet, RolePermissionChanged},
         trigger::{TriggerEvent, TriggerEventSet, TriggerNumberOfExecutionsChanged},
         DataEvent, HasOrigin, MetadataChanged,

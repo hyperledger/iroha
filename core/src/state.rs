@@ -13,9 +13,10 @@ use iroha_data_model::{
         trigger_completed::{TriggerCompletedEvent, TriggerCompletedOutcome},
         EventBox,
     },
+    executor::ExecutorDataModel,
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::{Parameter, ParameterValueBox},
-    permission::{PermissionSchema, Permissions},
+    permission::Permissions,
     prelude::*,
     query::error::{FindError, QueryExecutionFail},
     role::RoleId,
@@ -73,12 +74,12 @@ pub struct World {
     pub(crate) account_permissions: Storage<AccountId, Permissions>,
     /// Roles of an account.
     pub(crate) account_roles: Storage<RoleIdWithOwner, ()>,
-    /// Registered permission token ids.
-    pub(crate) permission_schema: Cell<PermissionSchema>,
     /// Triggers
     pub(crate) triggers: TriggerSet,
     /// Runtime Executor
     pub(crate) executor: Cell<Executor>,
+    /// Executor-defined data model
+    pub(crate) executor_data_model: Cell<ExecutorDataModel>,
 }
 
 /// Struct for block's aggregated changes
@@ -95,12 +96,12 @@ pub struct WorldBlock<'world> {
     pub(crate) account_permissions: StorageBlock<'world, AccountId, Permissions>,
     /// Roles of an account.
     pub(crate) account_roles: StorageBlock<'world, RoleIdWithOwner, ()>,
-    /// Registered permission token ids.
-    pub(crate) permission_schema: CellBlock<'world, PermissionSchema>,
     /// Triggers
     pub(crate) triggers: TriggerSetBlock<'world>,
     /// Runtime Executor
     pub(crate) executor: CellBlock<'world, Executor>,
+    /// Executor-defined data model
+    pub(crate) executor_data_model: CellBlock<'world, ExecutorDataModel>,
     /// Events produced during execution of block
     events_buffer: Vec<EventBox>,
 }
@@ -119,12 +120,12 @@ pub struct WorldTransaction<'block, 'world> {
     pub(crate) account_permissions: StorageTransaction<'block, 'world, AccountId, Permissions>,
     /// Roles of an account.
     pub(crate) account_roles: StorageTransaction<'block, 'world, RoleIdWithOwner, ()>,
-    /// Registered permission token ids.
-    pub(crate) permission_schema: CellTransaction<'block, 'world, PermissionSchema>,
     /// Triggers
     pub(crate) triggers: TriggerSetTransaction<'block, 'world>,
     /// Runtime Executor
     pub(crate) executor: CellTransaction<'block, 'world, Executor>,
+    /// Executor-defined data model
+    pub(crate) executor_data_model: CellTransaction<'block, 'world, ExecutorDataModel>,
     /// Events produced during execution of a transaction
     events_buffer: TransactionEventBuffer<'block>,
 }
@@ -151,12 +152,12 @@ pub struct WorldView<'world> {
     pub(crate) account_permissions: StorageView<'world, AccountId, Permissions>,
     /// Roles of an account.
     pub(crate) account_roles: StorageView<'world, RoleIdWithOwner, ()>,
-    /// Registered permission token ids.
-    pub(crate) permission_schema: CellView<'world, PermissionSchema>,
     /// Triggers
     pub(crate) triggers: TriggerSetView<'world>,
     /// Runtime Executor
     pub(crate) executor: CellView<'world, Executor>,
+    /// Executor-defined data model
+    pub(crate) executor_data_model: CellView<'world, ExecutorDataModel>,
 }
 
 /// Current state of the blockchain
@@ -284,9 +285,9 @@ impl World {
             roles: self.roles.block(),
             account_permissions: self.account_permissions.block(),
             account_roles: self.account_roles.block(),
-            permission_schema: self.permission_schema.block(),
             triggers: self.triggers.block(),
             executor: self.executor.block(),
+            executor_data_model: self.executor_data_model.block(),
             events_buffer: Vec::new(),
         }
     }
@@ -300,9 +301,9 @@ impl World {
             roles: self.roles.block_and_revert(),
             account_permissions: self.account_permissions.block_and_revert(),
             account_roles: self.account_roles.block_and_revert(),
-            permission_schema: self.permission_schema.block_and_revert(),
             triggers: self.triggers.block_and_revert(),
             executor: self.executor.block_and_revert(),
+            executor_data_model: self.executor_data_model.block_and_revert(),
             events_buffer: Vec::new(),
         }
     }
@@ -316,9 +317,9 @@ impl World {
             roles: self.roles.view(),
             account_permissions: self.account_permissions.view(),
             account_roles: self.account_roles.view(),
-            permission_schema: self.permission_schema.view(),
             triggers: self.triggers.view(),
             executor: self.executor.view(),
+            executor_data_model: self.executor_data_model.view(),
         }
     }
 }
@@ -332,9 +333,9 @@ pub trait WorldReadOnly {
     fn roles(&self) -> &impl StorageReadOnly<RoleId, Role>;
     fn account_permissions(&self) -> &impl StorageReadOnly<AccountId, Permissions>;
     fn account_roles(&self) -> &impl StorageReadOnly<RoleIdWithOwner, ()>;
-    fn permission_schema(&self) -> &PermissionSchema;
     fn triggers(&self) -> &impl TriggerSetReadOnly;
     fn executor(&self) -> &Executor;
+    fn executor_data_model(&self) -> &ExecutorDataModel;
 
     // Domain-related methods
 
@@ -578,14 +579,14 @@ macro_rules! impl_world_ro {
             fn account_roles(&self) -> &impl StorageReadOnly<RoleIdWithOwner, ()> {
                 &self.account_roles
             }
-            fn permission_schema(&self) -> &PermissionSchema {
-                &self.permission_schema
-            }
             fn triggers(&self) -> &impl TriggerSetReadOnly {
                 &self.triggers
             }
             fn executor(&self) -> &Executor {
                 &self.executor
+            }
+            fn executor_data_model(&self) -> &ExecutorDataModel {
+                &self.executor_data_model
             }
         }
     )*};
@@ -605,9 +606,9 @@ impl<'world> WorldBlock<'world> {
             roles: self.roles.transaction(),
             account_permissions: self.account_permissions.transaction(),
             account_roles: self.account_roles.transaction(),
-            permission_schema: self.permission_schema.transaction(),
             triggers: self.triggers.transaction(),
             executor: self.executor.transaction(),
+            executor_data_model: self.executor_data_model.transaction(),
             events_buffer: TransactionEventBuffer {
                 events_buffer: &mut self.events_buffer,
                 events_created_in_transaction: 0,
@@ -618,9 +619,9 @@ impl<'world> WorldBlock<'world> {
     /// Commit block's changes
     pub fn commit(self) {
         // IMPORTANT!!! Commit fields in reverse order, this way consistent results are insured
+        self.executor_data_model.commit();
         self.executor.commit();
         self.triggers.commit();
-        self.permission_schema.commit();
         self.account_roles.commit();
         self.account_permissions.commit();
         self.roles.commit();
@@ -633,9 +634,9 @@ impl<'world> WorldBlock<'world> {
 impl WorldTransaction<'_, '_> {
     /// Apply transaction's changes
     pub fn apply(mut self) {
+        self.executor_data_model.apply();
         self.executor.apply();
         self.triggers.apply();
-        self.permission_schema.apply();
         self.account_roles.apply();
         self.account_permissions.apply();
         self.roles.apply();
@@ -835,18 +836,9 @@ impl WorldTransaction<'_, '_> {
         Ok(())
     }
 
-    /// Set new permission token schema.
-    ///
-    /// Produces [`PermissionSchemaUpdateEvent`].
-    pub fn set_permission_schema(&mut self, schema: PermissionSchema) {
-        let old_schema: PermissionSchema =
-            std::mem::replace(&mut self.permission_schema, schema.clone());
-        self.emit_events(std::iter::once(DataEvent::Permission(
-            PermissionSchemaUpdateEvent {
-                old_schema,
-                new_schema: schema,
-            },
-        )))
+    /// Set executor data model.
+    pub fn set_executor_data_model(&mut self, executor_data_model: ExecutorDataModel) {
+        *self.executor_data_model.get_mut() = executor_data_model;
     }
 
     /// Execute trigger with `trigger_id` as id and `authority` as owner
@@ -1589,9 +1581,9 @@ pub(crate) mod deserialize {
                     let mut roles = None;
                     let mut account_permissions = None;
                     let mut account_roles = None;
-                    let mut permission_schema = None;
                     let mut triggers = None;
                     let mut executor = None;
+                    let mut executor_data_model = None;
 
                     while let Some(key) = map.next_key::<String>()? {
                         match key.as_str() {
@@ -1613,9 +1605,6 @@ pub(crate) mod deserialize {
                             "account_roles" => {
                                 account_roles = Some(map.next_value()?);
                             }
-                            "permission_schema" => {
-                                permission_schema = Some(map.next_value()?);
-                            }
                             "triggers" => {
                                 triggers =
                                     Some(map.next_value_seed(self.loader.cast::<TriggerSet>())?);
@@ -1625,6 +1614,10 @@ pub(crate) mod deserialize {
                                     seed: self.loader.cast::<Executor>(),
                                 })?);
                             }
+                            "executor_data_model" => {
+                                executor_data_model = Some(map.next_value()?);
+                            }
+
                             _ => { /* Skip unknown fields */ }
                         }
                     }
@@ -1642,12 +1635,13 @@ pub(crate) mod deserialize {
                         })?,
                         account_roles: account_roles
                             .ok_or_else(|| serde::de::Error::missing_field("account_roles"))?,
-                        permission_schema: permission_schema
-                            .ok_or_else(|| serde::de::Error::missing_field("permission_schema"))?,
                         triggers: triggers
                             .ok_or_else(|| serde::de::Error::missing_field("triggers"))?,
                         executor: executor
                             .ok_or_else(|| serde::de::Error::missing_field("executor"))?,
+                        executor_data_model: executor_data_model.ok_or_else(|| {
+                            serde::de::Error::missing_field("executor_data_model")
+                        })?,
                     })
                 }
             }
@@ -1661,9 +1655,9 @@ pub(crate) mod deserialize {
                     "roles",
                     "account_permissions",
                     "account_roles",
-                    "permission_schema",
                     "triggers",
                     "executor",
+                    "executor_data_model",
                 ],
                 WorldVisitor { loader: &self },
             )

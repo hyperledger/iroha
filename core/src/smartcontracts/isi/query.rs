@@ -162,7 +162,7 @@ impl_lazy! {
     iroha_data_model::block::BlockHeader,
     iroha_data_model::metadata::MetadataValueBox,
     iroha_data_model::query::TransactionQueryOutput,
-    iroha_data_model::permission::PermissionSchema,
+    iroha_data_model::executor::ExecutorDataModel,
     iroha_data_model::trigger::Trigger,
 }
 
@@ -259,7 +259,7 @@ impl ValidQuery for QueryBox {
                 FindAccountKeyValueByIdAndKey,
                 FindAssetDefinitionKeyValueByIdAndKey,
                 FindTriggerKeyValueByIdAndKey,
-                FindPermissionSchema,
+                FindExecutorDataModel,
             }
 
             FindAllAccounts,

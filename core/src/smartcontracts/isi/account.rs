@@ -245,15 +245,15 @@ pub mod isi {
         ) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;
-            let permission_id = permission.definition_id.clone();
+            let permission_id = permission.id.clone();
 
             // Check if account exists
             state_transaction.world.account_mut(&account_id)?;
 
             if !state_transaction
                 .world
-                .permission_schema
-                .token_ids
+                .executor_data_model
+                .permissions
                 .contains(&permission_id)
             {
                 return Err(FindError::Permission(permission_id).into());
@@ -265,7 +265,7 @@ pub mod isi {
             {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Grant,
-                    id: permission.definition_id.into(),
+                    id: permission.id.into(),
                 }
                 .into());
             }
@@ -304,7 +304,7 @@ pub mod isi {
                 .world
                 .remove_account_permission(&account_id, &permission)
             {
-                return Err(FindError::Permission(permission.definition_id).into());
+                return Err(FindError::Permission(permission.id).into());
             }
 
             state_transaction
@@ -312,7 +312,7 @@ pub mod isi {
                 .emit_events(Some(AccountEvent::PermissionRemoved(
                     AccountPermissionChanged {
                         account_id,
-                        permission_id: permission.definition_id,
+                        permission_id: permission.id,
                     },
                 )));
 
@@ -338,7 +338,7 @@ pub mod isi {
                 .clone()
                 .permissions
                 .into_iter()
-                .map(|token| token.definition_id);
+                .map(|token| token.id);
 
             state_transaction.world.account(&account_id)?;
 
@@ -397,7 +397,7 @@ pub mod isi {
                 .clone()
                 .permissions
                 .into_iter()
-                .map(|token| token.definition_id);
+                .map(|token| token.id);
 
             if state_transaction
                 .world

@@ -28,7 +28,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
-    let token = Permission::new("token".parse()?, &json!(null));
+    let token = Permission::new("token".parse()?, json!(null));
     let role = Role::new(role_id).add_permission(token);
 
     test_client.submit(Register::role(role))?;
@@ -64,11 +64,11 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let role = Role::new(role_id.clone())
         .add_permission(Permission::new(
             "CanSetKeyValueInAccount".parse()?,
-            &json!({ "account_id": mouse_id }),
+            json!({ "account_id": mouse_id }),
         ))
         .add_permission(Permission::new(
             "CanRemoveKeyValueInAccount".parse()?,
-            &json!({ "account_id": mouse_id }),
+            json!({ "account_id": mouse_id }),
         ));
     let register_role = Register::role(role);
     test_client.submit_blocking(register_role)?;
@@ -113,7 +113,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     // Register root role
     let register_role = Register::role(Role::new(role_id.clone()).add_permission(Permission::new(
         "CanSetKeyValueInAccount".parse()?,
-        &json!({ "account_id": alice_id }),
+        json!({ "account_id": alice_id }),
     )));
     test_client.submit_blocking(register_role)?;
 
@@ -151,7 +151,7 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
         .expect("should be valid");
     let role = Role::new(role_id).add_permission(Permission::new(
         "CanSetKeyValueInAccount".parse()?,
-        &json!({ "account_id": rose_asset_id }),
+        json!({ "account_id": rose_asset_id }),
     ));
 
     let err = test_client
@@ -172,20 +172,19 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
 
 #[test]
 #[allow(deprecated)]
-fn role_permissions_unified() {
+fn role_permissions_are_deduplicated() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_235).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let allow_alice_to_transfer_rose_1 = Permission::from_str_unchecked(
+    let allow_alice_to_transfer_rose_1 = Permission::new(
         "CanTransferUserAsset".parse().unwrap(),
-        // NOTE: Introduced additional whitespaces in the serialized form
-        "{ \"asset_id\" : \"rose#wonderland#ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland\" }",
+        json!({ "asset_id": "rose#wonderland#ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland" }),
     );
 
-    let allow_alice_to_transfer_rose_2 = Permission::from_str_unchecked(
+    // Different content, but same meaning
+    let allow_alice_to_transfer_rose_2 = Permission::new(
         "CanTransferUserAsset".parse().unwrap(),
-        // NOTE: Introduced additional whitespaces in the serialized form
-        "{ \"asset_id\" : \"rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland\" }",
+        json!({ "asset_id": "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland" }),
     );
 
     let role_id: RoleId = "role_id".parse().expect("Valid");
@@ -248,7 +247,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
     );
     let permission = Permission::new(
         "CanSetKeyValueInAccount".parse()?,
-        &json!({ "account_id": mouse_id }),
+        json!({ "account_id": mouse_id }),
     );
     let grant_role_permission = Grant::role_permission(permission.clone(), role_id.clone());
     let revoke_role_permission = Revoke::role_permission(permission.clone(), role_id.clone());

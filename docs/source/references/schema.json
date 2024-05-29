@@ -157,7 +157,7 @@
       },
       {
         "name": "permission_id",
-        "type": "Name"
+        "type": "PermissionId"
       }
     ]
   },
@@ -856,18 +856,13 @@
         "type": "RoleEvent"
       },
       {
-        "tag": "Permission",
-        "discriminant": 4,
-        "type": "PermissionSchemaUpdateEvent"
-      },
-      {
         "tag": "Configuration",
-        "discriminant": 5,
+        "discriminant": 4,
         "type": "ConfigurationEvent"
       },
       {
         "tag": "Executor",
-        "discriminant": 6,
+        "discriminant": 5,
         "type": "ExecutorEvent"
       }
     ]
@@ -914,17 +909,13 @@
         "type": "RoleEventFilter"
       },
       {
-        "tag": "PermissionSchemaUpdate",
-        "discriminant": 8
-      },
-      {
         "tag": "Configuration",
-        "discriminant": 9,
+        "discriminant": 8,
         "type": "ConfigurationEventFilter"
       },
       {
         "tag": "Executor",
-        "discriminant": 10,
+        "discriminant": 9,
         "type": "ExecutorEventFilter"
       }
     ]
@@ -1200,11 +1191,24 @@
       }
     ]
   },
+  "ExecutorDataModel": {
+    "Struct": [
+      {
+        "name": "permissions",
+        "type": "SortedVec<PermissionId>"
+      },
+      {
+        "name": "schema",
+        "type": "JsonString"
+      }
+    ]
+  },
   "ExecutorEvent": {
     "Enum": [
       {
         "tag": "Upgraded",
-        "discriminant": 0
+        "discriminant": 0,
+        "type": "ExecutorUpgrade"
       }
     ]
   },
@@ -1226,6 +1230,14 @@
         }
       ]
     }
+  },
+  "ExecutorUpgrade": {
+    "Struct": [
+      {
+        "name": "new_data_model",
+        "type": "ExecutorDataModel"
+      }
+    ]
   },
   "Fail": {
     "Struct": [
@@ -1466,7 +1478,7 @@
       {
         "tag": "Permission",
         "discriminant": 10,
-        "type": "Name"
+        "type": "PermissionId"
       },
       {
         "tag": "Parameter",
@@ -1480,7 +1492,7 @@
       }
     ]
   },
-  "FindPermissionSchema": null,
+  "FindExecutorDataModel": null,
   "FindPermissionsByAccountId": {
     "Struct": [
       {
@@ -1692,7 +1704,7 @@
       {
         "tag": "PermissionId",
         "discriminant": 7,
-        "type": "Name"
+        "type": "PermissionId"
       },
       {
         "tag": "ParameterId",
@@ -2628,8 +2640,8 @@
   "Permission": {
     "Struct": [
       {
-        "name": "definition_id",
-        "type": "Name"
+        "name": "id",
+        "type": "PermissionId"
       },
       {
         "name": "payload",
@@ -2637,27 +2649,11 @@
       }
     ]
   },
-  "PermissionSchema": {
+  "PermissionId": {
     "Struct": [
       {
-        "name": "token_ids",
-        "type": "Vec<Name>"
-      },
-      {
-        "name": "schema",
-        "type": "String"
-      }
-    ]
-  },
-  "PermissionSchemaUpdateEvent": {
-    "Struct": [
-      {
-        "name": "old_schema",
-        "type": "PermissionSchema"
-      },
-      {
-        "name": "new_schema",
-        "type": "PermissionSchema"
+        "name": "name",
+        "type": "Name"
       }
     ]
   },
@@ -2849,9 +2845,9 @@
         "type": "FindPermissionsByAccountId"
       },
       {
-        "tag": "FindPermissionSchema",
+        "tag": "FindExecutorDataModel",
         "discriminant": 29,
-        "type": "FindPermissionSchema"
+        "type": "FindExecutorDataModel"
       },
       {
         "tag": "FindAllActiveTriggerIds",
@@ -2954,29 +2950,29 @@
         "type": "Permission"
       },
       {
-        "tag": "PermissionSchema",
-        "discriminant": 4,
-        "type": "PermissionSchema"
-      },
-      {
         "tag": "LimitedMetadata",
-        "discriminant": 5,
+        "discriminant": 4,
         "type": "MetadataValueBox"
       },
       {
         "tag": "Numeric",
-        "discriminant": 6,
+        "discriminant": 5,
         "type": "Numeric"
       },
       {
         "tag": "BlockHeader",
-        "discriminant": 7,
+        "discriminant": 6,
         "type": "BlockHeader"
       },
       {
         "tag": "Block",
-        "discriminant": 8,
+        "discriminant": 7,
         "type": "SignedBlock"
+      },
+      {
+        "tag": "ExecutorDataModel",
+        "discriminant": 8,
+        "type": "ExecutorDataModel"
       },
       {
         "tag": "Vec",
@@ -3369,7 +3365,7 @@
       },
       {
         "name": "permission_id",
-        "type": "Name"
+        "type": "PermissionId"
       }
     ]
   },
@@ -3720,6 +3716,9 @@
   },
   "SortedVec<Permission>": {
     "Vec": "Permission"
+  },
+  "SortedVec<PermissionId>": {
+    "Vec": "PermissionId"
   },
   "SortedVec<SignatureOf<BlockPayload>>": {
     "Vec": "SignatureOf<BlockPayload>"
@@ -4363,9 +4362,6 @@
   },
   "Vec<MetadataValueBox>": {
     "Vec": "MetadataValueBox"
-  },
-  "Vec<Name>": {
-    "Vec": "Name"
   },
   "Vec<PeerId>": {
     "Vec": "PeerId"

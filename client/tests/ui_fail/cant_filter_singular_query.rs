@@ -10,7 +10,7 @@ fn main() {
     let client = Client::new(config);
 
     let result = client
-        .build_query(client::permission::permission_schema())
+        .build_query(client::domain::by_id("domain".parse().unwrap()))
         .with_filter(PredicateBox::new(
             value::QueryOutputPredicate::Identifiable(string::StringPredicate::starts_with("xor_")),
         ))

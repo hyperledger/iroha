@@ -115,7 +115,7 @@
         "Grant": {
           "Permission": {
             "object": {
-              "definition_id": "CanSetParameters",
+              "id": "CanSetParameters",
               "payload": null
             },
             "destination_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
@@ -170,13 +170,13 @@
             "id": "ALICE_METADATA_ACCESS",
             "permissions": [
               {
-                "definition_id": "CanRemoveKeyValueInAccount",
+                "id": "CanRemoveKeyValueInAccount",
                 "payload": {
                   "account_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
                 }
               },
               {
-                "definition_id": "CanSetKeyValueInAccount",
+                "id": "CanSetKeyValueInAccount",
                 "payload": {
                   "account_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
                 }

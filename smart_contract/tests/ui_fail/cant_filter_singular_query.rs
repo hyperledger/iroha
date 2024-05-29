@@ -4,7 +4,7 @@ use iroha_smart_contract::{
 };
 
 fn main() {
-    FindPermissionSchema
+    FindDomainById::new("domain".parse().unwrap())
         .filter(QueryOutputPredicate::Identifiable(
             StringPredicate::starts_with("xor_"),
         ))

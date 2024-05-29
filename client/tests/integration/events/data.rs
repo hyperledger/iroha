@@ -201,11 +201,11 @@ fn produce_multiple_events() -> Result<()> {
     let role_id = RoleId::from_str("TEST_ROLE")?;
     let token_1 = Permission::new(
         "CanRemoveKeyValueInAccount".parse()?,
-        &json!({ "account_id": alice_id }),
+        json!({ "account_id": alice_id }),
     );
     let token_2 = Permission::new(
         "CanSetKeyValueInAccount".parse()?,
-        &json!({ "account_id": alice_id }),
+        json!({ "account_id": alice_id }),
     );
     let role = iroha_client::data_model::role::Role::new(role_id.clone())
         .add_permission(token_1.clone())
@@ -240,13 +240,13 @@ fn produce_multiple_events() -> Result<()> {
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_1.definition_id.clone(),
+                permission_id: token_1.id.clone(),
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_2.definition_id.clone(),
+                permission_id: token_2.id.clone(),
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
@@ -258,13 +258,13 @@ fn produce_multiple_events() -> Result<()> {
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_1.definition_id,
+                permission_id: token_1.id,
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_2.definition_id,
+                permission_id: token_2.id,
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(
