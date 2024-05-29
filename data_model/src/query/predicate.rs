@@ -12,242 +12,10 @@ use iroha_data_model_derive::{PartiallyTaggedDeserialize, PartiallyTaggedSeriali
 use super::*;
 use crate::{IdBox, Name};
 
-/// Trait for boolean-like values
-///
-/// [`or`](`Self::or`) and [`and`](`Self::and`) must satisfy De Morgan's laws, commutativity and associativity
-/// [`Not`](`core::ops::Not`) implementation should satisfy double negation elimintation.
-///
-/// Short-circuiting behaviour for `and` and `or` can be controlled by returning
-/// `ControlFlow::Break` when subsequent application of the same operation
-/// won't change the end result, no matter what operands.
-///
-/// When implementing, it's recommended to generate exhaustive tests with
-/// [`test_conformity`](`Self::test_conformity`).
-pub trait PredicateSymbol
-where
-    Self: Sized + core::ops::Not<Output = Self>,
-{
-    /// Conjunction (e.g. boolean and)
-    #[must_use]
-    fn and(self, other: Self) -> ControlFlow<Self, Self>;
-    /// Disjunction (e.g. boolean or)
-    #[must_use]
-    fn or(self, other: Self) -> ControlFlow<Self, Self>;
-
-    #[doc(hidden)]
-    #[must_use]
-    fn unwrapped_and(self, other: Self) -> Self {
-        match self.and(other) {
-            ControlFlow::Continue(val) | ControlFlow::Break(val) => val,
-        }
-    }
-
-    #[doc(hidden)]
-    #[must_use]
-    fn unwrapped_or(self, other: Self) -> Self {
-        match self.or(other) {
-            ControlFlow::Continue(val) | ControlFlow::Break(val) => val,
-        }
-    }
-
-    /// Given a list of all possible values of a type implementing [`PredicateSymbol`]
-    /// which are different in predicate context, exhaustively tests for:
-    /// - commutativity of `and` and `or`
-    /// - associativity of `and` and `or`
-    /// - De Mornan duality of `and` and `or`
-    /// - double negation elimination
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use iroha_data_model::query::predicate::PredicateSymbol;
-    ///
-    /// fn test() {
-    ///     PredicateSymbol::test_conformity(vec![true, false]);
-    /// }
-    /// ```
-    fn test_conformity(values: Vec<Self>)
-    where
-        Self: PartialEq + Clone,
-    {
-        Self::test_conformity_with_eq(values, <Self as PartialEq>::eq);
-    }
-
-    /// Same as [`test_conformity`](`PredicateSymbol::test_conformity`), but
-    /// if type implementing [`PredicateSymbol`] carries some internal state
-    /// that isn't associative, one can provide custom `shallow_eq` function
-    /// that will be called instead of [`PartialEq::eq`]
-    ///
-    /// # Examples
-    ///
-    ///
-    /// ```
-    /// use std::ops::ControlFlow;
-    ///
-    /// use iroha_data_model::query::predicate::PredicateSymbol;
-    ///
-    /// #[derive(Clone, PartialEq)]
-    /// enum Check {
-    ///     Good,
-    ///     // Encapsulates reason for badness which
-    ///     // doesn't behave associatively
-    ///     // (but if we ignore it, Check as a whole does)
-    ///     Bad(String),
-    /// }
-    ///
-    /// impl core::ops::Not for Check {
-    ///     type Output = Self;
-    ///     fn not(self) -> Self {
-    ///         // ...
-    ///         todo!()
-    ///     }
-    /// }
-    ///
-    /// impl PredicateSymbol for Check {
-    ///     fn and(self, other: Self) -> ControlFlow<Self, Self> {
-    ///         // ...
-    ///         todo!()
-    ///     }
-    ///
-    ///     fn or(self, other: Self) -> ControlFlow<Self, Self> {
-    ///         // ...
-    ///         todo!()
-    ///     }
-    /// }
-    ///
-    /// fn shallow_eq(left: &Check, right: &Check) -> bool {
-    ///     match (left, right) {
-    ///         (Check::Good, Check::Good) | (Check::Bad(_), Check::Bad(_)) => true,
-    ///         _ => false,
-    ///     }
-    /// }
-    ///
-    /// fn test() {
-    ///     let good = Check::Good;
-    ///     let bad = Check::Bad("example".to_owned());
-    ///     // Would fail some assertions, since derived PartialEq is "deep"
-    ///     // PredicateSymbol::test_conformity(vec![good, bad]);
-    ///
-    ///     // Works as expected
-    ///     PredicateSymbol::test_conformity_with_eq(vec![good, bad], shallow_eq);
-    /// }
-    /// ```
-    fn test_conformity_with_eq(values: Vec<Self>, shallow_eq: impl FnMut(&Self, &Self) -> bool)
-    where
-        Self: Clone,
-    {
-        let mut eq = shallow_eq;
-        let values = values
-            .into_iter()
-            .map(|val| move || val.clone())
-            .collect::<Vec<_>>();
-
-        let typ = core::any::type_name::<Self>();
-
-        for a in &values {
-            assert!(
-                eq(&a().not().not(), &a()),
-                "Double negation elimination doesn't hold for {typ}",
-            );
-        }
-
-        for a in &values {
-            for b in &values {
-                assert!(
-                eq(
-                    &PredicateSymbol::unwrapped_and(a(), b()),
-                    &PredicateSymbol::unwrapped_and(b(), a())
-                ),
-                "Commutativity doesn't hold for `PredicateSymbol::and` implementation for {typ}"
-            );
-
-                assert!(
-                    eq(
-                        &PredicateSymbol::unwrapped_or(a(), b()),
-                        &PredicateSymbol::unwrapped_or(b(), a())
-                    ),
-                    "Commutativity doesn't hold for `PredicateSymbol::or` implementation for {typ}"
-                );
-
-                assert!(
-                    eq(
-                        &PredicateSymbol::unwrapped_or(!a(), !b()),
-                        &!PredicateSymbol::unwrapped_and(a(), b())
-                    ),
-                    "De Morgan's law doesn't hold for {typ}",
-                );
-
-                assert!(
-                    eq(
-                        &PredicateSymbol::unwrapped_and(!a(), !b()),
-                        &!PredicateSymbol::unwrapped_or(a(), b())
-                    ),
-                    "De Morgan's law doesn't hold for {typ}",
-                );
-            }
-        }
-
-        for a in &values {
-            for b in &values {
-                for c in &values {
-                    assert!(
-                    eq(
-                        &PredicateSymbol::unwrapped_and(
-                            PredicateSymbol::unwrapped_and(a(), b()),
-                            c()
-                        ),
-                        &PredicateSymbol::unwrapped_and(
-                            a(),
-                            PredicateSymbol::unwrapped_and(b(), c()),
-                        ),
-                    ),
-                    "Associativity doesn't hold for `PredicateSymbol::or` implementation for {typ}",
-                );
-
-                    assert!(
-                    eq(
-                        &PredicateSymbol::unwrapped_or(
-                            PredicateSymbol::unwrapped_or(a(), b()),
-                            c()
-                        ),
-                        &PredicateSymbol::unwrapped_or(
-                            a(),
-                            PredicateSymbol::unwrapped_or(b(), c()),
-                        ),
-                    ),
-                    "Associativity doesn't hold for `PredicateSymbol::and` implementation for {typ}",
-                );
-                }
-            }
-        }
-    }
-}
-
-impl PredicateSymbol for bool {
-    fn and(self, other: Self) -> ControlFlow<Self, Self> {
-        if self && other {
-            ControlFlow::Continue(true)
-        } else {
-            ControlFlow::Break(false)
-        }
-    }
-
-    fn or(self, other: Self) -> ControlFlow<Self, Self> {
-        if self || other {
-            ControlFlow::Break(true)
-        } else {
-            ControlFlow::Continue(false)
-        }
-    }
-}
-
 /// Trait for generic predicates.
 pub trait PredicateTrait<T: ?Sized + Copy> {
-    /// Type the predicate evaluates to.
-    type EvaluatesTo: PredicateSymbol;
-
     /// The result of applying the predicate to a value.
-    fn applies(&self, input: T) -> Self::EvaluatesTo;
+    fn applies(&self, input: T) -> bool;
 }
 
 mod nontrivial {
@@ -431,31 +199,28 @@ where
     Input: ?Sized + Copy,
     Pred: PredicateTrait<Input>,
 {
-    type EvaluatesTo = Pred::EvaluatesTo;
-
     #[inline] // This is not a simple function, but it allows you to inline the logic and optimise away the logical operations.
-    fn applies(&self, input: Input) -> Self::EvaluatesTo {
+    fn applies(&self, input: Input) -> bool {
         match self {
             Self::Raw(predicate) => predicate.applies(input),
             Self::And(predicates) => {
-                let initial = predicates.head().applies(input);
-                let mut operands = predicates
-                    .iter()
-                    .skip(1)
-                    .map(|predicate| predicate.applies(input));
-                match operands.try_fold(initial, PredicateSymbol::and) {
-                    ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
+                let operands = predicates.iter().map(|predicate| predicate.applies(input));
+
+                for operand in operands {
+                    if !operand {
+                        return false;
+                    }
                 }
+                return true;
             }
             Self::Or(predicates) => {
-                let initial = predicates.head().applies(input);
-                let mut operands = predicates
-                    .iter()
-                    .skip(1)
-                    .map(|predicate| predicate.applies(input));
-                match operands.try_fold(initial, PredicateSymbol::or) {
-                    ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
+                let operands = predicates.iter().map(|predicate| predicate.applies(input));
+                for operand in operands {
+                    if operand {
+                        return true;
+                    }
                 }
+                return false;
             }
             Self::Not(predicate) => predicate.applies(input).not(),
         }
@@ -475,12 +240,7 @@ impl Default for PredicateBox {
 pub mod test {
     use iroha_primitives::json::JsonString;
 
-    use super::{value, PredicateBox, PredicateSymbol, PredicateTrait as _};
-
-    #[test]
-    fn boolean_predicate_symbol_conformity() {
-        PredicateSymbol::test_conformity(vec![true, false]);
-    }
+    use super::{value, PredicateBox, PredicateTrait as _};
 
     #[test]
     fn pass() {
@@ -576,10 +336,8 @@ pub mod string {
     // TODO: Case insensitive variants?
 
     impl<T: AsRef<str> + ?Sized> PredicateTrait<&T> for StringPredicate {
-        type EvaluatesTo = bool;
-
         #[inline] // Jump table. Needs inline.
-        fn applies(&self, input: &T) -> Self::EvaluatesTo {
+        fn applies(&self, input: &T) -> bool {
             match self {
                 StringPredicate::Contains(content) => input.as_ref().contains(content),
                 StringPredicate::StartsWith(content) => input.as_ref().starts_with(content),
@@ -590,10 +348,8 @@ pub mod string {
     }
 
     impl PredicateTrait<&IdBox> for StringPredicate {
-        type EvaluatesTo = bool;
-
         #[inline] // Jump table. Needs inline.
-        fn applies(&self, input: &IdBox) -> Self::EvaluatesTo {
+        fn applies(&self, input: &IdBox) -> bool {
             match input {
                 IdBox::DomainId(id) => self.applies(&id.to_string()),
                 IdBox::AccountId(id) => self.applies(&id.to_string()),
@@ -976,28 +732,22 @@ pub mod numerical {
     }
 
     impl<T: Copy + Ord> PredicateTrait<T> for SemiInterval<T> {
-        type EvaluatesTo = bool;
-
         #[inline]
-        fn applies(&self, input: T) -> Self::EvaluatesTo {
+        fn applies(&self, input: T) -> bool {
             input < self.limit && input >= self.start
         }
     }
 
     impl<T: Copy + Ord> PredicateTrait<T> for Interval<T> {
-        type EvaluatesTo = bool;
-
         #[inline]
-        fn applies(&self, input: T) -> Self::EvaluatesTo {
+        fn applies(&self, input: T) -> bool {
             input <= self.limit && input >= self.start
         }
     }
 
     impl PredicateTrait<&QueryOutputBox> for SemiRange {
-        type EvaluatesTo = bool;
-
         #[inline]
-        fn applies(&self, input: &QueryOutputBox) -> Self::EvaluatesTo {
+        fn applies(&self, input: &QueryOutputBox) -> bool {
             match input {
                 QueryOutputBox::Numeric(quantity) => match self {
                     SemiRange::Numeric(predicate) => predicate.applies(*quantity),
@@ -1008,10 +758,8 @@ pub mod numerical {
     }
 
     impl PredicateTrait<&QueryOutputBox> for Range {
-        type EvaluatesTo = bool;
-
         #[inline]
-        fn applies(&self, input: &QueryOutputBox) -> Self::EvaluatesTo {
+        fn applies(&self, input: &QueryOutputBox) -> bool {
             match input {
                 QueryOutputBox::Numeric(quantity) => match self {
                     Range::Numeric(predicate) => predicate.applies(*quantity),
@@ -1130,9 +878,7 @@ pub mod value {
     }
 
     impl PredicateTrait<&QueryOutputBox> for QueryOutputPredicate {
-        type EvaluatesTo = bool;
-
-        fn applies(&self, input: &QueryOutputBox) -> Self::EvaluatesTo {
+        fn applies(&self, input: &QueryOutputBox) -> bool {
             // Large jump table. Do not inline.
             match self {
                 QueryOutputPredicate::Identifiable(pred) => match input {
