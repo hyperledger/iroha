@@ -13,9 +13,9 @@ use super::*;
 use crate::{IdBox, Name};
 
 /// Trait for generic predicates.
-pub trait PredicateTrait<T: ?Sized + Copy> {
+pub trait PredicateTrait<T: ?Sized> {
     /// The result of applying the predicate to a value.
-    fn applies(&self, input: T) -> bool;
+    fn applies(&self, input: &T) -> bool;
 }
 
 mod nontrivial {
@@ -144,7 +144,6 @@ impl<P> GenericPredicateBox<P> {
     pub fn new<Input>(pred: impl Into<P>) -> Self
     where
         P: PredicateTrait<Input>,
-        Input: Copy,
     {
         Self::Raw(pred.into())
     }
@@ -196,11 +195,11 @@ impl<P> GenericPredicateBox<P> {
 
 impl<Pred, Input> PredicateTrait<Input> for GenericPredicateBox<Pred>
 where
-    Input: ?Sized + Copy,
+    Input: ?Sized,
     Pred: PredicateTrait<Input>,
 {
     #[inline] // This is not a simple function, but it allows you to inline the logic and optimise away the logical operations.
-    fn applies(&self, input: Input) -> bool {
+    fn applies(&self, input: &Input) -> bool {
         match self {
             Self::Raw(predicate) => predicate.applies(input),
             Self::And(predicates) => {
@@ -335,7 +334,7 @@ pub mod string {
 
     // TODO: Case insensitive variants?
 
-    impl<T: AsRef<str> + ?Sized> PredicateTrait<&T> for StringPredicate {
+    impl<T: AsRef<str> + ?Sized> PredicateTrait<T> for StringPredicate {
         #[inline] // Jump table. Needs inline.
         fn applies(&self, input: &T) -> bool {
             match self {
@@ -347,7 +346,7 @@ pub mod string {
         }
     }
 
-    impl PredicateTrait<&IdBox> for StringPredicate {
+    impl PredicateTrait<IdBox> for StringPredicate {
         #[inline] // Jump table. Needs inline.
         fn applies(&self, input: &IdBox) -> bool {
             match input {
@@ -733,36 +732,36 @@ pub mod numerical {
 
     impl<T: Copy + Ord> PredicateTrait<T> for SemiInterval<T> {
         #[inline]
-        fn applies(&self, input: T) -> bool {
+        fn applies(&self, &input: &T) -> bool {
             input < self.limit && input >= self.start
         }
     }
 
     impl<T: Copy + Ord> PredicateTrait<T> for Interval<T> {
         #[inline]
-        fn applies(&self, input: T) -> bool {
+        fn applies(&self, &input: &T) -> bool {
             input <= self.limit && input >= self.start
         }
     }
 
-    impl PredicateTrait<&QueryOutputBox> for SemiRange {
+    impl PredicateTrait<QueryOutputBox> for SemiRange {
         #[inline]
         fn applies(&self, input: &QueryOutputBox) -> bool {
             match input {
                 QueryOutputBox::Numeric(quantity) => match self {
-                    SemiRange::Numeric(predicate) => predicate.applies(*quantity),
+                    SemiRange::Numeric(predicate) => predicate.applies(quantity),
                 },
                 _ => false,
             }
         }
     }
 
-    impl PredicateTrait<&QueryOutputBox> for Range {
+    impl PredicateTrait<QueryOutputBox> for Range {
         #[inline]
         fn applies(&self, input: &QueryOutputBox) -> bool {
             match input {
                 QueryOutputBox::Numeric(quantity) => match self {
-                    Range::Numeric(predicate) => predicate.applies(*quantity),
+                    Range::Numeric(predicate) => predicate.applies(quantity),
                 },
                 _ => false,
             }
@@ -877,7 +876,7 @@ pub mod value {
         Pass,
     }
 
-    impl PredicateTrait<&QueryOutputBox> for QueryOutputPredicate {
+    impl PredicateTrait<QueryOutputBox> for QueryOutputPredicate {
         fn applies(&self, input: &QueryOutputBox) -> bool {
             // Large jump table. Do not inline.
             match self {
@@ -909,7 +908,7 @@ pub mod value {
                 QueryOutputPredicate::Display(pred) => pred.applies(&input.to_string()),
                 QueryOutputPredicate::TimeStamp(pred) => match input {
                     QueryOutputBox::Block(block) => {
-                        pred.applies(block.header().creation_time().as_millis())
+                        pred.applies(&block.header().creation_time().as_millis())
                     }
                     _ => false,
                 },
