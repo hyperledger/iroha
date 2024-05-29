@@ -17,7 +17,6 @@ iroha_crypto = { workspace = true, default-features = true }
 iroha_data_model = { workspace = true, default-features = true, features = ["transparent_api"] }
 iroha_primitives = { workspace = true }
 iroha_config = { workspace = true }
-iroha_config_base = { workspace = true }
 iroha_data_model_derive = { workspace = true }
 
 rand = { workspace = true }
@@ -31,4 +30,5 @@ derive_more = { workspace = true }
 bytes = { workspace = true }
 
 [dev-dependencies]
+iroha_config_base = { workspace = true }
 test_network = { workspace = true }
