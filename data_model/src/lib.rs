@@ -869,18 +869,7 @@ mod model {
     ///
     /// This string is guaranteed to be parsed as JSON.
     #[derive(
-        Display,
-        Default,
-        Debug,
-        Clone,
-        Eq,
-        Encode,
-        Decode,
-        Ord,
-        PartialOrd,
-        Eq,
-        PartialEq,
-        IntoSchema,
+        Display, Default, Debug, Clone, Encode, Decode, Ord, PartialOrd, Eq, PartialEq, IntoSchema,
     )]
     #[ffi_type(unsafe {robust})]
     #[repr(transparent)]
