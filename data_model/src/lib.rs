@@ -868,7 +868,20 @@ mod model {
     /// String containing serialized valid JSON.
     ///
     /// This string is guaranteed to be parsed as JSON.
-    #[derive(Display, Default, Debug, Clone, Eq, Encode, Decode, Ord, PartialOrd, IntoSchema)]
+    #[derive(
+        Display,
+        Default,
+        Debug,
+        Clone,
+        Eq,
+        Encode,
+        Decode,
+        Ord,
+        PartialOrd,
+        Eq,
+        PartialEq,
+        IntoSchema,
+    )]
     #[ffi_type(unsafe {robust})]
     #[repr(transparent)]
     #[display(fmt = "{}", "0")]
@@ -899,7 +912,7 @@ impl JsonString {
     /// Create without checking whether the input is a valid JSON string.
     ///
     /// The caller must guarantee that the value is valid.
-    pub fn from_json_string_unchecked(value: String) -> Self {
+    pub fn from_string_unchecked(value: String) -> Self {
         Self(value)
     }
 }
@@ -913,13 +926,6 @@ impl From<&serde_json::Value> for JsonString {
 impl From<serde_json::Value> for JsonString {
     fn from(value: serde_json::Value) -> Self {
         Self::from(&value)
-    }
-}
-
-impl PartialEq for JsonString {
-    fn eq(&self, other: &Self) -> bool {
-        serde_json::from_str::<serde_json::Value>(&self.0).unwrap()
-            == serde_json::from_str::<serde_json::Value>(&other.0).unwrap()
     }
 }
 

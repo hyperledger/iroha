@@ -318,7 +318,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
     let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission(
         Permission::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
-            JsonString::from_json_string_unchecked(format!(
+            JsonString::from_string_unchecked(format!(
                 // Introducing some whitespaces
                 // This way, if the executor compares just JSON strings, this test would fail
                 r##"{{ "asset_id"   :   "xor#wonderland#{}" }}"##,
