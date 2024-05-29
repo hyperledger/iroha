@@ -387,7 +387,6 @@ pub mod isi {
         permissions_before: BTreeSet<PermissionId>,
     ) -> Result<(), Error> {
         let world = state_transaction.world();
-        // permissions_before.reta
         let permissions_after = world.executor_data_model().permissions();
         let permissions_removed = permissions_before
             .into_iter()
