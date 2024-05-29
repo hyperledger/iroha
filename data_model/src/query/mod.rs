@@ -356,8 +356,6 @@ impl TryFrom<QueryOutputBox> for u64 {
 /// Implements [`Query`] and, additionally, either [`SingularQuery`] or [`IterableQuery`],
 ///     depending on whether the output type is wrapped into a Vec (purely syntactically)
 macro_rules! impl_queries {
-    // base case for the tt-muncher
-    () => {};
     // we can't delegate matching over `Vec<$item:ty>` to an inner macro,
     //   as the moment a fragment is matched as `$output:ty` it becomes opaque and unmatchable to any literal
     //   https://doc.rust-lang.org/nightly/reference/macros-by-example.html#forwarding-a-matched-fragment
