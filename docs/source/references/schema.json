@@ -1561,11 +1561,19 @@
       }
     ]
   },
-  "FindTriggersByDomainId": {
+  "FindTriggersByAuthorityDomainId": {
     "Struct": [
       {
         "name": "domain_id",
         "type": "DomainId"
+      }
+    ]
+  },
+  "FindTriggersByAuthorityId": {
+    "Struct": [
+      {
+        "name": "account_id",
+        "type": "AccountId"
       }
     ]
   },
@@ -2865,33 +2873,38 @@
         "type": "FindTriggerKeyValueByIdAndKey"
       },
       {
-        "tag": "FindTriggersByDomainId",
+        "tag": "FindTriggersByAuthorityId",
         "discriminant": 33,
-        "type": "FindTriggersByDomainId"
+        "type": "FindTriggersByAuthorityId"
+      },
+      {
+        "tag": "FindTriggersByAuthorityDomainId",
+        "discriminant": 34,
+        "type": "FindTriggersByAuthorityDomainId"
       },
       {
         "tag": "FindAllRoles",
-        "discriminant": 34,
+        "discriminant": 35,
         "type": "FindAllRoles"
       },
       {
         "tag": "FindAllRoleIds",
-        "discriminant": 35,
+        "discriminant": 36,
         "type": "FindAllRoleIds"
       },
       {
         "tag": "FindRoleByRoleId",
-        "discriminant": 36,
+        "discriminant": 37,
         "type": "FindRoleByRoleId"
       },
       {
         "tag": "FindRolesByAccountId",
-        "discriminant": 37,
+        "discriminant": 38,
         "type": "FindRolesByAccountId"
       },
       {
         "tag": "FindAllParameters",
-        "discriminant": 38,
+        "discriminant": 39,
         "type": "FindAllParameters"
       }
     ]
@@ -4150,10 +4163,6 @@
   },
   "TriggerId": {
     "Struct": [
-      {
-        "name": "domain_id",
-        "type": "Option<DomainId>"
-      },
       {
         "name": "name",
         "type": "Name"
