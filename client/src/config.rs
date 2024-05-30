@@ -78,8 +78,9 @@ impl Config {
     /// - unable to load config from a TOML file
     /// - the config is invalid
     pub fn load(path: impl AsRef<Path>) -> error_stack::Result<Self, LoadError> {
+        let toml = TomlSource::from_file(path).change_context(LoadError)?;
         let config = ConfigReader::new()
-            .with_toml_source(TomlSource::from_file(path).change_context(LoadError)?)
+            .with_toml_source(toml)
             .read_and_complete::<user::Root>()
             .change_context(LoadError)?
             .parse()
@@ -90,6 +91,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+    use assertables::{assert_contains, assert_contains_as_result};
     use iroha_config_base::env::MockEnv;
 
     use super::*;
@@ -150,5 +152,20 @@ mod tests {
         let _ = with_scheme("http").expect("should be fine");
         let _ = with_scheme("https").expect("should be fine");
         let _ = with_scheme("ws").expect_err("not supported");
+    }
+
+    #[test]
+    fn invalid_toml_file_is_handled_properly() {
+        use std::io::Write;
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(b"not a valid toml").unwrap();
+
+        let err = Config::load(file.path()).expect_err("should fail on toml parsing");
+
+        assert_contains!(
+            format!("{err:#?}"),
+            "Error while deserializing file contents as TOML"
+        );
     }
 }
