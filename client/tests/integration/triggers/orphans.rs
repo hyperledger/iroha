@@ -55,7 +55,7 @@ fn set_up_trigger(
 
 #[test]
 fn trigger_must_be_removed_on_action_authority_account_removal() -> eyre::Result<()> {
-    let (_rt, _peer, iroha, _, the_one_who_fails, fail_on_account_events) = set_up_trigger(10_655)?;
+    let (_rt, _peer, iroha, _, the_one_who_fails, fail_on_account_events) = set_up_trigger(10_565)?;
     assert_eq!(
         find_trigger(&iroha, fail_on_account_events.clone()),
         Some(fail_on_account_events.clone())
@@ -67,7 +67,7 @@ fn trigger_must_be_removed_on_action_authority_account_removal() -> eyre::Result
 
 #[test]
 fn trigger_must_be_removed_on_action_authority_domain_removal() -> eyre::Result<()> {
-    let (_rt, _peer, iroha, failand, _, fail_on_account_events) = set_up_trigger(10_660)?;
+    let (_rt, _peer, iroha, failand, _, fail_on_account_events) = set_up_trigger(10_505)?;
     assert_eq!(
         find_trigger(&iroha, fail_on_account_events.clone()),
         Some(fail_on_account_events.clone())
