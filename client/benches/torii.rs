@@ -7,7 +7,7 @@ use iroha::{
     client::{asset, Client},
     data_model::prelude::*,
 };
-use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
+use iroha_genesis::GenesisTransactionBuilder;
 use iroha_primitives::unique_vec;
 use iroha_version::Encode;
 use irohad::samples::{construct_executor, get_config};
@@ -21,29 +21,23 @@ fn query_requests(criterion: &mut Criterion) {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
+    let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        get_key_pair(test_network::Signatory::Genesis),
+        genesis_key_pair.public_key(),
     );
 
     let rt = Runtime::test();
-    let genesis = GenesisNetwork::new(
-        RawGenesisBlockBuilder::default()
-            .domain("wonderland".parse().expect("Valid"))
-            .account(get_key_pair(test_network::Signatory::Alice).into_parts().0)
-            .finish_domain()
-            .executor_blob(
-                construct_executor("../default_executor").expect("Failed to construct executor"),
-            )
-            .build(),
-        &chain_id,
-        configuration
-            .genesis
-            .key_pair()
-            .expect("genesis config should be full, probably a bug"),
-    );
+    let genesis = GenesisTransactionBuilder::default()
+        .domain("wonderland".parse().expect("Valid"))
+        .account(get_key_pair(test_network::Signatory::Alice).into_parts().0)
+        .finish_domain()
+        .executor_blob(
+            construct_executor("../default_executor").expect("Failed to construct executor"),
+        )
+        .build_and_sign(chain_id, &genesis_key_pair);
 
     let builder = PeerBuilder::new()
         .with_config(configuration)
@@ -125,27 +119,21 @@ fn instruction_submits(criterion: &mut Criterion) {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
+    let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        get_key_pair(test_network::Signatory::Genesis),
+        genesis_key_pair.public_key(),
     );
-    let genesis = GenesisNetwork::new(
-        RawGenesisBlockBuilder::default()
-            .domain("wonderland".parse().expect("Valid"))
-            .account(configuration.common.key_pair.public_key().clone())
-            .finish_domain()
-            .executor_blob(
-                construct_executor("../default_executor").expect("Failed to construct executor"),
-            )
-            .build(),
-        &chain_id,
-        configuration
-            .genesis
-            .key_pair()
-            .expect("config should be full; probably a bug"),
-    );
+    let genesis = GenesisTransactionBuilder::default()
+        .domain("wonderland".parse().expect("Valid"))
+        .account(configuration.common.key_pair.public_key().clone())
+        .finish_domain()
+        .executor_blob(
+            construct_executor("../default_executor").expect("Failed to construct executor"),
+        )
+        .build_and_sign(chain_id, &genesis_key_pair);
     let builder = PeerBuilder::new()
         .with_config(configuration)
         .with_into_genesis(genesis);

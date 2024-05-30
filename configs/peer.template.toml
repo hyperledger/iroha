@@ -8,15 +8,11 @@
 
 # chain_id =
 # public_key =
-# private_key = {
-#   algorithm = ,
-#   payload =
-# }
+# private_key =
 
 [genesis]
-# file =
+# signed_file = /path/to/signed_genesis.scale
 # public_key =
-# private_key =
 
 [network]
 # address =

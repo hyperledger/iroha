@@ -1,191 +1,190 @@
 {
-  "transactions": [
-    [
-      {
-        "Register": {
-          "Domain": {
-            "id": "wonderland",
-            "logo": null,
-            "metadata": {
-              "key": {
-                "String": "value"
-              }
+  "instructions": [
+    {
+      "Register": {
+        "Domain": {
+          "id": "wonderland",
+          "logo": null,
+          "metadata": {
+            "key": {
+              "String": "value"
             }
-          }
-        }
-      },
-      {
-        "Register": {
-          "Account": {
-            "id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland",
-            "metadata": {
-              "key": {
-                "String": "value"
-              }
-            }
-          }
-        }
-      },
-      {
-        "Register": {
-          "Account": {
-            "id": "ed012004FF5B81046DDCCF19E2E451C45DFB6F53759D4EB30FA2EFA807284D1CC33016@wonderland",
-            "metadata": {
-              "key": {
-                "String": "value"
-              }
-            }
-          }
-        }
-      },
-      {
-        "Register": {
-          "AssetDefinition": {
-            "id": "rose#wonderland",
-            "value_type": "Numeric",
-            "mintable": "Infinitely",
-            "logo": null,
-            "metadata": {}
-          }
-        }
-      },
-      {
-        "Register": {
-          "Domain": {
-            "id": "garden_of_live_flowers",
-            "logo": null,
-            "metadata": {}
-          }
-        }
-      },
-      {
-        "Register": {
-          "Account": {
-            "id": "ed0120E9F632D3034BAB6BB26D92AC8FD93EF878D9C5E69E01B61B4C47101884EE2F99@garden_of_live_flowers",
-            "metadata": {}
-          }
-        }
-      },
-      {
-        "Register": {
-          "AssetDefinition": {
-            "id": "cabbage#garden_of_live_flowers",
-            "value_type": "Numeric",
-            "mintable": "Infinitely",
-            "logo": null,
-            "metadata": {}
-          }
-        }
-      },
-      {
-        "Mint": {
-          "Asset": {
-            "object": "13",
-            "destination_id": "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
-          }
-        }
-      },
-      {
-        "Mint": {
-          "Asset": {
-            "object": "44",
-            "destination_id": "cabbage#garden_of_live_flowers#ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
-          }
-        }
-      },
-      {
-        "Transfer": {
-          "AssetDefinition": {
-            "source_id": "ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4@genesis",
-            "object": "rose#wonderland",
-            "destination_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
-          }
-        }
-      },
-      {
-        "Transfer": {
-          "Domain": {
-            "source_id": "ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4@genesis",
-            "object": "wonderland",
-            "destination_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
-          }
-        }
-      },
-      {
-        "Grant": {
-          "Permission": {
-            "object": {
-              "id": "CanSetParameters",
-              "payload": null
-            },
-            "destination_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
-          }
-        }
-      },
-      {
-        "NewParameter": "?MaxTransactionsInBlock=512"
-      },
-      {
-        "NewParameter": "?BlockTime=2000"
-      },
-      {
-        "NewParameter": "?CommitTimeLimit=4000"
-      },
-      {
-        "NewParameter": "?TransactionLimits=4096,4194304_TL"
-      },
-      {
-        "NewParameter": "?WSVDomainMetadataLimits=1048576,4096_ML"
-      },
-      {
-        "NewParameter": "?WSVAssetDefinitionMetadataLimits=1048576,4096_ML"
-      },
-      {
-        "NewParameter": "?WSVAccountMetadataLimits=1048576,4096_ML"
-      },
-      {
-        "NewParameter": "?WSVAssetMetadataLimits=1048576,4096_ML"
-      },
-      {
-        "NewParameter": "?WSVTriggerMetadataLimits=1048576,4096_ML"
-      },
-      {
-        "NewParameter": "?WSVIdentLengthLimits=1,128_LL"
-      },
-      {
-        "NewParameter": "?ExecutorFuelLimit=55000000"
-      },
-      {
-        "NewParameter": "?ExecutorMaxMemory=524288000"
-      },
-      {
-        "NewParameter": "?WASMFuelLimit=55000000"
-      },
-      {
-        "NewParameter": "?WASMMaxMemory=524288000"
-      },
-      {
-        "Register": {
-          "Role": {
-            "id": "ALICE_METADATA_ACCESS",
-            "permissions": [
-              {
-                "id": "CanRemoveKeyValueInAccount",
-                "payload": {
-                  "account_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
-                }
-              },
-              {
-                "id": "CanSetKeyValueInAccount",
-                "payload": {
-                  "account_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
-                }
-              }
-            ]
           }
         }
       }
-    ]
+    },
+    {
+      "Register": {
+        "Account": {
+          "id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland",
+          "metadata": {
+            "key": {
+              "String": "value"
+            }
+          }
+        }
+      }
+    },
+    {
+      "Register": {
+        "Account": {
+          "id": "ed012004FF5B81046DDCCF19E2E451C45DFB6F53759D4EB30FA2EFA807284D1CC33016@wonderland",
+          "metadata": {
+            "key": {
+              "String": "value"
+            }
+          }
+        }
+      }
+    },
+    {
+      "Register": {
+        "AssetDefinition": {
+          "id": "rose#wonderland",
+          "value_type": "Numeric",
+          "mintable": "Infinitely",
+          "logo": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "Register": {
+        "Domain": {
+          "id": "garden_of_live_flowers",
+          "logo": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "Register": {
+        "Account": {
+          "id": "ed0120E9F632D3034BAB6BB26D92AC8FD93EF878D9C5E69E01B61B4C47101884EE2F99@garden_of_live_flowers",
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "Register": {
+        "AssetDefinition": {
+          "id": "cabbage#garden_of_live_flowers",
+          "value_type": "Numeric",
+          "mintable": "Infinitely",
+          "logo": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "Mint": {
+        "Asset": {
+          "object": "13",
+          "destination_id": "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+        }
+      }
+    },
+    {
+      "Mint": {
+        "Asset": {
+          "object": "44",
+          "destination_id": "cabbage#garden_of_live_flowers#ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+        }
+      }
+    },
+    {
+      "Transfer": {
+        "AssetDefinition": {
+          "source_id": "ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4@genesis",
+          "object": "rose#wonderland",
+          "destination_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+        }
+      }
+    },
+    {
+      "Transfer": {
+        "Domain": {
+          "source_id": "ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4@genesis",
+          "object": "wonderland",
+          "destination_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+        }
+      }
+    },
+    {
+      "Grant": {
+        "Permission": {
+          "object": {
+            "id": "CanSetParameters",
+            "payload": null
+          },
+          "destination_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+        }
+      }
+    },
+    {
+      "NewParameter": "?MaxTransactionsInBlock=512"
+    },
+    {
+      "NewParameter": "?BlockTime=2000"
+    },
+    {
+      "NewParameter": "?CommitTimeLimit=4000"
+    },
+    {
+      "NewParameter": "?TransactionLimits=4096,4194304_TL"
+    },
+    {
+      "NewParameter": "?WSVDomainMetadataLimits=1048576,4096_ML"
+    },
+    {
+      "NewParameter": "?WSVAssetDefinitionMetadataLimits=1048576,4096_ML"
+    },
+    {
+      "NewParameter": "?WSVAccountMetadataLimits=1048576,4096_ML"
+    },
+    {
+      "NewParameter": "?WSVAssetMetadataLimits=1048576,4096_ML"
+    },
+    {
+      "NewParameter": "?WSVTriggerMetadataLimits=1048576,4096_ML"
+    },
+    {
+      "NewParameter": "?WSVIdentLengthLimits=1,128_LL"
+    },
+    {
+      "NewParameter": "?ExecutorFuelLimit=55000000"
+    },
+    {
+      "NewParameter": "?ExecutorMaxMemory=524288000"
+    },
+    {
+      "NewParameter": "?WASMFuelLimit=55000000"
+    },
+    {
+      "NewParameter": "?WASMMaxMemory=524288000"
+    },
+    {
+      "Register": {
+        "Role": {
+          "id": "ALICE_METADATA_ACCESS",
+          "permissions": [
+            {
+              "id": "CanRemoveKeyValueInAccount",
+              "payload": {
+                "account_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+              }
+            },
+            {
+              "id": "CanSetKeyValueInAccount",
+              "payload": {
+                "account_id": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+              }
+            }
+          ]
+        }
+      }
+    }
   ],
-  "executor_file": "./executor.wasm"
+  "executor_file": "./executor.wasm",
+  "chain_id": "0"
 }

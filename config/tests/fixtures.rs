@@ -278,17 +278,6 @@ fn extra_fields() {
     assert_contains!(format!("{error:?}"), "unknown parameter: `foo`");
 }
 
-#[test]
-fn inconsistent_genesis_config() {
-    let error = load_config_from_fixtures("inconsistent_genesis.toml")
-        .expect_err("should fail with bad genesis config");
-
-    assert_contains!(
-        format!("{error:?}"),
-        "`genesis.private_key` is set, but `genesis.file` is not"
-    );
-}
-
 /// Aims the purpose of checking that every single provided env variable is consumed and parsed
 /// into a valid config.
 #[test]

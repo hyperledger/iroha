@@ -3,7 +3,7 @@ use std::{thread, time::Duration};
 
 use iroha::{crypto::KeyPair, data_model::prelude::*};
 use iroha_data_model::isi::InstructionBox;
-use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
+use iroha_genesis::{GenesisTransaction, GenesisTransactionBuilder};
 use iroha_primitives::unique_vec;
 use irohad::samples::{construct_executor, get_config};
 use test_network::{
@@ -12,8 +12,12 @@ use test_network::{
 };
 use tokio::runtime::Runtime;
 
-fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
-    let mut builder = RawGenesisBlockBuilder::default();
+fn generate_genesis(
+    num_domains: u32,
+    chain_id: ChainId,
+    genesis_key_pair: &KeyPair,
+) -> GenesisTransaction {
+    let mut builder = GenesisTransactionBuilder::default();
 
     let signatory_alice = get_key_pair(test_network::Signatory::Alice).into_parts().0;
     for i in 0_u32..num_domains {
@@ -31,28 +35,22 @@ fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
         .executor_blob(
             construct_executor("../default_executor").expect("Failed to construct executor"),
         )
-        .build()
+        .build_and_sign(chain_id, genesis_key_pair)
 }
 
 fn main_genesis() {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
+    let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        get_key_pair(test_network::Signatory::Genesis),
+        genesis_key_pair.public_key(),
     );
     let rt = Runtime::test();
-    let genesis = GenesisNetwork::new(
-        generate_genesis(1_000_000_u32),
-        &chain_id,
-        configuration
-            .genesis
-            .key_pair()
-            .expect("should be available in the config; probably a bug"),
-    );
+    let genesis = generate_genesis(1_000_000_u32, chain_id, &genesis_key_pair);
 
     let builder = PeerBuilder::new()
         .with_into_genesis(genesis)

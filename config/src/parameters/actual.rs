@@ -99,10 +99,10 @@ pub enum Genesis {
     },
     /// The peer is responsible for submitting the genesis block
     Full {
-        /// Genesis account key pair
-        key_pair: KeyPair,
-        /// Path to `RawGenesisBlock`
-        file: WithOrigin<PathBuf>,
+        /// Genesis account public key
+        public_key: PublicKey,
+        /// Path to `GenesisTransaction`
+        signed_file: WithOrigin<PathBuf>,
     },
 }
 
@@ -110,16 +110,7 @@ impl Genesis {
     /// Access the public key, which is always present in the genesis config
     pub fn public_key(&self) -> &PublicKey {
         match self {
-            Self::Partial { public_key } => public_key,
-            Self::Full { key_pair, .. } => key_pair.public_key(),
-        }
-    }
-
-    /// Access the key pair, if present
-    pub fn key_pair(&self) -> Option<&KeyPair> {
-        match self {
-            Self::Partial { .. } => None,
-            Self::Full { key_pair, .. } => Some(key_pair),
+            Self::Partial { public_key } | Self::Full { public_key, .. } => public_key,
         }
     }
 }
