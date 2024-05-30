@@ -10,15 +10,16 @@ signed_file = "genesis.signed.scale"
 
 [network]
 address = "localhost:3840"
-block_gossip_period = 10_000
+block_gossip_period_ms = 10_000
 block_gossip_max_size = 4
-transaction_gossip_period = 1_000
+transaction_gossip_period_ms = 1_000
 transaction_gossip_max_size = 500
+idle_timeout_ms = 10_000
 
 [torii]
 address = "localhost:5000"
-max_content_length = 16
-query_idle_time = 30_000
+max_content_length_bytes = 16_000
+query_idle_time_ms = 30_000
 
 [kura]
 init_mode = "strict"
@@ -41,18 +42,18 @@ format = "compact"
 [queue]
 capacity = 65536
 capacity_per_user = 65536
-transaction_time_to_live = 100
-future_threshold = 50
+transaction_time_to_live_ms = 100
+future_threshold_ms = 50
 
 [snapshot]
 mode = "read_write"
-create_every = 60_000
+create_every_ms = 60_000
 store_dir = "./storage/snapshot"
 
 [telemetry]
 name = "test"
 url = "http://test.com"
-min_retry_period = 5_000
+min_retry_period_ms = 5_000
 max_retry_delay_exponent = 4
 
 [dev_telemetry]
@@ -60,8 +61,8 @@ out_file = "./dev_telemetry.json"
 
 [chain_wide]
 max_transactions_in_block = 512
-block_time = 2_000
-commit_time = 4_000
+block_time_ms = 2_000
+commit_time_ms = 4_000
 transaction_limits = { max_instruction_number = 4096, max_wasm_size_bytes = 4194304 }
 asset_metadata_limits = { capacity = 1048576, max_entry_len = 4096 }
 asset_definition_metadata_limits = { capacity = 1048576, max_entry_len = 4096 }

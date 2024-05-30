@@ -181,7 +181,7 @@ fn minimal_config_snapshot() {
             },
             snapshot: Snapshot {
                 mode: ReadWrite,
-                create_every: HumanDuration(
+                create_every_ms: DurationMs(
                     60s,
                 ),
                 store_dir: WithOrigin {

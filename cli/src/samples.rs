@@ -66,7 +66,7 @@ pub fn get_config_toml(
         .write("private_key", ExposedPrivateKey(private_key))
         .write(["sumeragi", "trusted_peers"], peers)
         .write(["network", "address"], DEFAULT_P2P_ADDR)
-        .write(["network", "block_gossip_period"], 500)
+        .write(["network", "block_gossip_period_ms"], 500)
         .write(["network", "block_gossip_max_size"], 1)
         .write(["torii", "address"], DEFAULT_TORII_ADDR)
         .write(["chain_wide", "max_transactions_in_block"], 2)

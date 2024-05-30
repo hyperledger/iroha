@@ -191,7 +191,7 @@ pub fn generate_default(
         )?
         .add_parameter(
             EXECUTOR_MAX_MEMORY,
-            Numeric::new(chain_wide_defaults::WASM_MAX_MEMORY_BYTES.into(), 0),
+            Numeric::new(chain_wide_defaults::WASM_MAX_MEMORY.get().into(), 0),
         )?
         .add_parameter(
             WASM_FUEL_LIMIT,
@@ -199,7 +199,7 @@ pub fn generate_default(
         )?
         .add_parameter(
             WASM_MAX_MEMORY,
-            Numeric::new(chain_wide_defaults::WASM_MAX_MEMORY_BYTES.into(), 0),
+            Numeric::new(chain_wide_defaults::WASM_MAX_MEMORY.get().into(), 0),
         )?
         .into_create_parameters();
 

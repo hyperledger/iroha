@@ -230,7 +230,6 @@ impl Default for ChainWide {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct WasmRuntime {
     pub fuel_limit: u64,
-    // TODO: wrap into a `Bytes` newtype
     pub max_memory_bytes: u32,
 }
 
@@ -238,7 +237,7 @@ impl Default for WasmRuntime {
     fn default() -> Self {
         Self {
             fuel_limit: defaults::chain_wide::WASM_FUEL_LIMIT,
-            max_memory_bytes: defaults::chain_wide::WASM_MAX_MEMORY_BYTES,
+            max_memory_bytes: defaults::chain_wide::WASM_MAX_MEMORY.get(),
         }
     }
 }

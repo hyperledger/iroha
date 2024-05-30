@@ -46,14 +46,15 @@ pub mod snapshot {
 }
 
 pub mod chain_wide {
+    use iroha_config_base::util::Bytes;
+
     use super::*;
 
     pub const MAX_TXS: NonZeroU32 = nonzero!(2_u32.pow(9));
     pub const BLOCK_TIME: Duration = Duration::from_secs(2);
     pub const COMMIT_TIME: Duration = Duration::from_secs(4);
     pub const WASM_FUEL_LIMIT: u64 = 55_000_000;
-    // TODO: wrap into a `Bytes` newtype
-    pub const WASM_MAX_MEMORY_BYTES: u32 = 500 * 2_u32.pow(20);
+    pub const WASM_MAX_MEMORY: Bytes<u32> = Bytes(500 * 2_u32.pow(20));
 
     /// Default estimation of consensus duration.
     pub const CONSENSUS_ESTIMATION: Duration =
@@ -82,7 +83,9 @@ pub mod chain_wide {
 pub mod torii {
     use std::time::Duration;
 
-    pub const MAX_CONTENT_LENGTH: u64 = 2_u64.pow(20) * 16;
+    use iroha_config_base::util::Bytes;
+
+    pub const MAX_CONTENT_LENGTH: Bytes<u64> = Bytes(2_u64.pow(20) * 16);
     pub const QUERY_IDLE_TIME: Duration = Duration::from_secs(30);
 }
 
