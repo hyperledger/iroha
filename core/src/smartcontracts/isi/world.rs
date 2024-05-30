@@ -123,21 +123,36 @@ pub mod isi {
         ) -> Result<(), Error> {
             let domain_id = self.object_id;
 
-            let triggers_in_domain = state_transaction
+            state_transaction
                 .world()
                 .triggers()
-                .inspect_by_domain_id(&domain_id, |trigger_id, _| trigger_id.clone())
-                .collect::<Vec<_>>();
+                .inspect_by_action(
+                    |action| action.authority().domain_id() == &domain_id,
+                    |trigger_id, _| trigger_id.clone(),
+                )
+                .collect::<Vec<_>>()
+                .into_iter()
+                .for_each(|trigger_id| {
+                    state_transaction
+                        .world
+                        .triggers
+                        .remove(trigger_id)
+                        .then_some(())
+                        .expect("should succeed")
+                });
 
-            let world = &mut state_transaction.world;
-            for trigger_id in &triggers_in_domain {
-                assert!(world.triggers.remove(trigger_id.clone()));
-            }
-            if world.domains.remove(domain_id.clone()).is_none() {
+            if state_transaction
+                .world
+                .domains
+                .remove(domain_id.clone())
+                .is_none()
+            {
                 return Err(FindError::Domain(domain_id).into());
             }
 
-            world.emit_events(Some(DomainEvent::Deleted(domain_id)));
+            state_transaction
+                .world
+                .emit_events(Some(DomainEvent::Deleted(domain_id)));
 
             Ok(())
         }
@@ -303,7 +318,7 @@ pub mod isi {
             let parameter_id = parameter.id.clone();
 
             let world = &mut state_transaction.world;
-            if !world.parameters.remove(&parameter) {
+            if !world.parameters.swap_remove(&parameter) {
                 return Err(FindError::Parameter(parameter_id).into());
             }
 

@@ -1527,9 +1527,21 @@ pub mod trigger {
     //! Module with queries for triggers
     use super::*;
 
-    /// Construct a query to get triggers by domain id
-    pub fn by_domain_id(domain_id: DomainId) -> FindTriggersByDomainId {
-        FindTriggersByDomainId::new(domain_id)
+    /// Construct a query to get a trigger by its id
+    pub fn by_id(trigger_id: TriggerId) -> FindTriggerById {
+        FindTriggerById::new(trigger_id)
+    }
+
+    /// Construct a query to find all triggers executable
+    /// on behalf of the given account.
+    pub fn by_authority(account_id: AccountId) -> FindTriggersByAuthorityId {
+        FindTriggersByAuthorityId::new(account_id)
+    }
+
+    /// Construct a query to find all triggers executable
+    /// on behalf of any account belonging to the given domain.
+    pub fn by_domain_of_authority(domain_id: DomainId) -> FindTriggersByAuthorityDomainId {
+        FindTriggersByAuthorityDomainId::new(domain_id)
     }
 }
 

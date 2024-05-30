@@ -597,8 +597,11 @@ impl DataEvent {
     pub fn domain_id(&self) -> Option<&DomainId> {
         match self {
             Self::Domain(event) => Some(event.origin_id()),
-            Self::Trigger(event) => event.origin_id().domain_id.as_ref(),
-            Self::Peer(_) | Self::Configuration(_) | Self::Role(_) | Self::Executor(_) => None,
+            Self::Configuration(_)
+            | Self::Executor(_)
+            | Self::Peer(_)
+            | Self::Role(_)
+            | Self::Trigger(_) => None,
         }
     }
 }

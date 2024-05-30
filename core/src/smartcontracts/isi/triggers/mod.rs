@@ -120,13 +120,13 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let trigger_id = self.object_id.clone();
+            let trigger_id = self.object_id;
 
             let triggers = &mut state_transaction.world.triggers;
             if triggers.remove(trigger_id.clone()) {
                 state_transaction
                     .world
-                    .emit_events(Some(TriggerEvent::Deleted(self.object_id)));
+                    .emit_events(Some(TriggerEvent::Deleted(trigger_id)));
                 Ok(())
             } else {
                 Err(RepetitionError {
@@ -383,21 +383,50 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindTriggersByDomainId {
-        #[metrics(+"find_triggers_by_domain_id")]
+    impl ValidQuery for FindTriggersByAuthorityId {
+        #[metrics(+"find_triggers_by_authority_id")]
         fn execute<'state>(
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> eyre::Result<Box<dyn Iterator<Item = Trigger> + 'state>, Error> {
-            let domain_id = &self.domain_id;
+            let account_id = self.account_id.clone();
 
             Ok(Box::new(
                 state_ro
                     .world()
                     .triggers()
-                    .inspect_by_domain_id(domain_id, |trigger_id, action| {
-                        (trigger_id.clone(), action.clone_and_box())
-                    })
+                    .inspect_by_action(
+                        move |action| action.authority() == &account_id,
+                        |trigger_id, action| (trigger_id.clone(), action.clone_and_box()),
+                    )
+                    .map(|(trigger_id, action)| {
+                        let action = state_ro
+                            .world()
+                            .triggers()
+                            .get_original_action(action)
+                            .into();
+                        Trigger::new(trigger_id, action)
+                    }),
+            ))
+        }
+    }
+
+    impl ValidQuery for FindTriggersByAuthorityDomainId {
+        #[metrics(+"find_triggers_by_authority_domain_id")]
+        fn execute<'state>(
+            &self,
+            state_ro: &'state impl StateReadOnly,
+        ) -> eyre::Result<Box<dyn Iterator<Item = Trigger> + 'state>, Error> {
+            let domain_id = self.domain_id.clone();
+
+            Ok(Box::new(
+                state_ro
+                    .world()
+                    .triggers()
+                    .inspect_by_action(
+                        move |action| action.authority().domain_id() == &domain_id,
+                        |trigger_id, action| (trigger_id.clone(), action.clone_and_box()),
+                    )
                     .map(|(trigger_id, action)| {
                         let action = state_ro
                             .world()
