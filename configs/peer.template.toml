@@ -11,8 +11,8 @@
 # private_key =
 
 [genesis]
-# signed_file = /path/to/signed_genesis.scale
 # public_key =
+# signed_file =
 
 [network]
 # address =

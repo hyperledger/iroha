@@ -99,12 +99,13 @@ fn minimal_config_snapshot() {
                 },
                 idle_timeout: 60s,
             },
-            genesis: Partial {
+            genesis: Genesis {
                 public_key: PublicKey(
                     ed25519(
                         "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
                     ),
                 ),
+                signed_file: None,
             },
             torii: Torii {
                 address: WithOrigin {

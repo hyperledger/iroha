@@ -125,7 +125,7 @@ impl TestGenesis for GenesisNetwork {
         }
 
         let genesis_key_pair = SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone();
-        if cfg.genesis.public_key() != genesis_key_pair.public_key() {
+        if &cfg.genesis.public_key != genesis_key_pair.public_key() {
             panic!("`Config::test` expected to use SAMPLE_GENESIS_ACCOUNT_KEYPAIR");
         }
         let genesis = genesis

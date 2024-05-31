@@ -91,28 +91,13 @@ pub struct Network {
 
 /// Parsed genesis configuration
 #[derive(Debug, Clone)]
-pub enum Genesis {
-    /// The peer can only observe the genesis block
-    Partial {
-        /// Genesis account public key
-        public_key: PublicKey,
-    },
-    /// The peer is responsible for submitting the genesis block
-    Full {
-        /// Genesis account public key
-        public_key: PublicKey,
-        /// Path to `GenesisTransaction`
-        signed_file: WithOrigin<PathBuf>,
-    },
-}
-
-impl Genesis {
-    /// Access the public key, which is always present in the genesis config
-    pub fn public_key(&self) -> &PublicKey {
-        match self {
-            Self::Partial { public_key } | Self::Full { public_key, .. } => public_key,
-        }
-    }
+pub struct Genesis {
+    /// Genesis account public key
+    pub public_key: PublicKey,
+    /// Path to `GenesisTransaction`.
+    /// If it is none, the peer can only observe the genesis block.
+    /// If it is some, the peer is responsible for submitting the genesis block.
+    pub signed_file: Option<WithOrigin<PathBuf>>,
 }
 
 #[allow(missing_docs)]

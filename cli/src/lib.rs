@@ -250,7 +250,7 @@ impl Iroha<ToriiNotStarted> {
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
-            [genesis_domain(config.genesis.public_key().clone())],
+            [genesis_domain(config.genesis.public_key.clone())],
             config
                 .sumeragi
                 .trusted_peers
@@ -317,7 +317,7 @@ impl Iroha<ToriiNotStarted> {
             network: network.clone(),
             genesis_network: GenesisWithPubKey {
                 genesis,
-                public_key: config.genesis.public_key().clone(),
+                public_key: config.genesis.public_key.clone(),
             },
             block_count,
             sumeragi_metrics: SumeragiMetrics {
@@ -635,8 +635,6 @@ pub enum ConfigError {
 pub fn read_config_and_genesis(
     args: &Args,
 ) -> Result<(Config, LoggerInitConfig, Option<GenesisNetwork>), ConfigError> {
-    use iroha_config::parameters::actual::Genesis;
-
     let mut reader = ConfigReader::new();
 
     if let Some(path) = &args.config {
@@ -651,7 +649,7 @@ pub fn read_config_and_genesis(
         .parse()
         .change_context(ConfigError::ParseConfig)?;
 
-    let genesis = if let Genesis::Full { signed_file, .. } = &config.genesis {
+    let genesis = if let Some(signed_file) = &config.genesis.signed_file {
         let genesis = read_genesis(&signed_file.resolve_relative_path())
             .attach_printable(signed_file.clone().into_attachment().display_path())?;
         Some(GenesisNetwork::new(genesis))

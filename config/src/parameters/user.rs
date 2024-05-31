@@ -108,7 +108,7 @@ impl Root {
             .change_context(ParseError::BadKeyPair)
             .ok_or_emit(&mut emitter);
 
-        let genesis = self.genesis.parse();
+        let genesis = self.genesis.into();
 
         let kura = self.kura.parse();
 
@@ -169,15 +169,11 @@ pub struct Genesis {
     pub signed_file: Option<WithOrigin<PathBuf>>,
 }
 
-impl Genesis {
-    fn parse(self) -> actual::Genesis {
-        let public_key = self.public_key.into_value();
-        match self.signed_file {
-            None => actual::Genesis::Partial { public_key },
-            Some(signed_file) => actual::Genesis::Full {
-                public_key,
-                signed_file,
-            },
+impl From<Genesis> for actual::Genesis {
+    fn from(genesis: Genesis) -> Self {
+        actual::Genesis {
+            public_key: genesis.public_key.into_value(),
+            signed_file: genesis.signed_file,
         }
     }
 }
