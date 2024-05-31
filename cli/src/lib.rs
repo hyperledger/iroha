@@ -900,13 +900,13 @@ mod tests {
 
             let mut config = config_factory(genesis_key_pair.public_key());
             iroha_config::base::toml::Writer::new(&mut config)
-                .write(["genesis", "signed_file"], "./genesis/gen.scale")
+                .write(["genesis", "signed_file"], "./genesis/genesis.signed.scale")
                 .write(["kura", "store_dir"], "../storage")
                 .write(["snapshot", "store_dir"], "../snapshots")
                 .write(["dev_telemetry", "out_file"], "../logs/telemetry");
 
             let dir = tempfile::tempdir()?;
-            let genesis_path = dir.path().join("config/genesis/gen.scale");
+            let genesis_path = dir.path().join("config/genesis/genesis.signed.scale");
             let executor_path = dir.path().join("config/genesis/executor.wasm");
             let config_path = dir.path().join("config/config.toml");
             std::fs::create_dir(dir.path().join("config"))?;
@@ -968,11 +968,11 @@ mod tests {
 
             let mut config = config_factory(genesis_key_pair.public_key());
             iroha_config::base::toml::Writer::new(&mut config)
-                .write(["genesis", "signed_file"], "./genesis.scale");
+                .write(["genesis", "signed_file"], "./genesis.signed.scale");
 
             let dir = tempfile::tempdir()?;
             std::fs::write(dir.path().join("config.toml"), toml::to_string(&config)?)?;
-            std::fs::write(dir.path().join("genesis.scale"), genesis.0.encode())?;
+            std::fs::write(dir.path().join("genesis.signed.scale"), genesis.0.encode())?;
             std::fs::write(dir.path().join("executor.wasm"), "")?;
             let config_path = dir.path().join("config.toml");
 

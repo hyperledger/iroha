@@ -20,8 +20,8 @@ use crate::{cli::SourceParsed, util::AbsolutePath};
 const DIR_CONFIG_IN_DOCKER: &str = "/config";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
 const COMMAND_SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/sh -c "
-kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file /tmp/signed-genesis.scale &&
-GENESIS_SIGNED_FILE=/tmp/signed-genesis.scale irohad --submit-genesis
+kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file /tmp/genesis.signed.scale &&
+GENESIS_SIGNED_FILE=/tmp/genesis.signed.scale irohad --submit-genesis
 ""#;
 const DOCKER_COMPOSE_VERSION: &str = "3.8";
 const PLATFORM_ARCHITECTURE: &str = "linux/amd64";
@@ -680,8 +680,8 @@ mod tests {
                 init: true
                 command: |-
                   /bin/sh -c "
-                  kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 802640DB9D90D20F969177BD5882F9FE211D14D1399D5440D04E3468783D169BBC4A8E39E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8 --out-file /tmp/signed-genesis.scale &&
-                  GENESIS_SIGNED_FILE=/tmp/signed-genesis.scale irohad --submit-genesis
+                  kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 802640DB9D90D20F969177BD5882F9FE211D14D1399D5440D04E3468783D169BBC4A8E39E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8 --out-file /tmp/genesis.signed.scale &&
+                  GENESIS_SIGNED_FILE=/tmp/genesis.signed.scale irohad --submit-genesis
                   "
         "#]];
         expected.assert_eq(&actual);
@@ -762,8 +762,8 @@ mod tests {
                 init: true
                 command: |-
                   /bin/sh -c "
-                  kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 8026405A6D5F06A90D29AD906E2F6EA8B41B4EF187849D0D397081A4A15FFCBE71E7C73420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9 --out-file /tmp/signed-genesis.scale &&
-                  GENESIS_SIGNED_FILE=/tmp/signed-genesis.scale irohad --submit-genesis
+                  kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 8026405A6D5F06A90D29AD906E2F6EA8B41B4EF187849D0D397081A4A15FFCBE71E7C73420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9 --out-file /tmp/genesis.signed.scale &&
+                  GENESIS_SIGNED_FILE=/tmp/genesis.signed.scale irohad --submit-genesis
                   "
                 healthcheck:
                   test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0

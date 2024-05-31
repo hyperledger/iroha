@@ -10,4 +10,4 @@ store_dir = "/snapshot/store"
 out_file = "/telemetry/file.json"
 
 [genesis]
-signed_file = "/oh/my/signed-genesis.scale"
+signed_file = "/oh/my/genesis.signed.scale"

@@ -22,8 +22,8 @@ services:
     init: true
     command: |-
       /bin/sh -c "
-      kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 80264082B3BDE54AEBECA4146257DA0DE8D59D8E46D5FE34887DCD8072866792FCB3AD4164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 --out-file /tmp/signed-genesis.scale &&
-      GENESIS_SIGNED_FILE=/tmp/signed-genesis.scale irohad --submit-genesis
+      kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 80264082B3BDE54AEBECA4146257DA0DE8D59D8E46D5FE34887DCD8072866792FCB3AD4164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 --out-file /tmp/genesis.signed.scale &&
+      GENESIS_SIGNED_FILE=/tmp/genesis.signed.scale irohad --submit-genesis
       "
     healthcheck:
       test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0
