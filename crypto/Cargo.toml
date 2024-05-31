@@ -57,7 +57,7 @@ hex = { workspace = true, features = ["alloc", "serde"] }
 getset = { workspace = true }
 
 thiserror = { version = "1.0.61", optional = true }
-displaydoc = { version = "0.2.4", default-features = false }
+displaydoc = { workspace = true }
 
 digest = { version = "0.10.7", default-features = false, features = ["alloc"] }
 blake2 = { version = "0.10.6", default-features = false }

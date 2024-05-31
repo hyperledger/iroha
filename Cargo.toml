@@ -105,7 +105,8 @@ assertables = "7"
 eyre = "0.6.12"
 color-eyre = "0.6.3"
 thiserror = { version = "1.0.61", default-features = false }
-displaydoc = { version = "0.2.4", default-features = false }
+# FIXME: temporary, until fix in the upstream https://github.com/yaahc/displaydoc/issues/46
+displaydoc = { git = "https://github.com/akonradi-signal/displaydoc.git", branch = "anonymous-const", default-features = false }
 error-stack = "0.4.1"
 
 cfg-if = "1.0.0"
