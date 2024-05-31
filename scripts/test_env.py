@@ -40,7 +40,7 @@ class Network:
         genesis_public_key = self.peers[0].public_key
         genesis_private_key = self.peers[0].private_key
         shared_config = {
-            "chain_id": "0",
+            "chain_id": "00000000-0000-0000-0000-000000000000",
             "genesis": {
                 "public_key": genesis_public_key
             },

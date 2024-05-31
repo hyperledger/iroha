@@ -428,7 +428,7 @@ pub mod tests {
         key_pair: &KeyPair,
         time_source: &TimeSource,
     ) -> AcceptedTransaction {
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let message = std::iter::repeat_with(rand::random::<char>)
             .take(16)
             .collect();
@@ -667,7 +667,7 @@ pub mod tests {
     async fn custom_expired_transaction_is_rejected() {
         const TTL_MS: u64 = 200;
 
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let max_txs_in_block = 2;
         let (alice_id, alice_keypair) = gen_account_in("wonderland");

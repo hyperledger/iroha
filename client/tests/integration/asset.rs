@@ -302,10 +302,12 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             ),
             alice_id.clone(),
         );
-        let transaction =
-            TransactionBuilder::new(ChainId::from("0"), asset_id.account_id().clone())
-                .with_instructions([instruction])
-                .sign(&owner_key_pair);
+        let transaction = TransactionBuilder::new(
+            ChainId::from("00000000-0000-0000-0000-000000000000"),
+            asset_id.account_id().clone(),
+        )
+        .with_instructions([instruction])
+        .sign(&owner_key_pair);
 
         test_client
             .submit_transaction_blocking(&transaction)

@@ -1588,7 +1588,7 @@ mod tests {
     fn config_factory() -> Config {
         let (account_id, key_pair) = gen_account_in("wonderland");
         Config {
-            chain_id: ChainId::from("0"),
+            chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair,
             account_id,
             torii_api_url: "http://127.0.0.1:8080".parse().unwrap(),

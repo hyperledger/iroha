@@ -817,7 +817,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_reject_due_to_repetition() {
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         // Predefined world state
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
@@ -872,7 +872,7 @@ mod tests {
 
     #[tokio::test]
     async fn tx_order_same_in_validation_and_revalidation() {
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         // Predefined world state
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
@@ -945,7 +945,7 @@ mod tests {
 
     #[tokio::test]
     async fn failed_transactions_revert() {
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         // Predefined world state
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
@@ -1019,7 +1019,7 @@ mod tests {
 
     #[tokio::test]
     async fn genesis_public_key_is_checked() {
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         // Predefined world state
         let genesis_correct_key = KeyPair::random();

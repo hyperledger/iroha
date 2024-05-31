@@ -47,7 +47,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
 /// @s8sato added: This test represents #2081 case.
 #[test]
 fn register_and_grant_role_for_metadata_access() -> Result<()> {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_700).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
@@ -210,7 +210,7 @@ fn role_permissions_are_deduplicated() {
 
 #[test]
 fn grant_revoke_role_permissions() -> Result<()> {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_245).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);

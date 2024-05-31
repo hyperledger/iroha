@@ -34,7 +34,7 @@ fn send_tx_with_different_chain_id() {
             register_asset,
         ])
         .unwrap();
-    let chain_id_0 = ChainId::from("0"); // Value configured by default
+    let chain_id_0 = ChainId::from("00000000-0000-0000-0000-000000000000"); // Value configured by default
     let chain_id_1 = ChainId::from("1");
 
     let transfer_instruction = Transfer::asset_numeric(

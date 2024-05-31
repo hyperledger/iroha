@@ -187,7 +187,7 @@ impl MeasurerUnit {
         &self,
         shutdown_signal: mpsc::Receiver<()>,
     ) -> thread::JoinHandle<()> {
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let submitter = self.client.clone();
         let interval_us_per_tx = self.config.interval_us_per_tx;

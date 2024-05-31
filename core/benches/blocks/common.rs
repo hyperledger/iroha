@@ -27,7 +27,7 @@ pub fn create_block(
     account_id: AccountId,
     key_pair: &KeyPair,
 ) -> CommittedBlock {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)

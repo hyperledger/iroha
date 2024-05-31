@@ -215,7 +215,8 @@ pub fn generate_default(
         builder = builder.append_instruction(isi);
     }
 
-    let genesis = builder.build_raw(ChainId::from("0"));
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
+    let genesis = builder.build_raw(chain_id);
     Ok(genesis)
 }
 

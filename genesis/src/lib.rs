@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn load_new_genesis_block() -> Result<()> {
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let genesis_key_pair = KeyPair::random();
         let (alice_public_key, _) = KeyPair::random().into_parts();
 
@@ -356,7 +356,10 @@ mod tests {
         // In real cases executor should be constructed from a wasm blob
         let finished_genesis = genesis_builder
             .executor_blob(dummy_executor())
-            .build_and_sign(ChainId::from("0"), &KeyPair::random());
+            .build_and_sign(
+                ChainId::from("00000000-0000-0000-0000-000000000000"),
+                &KeyPair::random(),
+            );
 
         let instructions = finished_genesis.0.instructions();
         let Executable::Instructions(instructions) = instructions else {

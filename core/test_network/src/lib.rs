@@ -45,7 +45,7 @@ pub struct Network {
 
 /// Get a standardized blockchain id
 pub fn get_chain_id() -> ChainId {
-    ChainId::from("0")
+    ChainId::from("00000000-0000-0000-0000-000000000000")
 }
 
 /// Get a key pair of a common signatory in the test network

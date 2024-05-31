@@ -364,7 +364,7 @@ impl DockerComposeBuilder<'_> {
             )
         })?;
 
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let peers = peer_generator::generate_peers(self.peers, self.seed)
             .wrap_err("Failed to generate peers")?;
         let genesis_key_pair = generate_key_pair(self.seed, GENESIS_KEYPAIR_SEED);
@@ -579,7 +579,7 @@ mod tests {
     fn default_config_with_swarm_env_is_exhaustive() {
         let keypair = KeyPair::random();
         let env: MockEnv = CompactPeerEnv {
-            chain_id: ChainId::from("0"),
+            chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
             genesis_public_key: keypair.public_key().clone(),
             p2p_addr: socket_addr!(127.0.0.1:1337),
@@ -617,7 +617,7 @@ mod tests {
             services: {
                 let mut map = BTreeMap::new();
 
-                let chain_id = ChainId::from("0");
+                let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
                 let key_pair =
                     KeyPair::from_seed(vec![1, 5, 1, 2, 2, 3, 4, 1, 2, 3], Algorithm::default());
 
@@ -665,7 +665,7 @@ mod tests {
                 build: .
                 platform: linux/amd64
                 environment:
-                  CHAIN_ID: '0'
+                  CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
                   PRIVATE_KEY: 802640DB9D90D20F969177BD5882F9FE211D14D1399D5440D04E3468783D169BBC4A8E39E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
                   P2P_ADDRESS: iroha1:1339
@@ -689,7 +689,7 @@ mod tests {
 
     #[test]
     fn empty_genesis_private_key_is_skipped_in_env() {
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let key_pair = KeyPair::from_seed(vec![0, 1, 2], Algorithm::default());
 
@@ -706,7 +706,7 @@ mod tests {
         let actual = serde_yaml::to_string(&env).unwrap();
         #[allow(clippy::needless_raw_string_hashes)]
         let expected = expect_test::expect![[r#"
-            CHAIN_ID: '0'
+            CHAIN_ID: 00000000-0000-0000-0000-000000000000
             PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
             PRIVATE_KEY: 8026406BF163FD75192B81A78CB20C5F8CB917F591AC6635F2577E6CA305C27A456A5D415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
             P2P_ADDRESS: iroha0:1337
@@ -747,7 +747,7 @@ mod tests {
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
-                  CHAIN_ID: '0'
+                  CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120AB0B22BC053C954A4CA7CF451872E9C5B971F0DA5D92133648226D02E3ABB611
                   PRIVATE_KEY: 80264078DEFA845766A579C9F84CE8840864615B2913073E1321930DD087F77017F1A4AB0B22BC053C954A4CA7CF451872E9C5B971F0DA5D92133648226D02E3ABB611
                   P2P_ADDRESS: 0.0.0.0:1337
@@ -775,7 +775,7 @@ mod tests {
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
-                  CHAIN_ID: '0'
+                  CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120ACD30C7213EF11C4EC1006C6039E4089FC39C9BD211F688B866BCA59C8073883
                   PRIVATE_KEY: 80264083CA4DC66124BB71EB7498FFCD0BFE981554F9E1426133A9999400A65B8D5636ACD30C7213EF11C4EC1006C6039E4089FC39C9BD211F688B866BCA59C8073883
                   P2P_ADDRESS: 0.0.0.0:1338
@@ -798,7 +798,7 @@ mod tests {
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
-                  CHAIN_ID: '0'
+                  CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120222832FD8DF02882F07C13554DBA5BAE10C07A97E4AE7C2114DC05E95C3E6E32
                   PRIVATE_KEY: 802640DC39D66EF98C566D1641B5C971C17385EA6CBFD9029627C481AD777A2E31B7BD222832FD8DF02882F07C13554DBA5BAE10C07A97E4AE7C2114DC05E95C3E6E32
                   P2P_ADDRESS: 0.0.0.0:1339
@@ -821,7 +821,7 @@ mod tests {
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
-                  CHAIN_ID: '0'
+                  CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120FB35DF84B28FAF8BB5A24D6910EFD7D7B22101EB99BFC74C4213CB1E7215F91B
                   PRIVATE_KEY: 8026409F42DA01C65923DF0703284BF76AD475D6EE141A9C2F75C9C534DA11835D77D8FB35DF84B28FAF8BB5A24D6910EFD7D7B22101EB99BFC74C4213CB1E7215F91B
                   P2P_ADDRESS: 0.0.0.0:1340
