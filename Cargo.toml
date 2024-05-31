@@ -261,4 +261,4 @@ lto = true
 
 [profile.profiling]
 inherits = "release"
-debug = "limited"
+debug = true
