@@ -2,11 +2,11 @@ name: I2::Dev::CodeQuality
 
 on:
   workflow_run:
-    workflows: ["I2::Dev::Tests", "I2::Dev::Static"]
-    types: [requested]
+    workflows: ["I2::Dev::Tests"]
+    types: [in_progress]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.actor }}
   cancel-in-progress: true
 
 jobs:
@@ -16,6 +16,10 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.workflow_run.head_repository.full_name }}
+          ref: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
+          fetch-depth: 0
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --all -- --check
@@ -41,6 +45,10 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.workflow_run.head_repository.full_name }}
+          ref: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
+          fetch-depth: 0
       - uses: Swatinem/rust-cache@v2
       - name: Run tests, with coverage
         run: |
@@ -52,14 +60,6 @@ jobs:
       - name: Generate lcov report
         if: always()
         run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/client_cli" --ignore "**/main.rs" -o lcov.info
-      - name: Upload coverage to coveralls.io
-        if: always()
-        uses: coverallsapp/github-action@v2
-        with:
-          file: lcov.info
-          compare-ref: ${{ github.base_ref }}
-          compare-sha: ${{ github.event.pull_request.base.sha}}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload lcov report artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,8 +104,3 @@ jobs:
           product: ${{ github.repository }}
           environment: Test
           reports: '{"Github Vulnerability Scan": "github.json"}'
-      - name: Show Defectdojo response
-        if: always()
-        run: |
-          set -e
-          printf '%s\n' '${{ steps.defectdojo.outputs.response }}'
