@@ -27,7 +27,7 @@ pub struct Cli {
     /// interactive, the app will stop execution with a non-zero exit code. In order to
     /// overwrite the file anyway, pass `--force` flag.
     #[arg(long, short)]
-    pub outfile: PathBuf,
+    pub out_file: PathBuf,
     /// Disable banner in the file saying that the file is generated.
     ///
     /// It includes all passed arguments in order to help with reproducibility.
@@ -115,17 +115,17 @@ mod tests {
 
     #[test]
     fn work_with_build_source() {
-        let _ = match_args("-p 20 --build . --config-dir ./config --outfile sample.yml").unwrap();
+        let _ = match_args("-p 20 --build . --config-dir ./config --out-file sample.yml").unwrap();
     }
 
     #[test]
     fn doesnt_allow_multiple_sources() {
-        let _ = match_args("-p 1 --build . --image hp/irohad --config-dir ./ --outfile test.yml")
+        let _ = match_args("-p 1 --build . --image hp/irohad --config-dir ./ --out-file test.yml")
             .unwrap_err();
     }
 
     #[test]
     fn doesnt_allow_omitting_source() {
-        let _ = match_args("-p 1 --outfile test.yml --config-dir ./").unwrap_err();
+        let _ = match_args("-p 1 --out-file test.yml --config-dir ./").unwrap_err();
     }
 }

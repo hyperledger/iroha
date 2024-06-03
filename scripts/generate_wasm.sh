@@ -20,7 +20,7 @@ for folder in "$SOURCE_DIR"/*; do
         folder_name=$(basename "$folder")
         target_wasm_file_path="${TARGET_DIR}/${folder_name}.wasm"
         # Build the smart contracts
-        cargo run --bin iroha_wasm_builder -- build "$folder" --optimize --outfile "$target_wasm_file_path"
+        cargo run --bin iroha_wasm_builder -- build "$folder" --optimize --out-file "$target_wasm_file_path"
 
     fi
 done

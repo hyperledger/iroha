@@ -277,7 +277,7 @@ It can be done by running:
 
 ```bash
 # compile executor without optimizations
-cargo run --bin iroha_wasm_builder -- build ./path/to/executor --outfile executor.wasm
+cargo run --bin iroha_wasm_builder -- build ./path/to/executor --out-file executor.wasm
 ```
 
 With profiling feature enabled Iroha exposes endpoint to scrap pprof profiles:

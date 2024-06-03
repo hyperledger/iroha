@@ -10,15 +10,15 @@ cd ./client/tests/integration/smartcontracts
 cargo fmt --all -- --check
 cd -
 # update the default executor
-cargo run --release --bin iroha_wasm_builder -- build ./default_executor --optimize --outfile ./configs/swarm/executor.wasm
+cargo run --release --bin iroha_wasm_builder -- build ./default_executor --optimize --out-file ./configs/swarm/executor.wasm
 # update the default genesis, assuming the transaction authority is `test_samples::SAMPLE_GENESIS_ACCOUNT_ID`
 cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 > ./configs/swarm/genesis.json
 # update schema
 cargo run --release --bin kagami -- schema > ./docs/source/references/schema.json
 # update docker compose files
-cargo run --release --bin iroha_swarm -- -p 1 -s Iroha --force --config-dir ./configs/swarm --health-check --build . --outfile ./configs/swarm/docker-compose.single.yml
-cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/swarm --health-check --build . --outfile ./configs/swarm/docker-compose.local.yml
-cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/swarm --health-check --image hyperledger/iroha2:dev --outfile ./configs/swarm/docker-compose.yml
+cargo run --release --bin iroha_swarm -- -p 1 -s Iroha --force --config-dir ./configs/swarm --health-check --build . --out-file ./configs/swarm/docker-compose.single.yml
+cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/swarm --health-check --build . --out-file ./configs/swarm/docker-compose.local.yml
+cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/swarm --health-check --image hyperledger/iroha2:dev --out-file ./configs/swarm/docker-compose.yml
 # lints
 cargo lints clippy --workspace --benches --tests --examples --all-features
 # stage updates
