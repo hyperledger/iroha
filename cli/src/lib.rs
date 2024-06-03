@@ -892,12 +892,11 @@ mod tests {
             // Given
 
             let genesis_key_pair = KeyPair::random();
-            let genesis = GenesisTransactionBuilder::default()
-                .executor_blob(dummy_executor())
-                .build_and_sign(
-                    ChainId::from("00000000-0000-0000-0000-000000000000"),
-                    &genesis_key_pair,
-                );
+            let genesis = GenesisTransactionBuilder::default().build_and_sign(
+                dummy_executor(),
+                ChainId::from("00000000-0000-0000-0000-000000000000"),
+                &genesis_key_pair,
+            );
 
             let mut config = config_factory(genesis_key_pair.public_key());
             iroha_config::base::toml::Writer::new(&mut config)
@@ -963,12 +962,11 @@ mod tests {
             // Given
 
             let genesis_key_pair = KeyPair::random();
-            let genesis = GenesisTransactionBuilder::default()
-                .executor_blob(dummy_executor())
-                .build_and_sign(
-                    ChainId::from("00000000-0000-0000-0000-000000000000"),
-                    &genesis_key_pair,
-                );
+            let genesis = GenesisTransactionBuilder::default().build_and_sign(
+                dummy_executor(),
+                ChainId::from("00000000-0000-0000-0000-000000000000"),
+                &genesis_key_pair,
+            );
 
             let mut config = config_factory(genesis_key_pair.public_key());
             iroha_config::base::toml::Writer::new(&mut config)

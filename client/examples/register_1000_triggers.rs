@@ -53,11 +53,8 @@ fn generate_genesis(
         })
         .fold(builder, GenesisTransactionBuilder::append_instruction);
 
-    Ok(builder
-        .executor_blob(
-            construct_executor("../default_executor").expect("Failed to construct executor"),
-        )
-        .build_and_sign(chain_id, genesis_key_pair))
+    let executor = construct_executor("../default_executor").expect("Failed to construct executor");
+    Ok(builder.build_and_sign(executor, chain_id, genesis_key_pair))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

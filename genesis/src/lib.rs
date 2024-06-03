@@ -144,39 +144,20 @@ fn get_executor(file: &Path) -> Result<Executor> {
 /// that does not perform any correctness checking on the block produced.
 /// Use with caution in tests and other things to register domains and accounts.
 #[must_use]
-pub struct GenesisTransactionBuilder<S> {
+pub struct GenesisTransactionBuilder {
     instructions: Vec<InstructionBox>,
-    state: S,
 }
 
 /// `Domain` subsection of the [`GenesisTransactionBuilder`]. Makes
 /// it easier to create accounts and assets without needing to
 /// provide a `DomainId`.
 #[must_use]
-pub struct GenesisDomainBuilder<S> {
+pub struct GenesisDomainBuilder {
     instructions: Vec<InstructionBox>,
     domain_id: DomainId,
-    state: S,
 }
 
-/// States of executor in [`GenesisTransactionBuilder`]
-pub mod executor_state {
-    use super::{Executor, PathBuf};
-
-    /// The executor is set directly as a blob
-    #[cfg_attr(test, derive(Clone))]
-    pub struct SetBlob(pub Executor);
-
-    /// The executor is set as a file path
-    #[cfg_attr(test, derive(Clone))]
-    pub struct SetPath(pub PathBuf);
-
-    /// The executor isn't set yet
-    #[derive(Clone, Copy)]
-    pub struct Unset;
-}
-
-impl Default for GenesisTransactionBuilder<executor_state::Unset> {
+impl Default for GenesisTransactionBuilder {
     fn default() -> Self {
         // Do not add `impl Default`. While it can technically be
         // regarded as a default constructor, this builder should not
@@ -184,39 +165,14 @@ impl Default for GenesisTransactionBuilder<executor_state::Unset> {
         // be called.
         Self {
             instructions: Vec::new(),
-            state: executor_state::Unset,
         }
     }
 }
 
-impl GenesisTransactionBuilder<executor_state::Unset> {
-    /// Set the executor as a binary blob
-    pub fn executor_blob(
-        self,
-        value: Executor,
-    ) -> GenesisTransactionBuilder<executor_state::SetBlob> {
-        GenesisTransactionBuilder {
-            instructions: self.instructions,
-            state: executor_state::SetBlob(value),
-        }
-    }
-
-    /// Set the executor as a file path
-    pub fn executor_file(
-        self,
-        path: PathBuf,
-    ) -> GenesisTransactionBuilder<executor_state::SetPath> {
-        GenesisTransactionBuilder {
-            instructions: self.instructions,
-            state: executor_state::SetPath(path),
-        }
-    }
-}
-
-impl<S> GenesisTransactionBuilder<S> {
+impl GenesisTransactionBuilder {
     /// Create a domain and return a domain builder which can
     /// be used to create assets and accounts.
-    pub fn domain(self, domain_name: Name) -> GenesisDomainBuilder<S> {
+    pub fn domain(self, domain_name: Name) -> GenesisDomainBuilder {
         self.domain_with_metadata(domain_name, Metadata::default())
     }
 
@@ -226,14 +182,13 @@ impl<S> GenesisTransactionBuilder<S> {
         mut self,
         domain_name: Name,
         metadata: Metadata,
-    ) -> GenesisDomainBuilder<S> {
+    ) -> GenesisDomainBuilder {
         let domain_id = DomainId::new(domain_name);
         let new_domain = Domain::new(domain_id.clone()).with_metadata(metadata);
         self.instructions.push(Register::domain(new_domain).into());
         GenesisDomainBuilder {
             instructions: self.instructions,
             domain_id,
-            state: self.state,
         }
     }
 
@@ -244,36 +199,33 @@ impl<S> GenesisTransactionBuilder<S> {
     }
 }
 
-impl GenesisTransactionBuilder<executor_state::SetBlob> {
+impl GenesisTransactionBuilder {
     /// Finish building, sign, and produce a [`GenesisTransaction`].
     pub fn build_and_sign(
         self,
+        executor_blob: Executor,
         chain_id: ChainId,
         genesis_key_pair: &KeyPair,
     ) -> GenesisTransaction {
-        let executor = self.state.0;
-        build_and_sign_genesis(self.instructions, executor, chain_id, genesis_key_pair)
+        build_and_sign_genesis(self.instructions, executor_blob, chain_id, genesis_key_pair)
     }
-}
 
-impl GenesisTransactionBuilder<executor_state::SetPath> {
     /// Finish building and produce a [`RawGenesisTransaction`].
-    pub fn build_raw(self, chain_id: ChainId) -> RawGenesisTransaction {
+    pub fn build_raw(self, executor_file: PathBuf, chain_id: ChainId) -> RawGenesisTransaction {
         RawGenesisTransaction {
             instructions: self.instructions,
-            executor_file: self.state.0,
+            executor_file,
             chain_id,
         }
     }
 }
 
-impl<S> GenesisDomainBuilder<S> {
+impl GenesisDomainBuilder {
     /// Finish this domain and return to
     /// genesis block building.
-    pub fn finish_domain(self) -> GenesisTransactionBuilder<S> {
+    pub fn finish_domain(self) -> GenesisTransactionBuilder {
         GenesisTransactionBuilder {
             instructions: self.instructions,
-            state: self.state,
         }
     }
 
@@ -320,8 +272,7 @@ mod tests {
             .domain("wonderland".parse()?)
             .account(alice_public_key)
             .finish_domain()
-            .executor_blob(dummy_executor())
-            .build_and_sign(chain_id, &genesis_key_pair);
+            .build_and_sign(dummy_executor(), chain_id, &genesis_key_pair);
         Ok(())
     }
 
@@ -354,12 +305,11 @@ mod tests {
             .finish_domain();
 
         // In real cases executor should be constructed from a wasm blob
-        let finished_genesis = genesis_builder
-            .executor_blob(dummy_executor())
-            .build_and_sign(
-                ChainId::from("00000000-0000-0000-0000-000000000000"),
-                &KeyPair::random(),
-            );
+        let finished_genesis = genesis_builder.build_and_sign(
+            dummy_executor(),
+            ChainId::from("00000000-0000-0000-0000-000000000000"),
+            &KeyPair::random(),
+        );
 
         let instructions = finished_genesis.0.instructions();
         let Executable::Instructions(instructions) = instructions else {

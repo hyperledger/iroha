@@ -30,14 +30,12 @@ fn query_requests(criterion: &mut Criterion) {
     );
 
     let rt = Runtime::test();
+    let executor = construct_executor("../default_executor").expect("Failed to construct executor");
     let genesis = GenesisTransactionBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
         .account(get_key_pair(test_network::Signatory::Alice).into_parts().0)
         .finish_domain()
-        .executor_blob(
-            construct_executor("../default_executor").expect("Failed to construct executor"),
-        )
-        .build_and_sign(chain_id, &genesis_key_pair);
+        .build_and_sign(executor, chain_id, &genesis_key_pair);
 
     let builder = PeerBuilder::new()
         .with_config(configuration)
@@ -126,14 +124,12 @@ fn instruction_submits(criterion: &mut Criterion) {
         get_key_pair(test_network::Signatory::Peer),
         genesis_key_pair.public_key(),
     );
+    let executor = construct_executor("../default_executor").expect("Failed to construct executor");
     let genesis = GenesisTransactionBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
         .account(configuration.common.key_pair.public_key().clone())
         .finish_domain()
-        .executor_blob(
-            construct_executor("../default_executor").expect("Failed to construct executor"),
-        )
-        .build_and_sign(chain_id, &genesis_key_pair);
+        .build_and_sign(executor, chain_id, &genesis_key_pair);
     let builder = PeerBuilder::new()
         .with_config(configuration)
         .with_into_genesis(genesis);

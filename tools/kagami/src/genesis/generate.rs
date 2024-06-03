@@ -11,9 +11,7 @@ use iroha_data_model::{
     parameter::{default::*, ParametersBuilder},
     prelude::*,
 };
-use iroha_genesis::{
-    executor_state, GenesisTransactionBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID,
-};
+use iroha_genesis::{GenesisTransactionBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
 use serde_json::json;
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
 
@@ -64,15 +62,18 @@ impl<T: Write> RunArgs<T> for Args {
             mode,
         } = self;
 
-        let builder = GenesisTransactionBuilder::default().executor_file(executor_path_in_genesis);
+        let builder = GenesisTransactionBuilder::default();
         let genesis = match mode.unwrap_or_default() {
-            Mode::Default => generate_default(builder, genesis_public_key),
+            Mode::Default => {
+                generate_default(builder, executor_path_in_genesis, genesis_public_key)
+            }
             Mode::Synthetic {
                 domains,
                 accounts_per_domain,
                 assets_per_domain,
             } => generate_synthetic(
                 builder,
+                executor_path_in_genesis,
                 genesis_public_key,
                 domains,
                 accounts_per_domain,
@@ -86,7 +87,8 @@ impl<T: Write> RunArgs<T> for Args {
 
 #[allow(clippy::too_many_lines)]
 pub fn generate_default(
-    builder: GenesisTransactionBuilder<executor_state::SetPath>,
+    builder: GenesisTransactionBuilder,
+    executor_path: PathBuf,
     genesis_public_key: PublicKey,
 ) -> color_eyre::Result<RawGenesisTransaction> {
     let genesis_account_id = AccountId::new(GENESIS_DOMAIN_ID.clone(), genesis_public_key);
@@ -216,19 +218,20 @@ pub fn generate_default(
     }
 
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-    let genesis = builder.build_raw(chain_id);
+    let genesis = builder.build_raw(executor_path, chain_id);
     Ok(genesis)
 }
 
 fn generate_synthetic(
-    builder: GenesisTransactionBuilder<executor_state::SetPath>,
+    builder: GenesisTransactionBuilder,
+    executor_path: PathBuf,
     genesis_public_key: PublicKey,
     domains: u64,
     accounts_per_domain: u64,
     assets_per_domain: u64,
 ) -> color_eyre::Result<RawGenesisTransaction> {
     // Synthetic genesis is extension of default one
-    let mut genesis = generate_default(builder, genesis_public_key)?;
+    let mut genesis = generate_default(builder, executor_path, genesis_public_key)?;
 
     for domain in 0..domains {
         let domain_id: DomainId = format!("domain_{domain}").parse()?;
