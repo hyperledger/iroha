@@ -21,7 +21,7 @@ fn main() -> Result<()> {
         force,
         no_banner,
         source: image_source,
-        outfile: target_file_raw,
+        out_file: target_file_raw,
         config_dir: config_dir_raw,
         health_check,
     } = Cli::parse();

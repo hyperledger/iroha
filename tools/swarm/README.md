@@ -10,14 +10,14 @@ iroha_swarm <options>
 
 **Options:**
 
-- **`--outfile <path>`** (required): specify the output file name, e.g. `./docker-compose.yml`. If the file exists, the prompt appears (might be disabled with `--force` option).
-- **`--config-dir <path>`** (required): specify the path to the directory containing `config.json` and `genesis.json`. The path to the config will be written into the file specified by `--outfile` relative to its location.
+- **`--out-file <path>`** (required): specify the output file name, e.g. `./docker-compose.yml`. If the file exists, the prompt appears (might be disabled with `--force` option).
+- **`--config-dir <path>`** (required): specify the path to the directory containing `config.json` and `genesis.json`. The path to the config will be written into the file specified by `--out-file` relative to its location.
 - **Image source** (required):
   - **`--image <name>`**: specify image name, like `hyperledger/iroha2:dev`
   - **`--build <path>`**: specify path to the Iroha repo
 - **`--peers <number>` (`-p`)** (required): amount of peers to generate
 - **`--seed <string>` (`-s`)** (optional): specify a string to use as a cryptographic seed for keys generation. Allows to generate compose configurations deterministically. UTF-8 bytes of the string will be used.
-- **`--force`** (optional): override file specified with `--outfile` if it exists
+- **`--force`** (optional): override file specified with `--out-file` if it exists
 
 ## Examples
 
@@ -29,7 +29,7 @@ iroha_swarm \
     --peers 5 \
     --seed iroha \
     --config-dir ./peer_config \
-    --outfile docker-compose.dev.yml
+    --out-file docker-compose.dev.yml
 ```
 
 Same, but using an existing Docker image instead:
@@ -40,5 +40,5 @@ iroha_swarm \
     --peers 5 \
     --seed iroha \
     --config-dir ./peer_config \
-    --outfile docker-compose.dev.yml
+    --out-file docker-compose.dev.yml
 ```

@@ -24,7 +24,7 @@ enum Cli {
         optimize: bool,
         /// Where to store the output WASM. If the file exists, it will be overwritten.
         #[arg(long)]
-        outfile: PathBuf,
+        out_file: PathBuf,
     },
 }
 
@@ -45,7 +45,7 @@ fn main() -> color_eyre::Result<()> {
         Cli::Build {
             common: CommonArgs { path },
             optimize,
-            outfile,
+            out_file,
         } => {
             let builder = Builder::new(&path).show_output();
 
@@ -80,16 +80,16 @@ fn main() -> color_eyre::Result<()> {
                 output
             };
 
-            std::fs::copy(output.wasm_file_path(), &outfile).wrap_err_with(|| {
+            std::fs::copy(output.wasm_file_path(), &out_file).wrap_err_with(|| {
                 eyre!(
                     "Failed to write the resulting file into {}",
-                    outfile.display()
+                    out_file.display()
                 )
             })?;
 
             println!(
                 "✓ File is written into {}",
-                outfile.display().green().bold()
+                out_file.display().green().bold()
             );
         }
     }
