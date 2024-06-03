@@ -1379,6 +1379,10 @@
       {
         "name": "trigger",
         "type": "TriggerId"
+      },
+      {
+        "name": "args",
+        "type": "Option<JsonString>"
       }
     ]
   },
@@ -1391,6 +1395,10 @@
       {
         "name": "authority",
         "type": "AccountId"
+      },
+      {
+        "name": "args",
+        "type": "Option<JsonString>"
       }
     ]
   },
@@ -2592,6 +2600,9 @@
   },
   "Option<IpfsPath>": {
     "Option": "IpfsPath"
+  },
+  "Option<JsonString>": {
+    "Option": "JsonString"
   },
   "Option<Name>": {
     "Option": "Name"

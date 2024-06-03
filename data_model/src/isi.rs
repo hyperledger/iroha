@@ -924,13 +924,30 @@ mod transparent {
 
     isi! {
         /// Instruction to execute specified trigger
-        #[derive(Constructor, Display)]
+        #[derive(Display)]
         #[display(fmt = "EXECUTE `{trigger}`")]
-        #[serde(transparent)]
-        #[repr(transparent)]
         pub struct ExecuteTrigger {
             /// Id of a trigger to execute
             pub trigger: TriggerId,
+            /// Arguments to trigger execution
+            pub args: Option<JsonString>,
+        }
+    }
+
+    impl ExecuteTrigger {
+        /// Constructor for [`Self`]
+        pub fn new(trigger: TriggerId) -> Self {
+            Self {
+                trigger,
+                args: None,
+            }
+        }
+
+        /// Add trigger execution args
+        #[must_use]
+        pub fn with_args<T: serde::Serialize>(mut self, args: &T) -> Self {
+            self.args = Some(JsonString::new(args));
+            self
         }
     }
 

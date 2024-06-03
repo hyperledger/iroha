@@ -276,6 +276,12 @@ pub mod isi {
         ) -> Result<(), Error> {
             let id = &self.trigger;
 
+            let event = ExecuteTriggerEvent {
+                trigger_id: id.clone(),
+                authority: authority.clone(),
+                args: self.args,
+            };
+
             state_transaction
                 .world
                 .triggers
@@ -283,11 +289,6 @@ pub mod isi {
                     let allow_execute = if let TriggeringEventFilterBox::ExecuteTrigger(filter) =
                         action.clone_and_box().filter
                     {
-                        let event = ExecuteTriggerEvent {
-                            trigger_id: id.clone(),
-                            authority: authority.clone(),
-                        };
-
                         filter.matches(&event) || action.authority() == authority
                     } else {
                         false
@@ -305,9 +306,7 @@ pub mod isi {
                 .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))
                 .and_then(core::convert::identity)?;
 
-            state_transaction
-                .world
-                .execute_trigger(id.clone(), authority);
+            state_transaction.world.execute_trigger(event);
 
             Ok(())
         }

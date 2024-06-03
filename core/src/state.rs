@@ -904,12 +904,7 @@ impl WorldTransaction<'_, '_> {
     /// then *trigger* will be executed on the **current** block
     /// - If this method is called by ISI inside *trigger*,
     /// then *trigger* will be executed on the **next** block
-    pub fn execute_trigger(&mut self, trigger_id: TriggerId, authority: &AccountId) {
-        let event = ExecuteTriggerEvent {
-            trigger_id,
-            authority: authority.clone(),
-        };
-
+    pub fn execute_trigger(&mut self, event: ExecuteTriggerEvent) {
         self.triggers.handle_execute_trigger_event(event.clone());
         self.events_buffer.push(event.into());
     }
