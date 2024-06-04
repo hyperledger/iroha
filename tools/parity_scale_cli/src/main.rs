@@ -135,12 +135,12 @@ struct ScaleJsonArgs {
     type_name: String,
 }
 
-fn is_colouring_supported() -> bool {
+fn is_coloring_supported() -> bool {
     supports_color::on(supports_color::Stream::Stdout).is_some()
 }
 
 fn default_terminal_colors_str() -> clap::builder::OsStr {
-    is_colouring_supported().to_string().into()
+    is_coloring_supported().to_string().into()
 }
 
 fn main() -> Result<()> {
@@ -423,7 +423,7 @@ mod tests {
 
         assert_eq!(
             Args::try_parse_from(["test", "list-types"])?.terminal_colors,
-            is_colouring_supported()
+            is_coloring_supported()
         );
         assert_eq!(try_with("--terminal-colors")?, true);
         assert_eq!(try_with("--terminal-colors=false")?, false);
