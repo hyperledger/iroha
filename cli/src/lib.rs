@@ -775,12 +775,12 @@ fn validate_try_bind_address(emitter: &mut Emitter<ConfigError>, value: &WithOri
 }
 
 #[allow(missing_docs)]
-pub fn is_colouring_supported() -> bool {
+pub fn is_coloring_supported() -> bool {
     supports_color::on(supports_color::Stream::Stdout).is_some()
 }
 
 fn default_terminal_colors_str() -> clap::builder::OsStr {
-    is_colouring_supported().to_string().into()
+    is_coloring_supported().to_string().into()
 }
 
 /// Iroha server CLI
@@ -1002,7 +1002,7 @@ mod tests {
     fn default_args() {
         let args = Args::try_parse_from(["test"]).unwrap();
 
-        assert_eq!(args.terminal_colors, is_colouring_supported());
+        assert_eq!(args.terminal_colors, is_coloring_supported());
         assert_eq!(args.submit_genesis, false);
     }
 
@@ -1015,7 +1015,7 @@ mod tests {
 
         assert_eq!(
             Args::try_parse_from(["test"])?.terminal_colors,
-            is_colouring_supported()
+            is_coloring_supported()
         );
         assert_eq!(try_with("--terminal-colors")?, true);
         assert_eq!(try_with("--terminal-colors=false")?, false);
