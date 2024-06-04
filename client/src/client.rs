@@ -229,7 +229,7 @@ impl From<ResponseReport> for eyre::Report {
 /// Output of a query
 pub trait QueryOutput: Into<QueryOutputBox> + TryFrom<QueryOutputBox> {
     /// Type of the query output
-    type Target: Clone;
+    type Target;
 
     /// Construct query output from query response
     fn new(output: Self, query_request: QueryResponseHandler<Self>) -> Self::Target;
@@ -305,6 +305,25 @@ where
             query_handler,
             iter: output,
             client_cursor: 0,
+        }
+    }
+}
+
+impl QueryOutput for QueryOutputBox {
+    type Target = QueryResult<Self>;
+
+    fn new(output: Self, query_handler: QueryResponseHandler<Self>) -> Self::Target {
+        match output {
+            Self::Vec(v) => {
+                let query_handler = QueryResponseHandler::new(query_handler.query_request);
+                let set = ResultSet {
+                    query_handler,
+                    iter: v,
+                    client_cursor: 0,
+                };
+                set.collect::<QueryResult<Vec<_>>>().map(Self::Vec)
+            }
+            other => Ok(other),
         }
     }
 }
