@@ -1,5 +1,5 @@
 #base stage
-FROM archlinux:base-devel AS builder
+FROM --platform=linux/amd64 archlinux:base-devel AS builder
 
 # Force-sync packages, install archlinux-keyring, repopulate keys
 RUN pacman -Syy

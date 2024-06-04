@@ -16,7 +16,7 @@ use serde::{ser::SerializeMap, Serialize, Serializer};
 
 use crate::{cli::SourceParsed, util::AbsolutePath};
 
-/// Config directory inside of the docker image
+/// Config directory inside the docker image
 const DIR_CONFIG_IN_DOCKER: &str = "/config";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
 const GENESIS_SIGNED_FILE: &str = "/tmp/genesis.signed.scale";
@@ -25,7 +25,6 @@ kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --pri
 irohad --submit-genesis
 ""#;
 const DOCKER_COMPOSE_VERSION: &str = "3.8";
-const PLATFORM_ARCHITECTURE: &str = "linux/amd64";
 
 #[derive(Serialize, Debug)]
 pub struct DockerCompose {
@@ -76,18 +75,6 @@ impl Serialize for DockerComposeVersion {
     }
 }
 
-#[derive(Debug)]
-struct PlatformArchitecture;
-
-impl Serialize for PlatformArchitecture {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(PLATFORM_ARCHITECTURE)
-    }
-}
-
 pub struct DockerComposeServiceBuilder {
     chain_id: ChainId,
     peer: Peer,
@@ -103,7 +90,6 @@ pub struct DockerComposeServiceBuilder {
 pub struct DockerComposeService {
     #[serde(flatten)]
     source: ServiceSource,
-    platform: PlatformArchitecture,
     environment: FullPeerEnv,
     ports: Vec<PairColon<u16, u16>>,
     volumes: Vec<PairColon<String, String>>,
@@ -183,7 +169,6 @@ impl DockerComposeServiceBuilder {
 
         DockerComposeService {
             source,
-            platform: PlatformArchitecture,
             command,
             init: AlwaysTrue,
             volumes: volumes.into_iter().map(|(a, b)| PairColon(a, b)).collect(),
@@ -633,7 +618,6 @@ mod tests {
                 map.insert(
                     "iroha0".to_owned(),
                     DockerComposeService {
-                        platform: PlatformArchitecture,
                         source: ServiceSource::Build(PathBuf::from(".")),
                         environment: CompactPeerEnv {
                             chain_id,
@@ -673,7 +657,6 @@ mod tests {
             services:
               iroha0:
                 build: .
-                platform: linux/amd64
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
@@ -757,7 +740,6 @@ mod tests {
             services:
               irohad0:
                 build: ./iroha-cloned
-                platform: linux/amd64
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120AB0B22BC053C954A4CA7CF451872E9C5B971F0DA5D92133648226D02E3ABB611
@@ -786,7 +768,6 @@ mod tests {
                   start_period: 4s
               irohad1:
                 build: ./iroha-cloned
-                platform: linux/amd64
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120ACD30C7213EF11C4EC1006C6039E4089FC39C9BD211F688B866BCA59C8073883
@@ -809,7 +790,6 @@ mod tests {
                   start_period: 4s
               irohad2:
                 build: ./iroha-cloned
-                platform: linux/amd64
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120222832FD8DF02882F07C13554DBA5BAE10C07A97E4AE7C2114DC05E95C3E6E32
@@ -832,7 +812,6 @@ mod tests {
                   start_period: 4s
               irohad3:
                 build: ./iroha-cloned
-                platform: linux/amd64
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed0120FB35DF84B28FAF8BB5A24D6910EFD7D7B22101EB99BFC74C4213CB1E7215F91B
