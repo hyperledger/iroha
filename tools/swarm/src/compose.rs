@@ -18,9 +18,12 @@ use crate::{cli::SourceParsed, util::AbsolutePath};
 
 /// Config directory inside of the docker image
 const DIR_CONFIG_IN_DOCKER: &str = "/config";
-const PATH_TO_GENESIS: &str = "/config/genesis.json";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
-const COMMAND_SUBMIT_GENESIS: &str = "irohad --submit-genesis";
+const GENESIS_SIGNED_FILE: &str = "/tmp/genesis.signed.scale";
+const COMMAND_SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/sh -c "
+kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
+irohad --submit-genesis
+""#;
 const DOCKER_COMPOSE_VERSION: &str = "3.8";
 const PLATFORM_ARCHITECTURE: &str = "linux/amd64";
 
@@ -159,17 +162,20 @@ impl DockerComposeServiceBuilder {
             PairColon(peer.port_api, peer.port_api),
         ];
 
-        let command = if genesis_private_key.is_some() {
-            ServiceCommand::SubmitGenesis
-        } else {
-            ServiceCommand::None
-        };
+        let genesis_signed_file = genesis_private_key
+            .as_ref()
+            .map(|_| GENESIS_SIGNED_FILE.to_owned());
+        let command = genesis_private_key.map_or(ServiceCommand::None, |genesis_private_key| {
+            ServiceCommand::SignAndSubmitGenesis {
+                genesis_private_key,
+            }
+        });
 
         let compact_env = CompactPeerEnv {
             chain_id,
             trusted_peers,
             genesis_public_key,
-            genesis_private_key,
+            genesis_signed_file,
             key_pair: peer.key_pair.clone(),
             p2p_addr: socket_addr!(0.0.0.0:peer.port_p2p),
             api_addr: socket_addr!(0.0.0.0:peer.port_api),
@@ -204,7 +210,7 @@ impl Serialize for AlwaysTrue {
 
 #[derive(Debug)]
 enum ServiceCommand {
-    SubmitGenesis,
+    SignAndSubmitGenesis { genesis_private_key: PrivateKey },
     None,
 }
 
@@ -221,7 +227,15 @@ impl Serialize for ServiceCommand {
     {
         match self {
             Self::None => serializer.serialize_none(),
-            Self::SubmitGenesis => serializer.serialize_str(COMMAND_SUBMIT_GENESIS),
+            Self::SignAndSubmitGenesis {
+                genesis_private_key,
+            } => {
+                let genesis_private_key =
+                    ExposedPrivateKey(genesis_private_key.clone()).to_string();
+                let command = COMMAND_SIGN_AND_SUBMIT_GENESIS
+                    .replace("$$GENESIS_PRIVATE_KEY", &genesis_private_key);
+                serializer.serialize_str(&command)
+            }
         }
     }
 }
@@ -302,8 +316,7 @@ struct FullPeerEnv {
     p2p_address: SocketAddr,
     api_address: SocketAddr,
     genesis_public_key: PublicKey,
-    genesis_private_key: Option<ExposedPrivateKey>,
-    genesis_file: Option<String>,
+    genesis_signed_file: Option<String>,
     #[serde_as(as = "Option<serde_with::json::JsonString>")]
     sumeragi_trusted_peers: Option<BTreeSet<PeerId>>,
 }
@@ -312,8 +325,7 @@ struct CompactPeerEnv {
     chain_id: ChainId,
     key_pair: KeyPair,
     genesis_public_key: PublicKey,
-    /// Genesis private key is only needed for a peer that is submitting the genesis block
-    genesis_private_key: Option<PrivateKey>,
+    genesis_signed_file: Option<String>,
     p2p_addr: SocketAddr,
     api_addr: SocketAddr,
     trusted_peers: BTreeSet<PeerId>,
@@ -321,20 +333,12 @@ struct CompactPeerEnv {
 
 impl From<CompactPeerEnv> for FullPeerEnv {
     fn from(value: CompactPeerEnv) -> Self {
-        let genesis_private_key = value.genesis_private_key.map(ExposedPrivateKey);
-        let genesis_file = if genesis_private_key.is_some() {
-            Some(PATH_TO_GENESIS.to_string())
-        } else {
-            None
-        };
-
         Self {
             chain_id: value.chain_id,
             public_key: value.key_pair.public_key().clone(),
             private_key: ExposedPrivateKey(value.key_pair.private_key().clone()),
             genesis_public_key: value.genesis_public_key,
-            genesis_private_key,
-            genesis_file,
+            genesis_signed_file: value.genesis_signed_file,
             p2p_address: value.p2p_addr,
             api_address: value.api_addr,
             sumeragi_trusted_peers: if value.trusted_peers.is_empty() {
@@ -586,7 +590,7 @@ mod tests {
             chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
             genesis_public_key: keypair.public_key().clone(),
-            genesis_private_key: Some(keypair.private_key().clone()),
+            genesis_signed_file: Some("/tmp/genesis.signed.scale".to_owned()),
             p2p_addr: socket_addr!(127.0.0.1:1337),
             api_addr: socket_addr!(127.0.0.1:1338),
             trusted_peers: {
@@ -635,7 +639,7 @@ mod tests {
                             chain_id,
                             key_pair: key_pair.clone(),
                             genesis_public_key: key_pair.public_key().clone(),
-                            genesis_private_key: Some(key_pair.private_key().clone()),
+                            genesis_signed_file: Some("/tmp/genesis.signed.scale".to_owned()),
                             p2p_addr: SocketAddr::from_str("iroha1:1339").unwrap(),
                             api_addr: SocketAddr::from_str("iroha1:1338").unwrap(),
                             trusted_peers: BTreeSet::new(),
@@ -651,7 +655,9 @@ mod tests {
                             "/config".to_owned(),
                         )],
                         init: AlwaysTrue,
-                        command: ServiceCommand::SubmitGenesis,
+                        command: ServiceCommand::SignAndSubmitGenesis {
+                            genesis_private_key: key_pair.private_key().clone(),
+                        },
                         healthcheck: None,
                     },
                 );
@@ -675,8 +681,7 @@ mod tests {
                   P2P_ADDRESS: iroha1:1339
                   API_ADDRESS: iroha1:1338
                   GENESIS_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
-                  GENESIS_PRIVATE_KEY: 802640DB9D90D20F969177BD5882F9FE211D14D1399D5440D04E3468783D169BBC4A8E39E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
-                  GENESIS_FILE: /config/genesis.json
+                  GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -684,7 +689,11 @@ mod tests {
                 volumes:
                 - ./configs/peer/legacy_stable:/config
                 init: true
-                command: irohad --submit-genesis
+                command: |-
+                  /bin/sh -c "
+                  kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 802640DB9D90D20F969177BD5882F9FE211D14D1399D5440D04E3468783D169BBC4A8E39E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8 --out-file $$GENESIS_SIGNED_FILE &&
+                  irohad --submit-genesis
+                  "
         "#]];
         expected.assert_eq(&actual);
     }
@@ -699,7 +708,7 @@ mod tests {
             chain_id,
             key_pair: key_pair.clone(),
             genesis_public_key: key_pair.public_key().clone(),
-            genesis_private_key: None,
+            genesis_signed_file: None,
             p2p_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             api_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             trusted_peers: BTreeSet::new(),
@@ -756,8 +765,7 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1337
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  GENESIS_PRIVATE_KEY: 8026405A6D5F06A90D29AD906E2F6EA8B41B4EF187849D0D397081A4A15FFCBE71E7C73420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  GENESIS_FILE: /config/genesis.json
+                  GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"irohad2:1339","public_key":"ed0120222832FD8DF02882F07C13554DBA5BAE10C07A97E4AE7C2114DC05E95C3E6E32"},{"address":"irohad1:1338","public_key":"ed0120ACD30C7213EF11C4EC1006C6039E4089FC39C9BD211F688B866BCA59C8073883"},{"address":"irohad3:1340","public_key":"ed0120FB35DF84B28FAF8BB5A24D6910EFD7D7B22101EB99BFC74C4213CB1E7215F91B"}]'
                 ports:
                 - 1337:1337
@@ -765,7 +773,11 @@ mod tests {
                 volumes:
                 - ./config:/config
                 init: true
-                command: irohad --submit-genesis
+                command: |-
+                  /bin/sh -c "
+                  kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 8026405A6D5F06A90D29AD906E2F6EA8B41B4EF187849D0D397081A4A15FFCBE71E7C73420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9 --out-file $$GENESIS_SIGNED_FILE &&
+                  irohad --submit-genesis
+                  "
                 healthcheck:
                   test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0
                   interval: 2s

@@ -7,7 +7,7 @@ use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 
 #[test]
 fn domain_owner_domain_permissions() -> Result<()> {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_080).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
@@ -122,7 +122,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_085).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
     let kingdom_id: DomainId = "kingdom".parse()?;
     let (bob_id, bob_keypair) = gen_account_in("kingdom");
     let (rabbit_id, _rabbit_keypair) = gen_account_in("kingdom");
@@ -185,7 +185,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_asset_permissions() -> Result<()> {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_090).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);

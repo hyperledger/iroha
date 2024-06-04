@@ -485,7 +485,7 @@ mod tests {
 
     #[test]
     async fn transaction_signed_by_genesis_account_should_be_rejected() -> Result<()> {
-        let chain_id = ChainId::from("0");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
         let state_block = state.block();

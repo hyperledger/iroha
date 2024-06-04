@@ -3,8 +3,9 @@
 use std::str::FromStr;
 
 use iroha::{client::Client, data_model::prelude::*};
+use iroha_crypto::KeyPair;
 use iroha_data_model::trigger::TriggerId;
-use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
+use iroha_genesis::{GenesisTransaction, GenesisTransactionBuilder};
 use iroha_primitives::unique_vec;
 use irohad::samples::{construct_executor, get_config};
 use test_network::{
@@ -14,8 +15,12 @@ use test_network::{
 use test_samples::gen_account_in;
 use tokio::runtime::Runtime;
 
-fn generate_genesis(num_triggers: u32) -> Result<RawGenesisBlock, Box<dyn std::error::Error>> {
-    let builder = RawGenesisBlockBuilder::default();
+fn generate_genesis(
+    num_triggers: u32,
+    chain_id: ChainId,
+    genesis_key_pair: &KeyPair,
+) -> Result<GenesisTransaction, Box<dyn std::error::Error>> {
+    let builder = GenesisTransactionBuilder::default();
 
     let wasm =
         iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose_trigger")
@@ -46,38 +51,29 @@ fn generate_genesis(num_triggers: u32) -> Result<RawGenesisBlock, Box<dyn std::e
             let trigger = build_trigger(trigger_id);
             Register::trigger(trigger)
         })
-        .fold(builder, RawGenesisBlockBuilder::append_instruction);
+        .fold(builder, GenesisTransactionBuilder::append_instruction);
 
-    Ok(builder
-        .executor_blob(
-            construct_executor("../default_executor").expect("Failed to construct executor"),
-        )
-        .build())
+    let executor = construct_executor("../default_executor").expect("Failed to construct executor");
+    Ok(builder.build_and_sign(executor, chain_id, genesis_key_pair))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut peer: TestPeer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
+    let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
     let mut configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        get_key_pair(test_network::Signatory::Genesis),
+        genesis_key_pair.public_key(),
     );
 
     // Increase executor limits for large genesis
     configuration.chain_wide.executor_runtime.fuel_limit = u64::MAX;
     configuration.chain_wide.executor_runtime.max_memory_bytes = u32::MAX;
 
-    let genesis = GenesisNetwork::new(
-        generate_genesis(1_000_u32)?,
-        &chain_id,
-        configuration
-            .genesis
-            .key_pair()
-            .expect("should be available in the config; probably a bug"),
-    );
+    let genesis = generate_genesis(1_000_u32, chain_id, &genesis_key_pair)?;
 
     let builder = PeerBuilder::new()
         .with_into_genesis(genesis)

@@ -89,8 +89,6 @@ pub struct Root {
 pub enum ParseError {
     #[error("Failed to construct the key pair")]
     BadKeyPair,
-    #[error("Invalid genesis configuration")]
-    BadGenesis,
 }
 
 impl Root {
@@ -110,11 +108,7 @@ impl Root {
             .change_context(ParseError::BadKeyPair)
             .ok_or_emit(&mut emitter);
 
-        let genesis = self
-            .genesis
-            .parse()
-            .change_context(ParseError::BadGenesis)
-            .ok_or_emit(&mut emitter);
+        let genesis = self.genesis.into();
 
         let kura = self.kura.parse();
 
@@ -146,7 +140,6 @@ impl Root {
             key_pair,
             peer_id: peer_id.unwrap(),
         };
-        let genesis = genesis.unwrap();
 
         Ok(actual::Root {
             common: peer,
@@ -172,44 +165,17 @@ impl Root {
 pub struct Genesis {
     #[config(env = "GENESIS_PUBLIC_KEY")]
     pub public_key: WithOrigin<PublicKey>,
-    #[config(env = "GENESIS_PRIVATE_KEY")]
-    pub private_key: Option<WithOrigin<PrivateKey>>,
-    #[config(env = "GENESIS_FILE")]
-    pub file: Option<WithOrigin<PathBuf>>,
+    #[config(env = "GENESIS_SIGNED_FILE")]
+    pub signed_file: Option<WithOrigin<PathBuf>>,
 }
 
-impl Genesis {
-    fn parse(self) -> Result<actual::Genesis, GenesisConfigError> {
-        match (self.private_key, self.file) {
-            (None, None) => Ok(actual::Genesis::Partial {
-                public_key: self.public_key.into_value(),
-            }),
-            (Some(private_key), Some(file)) => {
-                let (private_key, priv_key_origin) = private_key.into_tuple();
-                let (public_key, pub_key_origin) = self.public_key.into_tuple();
-                let key_pair = iroha_crypto::KeyPair::new(public_key, private_key)
-                    .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", pub_key_origin))
-                    .attach_printable(ConfigValueAndOrigin::new("[REDACTED]", priv_key_origin))
-                    .change_context(GenesisConfigError::KeyPair)?;
-                Ok(actual::Genesis::Full { key_pair, file })
-            }
-            (key, _) => {
-                Err(GenesisConfigError::Inconsistent).attach_printable(if key.is_some() {
-                    "`genesis.private_key` is set, but `genesis.file` is not"
-                } else {
-                    "`genesis.file` is set, but `genesis.private_key` is not"
-                })?
-            }
+impl From<Genesis> for actual::Genesis {
+    fn from(genesis: Genesis) -> Self {
+        actual::Genesis {
+            public_key: genesis.public_key.into_value(),
+            signed_file: genesis.signed_file,
         }
     }
-}
-
-#[derive(Debug, displaydoc::Display, thiserror::Error, Copy, Clone)]
-pub enum GenesisConfigError {
-    /// Invalid combination of provided parameters
-    Inconsistent,
-    /// failed to construct the genesis's keypair from public and private keys
-    KeyPair,
 }
 
 #[derive(Debug, ReadConfig)]

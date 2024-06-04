@@ -39,7 +39,8 @@ enum Args {
     Crypto(Box<crypto::Args>),
     /// Generate the schema used for code generation in Iroha SDKs
     Schema(schema::Args),
-    /// Generate the genesis block that is used in tests
+    /// Commands related to genesis
+    #[clap(subcommand)]
     Genesis(genesis::Args),
 }
 

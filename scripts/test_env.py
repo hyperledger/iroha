@@ -37,10 +37,12 @@ class Network:
 
         logging.info("Generating shared configuration...")
         trusted_peers = [{"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key} for peer in self.peers]
+        genesis_public_key = self.peers[0].public_key
+        genesis_private_key = self.peers[0].private_key
         shared_config = {
             "chain_id": "00000000-0000-0000-0000-000000000000",
             "genesis": {
-                "public_key": self.peers[0].public_key
+                "public_key": genesis_public_key
             },
             "sumeragi": {
                 "trusted_peers": trusted_peers
@@ -54,6 +56,7 @@ class Network:
             tomli_w.dump(shared_config, f)
 
         copy_or_prompt_build_bin("irohad", args.root_dir, peers_dir)
+        sign_genesis_with_kagami(args, genesis_public_key, genesis_private_key)
 
 
     def wait_for_genesis(self, n_tries: int):
@@ -145,8 +148,7 @@ class _Peer:
                                           Please provide them in the `{target}` directory")
                 sys.exit(1)
             config["genesis"] = {
-                "private_key": self.private_key,
-                "file": "./genesis.json"
+                "signed_file": "../../genesis.signed.scale"
             }
         with open(self.config_path, "wb") as f:
             tomli_w.dump(config, f)
@@ -196,6 +198,23 @@ def copy_or_prompt_build_bin(bin_name: str, root_dir: pathlib.Path, target_dir: 
                 sys.exit(4)
             else:
                 logging.error("Please answer with either `y[es]` or `n[o]`")
+
+def sign_genesis_with_kagami(args: argparse.Namespace, genesis_public_key, genesis_private_key):
+    genesis_path = args.root_dir / SWARM_CONFIGS_DIRECTORY / "genesis.json"
+
+    command = [
+        args.out_dir / "kagami",
+        "genesis",
+        "sign",
+        genesis_path,
+        "--public-key", genesis_public_key,
+        "--private-key", genesis_private_key,
+        "--out-file", args.out_dir / "genesis.signed.scale"
+    ]
+    kagami = subprocess.run(command, capture_output=True)
+    if kagami.returncode:
+        logging.error("Kagami failed to sign genesis.json")
+        sys.exit(5)
 
 def main(args: argparse.Namespace):
     # Bold ASCII escape sequence

@@ -77,7 +77,7 @@ fn build_test_and_transient_state() -> State {
 }
 
 fn accept_transaction(criterion: &mut Criterion) {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = build_test_transaction(chain_id.clone());
     let mut success_count = 0;
@@ -94,7 +94,7 @@ fn accept_transaction(criterion: &mut Criterion) {
 }
 
 fn sign_transaction(criterion: &mut Criterion) {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = build_test_transaction(chain_id);
     let key_pair = KeyPair::random();
@@ -113,7 +113,7 @@ fn sign_transaction(criterion: &mut Criterion) {
 }
 
 fn validate_transaction(criterion: &mut Criterion) {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = AcceptedTransaction::accept(
         build_test_transaction(chain_id.clone()),
@@ -138,7 +138,7 @@ fn validate_transaction(criterion: &mut Criterion) {
 }
 
 fn sign_blocks(criterion: &mut Criterion) {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = AcceptedTransaction::accept(
         build_test_transaction(chain_id.clone()),

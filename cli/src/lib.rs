@@ -6,7 +6,10 @@
 //! should be constructed externally: (see `main.rs`).
 #[cfg(debug_assertions)]
 use core::sync::atomic::{AtomicBool, Ordering};
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use clap::Parser;
 use error_stack::{IntoReportCompat, Report, Result, ResultExt};
@@ -33,10 +36,11 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
+use iroha_genesis::{GenesisNetwork, GenesisTransaction};
 use iroha_logger::{actor::LoggerHandle, InitConfig as LoggerInitConfig};
 use iroha_primitives::addr::SocketAddr;
 use iroha_torii::Torii;
+use iroha_version::scale::DecodeVersioned;
 use thiserror::Error;
 use tokio::{
     signal,
@@ -246,7 +250,7 @@ impl Iroha<ToriiNotStarted> {
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
-            [genesis_domain(config.genesis.public_key().clone())],
+            [genesis_domain(config.genesis.public_key.clone())],
             config
                 .sumeragi
                 .trusted_peers
@@ -313,7 +317,7 @@ impl Iroha<ToriiNotStarted> {
             network: network.clone(),
             genesis_network: GenesisWithPubKey {
                 genesis,
-                public_key: config.genesis.public_key().clone(),
+                public_key: config.genesis.public_key.clone(),
             },
             block_count,
             sumeragi_metrics: SumeragiMetrics {
@@ -631,8 +635,6 @@ pub enum ConfigError {
 pub fn read_config_and_genesis(
     args: &Args,
 ) -> Result<(Config, LoggerInitConfig, Option<GenesisNetwork>), ConfigError> {
-    use iroha_config::parameters::actual::Genesis;
-
     let mut reader = ConfigReader::new();
 
     if let Some(path) = &args.config {
@@ -647,21 +649,10 @@ pub fn read_config_and_genesis(
         .parse()
         .change_context(ConfigError::ParseConfig)?;
 
-    let genesis = if let Genesis::Full { key_pair, file } = &config.genesis {
-        let raw_block = RawGenesisBlock::from_path(file.resolve_relative_path())
-            .into_report()
-            // https://github.com/hashintel/hash/issues/4295
-            .map_err(|report| {
-                report
-                    .attach_printable(file.clone().into_attachment().display_path())
-                    .change_context(ConfigError::ReadGenesis)
-            })?;
-
-        Some(GenesisNetwork::new(
-            raw_block,
-            &config.common.chain_id,
-            key_pair,
-        ))
+    let genesis = if let Some(signed_file) = &config.genesis.signed_file {
+        let genesis = read_genesis(&signed_file.resolve_relative_path())
+            .attach_printable(signed_file.clone().into_attachment().display_path())?;
+        Some(GenesisNetwork::new(genesis))
     } else {
         None
     };
@@ -671,6 +662,13 @@ pub fn read_config_and_genesis(
     let logger_config = LoggerInitConfig::new(config.logger, args.terminal_colors);
 
     Ok((config, logger_config, genesis))
+}
+
+fn read_genesis(path: &Path) -> Result<GenesisTransaction, ConfigError> {
+    let bytes = std::fs::read(path).change_context(ConfigError::ReadGenesis)?;
+    let genesis =
+        SignedTransaction::decode_all_versioned(&bytes).change_context(ConfigError::ReadGenesis)?;
+    Ok(GenesisTransaction(genesis))
 }
 
 fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigError> {
@@ -692,8 +690,8 @@ fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigEr
         emitter.emit(Report::new(ConfigError::LonePeer).attach_printable("\
             Reason: the network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
             Since `--submit-genesis` is not set, there is no way to receive the genesis block.\n\
-            Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`,\n\
-            and `genesis.file` configuration parameters, or increase the number of trusted peers in\n\
+            Either provide the genesis by setting `--submit-genesis` argument\n\
+            and `genesis.signed_file` configuration parameter, or increase the number of trusted peers in\n\
             the network using `sumeragi.trusted_peers` configuration parameter.\
         ").attach_printable(config.sumeragi.trusted_peers.clone().into_attachment().display_as_debug()));
     }
@@ -820,8 +818,8 @@ pub struct Args {
     ///
     /// Only one peer in the network should submit the genesis block.
     ///
-    /// This argument must be set alongside with `genesis.file` and `genesis.private_key`
-    /// configuration options. If not, Iroha will exit with an error.
+    /// This argument must be set alongside with `genesis.signed_file` configuration option.
+    /// If not, Iroha will exit with an error.
     ///
     /// In case when the network consists only of this one peer, i.e. the amount of trusted
     /// peers in the configuration (`sumeragi.trusted_peers`) is less than 2, this peer must
@@ -833,7 +831,7 @@ pub struct Args {
 
 #[cfg(test)]
 mod tests {
-    use iroha_genesis::RawGenesisBlockBuilder;
+    use iroha_genesis::GenesisTransactionBuilder;
 
     use super::*;
 
@@ -863,18 +861,16 @@ mod tests {
     }
 
     mod config_integration {
-        use std::path::PathBuf;
-
         use assertables::{assert_contains, assert_contains_as_result};
         use iroha_crypto::{ExposedPrivateKey, KeyPair};
         use iroha_primitives::addr::socket_addr;
+        use iroha_version::Encode;
         use path_absolutize::Absolutize as _;
 
         use super::*;
 
-        fn config_factory() -> toml::Table {
+        fn config_factory(genesis_public_key: &PublicKey) -> toml::Table {
             let (pubkey, privkey) = KeyPair::random().into_parts();
-            let (genesis_pubkey, genesis_privkey) = KeyPair::random().into_parts();
 
             let mut table = toml::Table::new();
             iroha_config::base::toml::Writer::new(&mut table)
@@ -883,37 +879,40 @@ mod tests {
                 .write("private_key", ExposedPrivateKey(privkey))
                 .write(["network", "address"], socket_addr!(127.0.0.1:1337))
                 .write(["torii", "address"], socket_addr!(127.0.0.1:8080))
-                .write(["genesis", "public_key"], genesis_pubkey)
-                .write(
-                    ["genesis", "private_key"],
-                    ExposedPrivateKey(genesis_privkey),
-                );
+                .write(["genesis", "public_key"], genesis_public_key);
             table
+        }
+
+        fn dummy_executor() -> Executor {
+            Executor::new(WasmSmartContract::from_compiled(vec![1, 2, 3]))
         }
 
         #[test]
         fn relative_file_paths_resolution() -> eyre::Result<()> {
             // Given
 
-            let genesis = RawGenesisBlockBuilder::default()
-                .executor_file(PathBuf::from("./executor.wasm"))
-                .build();
+            let genesis_key_pair = KeyPair::random();
+            let genesis = GenesisTransactionBuilder::default().build_and_sign(
+                dummy_executor(),
+                ChainId::from("00000000-0000-0000-0000-000000000000"),
+                &genesis_key_pair,
+            );
 
-            let mut config = config_factory();
+            let mut config = config_factory(genesis_key_pair.public_key());
             iroha_config::base::toml::Writer::new(&mut config)
-                .write(["genesis", "file"], "./genesis/gen.json")
+                .write(["genesis", "signed_file"], "./genesis/genesis.signed.scale")
                 .write(["kura", "store_dir"], "../storage")
                 .write(["snapshot", "store_dir"], "../snapshots")
                 .write(["dev_telemetry", "out_file"], "../logs/telemetry");
 
             let dir = tempfile::tempdir()?;
-            let genesis_path = dir.path().join("config/genesis/gen.json");
+            let genesis_path = dir.path().join("config/genesis/genesis.signed.scale");
             let executor_path = dir.path().join("config/genesis/executor.wasm");
             let config_path = dir.path().join("config/config.toml");
             std::fs::create_dir(dir.path().join("config"))?;
             std::fs::create_dir(dir.path().join("config/genesis"))?;
             std::fs::write(config_path, toml::to_string(&config)?)?;
-            std::fs::write(genesis_path, json5::to_string(&genesis)?)?;
+            std::fs::write(genesis_path, genesis.0.encode())?;
             std::fs::write(executor_path, "")?;
 
             let config_path = dir.path().join("config/config.toml");
@@ -962,17 +961,20 @@ mod tests {
         fn fails_with_no_trusted_peers_and_submit_role() -> eyre::Result<()> {
             // Given
 
-            let genesis = RawGenesisBlockBuilder::default()
-                .executor_file(PathBuf::from("./executor.wasm"))
-                .build();
+            let genesis_key_pair = KeyPair::random();
+            let genesis = GenesisTransactionBuilder::default().build_and_sign(
+                dummy_executor(),
+                ChainId::from("00000000-0000-0000-0000-000000000000"),
+                &genesis_key_pair,
+            );
 
-            let mut config = config_factory();
+            let mut config = config_factory(genesis_key_pair.public_key());
             iroha_config::base::toml::Writer::new(&mut config)
-                .write(["genesis", "file"], "./genesis.json");
+                .write(["genesis", "signed_file"], "./genesis.signed.scale");
 
             let dir = tempfile::tempdir()?;
             std::fs::write(dir.path().join("config.toml"), toml::to_string(&config)?)?;
-            std::fs::write(dir.path().join("genesis.json"), json5::to_string(&genesis)?)?;
+            std::fs::write(dir.path().join("genesis.signed.scale"), genesis.0.encode())?;
             std::fs::write(dir.path().join("executor.wasm"), "")?;
             let config_path = dir.path().join("config.toml");
 

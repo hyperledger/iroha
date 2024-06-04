@@ -3560,6 +3560,7 @@ dependencies = [
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_torii",
+ "iroha_version",
  "iroha_wasm_builder",
  "json5",
  "once_cell",

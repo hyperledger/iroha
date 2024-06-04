@@ -15,7 +15,7 @@ use iroha_config::parameters::actual::{Root as Config, Sumeragi, TrustedPeers};
 pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair};
 use iroha_data_model::{query::QueryOutputBox, ChainId};
-use iroha_genesis::{GenesisNetwork, RawGenesisBlockFile};
+use iroha_genesis::{GenesisNetwork, GenesisTransaction, RawGenesisTransaction};
 use iroha_logger::{warn, InstrumentFutures};
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
@@ -45,7 +45,7 @@ pub struct Network {
 
 /// Get a standardized blockchain id
 pub fn get_chain_id() -> ChainId {
-    ChainId::from("0")
+    ChainId::from("00000000-0000-0000-0000-000000000000")
 }
 
 /// Get a key pair of a common signatory in the test network
@@ -84,7 +84,7 @@ impl TestGenesis for GenesisNetwork {
         // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut genesis =
-            RawGenesisBlockFile::from_path(manifest_dir.join("../../configs/swarm/genesis.json"))
+            RawGenesisTransaction::from_path(manifest_dir.join("../../configs/swarm/genesis.json"))
                 .expect("Failed to deserialize genesis block from file");
 
         let rose_definition_id =
@@ -109,9 +109,6 @@ impl TestGenesis for GenesisNetwork {
         let upgrade_executor_permission =
             Permission::new("CanUpgradeExecutor".parse().unwrap(), json!(null));
 
-        let first_transaction = genesis
-            .first_transaction_mut()
-            .expect("At least one transaction is expected");
         for permission in [
             mint_rose_permission,
             burn_rose_permission,
@@ -120,26 +117,21 @@ impl TestGenesis for GenesisNetwork {
             unregister_wonderland_domain,
             upgrade_executor_permission,
         ] {
-            first_transaction
-                .append_instruction(Grant::permission(permission, ALICE_ID.clone()).into());
+            genesis.append_instruction(Grant::permission(permission, ALICE_ID.clone()).into());
         }
 
         for isi in extra_isi.into_iter() {
-            first_transaction.append_instruction(isi);
+            genesis.append_instruction(isi);
         }
 
-        GenesisNetwork::new(
-            genesis.try_into().expect("genesis should load fine"),
-            &cfg.common.chain_id,
-            {
-                use iroha_config::parameters::actual::Genesis;
-                if let Genesis::Full { key_pair, .. } = &cfg.genesis {
-                    key_pair
-                } else {
-                    unreachable!("test config should contain full genesis config (or it is a bug)")
-                }
-            },
-        )
+        let genesis_key_pair = SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone();
+        if &cfg.genesis.public_key != genesis_key_pair.public_key() {
+            panic!("`Config::test` expected to use SAMPLE_GENESIS_ACCOUNT_KEYPAIR");
+        }
+        let genesis = genesis
+            .build_and_sign(&genesis_key_pair)
+            .expect("genesis should load fine");
+        GenesisNetwork::new(genesis)
     }
 }
 
@@ -540,9 +532,15 @@ pub enum WithGenesis {
     Has(GenesisNetwork),
 }
 
-impl<T: Into<Option<GenesisNetwork>>> From<T> for WithGenesis {
-    fn from(x: T) -> Self {
-        x.into().map_or(Self::None, Self::Has)
+impl From<Option<GenesisNetwork>> for WithGenesis {
+    fn from(genesis: Option<GenesisNetwork>) -> Self {
+        genesis.map_or(Self::None, Self::Has)
+    }
+}
+
+impl From<GenesisTransaction> for WithGenesis {
+    fn from(genesis: GenesisTransaction) -> Self {
+        Self::Has(GenesisNetwork::new(genesis))
     }
 }
 
@@ -588,7 +586,7 @@ impl PeerBuilder {
     /// Set the test genesis network.
     #[must_use]
     pub fn with_test_genesis(self) -> Self {
-        self.with_into_genesis(GenesisNetwork::test())
+        self.with_genesis(GenesisNetwork::test())
     }
 
     /// Set Iroha configuration
@@ -790,7 +788,7 @@ impl TestConfig for Config {
             <_>::default(),
             get_chain_id(),
             get_key_pair(Signatory::Peer),
-            get_key_pair(Signatory::Genesis),
+            get_key_pair(Signatory::Genesis).public_key(),
         );
 
         let (public_key, private_key) = KeyPair::random().into_parts();

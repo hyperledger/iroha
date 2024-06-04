@@ -20,7 +20,7 @@ use test_samples::gen_account_in;
 use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_executors(n_executors: u32) {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let (alice_id, alice_keypair) = gen_account_in("test");
     let (bob_id, _bob_keypair) = gen_account_in("test");

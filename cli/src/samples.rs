@@ -55,10 +55,9 @@ pub fn get_config_toml(
     peers: UniqueVec<PeerId>,
     chain_id: ChainId,
     peer_key_pair: KeyPair,
-    genesis_key_pair: KeyPair,
+    genesis_public_key: &PublicKey,
 ) -> toml::Table {
     let (public_key, private_key) = peer_key_pair.into_parts();
-    let (genesis_public_key, genesis_private_key) = genesis_key_pair.into_parts();
 
     iroha_logger::info!(%public_key, "sample configuration public key");
 
@@ -75,10 +74,9 @@ pub fn get_config_toml(
         .write(["chain_wide", "max_transactions_in_block"], 2)
         .write(["genesis", "public_key"], genesis_public_key)
         .write(
-            ["genesis", "private_key"],
-            ExposedPrivateKey(genesis_private_key),
+            ["genesis", "signed_file"],
+            "NEVER READ ME; YOU FOUND A BUG!",
         )
-        .write(["genesis", "file"], "NEVER READ ME; YOU FOUND A BUG!")
         // There is no need in persistence in tests.
         // If required to should be set explicitly not to overlap with other existing tests
         .write(["snapshot", "mode"], "disabled");
@@ -94,13 +92,13 @@ pub fn get_config(
     trusted_peers: UniqueVec<PeerId>,
     chain_id: ChainId,
     peer_key_pair: KeyPair,
-    genesis_key_pair: KeyPair,
+    genesis_public_key: &PublicKey,
 ) -> Config {
     Config::from_toml_source(TomlSource::inline(get_config_toml(
         trusted_peers,
         chain_id,
         peer_key_pair,
-        genesis_key_pair,
+        genesis_public_key,
     )))
     .expect("should be a valid config")
 }

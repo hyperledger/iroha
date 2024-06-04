@@ -19,7 +19,7 @@ const ADMIN_PRIVATE_KEY_MULTIHASH: &str = "802640A4DE33BCA99A254ED6265D1F0FB69DF
 
 #[test]
 fn executor_upgrade_should_work() -> Result<()> {
-    let chain_id = ChainId::from("0");
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
     let admin_id: AccountId = format!("{ADMIN_PUBLIC_KEY_MULTIHASH}@admin")
         .parse()
         .unwrap();
