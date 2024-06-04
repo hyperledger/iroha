@@ -1,27 +1,35 @@
 #base stage
 FROM --platform=linux/amd64 archlinux:base-devel AS builder
 
-# Force-sync packages, install archlinux-keyring, repopulate keys
-RUN pacman -Syy
-RUN pacman -S archlinux-keyring --noconfirm --disable-download-timeout
-RUN rm -rf /etc/pacman.d/gnupg/* && pacman-key --init && pacman-key --populate archlinux
+ARG NIGHTLY_VERSION=2024-04-18
 
-# Install updates
-RUN pacman -Syu --noconfirm --disable-download-timeout
+RUN <<EOT
+  set -eux
+  # Force-sync packages, install archlinux-keyring, repopulate keys
+  pacman -Syy
+  pacman -S archlinux-keyring --noconfirm --disable-download-timeout
+  rm -rf /etc/pacman.d/gnupg/* && pacman-key --init && pacman-key --populate archlinux
+  # Install updates
+  pacman -Syu --noconfirm --disable-download-timeout
+  # Set up Rust toolchain
+  pacman -S rustup wget --noconfirm --disable-download-timeout
+  # Install musl C++ toolchain to build wasm-opt
+  wget -c https://musl.cc/x86_64-linux-musl-native.tgz -O - | tar -xz
+  ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-g++ /x86_64-linux-musl-native/bin/musl-g++
+  ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ar /x86_64-linux-musl-native/bin/musl-ar
+  ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ar /x86_64-linux-musl-native/bin/x86_64-linux-musl-ar
+  ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ranlib /x86_64-linux-musl-native/bin/musl-ranlib
+EOT
 
-# Set up Rust toolchain
-RUN pacman -S rustup mold musl rust-musl wget --noconfirm --disable-download-timeout
-RUN rustup toolchain install nightly-2024-04-18
-RUN rustup default nightly-2024-04-18
-RUN rustup target add x86_64-unknown-linux-musl wasm32-unknown-unknown
-RUN rustup component add rust-src
+RUN <<EOT
+  set -eux
+  rustup toolchain install nightly-$NIGHTLY_VERSION \
+    --profile minimal \
+    --component rust-src
+  rustup default nightly-$NIGHTLY_VERSION
+  rustup target add x86_64-unknown-linux-musl wasm32-unknown-unknown
+EOT
 
-# Install musl C++ toolchain to build wasm-opt
-RUN wget -c http://musl.cc/x86_64-linux-musl-native.tgz -O - | tar -xz
-RUN ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-g++ /x86_64-linux-musl-native/bin/musl-g++
-RUN ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ar /x86_64-linux-musl-native/bin/musl-ar
-RUN ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ar /x86_64-linux-musl-native/bin/x86_64-linux-musl-ar
-RUN ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ranlib /x86_64-linux-musl-native/bin/musl-ranlib
 ENV PATH="$PATH:/x86_64-linux-musl-native/bin"
 ENV RUSTFLAGS="-C link-arg=-static"
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc
@@ -36,35 +44,37 @@ RUN cargo build --target x86_64-unknown-linux-musl --profile deploy
 # final image
 FROM alpine:3.20
 
-ARG  STORAGE=/storage
-ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-musl/deploy
-ENV  BIN_PATH=/usr/local/bin/
-ENV  CONFIG_DIR=/config
+ARG STORAGE=/storage
+ARG TARGET_DIR=/iroha/target/x86_64-unknown-linux-musl/deploy
+ENV BIN_PATH=/usr/local/bin/
+ENV CONFIG_DIR=/config
 
-ENV  KURA_STORE_DIR=$STORAGE
-ENV  SNAPSHOT_STORE_DIR=$STORAGE/snapshot
+ENV KURA_STORE_DIR=$STORAGE
+ENV SNAPSHOT_STORE_DIR=$STORAGE/snapshot
 
-ENV  WASM_DIRECTORY=/app/.cache/wasmtime
-ENV  USER=iroha
-ENV  UID=1001
-ENV  GID=1001
+ENV WASM_DIRECTORY=/app/.cache/wasmtime
+ENV USER=iroha
+ENV UID=1001
+ENV GID=1001
 
-RUN  set -ex && \
-     apk add --no-cache curl ca-certificates && \
-     addgroup -g $GID $USER && \
-     adduser \
-     --disabled-password \
-     --gecos "" \
-     --home /app \
-     --ingroup "$USER" \
-     --no-create-home \
-     --uid "$UID" \
-     "$USER" && \
-     mkdir -p $CONFIG_DIR && \
-     mkdir -p $STORAGE && \
-     mkdir -p $WASM_DIRECTORY && \
-     chown $USER:$USER $STORAGE && \
-     chown $USER:$USER $WASM_DIRECTORY
+RUN <<EOT
+  set -eux
+  apk add --no-cache curl ca-certificates
+  addgroup -g $GID $USER
+  adduser \
+    --disabled-password \
+    --gecos "" \
+    --home /app \
+    --ingroup "$USER" \
+    --no-create-home \
+    --uid "$UID" \
+    "$USER"
+  mkdir -p $CONFIG_DIR
+  mkdir -p $STORAGE
+  mkdir -p $WASM_DIRECTORY
+  chown $USER:$USER $STORAGE
+  chown $USER:$USER $WASM_DIRECTORY
+EOT
 
 COPY --from=builder $TARGET_DIR/irohad $BIN_PATH
 COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
