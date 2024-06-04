@@ -45,7 +45,7 @@ iroha [OPTIONS] <SUBCOMMAND>
 | `blocks`  | Get block stream from Iroha peer                                                                                                            |
 | `domain`  | Execute commands related to domains: register a new one, list all domains                                                                   |
 | `events`  | Get event stream from Iroha peer                                                                                                            |
-| `json`    | Submit multi-instructions as JSON                                                                                                           |
+| `json`    | Submit multi-instructions or request query as JSON                                                                                                           |
 | `peer`    | Execute commands related to peer administration and networking                                                                              |
 | `wasm`    | Execute commands related to WASM                                                                                                            |
 | `help`    | Print the help message for `iroha` and/or the current subcommand other than `help` subcommand                                    |
@@ -183,5 +183,11 @@ The reference implementation of the Rust client, `iroha`, is often used for diag
 To test transactions in the JSON format (used in the genesis block and by other SDKs), pipe the transaction into the client and add the `json` subcommand to the arguments:
 
 ```bash
-cat /path/to/file.json | ./iroha json
+cat /path/to/file.json | ./iroha json transaction
+```
+
+### Request arbitrary query 
+
+```bash 
+echo '{ "FindAllParameters": null }' | ./iroha --config client.toml json query
 ```
