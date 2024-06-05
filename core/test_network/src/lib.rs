@@ -15,7 +15,7 @@ use iroha_config::parameters::actual::{Root as Config, Sumeragi, TrustedPeers};
 pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair};
 use iroha_data_model::{query::QueryOutputBox, ChainId};
-use iroha_genesis::{GenesisNetwork, GenesisTransaction, RawGenesisTransaction};
+use iroha_genesis::{GenesisTransaction, RawGenesisTransaction};
 use iroha_logger::{warn, InstrumentFutures};
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
@@ -68,16 +68,16 @@ pub enum Signatory {
 
 /// Trait used to differentiate a test instance of `genesis`.
 pub trait TestGenesis: Sized {
-    /// Construct Iroha genesis network
+    /// Construct Iroha genesis
     fn test() -> Self {
         Self::test_with_instructions([])
     }
 
-    /// Construct genesis network with additional instructions
+    /// Construct genesis with additional instructions
     fn test_with_instructions(extra_isi: impl IntoIterator<Item = InstructionBox>) -> Self;
 }
 
-impl TestGenesis for GenesisNetwork {
+impl TestGenesis for GenesisTransaction {
     fn test_with_instructions(extra_isi: impl IntoIterator<Item = InstructionBox>) -> Self {
         let cfg = Config::test();
 
@@ -128,10 +128,9 @@ impl TestGenesis for GenesisNetwork {
         if &cfg.genesis.public_key != genesis_key_pair.public_key() {
             panic!("`Config::test` expected to use SAMPLE_GENESIS_ACCOUNT_KEYPAIR");
         }
-        let genesis = genesis
+        genesis
             .build_and_sign(&genesis_key_pair)
-            .expect("genesis should load fine");
-        GenesisNetwork::new(genesis)
+            .expect("genesis should load fine")
     }
 }
 
@@ -214,7 +213,7 @@ impl Network {
 
         let peer = PeerBuilder::new()
             .with_config(config)
-            .with_genesis(GenesisNetwork::test())
+            .with_test_genesis()
             .start()
             .await;
 
@@ -255,7 +254,7 @@ impl Network {
                     (n, builder)
                 }
             })
-            .map(|(n, builder)| builder.with_into_genesis((n == 0).then(GenesisNetwork::test)))
+            .map(|(n, builder)| builder.with_into_genesis((n == 0).then(GenesisTransaction::test)))
             .take(n_peers as usize)
             .collect::<Vec<_>>();
         let mut peers = builders
@@ -443,7 +442,7 @@ impl Peer {
     async fn start(
         &mut self,
         config: Config,
-        genesis: Option<GenesisNetwork>,
+        genesis: Option<GenesisTransaction>,
         temp_dir: Arc<TempDir>,
     ) {
         let mut config = self.get_config(config);
@@ -520,27 +519,21 @@ impl Peer {
 
 /// `WithGenesis` structure.
 ///
-/// Options for setting up the genesis network for `PeerBuilder`.
+/// Options for setting up the genesis for `PeerBuilder`.
 #[derive(Default)]
 pub enum WithGenesis {
-    /// Use the default genesis network.
+    /// Use the default genesis.
     #[default]
     Default,
-    /// Do not use any genesis networks.
+    /// Do not use any genesis.
     None,
-    /// Use the given genesis network.
-    Has(GenesisNetwork),
+    /// Use the given genesis.
+    Has(GenesisTransaction),
 }
 
-impl From<Option<GenesisNetwork>> for WithGenesis {
-    fn from(genesis: Option<GenesisNetwork>) -> Self {
+impl From<Option<GenesisTransaction>> for WithGenesis {
+    fn from(genesis: Option<GenesisTransaction>) -> Self {
         genesis.map_or(Self::None, Self::Has)
-    }
-}
-
-impl From<GenesisTransaction> for WithGenesis {
-    fn from(genesis: GenesisTransaction) -> Self {
-        Self::Has(GenesisNetwork::new(genesis))
     }
 }
 
@@ -569,24 +562,24 @@ impl PeerBuilder {
         self
     }
 
-    /// Set the optional genesis network.
+    /// Set the optional genesis.
     #[must_use]
     pub fn with_into_genesis(mut self, genesis: impl Into<WithGenesis>) -> Self {
         self.genesis = genesis.into();
         self
     }
 
-    /// Set the genesis network.
+    /// Set the genesis.
     #[must_use]
-    pub fn with_genesis(mut self, genesis: GenesisNetwork) -> Self {
+    pub fn with_genesis(mut self, genesis: GenesisTransaction) -> Self {
         self.genesis = WithGenesis::Has(genesis);
         self
     }
 
-    /// Set the test genesis network.
+    /// Set the test genesis.
     #[must_use]
     pub fn with_test_genesis(self) -> Self {
-        self.with_genesis(GenesisNetwork::test())
+        self.with_genesis(GenesisTransaction::test())
     }
 
     /// Set Iroha configuration
@@ -628,7 +621,7 @@ impl PeerBuilder {
     pub async fn start_with_peer(self, peer: &mut Peer) {
         let config = self.config.unwrap_or_else(Config::test);
         let genesis = match self.genesis {
-            WithGenesis::Default => Some(GenesisNetwork::test()),
+            WithGenesis::Default => Some(GenesisTransaction::test()),
             WithGenesis::None => None,
             WithGenesis::Has(genesis) => Some(genesis),
         };

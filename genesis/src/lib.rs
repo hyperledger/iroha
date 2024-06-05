@@ -23,28 +23,6 @@ pub static GENESIS_DOMAIN_ID: Lazy<DomainId> = Lazy::new(|| "genesis".parse().un
 #[repr(transparent)]
 pub struct GenesisTransaction(pub SignedTransaction);
 
-/// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
-#[derive(Debug, Clone)]
-pub struct GenesisNetwork {
-    /// Transactions from [`RawGenesisBlock`]. This vector is guaranteed to be non-empty,
-    /// unless [`GenesisNetwork::transactions_mut()`] is used.
-    transactions: Vec<GenesisTransaction>,
-}
-
-impl GenesisNetwork {
-    /// Constructor
-    pub fn new(genesis_transaction: GenesisTransaction) -> GenesisNetwork {
-        GenesisNetwork {
-            transactions: vec![genesis_transaction],
-        }
-    }
-
-    /// Transform into genesis transactions
-    pub fn into_transactions(self) -> Vec<GenesisTransaction> {
-        self.transactions
-    }
-}
-
 /// Format of genesis.json user file.
 /// It should be signed and serialized to [`GenesisTransaction`]
 /// in SCALE format before supplying to Iroha peer.
@@ -144,6 +122,7 @@ fn get_executor(file: &Path) -> Result<Executor> {
 /// that does not perform any correctness checking on the block produced.
 /// Use with caution in tests and other things to register domains and accounts.
 #[must_use]
+#[derive(Default)]
 pub struct GenesisTransactionBuilder {
     instructions: Vec<InstructionBox>,
 }
@@ -155,18 +134,6 @@ pub struct GenesisTransactionBuilder {
 pub struct GenesisDomainBuilder {
     instructions: Vec<InstructionBox>,
     domain_id: DomainId,
-}
-
-impl Default for GenesisTransactionBuilder {
-    fn default() -> Self {
-        // Do not add `impl Default`. While it can technically be
-        // regarded as a default constructor, this builder should not
-        // be used in contexts where `Default::default()` is likely to
-        // be called.
-        Self {
-            instructions: Vec::new(),
-        }
-    }
 }
 
 impl GenesisTransactionBuilder {

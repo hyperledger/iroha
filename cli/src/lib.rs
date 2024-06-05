@@ -36,7 +36,7 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use iroha_genesis::{GenesisNetwork, GenesisTransaction};
+use iroha_genesis::GenesisTransaction;
 use iroha_logger::{actor::LoggerHandle, InitConfig as LoggerInitConfig};
 use iroha_primitives::addr::SocketAddr;
 use iroha_torii::Torii;
@@ -241,7 +241,7 @@ impl Iroha<ToriiNotStarted> {
     #[iroha_logger::log(name = "init", skip_all)] // This is actually easier to understand as a linear sequence of init statements.
     pub async fn start_network(
         config: Config,
-        genesis: Option<GenesisNetwork>,
+        genesis: Option<GenesisTransaction>,
         logger: LoggerHandle,
     ) -> Result<Self, StartError> {
         let network = IrohaNetwork::start(config.common.key_pair.clone(), config.network.clone())
@@ -631,10 +631,9 @@ pub enum ConfigError {
 /// # Errors
 /// - If failed to read the config
 /// - If failed to load the genesis block
-/// - If failed to build a genesis network
 pub fn read_config_and_genesis(
     args: &Args,
-) -> Result<(Config, LoggerInitConfig, Option<GenesisNetwork>), ConfigError> {
+) -> Result<(Config, LoggerInitConfig, Option<GenesisTransaction>), ConfigError> {
     let mut reader = ConfigReader::new();
 
     if let Some(path) = &args.config {
@@ -652,7 +651,7 @@ pub fn read_config_and_genesis(
     let genesis = if let Some(signed_file) = &config.genesis.signed_file {
         let genesis = read_genesis(&signed_file.resolve_relative_path())
             .attach_printable(signed_file.clone().into_attachment().display_path())?;
-        Some(GenesisNetwork::new(genesis))
+        Some(genesis)
     } else {
         None
     };

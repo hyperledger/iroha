@@ -10,7 +10,7 @@ use iroha_data_model::{
     permission::Permission, role::RoleId, transaction::error::TransactionRejectionReason,
     JsonString,
 };
-use iroha_genesis::GenesisNetwork;
+use iroha_genesis::GenesisTransaction;
 use serde_json::json;
 use test_network::{PeerBuilder, *};
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
@@ -22,7 +22,7 @@ fn genesis_transactions_are_validated() {
 
     // Setting up genesis
 
-    let genesis = GenesisNetwork::test_with_instructions([Grant::permission(
+    let genesis = GenesisTransaction::test_with_instructions([Grant::permission(
         Permission::new("InvalidToken".parse().unwrap(), json!(null)),
         ALICE_ID.clone(),
     )
