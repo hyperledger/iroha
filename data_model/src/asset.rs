@@ -22,7 +22,7 @@ use crate::{
 };
 
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
-pub type AssetsMap = btree_map::BTreeMap<AssetId, Asset>;
+pub type AssetsMap = btree_map::BTreeMap<AssetDefinitionId, Asset>;
 
 /// [`AssetDefinitionsMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetDefinition`])
 /// pairs.

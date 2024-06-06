@@ -7,7 +7,7 @@
       },
       {
         "name": "assets",
-        "type": "SortedMap<AssetId, Asset>"
+        "type": "SortedMap<AssetDefinitionId, Asset>"
       },
       {
         "name": "metadata",
@@ -3703,6 +3703,12 @@
       "value": "Account"
     }
   },
+  "SortedMap<AssetDefinitionId, Asset>": {
+    "Map": {
+      "key": "AssetDefinitionId",
+      "value": "Asset"
+    }
+  },
   "SortedMap<AssetDefinitionId, AssetDefinition>": {
     "Map": {
       "key": "AssetDefinitionId",
@@ -3713,12 +3719,6 @@
     "Map": {
       "key": "AssetDefinitionId",
       "value": "Numeric"
-    }
-  },
-  "SortedMap<AssetId, Asset>": {
-    "Map": {
-      "key": "AssetId",
-      "value": "Asset"
     }
   },
   "SortedMap<Name, MetadataValueBox>": {

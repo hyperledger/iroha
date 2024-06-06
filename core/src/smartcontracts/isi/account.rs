@@ -95,14 +95,13 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let asset_id = self.object_id;
-            let account_id = asset_id.account_id.clone();
 
             let asset = state_transaction
                 .world
-                .account_mut(&account_id)
+                .account_mut(&asset_id.account_id)
                 .and_then(|account| {
                     account
-                        .remove_asset(&asset_id)
+                        .remove_asset(&asset_id.definition_id)
                         .ok_or_else(|| FindError::Asset(asset_id))
                 })?;
 
@@ -613,9 +612,7 @@ pub mod query {
                     .world()
                     .map_domain(&asset_definition_id.domain_id.clone(), move |domain| {
                         domain.accounts.values().filter(move |account| {
-                            let asset_id =
-                                AssetId::new(asset_definition_id.clone(), account.id().clone());
-                            account.assets.contains_key(&asset_id)
+                            account.assets.contains_key(&asset_definition_id)
                         })
                     })?
                     .cloned(),
