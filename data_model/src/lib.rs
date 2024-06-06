@@ -868,9 +868,7 @@ mod model {
     /// String containing serialized valid JSON.
     ///
     /// This string is guaranteed to be parsed as JSON.
-    #[derive(
-        Display, Default, Debug, Clone, Encode, Decode, Ord, PartialOrd, Eq, PartialEq, IntoSchema,
-    )]
+    #[derive(Display, Debug, Clone, Encode, Decode, Ord, PartialOrd, Eq, PartialEq, IntoSchema)]
     #[ffi_type(unsafe {robust})]
     #[repr(transparent)]
     #[display(fmt = "{}", "0")]
@@ -903,6 +901,13 @@ impl JsonString {
     /// The caller must guarantee that the value is valid.
     pub fn from_string_unchecked(value: String) -> Self {
         Self(value)
+    }
+}
+
+impl Default for JsonString {
+    fn default() -> Self {
+        // NOTE: empty string isn't valid JSON
+        Self("null".to_string())
     }
 }
 
