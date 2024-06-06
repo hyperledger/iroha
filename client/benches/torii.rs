@@ -39,7 +39,7 @@ fn query_requests(criterion: &mut Criterion) {
 
     let builder = PeerBuilder::new()
         .with_config(configuration)
-        .with_into_genesis(genesis);
+        .with_genesis(genesis);
 
     rt.block_on(builder.start_with_peer(&mut peer));
     rt.block_on(async {
@@ -132,7 +132,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         .build_and_sign(executor, chain_id, &genesis_key_pair);
     let builder = PeerBuilder::new()
         .with_config(configuration)
-        .with_into_genesis(genesis);
+        .with_genesis(genesis);
     rt.block_on(builder.start_with_peer(&mut peer));
     let mut group = criterion.benchmark_group("instruction-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");

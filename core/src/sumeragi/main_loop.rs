@@ -260,7 +260,7 @@ impl Sumeragi {
 
     fn sumeragi_init_commit_genesis(
         &mut self,
-        genesis_network: GenesisNetwork,
+        genesis_transaction: GenesisTransaction,
         genesis_public_key: &PublicKey,
         state: &State,
     ) {
@@ -272,12 +272,13 @@ impl Sumeragi {
             assert_eq!(state_view.latest_block_hash(), None);
         }
 
-        let transactions: Vec<_> = genesis_network
-            .into_transactions()
-            .into_iter()
-            .map(|tx| AcceptedTransaction::accept_genesis(tx, &self.chain_id, genesis_public_key))
-            .collect::<Result<_, _>>()
-            .expect("Genesis invalid");
+        let transaction = AcceptedTransaction::accept_genesis(
+            genesis_transaction,
+            &self.chain_id,
+            genesis_public_key,
+        )
+        .expect("Genesis invalid");
+        let transactions = vec![transaction];
 
         let mut state_block = state.block();
         let genesis = BlockBuilder::new(transactions, self.current_topology.clone(), vec![])

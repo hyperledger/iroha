@@ -75,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let genesis = generate_genesis(1_000_u32, chain_id, &genesis_key_pair)?;
 
     let builder = PeerBuilder::new()
-        .with_into_genesis(genesis)
+        .with_genesis(genesis)
         .with_config(configuration);
 
     let rt = Runtime::test();
