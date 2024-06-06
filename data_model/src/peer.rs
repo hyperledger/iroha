@@ -36,7 +36,6 @@ mod model {
     #[ffi_type]
     pub struct PeerId {
         /// Address of the [`Peer`]'s entrypoint.
-        // TODO: Derive with getset once FFI impl is fixed
         pub address: SocketAddr,
         /// Public Key of the [`Peer`].
         pub public_key: PublicKey,
