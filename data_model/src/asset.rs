@@ -124,6 +124,7 @@ pub mod model {
         #[getset(get_copy = "pub")]
         pub value_type: AssetValueType,
         /// Is the asset mintable
+        #[getset(get_copy = "pub")]
         pub mintable: Mintable,
         /// IPFS link to the [`AssetDefinition`] logo
         #[getset(get = "pub")]

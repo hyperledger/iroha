@@ -232,6 +232,18 @@ impl Schedule {
     }
 }
 
+impl TimeInterval {
+    /// Getter for `since`
+    pub fn since(&self) -> &Duration {
+        &self.since
+    }
+
+    /// Getter for `length`
+    pub fn length(&self) -> &Duration {
+        &self.length
+    }
+}
+
 impl From<TimeInterval> for Range<Duration> {
     #[inline]
     fn from(interval: TimeInterval) -> Self {
