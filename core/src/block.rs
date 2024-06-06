@@ -6,7 +6,6 @@
 //! [`Block`]s are organised into a linear sequence over time (also known as the block chain).
 use std::error::Error as _;
 
-use iroha_config::parameters::defaults::chain_wide::CONSENSUS_ESTIMATION as DEFAULT_CONSENSUS_ESTIMATION;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     block::*,
@@ -101,7 +100,7 @@ pub enum SignatureVerificationError {
 pub struct BlockBuilder<B>(B);
 
 mod pending {
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime};
 
     use iroha_data_model::transaction::CommittedTransaction;
 
@@ -149,6 +148,7 @@ mod pending {
             prev_block_hash: Option<HashOf<SignedBlock>>,
             view_change_index: usize,
             transactions: &[CommittedTransaction],
+            consensus_estimation: Duration,
         ) -> BlockHeader {
             BlockHeader {
                 height: prev_height
@@ -171,7 +171,7 @@ mod pending {
                 view_change_index: view_change_index
                     .try_into()
                     .expect("INTERNAL BUG: Number of view changes exceeds u32::MAX"),
-                consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION
+                consensus_estimation_ms: consensus_estimation
                     .as_millis()
                     .try_into()
                     .expect("INTERNAL BUG: Time should fit into u64"),
@@ -222,6 +222,7 @@ mod pending {
                     state.latest_block_hash(),
                     view_change_index,
                     &transactions,
+                    state.config.consensus_estimation(),
                 ),
                 transactions,
                 commit_topology: self.0.commit_topology.ordered_peers,
@@ -500,10 +501,7 @@ mod valid {
                     transactions_hash: None,
                     timestamp_ms: 0,
                     view_change_index: 0,
-                    consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION
-                        .as_millis()
-                        .try_into()
-                        .expect("Time should fit into u64"),
+                    consensus_estimation_ms: 4_000,
                 },
                 transactions: Vec::new(),
                 commit_topology: UniqueVec::new(),

@@ -317,14 +317,14 @@ pub mod isi {
             let parameter = self.parameter;
             let parameter_id = parameter.id.clone();
 
-            let world = &mut state_transaction.world;
-            if !world.parameters.swap_remove(&parameter) {
+            if !state_transaction.world.parameters.swap_remove(&parameter) {
                 return Err(FindError::Parameter(parameter_id).into());
             }
-
-            world.parameters.insert(parameter);
-
-            world.emit_events(Some(ConfigurationEvent::Changed(parameter_id)));
+            state_transaction.world.parameters.insert(parameter.clone());
+            state_transaction
+                .world
+                .emit_events(Some(ConfigurationEvent::Changed(parameter_id)));
+            state_transaction.try_apply_core_parameter(parameter);
 
             Ok(())
         }
@@ -340,16 +340,17 @@ pub mod isi {
             let parameter = self.parameter;
             let parameter_id = parameter.id.clone();
 
-            let world = &mut state_transaction.world;
-            if !world.parameters.insert(parameter) {
+            if !state_transaction.world.parameters.insert(parameter.clone()) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::NewParameter,
                     id: IdBox::ParameterId(parameter_id),
                 }
                 .into());
             }
-
-            world.emit_events(Some(ConfigurationEvent::Created(parameter_id)));
+            state_transaction
+                .world
+                .emit_events(Some(ConfigurationEvent::Created(parameter_id)));
+            state_transaction.try_apply_core_parameter(parameter);
 
             Ok(())
         }

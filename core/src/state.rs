@@ -1,6 +1,10 @@
 //! This module provides the [`State`] — an in-memory representation of the current blockchain state.
 use std::{
-    borrow::Borrow, collections::BTreeSet, marker::PhantomData, num::NonZeroUsize, sync::Arc,
+    borrow::Borrow,
+    collections::BTreeSet,
+    marker::PhantomData,
+    num::{NonZeroU32, NonZeroUsize},
+    sync::Arc,
     time::Duration,
 };
 
@@ -1252,7 +1256,6 @@ impl<'state> StateBlock<'state> {
 
         self.block_hashes.push(block_hash);
 
-        self.apply_parameters();
         self.world.events_buffer.push(
             BlockEvent {
                 header: block.as_ref().header().clone(),
@@ -1266,20 +1269,18 @@ impl<'state> StateBlock<'state> {
 
     /// Create time event using previous and current blocks
     fn create_time_event(&self, block: &CommittedBlock) -> TimeEvent {
-        use iroha_config::parameters::defaults::chain_wide::CONSENSUS_ESTIMATION as DEFAULT_CONSENSUS_ESTIMATION;
-
         let prev_interval = self.latest_block_ref().map(|latest_block| {
             let header = &latest_block.as_ref().header();
 
             TimeInterval {
                 since: header.timestamp(),
-                length: DEFAULT_CONSENSUS_ESTIMATION,
+                length: header.consensus_estimation(),
             }
         });
 
         let interval = TimeInterval {
             since: block.as_ref().header().timestamp(),
-            length: DEFAULT_CONSENSUS_ESTIMATION,
+            length: block.as_ref().header().consensus_estimation(),
         };
 
         TimeEvent {
@@ -1336,32 +1337,6 @@ impl<'state> StateBlock<'state> {
 
         errors.is_empty().then_some(()).ok_or(errors)
     }
-
-    fn apply_parameters(&mut self) {
-        use iroha_data_model::parameter::default::*;
-
-        macro_rules! update_params {
-            ($($param:expr => $config:expr),+ $(,)?) => {
-                $(if let Some(param) = self.world.query_param($param) {
-                    $config = param;
-                })+
-            };
-        }
-
-        update_params! {
-            WSV_DOMAIN_METADATA_LIMITS => self.config.domain_metadata_limits,
-            WSV_ASSET_DEFINITION_METADATA_LIMITS => self.config.asset_definition_metadata_limits,
-            WSV_ACCOUNT_METADATA_LIMITS => self.config.account_metadata_limits,
-            WSV_ASSET_METADATA_LIMITS => self.config.asset_metadata_limits,
-            WSV_TRIGGER_METADATA_LIMITS => self.config.trigger_metadata_limits,
-            WSV_IDENT_LENGTH_LIMITS => self.config.ident_length_limits,
-            EXECUTOR_FUEL_LIMIT => self.config.executor_runtime.fuel_limit,
-            EXECUTOR_MAX_MEMORY => self.config.executor_runtime.max_memory_bytes,
-            WASM_FUEL_LIMIT => self.config.wasm_runtime.fuel_limit,
-            WASM_MAX_MEMORY => self.config.wasm_runtime.max_memory_bytes,
-            TRANSACTION_LIMITS => self.config.transaction_limits,
-        }
-    }
 }
 
 impl StateTransaction<'_, '_> {
@@ -1371,6 +1346,96 @@ impl StateTransaction<'_, '_> {
         self.block_hashes.apply();
         self.config.apply();
         self.world.apply();
+    }
+
+    /// If given [`Parameter`] represents some of the core chain-wide
+    /// parameters ([`Config`]), apply it
+    pub fn try_apply_core_parameter(&mut self, parameter: Parameter) {
+        use iroha_data_model::parameter::default::*;
+
+        struct Reader(Option<Parameter>);
+
+        impl Reader {
+            fn try_and_then<T: TryFrom<ParameterValueBox>>(
+                self,
+                id: &str,
+                fun: impl FnOnce(T),
+            ) -> Self {
+                if let Some(param) = self.0 {
+                    if param.id().name().as_ref() == id {
+                        if let Some(value) = param.val.try_into().ok() {
+                            fun(value);
+                        }
+                        Self(None)
+                    } else {
+                        Self(Some(param))
+                    }
+                } else {
+                    Self(None)
+                }
+            }
+
+            fn try_and_write<T: TryFrom<ParameterValueBox>>(
+                self,
+                id: &str,
+                destination: &mut T,
+            ) -> Self {
+                self.try_and_then(id, |value| {
+                    *destination = value;
+                })
+            }
+        }
+
+        Reader(Some(parameter))
+            .try_and_then(MAX_TRANSACTIONS_IN_BLOCK, |value| {
+                if let Some(checked) = NonZeroU32::new(value) {
+                    self.config.max_transactions_in_block = checked;
+                }
+            })
+            .try_and_then(BLOCK_TIME, |value| {
+                self.config.block_time = Duration::from_millis(value);
+            })
+            .try_and_then(COMMIT_TIME_LIMIT, |value| {
+                self.config.commit_time = Duration::from_millis(value);
+            })
+            .try_and_write(
+                WSV_DOMAIN_METADATA_LIMITS,
+                &mut self.config.domain_metadata_limits,
+            )
+            .try_and_write(
+                WSV_ASSET_DEFINITION_METADATA_LIMITS,
+                &mut self.config.asset_definition_metadata_limits,
+            )
+            .try_and_write(
+                WSV_ACCOUNT_METADATA_LIMITS,
+                &mut self.config.account_metadata_limits,
+            )
+            .try_and_write(
+                WSV_ASSET_METADATA_LIMITS,
+                &mut self.config.asset_metadata_limits,
+            )
+            .try_and_write(
+                WSV_TRIGGER_METADATA_LIMITS,
+                &mut self.config.trigger_metadata_limits,
+            )
+            .try_and_write(
+                WSV_IDENT_LENGTH_LIMITS,
+                &mut self.config.ident_length_limits,
+            )
+            .try_and_write(
+                EXECUTOR_FUEL_LIMIT,
+                &mut self.config.executor_runtime.fuel_limit,
+            )
+            .try_and_write(
+                EXECUTOR_MAX_MEMORY,
+                &mut self.config.executor_runtime.max_memory_bytes,
+            )
+            .try_and_write(WASM_FUEL_LIMIT, &mut self.config.wasm_runtime.fuel_limit)
+            .try_and_write(
+                WASM_MAX_MEMORY,
+                &mut self.config.wasm_runtime.max_memory_bytes,
+            )
+            .try_and_write(TRANSACTION_LIMITS, &mut self.config.transaction_limits);
     }
 
     fn process_executable(&mut self, executable: &Executable, authority: AccountId) -> Result<()> {

@@ -359,20 +359,9 @@ impl Sumeragi {
     }
 
     fn update_params(&mut self, state_block: &StateBlock<'_>) {
-        use iroha_data_model::parameter::default::*;
-
-        if let Some(block_time) = state_block.world.query_param(BLOCK_TIME) {
-            self.block_time = Duration::from_millis(block_time);
-        }
-        if let Some(commit_time) = state_block.world.query_param(COMMIT_TIME_LIMIT) {
-            self.commit_time = Duration::from_millis(commit_time);
-        }
-        if let Some(max_txs_in_block) = state_block
-            .world
-            .query_param::<u32, _>(MAX_TRANSACTIONS_IN_BLOCK)
-        {
-            self.max_txs_in_block = max_txs_in_block as usize;
-        }
+        self.block_time = state_block.config.block_time;
+        self.commit_time = state_block.config.commit_time;
+        self.max_txs_in_block = state_block.config.max_transactions_in_block.get() as usize;
     }
 
     fn cache_transaction(&mut self, state_block: &StateBlock<'_>) {
