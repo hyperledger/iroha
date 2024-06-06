@@ -1,4 +1,3 @@
-#base stage
 FROM --platform=linux/amd64 archlinux:base-devel AS builder
 
 ARG NIGHTLY_VERSION=2024-04-18
@@ -34,14 +33,15 @@ ENV PATH="$PATH:/x86_64-linux-musl-native/bin"
 ENV RUSTFLAGS="-C link-arg=-static"
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc
 
-# builder stage
 WORKDIR /iroha
 COPY . .
-# FIXME: consider building only `irohad`, `iroha`, and `kagami`?
-RUN cargo build --target x86_64-unknown-linux-musl --profile deploy
+RUN cargo build \
+    -p irohad \
+    -p iroha_client_cli \
+    -p kagami \
+    --target x86_64-unknown-linux-musl \
+    --profile deploy
 
-
-# final image
 FROM alpine:3.20
 
 ARG STORAGE=/storage
