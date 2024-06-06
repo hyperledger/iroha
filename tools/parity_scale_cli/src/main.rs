@@ -79,7 +79,29 @@ where
 /// Parity Scale decoder tool for Iroha data types
 #[derive(Debug, Parser)]
 #[clap(version, about, author)]
-enum Args {
+struct Args {
+    #[clap(subcommand)]
+    command: Command,
+
+    /// Whether to enable ANSI colored output or not
+    ///
+    /// By default, Iroha determines whether the terminal supports colors or not.
+    ///
+    /// In order to disable this flag explicitly, pass `--terminal-colors=false`.
+    #[arg(
+        long,
+        env,
+        default_missing_value("true"),
+        default_value(default_terminal_colors_str()),
+        action(clap::ArgAction::Set),
+        require_equals(true),
+        num_args(0..=1),
+    )]
+    pub terminal_colors: bool,
+}
+
+#[derive(Debug, Parser)]
+enum Command {
     /// Show all available types
     ListTypes,
     /// Decode SCALE to Rust debug format from binary file
@@ -113,26 +135,34 @@ struct ScaleJsonArgs {
     type_name: String,
 }
 
+fn is_coloring_supported() -> bool {
+    supports_color::on(supports_color::Stream::Stdout).is_some()
+}
+
+fn default_terminal_colors_str() -> clap::builder::OsStr {
+    is_coloring_supported().to_string().into()
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
     let map = generate_map();
 
-    match args {
-        Args::ScaleToRust(decode_args) => {
+    match args.command {
+        Command::ScaleToRust(decode_args) => {
             let mut writer = BufWriter::new(io::stdout().lock());
             let decoder = ScaleToRustDecoder::new(decode_args, &map);
             decoder.decode(&mut writer)
         }
-        Args::ScaleToJson(args) => {
+        Command::ScaleToJson(args) => {
             let decoder = ScaleJsonDecoder::new(args, &map)?;
             decoder.scale_to_json()
         }
-        Args::JsonToScale(args) => {
+        Command::JsonToScale(args) => {
             let decoder = ScaleJsonDecoder::new(args, &map)?;
             decoder.json_to_scale()
         }
-        Args::ListTypes => {
+        Command::ListTypes => {
             let mut writer = BufWriter::new(io::stdout().lock());
             list_types(&map, &mut writer)
         }
@@ -382,5 +412,24 @@ mod tests {
             .json_to_scale(&json)
             .expect("Couldn't convert to SCALE");
         assert_eq!(scale_actual, scale_expected);
+    }
+
+    #[test]
+    fn terminal_colors_works_as_expected() -> eyre::Result<()> {
+        fn try_with(arg: &str) -> eyre::Result<bool> {
+            // Since arg contains enum Command and we must provide something for it, we use "list-types"
+            Ok(Args::try_parse_from(["test", arg, "list-types"])?.terminal_colors)
+        }
+
+        assert_eq!(
+            Args::try_parse_from(["test", "list-types"])?.terminal_colors,
+            is_coloring_supported()
+        );
+        assert_eq!(try_with("--terminal-colors")?, true);
+        assert_eq!(try_with("--terminal-colors=false")?, false);
+        assert_eq!(try_with("--terminal-colors=true")?, true);
+        assert!(try_with("--terminal-colors=random").is_err());
+
+        Ok(())
     }
 }

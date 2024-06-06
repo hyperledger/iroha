@@ -10,12 +10,6 @@ To build the tool, run:
 cargo build --bin parity_scale_cli
 ```
 
-If your terminal does not support colours, run:
-
-```bash
-cargo build --features no_color --bin parity_scale_cli
-```
-
 ## Usage
 
 Run Parity Scale Decoder Tool:

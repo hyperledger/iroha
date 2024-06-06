@@ -10,11 +10,6 @@ license.workspace = true
 [lints]
 workspace = true
 
-[features]
-# Disable colour for all program output.
-# Useful for Docker-based deployment and terminals without colour support.
-no_color = ["colored/no-color"]
-
 [dependencies]
 iroha_data_model = { workspace = true, features = ["http"] }
 iroha_primitives = { workspace = true }
@@ -24,12 +19,13 @@ iroha_crypto = { workspace = true }
 iroha_version = { workspace = true }
 iroha_genesis = { workspace = true }
 
-clap = { workspace = true, features = ["derive", "cargo"] }
+clap = { workspace = true, features = ["derive", "cargo", "env", "string"] }
 eyre = { workspace = true }
 parity-scale-codec = { workspace = true }
 colored = "2.1.0"
 serde_json = { workspace = true, features = ["std"]}
 serde = { workspace = true }
+supports-color = { workspace = true }
 
 [build-dependencies]
 iroha_data_model = { workspace = true }
