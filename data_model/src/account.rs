@@ -15,10 +15,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    asset::{
-        prelude::{Asset, AssetId},
-        AssetsMap,
-    },
+    asset::{Asset, AssetDefinitionId, AssetsMap},
     domain::prelude::*,
     metadata::Metadata,
     HasMetadata, Identifiable, ParseError, PublicKey, Registered,
@@ -137,7 +134,7 @@ impl Account {
 
     /// Return a reference to the [`Asset`] corresponding to the asset id.
     #[inline]
-    pub fn asset(&self, asset_id: &AssetId) -> Option<&Asset> {
+    pub fn asset(&self, asset_id: &AssetDefinitionId) -> Option<&Asset> {
         self.assets.get(asset_id)
     }
 
@@ -153,12 +150,13 @@ impl Account {
     /// Add [`Asset`] into the [`Account`] returning previous asset stored under the same id
     #[inline]
     pub fn add_asset(&mut self, asset: Asset) -> Option<Asset> {
-        self.assets.insert(asset.id().clone(), asset)
+        assert_eq!(self.id, asset.id.account_id);
+        self.assets.insert(asset.id.definition_id.clone(), asset)
     }
 
     /// Remove asset from the [`Account`] and return it
     #[inline]
-    pub fn remove_asset(&mut self, asset_id: &AssetId) -> Option<Asset> {
+    pub fn remove_asset(&mut self, asset_id: &AssetDefinitionId) -> Option<Asset> {
         self.assets.remove(asset_id)
     }
 }

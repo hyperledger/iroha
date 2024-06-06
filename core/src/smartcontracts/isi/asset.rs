@@ -143,14 +143,13 @@ pub mod isi {
                 state_transaction,
                 expected_asset_value_type_store,
             )?;
-            let account_id = asset_id.account_id.clone();
 
             let asset = state_transaction
                 .world
-                .account_mut(&account_id)
+                .account_mut(&asset_id.account_id)
                 .and_then(|account| {
                     account
-                        .remove_asset(&asset_id)
+                        .remove_asset(&asset_id.definition_id)
                         .ok_or_else(|| FindError::Asset(asset_id.clone()))
                 })?;
 
@@ -239,7 +238,7 @@ pub mod isi {
             let account = state_transaction.world.account_mut(&asset_id.account_id)?;
             let asset = account
                 .assets
-                .get_mut(&asset_id)
+                .get_mut(&asset_id.definition_id)
                 .ok_or_else(|| FindError::Asset(asset_id.clone()))?;
             let AssetValue::Numeric(quantity) = &mut asset.value else {
                 return Err(Error::Conversion("Expected numeric asset type".to_owned()));
@@ -249,7 +248,7 @@ pub mod isi {
                 .ok_or(MathError::NotEnoughQuantity)?;
 
             if asset.value.is_zero_value() {
-                assert!(account.remove_asset(&asset_id).is_some());
+                assert!(account.remove_asset(&asset_id.definition_id).is_some());
             }
 
             #[allow(clippy::float_arithmetic)]
@@ -295,7 +294,7 @@ pub mod isi {
                 let account = state_transaction.world.account_mut(&source_id.account_id)?;
                 let asset = account
                     .assets
-                    .get_mut(&source_id)
+                    .get_mut(&source_id.definition_id)
                     .ok_or_else(|| FindError::Asset(source_id.clone()))?;
                 let AssetValue::Numeric(quantity) = &mut asset.value else {
                     return Err(Error::Conversion("Expected numeric asset type".to_owned()));
@@ -304,7 +303,7 @@ pub mod isi {
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
                 if asset.value.is_zero_value() {
-                    assert!(account.remove_asset(&source_id).is_some());
+                    assert!(account.remove_asset(&source_id.definition_id).is_some());
                 }
             }
 

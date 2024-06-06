@@ -188,11 +188,10 @@ pub mod isi {
 
             let mut events = Vec::with_capacity(assets_to_remove.len() + 1);
             for asset_id in assets_to_remove {
-                let account_id = asset_id.account_id.clone();
                 if state_transaction
                     .world
-                    .account_mut(&account_id)?
-                    .remove_asset(&asset_id)
+                    .account_mut(&asset_id.account_id)?
+                    .remove_asset(&asset_id.definition_id)
                     .is_none()
                 {
                     error!(%asset_id, "asset not found. This is a bug");

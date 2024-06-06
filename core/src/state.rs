@@ -410,7 +410,8 @@ pub trait WorldReadOnly {
     fn account_assets(
         &self,
         id: &AccountId,
-    ) -> Result<std::collections::btree_map::Values<'_, AssetId, Asset>, QueryExecutionFail> {
+    ) -> Result<std::collections::btree_map::Values<'_, AssetDefinitionId, Asset>, QueryExecutionFail>
+    {
         self.map_account(id, |account| account.assets.values())
     }
 
@@ -493,7 +494,7 @@ pub trait WorldReadOnly {
             |account| -> Result<Asset, QueryExecutionFail> {
                 account
                     .assets
-                    .get(id)
+                    .get(&id.definition_id)
                     .ok_or_else(|| QueryExecutionFail::from(FindError::Asset(id.clone())))
                     .cloned()
             },
@@ -708,7 +709,7 @@ impl WorldTransaction<'_, '_> {
         self.account_mut(&id.account_id).and_then(move |account| {
             account
                 .assets
-                .get_mut(id)
+                .get_mut(&id.definition_id)
                 .ok_or_else(|| FindError::Asset(id.clone()))
         })
     }
@@ -747,15 +748,18 @@ impl WorldTransaction<'_, '_> {
             .get_mut(account_id)
             .ok_or(FindError::Account(account_id.clone()))?;
 
-        Ok(account.assets.entry(asset_id.clone()).or_insert_with(|| {
-            let asset = Asset::new(asset_id, default_asset_value.into());
-            Self::emit_events_impl(
-                &mut self.triggers,
-                &mut self.events_buffer,
-                Some(AccountEvent::Asset(AssetEvent::Created(asset.clone()))),
-            );
-            asset
-        }))
+        Ok(account
+            .assets
+            .entry(asset_id.definition_id.clone())
+            .or_insert_with(|| {
+                let asset = Asset::new(asset_id, default_asset_value.into());
+                Self::emit_events_impl(
+                    &mut self.triggers,
+                    &mut self.events_buffer,
+                    Some(AccountEvent::Asset(AssetEvent::Created(asset.clone()))),
+                );
+                asset
+            }))
     }
 
     /// Get mutable reference to [`AssetDefinition`]
