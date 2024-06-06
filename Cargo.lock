@@ -2777,6 +2777,7 @@ dependencies = [
 name = "iroha"
 version = "2.0.0-pre-rc.21"
 dependencies = [
+ "assertables",
  "attohttpc",
  "base64 0.22.1",
  "color-eyre",
