@@ -892,15 +892,17 @@ impl TestClient for Client {
         <R::Output as QueryOutput>::Target: core::fmt::Debug,
         <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
-        let mut query_result = None;
         for _ in 0..max_attempts {
-            query_result = match self.request(request.clone()) {
-                Ok(result) if f(result.clone()) => return Ok(()),
-                result => Some(result),
+            if let Ok(result) = self.request(request.clone()) {
+                if f(result) {
+                    return Ok(());
+                }
             };
             thread::sleep(period);
         }
-        Err(eyre::eyre!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", &query_result))
+        Err(eyre::eyre!(
+            "Failed to wait for query request completion that would satisfy specified closure"
+        ))
     }
 
     fn poll_request<R: Query + Debug + Clone>(

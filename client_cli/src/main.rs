@@ -1046,11 +1046,23 @@ mod wasm {
 mod json {
     use std::io::{BufReader, Read as _};
 
+    use clap::Subcommand;
+    use iroha::data_model::query::QueryBox;
+
     use super::*;
 
     /// Subcommand for submitting multi-instructions
     #[derive(Clone, Copy, Debug, clap::Args)]
-    pub struct Args;
+    pub struct Args {
+        #[clap(subcommand)]
+        variant: Variant,
+    }
+
+    #[derive(Clone, Copy, Debug, Subcommand)]
+    enum Variant {
+        Transaction,
+        Query,
+    }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
@@ -1059,9 +1071,24 @@ mod json {
             reader.read_to_end(&mut raw_content)?;
 
             let string_content = String::from_utf8(raw_content)?;
-            let instructions: Vec<InstructionBox> = json5::from_str(&string_content)?;
-            submit(instructions, UnlimitedMetadata::new(), context)
-                .wrap_err("Failed to submit parsed instructions")
+
+            match self.variant {
+                Variant::Transaction => {
+                    let instructions: Vec<InstructionBox> = json5::from_str(&string_content)?;
+                    submit(instructions, UnlimitedMetadata::new(), context)
+                        .wrap_err("Failed to submit parsed instructions")
+                }
+                Variant::Query => {
+                    let client = Client::new(context.configuration().clone());
+                    let query: QueryBox = json5::from_str(&string_content)?;
+                    let response = client
+                        .request(query)
+                        .and_then(core::convert::identity)
+                        .wrap_err("Failed to query response")?;
+                    context.print_data(&response)?;
+                    Ok(())
+                }
+            }
         }
     }
 }
