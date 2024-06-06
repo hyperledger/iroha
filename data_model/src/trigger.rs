@@ -5,9 +5,9 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{cmp, str::FromStr};
+use core::cmp;
 
-use derive_more::{Constructor, Display};
+use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_macro::ffi_impl_opaque;
@@ -18,8 +18,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    domain::DomainId, events::prelude::*, metadata::Metadata, transaction::Executable,
-    Identifiable, Name, ParseError, Registered,
+    events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name, Registered,
 };
 
 #[model]
@@ -29,6 +28,8 @@ mod model {
     /// Identification of a `Trigger`.
     #[derive(
         Debug,
+        Display,
+        FromStr,
         Clone,
         PartialEq,
         Eq,
@@ -43,11 +44,11 @@ mod model {
         SerializeDisplay,
         IntoSchema,
     )]
+    #[display(fmt = "{name}")]
     #[getset(get = "pub")]
-    #[ffi_type]
+    #[repr(transparent)]
+    #[ffi_type(opaque)]
     pub struct TriggerId {
-        /// DomainId of domain of the trigger.
-        pub domain_id: Option<DomainId>,
         /// Name given to trigger by its creator.
         pub name: Name,
     }
@@ -87,40 +88,6 @@ impl Trigger {
 
 impl Registered for Trigger {
     type With = Self;
-}
-
-impl core::fmt::Display for TriggerId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if let Some(ref domain_id) = self.domain_id {
-            write!(f, "{}${}", self.name, domain_id)
-        } else {
-            write!(f, "{}", self.name)
-        }
-    }
-}
-
-impl FromStr for TriggerId {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut split = s.split('$');
-        match (split.next(), split.next(), split.next()) {
-            (Some(""), _, _) => Err(ParseError {
-                reason: "Empty `name` part in `name` or `name$domain_id`",
-            }),
-            (Some(name), None, _) => Ok(Self {
-                name: Name::from_str(name)?,
-                domain_id: None,
-            }),
-            (Some(name), Some(domain_id), None) if !domain_id.is_empty() => Ok(Self {
-                name: Name::from_str(name)?,
-                domain_id: Some(DomainId::from_str(domain_id)?),
-            }),
-            _ => Err(ParseError {
-                reason: "Trigger ID should have format `name` or `name$domain_id`",
-            }),
-        }
-    }
 }
 
 pub mod action {

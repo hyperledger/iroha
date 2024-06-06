@@ -210,7 +210,6 @@ pub mod trigger {
     /// `authority` is owner of `trigger_id` if:
     /// - `trigger.action.authority` is `authority`
     /// - `trigger.action.authority.domain_id` is owned by `authority`
-    /// - `trigger.domain_id` is not none and domain is owned by `authority`
     ///
     /// # Errors
     /// - `FindTrigger` fails
@@ -219,11 +218,7 @@ pub mod trigger {
         let trigger = find_trigger(trigger_id)?;
 
         Ok(trigger.action().authority() == authority
-            || is_domain_owner(trigger.action().authority().domain_id(), authority)?
-            || match trigger_id.domain_id() {
-                Some(domain) => is_domain_owner(domain, authority)?,
-                None => false,
-            })
+            || is_domain_owner(trigger.action().authority().domain_id(), authority)?)
     }
     /// Returns the trigger.
     pub(crate) fn find_trigger(trigger_id: &TriggerId) -> Result<Trigger> {

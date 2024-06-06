@@ -268,7 +268,7 @@ fn domain_owner_trigger_permissions() -> Result<()> {
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, alice_id.clone());
-    let trigger_id: TriggerId = "trigger$kingdom".parse()?;
+    let trigger_id: TriggerId = "my_trigger".parse()?;
 
     let trigger_instructions = vec![Mint::asset_numeric(1u32, asset_id)];
     let register_trigger = Register::trigger(Trigger::new(

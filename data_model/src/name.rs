@@ -67,7 +67,7 @@ impl Name {
     /// # Errors
     /// Fails if not valid [`Name`].
     fn validate_str(candidate: &str) -> Result<(), ParseError> {
-        const FORBIDDEN_CHARS: [char; 3] = ['@', '#', '$'];
+        const FORBIDDEN_CHARS: [char; 2] = ['@', '#'];
 
         if candidate.is_empty() {
             return Err(ParseError {
@@ -83,7 +83,7 @@ impl Name {
             #[allow(clippy::non_ascii_literal)]
             return Err(ParseError {
                 reason: "The `@` character is reserved for `account@domain` constructs, \
-                        `#` — for `asset#domain` and `$` — for `trigger$domain`.",
+                        and `#` — for `asset#domain`.",
             });
         }
         Ok(())
@@ -156,7 +156,7 @@ mod tests {
 
     use super::*;
 
-    const INVALID_NAMES: [&str; 5] = ["", " ", "@", "#", "$"];
+    const INVALID_NAMES: [&str; 4] = ["", " ", "@", "#"];
 
     #[test]
     fn deserialize_name() {

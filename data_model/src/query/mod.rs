@@ -201,7 +201,8 @@ mod model {
         FindAllActiveTriggerIds(FindAllActiveTriggerIds),
         FindTriggerById(FindTriggerById),
         FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
-        FindTriggersByDomainId(FindTriggersByDomainId),
+        FindTriggersByAuthorityId(FindTriggersByAuthorityId),
+        FindTriggersByAuthorityDomainId(FindTriggersByAuthorityDomainId),
         FindAllRoles(FindAllRoles),
         FindAllRoleIds(FindAllRoleIds),
         FindRoleByRoleId(FindRoleByRoleId),
@@ -424,7 +425,8 @@ impl_queries! {
     FindAllActiveTriggerIds => Vec<crate::trigger::TriggerId>,
     FindTriggerById => crate::trigger::Trigger,
     FindTriggerKeyValueByIdAndKey => MetadataValueBox,
-    FindTriggersByDomainId => Vec<crate::trigger::Trigger>,
+    FindTriggersByAuthorityId => Vec<crate::trigger::Trigger>,
+    FindTriggersByAuthorityDomainId => Vec<crate::trigger::Trigger>,
     FindAllTransactions => Vec<TransactionQueryOutput>,
     FindTransactionsByAccountId => Vec<TransactionQueryOutput>,
     FindTransactionByHash => TransactionQueryOutput,
@@ -1046,6 +1048,7 @@ pub mod trigger {
 
     use super::{MetadataValueBox, Query, QueryType};
     use crate::{
+        account::AccountId,
         domain::prelude::*,
         events::TriggeringEventFilterBox,
         prelude::InstructionBox,
@@ -1072,7 +1075,6 @@ pub mod trigger {
             pub id: TriggerId,
         }
 
-
         /// Find Trigger's metadata key-value pairs.
         #[derive(Display)]
         #[display(fmt = "Find metadata value with `{key}` key in `{id}` trigger")]
@@ -1084,14 +1086,24 @@ pub mod trigger {
             pub key: Name,
         }
 
-
-        /// Find [`Trigger`]s under the given [`DomainId`].
+        /// Find all triggers executable on behalf of the given account.
         #[derive(Display)]
-        #[display(fmt = "Find trigger under `{domain_id}` domain")]
+        #[display(fmt = "Find triggers executable on behalf of the `{account_id}` account")]
         #[repr(transparent)]
-        // SAFETY: `FindTriggersByDomainId` has no trap representation in `EvaluatesTo<DomainId>`
+        // SAFETY: `FindTriggersByAuthorityId` has no trap representation in `EvaluatesTo<DomainId>`
         #[ffi_type(unsafe {robust})]
-        pub struct FindTriggersByDomainId {
+        pub struct FindTriggersByAuthorityId {
+            /// [`AccountId`] specifies the authority behind the trigger execution.
+            pub account_id: AccountId,
+        }
+
+        /// Find all triggers whose authority belongs to the given domain.
+        #[derive(Display)]
+        #[display(fmt = "Find triggers with authority under `{domain_id}` domain")]
+        #[repr(transparent)]
+        // SAFETY: `FindTriggersByAuthorityDomainId` has no trap representation in `EvaluatesTo<DomainId>`
+        #[ffi_type(unsafe {robust})]
+        pub struct FindTriggersByAuthorityDomainId {
             /// [`DomainId`] specifies the domain in which to search for triggers.
             pub domain_id: DomainId,
         }
@@ -1101,7 +1113,7 @@ pub mod trigger {
         //! Prelude Re-exports most commonly used traits, structs and macros from this crate.
         pub use super::{
             FindAllActiveTriggerIds, FindTriggerById, FindTriggerKeyValueByIdAndKey,
-            FindTriggersByDomainId,
+            FindTriggersByAuthorityDomainId, FindTriggersByAuthorityId,
         };
     }
 }

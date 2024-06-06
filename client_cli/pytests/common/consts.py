@@ -22,8 +22,8 @@ class Stderr(Enum):
     INVALID_CHARACTER = "Failed to parse"
     INVALID_VALUE_TYPE = "should be either `Store` or `Numeric`"
     RESERVED_CHARACTER = (
-        "The `@` character is reserved for `account@domain` constructs,"
-        " `#` — for `asset#domain` and `$` — for `trigger$domain`."
+        "The `@` character is reserved for `account@domain` constructs, "
+        "and `#` — for `asset#domain`."
     )
     WHITESPACES = "White space not allowed"
     INSUFFICIENT_FUNDS = "Not enough quantity to transfer/burn"
@@ -34,7 +34,7 @@ class ReservedChars(Enum):
     Enum for reserved characters in names.
     """
 
-    SPECIAL = "@#$"
+    SPECIAL = "@#"
     WHITESPACES = string.whitespace
     ALL = SPECIAL + WHITESPACES
 

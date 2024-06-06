@@ -381,22 +381,12 @@ pub mod domain {
             AnyPermission::CanUnregisterUserTrigger(permission) => {
                 permission.account_id.domain_id() == domain_id
             }
-            AnyPermission::CanExecuteUserTrigger(permission) => {
-                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
-            }
-            AnyPermission::CanBurnUserTrigger(permission) => {
-                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
-            }
-            AnyPermission::CanMintUserTrigger(permission) => {
-                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
-            }
-            AnyPermission::CanSetKeyValueInTrigger(permission) => {
-                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
-            }
-            AnyPermission::CanRemoveKeyValueInTrigger(permission) => {
-                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
-            }
-            AnyPermission::CanUnregisterAnyPeer(_)
+            AnyPermission::CanExecuteUserTrigger(_)
+            | AnyPermission::CanBurnUserTrigger(_)
+            | AnyPermission::CanMintUserTrigger(_)
+            | AnyPermission::CanSetKeyValueInTrigger(_)
+            | AnyPermission::CanRemoveKeyValueInTrigger(_)
+            | AnyPermission::CanUnregisterAnyPeer(_)
             | AnyPermission::CanGrantPermissionToCreateParameters(_)
             | AnyPermission::CanRevokePermissionToCreateParameters(_)
             | AnyPermission::CanCreateParameters(_)

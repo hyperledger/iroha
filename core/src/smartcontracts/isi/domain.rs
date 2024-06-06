@@ -83,16 +83,36 @@ pub mod isi {
         ) -> Result<(), Error> {
             let account_id = self.object_id;
 
-            let domain = state_transaction.world.domain_mut(&account_id.domain_id)?;
-            if domain.remove_account(&account_id).is_none() {
+            state_transaction
+                .world()
+                .triggers()
+                .inspect_by_action(
+                    |action| action.authority() == &account_id,
+                    |trigger_id, _| trigger_id.clone(),
+                )
+                .collect::<Vec<_>>()
+                .into_iter()
+                .for_each(|trigger_id| {
+                    state_transaction
+                        .world
+                        .triggers
+                        .remove(trigger_id)
+                        .then_some(())
+                        .expect("should succeed")
+                });
+
+            if state_transaction
+                .world
+                .domain_mut(&account_id.domain_id)?
+                .remove_account(&account_id)
+                .is_none()
+            {
                 return Err(FindError::Account(account_id).into());
             }
 
             state_transaction
                 .world
-                .emit_events(Some(DomainEvent::Account(AccountEvent::Deleted(
-                    account_id,
-                ))));
+                .emit_events(Some(AccountEvent::Deleted(account_id)));
 
             Ok(())
         }

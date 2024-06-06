@@ -409,51 +409,44 @@ pub trait SetReadOnly {
         })
     }
 
-    /// Apply `f` to triggers that belong to the given [`DomainId`]
+    /// Apply `f` to triggers whose action satisfies the predicate.
     ///
-    /// Return an empty list if [`Set`] doesn't contain any triggers belonging to [`DomainId`].
-    fn inspect_by_domain_id<'a, F, R>(
-        &'a self,
-        domain_id: &DomainId,
-        f: F,
-    ) -> impl Iterator<Item = R> + '_
+    /// Return an empty list if [`Set`] doesn't contain any such triggers.
+    fn inspect_by_action<'a, P, F, R>(&'a self, filter: P, f: F) -> impl Iterator<Item = R> + '_
     where
+        P: Fn(&dyn LoadedActionTrait) -> bool + 'a,
         F: Fn(&TriggerId, &dyn LoadedActionTrait) -> R + 'a,
     {
-        let domain_id = domain_id.clone();
-
-        self.ids().iter().filter_map(move |(id, event_type)| {
-            let trigger_domain_id = id.domain_id.as_ref()?;
-
-            if *trigger_domain_id != domain_id {
-                return None;
-            }
-
-            let result = match event_type {
-                TriggeringEventType::Data => self
-                    .data_triggers()
-                    .get(id)
-                    .map(|trigger| f(id, trigger))
-                    .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
-                TriggeringEventType::Pipeline => self
-                    .pipeline_triggers()
-                    .get(id)
-                    .map(|trigger| f(id, trigger))
-                    .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
-                TriggeringEventType::Time => self
-                    .time_triggers()
-                    .get(id)
-                    .map(|trigger| f(id, trigger))
-                    .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
-                TriggeringEventType::ExecuteTrigger => self
-                    .by_call_triggers()
-                    .get(id)
-                    .map(|trigger| f(id, trigger))
-                    .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug"),
-            };
-
-            Some(result)
-        })
+        self.ids()
+            .iter()
+            .filter_map(move |(id, event_type)| match event_type {
+                TriggeringEventType::Data => {
+                    let action = self
+                        .data_triggers()
+                        .get(id)
+                        .expect("`Set::data_triggers` doesn't contain required id. This is a bug");
+                    filter(action).then(|| f(id, action))
+                }
+                TriggeringEventType::Pipeline => {
+                    let action = self.pipeline_triggers().get(id).expect(
+                        "`Set::pipeline_triggers` doesn't contain required id. This is a bug",
+                    );
+                    filter(action).then(|| f(id, action))
+                }
+                TriggeringEventType::Time => {
+                    let action = self
+                        .time_triggers()
+                        .get(id)
+                        .expect("`Set::time_triggers` doesn't contain required id. This is a bug");
+                    filter(action).then(|| f(id, action))
+                }
+                TriggeringEventType::ExecuteTrigger => {
+                    let action = self.by_call_triggers().get(id).expect(
+                        "`Set::by_call_triggers` doesn't contain required id. This is a bug",
+                    );
+                    filter(action).then(|| f(id, action))
+                }
+            })
     }
 
     /// Apply `f` to the trigger identified by `id`.
@@ -966,12 +959,9 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     // Passing by value to follow other `handle_` methods interface
     #[allow(clippy::needless_pass_by_value)]
     pub fn handle_data_event(&mut self, event: DataEvent) {
-        self.data_triggers
-            .iter()
-            .filter(|(id, _)| id.domain_id.is_none() || id.domain_id.as_ref() == event.domain_id())
-            .for_each(|entry| {
-                Self::match_and_insert_trigger(&mut self.matched_ids, event.clone(), entry)
-            });
+        self.data_triggers.iter().for_each(|entry| {
+            Self::match_and_insert_trigger(&mut self.matched_ids, event.clone(), entry)
+        });
     }
 
     /// Handle [`ExecuteTriggerEvent`].

@@ -130,7 +130,7 @@ impl LiveQueryStore {
     }
 
     fn remove(&mut self, query_id: &str) -> Option<LiveQuery> {
-        self.queries.remove(query_id).map(|(output, _)| output)
+        self.queries.swap_remove(query_id).map(|(output, _)| output)
     }
 }
 

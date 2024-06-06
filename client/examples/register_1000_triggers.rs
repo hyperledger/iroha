@@ -1,6 +1,5 @@
 //! Example of registering multiple triggers
 //! Used to show Iroha's trigger deduplication capabilities
-use std::str::FromStr;
 
 use iroha::{client::Client, data_model::prelude::*};
 use iroha_crypto::KeyPair;
@@ -47,7 +46,7 @@ fn generate_genesis(
 
     let builder = (0..num_triggers)
         .map(|i| {
-            let trigger_id = TriggerId::new(None, Name::from_str(&i.to_string()).unwrap());
+            let trigger_id = i.to_string().parse::<TriggerId>().unwrap();
             let trigger = build_trigger(trigger_id);
             Register::trigger(trigger)
         })

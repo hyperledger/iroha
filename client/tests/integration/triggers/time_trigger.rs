@@ -242,8 +242,8 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
 
     // Registering trigger
     let start_time = curr_time();
-    let schedule =
-        TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(TRIGGER_PERIOD_MS));
+    let schedule = TimeSchedule::starting_at(start_time + Duration::from_secs(5))
+        .with_period(Duration::from_millis(TRIGGER_PERIOD_MS));
     let register_trigger = Register::trigger(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(
