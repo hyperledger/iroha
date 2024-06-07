@@ -92,6 +92,8 @@ mod model {
         pub assets: AssetsMap,
         /// Metadata of this account as a key-value store.
         pub metadata: Metadata,
+        /// Whether the account can exercise authority or not.
+        pub is_active: bool,
     }
 
     /// Builder which should be submitted in a transaction to create a new [`Account`]
@@ -159,6 +161,12 @@ impl Account {
     pub fn remove_asset(&mut self, asset_id: &AssetDefinitionId) -> Option<Asset> {
         self.assets.remove(asset_id)
     }
+
+    /// Activate the account to enable its authority
+    #[inline]
+    pub fn activate(&mut self) {
+        self.is_active = true
+    }
 }
 
 impl NewAccount {
@@ -186,6 +194,7 @@ impl NewAccount {
             id: self.id,
             assets: AssetsMap::default(),
             metadata: self.metadata,
+            is_active: false,
         }
     }
 }

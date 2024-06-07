@@ -300,11 +300,9 @@ mod account {
         pub enum AccountEvent {
             #[has_origin(asset_event => &asset_event.origin_id().account_id)]
             Asset(AssetEvent),
-            #[has_origin(account => account.id())]
-            Created(Account),
+            Recognized(AccountId),
+            Activated(AccountId),
             Deleted(AccountId),
-            AuthenticationAdded(AccountId),
-            AuthenticationRemoved(AccountId),
             #[has_origin(permission_changed => &permission_changed.account_id)]
             PermissionAdded(AccountPermissionChanged),
             #[has_origin(permission_changed => &permission_changed.account_id)]

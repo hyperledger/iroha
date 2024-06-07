@@ -1206,7 +1206,7 @@ mod tests {
     use tokio::test;
 
     use super::*;
-    use crate::{query::store::LiveQueryStore, smartcontracts::Registrable};
+    use crate::{query::store::LiveQueryStore, smartcontracts::Registrable, tests::test_account};
 
     /// Used to inject faulty payload for testing
     fn clone_and_modify_payload(
@@ -1229,7 +1229,7 @@ mod tests {
         // Predefined world state
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let genesis_public_key = alice_keypair.public_key().clone();
-        let account = Account::new(alice_id.clone()).build(&alice_id);
+        let account = test_account(&alice_id).activate();
         let domain_id = "wonderland".parse().expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());

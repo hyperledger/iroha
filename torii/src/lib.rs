@@ -375,6 +375,7 @@ impl Error {
             );
                 StatusCode::INTERNAL_SERVER_ERROR
             }
+            UnrecognizedAuthority | InactiveAuthority => StatusCode::UNAUTHORIZED,
         }
     }
 

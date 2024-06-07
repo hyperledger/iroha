@@ -399,6 +399,7 @@ pub mod tests {
         query::store::LiveQueryStore,
         smartcontracts::isi::Registrable as _,
         state::{State, World},
+        tests::test_account,
         PeersIds,
     };
 
@@ -448,7 +449,7 @@ pub mod tests {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let (account_id, _account_keypair) = gen_account_in("wonderland");
         let mut domain = Domain::new(domain_id).build(&account_id);
-        let account = Account::new(account_id.clone()).build(&account_id);
+        let account = test_account(&account_id).activate();
         assert!(domain.add_account(account).is_none());
         World::with([domain], PeersIds::new())
     }
@@ -844,8 +845,8 @@ pub mod tests {
         let world = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
             let mut domain = Domain::new(domain_id).build(&alice_id);
-            let alice_account = Account::new(alice_id.clone()).build(&alice_id);
-            let bob_account = Account::new(bob_id.clone()).build(&bob_id);
+            let alice_account = test_account(&alice_id).activate();
+            let bob_account = test_account(&bob_id).activate();
             assert!(domain.add_account(alice_account).is_none());
             assert!(domain.add_account(bob_account).is_none());
             World::with([domain], PeersIds::new())

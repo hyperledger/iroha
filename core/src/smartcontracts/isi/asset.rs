@@ -41,7 +41,7 @@ pub mod isi {
         #[metrics(+"set_asset_key_value")]
         fn execute(
             self,
-            _authority: &AccountId,
+            authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let asset_id = self.object_id;
@@ -62,10 +62,12 @@ pub mod isi {
                     .increase_asset_total_amount(&asset_id.definition_id, Numeric::ONE)?;
             }
 
+            recognize_account(asset_id.account_id(), authority, state_transaction)?;
             let asset_metadata_limits = state_transaction.config.asset_metadata_limits;
             let asset = state_transaction
                 .world
-                .asset_or_insert(asset_id.clone(), Metadata::new())?;
+                .asset_or_insert(asset_id.clone(), Metadata::new())
+                .expect("account should exist");
 
             {
                 let AssetValue::Store(store) = &mut asset.value else {
@@ -134,38 +136,42 @@ pub mod isi {
         #[metrics(+"transfer_store")]
         fn execute(
             self,
-            _authority: &AccountId,
+            authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_id = self.source_id;
+            let source_asset_id = self.source_id;
             assert_asset_type(
-                &asset_id.definition_id,
+                &source_asset_id.definition_id,
                 state_transaction,
                 expected_asset_value_type_store,
             )?;
 
-            let asset = state_transaction
+            let source_asset = state_transaction
                 .world
-                .account_mut(&asset_id.account_id)
+                .account_mut(&source_asset_id.account_id)
                 .and_then(|account| {
                     account
-                        .remove_asset(&asset_id.definition_id)
-                        .ok_or_else(|| FindError::Asset(asset_id.clone()))
+                        .remove_asset(&source_asset_id.definition_id)
+                        .ok_or_else(|| FindError::Asset(source_asset_id.clone()))
                 })?;
 
-            let destination_store = {
-                let destination_id =
-                    AssetId::new(asset_id.definition_id.clone(), self.destination_id.clone());
-                let destination_store_asset = state_transaction
+            let destination_asset = {
+                recognize_account(&self.destination_id, authority, state_transaction)?;
+                let destination_asset_id = AssetId::new(
+                    source_asset_id.definition_id.clone(),
+                    self.destination_id.clone(),
+                );
+                let destination_asset = state_transaction
                     .world
-                    .asset_or_insert(destination_id.clone(), asset.value)?;
+                    .asset_or_insert(destination_asset_id, source_asset.value)
+                    .expect("account should exist");
 
-                destination_store_asset.clone()
+                destination_asset.clone()
             };
 
             state_transaction.world.emit_events([
-                AssetEvent::Deleted(asset_id),
-                AssetEvent::Created(destination_store),
+                AssetEvent::Deleted(source_asset_id),
+                AssetEvent::Created(destination_asset),
             ]);
 
             Ok(())
@@ -175,7 +181,7 @@ pub mod isi {
     impl Execute for Mint<Numeric, Asset> {
         fn execute(
             self,
-            _authority: &AccountId,
+            authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let asset_id = self.destination_id;
@@ -186,11 +192,13 @@ pub mod isi {
                 expected_asset_value_type_numeric,
             )?;
             assert_numeric_spec(&self.object, &asset_definition)?;
-
             assert_can_mint(&asset_definition, state_transaction)?;
+
+            recognize_account(asset_id.account_id(), authority, state_transaction)?;
             let asset = state_transaction
                 .world
-                .asset_or_insert(asset_id.clone(), Numeric::ZERO)?;
+                .asset_or_insert(asset_id.clone(), Numeric::ZERO)
+                .expect("account should exist");
             let AssetValue::Numeric(quantity) = &mut asset.value else {
                 return Err(Error::Conversion("Expected numeric asset type".to_owned()));
             };
@@ -276,40 +284,48 @@ pub mod isi {
     impl Execute for Transfer<Asset, Numeric, Account> {
         fn execute(
             self,
-            _authority: &AccountId,
+            authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let source_id = self.source_id;
-            let destination_id =
-                AssetId::new(source_id.definition_id.clone(), self.destination_id.clone());
+            let source_asset_id = self.source_id;
+            let destination_asset_id = AssetId::new(
+                source_asset_id.definition_id.clone(),
+                self.destination_id.clone(),
+            );
 
             let asset_definition = assert_asset_type(
-                &source_id.definition_id,
+                &source_asset_id.definition_id,
                 state_transaction,
                 expected_asset_value_type_numeric,
             )?;
             assert_numeric_spec(&self.object, &asset_definition)?;
 
             {
-                let account = state_transaction.world.account_mut(&source_id.account_id)?;
-                let asset = account
+                let source_account = state_transaction
+                    .world
+                    .account_mut(&source_asset_id.account_id)?;
+                let source_asset = source_account
                     .assets
-                    .get_mut(&source_id.definition_id)
-                    .ok_or_else(|| FindError::Asset(source_id.clone()))?;
-                let AssetValue::Numeric(quantity) = &mut asset.value else {
+                    .get_mut(&source_asset_id.definition_id)
+                    .ok_or_else(|| FindError::Asset(source_asset_id.clone()))?;
+                let AssetValue::Numeric(quantity) = &mut source_asset.value else {
                     return Err(Error::Conversion("Expected numeric asset type".to_owned()));
                 };
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
-                if asset.value.is_zero_value() {
-                    assert!(account.remove_asset(&source_id.definition_id).is_some());
+                if source_asset.value.is_zero_value() {
+                    assert!(source_account
+                        .remove_asset(&source_asset_id.definition_id)
+                        .is_some());
                 }
             }
 
+            recognize_account(&self.destination_id, authority, state_transaction)?;
             let destination_asset = state_transaction
                 .world
-                .asset_or_insert(destination_id.clone(), Numeric::ZERO)?;
+                .asset_or_insert(destination_asset_id.clone(), Numeric::ZERO)
+                .expect("account should exist");
             {
                 let AssetValue::Numeric(quantity) = &mut destination_asset.value else {
                     return Err(Error::Conversion("Expected numeric asset type".to_owned()));
@@ -329,11 +345,11 @@ pub mod isi {
 
             state_transaction.world.emit_events([
                 AssetEvent::Removed(AssetChanged {
-                    asset_id: source_id,
+                    asset_id: source_asset_id,
                     amount: self.object.into(),
                 }),
                 AssetEvent::Added(AssetChanged {
-                    asset_id: destination_id,
+                    asset_id: destination_asset_id,
                     amount: self.object.into(),
                 }),
             ]);

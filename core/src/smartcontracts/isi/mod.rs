@@ -1,5 +1,5 @@
 //! This module contains enumeration of all possible Iroha Special
-//! Instructions [`InstructionExpr`], generic instruction types and related
+//! Instructions [`InstructionBox`], generic instruction types and related
 //! implementations.
 pub mod account;
 pub mod asset;
@@ -228,6 +228,28 @@ impl Execute for RevokeBox {
             Self::RolePermission(sub_isi) => sub_isi.execute(authority, state_transaction),
         }
     }
+}
+
+fn recognize_account(
+    id: &AccountId,
+    authority: &AccountId,
+    state_transaction: &mut StateTransaction<'_, '_>,
+) -> Result<(), Error> {
+    if state_transaction.world.account(&id).is_ok() {
+        return Ok(());
+    }
+
+    let account = Account::new(id.clone()).build(authority);
+    state_transaction
+        .world
+        .domain_mut(&id.domain_id)?
+        .add_account(account);
+
+    state_transaction
+        .world
+        .emit_events(Some(DomainEvent::Account(AccountEvent::Recognized(id))));
+
+    Ok(())
 }
 
 pub mod prelude {

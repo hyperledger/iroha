@@ -1,3 +1,4 @@
+mod account_registration;
 mod add_domain;
 mod asset;
 mod asset_propagation;

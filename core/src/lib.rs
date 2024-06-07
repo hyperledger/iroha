@@ -171,10 +171,31 @@ pub mod prelude {
 mod tests {
     use std::cmp::Ordering;
 
-    use iroha_data_model::role::RoleId;
+    use iroha_data_model::{
+        account::{Account, AccountId, NewAccount},
+        role::RoleId,
+    };
     use test_samples::gen_account_in;
 
-    use crate::role::RoleIdWithOwner;
+    use crate::{role::RoleIdWithOwner, smartcontracts::isi::Registrable, Metadata};
+
+    pub(crate) struct TestAccount(NewAccount);
+
+    pub(crate) fn test_account(id: &AccountId) -> TestAccount {
+        TestAccount(Account::new(id.clone()))
+    }
+
+    impl TestAccount {
+        pub(crate) fn with_metadata(self, metadata: Metadata) -> Self {
+            Self(self.0.with_metadata(metadata))
+        }
+        pub(crate) fn activate(self) -> Account {
+            let authority = self.0.id.clone();
+            let mut account = self.0.build(&authority);
+            account.activate();
+            account
+        }
+    }
 
     #[test]
     fn cmp_role_id_with_owner() {

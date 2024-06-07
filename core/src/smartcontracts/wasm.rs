@@ -1713,12 +1713,12 @@ mod tests {
     use super::*;
     use crate::{
         kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _,
-        state::State, PeersIds, World,
+        state::State, tests::test_account, PeersIds, World,
     };
 
     fn world_with_test_account(authority: &AccountId) -> World {
         let domain_id = authority.domain_id.clone();
-        let account = Account::new(authority.clone()).build(authority);
+        let account = test_account(&authority).activate();
         let mut domain = Domain::new(domain_id).build(authority);
         assert!(domain.add_account(account).is_none());
 

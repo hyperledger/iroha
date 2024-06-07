@@ -585,7 +585,9 @@ impl<T> Iroha<T> {
 
 fn genesis_account(public_key: PublicKey) -> Account {
     let genesis_account_id = AccountId::new(iroha_genesis::GENESIS_DOMAIN_ID.clone(), public_key);
-    Account::new(genesis_account_id.clone()).build(&genesis_account_id)
+    let mut genesis_account = Account::new(genesis_account_id.clone()).build(&genesis_account_id);
+    genesis_account.activate();
+    genesis_account
 }
 
 fn genesis_domain(public_key: PublicKey) -> Domain {
