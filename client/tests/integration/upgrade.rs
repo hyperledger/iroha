@@ -202,7 +202,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 fn executor_custom_instructions_simple() -> Result<()> {
     use executor_custom_data_model::simple::{CustomInstructionBox, MintAssetForAllAccounts};
 
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_170).start_with_runtime();
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_270).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     upgrade_executor(
@@ -252,7 +252,7 @@ fn executor_custom_instructions_complex() -> Result<()> {
     config.chain_wide.executor_runtime.fuel_limit = 1_000_000_000;
 
     let (_rt, _peer, client) = PeerBuilder::new()
-        .with_port(11_185)
+        .with_port(11_275)
         .with_config(config)
         .start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
