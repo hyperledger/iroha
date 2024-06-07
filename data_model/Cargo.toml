@@ -17,7 +17,7 @@ default = ["std"]
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = ["iroha_macro/std", "iroha_version/std", "iroha_crypto/std", "iroha_primitives/std", "thiserror", "displaydoc/std", "strum/std", "once_cell"]
 # Enable API for HTTP requests. Should be activated for HTTP clients
-http = ["std", "warp", "iroha_version/http"]
+http = ["std"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
 #ffi_import = ["iroha_ffi", "iroha_primitives/ffi_import", "iroha_crypto/ffi_import"]
 
@@ -41,7 +41,6 @@ derive_more = { workspace = true, features = ["as_ref", "display", "constructor"
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true, features = ["macros"] }
 serde_json = { workspace = true }
-warp = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 displaydoc = { workspace = true }
 getset = { workspace = true }

@@ -1,22 +1,9 @@
-use std::convert::Infallible;
-
-use iroha_version::prelude::*;
-use warp::{
+use axum::{
     http::{header::CONTENT_TYPE, HeaderValue},
-    hyper::body::Bytes,
-    reply::Response,
-    Filter, Rejection, Reply,
+    response::{IntoResponse, Response},
 };
-
-/// Structure for empty response body
-#[derive(Clone, Copy)]
-pub struct Empty;
-
-impl Reply for Empty {
-    fn into_response(self) -> Response {
-        Response::new(vec![].into())
-    }
-}
+use iroha_data_model::query::http::{ClientQueryRequest, SignedQuery};
+use iroha_version::prelude::*;
 
 /// MIME used in Torii for SCALE encoding
 // note: no elegant way to associate it with generic `Scale<T>`
@@ -26,7 +13,7 @@ pub const PARITY_SCALE_MIME_TYPE: &'_ str = "application/x-parity-scale";
 #[derive(Debug)]
 pub struct Scale<T>(pub T);
 
-impl<T: Encode + Send> Reply for Scale<T> {
+impl<T: Encode + Send> IntoResponse for Scale<T> {
     fn into_response(self) -> Response {
         let mut res = Response::new(self.0.encode().into());
         res.headers_mut().insert(
@@ -37,48 +24,73 @@ impl<T: Encode + Send> Reply for Scale<T> {
     }
 }
 
-/// Adds state to filter
-macro_rules! add_state {
-    ( $( $state : expr ),* $(,)? ) => {
-        warp::any().map({
-            let state = ($( $state.clone(), )*);
-            move || state.clone()
-        }).untuple_one()
-    }
-}
-
 pub mod body {
-    use iroha_version::error::Error as VersionError;
+    use axum::{
+        async_trait,
+        body::Bytes,
+        extract::{FromRequest, FromRequestParts, Query, Request},
+    };
+    use iroha_data_model::query::cursor::ForwardCursor;
 
     use super::*;
 
-    /// Decode body as versioned scale codec
-    pub fn versioned<T: DecodeVersioned>() -> impl Filter<Extract = (T,), Error = Rejection> + Copy
+    /// Extractor of scale encoded versioned data from body
+    #[derive(Clone, Copy, Debug)]
+    pub struct ScaleVersioned<T>(pub T);
+
+    #[async_trait]
+    impl<S, T> FromRequest<S> for ScaleVersioned<T>
+    where
+        Bytes: FromRequest<S>,
+        S: Send + Sync,
+        T: DecodeVersioned,
     {
-        warp::body::bytes().and_then(|body: Bytes| async move {
-            T::decode_all_versioned(body.as_ref()).map_err(warp::reject::custom)
-        })
+        type Rejection = Response;
+
+        async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+            let body = Bytes::from_request(req, state)
+                .await
+                .map_err(IntoResponse::into_response)?;
+
+            T::decode_all_versioned(&body)
+                .map(ScaleVersioned)
+                .map_err(|err| {
+                    (
+                        axum::http::StatusCode::BAD_REQUEST,
+                        format!("Transaction Rejected (Malformed), Reason : '{err}'"),
+                    )
+                        .into_response()
+                })
+        }
     }
 
-    /// Recover from failure in `versioned`
-    pub fn recover_versioned(rejection: Rejection) -> Result<impl Reply, Rejection> {
-        rejection
-            .find::<VersionError>()
-            .map(warp::Reply::into_response)
-            .ok_or(rejection)
-    }
-}
+    /// Extractor for [`ClientQueryRequest`]
+    ///
+    /// First try to deserialize body as [`SignedQuery`] if fail try to parse query parameters for [`ForwardCursor`] values
+    #[derive(Clone, Debug)]
+    pub struct ClientQueryRequestExtractor(pub ClientQueryRequest);
 
-/// Warp result response type
-pub struct WarpResult<O, E>(pub Result<O, E>);
+    #[async_trait]
+    impl<S> FromRequest<S> for ClientQueryRequestExtractor
+    where
+        Bytes: FromRequest<S>,
+        S: Send + Sync,
+    {
+        type Rejection = Response;
 
-impl<O: Reply, E: Reply> Reply for WarpResult<O, E> {
-    fn into_response(self) -> warp::reply::Response {
-        match self {
-            Self(Ok(ok)) => ok.into_response(),
-            Self(Err(err)) => err.into_response(),
+        async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+            let (mut parts, body) = req.into_parts();
+            let cursor = Query::<ForwardCursor>::from_request_parts(&mut parts, &state)
+                .await
+                .map(|Query(cursor)| ClientQueryRequest::cursor(cursor));
+            let req = Request::from_parts(parts, body);
+            ScaleVersioned::<SignedQuery>::from_request(req, state)
+                .await
+                .map(|ScaleVersioned(query)| ClientQueryRequest::query(query))
+                .or(cursor)
+                // TODO: custom error to show that neither SignedQuery nor ForwardCursor
+                .map_err(IntoResponse::into_response)
+                .map(ClientQueryRequestExtractor)
         }
     }
 }
-
-iroha_torii_derive::generate_endpoints!(2, 3, 4, 5, 6, 7);

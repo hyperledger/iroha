@@ -109,28 +109,6 @@ pub mod error {
         }
     }
 
-    #[cfg(feature = "http")]
-    impl Error {
-        /// Returns status code for this error
-        #[allow(clippy::unused_self)]
-        pub const fn status_code(&self) -> warp::http::StatusCode {
-            warp::http::StatusCode::BAD_REQUEST
-        }
-    }
-
-    #[cfg(feature = "http")]
-    impl warp::Reply for &Error {
-        fn into_response(self) -> warp::reply::Response {
-            warp::reply::with_status(
-                format!("Transaction Rejected (Malformed), Reason : '{self}'"),
-                self.status_code(),
-            )
-            .into_response()
-        }
-    }
-    #[cfg(feature = "http")]
-    impl warp::reject::Reject for Error {}
-
     /// Result type for versioning
     pub type Result<T, E = Error> = core::result::Result<T, E>;
 }

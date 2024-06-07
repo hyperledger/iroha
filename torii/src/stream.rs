@@ -4,6 +4,7 @@
 
 use core::{result::Result, time::Duration};
 
+use axum::extract::ws::Message;
 use futures::{SinkExt, StreamExt};
 use iroha_version::prelude::*;
 use parity_scale_codec::DecodeAll;
@@ -43,11 +44,8 @@ pub trait StreamMessage {
     /// Construct new binary message
     fn binary(source: Vec<u8>) -> Self;
 
-    /// Decodes the message into byte slice
-    fn as_bytes(&self) -> &[u8];
-
-    /// Returns `true` if the message is binary
-    fn is_binary(&self) -> bool;
+    /// Check if message is binary and if so return payload
+    fn try_binary(self) -> Option<Vec<u8>>;
 
     /// Returns `true` if it's a closing message
     fn is_close(&self) -> bool;
@@ -100,64 +98,43 @@ pub trait Stream<R: DecodeAll>:
             return Err(Error::CloseMessage);
         }
 
-        if !subscription_request_message.is_binary() {
-            return Err(Error::NonBinaryMessage);
+        if let Some(binary) = subscription_request_message.try_binary() {
+            Ok(R::decode_all(&mut binary.as_slice())?)
+        } else {
+            Err(Error::NonBinaryMessage)
         }
-
-        Ok(R::decode_all(&mut subscription_request_message.as_bytes())?)
     }
 }
 
-impl StreamMessage for warp::ws::Message {
+impl StreamMessage for axum::extract::ws::Message {
     fn binary(source: Vec<u8>) -> Self {
-        warp::ws::Message::binary(source)
+        axum::extract::ws::Message::Binary(source)
     }
 
-    fn as_bytes(&self) -> &[u8] {
-        self.as_bytes()
-    }
-
-    fn is_binary(&self) -> bool {
-        self.is_binary()
+    fn try_binary(self) -> Option<Vec<u8>> {
+        if let Message::Binary(binary) = self {
+            Some(binary)
+        } else {
+            None
+        }
     }
 
     fn is_close(&self) -> bool {
-        self.is_close()
+        matches!(self, axum::extract::ws::Message::Close(_))
     }
 }
 
 #[async_trait::async_trait]
-impl<M> Sink<M> for warp::ws::WebSocket
+impl<M> Sink<M> for axum::extract::ws::WebSocket
 where
     M: Encode + Send + Sync + 'static,
 {
-    type Err = warp::Error;
-    type Message = warp::ws::Message;
+    type Err = axum::Error;
+    type Message = axum::extract::ws::Message;
 }
 
 #[async_trait::async_trait]
-impl<M: DecodeAll> Stream<M> for warp::ws::WebSocket {
-    type Err = warp::Error;
-    type Message = warp::ws::Message;
-}
-
-#[cfg(test)]
-mod ws_client {
-    use warp::test::WsClient;
-
-    use super::*;
-
-    #[async_trait::async_trait]
-    impl<M: DecodeAll> Stream<M> for WsClient {
-        type Err = warp::test::WsError;
-        type Message = warp::ws::Message;
-    }
-    #[async_trait::async_trait]
-    impl<M> Sink<M> for WsClient
-    where
-        M: Encode + Send + Sync + 'static,
-    {
-        type Err = warp::test::WsError;
-        type Message = warp::ws::Message;
-    }
+impl<M: DecodeAll> Stream<M> for axum::extract::ws::WebSocket {
+    type Err = axum::Error;
+    type Message = axum::extract::ws::Message;
 }

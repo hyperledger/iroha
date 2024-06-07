@@ -5,14 +5,16 @@
 //! - `telemetry`: enables Status, Metrics, and API Version endpoints
 //! - `schema`: enables Data Model Schema endpoint
 
-use std::{
-    convert::Infallible,
-    fmt::{Debug, Write as _},
-    net::ToSocketAddrs,
-    sync::Arc,
-};
+use std::{fmt::Debug, net::ToSocketAddrs, sync::Arc, time::Duration};
 
-use futures::{stream::FuturesUnordered, StreamExt};
+use axum::{
+    extract::{DefaultBodyLimit, WebSocketUpgrade},
+    http::StatusCode,
+    response::{IntoResponse, Json, Response},
+    routing::{get, post},
+    Router,
+};
+use futures::{stream::FuturesUnordered, StreamExt, TryFutureExt};
 use iroha_config::{base::util::Bytes, parameters::actual::Torii as Config};
 #[cfg(feature = "telemetry")]
 use iroha_core::metrics::MetricsReporter;
@@ -28,13 +30,14 @@ use iroha_core::{
 use iroha_data_model::ChainId;
 use iroha_primitives::addr::SocketAddr;
 use iroha_torii_const::uri;
-use tokio::{sync::Notify, task};
-use utils::*;
-use warp::{
-    http::StatusCode,
-    reply::{self, Json, Response},
-    ws::{WebSocket, Ws},
-    Filter as _, Reply,
+use tokio::{net::TcpListener, sync::Notify, task};
+use tower_http::{
+    timeout::TimeoutLayer,
+    trace::{DefaultMakeSpan, TraceLayer},
+};
+use utils::{
+    body::{ClientQueryRequestExtractor, ScaleVersioned},
+    Scale,
 };
 
 #[macro_use]
@@ -42,6 +45,8 @@ pub(crate) mod utils;
 mod event;
 mod routing;
 mod stream;
+
+const SERVER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii {
@@ -92,171 +97,172 @@ impl Torii {
 
     /// Helper function to create router. This router can be tested without starting up an HTTP server
     #[allow(clippy::too_many_lines)]
-    fn create_api_router(&self) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
-        let health_route = warp::get()
-            .and(warp::path(uri::HEALTH))
-            .and_then(|| async { Ok::<_, Infallible>(routing::handle_health()) });
-
-        let get_router = warp::get().and(
-            warp::path(uri::CONFIGURATION)
-                .and(add_state!(self.kiso))
-                .and_then(|kiso| async move {
-                    Ok::<_, Infallible>(WarpResult(routing::handle_get_configuration(kiso).await))
+    fn create_api_router(&self) -> axum::Router {
+        let router = Router::new()
+            .route(uri::HEALTH, get(routing::handle_health))
+            .route(
+                uri::CONFIGURATION,
+                get({
+                    let kiso = self.kiso.clone();
+                    move || routing::handle_get_configuration(kiso)
                 }),
-        );
+            );
 
         #[cfg(feature = "telemetry")]
-        let get_router = get_router
-            .or(warp::path(uri::STATUS)
-                .and(add_state!(self.metrics_reporter.clone()))
-                .and(warp::header::optional(warp::http::header::ACCEPT.as_str()))
-                .and(warp::path::tail())
-                .and_then(
-                    |metrics_reporter, accept: Option<String>, tail| async move {
-                        Ok::<_, Infallible>(crate::utils::WarpResult(routing::handle_status(
+        let router = router
+            .route(
+                &format!("{}/*tail", uri::STATUS),
+                get({
+                    let metrics_reporter = self.metrics_reporter.clone();
+                    move |headers: axum::http::header::HeaderMap, axum::extract::Path(tail): axum::extract::Path<String>| {
+                        let accept = headers.get(axum::http::header::ACCEPT);
+                        core::future::ready(routing::handle_status(
                             &metrics_reporter,
-                            accept.as_ref(),
-                            &tail,
-                        )))
-                    },
-                ))
-            .or(warp::path(uri::METRICS)
-                .and(add_state!(self.metrics_reporter))
-                .and_then(|metrics_reporter| async move {
-                    Ok::<_, Infallible>(crate::utils::WarpResult(routing::handle_metrics(
-                        &metrics_reporter,
-                    )))
-                }))
-            .or(warp::path(uri::API_VERSION)
-                .and(add_state!(self.state.clone()))
-                .and_then(|state| async {
-                    Ok::<_, Infallible>(routing::handle_version(state).await)
-                }));
+                            accept,
+                            Some(&tail),
+                        ))
+                    }
+                }),
+            )
+            .route(
+                uri::STATUS,
+                get({
+                    let metrics_reporter = self.metrics_reporter.clone();
+                    move |headers: axum::http::header::HeaderMap| {
+                        let accept = headers.get(axum::http::header::ACCEPT);
+                        core::future::ready(routing::handle_status(&metrics_reporter, accept, None))
+                    }
+                }),
+            )
+            .route(
+                uri::METRICS,
+                get({
+                    let metrics_reporter = self.metrics_reporter.clone();
+                    move || core::future::ready(routing::handle_metrics(&metrics_reporter))
+                }),
+            )
+            .route(
+                uri::API_VERSION,
+                get({
+                    let state = self.state.clone();
+                    move || routing::handle_version(state)
+                }),
+            );
 
         #[cfg(feature = "schema")]
-        let get_router = get_router.or(warp::path(uri::SCHEMA)
-            .and_then(|| async { Ok::<_, Infallible>(routing::handle_schema().await) }));
+        let router = router.route(uri::SCHEMA, get(routing::handle_schema));
 
         #[cfg(feature = "profiling")]
-        let get_router = {
-            // `warp` panics if there is `/` in the string given to the `warp::path` filter
-            // Path filter has to be boxed to have a single uniform type during iteration
-            let profile_router_path = uri::PROFILE
-                .split('/')
-                .skip_while(|p| p.is_empty())
-                .fold(warp::any().boxed(), |path_filter, path| {
-                    path_filter.and(warp::path(path)).boxed()
-                });
-
-            let profiling_lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
-            get_router.or(profile_router_path
-                .and(warp::query::<routing::profiling::ProfileParams>())
-                .and_then(move |params| {
+        let router = router.route(
+            uri::PROFILE,
+            get({
+                let profiling_lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+                move |axum::extract::Query(params): axum::extract::Query<_>| {
                     let profiling_lock = Arc::clone(&profiling_lock);
-                    async move {
-                        Ok::<_, Infallible>(
-                            routing::profiling::handle_profile(params, profiling_lock).await,
-                        )
-                    }
-                }))
-        };
+                    routing::profiling::handle_profile(params, profiling_lock)
+                }
+            }),
+        );
 
-        let post_router = warp::post()
-            .and(
-                endpoint4(
-                    routing::handle_transaction,
-                    warp::path(uri::TRANSACTION)
-                        .and(add_state!(self.chain_id, self.queue, self.state.clone()))
-                        .and(warp::body::content_length_limit(
-                            self.transaction_max_content_len.get(),
-                        ))
-                        .and(body::versioned()),
-                )
-                .or(endpoint3(
-                    routing::handle_queries,
-                    warp::path(uri::QUERY)
-                        .and(add_state!(self.query_service, self.state.clone(),))
-                        .and(routing::client_query_request()),
-                ))
-                .or(endpoint2(
-                    routing::handle_post_configuration,
-                    warp::path(uri::CONFIGURATION)
-                        .and(add_state!(self.kiso))
-                        .and(warp::body::json()),
+        let router = router
+            .route(
+                uri::TRANSACTION,
+                post({
+                    let chain_id = self.chain_id.clone();
+                    let queue = self.queue.clone();
+                    let state = self.state.clone();
+                    move |ScaleVersioned(transaction): ScaleVersioned<_>| {
+                        routing::handle_transaction(chain_id, queue, state, transaction)
+                    }
+                })
+                .layer(DefaultBodyLimit::max(
+                    self.transaction_max_content_len
+                        .get()
+                        .try_into()
+                        .expect("should't exceed usize"),
                 )),
             )
-            .recover(|rejection| async move { body::recover_versioned(rejection) });
-
-        let events_ws_router = warp::path(uri::SUBSCRIPTION)
-            .and(add_state!(self.events))
-            .and(warp::ws())
-            .map(|events, ws: Ws| {
-                ws.on_upgrade(|this_ws| async move {
-                    if let Err(error) =
-                        routing::subscription::handle_subscription(events, this_ws).await
-                    {
-                        iroha_logger::error!(%error, "Failure during subscription");
+            .route(
+                uri::QUERY,
+                post({
+                    let query_service = self.query_service.clone();
+                    let state = self.state.clone();
+                    move |ClientQueryRequestExtractor(query_request): ClientQueryRequestExtractor| {
+                        routing::handle_queries(query_service, state, query_request)
                     }
-                })
-            });
-
-        // `warp` panics if there is `/` in the string given to the `warp::path` filter
-        // Path filter has to be boxed to have a single uniform type during iteration
-        let block_ws_router_path = uri::BLOCKS_STREAM
-            .split('/')
-            .skip_while(|p| p.is_empty())
-            .fold(warp::any().boxed(), |path_filter, path| {
-                path_filter.and(warp::path(path)).boxed()
-            });
-
-        let blocks_ws_router = block_ws_router_path
-            .and(add_state!(self.kura))
-            .and(warp::ws())
-            .map(|sumeragi: Arc<_>, ws: Ws| {
-                ws.on_upgrade(|this_ws| async move {
-                    if let Err(error) = routing::handle_blocks_stream(sumeragi, this_ws).await {
-                        iroha_logger::error!(%error, "Failed to subscribe to blocks stream");
-                    }
-                })
-            });
-
-        let ws_router = events_ws_router.or(blocks_ws_router);
-
-        warp::any()
-            .and(
-                // we want to avoid logging for the "health" endpoint.
-                // we have to place it **first** so that warp's trace will
-                // not log 404 if it doesn't find "/health" which might be placed
-                // **after** `.with(trace)`
-                health_route,
+                }),
             )
-            .or(ws_router
-                .or(get_router)
-                .or(post_router)
-                .with(warp::trace::request()))
+            .route(
+                uri::CONFIGURATION,
+                post({
+                    let kiso = self.kiso.clone();
+                    move |Json(config): Json<_>| routing::handle_post_configuration(kiso, config)
+                }),
+            );
+
+        let router = router
+            .route(uri::SUBSCRIPTION, get({
+                let events = self.events.clone();
+                move |ws: WebSocketUpgrade| {
+                    core::future::ready(
+                        ws.on_upgrade(|ws| async move {
+                            if let Err(error) =
+                                routing::subscription::handle_subscription(events, ws).await
+                            {
+                                iroha_logger::error!(%error, "Failure during subscription");
+                            }
+                        })
+                    )
+                }
+            }))
+            .route(uri::BLOCKS_STREAM,
+                post({
+                    let kura = self.kura.clone();
+                    move |ws: WebSocketUpgrade| {
+                        core::future::ready(
+                            ws.on_upgrade(|ws| async move {
+                                if let Err(error) = routing::handle_blocks_stream(kura, ws).await {
+                                    iroha_logger::error!(%error, "Failed to subscribe to blocks stream");
+                                }
+                            })
+                        )
+                    }
+                })
+            )
+            ;
+
+        router.layer((
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::default().include_headers(true)),
+            // Graceful shutdown will wait for outstanding requests to complete.
+            // Add a timeout so requests don't hang forever.
+            TimeoutLayer::new(SERVER_SHUTDOWN_TIMEOUT),
+        ))
     }
 
     /// Start main API endpoints.
     ///
     /// # Errors
     /// Can fail due to listening to network or if http server fails
-    fn start_api(self: Arc<Self>) -> eyre::Result<Vec<task::JoinHandle<()>>> {
+    fn start_api(self: Arc<Self>) -> eyre::Result<Vec<task::JoinHandle<eyre::Result<()>>>> {
         let torii_address = &self.address;
 
         let handles = torii_address
             .to_socket_addrs()?
             .map(|addr| {
                 let torii = Arc::clone(&self);
-
                 let api_router = torii.create_api_router();
-                let signal_fut = async move { torii.notify_shutdown.notified().await };
-                // FIXME: warp panics if fails to bind!
-                //        handle this properly, report address origin after Axum
-                //        migration: https://github.com/hyperledger/iroha/issues/3776
-                let (_, serve_fut) =
-                    warp::serve(api_router).bind_with_graceful_shutdown(addr, signal_fut);
 
-                task::spawn(serve_fut)
+                let signal = async move { torii.notify_shutdown.notified().await };
+
+                let serve_fut = async move {
+                    let listener = TcpListener::bind(addr).await?;
+                    axum::serve(listener, api_router)
+                        .with_graceful_shutdown(signal)
+                        .await
+                };
+
+                task::spawn(serve_fut.map_err(eyre::Report::from))
             })
             .collect();
 
@@ -278,10 +284,15 @@ impl Torii {
             .into_iter()
             .collect::<FuturesUnordered<_>>()
             .for_each(|handle| {
-                if let Err(error) = handle {
-                    iroha_logger::error!(%error, "Join handle error");
+                match handle {
+                    Err(error) => {
+                        iroha_logger::error!(%error, "Join handle error");
+                    }
+                    Ok(Err(error)) => {
+                        iroha_logger::error!(%error, "Error while running torii");
+                    }
+                    _ => {}
                 }
-
                 futures::future::ready(())
             })
             .await;
@@ -316,14 +327,11 @@ pub enum Error {
     StatusSegmentNotFound(#[source] eyre::Report),
 }
 
-impl Reply for Error {
+impl IntoResponse for Error {
     fn into_response(self) -> Response {
         match self {
-            Self::Query(err) => {
-                reply::with_status(utils::Scale(&err), Self::query_status_code(&err))
-                    .into_response()
-            }
-            _ => reply::with_status(Self::to_string(&self), self.status_code()).into_response(),
+            Self::Query(err) => (Self::query_status_code(&err), utils::Scale(err)).into_response(),
+            _ => (self.status_code(), self.to_string()).into_response(),
         }
     }
 }
@@ -374,18 +382,6 @@ impl Error {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         }
-    }
-
-    fn to_string(err: &dyn std::error::Error) -> String {
-        let mut s = "Error:\n".to_owned();
-        let mut idx = 0_i32;
-        let mut err_opt = Some(err);
-        while let Some(e) = err_opt {
-            write!(s, "    {idx}: {}", &e.to_string()).expect("Valid");
-            idx += 1_i32;
-            err_opt = e.source()
-        }
-        s
     }
 }
 

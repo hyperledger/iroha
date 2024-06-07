@@ -58,7 +58,7 @@ iroha_primitives = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_telemetry = { workspace = true }
 iroha_torii_const = { workspace = true }
-iroha_version = { workspace = true, features = ["http"] }
+iroha_version = { workspace = true }
 test_samples = { workspace = true }
 
 attohttpc = { version = "0.28.0", default-features = false }

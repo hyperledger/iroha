@@ -2,9 +2,7 @@
 //! Iroha you should add it here by creating a `handle_*` function,
 //! and add it to impl Torii.
 
-// FIXME: This can't be fixed, because one trait in `warp` is private.
-#![allow(opaque_hidden_inferred_bound)]
-
+use axum::extract::ws::WebSocket;
 #[cfg(feature = "telemetry")]
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
@@ -16,33 +14,16 @@ use iroha_data_model::{
         SignedBlock,
     },
     prelude::*,
-    query::{cursor::ForwardCursor, http, QueryOutputBox, QueryRequest},
+    query::{http, QueryOutputBox, QueryRequest},
     BatchedResponse,
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
+use stream::StreamMessage as _;
 use tokio::task;
 
 use super::*;
 use crate::stream::{Sink, Stream};
-
-/// Filter for warp which extracts [`http::ClientQueryRequest`]
-pub fn client_query_request(
-) -> impl warp::Filter<Extract = (http::ClientQueryRequest,), Error = warp::Rejection> + Copy {
-    body::versioned::<SignedQuery>()
-        .and_then(|signed_query| async move {
-            Result::<_, std::convert::Infallible>::Ok(http::ClientQueryRequest::query(signed_query))
-        })
-        .or(cursor().and_then(|cursor| async move {
-            Result::<_, std::convert::Infallible>::Ok(http::ClientQueryRequest::cursor(cursor))
-        }))
-        .unify()
-}
-
-/// Filter for warp which extracts cursor
-fn cursor() -> impl warp::Filter<Extract = (ForwardCursor,), Error = warp::Rejection> + Copy {
-    warp::query()
-}
 
 #[iroha_futures::telemetry_future]
 pub async fn handle_transaction(
@@ -50,7 +31,7 @@ pub async fn handle_transaction(
     queue: Arc<Queue>,
     state: Arc<State>,
     transaction: SignedTransaction,
-) -> Result<Empty> {
+) -> Result<()> {
     let state_view = state.view();
     let transaction_limits = state_view.world().parameters().transaction;
     let transaction = AcceptedTransaction::accept(transaction, &chain_id, transaction_limits)
@@ -66,7 +47,6 @@ pub async fn handle_transaction(
             Box::new(err)
         })
         .map_err(Error::PushIntoQueue)
-        .map(|()| Empty)
 }
 
 #[iroha_futures::telemetry_future]
@@ -97,37 +77,42 @@ pub async fn handle_queries(
         .map_err(Into::into)
 }
 
+/// Health status
 #[derive(serde::Serialize)]
 #[non_exhaustive]
-enum Health {
+pub enum Health {
     Healthy,
 }
 
-pub fn handle_health() -> Json {
-    reply::json(&Health::Healthy)
+pub async fn handle_health() -> Json<Health> {
+    Json(Health::Healthy)
 }
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "schema")]
-pub async fn handle_schema() -> Json {
-    reply::json(&iroha_schema_gen::build_schemas())
+pub async fn handle_schema() -> Json<iroha_schema::MetaMap> {
+    Json(iroha_schema_gen::build_schemas())
 }
 
 #[iroha_futures::telemetry_future]
-pub async fn handle_get_configuration(kiso: KisoHandle) -> Result<Json> {
+pub async fn handle_get_configuration(kiso: KisoHandle) -> Result<Json<ConfigDTO>> {
     let dto = kiso.get_dto().await?;
-    Ok(reply::json(&dto))
+    Ok(Json(dto))
 }
 
 #[iroha_futures::telemetry_future]
-pub async fn handle_post_configuration(kiso: KisoHandle, value: ConfigDTO) -> Result<impl Reply> {
+pub async fn handle_post_configuration(
+    kiso: KisoHandle,
+    value: ConfigDTO,
+) -> Result<impl IntoResponse> {
     kiso.update_with_dto(value).await?;
-    Ok(reply::with_status(reply::reply(), StatusCode::ACCEPTED))
+    Ok((StatusCode::ACCEPTED, ()))
 }
 
 #[iroha_futures::telemetry_future]
 pub async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::Result<()> {
-    let BlockSubscriptionRequest(mut from_height) = stream.recv().await?;
+    let BlockSubscriptionRequest(mut from_height) =
+        Stream::<BlockSubscriptionRequest>::recv(&mut stream).await?;
 
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
     loop {
@@ -154,10 +139,8 @@ pub async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyr
             // This branch sends blocks
             _ = interval.tick() => {
                 if let Some(block) = kura.get_block_by_height(from_height.try_into().expect("INTERNAL BUG: Number of blocks exceeds usize::MAX")) {
-                    stream
-                        // TODO: to avoid clone `BlockMessage` could be split into sending and receiving parts
-                        .send(BlockMessage(SignedBlock::clone(&block)))
-                        .await?;
+                    // TODO: to avoid clone `BlockMessage` could be split into sending and receiving parts
+                    Sink::<BlockMessage>::send(&mut stream, BlockMessage(SignedBlock::clone(&block))).await?;
                     from_height = from_height.checked_add(1).expect("Maximum block height is achieved.");
                 }
             }
@@ -182,7 +165,7 @@ pub mod subscription {
         /// Event reception error
         Event(#[from] tokio::sync::broadcast::error::RecvError),
         /// `WebSocket` error
-        WebSocket(#[from] warp::Error),
+        WebSocket(#[from] axum::Error),
         /// A `Close` message is received. Not strictly an Error
         CloseMessage,
     }
@@ -206,9 +189,6 @@ pub mod subscription {
     ///
     /// Subscribes `stream` for `events` filtered by filter that is
     /// received through the `stream`
-    ///
-    /// There should be a [`warp::filters::ws::Message::close()`]
-    /// message to end subscription
     #[iroha_futures::telemetry_future]
     pub async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
         let mut consumer = event::Consumer::new(stream).await?;
@@ -250,7 +230,7 @@ pub mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
-pub async fn handle_version(state: Arc<State>) -> Json {
+pub async fn handle_version(state: Arc<State>) -> Json<String> {
     use iroha_version::Version;
 
     let state_view = state.view();
@@ -259,7 +239,8 @@ pub async fn handle_version(state: Arc<State>) -> Json {
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
         .version()
         .to_string();
-    reply::json(&string)
+
+    Json(string)
 }
 
 #[cfg(feature = "telemetry")]
@@ -282,22 +263,15 @@ pub fn handle_metrics(metrics_reporter: &MetricsReporter) -> Result<String> {
 #[allow(clippy::unnecessary_wraps)]
 pub fn handle_status(
     metrics_reporter: &MetricsReporter,
-    accept: Option<impl AsRef<str>>,
-    tail: &warp::path::Tail,
+    accept: Option<impl AsRef<[u8]>>,
+    tail: Option<&str>,
 ) -> Result<Response> {
     use eyre::ContextCompat;
 
     update_metrics_gracefully(metrics_reporter);
     let status = Status::from(&metrics_reporter.metrics());
 
-    let tail = tail.as_str();
-    if tail.is_empty() {
-        if accept.is_some_and(|x| x.as_ref() == PARITY_SCALE_MIME_TYPE) {
-            Ok(Scale(status).into_response())
-        } else {
-            Ok(reply::json(&status).into_response())
-        }
-    } else {
+    if let Some(tail) = tail {
         // TODO: This probably can be optimised to elide the full
         // structure. Ideally there should remain a list of fields and
         // field aliases somewhere in `serde` macro output, which can
@@ -312,9 +286,13 @@ pub fn handle_status(
             .try_fold(&value, serde_json::Value::get)
             .wrap_err_with(|| eyre!("Path not found: \"{}\"", tail))
             .map_err(Error::StatusSegmentNotFound)
-            .map(|segment| reply::json(segment).into_response())?;
+            .map(|segment| Json(segment).into_response())?;
 
         Ok(reply)
+    } else if accept.is_some_and(|x| x.as_ref() == utils::PARITY_SCALE_MIME_TYPE.as_bytes()) {
+        Ok(Scale(status).into_response())
+    } else {
+        Ok(Json(status).into_response())
     }
 }
 
