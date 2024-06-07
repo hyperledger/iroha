@@ -83,6 +83,13 @@ impl Peer {
     }
 }
 
+impl PeerId {
+    /// Getter for `address`
+    pub fn address(&self) -> &SocketAddr {
+        &self.address
+    }
+}
+
 impl PartialEq for PeerId {
     fn eq(&self, other: &Self) -> bool {
         // Comparison is done by public key only.

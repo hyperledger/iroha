@@ -55,8 +55,8 @@ pub mod model {
     // TODO: Generics are not supported. Figure out what to do
     //#[getset(get = "pub")]
     #[ffi_type]
-    pub struct MetadataChanged<ID> {
-        pub target_id: ID,
+    pub struct MetadataChanged<Id> {
+        pub target_id: Id,
         pub key: Name,
         pub value: Box<Value>,
     }
@@ -697,6 +697,23 @@ impl DataEvent {
             | Self::PermissionToken(_)
             | Self::Executor(_) => None,
         }
+    }
+}
+
+impl<Id> MetadataChanged<Id> {
+    /// Getter for `target_id`
+    pub fn target_id(&self) -> &Id {
+        &self.target_id
+    }
+
+    /// Getter for `target_id`
+    pub fn key(&self) -> &Name {
+        &self.key
+    }
+
+    /// Getter for `value`
+    pub fn value(&self) -> &Value {
+        &self.value
     }
 }
 
