@@ -7,6 +7,7 @@ use iroha_primitives::numeric::Numeric;
 
 pub use self::model::*;
 use super::*;
+use crate::metadata::MetadataValueBox;
 
 macro_rules! data_event {
     ($item:item) => {
@@ -38,7 +39,6 @@ macro_rules! data_event {
 #[model]
 mod model {
     use super::*;
-    use crate::metadata::MetadataValueBox;
 
     /// Generic [`MetadataChanged`] struct.
     /// Contains the changed metadata (`(key, value)` pair), either inserted or removed, which is determined by the wrapping event.
@@ -58,8 +58,8 @@ mod model {
     // TODO: Generics are not supported. Figure out what to do
     //#[getset(get = "pub")]
     #[ffi_type]
-    pub struct MetadataChanged<ID> {
-        pub target_id: ID,
+    pub struct MetadataChanged<Id> {
+        pub target_id: Id,
         pub key: Name,
         pub value: MetadataValueBox,
     }
@@ -603,6 +603,23 @@ impl DataEvent {
             | Self::Role(_)
             | Self::Trigger(_) => None,
         }
+    }
+}
+
+impl<Id> MetadataChanged<Id> {
+    /// Getter for `target_id`
+    pub fn target_id(&self) -> &Id {
+        &self.target_id
+    }
+
+    /// Getter for `target_id`
+    pub fn key(&self) -> &Name {
+        &self.key
+    }
+
+    /// Getter for `value`
+    pub fn value(&self) -> &MetadataValueBox {
+        &self.value
     }
 }
 
