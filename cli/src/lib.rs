@@ -55,18 +55,7 @@ pub mod samples;
 /// [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29)
 /// of the system. It configures, coordinates and manages transactions
 /// and queries processing, work of consensus and storage.
-///
-/// # Usage
-/// Construct and then use [`Iroha::start_torii`] or [`Iroha::start_torii_as_task`]. If you experience
-/// an immediate shutdown after constructing Iroha, then you probably forgot this step.
-#[must_use = "run `.start_torii().await?` to not immediately stop Iroha"]
-pub struct Iroha<ToriiState> {
-    main_state: IrohaMainState,
-    /// Torii web server
-    torii: ToriiState,
-}
-
-struct IrohaMainState {
+pub struct Iroha {
     /// Actor responsible for the configuration
     _kiso: KisoHandle,
     /// Queue of transactions
@@ -79,6 +68,8 @@ struct IrohaMainState {
     _snapshot_maker: Option<SnapshotMakerHandle>,
     /// State of blockchain
     state: Arc<State>,
+    /// Shutdown signal
+    notify_shutdown: Arc<Notify>,
     /// Thread handlers
     thread_handlers: Vec<ThreadHandler>,
     /// A boolean value indicating whether or not the peers will receive data from the network.
@@ -87,16 +78,10 @@ struct IrohaMainState {
     pub freeze_status: Arc<AtomicBool>,
 }
 
-/// A state of [`Iroha`] for when the network is started, but [`Torii`] not yet.
-pub struct ToriiNotStarted(Torii);
-
-/// A state of [`Iroha`] for when the network & [`Torii`] are started.
-#[allow(missing_copy_implementations)]
-pub struct ToriiStarted;
-
-impl Drop for IrohaMainState {
+impl Drop for Iroha {
     fn drop(&mut self) {
         iroha_logger::trace!("Iroha instance dropped");
+        self.notify_shutdown.notify_waiters();
         let _thread_handles = core::mem::take(&mut self.thread_handlers);
         iroha_logger::debug!(
             "Thread handles dropped. Dependent processes going for a graceful shutdown"
@@ -178,7 +163,7 @@ impl NetworkRelay {
     }
 }
 
-impl Iroha<ToriiNotStarted> {
+impl Iroha {
     fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
         #[cfg(not(feature = "test-network"))]
         use std::panic::set_hook;
@@ -226,9 +211,9 @@ impl Iroha<ToriiNotStarted> {
         }));
     }
 
-    /// Creates new Iroha instance and starts all internal services, except [`Torii`].
+    /// Creates new Iroha instance and starts all internal services.
     ///
-    /// Torii is started separately with [`Self::start_torii`] or [`Self::start_torii_as_task`]
+    /// Returns iroha itself and future to await for iroha completion.
     ///
     /// # Errors
     /// - Reading telemetry configs
@@ -243,7 +228,7 @@ impl Iroha<ToriiNotStarted> {
         config: Config,
         genesis: Option<GenesisTransaction>,
         logger: LoggerHandle,
-    ) -> Result<Self, StartError> {
+    ) -> Result<(impl core::future::Future<Output = ()>, Self), StartError> {
         let network = IrohaNetwork::start(config.common.key_pair.clone(), config.network.clone())
             .await
             .change_context(StartError::StartP2p)?;
@@ -384,81 +369,40 @@ impl Iroha<ToriiNotStarted> {
             metrics_reporter,
         );
 
-        Self::spawn_config_updates_broadcasting(kiso.clone(), logger.clone());
-
-        Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
-
-        Self::prepare_panic_hook(notify_shutdown);
-
-        Ok(Self {
-            main_state: IrohaMainState {
-                _kiso: kiso,
-                _queue: queue,
-                _sumeragi: sumeragi,
-                kura,
-                _snapshot_maker: snapshot_maker,
-                state,
-                thread_handlers: vec![kura_thread_handler],
-                #[cfg(debug_assertions)]
-                freeze_status,
-            },
-            torii: ToriiNotStarted(torii),
-        })
-    }
-
-    fn take_torii(self) -> (Torii, Iroha<ToriiStarted>) {
-        let Self {
-            main_state,
-            torii: ToriiNotStarted(torii),
-        } = self;
-        (
-            torii,
-            Iroha {
-                main_state,
-                torii: ToriiStarted,
-            },
-        )
-    }
-
-    /// To make `Iroha` peer work it should be started first. After
-    /// that moment it will listen for incoming requests and messages.
-    ///
-    /// # Errors
-    /// - Forwards initialisation error.
-    #[iroha_futures::telemetry_future]
-    pub async fn start_torii(self) -> Result<Iroha<ToriiStarted>, StartError> {
-        let (torii, new_self) = self.take_torii();
-        iroha_logger::info!("Starting Iroha");
-        torii
-            .start()
-            .await
-            .into_report()
-            // https://github.com/hashintel/hash/issues/4295
-            .map_err(|report| report.change_context(StartError::StartTorii))?;
-        Ok(new_self)
-    }
-
-    /// Starts Iroha in separate tokio task.
-    ///
-    /// # Errors
-    /// - Forwards initialisation error.
-    #[cfg(feature = "test-network")]
-    pub fn start_torii_as_task(
-        self,
-    ) -> (
-        task::JoinHandle<Result<(), StartError>>,
-        Iroha<ToriiStarted>,
-    ) {
-        let (torii, new_self) = self.take_torii();
-        iroha_logger::info!("Starting Iroha as task");
-        let handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             torii
                 .start()
                 .await
                 .into_report()
                 .map_err(|report| report.change_context(StartError::StartTorii))
         });
-        (handle, new_self)
+
+        Self::spawn_config_updates_broadcasting(kiso.clone(), logger.clone());
+
+        Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
+
+        Self::prepare_panic_hook(Arc::clone(&notify_shutdown));
+
+        // Future to wait for iroha completion
+        let wait = {
+            let notify_shutdown = Arc::clone(&notify_shutdown);
+            async move { notify_shutdown.notified().await }
+        };
+
+        let irohad = Self {
+            _kiso: kiso,
+            _queue: queue,
+            _sumeragi: sumeragi,
+            kura,
+            _snapshot_maker: snapshot_maker,
+            state,
+            notify_shutdown,
+            thread_handlers: vec![kura_thread_handler],
+            #[cfg(debug_assertions)]
+            freeze_status,
+        };
+
+        Ok((wait, irohad))
     }
 
     #[cfg(feature = "telemetry")]
@@ -563,23 +507,21 @@ impl Iroha<ToriiNotStarted> {
             }
         })
     }
-}
 
-impl<T> Iroha<T> {
     #[allow(missing_docs)]
     #[cfg(debug_assertions)]
     pub fn freeze_status(&self) -> &Arc<AtomicBool> {
-        &self.main_state.freeze_status
+        &self.freeze_status
     }
 
     #[allow(missing_docs)]
     pub fn state(&self) -> &Arc<State> {
-        &self.main_state.state
+        &self.state
     }
 
     #[allow(missing_docs)]
     pub fn kura(&self) -> &Arc<Kura> {
-        &self.main_state.kura
+        &self.kura
     }
 }
 

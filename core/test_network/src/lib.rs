@@ -21,14 +21,13 @@ use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
     unique_vec::UniqueVec,
 };
-use irohad::{Iroha, ToriiStarted};
+use irohad::Iroha;
 use rand::{seq::IteratorRandom, thread_rng};
 use serde_json::json;
 use tempfile::TempDir;
 use test_samples::{ALICE_ID, ALICE_KEYPAIR, PEER_KEYPAIR, SAMPLE_GENESIS_ACCOUNT_KEYPAIR};
 use tokio::{
     runtime::{self, Runtime},
-    task::{self, JoinHandle},
     time,
 };
 pub use unique_port;
@@ -375,10 +374,8 @@ pub struct Peer {
     pub p2p_address: SocketAddr,
     /// The key-pair for the peer
     pub key_pair: KeyPair,
-    /// Shutdown handle
-    shutdown: Option<JoinHandle<()>>,
     /// Iroha server
-    pub irohad: Option<Iroha<ToriiStarted>>,
+    pub irohad: Option<Iroha>,
     /// Temporary directory
     // Note: last field to be dropped after Iroha (struct fields drops in FIFO RFC 1857)
     pub temp_dir: Option<Arc<TempDir>>,
@@ -453,43 +450,28 @@ impl Peer {
             api_addr = %self.api_address,
         );
         let logger = iroha_logger::test_logger();
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
 
-        let handle = task::spawn(
-            async move {
-                let irohad = Iroha::start_network(config, genesis, logger)
-                    .await
-                    .expect("Failed to start Iroha");
-                let (job_handle, irohad) = irohad.start_torii_as_task();
-                sender.send(irohad).unwrap();
-                job_handle.await.unwrap().unwrap();
-            }
-            .instrument(info_span),
-        );
+        let (_, irohad) = Iroha::start_network(config, genesis, logger)
+            .instrument(info_span)
+            .await
+            .expect("Failed to start Iroha");
 
-        self.irohad = Some(receiver.recv().unwrap());
+        self.irohad = Some(irohad);
         time::sleep(Duration::from_millis(300)).await;
-        self.shutdown = Some(handle);
         // Prevent temporary directory deleting
         self.temp_dir = Some(temp_dir);
     }
 
     /// Stop the peer if it's running
-    pub fn stop(&mut self) -> Option<()> {
+    pub fn stop(&mut self) {
         iroha_logger::info!(
             p2p_addr = %self.p2p_address,
             api_addr = %self.api_address,
             "Stopping peer",
         );
 
-        if let Some(shutdown) = self.shutdown.take() {
-            shutdown.abort();
-            iroha_logger::info!("Shutting down peer...");
-            self.irohad.take();
-            Some(())
-        } else {
-            None
-        }
+        iroha_logger::info!("Shutting down peer...");
+        self.irohad.take();
     }
 
     /// Creates peer
@@ -504,13 +486,11 @@ impl Peer {
         let p2p_address = local_unique_port()?;
         let api_address = local_unique_port()?;
         let id = PeerId::new(p2p_address.clone(), key_pair.public_key().clone());
-        let shutdown = None;
         Ok(Self {
             id,
             key_pair,
             p2p_address,
             api_address,
-            shutdown,
             irohad: None,
             temp_dir: None,
         })

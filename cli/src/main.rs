@@ -51,12 +51,11 @@ async fn main() -> error_stack::Result<(), MainError> {
         iroha_logger::debug!("Submitting genesis.");
     }
 
-    let _iroha = Iroha::start_network(config, genesis, logger)
+    Iroha::start_network(config, genesis, logger)
         .await
         .change_context(MainError::IrohaStart)?
-        .start_torii()
-        .await
-        .change_context(MainError::IrohaStart)?;
+        .0
+        .await;
 
     Ok(())
 }

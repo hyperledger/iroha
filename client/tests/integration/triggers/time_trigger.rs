@@ -199,7 +199,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 
 #[test]
 fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
-    const TRIGGER_PERIOD_MS: u64 = 1000;
+    const TRIGGER_PERIOD: Duration = Duration::from_millis(1000);
     const EXPECTED_COUNT: u64 = 4;
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
@@ -241,9 +241,10 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let event_listener = get_block_committed_event_listener(&test_client)?;
 
     // Registering trigger
-    let start_time = curr_time();
-    let schedule = TimeSchedule::starting_at(start_time + Duration::from_secs(5))
-        .with_period(Duration::from_millis(TRIGGER_PERIOD_MS));
+    // Offset into the future to be able to register trigger
+    let offset = Duration::from_secs(10);
+    let start_time = curr_time() + offset;
+    let schedule = TimeSchedule::starting_at(start_time).with_period(TRIGGER_PERIOD);
     let register_trigger = Register::trigger(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(
@@ -253,14 +254,15 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
             TimeEventFilter::new(ExecutionTime::Schedule(schedule)),
         ),
     ));
-    test_client.submit(register_trigger)?;
+    test_client.submit_blocking(register_trigger)?;
+    std::thread::sleep(offset);
 
     // Time trigger will be executed on block commits, so we have to produce some transactions
     submit_sample_isi_on_every_block_commit(
         event_listener,
         &mut test_client,
         &alice_id,
-        Duration::from_millis(TRIGGER_PERIOD_MS),
+        TRIGGER_PERIOD,
         usize::try_from(EXPECTED_COUNT)?,
     )?;
 
@@ -294,7 +296,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
 fn get_block_committed_event_listener(
     client: &Client,
 ) -> Result<impl Iterator<Item = Result<EventBox>>> {
-    let block_filter = BlockEventFilter::default().for_status(BlockStatus::Committed);
+    let block_filter = BlockEventFilter::default().for_status(BlockStatus::Applied);
     client.listen_for_events([block_filter])
 }
 
