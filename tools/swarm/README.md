@@ -1,44 +1,57 @@
-# `iroha_swarm`
+# Iroha Swarm
 
-CLI to generate Docker Compose configuration.
+Docker Compose peer configuration generator for Iroha.
 
 ## Usage
 
-```bash
-iroha_swarm <options>
+```
+iroha_swarm [OPTIONS] --peers <PEERS> --config-dir <CONFIG_DIR> --image <IMAGE> --out-file <OUT_FILE>
 ```
 
-**Options:**
+### Options
 
-- **`--out-file <path>`** (required): specify the output file name, e.g. `./docker-compose.yml`. If the file exists, the prompt appears (might be disabled with `--force` option).
-- **`--config-dir <path>`** (required): specify the path to the directory containing `config.json` and `genesis.json`. The path to the config will be written into the file specified by `--out-file` relative to its location.
-- **Image source** (required):
-  - **`--image <name>`**: specify image name, like `hyperledger/iroha2:dev`
-  - **`--build <path>`**: specify path to the Iroha repo
-- **`--peers <number>` (`-p`)** (required): amount of peers to generate
-- **`--seed <string>` (`-s`)** (optional): specify a string to use as a cryptographic seed for keys generation. Allows to generate compose configurations deterministically. UTF-8 bytes of the string will be used.
-- **`--force`** (optional): override file specified with `--out-file` if it exists
+- `-p, --peers <PEERS>`: Number of peer services in the configuration
+- `-s, --seed <SEED>`: The Unicode `seed` string for deterministic key-generation
+- `--healthcheck`: Includes a healthcheck for every service in the configuration.
+  - The healthchecks use predefined settings.
+  - For more details on healthcheck configurations in Docker Compose files, visit: [Docker Compose Healthcheck](https://docs.docker.com/compose/compose-file/compose-file-v3/#healthcheck)
+- `-c, --config-dir <CONFIG_DIR>`: Path to a directory with Iroha configuration. It will be mapped to a volume for each container.
+  - The directory should contain `genesis.json` and the executor.
+- `--image <IMAGE>`: Docker image used by the peer services.
+  - By default, the image is pulled from Docker Hub if not cached. Pass the `--build` option to build the image from a Dockerfile instead.
+  - **Note**: Swarm only guarantees that the Docker Compose configuration it generates is compatible with the same Git revision it is built from itself. Therefore, if the specified image is not compatible with the version of Swarm you are running, the generated configuration might not work.
+- `--build <PATH>`: Build the image from the Dockerfile in the specified directory. Do not rebuild if the image has been cached.
+  - The provided path is resolved relative to the current working directory.
+- `--no-cache`: Always pull or rebuild the image even if it is cached locally
+- `-o, --out-file <OUT_FILE>`: Path to the generated configuration.
+  - If file exists, the app will prompt its overwriting. If the TTY is not interactive, the app will stop execution with a non-zero exit code. To overwrite the file anyway, pass the `--force` flag.
+- `--force`: Overwrite the target file if it already exists
+- `--no-banner`: Disable the banner in the file saying that the file is generated.
+  - It includes all passed arguments in order to help with reproducibility.
+
 
 ## Examples
 
-Generate `docker-compose.dev.yml` with 5 peers, using `iroha` utf-8 bytes as a cryptographic seed, using `./peer_config` as a directory with configuration, and using `.` as a directory with `Dockerfile` of Iroha: 
+Generate `docker-compose.dev.yml` with 5 peers, using `iroha` UTF-8 bytes as a cryptographic seed, using `./peer_config` as a directory with configuration, and using `.` as a directory with the Iroha `Dockerfile` to build a `myrepo/iroha:dev` image: 
 
 ```bash
 iroha_swarm \
-    --build . \
     --peers 5 \
     --seed iroha \
     --config-dir ./peer_config \
+    --image myrepo/iroha:dev \
+    --build . \
     --out-file docker-compose.dev.yml
 ```
 
-Same, but using an existing Docker image instead:
+Same, but using an existing image pulled from Docker Hub instead, and adding a healthcheck to every peer:
 
 ```bash
 iroha_swarm \
-    --image hyperledger/iroha2:dev \
     --peers 5 \
     --seed iroha \
+    --healthcheck \
     --config-dir ./peer_config \
+    --image hyperledger/iroha:dev \
     --out-file docker-compose.dev.yml
 ```

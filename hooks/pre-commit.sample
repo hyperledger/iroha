@@ -16,9 +16,9 @@ cargo run --release --bin kagami -- genesis generate --executor-path-in-genesis 
 # update schema
 cargo run --release --bin kagami -- schema > ./docs/source/references/schema.json
 # update docker compose files
-cargo run --release --bin iroha_swarm -- -p 1 -s Iroha --force --config-dir ./configs/swarm --health-check --build . --out-file ./configs/swarm/docker-compose.single.yml
-cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/swarm --health-check --build . --out-file ./configs/swarm/docker-compose.local.yml
-cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/swarm --health-check --image hyperledger/iroha:dev --out-file ./configs/swarm/docker-compose.yml
+cargo run --release --bin iroha_swarm -- -p 1 -s Iroha --healthcheck --config-dir ./configs/swarm --image hyperledger/iroha:dev --build . --out-file ./configs/swarm/docker-compose.single.yml --force
+cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --healthcheck --config-dir ./configs/swarm --image hyperledger/iroha:dev --build . --out-file ./configs/swarm/docker-compose.local.yml --force
+cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --healthcheck --config-dir ./configs/swarm --image hyperledger/iroha:dev --out-file ./configs/swarm/docker-compose.yml --force
 # lints
 cargo lints clippy --workspace --benches --tests --examples --all-features
 # stage updates
