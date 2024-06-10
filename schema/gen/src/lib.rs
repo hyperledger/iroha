@@ -117,6 +117,7 @@ types!(
     ConstVec<u8>,
     Container,
     ClientQueryPayload,
+    Custom,
     DataEvent,
     DataEventFilter,
     Domain,

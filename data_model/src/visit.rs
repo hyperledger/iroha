@@ -43,6 +43,7 @@ pub trait Visit {
         visit_new_parameter(&NewParameter),
         visit_set_parameter(&SetParameter),
         visit_log(&Log),
+        visit_custom(&Custom),
 
         // Visit QueryBox
         visit_find_account_by_id(&FindAccountById),
@@ -259,6 +260,7 @@ pub fn visit_instruction<V: Visit + ?Sized>(
             visitor.visit_unregister(authority, variant_value)
         }
         InstructionBox::Upgrade(variant_value) => visitor.visit_upgrade(authority, variant_value),
+        InstructionBox::Custom(custom) => visitor.visit_custom(authority, custom),
     }
 }
 
@@ -431,6 +433,7 @@ leaf_visitors! {
     visit_execute_trigger(&ExecuteTrigger),
     visit_fail(&Fail),
     visit_log(&Log),
+    visit_custom(&Custom),
 
     // Query visitors
     visit_find_account_by_id(&FindAccountById),

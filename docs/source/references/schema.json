@@ -833,6 +833,14 @@
       }
     ]
   },
+  "Custom": {
+    "Struct": [
+      {
+        "name": "payload",
+        "type": "JsonString"
+      }
+    ]
+  },
   "DataEvent": {
     "Enum": [
       {
@@ -1196,6 +1204,10 @@
       {
         "name": "permissions",
         "type": "SortedVec<PermissionId>"
+      },
+      {
+        "name": "custom_instruction",
+        "type": "Option<String>"
       },
       {
         "name": "schema",
@@ -1858,8 +1870,13 @@
         "type": "Log"
       },
       {
-        "tag": "Fail",
+        "tag": "Custom",
         "discriminant": 14,
+        "type": "Custom"
+      },
+      {
+        "tag": "Fail",
+        "discriminant": 15,
         "type": "Fail"
       }
     ]
@@ -2013,8 +2030,12 @@
         "discriminant": 13
       },
       {
-        "tag": "Fail",
+        "tag": "Custom",
         "discriminant": 14
+      },
+      {
+        "tag": "Fail",
+        "discriminant": 15
       }
     ]
   },

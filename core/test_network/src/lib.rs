@@ -782,15 +782,20 @@ impl TestConfig for Config {
     }
 }
 
+// Increased timeout to prevent flaky tests
+const TRANSACTION_STATUS_TIMEOUT: Duration = Duration::from_secs(150);
+
 impl TestClientConfig for ClientConfig {
     fn test(api_address: &SocketAddr) -> Self {
-        iroha::samples::get_client_config(
+        let mut config = iroha::samples::get_client_config(
             get_chain_id(),
             get_key_pair(Signatory::Alice),
             format!("http://{api_address}")
                 .parse()
                 .expect("should be valid url"),
-        )
+        );
+        config.transaction_status_timeout = TRANSACTION_STATUS_TIMEOUT;
+        config
     }
 }
 
