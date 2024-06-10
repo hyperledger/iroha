@@ -285,12 +285,12 @@ class ClientCli:
 
         return self
 
-    def unregister_asset(self, asset_id):
+    def unregister_asset(self, asset):
         """
         Creates a JSON file for the unregister asset and executes it using the Iroha CLI.
 
-        :param asset_id: The object ID to be used in the unregister_asset.
-        :type asset_id: str
+        :param asset: The object ID to be used in the unregister_asset.
+        :type asset: str
         """
 
         json_template_path = (
@@ -301,7 +301,7 @@ class ClientCli:
             / "unregister_asset.json"
         )
         asset_data = read_isi_from_json(str(json_template_path))
-        asset_data[0]["Unregister"]["Asset"]["object_id"] = str(asset_id)
+        asset_data[0]["Unregister"]["Asset"]["object"] = str(asset)
 
         json_temp_file_path = Path(ROOT_DIR) / "isi_unregister_asset.json"
         write_isi_to_json(asset_data, str(json_temp_file_path))

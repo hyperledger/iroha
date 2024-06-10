@@ -98,7 +98,7 @@ mod model {
     )]
     pub(crate) struct TransactionPayload {
         /// Unique id of the blockchain. Used for simple replay attack protection.
-        pub chain_id: ChainId,
+        pub chain: ChainId,
         /// Account ID of transaction creator.
         /// TODO dedup public keys in transaction #4410
         pub authority: AccountId,
@@ -286,9 +286,9 @@ impl SignedTransaction {
 
     /// Transaction chain id
     #[inline]
-    pub fn chain_id(&self) -> &ChainId {
+    pub fn chain(&self) -> &ChainId {
         let SignedTransaction::V1(tx) = self;
-        &tx.payload.chain_id
+        &tx.payload.chain
     }
 
     /// Return the transaction signature
@@ -630,10 +630,10 @@ mod http {
 
     impl TransactionBuilder {
         #[cfg(feature = "std")]
-        fn new_with_time(chain_id: ChainId, authority: AccountId, creation_time_ms: u64) -> Self {
+        fn new_with_time(chain: ChainId, authority: AccountId, creation_time_ms: u64) -> Self {
             Self {
                 payload: TransactionPayload {
-                    chain_id,
+                    chain,
                     authority,
                     creation_time_ms,
                     nonce: None,

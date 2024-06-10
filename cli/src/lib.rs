@@ -319,14 +319,14 @@ impl Iroha {
             &config.block_sync,
             sumeragi.clone(),
             Arc::clone(&kura),
-            config.common.peer_id(),
+            config.common.peer.clone(),
             network.clone(),
             Arc::clone(&state),
         )
         .start();
 
         let gossiper = TransactionGossiper::from_config(
-            config.common.chain_id.clone(),
+            config.common.chain.clone(),
             config.transaction_gossiper,
             network.clone(),
             Arc::clone(&queue),
@@ -356,7 +356,7 @@ impl Iroha {
         let kiso = KisoHandle::new(config.clone());
 
         let torii = Torii::new(
-            config.common.chain_id.clone(),
+            config.common.chain.clone(),
             kiso.clone(),
             config.torii,
             Arc::clone(&queue),

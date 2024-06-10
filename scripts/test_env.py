@@ -40,7 +40,7 @@ class Network:
         genesis_public_key = self.peers[0].public_key
         genesis_private_key = self.peers[0].private_key
         shared_config = {
-            "chain_id": "00000000-0000-0000-0000-000000000000",
+            "chain": "00000000-0000-0000-0000-000000000000",
             "genesis": {
                 "public_key": genesis_public_key
             },
@@ -247,7 +247,7 @@ def setup(args: argparse.Namespace):
 
 def cleanup(out_dir: pathlib.Path):
     logging.info("Killing peer processes...")
-    subprocess.run(["pkill", "-9", "irohad"])
+    subprocess.run(["pkill", "-9", "iroha"])
     logging.info(f"Cleaning up test directory `{out_dir}`...")
     shutil.rmtree(out_dir)
 

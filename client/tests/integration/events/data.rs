@@ -201,11 +201,11 @@ fn produce_multiple_events() -> Result<()> {
     let role_id = RoleId::from_str("TEST_ROLE")?;
     let token_1 = Permission::new(
         "CanRemoveKeyValueInAccount".parse()?,
-        json!({ "account_id": alice_id }),
+        json!({ "account": alice_id }),
     );
     let token_2 = Permission::new(
         "CanSetKeyValueInAccount".parse()?,
-        json!({ "account_id": alice_id }),
+        json!({ "account": alice_id }),
     );
     let role = iroha::data_model::role::Role::new(role_id.clone())
         .add_permission(token_1.clone())
@@ -239,38 +239,38 @@ fn produce_multiple_events() -> Result<()> {
     let expected_domain_events: Vec<DataEvent> = [
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
-                account_id: bob_id.clone(),
-                permission_id: token_1.id.clone(),
+                account: bob_id.clone(),
+                permission: token_1.id.clone(),
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
-                account_id: bob_id.clone(),
-                permission_id: token_2.id.clone(),
+                account: bob_id.clone(),
+                permission: token_2.id.clone(),
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
             AccountRoleChanged {
-                account_id: bob_id.clone(),
-                role_id: role_id.clone(),
+                account: bob_id.clone(),
+                role: role_id.clone(),
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
-                account_id: bob_id.clone(),
-                permission_id: token_1.id,
+                account: bob_id.clone(),
+                permission: token_1.id,
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
-                account_id: bob_id.clone(),
-                permission_id: token_2.id,
+                account: bob_id.clone(),
+                permission: token_2.id,
             },
         ))),
         DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(
             AccountRoleChanged {
-                account_id: bob_id,
-                role_id: role_id.clone(),
+                account: bob_id,
+                role: role_id.clone(),
             },
         ))),
         DataEvent::Role(RoleEvent::Deleted(role_id)),

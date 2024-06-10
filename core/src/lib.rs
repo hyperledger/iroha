@@ -123,25 +123,25 @@ pub mod role {
     )]
     pub struct RoleIdWithOwner {
         /// [`AccountId`] of the owner.
-        pub account_id: AccountId,
+        pub account: AccountId,
         /// [`RoleId`]  of the given role.
-        pub role_id: RoleId,
+        pub id: RoleId,
     }
 
     /// Reference to [`RoleIdWithOwner`].
     #[derive(Debug, Clone, Copy, Constructor, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct RoleIdWithOwnerRef<'role> {
         /// [`AccountId`] of the owner.
-        pub account_id: &'role AccountId,
+        pub account: &'role AccountId,
         /// [`RoleId`]  of the given role.
-        pub role_id: &'role RoleId,
+        pub role: &'role RoleId,
     }
 
     impl AsRoleIdWithOwnerRef for RoleIdWithOwner {
         fn as_key(&self) -> RoleIdWithOwnerRef<'_> {
             RoleIdWithOwnerRef {
-                account_id: &self.account_id,
-                role_id: &self.role_id,
+                account: &self.account,
+                role: &self.id,
             }
         }
     }
@@ -187,8 +187,8 @@ mod tests {
         for account_id in [&account_id_a, &account_id_b] {
             for role_id in [&role_id_a, &role_id_b] {
                 role_ids_with_owner.push(RoleIdWithOwner {
-                    role_id: role_id.clone(),
-                    account_id: account_id.clone(),
+                    id: role_id.clone(),
+                    account: account_id.clone(),
                 })
             }
         }
@@ -196,8 +196,8 @@ mod tests {
         for role_id_with_owner_1 in &role_ids_with_owner {
             for role_id_with_owner_2 in &role_ids_with_owner {
                 match (
-                    role_id_with_owner_1.account_id.cmp(&role_id_with_owner_2.account_id),
-                    role_id_with_owner_1.role_id.cmp(&role_id_with_owner_2.role_id),
+                    role_id_with_owner_1.account.cmp(&role_id_with_owner_2.account),
+                    role_id_with_owner_1.id.cmp(&role_id_with_owner_2.id),
                 ) {
                     // `AccountId` take precedence in comparison
                     // if `AccountId`s are equal than comparison based on `RoleId`s

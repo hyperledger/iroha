@@ -34,7 +34,7 @@ fn executor_upgrade_should_work() -> Result<()> {
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Register `admin` domain and account
-    let admin_domain = Domain::new(admin_id.domain_id().clone());
+    let admin_domain = Domain::new(admin_id.domain().clone());
     let register_admin_domain = Register::domain(admin_domain);
     client.submit_blocking(register_admin_domain)?;
 
@@ -93,7 +93,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
         .expect("Valid");
     assert!(alice_tokens.contains(&Permission::new(
         can_unregister_domain_token_id.clone(),
-        json!({ "domain_id": DomainId::from_str("wonderland").unwrap() }),
+        json!({ "domain": DomainId::from_str("wonderland").unwrap() }),
     )));
 
     upgrade_executor(
@@ -136,7 +136,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
     // Permission which will be removed by executor
     let can_unregister_domain_token = Permission::new(
         "CanUnregisterDomain".parse()?,
-        json!({ "domain_id": DomainId::from_str("wonderland")? }),
+        json!({ "domain": DomainId::from_str("wonderland")? }),
     );
 
     // Register `TEST_ROLE` with permission
@@ -224,7 +224,7 @@ fn executor_custom_instructions_simple() -> Result<()> {
 
     // Give 1 rose to all
     let isi = MintAssetForAllAccounts {
-        asset_definition_id,
+        asset_definition: asset_definition_id,
         quantity: Numeric::from(1u32),
     };
     let isi = CustomInstructionBox::MintAssetForAllAccounts(isi);

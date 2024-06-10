@@ -51,7 +51,7 @@ pub mod isi {
                 Err(err) => match err {
                     QueryExecutionFail::Find(FindError::Asset(_)) => {
                         assert_can_register(
-                            &asset_id.definition_id,
+                            &asset_id.definition,
                             state_transaction,
                             &self.object.value,
                         )?;
@@ -62,14 +62,13 @@ pub mod isi {
 
                         match asset.value {
                             AssetValue::Numeric(increment) => {
-                                state_transaction.world.increase_asset_total_amount(
-                                    &asset_id.definition_id,
-                                    increment,
-                                )?;
+                                state_transaction
+                                    .world
+                                    .increase_asset_total_amount(&asset_id.definition, increment)?;
                             }
                             AssetValue::Store(_) => {
                                 state_transaction.world.increase_asset_total_amount(
-                                    &asset_id.definition_id,
+                                    &asset_id.definition,
                                     Numeric::ONE,
                                 )?;
                             }
@@ -94,14 +93,14 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_id = self.object_id;
+            let asset_id = self.object;
 
             let asset = state_transaction
                 .world
-                .account_mut(&asset_id.account_id)
+                .account_mut(&asset_id.account)
                 .and_then(|account| {
                     account
-                        .remove_asset(&asset_id.definition_id)
+                        .remove_asset(&asset_id.definition)
                         .ok_or_else(|| FindError::Asset(asset_id))
                 })?;
 
@@ -109,12 +108,12 @@ pub mod isi {
                 AssetValue::Numeric(increment) => {
                     state_transaction
                         .world
-                        .decrease_asset_total_amount(&asset.id.definition_id, increment)?;
+                        .decrease_asset_total_amount(&asset.id.definition, increment)?;
                 }
                 AssetValue::Store(_) => {
                     state_transaction
                         .world
-                        .decrease_asset_total_amount(&asset.id.definition_id, Numeric::ONE)?;
+                        .decrease_asset_total_amount(&asset.id.definition, Numeric::ONE)?;
                 }
             }
 
@@ -122,7 +121,7 @@ pub mod isi {
                 .world
                 .emit_events(Some(AccountEvent::Asset(AssetEvent::Removed(
                     AssetChanged {
-                        asset_id: asset.id,
+                        asset: asset.id,
                         amount: asset.value,
                     },
                 ))));
@@ -138,27 +137,27 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let Transfer {
-                source_id,
+                source,
                 object,
-                destination_id,
+                destination,
             } = self;
 
-            let _ = state_transaction.world.account(&source_id)?;
-            let _ = state_transaction.world.account(&destination_id)?;
+            let _ = state_transaction.world.account(&source)?;
+            let _ = state_transaction.world.account(&destination)?;
 
             let asset_definition = state_transaction.world.asset_definition_mut(&object)?;
 
-            if asset_definition.owned_by != source_id {
-                return Err(Error::Find(FindError::Account(source_id)));
+            if asset_definition.owned_by != source {
+                return Err(Error::Find(FindError::Account(source)));
             }
 
-            asset_definition.owned_by = destination_id.clone();
+            asset_definition.owned_by = destination.clone();
             state_transaction
                 .world
                 .emit_events(Some(AssetDefinitionEvent::OwnerChanged(
                     AssetDefinitionOwnerChanged {
-                        asset_definition_id: object,
-                        new_owner: destination_id,
+                        asset_definition: object,
+                        new_owner: destination,
                     },
                 )));
 
@@ -173,7 +172,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let account_id = self.object_id;
+            let account_id = self.object;
 
             let account_metadata_limits = state_transaction.config.account_metadata_limits;
 
@@ -195,7 +194,7 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(AccountEvent::MetadataInserted(MetadataChanged {
-                    target_id: account_id,
+                    target: account_id,
                     key: self.key,
                     value: self.value,
                 })));
@@ -211,7 +210,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let account_id = self.object_id;
+            let account_id = self.object;
 
             let value = state_transaction
                 .world
@@ -226,7 +225,7 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(AccountEvent::MetadataRemoved(MetadataChanged {
-                    target_id: account_id,
+                    target: account_id,
                     key: self.key,
                     value,
                 })));
@@ -242,7 +241,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let account_id = self.destination_id;
+            let account_id = self.destination;
             let permission = self.object;
             let permission_id = permission.id.clone();
 
@@ -277,8 +276,8 @@ pub mod isi {
                 .world
                 .emit_events(Some(AccountEvent::PermissionAdded(
                     AccountPermissionChanged {
-                        account_id,
-                        permission_id,
+                        account: account_id,
+                        permission: permission_id,
                     },
                 )));
 
@@ -293,7 +292,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let account_id = self.destination_id;
+            let account_id = self.destination;
             let permission = self.object;
 
             // Check if account exists
@@ -310,8 +309,8 @@ pub mod isi {
                 .world
                 .emit_events(Some(AccountEvent::PermissionRemoved(
                     AccountPermissionChanged {
-                        account_id,
-                        permission_id: permission.id,
+                        account: account_id,
+                        permission: permission.id,
                     },
                 )));
 
@@ -326,7 +325,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let account_id = self.destination_id;
+            let account_id = self.destination;
             let role_id = self.object;
 
             let permissions = state_transaction
@@ -362,14 +361,14 @@ pub mod isi {
                 permissions
                     .zip(core::iter::repeat_with(move || account_id.clone()))
                     .map(|(permission_id, account_id)| AccountPermissionChanged {
-                        account_id,
-                        permission_id,
+                        account: account_id,
+                        permission: permission_id,
                     })
                     .map(AccountEvent::PermissionAdded)
                     .chain(std::iter::once(AccountEvent::RoleGranted(
                         AccountRoleChanged {
-                            account_id: account_id_clone,
-                            role_id,
+                            account: account_id_clone,
+                            role: role_id,
                         },
                     )))
             });
@@ -385,7 +384,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let account_id = self.destination_id;
+            let account_id = self.destination;
             let role_id = self.object;
 
             let permissions = state_transaction
@@ -402,8 +401,8 @@ pub mod isi {
                 .world
                 .account_roles
                 .remove(RoleIdWithOwner {
-                    account_id: account_id.clone(),
-                    role_id: role_id.clone(),
+                    account: account_id.clone(),
+                    id: role_id.clone(),
                 })
                 .is_none()
             {
@@ -415,14 +414,14 @@ pub mod isi {
                 permissions
                     .zip(core::iter::repeat_with(move || account_id.clone()))
                     .map(|(permission_id, account_id)| AccountPermissionChanged {
-                        account_id,
-                        permission_id,
+                        account: account_id,
+                        permission: permission_id,
                     })
                     .map(AccountEvent::PermissionRemoved)
                     .chain(std::iter::once(AccountEvent::RoleRevoked(
                         AccountRoleChanged {
-                            account_id: account_id_clone,
-                            role_id,
+                            account: account_id_clone,
+                            role: role_id,
                         },
                     )))
             });
@@ -610,7 +609,7 @@ pub mod query {
             Ok(Box::new(
                 state_ro
                     .world()
-                    .map_domain(&asset_definition_id.domain_id.clone(), move |domain| {
+                    .map_domain(&asset_definition_id.domain.clone(), move |domain| {
                         domain.accounts.values().filter(move |account| {
                             account.assets.contains_key(&asset_definition_id)
                         })

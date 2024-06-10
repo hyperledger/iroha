@@ -280,7 +280,7 @@ mod transparent {
         #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct SetKeyValue<O: Identifiable> {
             /// Where to set key value.
-            pub object_id: O::Id,
+            pub object: O::Id,
             /// Key.
             pub key: Name,
             /// Value.
@@ -292,7 +292,7 @@ mod transparent {
         /// Constructs a new [`SetKeyValue`] for a [`Domain`] with the given `key` and `value`.
         pub fn domain(domain_id: DomainId, key: Name, value: impl Into<MetadataValueBox>) -> Self {
             Self {
-                object_id: domain_id,
+                object: domain_id,
                 key,
                 value: value.into(),
             }
@@ -307,7 +307,7 @@ mod transparent {
             value: impl Into<MetadataValueBox>,
         ) -> Self {
             Self {
-                object_id: account_id,
+                object: account_id,
                 key,
                 value: value.into(),
             }
@@ -322,7 +322,7 @@ mod transparent {
             value: impl Into<MetadataValueBox>,
         ) -> Self {
             Self {
-                object_id: asset_definition_id,
+                object: asset_definition_id,
                 key,
                 value: value.into(),
             }
@@ -333,7 +333,7 @@ mod transparent {
         /// Constructs a new [`SetKeyValue`] for an [`Asset`] with the given `key` and `value`.
         pub fn asset(asset_id: AssetId, key: Name, value: impl Into<MetadataValueBox>) -> Self {
             Self {
-                object_id: asset_id,
+                object: asset_id,
                 key,
                 value: value.into(),
             }
@@ -348,7 +348,7 @@ mod transparent {
             value: impl Into<MetadataValueBox>,
         ) -> Self {
             Self {
-                object_id: trigger_id,
+                object: trigger_id,
                 key,
                 value: value.into(),
             }
@@ -362,7 +362,7 @@ mod transparent {
             O::Id: Display,
         =>
         "SET `{}` = `{}` IN `{}`",
-        key, value, object_id,
+        key, value, object,
     }
 
     impl_into_box! {
@@ -380,7 +380,7 @@ mod transparent {
         #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct RemoveKeyValue<O: Identifiable> {
             /// From where to remove key value.
-            pub object_id: O::Id,
+            pub object: O::Id,
             /// Key of the pair to remove.
             pub key: Name,
         }
@@ -390,7 +390,7 @@ mod transparent {
         /// Constructs a new [`RemoveKeyValue`] for a [`Domain`] with the given `key`.
         pub fn domain(domain_id: DomainId, key: Name) -> Self {
             Self {
-                object_id: domain_id,
+                object: domain_id,
                 key,
             }
         }
@@ -400,7 +400,7 @@ mod transparent {
         /// Constructs a new [`RemoveKeyValue`] for an [`Account`] with the given `key`.
         pub fn account(account_id: AccountId, key: Name) -> Self {
             Self {
-                object_id: account_id,
+                object: account_id,
                 key,
             }
         }
@@ -410,7 +410,7 @@ mod transparent {
         /// Constructs a new [`RemoveKeyValue`] for an [`AssetDefinition`] with the given `key`.
         pub fn asset_definition(asset_definition_id: AssetDefinitionId, key: Name) -> Self {
             Self {
-                object_id: asset_definition_id,
+                object: asset_definition_id,
                 key,
             }
         }
@@ -420,7 +420,7 @@ mod transparent {
         /// Constructs a new [`RemoveKeyValue`] for an [`Asset`] with the given `key`.
         pub fn asset(asset_id: AssetId, key: Name) -> Self {
             Self {
-                object_id: asset_id,
+                object: asset_id,
                 key,
             }
         }
@@ -430,7 +430,7 @@ mod transparent {
         /// Constructs a new [`RemoveKeyValue`] for an [`Asset`] with the given `key`.
         pub fn trigger(trigger_id: TriggerId, key: Name) -> Self {
             Self {
-                object_id: trigger_id,
+                object: trigger_id,
                 key,
             }
         }
@@ -443,7 +443,7 @@ mod transparent {
             O::Id: Display,
         =>
         "REMOVE `{}` from `{}`",
-        key, object_id,
+        key, object,
     }
 
     impl_into_box! {
@@ -548,7 +548,7 @@ mod transparent {
         #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct Unregister<O: Identifiable> {
             /// [`Identifiable::Id`] of the object which should be unregistered.
-            pub object_id: O::Id,
+            pub object: O::Id,
         }
     }
 
@@ -559,7 +559,7 @@ mod transparent {
             O::Id: Display,
         =>
         "UNREGISTER `{}`",
-        object_id,
+        object,
     }
 
     impl_into_box! {
@@ -577,25 +577,21 @@ mod transparent {
     impl Unregister<Peer> {
         /// Constructs a new [`Unregister`] for a [`Peer`].
         pub fn peer(peer_id: PeerId) -> Self {
-            Self { object_id: peer_id }
+            Self { object: peer_id }
         }
     }
 
     impl Unregister<Domain> {
         /// Constructs a new [`Unregister`] for a [`Domain`].
         pub fn domain(domain_id: DomainId) -> Self {
-            Self {
-                object_id: domain_id,
-            }
+            Self { object: domain_id }
         }
     }
 
     impl Unregister<Account> {
         /// Constructs a new [`Unregister`] for an [`Account`].
         pub fn account(account_id: AccountId) -> Self {
-            Self {
-                object_id: account_id,
-            }
+            Self { object: account_id }
         }
     }
 
@@ -603,7 +599,7 @@ mod transparent {
         /// Constructs a new [`Unregister`] for an [`AssetDefinition`].
         pub fn asset_definition(asset_definition_id: AssetDefinitionId) -> Self {
             Self {
-                object_id: asset_definition_id,
+                object: asset_definition_id,
             }
         }
     }
@@ -611,25 +607,21 @@ mod transparent {
     impl Unregister<Asset> {
         /// Constructs a new [`Unregister`] for an [`Asset`].
         pub fn asset(asset_id: AssetId) -> Self {
-            Self {
-                object_id: asset_id,
-            }
+            Self { object: asset_id }
         }
     }
 
     impl Unregister<Role> {
         /// Constructs a new [`Unregister`] for a [`Role`].
         pub fn role(role_id: RoleId) -> Self {
-            Self { object_id: role_id }
+            Self { object: role_id }
         }
     }
 
     impl Unregister<Trigger> {
         /// Constructs a new [`Unregister`] for a [`Trigger`].
         pub fn trigger(trigger_id: TriggerId) -> Self {
-            Self {
-                object_id: trigger_id,
-            }
+            Self { object: trigger_id }
         }
     }
 
@@ -640,7 +632,7 @@ mod transparent {
             /// Object which should be minted.
             pub object: O,
             /// Destination object [`Identifiable::Id`].
-            pub destination_id: D::Id,
+            pub destination: D::Id,
         }
     }
 
@@ -649,7 +641,7 @@ mod transparent {
         pub fn asset_numeric(object: impl Into<Numeric>, asset_id: AssetId) -> Self {
             Self {
                 object: object.into(),
-                destination_id: asset_id,
+                destination: asset_id,
             }
         }
     }
@@ -659,7 +651,7 @@ mod transparent {
         pub fn trigger_repetitions(repetitions: u32, trigger_id: TriggerId) -> Self {
             Self {
                 object: repetitions,
-                destination_id: trigger_id,
+                destination: trigger_id,
             }
         }
     }
@@ -673,7 +665,7 @@ mod transparent {
         =>
         "MINT `{}` TO `{}`",
         object,
-        destination_id,
+        destination,
     }
 
     impl_into_box! {
@@ -690,7 +682,7 @@ mod transparent {
             /// Object which should be burned.
             pub object: O,
             /// Destination object [`Identifiable::Id`].
-            pub destination_id: D::Id,
+            pub destination: D::Id,
         }
     }
 
@@ -699,7 +691,7 @@ mod transparent {
         pub fn asset_numeric(object: impl Into<Numeric>, asset_id: AssetId) -> Self {
             Self {
                 object: object.into(),
-                destination_id: asset_id,
+                destination: asset_id,
             }
         }
     }
@@ -709,7 +701,7 @@ mod transparent {
         pub fn trigger_repetitions(repetitions: u32, trigger_id: TriggerId) -> Self {
             Self {
                 object: repetitions,
-                destination_id: trigger_id,
+                destination: trigger_id,
             }
         }
     }
@@ -723,7 +715,7 @@ mod transparent {
         =>
         "BURN `{}` FROM `{}`",
         object,
-        destination_id,
+        destination,
     }
 
     impl_into_box! {
@@ -740,11 +732,11 @@ mod transparent {
                            D: Identifiable, D::Id: IntoSchema")]
         pub struct Transfer<S: Identifiable, O, D: Identifiable> {
             /// Source object `Id`.
-            pub source_id: S::Id,
+            pub source: S::Id,
             /// Object which should be transferred.
             pub object: O,
             /// Destination object `Id`.
-            pub destination_id: D::Id,
+            pub destination: D::Id,
         }
     }
 
@@ -752,9 +744,9 @@ mod transparent {
         /// Constructs a new [`Transfer`] for a [`Domain`].
         pub fn domain(from: AccountId, domain_id: DomainId, to: AccountId) -> Self {
             Self {
-                source_id: from,
+                source: from,
                 object: domain_id,
-                destination_id: to,
+                destination: to,
             }
         }
     }
@@ -767,9 +759,9 @@ mod transparent {
             to: AccountId,
         ) -> Self {
             Self {
-                source_id: from,
+                source: from,
                 object: asset_definition_id,
-                destination_id: to,
+                destination: to,
             }
         }
     }
@@ -782,9 +774,9 @@ mod transparent {
             to: AccountId,
         ) -> Self {
             Self {
-                source_id: asset_id,
+                source: asset_id,
                 object: quantity.into(),
-                destination_id: to,
+                destination: to,
             }
         }
     }
@@ -793,9 +785,9 @@ mod transparent {
         /// Constructs a new [`Transfer`] for an [`Asset`] of [`Store`] type.
         pub fn asset_store(asset_id: AssetId, to: AccountId) -> Self {
             Self {
-                source_id: asset_id,
+                source: asset_id,
                 object: Metadata::new(),
-                destination_id: to,
+                destination: to,
             }
         }
     }
@@ -811,8 +803,8 @@ mod transparent {
         =>
         "TRANSFER `{}` FROM `{}` TO `{}`",
         object,
-        source_id,
-        destination_id,
+        source,
+        destination,
     }
 
     impl_into_box! {
@@ -848,7 +840,7 @@ mod transparent {
             /// Object to grant.
             pub object: O,
             /// Entity to which to grant this token.
-            pub destination_id: D::Id,
+            pub destination: D::Id,
         }
     }
 
@@ -857,7 +849,7 @@ mod transparent {
         pub fn permission(permission: Permission, to: AccountId) -> Self {
             Self {
                 object: permission,
-                destination_id: to,
+                destination: to,
             }
         }
     }
@@ -867,7 +859,7 @@ mod transparent {
         pub fn role(role_id: RoleId, to: AccountId) -> Self {
             Self {
                 object: role_id,
-                destination_id: to,
+                destination: to,
             }
         }
     }
@@ -877,7 +869,7 @@ mod transparent {
         pub fn role_permission(permission: Permission, to: RoleId) -> Self {
             Self {
                 object: permission,
-                destination_id: to,
+                destination: to,
             }
         }
     }
@@ -891,7 +883,7 @@ mod transparent {
         =>
         "GRANT `{}` TO `{}`",
         object,
-        destination_id,
+        destination,
     }
 
     impl_into_box! {
@@ -909,7 +901,7 @@ mod transparent {
             /// Object to revoke.
             pub object: O,
             /// Entity which is being revoked this token from.
-            pub destination_id: D::Id,
+            pub destination: D::Id,
         }
     }
 
@@ -918,7 +910,7 @@ mod transparent {
         pub fn permission(permission: Permission, from: AccountId) -> Self {
             Self {
                 object: permission,
-                destination_id: from,
+                destination: from,
             }
         }
     }
@@ -928,7 +920,7 @@ mod transparent {
         pub fn role(role_id: RoleId, from: AccountId) -> Self {
             Self {
                 object: role_id,
-                destination_id: from,
+                destination: from,
             }
         }
     }
@@ -938,7 +930,7 @@ mod transparent {
         pub fn role_permission(permission: Permission, from: RoleId) -> Self {
             Self {
                 object: permission,
-                destination_id: from,
+                destination: from,
             }
         }
     }
@@ -952,7 +944,7 @@ mod transparent {
         =>
         "REVOKE `{}` FROM `{}`",
         object,
-        destination_id,
+        destination,
     }
 
     impl_into_box! {
@@ -966,12 +958,12 @@ mod transparent {
     isi! {
         /// Instruction to execute specified trigger
         #[derive(Constructor, Display)]
-        #[display(fmt = "EXECUTE `{trigger_id}`")]
+        #[display(fmt = "EXECUTE `{trigger}`")]
         #[serde(transparent)]
         #[repr(transparent)]
         pub struct ExecuteTrigger {
             /// Id of a trigger to execute
-            pub trigger_id: TriggerId,
+            pub trigger: TriggerId,
         }
     }
 

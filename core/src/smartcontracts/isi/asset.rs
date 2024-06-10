@@ -44,10 +44,10 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_id = self.object_id;
+            let asset_id = self.object;
 
             assert_asset_type(
-                &asset_id.definition_id,
+                &asset_id.definition,
                 state_transaction,
                 expected_asset_value_type_store,
             )?;
@@ -59,7 +59,7 @@ pub mod isi {
             ) {
                 state_transaction
                     .world
-                    .increase_asset_total_amount(&asset_id.definition_id, Numeric::ONE)?;
+                    .increase_asset_total_amount(&asset_id.definition, Numeric::ONE)?;
             }
 
             let asset_metadata_limits = state_transaction.config.asset_metadata_limits;
@@ -82,7 +82,7 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(AssetEvent::MetadataInserted(MetadataChanged {
-                    target_id: asset_id,
+                    target: asset_id,
                     key: self.key,
                     value: self.value,
                 })));
@@ -98,10 +98,10 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_id = self.object_id;
+            let asset_id = self.object;
 
             assert_asset_type(
-                &asset_id.definition_id,
+                &asset_id.definition,
                 state_transaction,
                 expected_asset_value_type_store,
             )?;
@@ -121,7 +121,7 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(AssetEvent::MetadataRemoved(MetadataChanged {
-                    target_id: asset_id,
+                    target: asset_id,
                     key: self.key,
                     value,
                 })));
@@ -137,25 +137,25 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_id = self.source_id;
+            let asset_id = self.source;
             assert_asset_type(
-                &asset_id.definition_id,
+                &asset_id.definition,
                 state_transaction,
                 expected_asset_value_type_store,
             )?;
 
             let asset = state_transaction
                 .world
-                .account_mut(&asset_id.account_id)
+                .account_mut(&asset_id.account)
                 .and_then(|account| {
                     account
-                        .remove_asset(&asset_id.definition_id)
+                        .remove_asset(&asset_id.definition)
                         .ok_or_else(|| FindError::Asset(asset_id.clone()))
                 })?;
 
             let destination_store = {
                 let destination_id =
-                    AssetId::new(asset_id.definition_id.clone(), self.destination_id.clone());
+                    AssetId::new(asset_id.definition.clone(), self.destination.clone());
                 let destination_store_asset = state_transaction
                     .world
                     .asset_or_insert(destination_id.clone(), asset.value)?;
@@ -178,10 +178,10 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_id = self.destination_id;
+            let asset_id = self.destination;
 
             let asset_definition = assert_asset_type(
-                &asset_id.definition_id,
+                &asset_id.definition,
                 state_transaction,
                 expected_asset_value_type_numeric,
             )?;
@@ -206,13 +206,13 @@ pub mod isi {
                     .push(self.object.to_f64());
                 state_transaction
                     .world
-                    .increase_asset_total_amount(&asset_id.definition_id, self.object)?;
+                    .increase_asset_total_amount(&asset_id.definition, self.object)?;
             }
 
             state_transaction
                 .world
                 .emit_events(Some(AssetEvent::Added(AssetChanged {
-                    asset_id,
+                    asset: asset_id,
                     amount: self.object.into(),
                 })));
 
@@ -226,19 +226,19 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_id = self.destination_id;
+            let asset_id = self.destination;
 
             let asset_definition = assert_asset_type(
-                &asset_id.definition_id,
+                &asset_id.definition,
                 state_transaction,
                 expected_asset_value_type_numeric,
             )?;
             assert_numeric_spec(&self.object, &asset_definition)?;
 
-            let account = state_transaction.world.account_mut(&asset_id.account_id)?;
+            let account = state_transaction.world.account_mut(&asset_id.account)?;
             let asset = account
                 .assets
-                .get_mut(&asset_id.definition_id)
+                .get_mut(&asset_id.definition)
                 .ok_or_else(|| FindError::Asset(asset_id.clone()))?;
             let AssetValue::Numeric(quantity) = &mut asset.value else {
                 return Err(Error::Conversion("Expected numeric asset type".to_owned()));
@@ -248,7 +248,7 @@ pub mod isi {
                 .ok_or(MathError::NotEnoughQuantity)?;
 
             if asset.value.is_zero_value() {
-                assert!(account.remove_asset(&asset_id.definition_id).is_some());
+                assert!(account.remove_asset(&asset_id.definition).is_some());
             }
 
             #[allow(clippy::float_arithmetic)]
@@ -259,13 +259,13 @@ pub mod isi {
                     .push(self.object.to_f64());
                 state_transaction
                     .world
-                    .decrease_asset_total_amount(&asset_id.definition_id, self.object)?;
+                    .decrease_asset_total_amount(&asset_id.definition, self.object)?;
             }
 
             state_transaction
                 .world
                 .emit_events(Some(AssetEvent::Removed(AssetChanged {
-                    asset_id: asset_id.clone(),
+                    asset: asset_id.clone(),
                     amount: self.object.into(),
                 })));
 
@@ -279,22 +279,22 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let source_id = self.source_id;
+            let source_id = self.source;
             let destination_id =
-                AssetId::new(source_id.definition_id.clone(), self.destination_id.clone());
+                AssetId::new(source_id.definition.clone(), self.destination.clone());
 
             let asset_definition = assert_asset_type(
-                &source_id.definition_id,
+                &source_id.definition,
                 state_transaction,
                 expected_asset_value_type_numeric,
             )?;
             assert_numeric_spec(&self.object, &asset_definition)?;
 
             {
-                let account = state_transaction.world.account_mut(&source_id.account_id)?;
+                let account = state_transaction.world.account_mut(&source_id.account)?;
                 let asset = account
                     .assets
-                    .get_mut(&source_id.definition_id)
+                    .get_mut(&source_id.definition)
                     .ok_or_else(|| FindError::Asset(source_id.clone()))?;
                 let AssetValue::Numeric(quantity) = &mut asset.value else {
                     return Err(Error::Conversion("Expected numeric asset type".to_owned()));
@@ -303,7 +303,7 @@ pub mod isi {
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
                 if asset.value.is_zero_value() {
-                    assert!(account.remove_asset(&source_id.definition_id).is_some());
+                    assert!(account.remove_asset(&source_id.definition).is_some());
                 }
             }
 
@@ -329,11 +329,11 @@ pub mod isi {
 
             state_transaction.world.emit_events([
                 AssetEvent::Removed(AssetChanged {
-                    asset_id: source_id,
+                    asset: source_id,
                     amount: self.object.into(),
                 }),
                 AssetEvent::Added(AssetChanged {
-                    asset_id: destination_id,
+                    asset: destination_id,
                     amount: self.object.into(),
                 }),
             ]);
@@ -476,7 +476,7 @@ pub mod query {
             let id = &self.id;
             iroha_logger::trace!(%id);
             state_ro.world().asset(id).map_err(|asset_err| {
-                if let Err(definition_err) = state_ro.world().asset_definition(&id.definition_id) {
+                if let Err(definition_err) = state_ro.world().asset_definition(&id.definition) {
                     definition_err.into()
                 } else {
                     asset_err
@@ -517,7 +517,7 @@ pub mod query {
                             account
                                 .assets
                                 .values()
-                                .filter(move |asset| asset.id().definition_id.name == name)
+                                .filter(move |asset| asset.id().definition.name == name)
                         })
                     })
                     .cloned(),
@@ -558,7 +558,7 @@ pub mod query {
                             account
                                 .assets
                                 .values()
-                                .filter(move |asset| asset.id().definition_id == id)
+                                .filter(move |asset| asset.id().definition == id)
                         })
                     })
                     .cloned(),
@@ -609,8 +609,8 @@ pub mod query {
                         let asset_definition_id = asset_definition_id.clone();
 
                         account.assets.values().filter(move |asset| {
-                            asset.id().account_id.domain_id == domain_id
-                                && asset.id().definition_id == asset_definition_id
+                            asset.id().account.domain == domain_id
+                                && asset.id().definition == asset_definition_id
                         })
                     })
                     .cloned(),
@@ -627,9 +627,7 @@ pub mod query {
                 .world()
                 .asset(id)
                 .map_err(|asset_err| {
-                    if let Err(definition_err) =
-                        state_ro.world().asset_definition(&id.definition_id)
-                    {
+                    if let Err(definition_err) = state_ro.world().asset_definition(&id.definition) {
                         Error::Find(definition_err)
                     } else {
                         asset_err
@@ -662,7 +660,7 @@ pub mod query {
             let id = &self.id;
             let key = &self.key;
             let asset = state_ro.world().asset(id).map_err(|asset_err| {
-                if let Err(definition_err) = state_ro.world().asset_definition(&id.definition_id) {
+                if let Err(definition_err) = state_ro.world().asset_definition(&id.definition) {
                     Error::Find(definition_err)
                 } else {
                     asset_err

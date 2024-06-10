@@ -161,7 +161,7 @@ pub mod domain {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanUnregisterDomain {
-            pub domain_id: DomainId,
+            pub domain: DomainId,
         }
     }
 
@@ -169,7 +169,7 @@ pub mod domain {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanSetKeyValueInDomain {
-            pub domain_id: DomainId,
+            pub domain: DomainId,
         }
     }
 
@@ -177,7 +177,7 @@ pub mod domain {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanRemoveKeyValueInDomain {
-            pub domain_id: DomainId,
+            pub domain: DomainId,
         }
     }
 
@@ -185,7 +185,7 @@ pub mod domain {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanRegisterAccountInDomain {
-            pub domain_id: DomainId,
+            pub domain: DomainId,
         }
     }
 
@@ -193,7 +193,7 @@ pub mod domain {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanRegisterAssetDefinitionInDomain {
-            pub domain_id: DomainId,
+            pub domain: DomainId,
         }
     }
 }
@@ -205,42 +205,42 @@ pub mod account {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanUnregisterAccount {
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
     }
     permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanMintUserPublicKeys {
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
     }
     permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanBurnUserPublicKeys {
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
     }
     permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanMintUserSignatureCheckConditions {
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
     }
     permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanSetKeyValueInAccount {
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
     }
     permission! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanRemoveKeyValueInAccount {
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
     }
 }
@@ -252,7 +252,7 @@ pub mod asset_definition {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanUnregisterAssetDefinition {
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
     }
 
@@ -260,7 +260,7 @@ pub mod asset_definition {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanSetKeyValueInAssetDefinition {
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
     }
 
@@ -268,7 +268,7 @@ pub mod asset_definition {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanRemoveKeyValueInAssetDefinition {
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
     }
 }
@@ -280,7 +280,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanRegisterAssetWithDefinition {
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
     }
 
@@ -288,7 +288,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanUnregisterAssetWithDefinition {
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
     }
 
@@ -296,7 +296,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanUnregisterUserAsset {
-            pub asset_id: AssetId,
+            pub asset: AssetId,
         }
     }
 
@@ -304,7 +304,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanBurnAssetWithDefinition {
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
     }
 
@@ -312,7 +312,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanBurnUserAsset {
-            pub asset_id: AssetId,
+            pub asset: AssetId,
         }
     }
 
@@ -320,7 +320,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanMintAssetWithDefinition {
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
     }
 
@@ -328,7 +328,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanMintUserAsset {
-            pub asset_id: AssetId,
+            pub asset: AssetId,
         }
     }
 
@@ -336,7 +336,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
         pub struct CanTransferAssetWithDefinition {
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
     }
 
@@ -344,7 +344,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanTransferUserAsset {
-            pub asset_id: AssetId,
+            pub asset: AssetId,
         }
     }
 
@@ -352,7 +352,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanSetKeyValueInUserAsset {
-            pub asset_id: AssetId,
+            pub asset: AssetId,
         }
     }
 
@@ -360,7 +360,7 @@ pub mod asset {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
         #[validate(permission::asset::Owner)]
         pub struct CanRemoveKeyValueInUserAsset {
-            pub asset_id: AssetId,
+            pub asset: AssetId,
         }
     }
 }
@@ -471,7 +471,7 @@ pub mod trigger {
                 impl<'token> From<&'token $name> for permission::trigger::Owner<'token> {
                     fn from(value: &'token $name) -> Self {
                         Self {
-                            trigger_id: &value.trigger_id,
+                            trigger: &value.trigger,
                         }
                     }
                 }
@@ -482,7 +482,7 @@ pub mod trigger {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanRegisterUserTrigger {
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
     }
 
@@ -490,7 +490,7 @@ pub mod trigger {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanExecuteUserTrigger {
-            pub trigger_id: TriggerId,
+            pub trigger: TriggerId,
         }
     }
 
@@ -498,7 +498,7 @@ pub mod trigger {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::account::Owner)]
         #[validate(permission::account::Owner)]
         pub struct CanUnregisterUserTrigger {
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
     }
 
@@ -506,7 +506,7 @@ pub mod trigger {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanMintUserTrigger {
-            pub trigger_id: TriggerId,
+            pub trigger: TriggerId,
         }
     }
 
@@ -514,7 +514,7 @@ pub mod trigger {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanBurnUserTrigger {
-            pub trigger_id: TriggerId,
+            pub trigger: TriggerId,
         }
     }
 
@@ -522,7 +522,7 @@ pub mod trigger {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanSetKeyValueInTrigger {
-            pub trigger_id: TriggerId,
+            pub trigger: TriggerId,
         }
     }
 
@@ -530,7 +530,7 @@ pub mod trigger {
         #[derive(ValidateGrantRevoke)]
         #[validate(permission::trigger::Owner)]
         pub struct CanRemoveKeyValueInTrigger {
-            pub trigger_id: TriggerId,
+            pub trigger: TriggerId,
         }
     }
 

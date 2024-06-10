@@ -69,16 +69,9 @@ impl Root {
 #[allow(missing_docs)]
 #[derive(Debug, Clone)]
 pub struct Common {
-    pub chain_id: ChainId,
+    pub chain: ChainId,
     pub key_pair: KeyPair,
-    pub peer_id: PeerId,
-}
-
-impl Common {
-    /// Construct an id of this peer
-    pub fn peer_id(&self) -> PeerId {
-        self.peer_id.clone()
-    }
+    pub peer: PeerId,
 }
 
 /// Network options

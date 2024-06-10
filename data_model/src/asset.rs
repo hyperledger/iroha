@@ -64,13 +64,13 @@ mod model {
         SerializeDisplay,
         IntoSchema,
     )]
-    #[display(fmt = "{name}#{domain_id}")]
-    #[debug(fmt = "{name}#{domain_id}")]
+    #[display(fmt = "{name}#{domain}")]
+    #[debug(fmt = "{name}#{domain}")]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct AssetDefinitionId {
         /// Domain id.
-        pub domain_id: DomainId,
+        pub domain: DomainId,
         /// Asset name.
         pub name: Name,
     }
@@ -95,9 +95,9 @@ mod model {
     #[ffi_type]
     pub struct AssetId {
         /// Entity Identification.
-        pub definition_id: AssetDefinitionId,
+        pub definition: AssetDefinitionId,
         /// Account Identification.
-        pub account_id: AccountId,
+        pub account: AccountId,
     }
 
     /// Asset definition defines the type of that asset.
@@ -409,10 +409,10 @@ impl FromStr for AssetDefinitionId {
 
 impl fmt::Display for AssetId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.definition_id.domain_id == self.account_id.domain_id {
-            write!(f, "{}##{}", self.definition_id.name, self.account_id)
+        if self.definition.domain == self.account.domain {
+            write!(f, "{}##{}", self.definition.name, self.account)
         } else {
-            write!(f, "{}#{}", self.definition_id, self.account_id)
+            write!(f, "{}#{}", self.definition, self.account)
         }
     }
 }
@@ -435,7 +435,7 @@ impl FromStr for AssetId {
                 reason: "Failed to parse `account@domain` part in `asset#domain#account@domain`. `account` should have multihash format e.g. `ed0120...`"
             })?;
         let domain_complement = if definition_id_candidate.ends_with('#') {
-            account_id.domain_id.name.as_ref()
+            account_id.domain.name.as_ref()
         } else {
             ""
         };

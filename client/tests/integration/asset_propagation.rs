@@ -53,7 +53,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
             let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
 
             assets.iter().any(|asset| {
-                asset.id().definition_id == asset_definition_id
+                *asset.id().definition() == asset_definition_id
                     && *asset.value() == AssetValue::Numeric(quantity)
             })
         },

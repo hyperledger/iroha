@@ -130,7 +130,7 @@ class Config:
         :return: The account domain.
         :rtype: str
         """
-        return self._config["account"]["domain_id"]
+        return self._config["account"]["domain"]
 
     @property
     def account_signatory(self):

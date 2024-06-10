@@ -26,7 +26,7 @@ def test_unregister_asset(
         f'WHEN client_cli unregisters the asset "{GIVEN_numeric_asset_for_account.definition.name}"'
     ):
         client_cli.unregister_asset(
-            asset_id=f"{GIVEN_numeric_asset_for_account.definition.name}#"
+            asset=f"{GIVEN_numeric_asset_for_account.definition.name}#"
             f"{GIVEN_numeric_asset_for_account.account}@"
             f"{GIVEN_numeric_asset_for_account.definition.domain}"
         )

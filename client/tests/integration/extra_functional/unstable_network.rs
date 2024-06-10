@@ -118,7 +118,7 @@ fn unstable_network(
                     let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
 
                     assets.iter().any(|asset| {
-                        asset.id().definition_id == asset_definition_id
+                        *asset.id().definition() == asset_definition_id
                             && *asset.value() == AssetValue::Numeric(account_has_quantity)
                     })
                 },

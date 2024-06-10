@@ -75,7 +75,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #[validate(permission::asset::Owner)]
 /// struct CanDoSomethingWithAsset {
 ///     some_data: String,
-///     asset_id: AssetId,
+///     asset: AssetId,
 /// }
 ///
 /// #[entrypoint(params = "[authority, operation]")]
@@ -88,7 +88,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 ///     CanDoSomethingWithAsset {
 ///        some_data: "some data".to_owned(),
-///        asset_id: parse!(AssetId, "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"),
+///        asset: parse!(AssetId, "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"),
 ///     }.is_owned_by(&authority)
 /// }
 /// ```
@@ -174,7 +174,7 @@ pub fn derive_validate_grant_revoke(input: TokenStream) -> Result<TokenStream> {
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
 /// from your token to a `permission::asset_definition::Owner` type.
 ///
-/// Requires `asset_definition_id` field in the token.
+/// Requires `asset_definition` field in the token.
 ///
 /// Implements [`From`] for `permission::asset_definition::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.
@@ -191,7 +191,7 @@ pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> Result<Toke
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
 /// from your token to a `permission::asset::Owner` type.
 ///
-/// Requires `asset_id` field in the token.
+/// Requires `asset` field in the token.
 ///
 /// Implements [`From`] for `permission::asset::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.
@@ -206,7 +206,7 @@ pub fn derive_ref_into_asset_owner(input: TokenStream) -> Result<TokenStream> {
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
 /// from your token to a `permission::account::Owner` type.
 ///
-/// Requires `account_id` field in the token.
+/// Requires `account` field in the token.
 ///
 /// Implements [`From`] for `permission::asset::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.
@@ -221,7 +221,7 @@ pub fn derive_ref_into_account_owner(input: TokenStream) -> Result<TokenStream> 
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
 /// from your token to a `permission::domain::Owner` type.
 ///
-/// Requires `domain_id` field in the token.
+/// Requires `domain` field in the token.
 ///
 /// Implements [`From`] for `permission::domain::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.

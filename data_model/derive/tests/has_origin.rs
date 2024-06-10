@@ -44,7 +44,7 @@ fn has_origin() {
 
     for (event, expected_id) in events.into_iter().zip(expected_ids) {
         assert_eq!(
-            event.origin_id(),
+            event.origin(),
             &expected_id,
             "mismatched origin id for event {event:?}",
         );

@@ -62,7 +62,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let peer_id = self.object_id;
+            let peer_id = self.object;
             let world = &mut state_transaction.world;
             let Some(index) = world.trusted_peers_ids.iter().position(|id| id == &peer_id) else {
                 return Err(FindError::Peer(peer_id).into());
@@ -121,13 +121,13 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let domain_id = self.object_id;
+            let domain_id = self.object;
 
             state_transaction
                 .world()
                 .triggers()
                 .inspect_by_action(
-                    |action| action.authority().domain_id() == &domain_id,
+                    |action| action.authority().domain() == &domain_id,
                     |trigger_id, _| trigger_id.clone(),
                 )
                 .collect::<Vec<_>>()
@@ -203,22 +203,22 @@ pub mod isi {
             authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let role_id = self.object_id;
+            let role_id = self.object;
 
             let accounts_with_role = state_transaction
                 .world
                 .account_roles
                 .iter()
                 .map(|(role, ())| role)
-                .filter(|role| role.role_id.eq(&role_id))
-                .map(|role| &role.account_id)
+                .filter(|role| role.id.eq(&role_id))
+                .map(|role| &role.account)
                 .cloned()
                 .collect::<Vec<_>>();
 
             for account_id in accounts_with_role {
                 let revoke = Revoke {
                     object: role_id.clone(),
-                    destination_id: account_id,
+                    destination: account_id,
                 };
                 revoke.execute(authority, state_transaction)?
             }
@@ -241,7 +241,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let role_id = self.destination_id;
+            let role_id = self.destination;
             let permission = self.object;
             let permission_id = permission.id.clone();
 
@@ -269,8 +269,8 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(RoleEvent::PermissionAdded(RolePermissionChanged {
-                    role_id,
-                    permission_id,
+                    role: role_id,
+                    permission: permission_id,
                 })));
 
             Ok(())
@@ -284,7 +284,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let role_id = self.destination_id;
+            let role_id = self.destination;
             let permission = self.object;
             let permission_id = permission.id.clone();
 
@@ -299,8 +299,8 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(RoleEvent::PermissionRemoved(RolePermissionChanged {
-                    role_id,
-                    permission_id,
+                    role: role_id,
+                    permission: permission_id,
                 })));
 
             Ok(())
