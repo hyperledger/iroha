@@ -4,7 +4,6 @@
 use alloc::{format, string::String, vec::Vec};
 
 use derive_more::{Constructor, Display, FromStr};
-use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_primitives::numeric::Numeric;
 use iroha_schema::IntoSchema;
@@ -23,6 +22,8 @@ use crate::{
 
 #[model]
 mod model {
+    use getset::Getters;
+
     use super::*;
 
     /// Identification of a [`Domain`].

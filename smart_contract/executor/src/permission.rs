@@ -1,4 +1,4 @@
-//! Module with permission tokens and permission related functionality.
+//! Module with permission related functionality.
 
 use alloc::borrow::ToOwned as _;
 
@@ -9,7 +9,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::prelude::{Permission as PermissionObject, *};
 
-/// Is used to check if the permission token is owned by the account.
+/// Used to check if the permission token is owned by the account.
 pub trait Permission:
     Serialize + DeserializeOwned + IntoSchema + PartialEq<Self> + ValidateGrantRevoke
 {
@@ -113,7 +113,7 @@ pub mod asset_definition {
 
     /// Check if `authority` is the owner of asset definition
 
-    /// `authority` is owner of asset_definition if:
+    /// `authority` is owner of asset definition if:
     /// - `asset_definition.owned_by` is `authority`
     /// - `asset_definition.domain_id` domain is owned by `authority`
     ///

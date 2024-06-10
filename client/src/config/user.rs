@@ -6,11 +6,13 @@ use iroha_config_base::{
     util::{DurationMs, Emitter, EmitterResultExt},
     ReadConfig, WithOrigin,
 };
-use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
-use iroha_data_model::prelude::{AccountId, ChainId, DomainId};
 use url::Url;
 
-use crate::config::BasicAuth;
+use crate::{
+    config::BasicAuth,
+    crypto::{KeyPair, PrivateKey, PublicKey},
+    data_model::prelude::{AccountId, ChainId, DomainId},
+};
 
 /// Root of the user configuration
 #[derive(Clone, Debug, ReadConfig)]

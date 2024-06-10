@@ -5,4 +5,5 @@
 extern crate alloc;
 
 pub mod complex_isi;
+pub mod parameters;
 pub mod simple_isi;

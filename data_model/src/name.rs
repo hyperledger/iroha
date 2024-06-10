@@ -2,20 +2,21 @@
 //! and related implementations and trait implementations.
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{borrow::Borrow, ops::RangeInclusive, str::FromStr};
+use core::{borrow::Borrow, str::FromStr};
 
-use derive_more::{DebugCustom, Display};
 use iroha_data_model_derive::model;
 use iroha_primitives::conststr::ConstString;
-use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{isi::error::InvalidParameterError, ParseError};
+use crate::ParseError;
 
 #[model]
 mod model {
+    use derive_more::{DebugCustom, Display};
+    use iroha_schema::IntoSchema;
+
     use super::*;
 
     /// `Name` struct represents the type of Iroha Entities names, such as
@@ -41,27 +42,6 @@ mod model {
 }
 
 impl Name {
-    /// Check if `range` contains the number of chars in the inner `ConstString` of this [`Name`].
-    ///
-    /// # Errors
-    /// Fails if `range` does not
-    pub fn validate_len(
-        &self,
-        range: impl Into<RangeInclusive<u32>>,
-    ) -> Result<(), InvalidParameterError> {
-        let range = range.into();
-        let Ok(true) = &self
-            .0
-            .chars()
-            .count()
-            .try_into()
-            .map(|len| range.contains(&len))
-        else {
-            return Err(InvalidParameterError::NameLength);
-        };
-        Ok(())
-    }
-
     /// Check if `candidate` string would be valid [`Name`].
     ///
     /// # Errors

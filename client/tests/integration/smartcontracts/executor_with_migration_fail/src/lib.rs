@@ -24,7 +24,7 @@ struct Executor {
 }
 
 #[entrypoint]
-pub fn migrate(_block_height: u64) -> MigrationResult {
+fn migrate(_block_height: u64) -> MigrationResult {
     // Performing side-effects to check in the test that it won't be applied after failure
 
     // Registering a new domain (using ISI)

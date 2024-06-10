@@ -16,12 +16,6 @@ struct Object {
     id: ObjectId,
 }
 
-impl Object {
-    fn id(&self) -> &ObjectId {
-        &self.id
-    }
-}
-
 #[allow(clippy::enum_variant_names)] // it's a test, duh
 #[derive(Debug, HasOrigin)]
 #[has_origin(origin = Object)]

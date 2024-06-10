@@ -6,15 +6,30 @@ use iroha::{
     data_model::{
         asset::AssetId,
         events::pipeline::{BlockEventFilter, BlockStatus},
+        parameter::SumeragiParameters,
         prelude::*,
         transaction::WasmSmartContract,
         Level,
     },
 };
-use iroha_config::parameters::defaults::chain_wide::CONSENSUS_ESTIMATION as DEFAULT_CONSENSUS_ESTIMATION;
 use iroha_logger::info;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
+
+/// Default estimation of consensus duration.
+pub fn default_consensus_estimation() -> Duration {
+    let default_parameters = SumeragiParameters::default();
+
+    default_parameters
+        .block_time()
+        .checked_add(
+            default_parameters
+                .commit_time()
+                .checked_div(2)
+                .map_or_else(|| unreachable!(), |x| x),
+        )
+        .map_or_else(|| unreachable!(), |x| x)
+}
 
 fn curr_time() -> core::time::Duration {
     use std::time::SystemTime;
@@ -41,7 +56,7 @@ macro_rules! const_assert {
 fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result<()> {
     const PERIOD: Duration = Duration::from_millis(100);
     const ACCEPTABLE_ERROR_PERCENT: u8 = 15;
-    const_assert!(PERIOD.as_millis() < DEFAULT_CONSENSUS_ESTIMATION.as_millis());
+    assert!(PERIOD.as_millis() < default_consensus_estimation().as_millis());
     const_assert!(ACCEPTABLE_ERROR_PERCENT <= 100);
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_775).start_with_runtime();
@@ -77,7 +92,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
         Duration::from_secs(1),
         3,
     )?;
-    std::thread::sleep(DEFAULT_CONSENSUS_ESTIMATION);
+    std::thread::sleep(default_consensus_estimation());
 
     let finish_time = curr_time();
     let average_count = finish_time.saturating_sub(start_time).as_millis() / PERIOD.as_millis();
@@ -104,7 +119,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_665).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     // Sleep to certainly bypass time interval analyzed by genesis
-    std::thread::sleep(DEFAULT_CONSENSUS_ESTIMATION);
+    std::thread::sleep(default_consensus_estimation());
 
     let asset_definition_id = "rose#wonderland"
         .parse::<AssetDefinitionId>()
@@ -139,7 +154,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
     assert_eq!(init_quantity, after_registration_quantity);
 
     // Sleep long enough that trigger start is in the past
-    std::thread::sleep(DEFAULT_CONSENSUS_ESTIMATION);
+    std::thread::sleep(default_consensus_estimation());
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
 
     let after_wait_quantity = test_client.request(FindAssetQuantityById {
@@ -201,9 +216,10 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 
 #[test]
 fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
-    // Building trigger
-    info!("Building trigger");
+    const TRIGGER_PERIOD: Duration = Duration::from_millis(1000);
+    const EXPECTED_COUNT: u64 = 4;
 
+    info!("Building trigger");
     let wasm = iroha_wasm_builder::Builder::new(
         "tests/integration/smartcontracts/create_nft_for_every_user_trigger",
     )
@@ -213,9 +229,6 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     .into_bytes()?;
 
     info!("WASM size is {} bytes", wasm.len());
-
-    const TRIGGER_PERIOD: Duration = Duration::from_millis(1000);
-    const EXPECTED_COUNT: u64 = 4;
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);

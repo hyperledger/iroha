@@ -1,10 +1,14 @@
 //! Example of registering multiple triggers
 //! Used to show Iroha's trigger deduplication capabilities
 
+use std::num::NonZeroU64;
+
 use iroha::{
     client::Client,
+    crypto::KeyPair,
     data_model::{prelude::*, trigger::TriggerId},
 };
+use iroha_data_model::parameter::{Parameter, SmartContractParameter};
 use iroha_genesis::{GenesisBlock, GenesisBuilder};
 use iroha_primitives::unique_vec;
 use irohad::samples::{construct_executor, get_config};
@@ -18,17 +22,24 @@ use tokio::runtime::Runtime;
 fn generate_genesis(
     num_triggers: u32,
     chain_id: ChainId,
-    genesis_key_pair: &iroha_crypto::KeyPair,
+    genesis_key_pair: &KeyPair,
     topology: Vec<PeerId>,
 ) -> Result<GenesisBlock, Box<dyn std::error::Error>> {
-    let builder = GenesisBuilder::default();
+    let builder = GenesisBuilder::default()
+        .append_instruction(SetParameter::new(Parameter::Executor(
+            SmartContractParameter::Fuel(NonZeroU64::MAX),
+        )))
+        .append_instruction(SetParameter::new(Parameter::Executor(
+            SmartContractParameter::Memory(NonZeroU64::MAX),
+        )));
 
-    let wasm =
-        iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose_trigger")
-            .show_output()
-            .build()?
-            .optimize()?
-            .into_bytes()?;
+    let wasm = iroha_wasm_builder::Builder::new(
+        "client/tests/integration/smartcontracts/mint_rose_trigger",
+    )
+    .show_output()
+    .build()?
+    .optimize()?
+    .into_bytes()?;
     let wasm = WasmSmartContract::from_compiled(wasm);
     let (account_id, _account_keypair) = gen_account_in("wonderland");
 
@@ -54,7 +65,7 @@ fn generate_genesis(
         })
         .fold(builder, GenesisBuilder::append_instruction);
 
-    let executor = construct_executor("../default_executor").expect("Failed to construct executor");
+    let executor = construct_executor("default_executor").expect("Failed to construct executor");
     Ok(builder.build_and_sign(executor, chain_id, genesis_key_pair, topology))
 }
 
@@ -64,16 +75,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let chain_id = get_chain_id();
     let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
     let topology = vec![peer.id.clone()];
-    let mut configuration = get_config(
+    let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
         genesis_key_pair.public_key(),
     );
-
-    // Increase executor limits for large genesis
-    configuration.chain_wide.executor_runtime.fuel_limit = u64::MAX;
-    configuration.chain_wide.executor_runtime.max_memory = u32::MAX.into();
 
     let genesis = generate_genesis(1_000_u32, chain_id, &genesis_key_pair, topology)?;
 

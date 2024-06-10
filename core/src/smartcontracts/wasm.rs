@@ -2,15 +2,15 @@
 //! `WebAssembly` VM Smartcontracts can be written in Rust, compiled
 //! to wasm format and submitted in a transaction
 
-use std::borrow::Borrow;
+use std::{borrow::Borrow, num::NonZeroU64};
 
 use error::*;
 use import::traits::{ExecuteOperations as _, GetExecutorPayloads as _, SetDataModel as _};
-use iroha_config::parameters::actual::WasmRuntime as Config;
 use iroha_data_model::{
     account::AccountId,
     executor::{self, ExecutorDataModel, MigrationResult},
     isi::InstructionBox,
+    parameter::SmartContractParameters as Config,
     prelude::*,
     query::{cursor::QueryId, QueryBox, QueryOutputBox, QueryRequest, SmartContractQuery},
     smart_contract::payloads::{self, Validate},
@@ -299,12 +299,12 @@ struct LimitsExecutor {
     /// Number of instructions in the smartcontract
     instruction_count: u64,
     /// Max allowed number of instructions in the smartcontract
-    max_instruction_count: u64,
+    max_instruction_count: NonZeroU64,
 }
 
 impl LimitsExecutor {
     /// Create new [`LimitsExecutor`]
-    pub fn new(max_instruction_count: u64) -> Self {
+    pub fn new(max_instruction_count: NonZeroU64) -> Self {
         Self {
             instruction_count: 0,
             max_instruction_count,
@@ -320,7 +320,7 @@ impl LimitsExecutor {
     pub fn check_instruction_limits(&mut self) -> Result<(), ValidationFail> {
         self.instruction_count += 1;
 
-        if self.instruction_count > self.max_instruction_count {
+        if self.instruction_count > self.max_instruction_count.get() {
             return Err(ValidationFail::TooComplex);
         }
 
@@ -344,8 +344,14 @@ pub mod state {
     /// Panics if failed to convert `u32` into `usize` which should not happen
     /// on any supported platform
     pub fn store_limits_from_config(config: &Config) -> StoreLimits {
+        let memory_size = config
+            .memory
+            .get()
+            .try_into()
+            .expect("`SmarContractParameters::memory` exceeds usize::MAX");
+
         StoreLimitsBuilder::new()
-            .memory_size(config.max_memory.get() as usize)
+            .memory_size(memory_size)
             .instances(1)
             .memories(1)
             .tables(1)
@@ -738,7 +744,7 @@ impl<W, S> Runtime<state::CommonState<W, S>> {
 
         store.limiter(|s| &mut s.store_limits);
         store
-            .set_fuel(self.config.fuel_limit)
+            .set_fuel(self.config.fuel.get())
             .expect("Wasm Runtime config is malformed, this is a bug");
 
         store
@@ -899,7 +905,7 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::SmartContract<'wrld, '
         state_transaction: &'wrld mut StateTransaction<'block, 'state>,
         authority: AccountId,
         bytes: impl AsRef<[u8]>,
-        max_instruction_count: u64,
+        max_instruction_count: NonZeroU64,
     ) -> Result<()> {
         let span = wasm_log_span!("Smart contract validation", %authority);
         let state = state::SmartContract::new(
@@ -1706,6 +1712,7 @@ impl<C: wasmtime::AsContextMut> GetExport for (&wasmtime::Instance, C) {
 #[cfg(test)]
 mod tests {
     use iroha_data_model::query::{predicate::PredicateBox, sorting::Sorting, Pagination};
+    use nonzero_ext::nonzero;
     use parity_scale_codec::Encode;
     use test_samples::gen_account_in;
     use tokio::test;
@@ -1893,7 +1900,12 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let res = runtime.validate(&mut state.block().transaction(), authority, wat, 1);
+        let res = runtime.validate(
+            &mut state.block().transaction(),
+            authority,
+            wat,
+            nonzero!(1_u64),
+        );
 
         if let Error::ExportFnCall(ExportFnCallError::Other(report)) =
             res.expect_err("Execution should fail")
@@ -1942,7 +1954,12 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let res = runtime.validate(&mut state.block().transaction(), authority, wat, 1);
+        let res = runtime.validate(
+            &mut state.block().transaction(),
+            authority,
+            wat,
+            nonzero!(1_u64),
+        );
 
         if let Error::ExportFnCall(ExportFnCallError::HostExecution(report)) =
             res.expect_err("Execution should fail")
@@ -1986,7 +2003,12 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let res = runtime.validate(&mut state.block().transaction(), authority, wat, 1);
+        let res = runtime.validate(
+            &mut state.block().transaction(),
+            authority,
+            wat,
+            nonzero!(1_u64),
+        );
 
         if let Error::ExportFnCall(ExportFnCallError::HostExecution(report)) =
             res.expect_err("Execution should fail")

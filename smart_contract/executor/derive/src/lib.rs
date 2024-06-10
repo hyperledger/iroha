@@ -7,6 +7,7 @@ use proc_macro2::TokenStream;
 mod conversion;
 mod default;
 mod entrypoint;
+mod parameter;
 mod permission;
 mod validate;
 
@@ -98,6 +99,16 @@ pub fn derive_permission(input: TokenStream) -> Result<TokenStream> {
     let input = syn::parse2(input)?;
 
     Ok(permission::impl_derive_permission(&input))
+}
+
+/// Derive macro for `Parameter` trait.
+/// ```
+#[manyhow]
+#[proc_macro_derive(Parameter)]
+pub fn derive_parameter(input: TokenStream) -> Result<TokenStream> {
+    let input = syn::parse2(input)?;
+
+    Ok(parameter::impl_derive_parameter(&input))
 }
 
 /// Derive macro for `ValidateGrantRevoke` trait.

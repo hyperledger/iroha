@@ -1599,6 +1599,7 @@ name = "executor_custom_data_model"
 version = "2.0.0-pre-rc.21"
 dependencies = [
  "iroha_data_model",
+ "iroha_executor",
  "iroha_schema",
  "serde",
  "serde_json",

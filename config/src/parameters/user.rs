@@ -25,10 +25,7 @@ use iroha_config_base::{
     ReadConfig, WithOrigin,
 };
 use iroha_crypto::{PrivateKey, PublicKey};
-use iroha_data_model::{
-    metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
-    LengthLimits, Level,
-};
+use iroha_data_model::{peer::PeerId, ChainId, Level};
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::Deserialize;
 use url::Url;
@@ -81,8 +78,6 @@ pub struct Root {
     dev_telemetry: DevTelemetry,
     #[config(nested)]
     torii: Torii,
-    #[config(nested)]
-    chain_wide: ChainWide,
 }
 
 #[derive(thiserror::Error, Debug, Copy, Clone)]
@@ -119,7 +114,6 @@ impl Root {
         let dev_telemetry = self.dev_telemetry;
         let (torii, live_query_store) = self.torii.parse();
         let telemetry = self.telemetry.map(actual::Telemetry::from);
-        let chain_wide = self.chain_wide.parse();
 
         let peer_id = key_pair.as_ref().map(|key_pair| {
             PeerId::new(
@@ -156,7 +150,6 @@ impl Root {
             snapshot,
             telemetry,
             dev_telemetry,
-            chain_wide,
         })
     }
 }
@@ -272,12 +265,12 @@ pub struct Network {
     /// Peer-to-peer address
     #[config(env = "P2P_ADDRESS")]
     pub address: WithOrigin<SocketAddr>,
-    #[config(default = "defaults::network::BLOCK_GOSSIP_MAX_SIZE")]
-    pub block_gossip_max_size: NonZeroU32,
+    #[config(default = "defaults::network::BLOCK_GOSSIP_SIZE")]
+    pub block_gossip_size: NonZeroU32,
     #[config(default = "defaults::network::BLOCK_GOSSIP_PERIOD.into()")]
     pub block_gossip_period_ms: DurationMs,
-    #[config(default = "defaults::network::TRANSACTION_GOSSIP_MAX_SIZE")]
-    pub transaction_gossip_max_size: NonZeroU32,
+    #[config(default = "defaults::network::TRANSACTION_GOSSIP_SIZE")]
+    pub transaction_gossip_size: NonZeroU32,
     #[config(default = "defaults::network::TRANSACTION_GOSSIP_PERIOD.into()")]
     pub transaction_gossip_period_ms: DurationMs,
     /// Duration of time after which connection with peer is terminated if peer is idle
@@ -295,9 +288,9 @@ impl Network {
     ) {
         let Self {
             address,
-            block_gossip_max_size,
+            block_gossip_size,
             block_gossip_period_ms: block_gossip_period,
-            transaction_gossip_max_size,
+            transaction_gossip_size,
             transaction_gossip_period_ms: transaction_gossip_period,
             idle_timeout_ms: idle_timeout,
         } = self;
@@ -309,11 +302,11 @@ impl Network {
             },
             actual::BlockSync {
                 gossip_period: block_gossip_period.get(),
-                gossip_max_size: block_gossip_max_size,
+                gossip_size: block_gossip_size,
             },
             actual::TransactionGossiper {
                 gossip_period: transaction_gossip_period.get(),
-                gossip_max_size: transaction_gossip_max_size,
+                gossip_size: transaction_gossip_size,
             },
         )
     }
@@ -431,81 +424,6 @@ pub struct Snapshot {
         env = "SNAPSHOT_STORE_DIR"
     )]
     pub store_dir: WithOrigin<PathBuf>,
-}
-
-// TODO: make serde
-#[derive(Debug, Copy, Clone, ReadConfig)]
-pub struct ChainWide {
-    #[config(default = "defaults::chain_wide::MAX_TXS")]
-    pub max_transactions_in_block: NonZeroU32,
-    #[config(default = "defaults::chain_wide::BLOCK_TIME.into()")]
-    pub block_time_ms: DurationMs,
-    #[config(default = "defaults::chain_wide::COMMIT_TIME.into()")]
-    pub commit_time_ms: DurationMs,
-    #[config(default = "defaults::chain_wide::TRANSACTION_LIMITS")]
-    pub transaction_limits: TransactionLimits,
-    #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
-    pub domain_metadata_limits: MetadataLimits,
-    #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
-    pub asset_definition_metadata_limits: MetadataLimits,
-    #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
-    pub account_metadata_limits: MetadataLimits,
-    #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
-    pub asset_metadata_limits: MetadataLimits,
-    #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
-    pub trigger_metadata_limits: MetadataLimits,
-    #[config(default = "defaults::chain_wide::IDENT_LENGTH_LIMITS")]
-    pub ident_length_limits: LengthLimits,
-    #[config(default = "defaults::chain_wide::WASM_FUEL_LIMIT")]
-    pub executor_fuel_limit: u64,
-    #[config(default = "defaults::chain_wide::WASM_MAX_MEMORY")]
-    pub executor_max_memory: Bytes<u32>,
-    #[config(default = "defaults::chain_wide::WASM_FUEL_LIMIT")]
-    pub wasm_fuel_limit: u64,
-    #[config(default = "defaults::chain_wide::WASM_MAX_MEMORY")]
-    pub wasm_max_memory: Bytes<u32>,
-}
-
-impl ChainWide {
-    fn parse(self) -> actual::ChainWide {
-        let Self {
-            max_transactions_in_block,
-            block_time_ms: DurationMs(block_time),
-            commit_time_ms: DurationMs(commit_time),
-            transaction_limits,
-            asset_metadata_limits,
-            trigger_metadata_limits,
-            asset_definition_metadata_limits,
-            account_metadata_limits,
-            domain_metadata_limits,
-            ident_length_limits,
-            executor_fuel_limit,
-            executor_max_memory,
-            wasm_fuel_limit,
-            wasm_max_memory,
-        } = self;
-
-        actual::ChainWide {
-            max_transactions_in_block,
-            block_time,
-            commit_time,
-            transaction_limits,
-            asset_metadata_limits,
-            trigger_metadata_limits,
-            asset_definition_metadata_limits,
-            account_metadata_limits,
-            domain_metadata_limits,
-            ident_length_limits,
-            executor_runtime: actual::WasmRuntime {
-                fuel_limit: executor_fuel_limit,
-                max_memory: executor_max_memory,
-            },
-            wasm_runtime: actual::WasmRuntime {
-                fuel_limit: wasm_fuel_limit,
-                max_memory: wasm_max_memory,
-            },
-        }
-    }
 }
 
 #[derive(Debug, ReadConfig)]

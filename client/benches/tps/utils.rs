@@ -6,7 +6,7 @@ use iroha::{
     crypto::KeyPair,
     data_model::{
         events::pipeline::{BlockEventFilter, BlockStatus},
-        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+        parameter::BlockParameter,
         prelude::*,
     },
 };
@@ -22,7 +22,7 @@ pub struct Config {
     pub peers: u32,
     /// Interval in microseconds between transactions to reduce load
     pub interval_us_per_tx: u64,
-    pub max_txs_per_block: u32,
+    pub block_limits: BlockParameter,
     pub blocks: u32,
     pub sample_size: u32,
     pub genesis_max_retries: u32,
@@ -33,11 +33,7 @@ impl fmt::Display for Config {
         write!(
             f,
             "{}peers-{}interval_µs-{}max_txs-{}blocks-{}samples",
-            self.peers,
-            self.interval_us_per_tx,
-            self.max_txs_per_block,
-            self.blocks,
-            self.sample_size,
+            self.peers, self.interval_us_per_tx, self.block_limits, self.blocks, self.sample_size,
         )
     }
 }
@@ -55,11 +51,7 @@ impl Config {
         let clients = network.clients();
         wait_for_genesis_committed_with_max_retries(&clients, 0, self.genesis_max_retries);
 
-        client.submit_all_blocking(
-            ParametersBuilder::new()
-                .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, self.max_txs_per_block)?
-                .into_set_parameters(),
-        )?;
+        client.submit_blocking(SetParameter::new(Parameter::Block(self.block_limits)))?;
 
         let unit_names = (UnitName::MIN..).take(self.peers as usize);
         let units = clients

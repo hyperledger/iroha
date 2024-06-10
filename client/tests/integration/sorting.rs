@@ -52,14 +52,8 @@ fn correct_pagination_assets_after_creating_new_one() {
         let asset_definition_id =
             AssetDefinitionId::from_str(&format!("xor{i}#wonderland")).expect("Valid");
         let asset_definition = AssetDefinition::store(asset_definition_id.clone());
-        let mut asset_metadata = Metadata::new();
-        asset_metadata
-            .insert_with_limits(
-                sort_by_metadata_key.clone(),
-                i as u32,
-                MetadataLimits::new(10, 23),
-            )
-            .expect("Valid");
+        let mut asset_metadata = Metadata::default();
+        asset_metadata.insert(sort_by_metadata_key.clone(), i as u32);
         let asset = Asset::new(
             AssetId::new(asset_definition_id, account_id.clone()),
             AssetValue::Store(asset_metadata),
@@ -147,14 +141,8 @@ fn correct_sorting_of_entities() {
     for i in 0..n {
         let asset_definition_id =
             AssetDefinitionId::from_str(&format!("xor_{i}#wonderland")).expect("Valid");
-        let mut asset_metadata = Metadata::new();
-        asset_metadata
-            .insert_with_limits(
-                sort_by_metadata_key.clone(),
-                n - i - 1,
-                MetadataLimits::new(10, 28),
-            )
-            .expect("Valid");
+        let mut asset_metadata = Metadata::default();
+        asset_metadata.insert(sort_by_metadata_key.clone(), n - i - 1);
         let asset_definition = AssetDefinition::numeric(asset_definition_id.clone())
             .with_metadata(asset_metadata.clone());
 
@@ -208,14 +196,8 @@ fn correct_sorting_of_entities() {
     public_keys.sort_unstable();
     for i in 0..n {
         let account_id = AccountId::new(domain_id.clone(), public_keys[i as usize].clone());
-        let mut account_metadata = Metadata::new();
-        account_metadata
-            .insert_with_limits(
-                sort_by_metadata_key.clone(),
-                n - i - 1,
-                MetadataLimits::new(10, 28),
-            )
-            .expect("Valid");
+        let mut account_metadata = Metadata::default();
+        account_metadata.insert(sort_by_metadata_key.clone(), n - i - 1);
         let account = Account::new(account_id.clone()).with_metadata(account_metadata.clone());
 
         accounts.push(account_id);
@@ -256,14 +238,8 @@ fn correct_sorting_of_entities() {
     let n = 10u32;
     for i in 0..n {
         let domain_id = DomainId::from_str(&format!("neverland{i}")).expect("Valid");
-        let mut domain_metadata = Metadata::new();
-        domain_metadata
-            .insert_with_limits(
-                sort_by_metadata_key.clone(),
-                n - i - 1,
-                MetadataLimits::new(10, 28),
-            )
-            .expect("Valid");
+        let mut domain_metadata = Metadata::default();
+        domain_metadata.insert(sort_by_metadata_key.clone(), n - i - 1);
         let domain = Domain::new(domain_id.clone()).with_metadata(domain_metadata.clone());
 
         domains.push(domain_id);
@@ -303,14 +279,8 @@ fn correct_sorting_of_entities() {
     let mut instructions = vec![];
     for (idx, val) in input {
         let domain_id = DomainId::from_str(&format!("neverland_{idx}")).expect("Valid");
-        let mut domain_metadata = Metadata::new();
-        domain_metadata
-            .insert_with_limits(
-                sort_by_metadata_key.clone(),
-                val,
-                MetadataLimits::new(10, 28),
-            )
-            .expect("Valid");
+        let mut domain_metadata = Metadata::default();
+        domain_metadata.insert(sort_by_metadata_key.clone(), val);
         let domain = Domain::new(domain_id.clone()).with_metadata(domain_metadata.clone());
 
         domains.push(domain_id);
@@ -377,14 +347,8 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
             accounts_b.push(account_id);
             account
         } else {
-            let mut account_metadata = Metadata::new();
-            account_metadata
-                .insert_with_limits(
-                    sort_by_metadata_key.clone(),
-                    n - i - 1,
-                    MetadataLimits::new(10, 28),
-                )
-                .expect("Valid");
+            let mut account_metadata = Metadata::default();
+            account_metadata.insert(sort_by_metadata_key.clone(), n - i - 1);
             let account = Account::new(account_id.clone()).with_metadata(account_metadata);
             accounts_a.push(account_id);
             account
