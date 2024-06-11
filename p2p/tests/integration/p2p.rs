@@ -45,7 +45,7 @@ async fn network_create() {
         address: WithOrigin::inline(address.clone()),
         idle_timeout,
     };
-    let network = NetworkHandle::start(key_pair, config).await.unwrap();
+    let (network, _) = NetworkHandle::start(key_pair, config).await.unwrap();
     tokio::time::sleep(delay).await;
 
     info!("Connecting to peer...");
@@ -156,7 +156,7 @@ async fn two_networks() {
         address: WithOrigin::inline(address1.clone()),
         idle_timeout,
     };
-    let mut network1 = NetworkHandle::start(key_pair1, config1).await.unwrap();
+    let (mut network1, _) = NetworkHandle::start(key_pair1, config1).await.unwrap();
 
     info!("Starting second network...");
     let address2 = socket_addr!(127.0.0.1:12_010);
@@ -164,7 +164,7 @@ async fn two_networks() {
         address: WithOrigin::inline(address2.clone()),
         idle_timeout,
     };
-    let network2 = NetworkHandle::start(key_pair2, config2).await.unwrap();
+    let (network2, _) = NetworkHandle::start(key_pair2, config2).await.unwrap();
 
     let mut messages2 = WaitForN::new(1);
     let actor2 = TestActor::start(messages2.clone());
@@ -302,7 +302,7 @@ async fn start_network(
         address: WithOrigin::inline(address),
         idle_timeout,
     };
-    let mut network = NetworkHandle::start(key_pair, config).await.unwrap();
+    let (mut network, _) = NetworkHandle::start(key_pair, config).await.unwrap();
     network.subscribe_to_peers_messages(actor);
 
     let _ = barrier.wait().await;

@@ -23,7 +23,10 @@ iroha_logger = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "signal"] }
+tokio-util = { workspace = true }
+thread-local-panic-hook = { version = "0.1.0" }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio-stream = "0.1.15"

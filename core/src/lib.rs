@@ -60,43 +60,6 @@ pub enum NetworkMessage {
     Health,
 }
 
-pub mod handler {
-    //! General purpose thread handler. It is responsible for RAII for
-    //! threads started for Kura, Sumeragi and other core routines.
-    use std::thread::JoinHandle;
-
-    /// Call shutdown function and join thread on drop
-    pub struct ThreadHandler {
-        /// Shutdown function: after calling it, the thread must terminate in finite amount of time
-        shutdown: Option<Box<dyn FnOnce() + Send + Sync>>,
-        handle: Option<JoinHandle<()>>,
-    }
-
-    impl ThreadHandler {
-        /// [`Self`] constructor
-        #[must_use]
-        #[inline]
-        pub fn new(shutdown: Box<dyn FnOnce() + Send + Sync>, handle: JoinHandle<()>) -> Self {
-            Self {
-                shutdown: Some(shutdown),
-                handle: Some(handle),
-            }
-        }
-    }
-
-    impl Drop for ThreadHandler {
-        /// Join on drop to ensure that the thread is properly shut down.
-        fn drop(&mut self) {
-            (self.shutdown.take().expect("Always some after init"))();
-            let handle = self.handle.take().expect("Always some after init");
-
-            if let Err(error) = handle.join() {
-                iroha_logger::error!(?error, "Fatal error: thread panicked");
-            }
-        }
-    }
-}
-
 pub mod role {
     //! Module with extension for [`RoleId`] to be stored inside state.
 

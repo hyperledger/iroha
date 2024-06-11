@@ -109,6 +109,5 @@ path = "benches/blocks/validate_blocks_oneshot.rs"
 denylist = [
     "schema-endpoint",
     "telemetry",
-    "test-network"
 ]
 skip_optional_dependencies = true

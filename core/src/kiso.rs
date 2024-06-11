@@ -12,6 +12,7 @@ use iroha_config::{
     client_api::{ConfigDTO, Logger as LoggerDTO},
     parameters::actual::Root as Config,
 };
+use iroha_futures::supervisor::{Child, OnShutdown};
 use iroha_logger::Level;
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -27,7 +28,7 @@ pub struct KisoHandle {
 
 impl KisoHandle {
     /// Spawn a new actor
-    pub fn new(state: Config) -> Self {
+    pub fn start(state: Config) -> (Self, Child) {
         let (actor_sender, actor_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (log_level_update, _) = watch::channel(state.logger.level);
         let mut actor = Actor {
@@ -35,11 +36,15 @@ impl KisoHandle {
             state,
             log_level_update,
         };
-        tokio::spawn(async move { actor.run().await });
-
-        Self {
-            actor: actor_sender,
-        }
+        (
+            Self {
+                actor: actor_sender,
+            },
+            Child::new(
+                tokio::spawn(async move { actor.run().await }),
+                OnShutdown::Abort,
+            ),
+        )
     }
 
     /// Fetch the [`ConfigDTO`] from the actor's state.
@@ -176,7 +181,7 @@ mod tests {
 
         let mut config = test_config();
         config.logger.level = INIT_LOG_LEVEL;
-        let kiso = KisoHandle::new(config);
+        let (kiso, _) = KisoHandle::start(config);
 
         let mut recv = kiso
             .subscribe_on_log_level()

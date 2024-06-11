@@ -4,6 +4,7 @@ use std::{fmt::Debug, num::NonZeroU32, sync::Arc, time::Duration};
 use iroha_config::parameters::actual::BlockSync as Config;
 use iroha_crypto::HashOf;
 use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_futures::supervisor::{Child, OnShutdown};
 use iroha_logger::prelude::*;
 use iroha_macro::*;
 use iroha_p2p::Post;
@@ -48,10 +49,12 @@ pub struct BlockSynchronizer {
 
 impl BlockSynchronizer {
     /// Start [`Self`] actor.
-    pub fn start(self) -> BlockSynchronizerHandle {
+    pub fn start(self) -> (BlockSynchronizerHandle, Child) {
         let (message_sender, message_receiver) = mpsc::channel(1);
-        tokio::task::spawn(self.run(message_receiver));
-        BlockSynchronizerHandle { message_sender }
+        (
+            BlockSynchronizerHandle { message_sender },
+            Child::new(tokio::spawn(self.run(message_receiver)), OnShutdown::Abort),
+        )
     }
 
     /// [`Self`] task.
@@ -60,13 +63,13 @@ impl BlockSynchronizer {
         loop {
             tokio::select! {
                 _ = gossip_period.tick() => self.request_block().await,
-                msg = message_receiver.recv() => {
-                    let Some(msg) = msg else {
-                        info!("All handler to BlockSynchronizer are dropped. Shutting down...");
-                        break;
-                    };
+                Some(msg) = message_receiver.recv() => {
                     msg.handle_message(&mut self).await;
                 }
+                else => {
+                    debug!("Shutting down block sync");
+                    break;
+                },
             }
             tokio::task::yield_now().await;
         }
