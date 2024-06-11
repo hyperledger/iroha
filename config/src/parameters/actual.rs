@@ -207,6 +207,11 @@ impl ChainWide {
     pub fn pipeline_time(&self) -> Duration {
         self.block_time + self.commit_time
     }
+
+    /// Estimates as `block_time + commit_time / 2`
+    pub fn consensus_estimation(&self) -> Duration {
+        self.block_time + (self.commit_time / 2)
+    }
 }
 
 impl Default for ChainWide {

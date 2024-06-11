@@ -127,8 +127,13 @@ impl BlockHeader {
     }
 
     /// Creation timestamp
-    pub fn timestamp(&self) -> Duration {
+    pub const fn timestamp(&self) -> Duration {
         Duration::from_millis(self.timestamp_ms)
+    }
+
+    /// Consensus estimation
+    pub const fn consensus_estimation(&self) -> Duration {
+        Duration::from_millis(self.consensus_estimation_ms)
     }
 }
 
