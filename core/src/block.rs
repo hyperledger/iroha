@@ -1056,7 +1056,7 @@ mod tests {
         let domain = Domain::new(domain_id).build(&alice_id);
         let world = World::with([domain], [account], [], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world, kura, query_handle);
         let mut state_block = state.block();
 
@@ -1112,7 +1112,7 @@ mod tests {
         let domain = Domain::new(domain_id).build(&alice_id);
         let world = World::with([domain], [account], [], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world, kura, query_handle);
         let mut state_block = state.block();
 
@@ -1186,7 +1186,7 @@ mod tests {
         let domain = Domain::new(domain_id).build(&alice_id);
         let world = World::with([domain], [account], [], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world, kura, query_handle);
         let mut state_block = state.block();
         let transaction_limits = state_block.transaction_executor().limits;
@@ -1269,7 +1269,7 @@ mod tests {
             UniqueVec::new(),
         );
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world, kura, query_handle);
         let mut state_block = state.block();
 
