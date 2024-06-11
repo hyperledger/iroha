@@ -459,11 +459,11 @@ pub struct ChainWide {
     #[config(default = "defaults::chain_wide::WASM_FUEL_LIMIT")]
     pub executor_fuel_limit: u64,
     #[config(default = "defaults::chain_wide::WASM_MAX_MEMORY")]
-    pub executor_max_memory_bytes: Bytes<u32>,
+    pub executor_max_memory: Bytes<u32>,
     #[config(default = "defaults::chain_wide::WASM_FUEL_LIMIT")]
     pub wasm_fuel_limit: u64,
     #[config(default = "defaults::chain_wide::WASM_MAX_MEMORY")]
-    pub wasm_max_memory_bytes: Bytes<u32>,
+    pub wasm_max_memory: Bytes<u32>,
 }
 
 impl ChainWide {
@@ -480,9 +480,9 @@ impl ChainWide {
             domain_metadata_limits,
             ident_length_limits,
             executor_fuel_limit,
-            executor_max_memory_bytes,
+            executor_max_memory,
             wasm_fuel_limit,
-            wasm_max_memory_bytes,
+            wasm_max_memory,
         } = self;
 
         actual::ChainWide {
@@ -498,11 +498,11 @@ impl ChainWide {
             ident_length_limits,
             executor_runtime: actual::WasmRuntime {
                 fuel_limit: executor_fuel_limit,
-                max_memory_bytes: executor_max_memory_bytes.get(),
+                max_memory: executor_max_memory,
             },
             wasm_runtime: actual::WasmRuntime {
                 fuel_limit: wasm_fuel_limit,
-                max_memory_bytes: wasm_max_memory_bytes.get(),
+                max_memory: wasm_max_memory,
             },
         }
     }
@@ -513,7 +513,7 @@ pub struct Torii {
     #[config(env = "API_ADDRESS")]
     pub address: WithOrigin<SocketAddr>,
     #[config(default = "defaults::torii::MAX_CONTENT_LENGTH")]
-    pub max_content_length_bytes: Bytes<u64>,
+    pub max_content_len: Bytes<u64>,
     #[config(default = "defaults::torii::QUERY_IDLE_TIME.into()")]
     pub query_idle_time_ms: DurationMs,
 }
@@ -522,7 +522,7 @@ impl Torii {
     fn parse(self) -> (actual::Torii, actual::LiveQueryStore) {
         let torii = actual::Torii {
             address: self.address,
-            max_content_len_bytes: self.max_content_length_bytes.get(),
+            max_content_len: self.max_content_len,
         };
 
         let query = actual::LiveQueryStore {

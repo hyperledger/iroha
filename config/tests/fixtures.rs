@@ -115,7 +115,9 @@ fn minimal_config_snapshot() {
                         path: "tests/fixtures/base.toml",
                     },
                 },
-                max_content_len_bytes: 16777216,
+                max_content_len: Bytes(
+                    16777216,
+                ),
             },
             kura: Kura {
                 init_mode: Strict,
@@ -229,11 +231,15 @@ fn minimal_config_snapshot() {
                 },
                 executor_runtime: WasmRuntime {
                     fuel_limit: 55000000,
-                    max_memory_bytes: 524288000,
+                    max_memory: Bytes(
+                        524288000,
+                    ),
                 },
                 wasm_runtime: WasmRuntime {
                     fuel_limit: 55000000,
-                    max_memory_bytes: 524288000,
+                    max_memory: Bytes(
+                        524288000,
+                    ),
                 },
             },
         }"#]].assert_eq(&format!("{config:#?}"));

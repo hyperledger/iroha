@@ -8,7 +8,7 @@ use std::{
 };
 
 use error_stack::{Result, ResultExt};
-use iroha_config_base::{read::ConfigReader, toml::TomlSource, WithOrigin};
+use iroha_config_base::{read::ConfigReader, toml::TomlSource, util::Bytes, WithOrigin};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
@@ -230,14 +230,14 @@ impl Default for ChainWide {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct WasmRuntime {
     pub fuel_limit: u64,
-    pub max_memory_bytes: u32,
+    pub max_memory: Bytes<u32>,
 }
 
 impl Default for WasmRuntime {
     fn default() -> Self {
         Self {
             fuel_limit: defaults::chain_wide::WASM_FUEL_LIMIT,
-            max_memory_bytes: defaults::chain_wide::WASM_MAX_MEMORY.get(),
+            max_memory: defaults::chain_wide::WASM_MAX_MEMORY,
         }
     }
 }
@@ -246,7 +246,7 @@ impl Default for WasmRuntime {
 #[allow(missing_docs)]
 pub struct Torii {
     pub address: WithOrigin<SocketAddr>,
-    pub max_content_len_bytes: u64,
+    pub max_content_len: Bytes<u64>,
 }
 
 /// Complete configuration needed to start regular telemetry.

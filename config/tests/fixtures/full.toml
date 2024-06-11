@@ -18,7 +18,7 @@ idle_timeout_ms = 10_000
 
 [torii]
 address = "localhost:5000"
-max_content_length_bytes = 16_000
+max_content_len = 16_000
 query_idle_time_ms = 30_000
 
 [kura]

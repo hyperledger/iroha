@@ -9,7 +9,7 @@ use std::{
 };
 
 use eyre::Result;
-use iroha_config::parameters::actual::ChainWide as Config;
+use iroha_config::{base::util::Bytes, parameters::actual::ChainWide as Config};
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     account::AccountId,
@@ -1381,6 +1381,14 @@ impl StateTransaction<'_, '_> {
                     *destination = value;
                 })
             }
+
+            fn try_and_write_duration(self, id: &str, destination: &mut Duration) -> Self {
+                self.try_and_then(id, |value| *destination = Duration::from_millis(value))
+            }
+
+            fn try_and_write_bytes(self, id: &str, destination: &mut Bytes<u32>) -> Self {
+                self.try_and_then(id, |value| *destination = Bytes(value))
+            }
         }
 
         Reader(Some(parameter))
@@ -1389,12 +1397,8 @@ impl StateTransaction<'_, '_> {
                     self.config.max_transactions_in_block = checked;
                 }
             })
-            .try_and_then(BLOCK_TIME, |value| {
-                self.config.block_time = Duration::from_millis(value);
-            })
-            .try_and_then(COMMIT_TIME_LIMIT, |value| {
-                self.config.commit_time = Duration::from_millis(value);
-            })
+            .try_and_write_duration(BLOCK_TIME, &mut self.config.block_time)
+            .try_and_write_duration(COMMIT_TIME_LIMIT, &mut self.config.commit_time)
             .try_and_write(
                 WSV_DOMAIN_METADATA_LIMITS,
                 &mut self.config.domain_metadata_limits,
@@ -1423,15 +1427,12 @@ impl StateTransaction<'_, '_> {
                 EXECUTOR_FUEL_LIMIT,
                 &mut self.config.executor_runtime.fuel_limit,
             )
-            .try_and_write(
+            .try_and_write_bytes(
                 EXECUTOR_MAX_MEMORY,
-                &mut self.config.executor_runtime.max_memory_bytes,
+                &mut self.config.executor_runtime.max_memory,
             )
             .try_and_write(WASM_FUEL_LIMIT, &mut self.config.wasm_runtime.fuel_limit)
-            .try_and_write(
-                WASM_MAX_MEMORY,
-                &mut self.config.wasm_runtime.max_memory_bytes,
-            )
+            .try_and_write_bytes(WASM_MAX_MEMORY, &mut self.config.wasm_runtime.max_memory)
             .try_and_write(TRANSACTION_LIMITS, &mut self.config.transaction_limits);
     }
 
