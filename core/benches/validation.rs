@@ -35,7 +35,7 @@ fn build_test_transaction(chain_id: ChainId) -> TransactionBuilder {
 
 fn build_test_and_transient_state() -> State {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::test().start();
+    let query_handle = LiveQueryStore::start_test();
 
     let state = State::new(
         {
@@ -147,7 +147,7 @@ fn validate_transaction(criterion: &mut Criterion) {
 fn sign_blocks(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::test().start();
+    let query_handle = LiveQueryStore::start_test();
     let state = State::new(World::new(), kura, query_handle);
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();

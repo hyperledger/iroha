@@ -7,6 +7,7 @@
 #[cfg(debug_assertions)]
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::{
+    future::Future,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -22,20 +23,18 @@ use iroha_core::metrics::MetricsReporter;
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
-    handler::ThreadHandler,
     kiso::KisoHandle,
     kura::Kura,
     query::store::LiveQueryStore,
     queue::Queue,
     smartcontracts::isi::Registrable as _,
-    snapshot::{
-        try_read_snapshot, SnapshotMaker, SnapshotMakerHandle, TryReadError as TryReadSnapshotError,
-    },
+    snapshot::{try_read_snapshot, SnapshotMaker, TryReadError as TryReadSnapshotError},
     state::{State, StateReadOnly, World},
     sumeragi::{GenesisWithPubKey, SumeragiHandle, SumeragiMetrics, SumeragiStartArgs},
     IrohaNetwork,
 };
 use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_futures::supervisor::{ShutdownSignal, Supervisor};
 use iroha_genesis::GenesisBlock;
 use iroha_logger::{actor::LoggerHandle, InitConfig as LoggerInitConfig};
 use iroha_primitives::addr::SocketAddr;
@@ -43,50 +42,28 @@ use iroha_torii::Torii;
 use iroha_version::scale::DecodeVersioned;
 use thiserror::Error;
 use tokio::{
-    signal,
-    sync::{broadcast, mpsc, Notify},
+    sync::{broadcast, mpsc},
     task,
 };
 
 // FIXME: move from CLI
 pub mod samples;
 
+const EVENTS_BUFFER_CAPACITY: usize = 10_000;
+
 /// Iroha is an
 /// [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29)
 /// of the system. It configures, coordinates and manages transactions
 /// and queries processing, work of consensus and storage.
 pub struct Iroha {
-    /// Actor responsible for the configuration
-    _kiso: KisoHandle,
-    /// Queue of transactions
-    _queue: Arc<Queue>,
-    /// Sumeragi consensus
-    _sumeragi: SumeragiHandle,
     /// Kura — block storage
     kura: Arc<Kura>,
-    /// Snapshot service. Might be not started depending on the config.
-    _snapshot_maker: Option<SnapshotMakerHandle>,
     /// State of blockchain
     state: Arc<State>,
-    /// Shutdown signal
-    notify_shutdown: Arc<Notify>,
-    /// Thread handlers
-    thread_handlers: Vec<ThreadHandler>,
     /// A boolean value indicating whether or not the peers will receive data from the network.
     /// Used in sumeragi testing.
     #[cfg(debug_assertions)]
     pub freeze_status: FreezeStatus,
-}
-
-impl Drop for Iroha {
-    fn drop(&mut self) {
-        iroha_logger::trace!("Iroha instance dropped");
-        self.notify_shutdown.notify_waiters();
-        let _thread_handles = core::mem::take(&mut self.thread_handlers);
-        iroha_logger::debug!(
-            "Thread handles dropped. Dependent processes going for a graceful shutdown"
-        )
-    }
 }
 
 /// Error(s) that might occur while starting [`Iroha`]
@@ -133,18 +110,13 @@ impl FreezeStatus {
 struct NetworkRelay {
     sumeragi: SumeragiHandle,
     block_sync: BlockSynchronizerHandle,
-    gossiper: TransactionGossiperHandle,
+    tx_gossiper: TransactionGossiperHandle,
     network: IrohaNetwork,
-    shutdown_notify: Arc<Notify>,
     #[cfg(debug_assertions)]
     freeze_status: FreezeStatus,
 }
 
 impl NetworkRelay {
-    fn start(self) {
-        tokio::task::spawn(self.run());
-    }
-
     async fn run(mut self) {
         let (sender, mut receiver) = mpsc::channel(1);
         self.network.subscribe_to_peers_messages(sender);
@@ -152,13 +124,12 @@ impl NetworkRelay {
         #[allow(clippy::redundant_pub_crate)]
         loop {
             tokio::select! {
-                // Receive message from network
+                // Receive a message from the network
                 Some(msg) = receiver.recv() => self.handle_message(msg).await,
-                () = self.shutdown_notify.notified() => {
-                    iroha_logger::info!("NetworkRelay is being shut down.");
+                else => {
+                    iroha_logger::debug!("Exiting the network relay");
                     break;
-                }
-                else => break,
+                },
             }
             tokio::task::yield_now().await;
         }
@@ -180,101 +151,56 @@ impl NetworkRelay {
                 self.sumeragi.incoming_control_flow_message(*data);
             }
             BlockSync(data) => self.block_sync.message(*data).await,
-            TransactionGossiper(data) => self.gossiper.gossip(*data).await,
+            TransactionGossiper(data) => self.tx_gossiper.gossip(*data).await,
             Health => {}
         }
     }
 }
 
 impl Iroha {
-    fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
-        #[cfg(not(feature = "test-network"))]
-        use std::panic::set_hook;
-
-        // This is a hot-fix for tests
-        //
-        // # Problem
-        //
-        // When running tests in parallel `std::panic::set_hook()` will be set
-        // the same for all threads. That means, that panic in one test can
-        // cause another test shutdown, which we don't want.
-        //
-        // # Downside
-        //
-        // A downside of this approach is that this panic hook will not work for
-        // threads created by Iroha itself (e.g. Sumeragi thread).
-        //
-        // # TODO
-        //
-        // Remove this when all Rust integrations tests will be converted to a
-        // separate Python tests.
-        #[cfg(feature = "test-network")]
-        use thread_local_panic_hook::set_hook;
-
-        set_hook(Box::new(move |info| {
-            // What clippy suggests is much less readable in this case
-            #[allow(clippy::option_if_let_else)]
-            let panic_message = if let Some(message) = info.payload().downcast_ref::<&str>() {
-                message
-            } else if let Some(message) = info.payload().downcast_ref::<String>() {
-                message
-            } else {
-                "unspecified"
-            };
-
-            let location = info.location().map_or_else(
-                || "unspecified".to_owned(),
-                |location| format!("{}:{}", location.file(), location.line()),
-            );
-
-            iroha_logger::error!(panic_message, location, "A panic occurred, shutting down");
-
-            // NOTE: shutdown all currently listening waiters
-            notify_shutdown.notify_waiters();
-        }));
-    }
-
-    /// Creates new Iroha instance and starts all internal services.
+    /// Starts Iroha with all its subsystems.
     ///
-    /// Returns iroha itself and future to await for iroha completion.
+    /// Returns iroha itself and a future of system shutdown.
     ///
     /// # Errors
     /// - Reading telemetry configs
     /// - Telemetry setup
     /// - Initialization of [`Sumeragi`] and [`Kura`]
-    ///
-    /// # Side Effects
-    /// - Sets global panic hook
     #[allow(clippy::too_many_lines)]
-    #[iroha_logger::log(name = "init", skip_all)] // This is actually easier to understand as a linear sequence of init statements.
-    pub async fn start_network(
+    #[iroha_logger::log(name = "start", skip_all)] // This is actually easier to understand as a linear sequence of init statements.
+    pub async fn start(
         config: Config,
         genesis: Option<GenesisBlock>,
         logger: LoggerHandle,
-    ) -> Result<(impl core::future::Future<Output = ()>, Self), StartError> {
-        let network = IrohaNetwork::start(config.common.key_pair.clone(), config.network.clone())
-            .await
-            .change_context(StartError::StartP2p)?;
+        shutdown_signal: ShutdownSignal,
+    ) -> Result<
+        (
+            Self,
+            impl Future<Output = std::result::Result<(), iroha_futures::supervisor::Error>>,
+        ),
+        StartError,
+    > {
+        let supervisor = Supervisor::new();
 
-        let (events_sender, _) = broadcast::channel(10000);
+        let (kura, block_count) = Kura::new(&config.kura).change_context(StartError::InitKura)?;
+        let child = Kura::start(kura.clone(), supervisor.shutdown_signal());
+        supervisor.monitor(child);
+
         let world = World::with(
             [genesis_domain(config.genesis.public_key.clone())],
             [genesis_account(config.genesis.public_key.clone())],
             [],
         );
 
-        let notify_shutdown = Arc::new(Notify::new());
-
-        let (kura, block_count) = Kura::new(&config.kura).change_context(StartError::InitKura)?;
-        let kura_thread_handler = Kura::start(Arc::clone(&kura));
-        let live_query_store_handle =
-            LiveQueryStore::from_config(config.live_query_store, Arc::clone(&notify_shutdown))
+        let (live_query_store, child) =
+            LiveQueryStore::from_config(config.live_query_store, supervisor.shutdown_signal())
                 .start();
+        supervisor.monitor(child);
 
         let state = match try_read_snapshot(
             config.snapshot.store_dir.resolve_relative_path(),
             &kura,
-            live_query_store_handle.clone(),
+            || live_query_store.clone(),
             block_count,
         ) {
             Ok(state) => {
@@ -296,15 +222,22 @@ impl Iroha {
             State::new(
                 world,
                 Arc::clone(&kura),
-                live_query_store_handle.clone(),
+                live_query_store.clone(),
             )
         });
         let state = Arc::new(state);
 
+        let (events_sender, _) = broadcast::channel(EVENTS_BUFFER_CAPACITY);
         let queue = Arc::new(Queue::from_config(config.queue, events_sender.clone()));
 
+        let (network, child) =
+            IrohaNetwork::start(config.common.key_pair.clone(), config.network.clone())
+                .await
+                .change_context(StartError::StartP2p)?;
+        supervisor.monitor(child);
+
         #[cfg(feature = "telemetry")]
-        Self::start_telemetry(&logger, &config).await?;
+        start_telemetry(&logger, &config, &supervisor).await?;
 
         #[cfg(feature = "telemetry")]
         let metrics_reporter = MetricsReporter::new(
@@ -314,13 +247,13 @@ impl Iroha {
             queue.clone(),
         );
 
-        let start_args = SumeragiStartArgs {
+        let (sumeragi, child) = SumeragiStartArgs {
             sumeragi_config: config.sumeragi.clone(),
             common_config: config.common.clone(),
             events_sender: events_sender.clone(),
-            state: Arc::clone(&state),
-            queue: Arc::clone(&queue),
-            kura: Arc::clone(&kura),
+            state: state.clone(),
+            queue: queue.clone(),
+            kura: kura.clone(),
             network: network.clone(),
             genesis_network: GenesisWithPubKey {
                 genesis,
@@ -331,23 +264,22 @@ impl Iroha {
                 dropped_messages: metrics_reporter.metrics().dropped_messages.clone(),
                 view_changes: metrics_reporter.metrics().view_changes.clone(),
             },
-        };
-        // Starting Sumeragi requires no async context enabled
-        let sumeragi = task::spawn_blocking(move || SumeragiHandle::start(start_args))
-            .await
-            .expect("Failed to join task with Sumeragi start");
+        }
+        .start(supervisor.shutdown_signal());
+        supervisor.monitor(child);
 
-        let block_sync = BlockSynchronizer::from_config(
+        let (block_sync, child) = BlockSynchronizer::from_config(
             &config.block_sync,
             sumeragi.clone(),
-            Arc::clone(&kura),
+            kura.clone(),
             config.common.peer.clone(),
             network.clone(),
             Arc::clone(&state),
         )
         .start();
+        supervisor.monitor(child);
 
-        let gossiper = TransactionGossiper::from_config(
+        let (tx_gossiper, child) = TransactionGossiper::from_config(
             config.common.chain.clone(),
             config.transaction_gossiper,
             network.clone(),
@@ -355,176 +287,65 @@ impl Iroha {
             Arc::clone(&state),
         )
         .start();
+        supervisor.monitor(child);
 
         #[cfg(debug_assertions)]
         let freeze_status = FreezeStatus::new(config.common.peer.clone());
+        supervisor.monitor(task::spawn(
+            NetworkRelay {
+                sumeragi,
+                block_sync,
+                tx_gossiper,
+                network,
+                #[cfg(debug_assertions)]
+                freeze_status: freeze_status.clone(),
+            }
+            .run(),
+        ));
 
-        NetworkRelay {
-            sumeragi: sumeragi.clone(),
-            block_sync,
-            gossiper,
-            network: network.clone(),
-            shutdown_notify: Arc::clone(&notify_shutdown),
-            #[cfg(debug_assertions)]
-            freeze_status: freeze_status.clone(),
+        if let Some(snapshot_maker) =
+            SnapshotMaker::from_config(&config.snapshot, Arc::clone(&state))
+        {
+            supervisor.monitor(snapshot_maker.start(supervisor.shutdown_signal()));
         }
-        .start();
 
-        let snapshot_maker = SnapshotMaker::from_config(&config.snapshot, Arc::clone(&state))
-            .map(SnapshotMaker::start);
+        let (kiso, child) = KisoHandle::start(config.clone());
+        supervisor.monitor(child);
 
-        let kiso = KisoHandle::new(config.clone());
-
-        let torii = Torii::new(
+        let torii_run = Torii::new(
             config.common.chain.clone(),
             kiso.clone(),
             config.torii,
-            Arc::clone(&queue),
+            queue,
             events_sender,
-            Arc::clone(&notify_shutdown),
-            live_query_store_handle,
-            Arc::clone(&kura),
-            Arc::clone(&state),
+            live_query_store,
+            kura.clone(),
+            state.clone(),
             #[cfg(feature = "telemetry")]
             metrics_reporter,
-        );
+        )
+        .start(&supervisor.shutdown_signal())
+        .await
+        .map_err(|report| report.change_context(StartError::StartTorii))?;
+        supervisor.monitor(tokio::spawn(torii_run));
 
-        let run_torii = torii
-            .start()
-            .await
-            .map_err(|report| report.change_context(StartError::StartTorii))?;
+        supervisor.monitor(tokio::task::spawn(config_updates_relay(kiso, logger)));
 
-        tokio::spawn(run_torii);
-
-        Self::spawn_config_updates_broadcasting(kiso.clone(), logger.clone());
-
-        Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
-
-        Self::prepare_panic_hook(Arc::clone(&notify_shutdown));
-
-        // Future to wait for iroha completion
-        let wait = {
-            let notify_shutdown = Arc::clone(&notify_shutdown);
-            async move { notify_shutdown.notified().await }
-        };
-
-        let irohad = Self {
-            _kiso: kiso,
-            _queue: queue,
-            _sumeragi: sumeragi,
-            kura,
-            _snapshot_maker: snapshot_maker,
-            state,
-            notify_shutdown,
-            thread_handlers: vec![kura_thread_handler],
-            #[cfg(debug_assertions)]
-            freeze_status,
-        };
-
-        Ok((wait, irohad))
-    }
-
-    #[cfg(feature = "telemetry")]
-    async fn start_telemetry(logger: &LoggerHandle, config: &Config) -> Result<(), StartError> {
-        const MSG_SUBSCRIBE: &str = "unable to subscribe to the channel";
-        const MSG_START_TASK: &str = "unable to start the task";
-
-        #[cfg(feature = "dev-telemetry")]
-        {
-            if let Some(out_file) = &config.dev_telemetry.out_file {
-                let receiver = logger
-                    .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Future)
-                    .await
-                    .change_context(StartError::StartDevTelemetry)
-                    .attach_printable(MSG_SUBSCRIBE)?;
-                let _handle = iroha_telemetry::dev::start_file_output(
-                    out_file.resolve_relative_path(),
-                    receiver,
-                )
-                .await
-                .into_report()
-                .map_err(|report| report.change_context(StartError::StartDevTelemetry))
-                .attach_printable(MSG_START_TASK)?;
-            }
-        }
-
-        if let Some(config) = &config.telemetry {
-            let receiver = logger
-                .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Regular)
-                .await
-                .change_context(StartError::StartTelemetry)
-                .attach_printable(MSG_SUBSCRIBE)?;
-            let _handle = iroha_telemetry::ws::start(config.clone(), receiver)
-                .await
-                .into_report()
-                .map_err(|report| report.change_context(StartError::StartTelemetry))
-                .attach_printable(MSG_START_TASK)?;
-            iroha_logger::info!("Telemetry started");
-            Ok(())
-        } else {
-            iroha_logger::info!("Telemetry not started due to absent configuration");
-            Ok(())
-        }
-    }
-
-    fn start_listening_signal(
-        notify_shutdown: Arc<Notify>,
-    ) -> Result<task::JoinHandle<()>, StartError> {
-        let (mut sigint, mut sigterm) = signal::unix::signal(signal::unix::SignalKind::interrupt())
-            .and_then(|sigint| {
-                let sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
-
-                Ok((sigint, sigterm))
-            })
+        supervisor
+            .setup_shutdown_on_os_signals()
             .change_context(StartError::ListenOsSignal)?;
 
-        // NOTE: Triggered by tokio::select
-        #[allow(clippy::redundant_pub_crate)]
-        let handle = task::spawn(async move {
-            tokio::select! {
-                _ = sigint.recv() => {
-                    iroha_logger::info!("SIGINT received, shutting down...");
-                },
-                _ = sigterm.recv() => {
-                    iroha_logger::info!("SIGTERM received, shutting down...");
-                },
-            }
+        supervisor.shutdown_on_external_signal(shutdown_signal);
 
-            // NOTE: shutdown all currently listening waiters
-            notify_shutdown.notify_waiters();
-        });
-
-        Ok(handle)
-    }
-
-    /// Spawns a task which subscribes on updates from configuration actor
-    /// and broadcasts them further to interested actors. This way, neither config actor nor other ones know
-    /// about each other, achieving loose coupling of code and system.
-    fn spawn_config_updates_broadcasting(
-        kiso: KisoHandle,
-        logger: LoggerHandle,
-    ) -> task::JoinHandle<()> {
-        tokio::spawn(async move {
-            let mut log_level_update = kiso
-                .subscribe_on_log_level()
-                .await
-                // FIXME: don't like neither the message nor inability to throw Result to the outside
-                .expect("Cannot proceed without working subscriptions");
-
-            // See https://github.com/tokio-rs/tokio/issues/5616 and
-            // https://github.com/rust-lang/rust-clippy/issues/10636
-            #[allow(clippy::redundant_pub_crate)]
-            loop {
-                tokio::select! {
-                    Ok(()) = log_level_update.changed() => {
-                        let value = log_level_update.borrow_and_update().clone();
-                        if let Err(error) = logger.reload_level(value).await {
-                            iroha_logger::error!("Failed to reload log level: {error}");
-                        };
-                    }
-                };
-            }
-        })
+        Ok((
+            Self {
+                kura,
+                state,
+                #[cfg(debug_assertions)]
+                freeze_status,
+            },
+            supervisor.wait_all(),
+        ))
     }
 
     #[allow(missing_docs)]
@@ -541,6 +362,82 @@ impl Iroha {
     #[allow(missing_docs)]
     pub fn kura(&self) -> &Arc<Kura> {
         &self.kura
+    }
+}
+
+#[cfg(feature = "telemetry")]
+async fn start_telemetry(
+    logger: &LoggerHandle,
+    config: &Config,
+    supervisor: &Supervisor,
+) -> Result<(), StartError> {
+    const MSG_SUBSCRIBE: &str = "unable to subscribe to the channel";
+    const MSG_START_TASK: &str = "unable to start the task";
+
+    #[cfg(feature = "dev-telemetry")]
+    {
+        if let Some(out_file) = &config.dev_telemetry.out_file {
+            let receiver = logger
+                .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Future)
+                .await
+                .change_context(StartError::StartDevTelemetry)
+                .attach_printable(MSG_SUBSCRIBE)?;
+            let handle =
+                iroha_telemetry::dev::start_file_output(out_file.resolve_relative_path(), receiver)
+                    .await
+                    .into_report()
+                    .map_err(|report| report.change_context(StartError::StartDevTelemetry))
+                    .attach_printable(MSG_START_TASK)?;
+            supervisor.monitor(handle);
+        }
+    }
+
+    if let Some(config) = &config.telemetry {
+        let receiver = logger
+            .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Regular)
+            .await
+            .change_context(StartError::StartTelemetry)
+            .attach_printable(MSG_SUBSCRIBE)?;
+        let handle = iroha_telemetry::ws::start(config.clone(), receiver)
+            .await
+            .into_report()
+            .map_err(|report| report.change_context(StartError::StartTelemetry))
+            .attach_printable(MSG_START_TASK)?;
+        supervisor.monitor(handle);
+        iroha_logger::info!("Telemetry started");
+        Ok(())
+    } else {
+        iroha_logger::info!("Telemetry not started due to absent configuration");
+        Ok(())
+    }
+}
+
+/// Spawns a task which subscribes on updates from the configuration actor
+/// and broadcasts them further to interested actors. This way, neither the config actor nor other ones know
+/// about each other, achieving loose coupling of code and system.
+async fn config_updates_relay(kiso: KisoHandle, logger: LoggerHandle) {
+    let mut log_level_update = kiso
+        .subscribe_on_log_level()
+        .await
+        // FIXME: don't like neither the message nor inability to throw Result to the outside
+        .expect("Cannot proceed without working subscriptions");
+
+    // See https://github.com/tokio-rs/tokio/issues/5616 and
+    // https://github.com/rust-lang/rust-clippy/issues/10636
+    #[allow(clippy::redundant_pub_crate)]
+    loop {
+        tokio::select! {
+            Ok(()) = log_level_update.changed() => {
+                let value = log_level_update.borrow_and_update().clone();
+                if let Err(error) = logger.reload_level(value).await {
+                    iroha_logger::error!("Failed to reload log level: {error}");
+                };
+            }
+            else => {
+                iroha_logger::debug!("Exiting config updates relay");
+                break;
+            }
+        };
     }
 }
 
@@ -773,31 +670,6 @@ mod tests {
     use iroha_genesis::GenesisBuilder;
 
     use super::*;
-
-    #[cfg(not(feature = "test-network"))]
-    mod no_test_network {
-        use std::{iter::repeat, panic, thread};
-
-        use futures::future::join_all;
-        use serial_test::serial;
-
-        use super::*;
-
-        #[tokio::test]
-        #[serial]
-        async fn iroha_should_notify_on_panic() {
-            let notify = Arc::new(Notify::new());
-            let hook = panic::take_hook();
-            crate::Iroha::prepare_panic_hook(Arc::clone(&notify));
-            let waiters: Vec<_> = repeat(()).take(10).map(|_| Arc::clone(&notify)).collect();
-            let handles: Vec<_> = waiters.iter().map(|waiter| waiter.notified()).collect();
-            thread::spawn(move || {
-                panic!("Test panic");
-            });
-            join_all(handles).await;
-            panic::set_hook(hook);
-        }
-    }
 
     mod config_integration {
         use assertables::{assert_contains, assert_contains_as_result};

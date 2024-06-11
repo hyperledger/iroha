@@ -15,6 +15,7 @@ use iroha_core::{
 };
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
+use iroha_futures::supervisor::ShutdownSignal;
 use test_samples::gen_account_in;
 use tokio::{fs, runtime::Runtime};
 
@@ -27,8 +28,8 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     };
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
     let (kura, _) = iroha_core::kura::Kura::new(&cfg).unwrap();
-    let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
-    let query_handle = LiveQueryStore::test().start();
+    let _thread_handle = iroha_core::kura::Kura::start(kura.clone(), ShutdownSignal::new());
+    let query_handle = LiveQueryStore::start_test();
     let state = State::new(World::new(), kura, query_handle);
 
     let (alice_id, alice_keypair) = gen_account_in("test");

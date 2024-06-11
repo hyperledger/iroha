@@ -8,17 +8,19 @@ use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use iroha_config::{kura::InitMode, parameters::actual::Kura as Config};
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::block::{BlockHeader, SignedBlock};
+use iroha_futures::supervisor::{spawn_os_thread_as_future, Child, OnShutdown, ShutdownSignal};
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use parity_scale_codec::DecodeAll;
 use parking_lot::Mutex;
 
-use crate::{block::CommittedBlock, handler::ThreadHandler};
+use crate::block::CommittedBlock;
 
 const INDEX_FILE_NAME: &str = "blocks.index";
 const DATA_FILE_NAME: &str = "blocks.data";
@@ -84,21 +86,16 @@ impl Kura {
     }
 
     /// Start the Kura thread
-    pub fn start(kura: Arc<Self>) -> ThreadHandler {
-        // Oneshot channel to allow forcefully stopping the thread.
-        let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
-
-        let thread_handle = std::thread::spawn(move || {
-            Self::kura_receive_blocks_loop(&kura, shutdown_receiver);
-        });
-
-        let shutdown = move || {
-            if let Err(error) = shutdown_sender.send(()) {
-                iroha_logger::error!(?error);
-            }
-        };
-
-        ThreadHandler::new(Box::new(shutdown), thread_handle)
+    pub fn start(kura: Arc<Self>, shutdown_signal: ShutdownSignal) -> Child {
+        Child::new(
+            tokio::task::spawn(spawn_os_thread_as_future(
+                std::thread::Builder::new().name("kura".to_owned()),
+                move || {
+                    Self::kura_receive_blocks_loop(&kura, &shutdown_signal);
+                },
+            )),
+            OnShutdown::Wait(Duration::from_secs(5)),
+        )
     }
 
     /// Initialize [`Kura`] after its construction to be able to work with it.
@@ -187,10 +184,7 @@ impl Kura {
     }
 
     #[iroha_logger::log(skip_all)]
-    fn kura_receive_blocks_loop(
-        kura: &Kura,
-        mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
-    ) {
+    fn kura_receive_blocks_loop(kura: &Kura, shutdown_signal: &ShutdownSignal) {
         let mut written_block_count = kura.init_block_count;
         let mut latest_written_block_hash = {
             let block_data = kura.block_data.lock();
@@ -202,7 +196,7 @@ impl Kura {
         let mut should_exit = false;
         loop {
             // If kura receive shutdown then close block channel and write remaining blocks to the storage
-            if shutdown_receiver.try_recv().is_ok() {
+            if shutdown_signal.is_sent() {
                 info!("Kura block thread is being shut down. Writing remaining blocks to store.");
                 should_exit = true;
             }
@@ -1053,10 +1047,9 @@ mod tests {
         let domain = Domain::new(domain_id).build(&genesis_id);
         let account = Account::new(account_id.clone()).build(&genesis_id);
 
-        let live_query_store = LiveQueryStore::test();
         let live_query_store = {
             let _rt_guard = rt.enter();
-            live_query_store.start()
+            LiveQueryStore::start_test()
         };
 
         let (kura, block_count) = Kura::new(&Config {
@@ -1070,7 +1063,7 @@ mod tests {
         // Starting with empty block store
         assert_eq!(block_count.0, 0);
 
-        let _handle = Kura::start(kura.clone());
+        let _handle = Kura::start(kura.clone(), ShutdownSignal::new());
 
         let state = State::new(
             World::with([domain, genesis_domain], [account, genesis_account], []),

@@ -1763,7 +1763,7 @@ mod tests {
     async fn execute_instruction_exported() -> Result<(), Error> {
         let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
 
         let isi_hex = {
@@ -1805,7 +1805,7 @@ mod tests {
     async fn execute_query_exported() -> Result<(), Error> {
         let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
         let query_hex = encode_hex(QueryRequest::Singular(
             SingularQueryBox::FindExecutorDataModel(FindExecutorDataModel),
@@ -1845,7 +1845,7 @@ mod tests {
     async fn instruction_limit_reached() -> Result<(), Error> {
         let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
 
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
 
@@ -1900,7 +1900,7 @@ mod tests {
     async fn instructions_not_allowed() -> Result<(), Error> {
         let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
 
         let isi_hex = {
@@ -1954,7 +1954,7 @@ mod tests {
     async fn queries_not_allowed() -> Result<(), Error> {
         let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
         let query_hex = encode_hex(QueryRequest::Singular(
             SingularQueryBox::FindExecutorDataModel(FindExecutorDataModel),
@@ -2003,7 +2003,7 @@ mod tests {
     async fn trigger_related_func_is_not_linked_for_smart_contract() -> Result<(), Error> {
         let (authority, _authority_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
 
         let wat = format!(

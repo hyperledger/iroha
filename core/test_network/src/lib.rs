@@ -20,6 +20,7 @@ use iroha_executor_data_model::permission::{
     peer::CanUnregisterAnyPeer,
     role::CanUnregisterAnyRole,
 };
+use iroha_futures::supervisor::ShutdownSignal;
 use iroha_genesis::{GenesisBlock, RawGenesisTransaction};
 use iroha_logger::{warn, InstrumentFutures};
 use iroha_primitives::{
@@ -422,6 +423,8 @@ pub struct Peer {
     pub p2p_address: SocketAddr,
     /// The key-pair for the peer
     pub key_pair: KeyPair,
+    /// Shutdown handle
+    shutdown: ShutdownSignal,
     /// Iroha server
     pub irohad: Option<Iroha>,
     /// Temporary directory
@@ -445,7 +448,8 @@ impl std::cmp::Eq for Peer {}
 
 impl Drop for Peer {
     fn drop(&mut self) {
-        self.stop();
+        // TODO: wait for complete shutdown
+        self.terminate();
     }
 }
 
@@ -499,27 +503,35 @@ impl Peer {
         );
         let logger = iroha_logger::test_logger();
 
-        let (_, irohad) = Iroha::start_network(config, genesis, logger)
-            .instrument(info_span)
+        let (irohad, run_fut) = Iroha::start(config, genesis, logger, self.shutdown.clone())
             .await
-            .expect("Failed to start Iroha");
+            .expect("Iroha should start in test network");
+
+        let _handle = tokio::spawn(
+            async move {
+                if let Err(error) = run_fut.await {
+                    iroha_logger::error!(?error, "Peer exited with an error");
+                };
+            }
+            .instrument(info_span),
+        );
 
         self.irohad = Some(irohad);
-        time::sleep(Duration::from_millis(300)).await;
         // Prevent temporary directory deleting
         self.temp_dir = Some(temp_dir);
     }
 
-    /// Stop the peer if it's running
-    pub fn stop(&mut self) {
-        iroha_logger::info!(
-            p2p_addr = %self.p2p_address,
-            api_addr = %self.api_address,
-            "Stopping peer",
-        );
-
-        iroha_logger::info!("Shutting down peer...");
-        self.irohad.take();
+    /// Terminate the peer
+    // FIXME: support _complete_ forceful termination, with waiting for full abort
+    pub fn terminate(&mut self) {
+        if let Some(_irohad) = self.irohad.take() {
+            iroha_logger::info!(
+                p2p_addr = %self.p2p_address,
+                api_addr = %self.api_address,
+                "Terminating peer",
+            );
+            self.shutdown.send();
+        }
     }
 
     /// Creates peer
@@ -534,11 +546,13 @@ impl Peer {
         let p2p_address = local_unique_port()?;
         let api_address = local_unique_port()?;
         let id = PeerId::new(p2p_address.clone(), key_pair.public_key().clone());
+        let shutdown = ShutdownSignal::new();
         Ok(Self {
             id,
             key_pair,
             p2p_address,
             api_address,
+            shutdown,
             irohad: None,
             temp_dir: None,
         })

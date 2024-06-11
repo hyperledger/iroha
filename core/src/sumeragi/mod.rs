@@ -11,13 +11,13 @@ use std::{
 use eyre::Result;
 use iroha_config::parameters::actual::{Common as CommonConfig, Sumeragi as SumeragiConfig};
 use iroha_data_model::{account::AccountId, block::SignedBlock, prelude::*};
+use iroha_futures::supervisor::{spawn_os_thread_as_future, Child, OnShutdown, ShutdownSignal};
 use iroha_genesis::GenesisBlock;
 use iroha_logger::prelude::*;
 use network_topology::{Role, Topology};
 
 use crate::{
     block::ValidBlock,
-    handler::ThreadHandler,
     kura::BlockCount,
     state::{State, StateBlock},
 };
@@ -36,7 +36,6 @@ pub struct SumeragiHandle {
     peer_id: PeerId,
     /// Counter for amount of dropped messages by sumeragi
     dropped_messages_metric: iroha_telemetry::metrics::DroppedMessagesCounter,
-    _thread_handle: Arc<ThreadHandler>,
     // Should be dropped after `_thread_handle` to prevent sumeargi thread from panicking
     control_message_sender: mpsc::SyncSender<ControlFlowMessage>,
     message_sender: mpsc::SyncSender<BlockMessage>,
@@ -116,14 +115,16 @@ impl SumeragiHandle {
                 let _ = events_sender.send(e);
             });
     }
+}
 
+impl SumeragiStartArgs {
     /// Start [`Sumeragi`] actor and return handle to it.
     ///
     /// # Panics
     /// May panic if something is of during initialization which is bug.
     #[allow(clippy::too_many_lines)]
-    pub fn start(
-        SumeragiStartArgs {
+    pub fn start(self, shutdown_signal: ShutdownSignal) -> (SumeragiHandle, Child) {
+        let Self {
             sumeragi_config,
             common_config,
             events_sender,
@@ -138,8 +139,8 @@ impl SumeragiHandle {
                     view_changes,
                     dropped_messages,
                 },
-        }: SumeragiStartArgs,
-    ) -> SumeragiHandle {
+        } = self;
+
         let (control_message_sender, control_message_receiver) = mpsc::sync_channel(100);
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
@@ -175,7 +176,7 @@ impl SumeragiHandle {
 
         for block in blocks_iter {
             let mut state_block = state.block();
-            Self::replay_block(
+            SumeragiHandle::replay_block(
                 &common_config.chain,
                 &genesis_account,
                 &block,
@@ -213,33 +214,25 @@ impl SumeragiHandle {
             round_start_time: Instant::now(),
         };
 
-        // Oneshot channel to allow forcefully stopping the thread.
-        let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
+        let child = Child::new(
+            tokio::task::spawn(spawn_os_thread_as_future(
+                std::thread::Builder::new().name("sumeragi".to_owned()),
+                move || {
+                    main_loop::run(genesis_network, sumeragi, &shutdown_signal, state);
+                },
+            )),
+            OnShutdown::Wait(Duration::from_secs(5)),
+        );
 
-        let thread_handle = {
-            let state = Arc::clone(&state);
-            std::thread::Builder::new()
-                .name("sumeragi thread".to_owned())
-                .spawn(move || {
-                    main_loop::run(genesis_network, sumeragi, shutdown_receiver, state);
-                })
-                .expect("INTERNAL BUG: Sumeragi thread spawn failed")
-        };
-
-        let shutdown = move || {
-            if let Err(error) = shutdown_sender.send(()) {
-                iroha_logger::error!(?error);
-            }
-        };
-
-        let thread_handle = ThreadHandler::new(Box::new(shutdown), thread_handle);
-        SumeragiHandle {
-            peer_id,
-            dropped_messages_metric: dropped_messages,
-            control_message_sender,
-            message_sender,
-            _thread_handle: Arc::new(thread_handle),
-        }
+        (
+            SumeragiHandle {
+                peer_id,
+                dropped_messages_metric: dropped_messages,
+                control_message_sender,
+                message_sender,
+            },
+            child,
+        )
     }
 }
 
