@@ -51,7 +51,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             .collect::<QueryResult<Vec<_>>>()?;
         let asset = assets
             .into_iter()
-            .find(|asset| asset.id().definition_id == asset_definition_id)
+            .find(|asset| *asset.id().definition() == asset_definition_id)
             .expect("Asset not found");
         assert_eq!(AssetValue::Numeric(quantity), *asset.value());
 
@@ -82,7 +82,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
 
             let account_asset = assets
                 .into_iter()
-                .find(|asset| asset.id().definition_id == asset_definition_id)
+                .find(|asset| *asset.id().definition() == asset_definition_id)
                 .expect("Asset not found");
 
             AssetValue::Numeric(quantity) == *account_asset.value()

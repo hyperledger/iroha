@@ -77,9 +77,9 @@ pub mod asset {
 
     use super::*;
 
-    /// Check if `authority` is the owner of `asset_id`.
+    /// Check if `authority` is the owner of asset.
     ///
-    /// `authority` is owner of `asset_id` if:
+    /// `authority` is owner of asset if:
     /// - `asset_id.account_id` is `account_id`
     /// - `asset_id.account_id.domain_id` domain is owned by `authority`
     ///
@@ -87,19 +87,19 @@ pub mod asset {
     ///
     /// Fails if `is_account_owner` fails
     pub fn is_asset_owner(asset_id: &AssetId, authority: &AccountId) -> Result<bool> {
-        crate::permission::account::is_account_owner(asset_id.account_id(), authority)
+        crate::permission::account::is_account_owner(asset_id.account(), authority)
     }
 
-    /// Pass condition that checks if `authority` is the owner of `asset_id`.
+    /// Pass condition that checks if `authority` is the owner of asset.
     #[derive(Debug, Clone)]
     pub struct Owner<'asset> {
         /// Asset id to check against
-        pub asset_id: &'asset AssetId,
+        pub asset: &'asset AssetId,
     }
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_asset_owner(self.asset_id, authority)? {
+            if is_asset_owner(self.asset, authority)? {
                 return Ok(());
             }
 
@@ -115,9 +115,9 @@ pub mod asset_definition {
 
     use super::*;
 
-    /// Check if `authority` is the owner of `asset_definition_id`
+    /// Check if `authority` is the owner of asset definition
 
-    /// `authority` is owner of `asset_definition_id` if:
+    /// `authority` is owner of asset_definition if:
     /// - `asset_definition.owned_by` is `authority`
     /// - `asset_definition.domain_id` domain is owned by `authority`
     ///
@@ -134,20 +134,20 @@ pub mod asset_definition {
         if asset_definition.owned_by() == authority {
             Ok(true)
         } else {
-            crate::permission::domain::is_domain_owner(asset_definition_id.domain_id(), authority)
+            crate::permission::domain::is_domain_owner(asset_definition_id.domain(), authority)
         }
     }
 
-    /// Pass condition that checks if `authority` is the owner of `asset_definition_id`.
+    /// Pass condition that checks if `authority` is the owner of asset definition.
     #[derive(Debug, Clone)]
     pub struct Owner<'asset_definition> {
         /// Asset definition id to check against
-        pub asset_definition_id: &'asset_definition AssetDefinitionId,
+        pub asset_definition: &'asset_definition AssetDefinitionId,
     }
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_asset_definition_owner(self.asset_definition_id, authority)? {
+            if is_asset_definition_owner(self.asset_definition, authority)? {
                 return Ok(());
             }
 
@@ -163,9 +163,9 @@ pub mod account {
 
     use super::*;
 
-    /// Check if `authority` is the owner of `account_id`.
+    /// Check if `authority` is the owner of account.
     ///
-    /// `authority` is owner of `account_id` if:
+    /// `authority` is owner of account if:
     /// - `account_id` is `authority`
     /// - `account_id.domain_id` is owned by `authority`
     ///
@@ -176,20 +176,20 @@ pub mod account {
         if account_id == authority {
             Ok(true)
         } else {
-            crate::permission::domain::is_domain_owner(account_id.domain_id(), authority)
+            crate::permission::domain::is_domain_owner(account_id.domain(), authority)
         }
     }
 
-    /// Pass condition that checks if `authority` is the owner of `account_id`.
+    /// Pass condition that checks if `authority` is the owner of account.
     #[derive(Debug, Clone)]
     pub struct Owner<'asset> {
         /// Account id to check against
-        pub account_id: &'asset AccountId,
+        pub account: &'asset AccountId,
     }
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_account_owner(self.account_id, authority)? {
+            if is_account_owner(self.account, authority)? {
                 return Ok(());
             }
 
@@ -205,9 +205,9 @@ pub mod trigger {
     use super::*;
     use crate::permission::domain::is_domain_owner;
 
-    /// Check if `authority` is the owner of `trigger_id`.
+    /// Check if `authority` is the owner of trigger.
     ///
-    /// `authority` is owner of `trigger_id` if:
+    /// `authority` is owner of trigger if:
     /// - `trigger.action.authority` is `authority`
     /// - `trigger.action.authority.domain_id` is owned by `authority`
     ///
@@ -218,26 +218,25 @@ pub mod trigger {
         let trigger = find_trigger(trigger_id)?;
 
         Ok(trigger.action().authority() == authority
-            || is_domain_owner(trigger.action().authority().domain_id(), authority)?)
+            || is_domain_owner(trigger.action().authority().domain(), authority)?)
     }
     /// Returns the trigger.
     pub(crate) fn find_trigger(trigger_id: &TriggerId) -> Result<Trigger> {
-        let trigger = FindTriggerById::new(trigger_id.clone())
+        FindTriggerById::new(trigger_id.clone())
             .execute()
-            .map(QueryOutputCursor::into_inner)?;
-        Ok(trigger)
+            .map(QueryOutputCursor::into_inner)
     }
 
-    /// Pass condition that checks if `authority` is the owner of `trigger_id`.
+    /// Pass condition that checks if `authority` is the owner of trigger.
     #[derive(Debug, Clone)]
     pub struct Owner<'trigger> {
         /// Trigger id to check against
-        pub trigger_id: &'trigger TriggerId,
+        pub trigger: &'trigger TriggerId,
     }
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_trigger_owner(self.trigger_id, authority)? {
+            if is_trigger_owner(self.trigger, authority)? {
                 return Ok(());
             }
 
@@ -252,7 +251,7 @@ pub mod domain {
     //! Module with pass conditions for domain related tokens
     use super::*;
 
-    /// Check if `authority` is owner of `domain_id`
+    /// Check if `authority` is owner of domain
     ///
     /// # Errors
     /// Fails if query fails
@@ -263,16 +262,16 @@ pub mod domain {
             .map(|domain| domain.owned_by() == authority)
     }
 
-    /// Pass condition that checks if `authority` is the owner of `domain_id`.
+    /// Pass condition that checks if `authority` is the owner of domain.
     #[derive(Debug, Clone)]
     pub struct Owner<'domain> {
         /// Domain id to check against
-        pub domain_id: &'domain DomainId,
+        pub domain: &'domain DomainId,
     }
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_domain_owner(self.domain_id, authority)? {
+            if is_domain_owner(self.domain, authority)? {
                 return Ok(());
             }
 

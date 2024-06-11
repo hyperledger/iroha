@@ -63,7 +63,7 @@ pub fn get_config_toml(
 
     let mut raw = toml::Table::new();
     iroha_config::base::toml::Writer::new(&mut raw)
-        .write("chain_id", chain_id)
+        .write("chain", chain_id)
         .write("public_key", public_key)
         .write("private_key", ExposedPrivateKey(private_key))
         .write(["sumeragi", "trusted_peers"], peers)

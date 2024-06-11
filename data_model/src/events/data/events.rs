@@ -59,7 +59,7 @@ mod model {
     //#[getset(get = "pub")]
     #[ffi_type]
     pub struct MetadataChanged<Id> {
-        pub target_id: Id,
+        pub target: Id,
         pub key: Name,
         pub value: MetadataValueBox,
     }
@@ -113,13 +113,13 @@ mod asset {
             #[has_origin(asset => asset.id())]
             Created(Asset),
             Deleted(AssetId),
-            #[has_origin(asset_changed => &asset_changed.asset_id)]
+            #[has_origin(asset_changed => &asset_changed.asset)]
             Added(AssetChanged),
-            #[has_origin(asset_changed => &asset_changed.asset_id)]
+            #[has_origin(asset_changed => &asset_changed.asset)]
             Removed(AssetChanged),
-            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataInserted(AssetMetadataChanged),
-            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataRemoved(AssetMetadataChanged),
         }
     }
@@ -130,14 +130,14 @@ mod asset {
             #[has_origin(asset_definition => asset_definition.id())]
             Created(AssetDefinition),
             MintabilityChanged(AssetDefinitionId),
-            #[has_origin(ownership_changed => &ownership_changed.asset_definition_id)]
+            #[has_origin(ownership_changed => &ownership_changed.asset_definition)]
             OwnerChanged(AssetDefinitionOwnerChanged),
             Deleted(AssetDefinitionId),
-            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataInserted(AssetDefinitionMetadataChanged),
-            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataRemoved(AssetDefinitionMetadataChanged),
-            #[has_origin(total_quantity_changed => &total_quantity_changed.asset_definition_id)]
+            #[has_origin(total_quantity_changed => &total_quantity_changed.asset_definition)]
             TotalQuantityChanged(AssetDefinitionTotalQuantityChanged),
         }
     }
@@ -164,7 +164,7 @@ mod asset {
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AssetChanged {
-            pub asset_id: AssetId,
+            pub asset: AssetId,
             pub amount: AssetValue,
         }
 
@@ -186,7 +186,7 @@ mod asset {
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AssetDefinitionTotalQuantityChanged {
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
             pub total_amount: Numeric,
         }
 
@@ -209,7 +209,7 @@ mod asset {
         #[ffi_type]
         pub struct AssetDefinitionOwnerChanged {
             /// Id of asset definition being updated
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
             /// Id of new owning account
             pub new_owner: AccountId,
         }
@@ -246,11 +246,11 @@ mod role {
             Deleted(RoleId),
             /// [`Permission`]s with particular [`PermissionId`]
             /// were removed from the role.
-            #[has_origin(permission_removed => &permission_removed.role_id)]
+            #[has_origin(permission_removed => &permission_removed.role)]
             PermissionRemoved(RolePermissionChanged),
             /// [`Permission`]s with particular [`PermissionId`]
             /// were removed added to the role.
-            #[has_origin(permission_added => &permission_added.role_id)]
+            #[has_origin(permission_added => &permission_added.role)]
             PermissionAdded(RolePermissionChanged),
         }
     }
@@ -277,10 +277,10 @@ mod role {
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct RolePermissionChanged {
-            pub role_id: RoleId,
+            pub role: RoleId,
             // TODO: Skipped temporarily because of FFI
             #[getset(skip)]
-            pub permission_id: PermissionId,
+            pub permission: PermissionId,
         }
     }
 }
@@ -298,24 +298,24 @@ mod account {
     data_event! {
         #[has_origin(origin = Account)]
         pub enum AccountEvent {
-            #[has_origin(asset_event => &asset_event.origin_id().account_id)]
+            #[has_origin(asset_event => &asset_event.origin().account)]
             Asset(AssetEvent),
             #[has_origin(account => account.id())]
             Created(Account),
             Deleted(AccountId),
             AuthenticationAdded(AccountId),
             AuthenticationRemoved(AccountId),
-            #[has_origin(permission_changed => &permission_changed.account_id)]
+            #[has_origin(permission_changed => &permission_changed.account)]
             PermissionAdded(AccountPermissionChanged),
-            #[has_origin(permission_changed => &permission_changed.account_id)]
+            #[has_origin(permission_changed => &permission_changed.account)]
             PermissionRemoved(AccountPermissionChanged),
-            #[has_origin(role_changed => &role_changed.account_id)]
+            #[has_origin(role_changed => &role_changed.account)]
             RoleRevoked(AccountRoleChanged),
-            #[has_origin(role_changed => &role_changed.account_id)]
+            #[has_origin(role_changed => &role_changed.account)]
             RoleGranted(AccountRoleChanged),
-            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataInserted(AccountMetadataChanged),
-            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataRemoved(AccountMetadataChanged),
         }
     }
@@ -342,10 +342,10 @@ mod account {
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AccountPermissionChanged {
-            pub account_id: AccountId,
+            pub account: AccountId,
             // TODO: Skipped temporarily because of FFI
             #[getset(skip)]
-            pub permission_id: PermissionId,
+            pub permission: PermissionId,
         }
 
         /// Depending on the wrapping event, [`AccountRoleChanged`] represents the granted or revoked role
@@ -366,15 +366,15 @@ mod account {
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AccountRoleChanged {
-            pub account_id: AccountId,
-            pub role_id: RoleId,
+            pub account: AccountId,
+            pub role: RoleId,
         }
     }
 
     impl AccountPermissionChanged {
         /// Get permission id
-        pub fn permission_id(&self) -> &PermissionId {
-            &self.permission_id
+        pub fn permission(&self) -> &PermissionId {
+            &self.permission
         }
     }
 }
@@ -390,18 +390,18 @@ mod domain {
     data_event! {
         #[has_origin(origin = Domain)]
         pub enum DomainEvent {
-            #[has_origin(account_event => &account_event.origin_id().domain_id)]
+            #[has_origin(account_event => &account_event.origin().domain)]
             Account(AccountEvent),
-            #[has_origin(asset_definition_event => &asset_definition_event.origin_id().domain_id)]
+            #[has_origin(asset_definition_event => &asset_definition_event.origin().domain)]
             AssetDefinition(AssetDefinitionEvent),
             #[has_origin(domain => domain.id())]
             Created(Domain),
             Deleted(DomainId),
-            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataInserted(DomainMetadataChanged),
-            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataRemoved(DomainMetadataChanged),
-            #[has_origin(owner_changed => &owner_changed.domain_id)]
+            #[has_origin(owner_changed => &owner_changed.domain)]
             OwnerChanged(DomainOwnerChanged),
         }
     }
@@ -428,7 +428,7 @@ mod domain {
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct DomainOwnerChanged {
-            pub domain_id: DomainId,
+            pub domain: DomainId,
             pub new_owner: AccountId,
         }
     }
@@ -449,13 +449,13 @@ mod trigger {
         pub enum TriggerEvent {
             Created(TriggerId),
             Deleted(TriggerId),
-            #[has_origin(number_of_executions_changed => &number_of_executions_changed.trigger_id)]
+            #[has_origin(number_of_executions_changed => &number_of_executions_changed.trigger)]
             Extended(TriggerNumberOfExecutionsChanged),
-            #[has_origin(number_of_executions_changed => &number_of_executions_changed.trigger_id)]
+            #[has_origin(number_of_executions_changed => &number_of_executions_changed.trigger)]
             Shortened(TriggerNumberOfExecutionsChanged),
-            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataInserted(TriggerMetadataChanged),
-            #[has_origin(metadata_changed => &metadata_changed.target_id)]
+            #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataRemoved(TriggerMetadataChanged),
         }
     }
@@ -482,7 +482,7 @@ mod trigger {
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct TriggerNumberOfExecutionsChanged {
-            pub trigger_id: TriggerId,
+            pub trigger: TriggerId,
             pub by: u32,
         }
     }
@@ -571,7 +571,7 @@ pub trait HasOrigin {
     /// Type of the origin.
     type Origin: Identifiable;
     /// Identification of the origin.
-    fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id;
+    fn origin(&self) -> &<Self::Origin as Identifiable>::Id;
 }
 
 impl From<AccountEvent> for DataEvent {
@@ -594,9 +594,9 @@ impl From<AssetEvent> for DataEvent {
 
 impl DataEvent {
     /// Return the domain id of [`Event`]
-    pub fn domain_id(&self) -> Option<&DomainId> {
+    pub fn domain(&self) -> Option<&DomainId> {
         match self {
-            Self::Domain(event) => Some(event.origin_id()),
+            Self::Domain(event) => Some(event.origin()),
             Self::Configuration(_)
             | Self::Executor(_)
             | Self::Peer(_)
@@ -607,12 +607,12 @@ impl DataEvent {
 }
 
 impl<Id> MetadataChanged<Id> {
-    /// Getter for `target_id`
-    pub fn target_id(&self) -> &Id {
-        &self.target_id
+    /// Getter for `target`
+    pub fn target(&self) -> &Id {
+        &self.target
     }
 
-    /// Getter for `target_id`
+    /// Getter for metadata key
     pub fn key(&self) -> &Name {
         &self.key
     }

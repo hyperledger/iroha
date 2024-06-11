@@ -10,7 +10,7 @@ pub fn impl_derive_ref_into_asset_owner(input: &DeriveInput) -> TokenStream {
         &input.ident,
         &input.generics,
         &syn::parse_quote!(::iroha_executor::permission::asset::Owner),
-        &syn::parse_quote!(asset_id),
+        &syn::parse_quote!(asset),
     )
 }
 
@@ -21,7 +21,7 @@ pub fn impl_derive_ref_into_asset_definition_owner(input: &DeriveInput) -> Token
         &input.ident,
         &input.generics,
         &syn::parse_quote!(::iroha_executor::permission::asset_definition::Owner),
-        &syn::parse_quote!(asset_definition_id),
+        &syn::parse_quote!(asset_definition),
     )
 }
 
@@ -31,7 +31,7 @@ pub fn impl_derive_ref_into_account_owner(input: &DeriveInput) -> TokenStream {
         &input.ident,
         &input.generics,
         &syn::parse_quote!(::iroha_executor::permission::account::Owner),
-        &syn::parse_quote!(account_id),
+        &syn::parse_quote!(account),
     )
 }
 
@@ -41,7 +41,7 @@ pub fn impl_derive_ref_into_domain_owner(input: &DeriveInput) -> TokenStream {
         &input.ident,
         &input.generics,
         &syn::parse_quote!(::iroha_executor::permission::domain::Owner),
-        &syn::parse_quote!(domain_id),
+        &syn::parse_quote!(domain),
     )
 }
 

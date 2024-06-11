@@ -140,7 +140,7 @@
   "AccountId": {
     "Struct": [
       {
-        "name": "domain_id",
+        "name": "domain",
         "type": "DomainId"
       },
       {
@@ -152,11 +152,11 @@
   "AccountPermissionChanged": {
     "Struct": [
       {
-        "name": "account_id",
+        "name": "account",
         "type": "AccountId"
       },
       {
-        "name": "permission_id",
+        "name": "permission",
         "type": "PermissionId"
       }
     ]
@@ -164,11 +164,11 @@
   "AccountRoleChanged": {
     "Struct": [
       {
-        "name": "account_id",
+        "name": "account",
         "type": "AccountId"
       },
       {
-        "name": "role_id",
+        "name": "role",
         "type": "RoleId"
       }
     ]
@@ -250,7 +250,7 @@
   "AssetChanged": {
     "Struct": [
       {
-        "name": "asset_id",
+        "name": "asset",
         "type": "AssetId"
       },
       {
@@ -376,7 +376,7 @@
   "AssetDefinitionId": {
     "Struct": [
       {
-        "name": "domain_id",
+        "name": "domain",
         "type": "DomainId"
       },
       {
@@ -388,7 +388,7 @@
   "AssetDefinitionOwnerChanged": {
     "Struct": [
       {
-        "name": "asset_definition_id",
+        "name": "asset_definition",
         "type": "AssetDefinitionId"
       },
       {
@@ -400,7 +400,7 @@
   "AssetDefinitionTotalQuantityChanged": {
     "Struct": [
       {
-        "name": "asset_definition_id",
+        "name": "asset_definition",
         "type": "AssetDefinitionId"
       },
       {
@@ -489,11 +489,11 @@
   "AssetId": {
     "Struct": [
       {
-        "name": "definition_id",
+        "name": "definition",
         "type": "AssetDefinitionId"
       },
       {
-        "name": "account_id",
+        "name": "account",
         "type": "AccountId"
       }
     ]
@@ -686,7 +686,7 @@
         "type": "Numeric"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "AssetId"
       }
     ]
@@ -698,7 +698,7 @@
         "type": "u32"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "TriggerId"
       }
     ]
@@ -1057,7 +1057,7 @@
   "DomainOwnerChanged": {
     "Struct": [
       {
-        "name": "domain_id",
+        "name": "domain",
         "type": "DomainId"
       },
       {
@@ -1149,7 +1149,7 @@
   "ExecuteTrigger": {
     "Struct": [
       {
-        "name": "trigger_id",
+        "name": "trigger",
         "type": "TriggerId"
       }
     ]
@@ -1632,7 +1632,7 @@
         "type": "Permission"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "AccountId"
       }
     ]
@@ -1644,7 +1644,7 @@
         "type": "Permission"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "RoleId"
       }
     ]
@@ -1656,7 +1656,7 @@
         "type": "RoleId"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "AccountId"
       }
     ]
@@ -2160,7 +2160,7 @@
   "MetadataChanged<AccountId>": {
     "Struct": [
       {
-        "name": "target_id",
+        "name": "target",
         "type": "AccountId"
       },
       {
@@ -2176,7 +2176,7 @@
   "MetadataChanged<AssetDefinitionId>": {
     "Struct": [
       {
-        "name": "target_id",
+        "name": "target",
         "type": "AssetDefinitionId"
       },
       {
@@ -2192,7 +2192,7 @@
   "MetadataChanged<AssetId>": {
     "Struct": [
       {
-        "name": "target_id",
+        "name": "target",
         "type": "AssetId"
       },
       {
@@ -2208,7 +2208,7 @@
   "MetadataChanged<DomainId>": {
     "Struct": [
       {
-        "name": "target_id",
+        "name": "target",
         "type": "DomainId"
       },
       {
@@ -2224,7 +2224,7 @@
   "MetadataChanged<TriggerId>": {
     "Struct": [
       {
-        "name": "target_id",
+        "name": "target",
         "type": "TriggerId"
       },
       {
@@ -2311,7 +2311,7 @@
         "type": "Numeric"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "AssetId"
       }
     ]
@@ -2323,7 +2323,7 @@
         "type": "u32"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "TriggerId"
       }
     ]
@@ -3146,7 +3146,7 @@
   "RemoveKeyValue<Account>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "AccountId"
       },
       {
@@ -3158,7 +3158,7 @@
   "RemoveKeyValue<Asset>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "AssetId"
       },
       {
@@ -3170,7 +3170,7 @@
   "RemoveKeyValue<AssetDefinition>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "AssetDefinitionId"
       },
       {
@@ -3182,7 +3182,7 @@
   "RemoveKeyValue<Domain>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "DomainId"
       },
       {
@@ -3194,7 +3194,7 @@
   "RemoveKeyValue<Trigger>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "TriggerId"
       },
       {
@@ -3264,7 +3264,7 @@
         "type": "Permission"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "AccountId"
       }
     ]
@@ -3276,7 +3276,7 @@
         "type": "Permission"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "RoleId"
       }
     ]
@@ -3288,7 +3288,7 @@
         "type": "RoleId"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "AccountId"
       }
     ]
@@ -3394,11 +3394,11 @@
   "RolePermissionChanged": {
     "Struct": [
       {
-        "name": "role_id",
+        "name": "role",
         "type": "RoleId"
       },
       {
-        "name": "permission_id",
+        "name": "permission",
         "type": "PermissionId"
       }
     ]
@@ -3451,7 +3451,7 @@
   "SetKeyValue<Account>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "AccountId"
       },
       {
@@ -3467,7 +3467,7 @@
   "SetKeyValue<Asset>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "AssetId"
       },
       {
@@ -3483,7 +3483,7 @@
   "SetKeyValue<AssetDefinition>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "AssetDefinitionId"
       },
       {
@@ -3499,7 +3499,7 @@
   "SetKeyValue<Domain>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "DomainId"
       },
       {
@@ -3515,7 +3515,7 @@
   "SetKeyValue<Trigger>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "TriggerId"
       },
       {
@@ -3870,7 +3870,7 @@
   "TransactionPayload": {
     "Struct": [
       {
-        "name": "chain_id",
+        "name": "chain",
         "type": "ChainId"
       },
       {
@@ -3964,7 +3964,7 @@
   "Transfer<Account, AssetDefinitionId, Account>": {
     "Struct": [
       {
-        "name": "source_id",
+        "name": "source",
         "type": "AccountId"
       },
       {
@@ -3972,7 +3972,7 @@
         "type": "AssetDefinitionId"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "AccountId"
       }
     ]
@@ -3980,7 +3980,7 @@
   "Transfer<Account, DomainId, Account>": {
     "Struct": [
       {
-        "name": "source_id",
+        "name": "source",
         "type": "AccountId"
       },
       {
@@ -3988,7 +3988,7 @@
         "type": "DomainId"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "AccountId"
       }
     ]
@@ -3996,7 +3996,7 @@
   "Transfer<Asset, Metadata, Account>": {
     "Struct": [
       {
-        "name": "source_id",
+        "name": "source",
         "type": "AssetId"
       },
       {
@@ -4004,7 +4004,7 @@
         "type": "Metadata"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "AccountId"
       }
     ]
@@ -4012,7 +4012,7 @@
   "Transfer<Asset, Numeric, Account>": {
     "Struct": [
       {
-        "name": "source_id",
+        "name": "source",
         "type": "AssetId"
       },
       {
@@ -4020,7 +4020,7 @@
         "type": "Numeric"
       },
       {
-        "name": "destination_id",
+        "name": "destination",
         "type": "AccountId"
       }
     ]
@@ -4193,7 +4193,7 @@
   "TriggerNumberOfExecutionsChanged": {
     "Struct": [
       {
-        "name": "trigger_id",
+        "name": "trigger",
         "type": "TriggerId"
       },
       {
@@ -4248,7 +4248,7 @@
   "Unregister<Account>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "AccountId"
       }
     ]
@@ -4256,7 +4256,7 @@
   "Unregister<Asset>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "AssetId"
       }
     ]
@@ -4264,7 +4264,7 @@
   "Unregister<AssetDefinition>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "AssetDefinitionId"
       }
     ]
@@ -4272,7 +4272,7 @@
   "Unregister<Domain>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "DomainId"
       }
     ]
@@ -4280,7 +4280,7 @@
   "Unregister<Peer>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "PeerId"
       }
     ]
@@ -4288,7 +4288,7 @@
   "Unregister<Role>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "RoleId"
       }
     ]
@@ -4296,7 +4296,7 @@
   "Unregister<Trigger>": {
     "Struct": [
       {
-        "name": "object_id",
+        "name": "object",
         "type": "TriggerId"
       }
     ]

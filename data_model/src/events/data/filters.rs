@@ -287,7 +287,7 @@ impl EventFilter for PeerEventFilter {
 
     fn matches(&self, event: &Self::Event) -> bool {
         if let Some(id_matcher) = &self.id_matcher {
-            if id_matcher != event.origin_id() {
+            if id_matcher != event.origin() {
                 return false;
             }
         }
@@ -336,7 +336,7 @@ impl EventFilter for DomainEventFilter {
 
     fn matches(&self, event: &Self::Event) -> bool {
         if let Some(id_matcher) = &self.id_matcher {
-            if id_matcher != event.origin_id() {
+            if id_matcher != event.origin() {
                 return false;
             }
         }
@@ -385,7 +385,7 @@ impl super::EventFilter for AccountEventFilter {
 
     fn matches(&self, event: &Self::Event) -> bool {
         if let Some(id_matcher) = &self.id_matcher {
-            if id_matcher != event.origin_id() {
+            if id_matcher != event.origin() {
                 return false;
             }
         }
@@ -434,7 +434,7 @@ impl super::EventFilter for AssetEventFilter {
 
     fn matches(&self, event: &Self::Event) -> bool {
         if let Some(id_matcher) = &self.id_matcher {
-            if id_matcher != event.origin_id() {
+            if id_matcher != event.origin() {
                 return false;
             }
         }
@@ -483,7 +483,7 @@ impl super::EventFilter for AssetDefinitionEventFilter {
 
     fn matches(&self, event: &Self::Event) -> bool {
         if let Some(id_matcher) = &self.id_matcher {
-            if id_matcher != event.origin_id() {
+            if id_matcher != event.origin() {
                 return false;
             }
         }
@@ -532,7 +532,7 @@ impl super::EventFilter for TriggerEventFilter {
 
     fn matches(&self, event: &Self::Event) -> bool {
         if let Some(id_matcher) = &self.id_matcher {
-            if id_matcher != event.origin_id() {
+            if id_matcher != event.origin() {
                 return false;
             }
         }
@@ -581,7 +581,7 @@ impl super::EventFilter for RoleEventFilter {
 
     fn matches(&self, event: &Self::Event) -> bool {
         if let Some(id_matcher) = &self.id_matcher {
-            if id_matcher != event.origin_id() {
+            if id_matcher != event.origin() {
                 return false;
             }
         }
@@ -630,7 +630,7 @@ impl super::EventFilter for ConfigurationEventFilter {
 
     fn matches(&self, event: &Self::Event) -> bool {
         if let Some(id_matcher) = &self.id_matcher {
-            if id_matcher != event.origin_id() {
+            if id_matcher != event.origin() {
                 return false;
             }
         }

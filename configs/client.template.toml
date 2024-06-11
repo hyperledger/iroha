@@ -1,4 +1,4 @@
-# chain_id =
+# chain =
 
 ## Might be set via `TORII_URL` env var
 # torii_url =
@@ -8,7 +8,7 @@
 # password =
 
 [account]
-# domain_id =
+# domain =
 # public_key =
 # private_key =
 

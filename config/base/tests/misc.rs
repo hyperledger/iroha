@@ -18,7 +18,7 @@ pub mod sample_config {
 
     #[derive(Debug)]
     pub struct Root {
-        pub chain_id: String,
+        pub chain: String,
         pub torii: Torii,
         pub kura: Kura,
         pub telemetry: Telemetry,
@@ -31,8 +31,8 @@ pub mod sample_config {
             Self: Sized,
         {
             let chain_id = reader
-                .read_parameter::<String>(["chain_id"])
-                .env("CHAIN_ID")
+                .read_parameter::<String>(["chain"])
+                .env("CHAIN")
                 .value_required()
                 .finish();
 
@@ -45,7 +45,7 @@ pub mod sample_config {
             let logger = reader.read_nested("logger");
 
             FinalWrap::value_fn(move || Self {
-                chain_id: chain_id.unwrap(),
+                chain: chain_id.unwrap(),
                 torii: torii.unwrap(),
                 kura: kura.unwrap(),
                 telemetry: telemetry.unwrap(),
@@ -252,7 +252,7 @@ fn error_reading_empty_config() {
 
     expect![[r#"
         Some required parameters are missing
-        ╰╴missing parameter: `chain_id`"#]]
+        ╰╴missing parameter: `chain`"#]]
     .assert_eq_report(&report);
 }
 
@@ -269,7 +269,7 @@ fn error_extra_fields_in_multiple_files() {
         .with_toml_source(TomlSource::new(
             PathBuf::from("./base.toml"),
             toml! {
-                chain_id = "412"
+                chain = "412"
 
                 [torii]
                 bar = false
@@ -298,7 +298,7 @@ fn multiple_parsing_errors_in_multiple_sources() {
         .with_toml_source(TomlSource::new(
             PathBuf::from("./base.toml"),
             toml! {
-                chain_id = "ok"
+                chain = "ok"
                 torii.address = "is it socket addr?"
             },
         ))
@@ -335,7 +335,7 @@ fn minimal_config_ok() {
         .with_toml_source(TomlSource::new(
             PathBuf::from("./config.toml"),
             toml! {
-                chain_id = "whatever"
+                chain = "whatever"
             },
         ))
         .read_and_complete::<sample_config::Root>()
@@ -343,7 +343,7 @@ fn minimal_config_ok() {
 
     expect![[r#"
         Root {
-            chain_id: "whatever",
+            chain: "whatever",
             torii: Torii {
                 address: WithOrigin {
                     value: 128.0.0.1:8080,
@@ -378,7 +378,7 @@ fn full_config_ok() {
         .with_toml_source(TomlSource::new(
             PathBuf::from("./config.toml"),
             toml! {
-                chain_id = "whatever"
+                chain = "whatever"
 
                 [torii]
                 address = "127.0.0.2:1337"
@@ -400,7 +400,7 @@ fn full_config_ok() {
 
     expect![[r#"
         Root {
-            chain_id: "whatever",
+            chain: "whatever",
             torii: Torii {
                 address: WithOrigin {
                     value: 127.0.0.2:1337,
@@ -442,17 +442,17 @@ fn full_config_ok() {
 #[test]
 fn env_overwrites_toml() {
     let root = ConfigReader::new()
-        .with_env(MockEnv::from(vec![("CHAIN_ID", "in env")]))
+        .with_env(MockEnv::from(vec![("CHAIN", "in env")]))
         .with_toml_source(TomlSource::new(
             PathBuf::from("config.toml"),
             toml! {
-                chain_id = "in file"
+                chain = "in file"
             },
         ))
         .read_and_complete::<sample_config::Root>()
         .expect("config is valid");
 
-    assert_eq!(root.chain_id, "in env");
+    assert_eq!(root.chain, "in env");
 }
 
 #[test]
@@ -465,7 +465,7 @@ fn full_from_env() {
 fn multiple_env_parsing_errors() {
     let report = ConfigReader::new()
         .with_env(MockEnv::from([
-            ("CHAIN_ID", "just to set"),
+            ("CHAIN", "just to set"),
             ("API_ADDRESS", "i am not socket addr"),
             ("LOG_LEVEL", "error or whatever"),
         ]))

@@ -6,7 +6,7 @@
 ## Or, for a chain of extensions:
 # extends = ["base-1.toml", "base-2.toml"]
 
-# chain_id =
+# chain =
 # public_key =
 # private_key =
 

@@ -362,7 +362,7 @@ impl_query_output! {
 #[display(fmt = "{}@{torii_url}", "key_pair.public_key()")]
 pub struct Client {
     /// Unique id of the blockchain. Used for simple replay attack protection.
-    pub chain_id: ChainId,
+    pub chain: ChainId,
     /// Url for accessing Iroha node
     pub torii_url: Url,
     /// Accounts keypair
@@ -372,7 +372,7 @@ pub struct Client {
     /// Transaction status timeout
     pub transaction_status_timeout: Duration,
     /// Current account
-    pub account_id: AccountId,
+    pub account: AccountId,
     /// Http headers which will be appended to each request
     pub headers: HashMap<String, String>,
     /// If `true` add nonce, which makes different hashes for
@@ -435,8 +435,8 @@ impl Client {
     #[inline]
     pub fn with_headers(
         Config {
-            chain_id,
-            account_id,
+            chain,
+            account,
             torii_api_url,
             key_pair,
             basic_auth,
@@ -454,12 +454,12 @@ impl Client {
         }
 
         Self {
-            chain_id,
+            chain,
             torii_url: torii_api_url,
             key_pair,
             transaction_ttl: Some(transaction_ttl),
             transaction_status_timeout,
-            account_id,
+            account,
             headers,
             add_transaction_nonce: transaction_add_nonce,
         }
@@ -474,7 +474,7 @@ impl Client {
         instructions: impl Into<Executable>,
         metadata: UnlimitedMetadata,
     ) -> SignedTransaction {
-        let tx_builder = TransactionBuilder::new(self.chain_id.clone(), self.account_id.clone());
+        let tx_builder = TransactionBuilder::new(self.chain.clone(), self.account.clone());
 
         let mut tx_builder = match instructions.into() {
             Executable::Instructions(instructions) => tx_builder.with_instructions(instructions),
@@ -836,7 +836,7 @@ impl Client {
     where
         <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
-        let query_builder = ClientQueryBuilder::new(request, self.account_id.clone())
+        let query_builder = ClientQueryBuilder::new(request, self.account.clone())
             .with_filter(filter)
             .with_pagination(pagination)
             .with_sorting(sorting)
@@ -1619,9 +1619,9 @@ mod tests {
     fn config_factory() -> Config {
         let (account_id, key_pair) = gen_account_in("wonderland");
         Config {
-            chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
+            chain: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair,
-            account_id,
+            account: account_id,
             torii_api_url: "http://127.0.0.1:8080".parse().unwrap(),
             basic_auth: None,
             transaction_add_nonce: false,
@@ -1644,10 +1644,9 @@ mod tests {
         assert_ne!(tx1.hash(), tx2.hash());
 
         let tx2 = {
-            let mut tx =
-                TransactionBuilder::new(client.chain_id.clone(), client.account_id.clone())
-                    .with_executable(tx1.instructions().clone())
-                    .with_metadata(tx1.metadata().clone());
+            let mut tx = TransactionBuilder::new(client.chain.clone(), client.account.clone())
+                .with_executable(tx1.instructions().clone())
+                .with_metadata(tx1.metadata().clone());
 
             tx.set_creation_time(tx1.creation_time());
             if let Some(nonce) = tx1.nonce() {

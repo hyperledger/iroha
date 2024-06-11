@@ -16,7 +16,7 @@ use crate::config::BasicAuth;
 #[derive(Clone, Debug, ReadConfig)]
 #[allow(missing_docs)]
 pub struct Root {
-    pub chain_id: ChainId,
+    pub chain: ChainId,
     #[config(env = "TORII_URL")]
     pub torii_url: WithOrigin<Url>,
     pub basic_auth: Option<BasicAuth>,
@@ -44,12 +44,12 @@ impl Root {
     /// If a set of validity errors occurs.
     pub fn parse(self) -> error_stack::Result<super::Config, ParseError> {
         let Self {
-            chain_id,
+            chain: chain_id,
             torii_url,
             basic_auth,
             account:
                 Account {
-                    domain_id,
+                    domain: domain_id,
                     public_key,
                     private_key,
                 },
@@ -98,8 +98,8 @@ impl Root {
         emitter.into_result()?;
 
         Ok(super::Config {
-            chain_id,
-            account_id,
+            chain: chain_id,
+            account: account_id,
             key_pair: key_pair.unwrap(),
             torii_api_url: torii_url.into_value(),
             basic_auth,
@@ -113,7 +113,7 @@ impl Root {
 #[derive(Debug, Clone, ReadConfig)]
 #[allow(missing_docs)]
 pub struct Account {
-    pub domain_id: DomainId,
+    pub domain: DomainId,
     pub public_key: WithOrigin<PublicKey>,
     pub private_key: WithOrigin<PrivateKey>,
 }

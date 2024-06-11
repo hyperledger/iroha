@@ -50,13 +50,13 @@ pub mod isi {
             let account: Account = self.object.build(authority);
             let account_id = account.id().clone();
 
-            if *account_id.domain_id() == *iroha_genesis::GENESIS_DOMAIN_ID {
+            if *account_id.domain() == *iroha_genesis::GENESIS_DOMAIN_ID {
                 return Err(InstructionExecutionError::InvariantViolation(
                     "Not allowed to register account in genesis domain".to_owned(),
                 ));
             }
 
-            let domain = state_transaction.world.domain_mut(&account_id.domain_id)?;
+            let domain = state_transaction.world.domain_mut(&account_id.domain)?;
             if domain.accounts.contains_key(&account_id) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
@@ -81,7 +81,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let account_id = self.object_id;
+            let account_id = self.object;
 
             state_transaction
                 .world()
@@ -103,7 +103,7 @@ pub mod isi {
 
             if state_transaction
                 .world
-                .domain_mut(&account_id.domain_id)?
+                .domain_mut(&account_id.domain)?
                 .remove_account(&account_id)
                 .is_none()
             {
@@ -135,7 +135,7 @@ pub mod isi {
             let asset_definition_id = asset_definition.id().clone();
             let domain = state_transaction
                 .world
-                .domain_mut(&asset_definition_id.domain_id)?;
+                .domain_mut(&asset_definition_id.domain)?;
             if domain.asset_definitions.contains_key(&asset_definition_id) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
@@ -165,7 +165,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_definition_id = self.object_id;
+            let asset_definition_id = self.object;
 
             let mut assets_to_remove = Vec::new();
             for domain in state_transaction.world.domains_iter() {
@@ -175,7 +175,7 @@ pub mod isi {
                             .assets
                             .values()
                             .filter_map(|asset| {
-                                if asset.id().definition_id == asset_definition_id {
+                                if asset.id().definition == asset_definition_id {
                                     return Some(asset.id());
                                 }
 
@@ -190,8 +190,8 @@ pub mod isi {
             for asset_id in assets_to_remove {
                 if state_transaction
                     .world
-                    .account_mut(&asset_id.account_id)?
-                    .remove_asset(&asset_id.definition_id)
+                    .account_mut(&asset_id.account)?
+                    .remove_asset(&asset_id.definition)
                     .is_none()
                 {
                     error!(%asset_id, "asset not found. This is a bug");
@@ -202,7 +202,7 @@ pub mod isi {
 
             let domain = state_transaction
                 .world
-                .domain_mut(&asset_definition_id.domain_id)?;
+                .domain_mut(&asset_definition_id.domain)?;
             if domain
                 .remove_asset_definition(&asset_definition_id)
                 .is_none()
@@ -229,7 +229,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_definition_id = self.object_id;
+            let asset_definition_id = self.object;
 
             let metadata_limits = state_transaction.config.asset_definition_metadata_limits;
             state_transaction
@@ -247,7 +247,7 @@ pub mod isi {
                 .world
                 .emit_events(Some(AssetDefinitionEvent::MetadataInserted(
                     MetadataChanged {
-                        target_id: asset_definition_id,
+                        target: asset_definition_id,
                         key: self.key,
                         value: self.value,
                     },
@@ -264,7 +264,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_definition_id = self.object_id;
+            let asset_definition_id = self.object;
 
             let value = state_transaction
                 .world
@@ -280,7 +280,7 @@ pub mod isi {
                 .world
                 .emit_events(Some(AssetDefinitionEvent::MetadataRemoved(
                     MetadataChanged {
-                        target_id: asset_definition_id,
+                        target: asset_definition_id,
                         key: self.key,
                         value,
                     },
@@ -297,7 +297,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let domain_id = self.object_id;
+            let domain_id = self.object;
 
             let limits = state_transaction.config.domain_metadata_limits;
 
@@ -309,7 +309,7 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(DomainEvent::MetadataInserted(MetadataChanged {
-                    target_id: domain_id,
+                    target: domain_id,
                     key: self.key,
                     value: self.value,
                 })));
@@ -325,7 +325,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let domain_id = self.object_id;
+            let domain_id = self.object;
 
             let domain = state_transaction.world.domain_mut(&domain_id)?;
             let value = domain
@@ -336,7 +336,7 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(DomainEvent::MetadataRemoved(MetadataChanged {
-                    target_id: domain_id,
+                    target: domain_id,
                     key: self.key,
                     value,
                 })));
@@ -352,26 +352,26 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let Transfer {
-                source_id,
+                source,
                 object,
-                destination_id,
+                destination,
             } = self;
 
-            let _ = state_transaction.world.account(&source_id)?;
-            let _ = state_transaction.world.account(&destination_id)?;
+            let _ = state_transaction.world.account(&source)?;
+            let _ = state_transaction.world.account(&destination)?;
 
             let domain = state_transaction.world.domain_mut(&object)?;
 
-            if domain.owned_by != source_id {
-                return Err(Error::Find(FindError::Account(source_id)));
+            if domain.owned_by != source {
+                return Err(Error::Find(FindError::Account(source)));
             }
 
-            domain.owned_by = destination_id.clone();
+            domain.owned_by = destination.clone();
             state_transaction
                 .world
                 .emit_events(Some(DomainEvent::OwnerChanged(DomainOwnerChanged {
-                    domain_id: object,
-                    new_owner: destination_id,
+                    domain: object,
+                    new_owner: destination,
                 })));
 
             Ok(())

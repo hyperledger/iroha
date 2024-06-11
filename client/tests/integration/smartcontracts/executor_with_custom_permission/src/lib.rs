@@ -99,7 +99,7 @@ impl Executor {
                         &token,
                     )
                 {
-                    found_accounts.push((account, can_unregister_domain_token.domain_id));
+                    found_accounts.push((account, can_unregister_domain_token.domain));
                     break;
                 }
             }
@@ -120,7 +120,7 @@ impl Executor {
                 Revoke::permission(
                     Permission::new(
                         can_unregister_domain_definition_id.clone(),
-                        json!({ "domain_id": domain_id }),
+                        json!({ "domain": domain_id }),
                     ),
                     account.id().clone(),
                 )

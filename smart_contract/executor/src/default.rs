@@ -186,7 +186,7 @@ pub mod domain {
         authority: &AccountId,
         isi: &Unregister<Domain>,
     ) {
-        let domain_id = isi.object_id();
+        let domain_id = isi.object();
 
         if is_genesis(executor)
             || match is_domain_owner(domain_id, authority) {
@@ -195,7 +195,7 @@ pub mod domain {
             }
             || {
                 let can_unregister_domain_token = permissions::domain::CanUnregisterDomain {
-                    domain_id: domain_id.clone(),
+                    domain: domain_id.clone(),
                 };
                 can_unregister_domain_token.is_owned_by(authority)
             }
@@ -226,7 +226,7 @@ pub mod domain {
         authority: &AccountId,
         isi: &Transfer<Account, DomainId, Account>,
     ) {
-        let source_id = isi.source_id();
+        let source_id = isi.source();
         let domain_id = isi.object();
 
         if is_genesis(executor) {
@@ -251,7 +251,7 @@ pub mod domain {
         authority: &AccountId,
         isi: &SetKeyValue<Domain>,
     ) {
-        let domain_id = isi.object_id();
+        let domain_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -262,7 +262,7 @@ pub mod domain {
             Ok(false) => {}
         }
         let can_set_key_value_in_domain_token = permissions::domain::CanSetKeyValueInDomain {
-            domain_id: domain_id.clone(),
+            domain: domain_id.clone(),
         };
         if can_set_key_value_in_domain_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -276,7 +276,7 @@ pub mod domain {
         authority: &AccountId,
         isi: &RemoveKeyValue<Domain>,
     ) {
-        let domain_id = isi.object_id();
+        let domain_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -287,7 +287,7 @@ pub mod domain {
             Ok(false) => {}
         }
         let can_remove_key_value_in_domain_token = permissions::domain::CanRemoveKeyValueInDomain {
-            domain_id: domain_id.clone(),
+            domain: domain_id.clone(),
         };
         if can_remove_key_value_in_domain_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -302,88 +302,86 @@ pub mod domain {
             return false;
         };
         match permission {
-            AnyPermission::CanUnregisterDomain(permission) => &permission.domain_id == domain_id,
-            AnyPermission::CanSetKeyValueInDomain(permission) => &permission.domain_id == domain_id,
-            AnyPermission::CanRemoveKeyValueInDomain(permission) => {
-                &permission.domain_id == domain_id
-            }
+            AnyPermission::CanUnregisterDomain(permission) => &permission.domain == domain_id,
+            AnyPermission::CanSetKeyValueInDomain(permission) => &permission.domain == domain_id,
+            AnyPermission::CanRemoveKeyValueInDomain(permission) => &permission.domain == domain_id,
             AnyPermission::CanRegisterAccountInDomain(permission) => {
-                &permission.domain_id == domain_id
+                &permission.domain == domain_id
             }
             AnyPermission::CanRegisterAssetDefinitionInDomain(permission) => {
-                &permission.domain_id == domain_id
+                &permission.domain == domain_id
             }
             AnyPermission::CanUnregisterAssetDefinition(permission) => {
-                permission.asset_definition_id.domain_id() == domain_id
+                permission.asset_definition.domain() == domain_id
             }
             AnyPermission::CanSetKeyValueInAssetDefinition(permission) => {
-                permission.asset_definition_id.domain_id() == domain_id
+                permission.asset_definition.domain() == domain_id
             }
             AnyPermission::CanRemoveKeyValueInAssetDefinition(permission) => {
-                permission.asset_definition_id.domain_id() == domain_id
+                permission.asset_definition.domain() == domain_id
             }
             AnyPermission::CanRegisterAssetWithDefinition(permission) => {
-                permission.asset_definition_id.domain_id() == domain_id
+                permission.asset_definition.domain() == domain_id
             }
             AnyPermission::CanUnregisterAssetWithDefinition(permission) => {
-                permission.asset_definition_id.domain_id() == domain_id
+                permission.asset_definition.domain() == domain_id
             }
             AnyPermission::CanBurnAssetWithDefinition(permission) => {
-                permission.asset_definition_id.domain_id() == domain_id
+                permission.asset_definition.domain() == domain_id
             }
             AnyPermission::CanMintAssetWithDefinition(permission) => {
-                permission.asset_definition_id.domain_id() == domain_id
+                permission.asset_definition.domain() == domain_id
             }
             AnyPermission::CanTransferAssetWithDefinition(permission) => {
-                permission.asset_definition_id.domain_id() == domain_id
+                permission.asset_definition.domain() == domain_id
             }
             AnyPermission::CanBurnUserAsset(permission) => {
-                permission.asset_id.definition_id().domain_id() == domain_id
-                    || permission.asset_id.account_id().domain_id() == domain_id
+                permission.asset.definition().domain() == domain_id
+                    || permission.asset.account().domain() == domain_id
             }
             AnyPermission::CanTransferUserAsset(permission) => {
-                permission.asset_id.definition_id().domain_id() == domain_id
-                    || permission.asset_id.account_id().domain_id() == domain_id
+                permission.asset.definition().domain() == domain_id
+                    || permission.asset.account().domain() == domain_id
             }
             AnyPermission::CanUnregisterUserAsset(permission) => {
-                permission.asset_id.definition_id().domain_id() == domain_id
-                    || permission.asset_id.account_id().domain_id() == domain_id
+                permission.asset.definition().domain() == domain_id
+                    || permission.asset.account().domain() == domain_id
             }
             AnyPermission::CanSetKeyValueInUserAsset(permission) => {
-                permission.asset_id.definition_id().domain_id() == domain_id
-                    || permission.asset_id.account_id().domain_id() == domain_id
+                permission.asset.definition().domain() == domain_id
+                    || permission.asset.account().domain() == domain_id
             }
             AnyPermission::CanRemoveKeyValueInUserAsset(permission) => {
-                permission.asset_id.definition_id().domain_id() == domain_id
-                    || permission.asset_id.account_id().domain_id() == domain_id
+                permission.asset.definition().domain() == domain_id
+                    || permission.asset.account().domain() == domain_id
             }
             AnyPermission::CanMintUserAsset(permission) => {
-                permission.asset_id.definition_id().domain_id() == domain_id
-                    || permission.asset_id.account_id().domain_id() == domain_id
+                permission.asset.definition().domain() == domain_id
+                    || permission.asset.account().domain() == domain_id
             }
             AnyPermission::CanUnregisterAccount(permission) => {
-                permission.account_id.domain_id() == domain_id
+                permission.account.domain() == domain_id
             }
             AnyPermission::CanMintUserPublicKeys(permission) => {
-                permission.account_id.domain_id() == domain_id
+                permission.account.domain() == domain_id
             }
             AnyPermission::CanBurnUserPublicKeys(permission) => {
-                permission.account_id.domain_id() == domain_id
+                permission.account.domain() == domain_id
             }
             AnyPermission::CanMintUserSignatureCheckConditions(permission) => {
-                permission.account_id.domain_id() == domain_id
+                permission.account.domain() == domain_id
             }
             AnyPermission::CanSetKeyValueInAccount(permission) => {
-                permission.account_id.domain_id() == domain_id
+                permission.account.domain() == domain_id
             }
             AnyPermission::CanRemoveKeyValueInAccount(permission) => {
-                permission.account_id.domain_id() == domain_id
+                permission.account.domain() == domain_id
             }
             AnyPermission::CanRegisterUserTrigger(permission) => {
-                permission.account_id.domain_id() == domain_id
+                permission.account.domain() == domain_id
             }
             AnyPermission::CanUnregisterUserTrigger(permission) => {
-                permission.account_id.domain_id() == domain_id
+                permission.account.domain() == domain_id
             }
             AnyPermission::CanExecuteUserTrigger(_)
             | AnyPermission::CanBurnUserTrigger(_)
@@ -412,7 +410,7 @@ pub mod account {
         authority: &AccountId,
         isi: &Register<Account>,
     ) {
-        let domain_id = isi.object().id().domain_id();
+        let domain_id = isi.object().id().domain();
 
         match crate::permission::domain::is_domain_owner(domain_id, authority) {
             Err(err) => deny!(executor, err),
@@ -421,7 +419,7 @@ pub mod account {
         }
 
         let can_register_account_in_domain = permissions::domain::CanRegisterAccountInDomain {
-            domain_id: domain_id.clone(),
+            domain: domain_id.clone(),
         };
         if can_register_account_in_domain.is_owned_by(authority) {
             execute!(executor, isi);
@@ -438,7 +436,7 @@ pub mod account {
         authority: &AccountId,
         isi: &Unregister<Account>,
     ) {
-        let account_id = isi.object_id();
+        let account_id = isi.object();
 
         if is_genesis(executor)
             || match is_account_owner(account_id, authority) {
@@ -447,7 +445,7 @@ pub mod account {
             }
             || {
                 let can_unregister_user_account = permissions::account::CanUnregisterAccount {
-                    account_id: account_id.clone(),
+                    account: account_id.clone(),
                 };
                 can_unregister_user_account.is_owned_by(authority)
             }
@@ -478,7 +476,7 @@ pub mod account {
         authority: &AccountId,
         isi: &SetKeyValue<Account>,
     ) {
-        let account_id = isi.object_id();
+        let account_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -490,7 +488,7 @@ pub mod account {
         }
         let can_set_key_value_in_user_account_token =
             permissions::account::CanSetKeyValueInAccount {
-                account_id: account_id.clone(),
+                account: account_id.clone(),
             };
         if can_set_key_value_in_user_account_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -507,7 +505,7 @@ pub mod account {
         authority: &AccountId,
         isi: &RemoveKeyValue<Account>,
     ) {
-        let account_id = isi.object_id();
+        let account_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -519,7 +517,7 @@ pub mod account {
         }
         let can_remove_key_value_in_user_account_token =
             permissions::account::CanRemoveKeyValueInAccount {
-                account_id: account_id.clone(),
+                account: account_id.clone(),
             };
         if can_remove_key_value_in_user_account_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -536,45 +534,33 @@ pub mod account {
             return false;
         };
         match permission {
-            AnyPermission::CanUnregisterAccount(permission) => &permission.account_id == account_id,
-            AnyPermission::CanMintUserPublicKeys(permission) => {
-                &permission.account_id == account_id
-            }
-            AnyPermission::CanBurnUserPublicKeys(permission) => {
-                &permission.account_id == account_id
-            }
+            AnyPermission::CanUnregisterAccount(permission) => &permission.account == account_id,
+            AnyPermission::CanMintUserPublicKeys(permission) => &permission.account == account_id,
+            AnyPermission::CanBurnUserPublicKeys(permission) => &permission.account == account_id,
             AnyPermission::CanMintUserSignatureCheckConditions(permission) => {
-                &permission.account_id == account_id
+                &permission.account == account_id
             }
-            AnyPermission::CanSetKeyValueInAccount(permission) => {
-                &permission.account_id == account_id
-            }
+            AnyPermission::CanSetKeyValueInAccount(permission) => &permission.account == account_id,
             AnyPermission::CanRemoveKeyValueInAccount(permission) => {
-                &permission.account_id == account_id
+                &permission.account == account_id
             }
-            AnyPermission::CanBurnUserAsset(permission) => {
-                permission.asset_id.account_id() == account_id
-            }
+            AnyPermission::CanBurnUserAsset(permission) => permission.asset.account() == account_id,
             AnyPermission::CanTransferUserAsset(permission) => {
-                permission.asset_id.account_id() == account_id
+                permission.asset.account() == account_id
             }
             AnyPermission::CanUnregisterUserAsset(permission) => {
-                permission.asset_id.account_id() == account_id
+                permission.asset.account() == account_id
             }
             AnyPermission::CanSetKeyValueInUserAsset(permission) => {
-                permission.asset_id.account_id() == account_id
+                permission.asset.account() == account_id
             }
             AnyPermission::CanRemoveKeyValueInUserAsset(permission) => {
-                permission.asset_id.account_id() == account_id
+                permission.asset.account() == account_id
             }
-            AnyPermission::CanMintUserAsset(permission) => {
-                permission.asset_id.account_id() == account_id
-            }
-            AnyPermission::CanRegisterUserTrigger(permission) => {
-                &permission.account_id == account_id
-            }
+            AnyPermission::CanMintUserAsset(permission) => permission.asset.account() == account_id,
+            AnyPermission::CanRegisterUserTrigger(permission) => &permission.account == account_id,
             AnyPermission::CanUnregisterUserTrigger(permission) => {
-                &permission.account_id == account_id
+                &permission.account == account_id
             }
             AnyPermission::CanExecuteUserTrigger(_)
             | AnyPermission::CanBurnUserTrigger(_)
@@ -621,7 +607,7 @@ pub mod asset_definition {
         authority: &AccountId,
         isi: &Register<AssetDefinition>,
     ) {
-        let domain_id = isi.object().id().domain_id();
+        let domain_id = isi.object().id().domain();
 
         match crate::permission::domain::is_domain_owner(domain_id, authority) {
             Err(err) => deny!(executor, err),
@@ -631,7 +617,7 @@ pub mod asset_definition {
 
         let can_register_asset_definition_in_domain_token =
             permissions::domain::CanRegisterAssetDefinitionInDomain {
-                domain_id: domain_id.clone(),
+                domain: domain_id.clone(),
             };
         if can_register_asset_definition_in_domain_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -648,7 +634,7 @@ pub mod asset_definition {
         authority: &AccountId,
         isi: &Unregister<AssetDefinition>,
     ) {
-        let asset_definition_id = isi.object_id();
+        let asset_definition_id = isi.object();
 
         if is_genesis(executor)
             || match is_asset_definition_owner(asset_definition_id, authority) {
@@ -658,7 +644,7 @@ pub mod asset_definition {
             || {
                 let can_unregister_asset_definition_token =
                     permissions::asset_definition::CanUnregisterAssetDefinition {
-                        asset_definition_id: asset_definition_id.clone(),
+                        asset_definition: asset_definition_id.clone(),
                     };
                 can_unregister_asset_definition_token.is_owned_by(authority)
             }
@@ -692,7 +678,7 @@ pub mod asset_definition {
         authority: &AccountId,
         isi: &Transfer<Account, AssetDefinitionId, Account>,
     ) {
-        let source_id = isi.source_id();
+        let source_id = isi.source();
         let asset_definition_id = isi.object();
 
         if is_genesis(executor) {
@@ -720,7 +706,7 @@ pub mod asset_definition {
         authority: &AccountId,
         isi: &SetKeyValue<AssetDefinition>,
     ) {
-        let asset_definition_id = isi.object_id();
+        let asset_definition_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -732,7 +718,7 @@ pub mod asset_definition {
         }
         let can_set_key_value_in_asset_definition_token =
             permissions::asset_definition::CanSetKeyValueInAssetDefinition {
-                asset_definition_id: asset_definition_id.clone(),
+                asset_definition: asset_definition_id.clone(),
             };
         if can_set_key_value_in_asset_definition_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -749,7 +735,7 @@ pub mod asset_definition {
         authority: &AccountId,
         isi: &RemoveKeyValue<AssetDefinition>,
     ) {
-        let asset_definition_id = isi.object_id();
+        let asset_definition_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -761,7 +747,7 @@ pub mod asset_definition {
         }
         let can_remove_key_value_in_asset_definition_token =
             permissions::asset_definition::CanRemoveKeyValueInAssetDefinition {
-                asset_definition_id: asset_definition_id.clone(),
+                asset_definition: asset_definition_id.clone(),
             };
         if can_remove_key_value_in_asset_definition_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -782,46 +768,46 @@ pub mod asset_definition {
         };
         match permission {
             AnyPermission::CanUnregisterAssetDefinition(permission) => {
-                &permission.asset_definition_id == asset_definition_id
+                &permission.asset_definition == asset_definition_id
             }
             AnyPermission::CanSetKeyValueInAssetDefinition(permission) => {
-                &permission.asset_definition_id == asset_definition_id
+                &permission.asset_definition == asset_definition_id
             }
             AnyPermission::CanRemoveKeyValueInAssetDefinition(permission) => {
-                &permission.asset_definition_id == asset_definition_id
+                &permission.asset_definition == asset_definition_id
             }
             AnyPermission::CanRegisterAssetWithDefinition(permission) => {
-                &permission.asset_definition_id == asset_definition_id
+                &permission.asset_definition == asset_definition_id
             }
             AnyPermission::CanUnregisterAssetWithDefinition(permission) => {
-                &permission.asset_definition_id == asset_definition_id
+                &permission.asset_definition == asset_definition_id
             }
             AnyPermission::CanBurnAssetWithDefinition(permission) => {
-                &permission.asset_definition_id == asset_definition_id
+                &permission.asset_definition == asset_definition_id
             }
             AnyPermission::CanMintAssetWithDefinition(permission) => {
-                &permission.asset_definition_id == asset_definition_id
+                &permission.asset_definition == asset_definition_id
             }
             AnyPermission::CanTransferAssetWithDefinition(permission) => {
-                &permission.asset_definition_id == asset_definition_id
+                &permission.asset_definition == asset_definition_id
             }
             AnyPermission::CanBurnUserAsset(permission) => {
-                permission.asset_id.definition_id() == asset_definition_id
+                permission.asset.definition() == asset_definition_id
             }
             AnyPermission::CanTransferUserAsset(permission) => {
-                permission.asset_id.definition_id() == asset_definition_id
+                permission.asset.definition() == asset_definition_id
             }
             AnyPermission::CanUnregisterUserAsset(permission) => {
-                permission.asset_id.definition_id() == asset_definition_id
+                permission.asset.definition() == asset_definition_id
             }
             AnyPermission::CanSetKeyValueInUserAsset(permission) => {
-                permission.asset_id.definition_id() == asset_definition_id
+                permission.asset.definition() == asset_definition_id
             }
             AnyPermission::CanRemoveKeyValueInUserAsset(permission) => {
-                permission.asset_id.definition_id() == asset_definition_id
+                permission.asset.definition() == asset_definition_id
             }
             AnyPermission::CanMintUserAsset(permission) => {
-                permission.asset_id.definition_id() == asset_definition_id
+                permission.asset.definition() == asset_definition_id
             }
             AnyPermission::CanUnregisterAccount(_)
             | AnyPermission::CanMintUserPublicKeys(_)
@@ -873,14 +859,14 @@ pub mod asset {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_definition_owner(asset.id().definition_id(), authority) {
+        match is_asset_definition_owner(asset.id().definition(), authority) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
         let can_register_assets_with_definition_token =
             permissions::asset::CanRegisterAssetWithDefinition {
-                asset_definition_id: asset.id().definition_id().clone(),
+                asset_definition: asset.id().definition().clone(),
             };
         if can_register_assets_with_definition_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -897,7 +883,7 @@ pub mod asset {
         authority: &AccountId,
         isi: &Unregister<Asset>,
     ) {
-        let asset_id = isi.object_id();
+        let asset_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -907,20 +893,20 @@ pub mod asset {
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        match is_asset_definition_owner(asset_id.definition_id(), authority) {
+        match is_asset_definition_owner(asset_id.definition(), authority) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
         let can_unregister_assets_with_definition_token =
             permissions::asset::CanUnregisterAssetWithDefinition {
-                asset_definition_id: asset_id.definition_id().clone(),
+                asset_definition: asset_id.definition().clone(),
             };
         if can_unregister_assets_with_definition_token.is_owned_by(authority) {
             execute!(executor, isi);
         }
         let can_unregister_user_asset_token = permissions::asset::CanUnregisterUserAsset {
-            asset_id: asset_id.clone(),
+            asset: asset_id.clone(),
         };
         if can_unregister_user_asset_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -935,24 +921,24 @@ pub mod asset {
         Q: Into<AssetValue>,
         Mint<Q, Asset>: Instruction + Encode,
     {
-        let asset_id = isi.destination_id();
+        let asset_id = isi.destination();
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_definition_owner(asset_id.definition_id(), authority) {
+        match is_asset_definition_owner(asset_id.definition(), authority) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
         let can_mint_assets_with_definition_token =
             permissions::asset::CanMintAssetWithDefinition {
-                asset_definition_id: asset_id.definition_id().clone(),
+                asset_definition: asset_id.definition().clone(),
             };
         if can_mint_assets_with_definition_token.is_owned_by(authority) {
             execute!(executor, isi);
         }
         let can_mint_user_asset_token = permissions::asset::CanMintUserAsset {
-            asset_id: asset_id.clone(),
+            asset: asset_id.clone(),
         };
         if can_mint_user_asset_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -978,7 +964,7 @@ pub mod asset {
         Q: Into<AssetValue>,
         Burn<Q, Asset>: Instruction + Encode,
     {
-        let asset_id = isi.destination_id();
+        let asset_id = isi.destination();
         if is_genesis(executor) {
             execute!(executor, isi);
         }
@@ -987,20 +973,20 @@ pub mod asset {
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        match is_asset_definition_owner(asset_id.definition_id(), authority) {
+        match is_asset_definition_owner(asset_id.definition(), authority) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
         let can_burn_assets_with_definition_token =
             permissions::asset::CanBurnAssetWithDefinition {
-                asset_definition_id: asset_id.definition_id().clone(),
+                asset_definition: asset_id.definition().clone(),
             };
         if can_burn_assets_with_definition_token.is_owned_by(authority) {
             execute!(executor, isi);
         }
         let can_burn_user_asset_token = permissions::asset::CanBurnUserAsset {
-            asset_id: asset_id.clone(),
+            asset: asset_id.clone(),
         };
         if can_burn_user_asset_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -1026,7 +1012,7 @@ pub mod asset {
         Q: Into<AssetValue>,
         Transfer<Asset, Q, Account>: Instruction + Encode,
     {
-        let asset_id = isi.source_id();
+        let asset_id = isi.source();
         if is_genesis(executor) {
             execute!(executor, isi);
         }
@@ -1035,20 +1021,20 @@ pub mod asset {
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        match is_asset_definition_owner(asset_id.definition_id(), authority) {
+        match is_asset_definition_owner(asset_id.definition(), authority) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
         let can_transfer_assets_with_definition_token =
             permissions::asset::CanTransferAssetWithDefinition {
-                asset_definition_id: asset_id.definition_id().clone(),
+                asset_definition: asset_id.definition().clone(),
             };
         if can_transfer_assets_with_definition_token.is_owned_by(authority) {
             execute!(executor, isi);
         }
         let can_transfer_user_asset_token = permissions::asset::CanTransferUserAsset {
-            asset_id: asset_id.clone(),
+            asset: asset_id.clone(),
         };
         if can_transfer_user_asset_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -1078,7 +1064,7 @@ pub mod asset {
         authority: &AccountId,
         isi: &SetKeyValue<Asset>,
     ) {
-        let asset_id = isi.object_id();
+        let asset_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -1090,7 +1076,7 @@ pub mod asset {
         }
 
         let can_set_key_value_in_user_asset_token = permissions::asset::CanSetKeyValueInUserAsset {
-            asset_id: asset_id.clone(),
+            asset: asset_id.clone(),
         };
         if can_set_key_value_in_user_asset_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -1107,7 +1093,7 @@ pub mod asset {
         authority: &AccountId,
         isi: &RemoveKeyValue<Asset>,
     ) {
-        let asset_id = isi.object_id();
+        let asset_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -1119,7 +1105,7 @@ pub mod asset {
         }
         let can_remove_key_value_in_user_asset_token =
             permissions::asset::CanRemoveKeyValueInUserAsset {
-                asset_id: asset_id.clone(),
+                asset: asset_id.clone(),
             };
         if can_remove_key_value_in_user_asset_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -1220,7 +1206,7 @@ pub mod role {
 
     macro_rules! impl_validate_grant_revoke_role_permission {
         ($executor:ident, $isi:ident, $authority:ident, $method:ident, $isi_type:ty) => {
-            let role_id = $isi.destination_id().clone();
+            let role_id = $isi.destination().clone();
             let token = $isi.object();
 
             if let Ok(any_token) = AnyPermission::try_from(token) {
@@ -1352,7 +1338,7 @@ pub mod trigger {
 
         if is_genesis(executor)
             || {
-                match is_domain_owner(trigger.action().authority().domain_id(), authority) {
+                match is_domain_owner(trigger.action().authority().domain(), authority) {
                     Err(err) => deny!(executor, err),
                     Ok(is_domain_owner) => is_domain_owner,
                 }
@@ -1360,7 +1346,7 @@ pub mod trigger {
             || {
                 let can_register_user_trigger_token =
                     permissions::trigger::CanRegisterUserTrigger {
-                        account_id: isi.object().action().authority().clone(),
+                        account: isi.object().action().authority().clone(),
                     };
                 can_register_user_trigger_token.is_owned_by(authority)
             }
@@ -1375,7 +1361,7 @@ pub mod trigger {
         authority: &AccountId,
         isi: &Unregister<Trigger>,
     ) {
-        let trigger_id = isi.object_id();
+        let trigger_id = isi.object();
 
         if is_genesis(executor)
             || match is_trigger_owner(trigger_id, authority) {
@@ -1385,7 +1371,7 @@ pub mod trigger {
             || {
                 let can_unregister_user_trigger_token =
                     permissions::trigger::CanUnregisterUserTrigger {
-                        account_id: find_trigger(trigger_id)
+                        account: find_trigger(trigger_id)
                             .unwrap()
                             .action()
                             .authority()
@@ -1423,7 +1409,7 @@ pub mod trigger {
         authority: &AccountId,
         isi: &Mint<u32, Trigger>,
     ) {
-        let trigger_id = isi.destination_id();
+        let trigger_id = isi.destination();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -1434,7 +1420,7 @@ pub mod trigger {
             Ok(false) => {}
         }
         let can_mint_user_trigger_token = permissions::trigger::CanMintUserTrigger {
-            trigger_id: trigger_id.clone(),
+            trigger: trigger_id.clone(),
         };
         if can_mint_user_trigger_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -1451,7 +1437,7 @@ pub mod trigger {
         authority: &AccountId,
         isi: &Burn<u32, Trigger>,
     ) {
-        let trigger_id = isi.destination_id();
+        let trigger_id = isi.destination();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -1462,7 +1448,7 @@ pub mod trigger {
             Ok(false) => {}
         }
         let can_mint_user_trigger_token = permissions::trigger::CanBurnUserTrigger {
-            trigger_id: trigger_id.clone(),
+            trigger: trigger_id.clone(),
         };
         if can_mint_user_trigger_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -1479,7 +1465,7 @@ pub mod trigger {
         authority: &AccountId,
         isi: &ExecuteTrigger,
     ) {
-        let trigger_id = isi.trigger_id();
+        let trigger_id = isi.trigger();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -1490,7 +1476,7 @@ pub mod trigger {
             Ok(false) => {}
         }
         let can_execute_trigger_token = permissions::trigger::CanExecuteUserTrigger {
-            trigger_id: trigger_id.clone(),
+            trigger: trigger_id.clone(),
         };
         if can_execute_trigger_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -1504,7 +1490,7 @@ pub mod trigger {
         authority: &AccountId,
         isi: &SetKeyValue<Trigger>,
     ) {
-        let trigger_id = isi.object_id();
+        let trigger_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -1516,7 +1502,7 @@ pub mod trigger {
         }
         let can_set_key_value_in_user_trigger_token =
             permissions::trigger::CanSetKeyValueInTrigger {
-                trigger_id: trigger_id.clone(),
+                trigger: trigger_id.clone(),
             };
         if can_set_key_value_in_user_trigger_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -1533,7 +1519,7 @@ pub mod trigger {
         authority: &AccountId,
         isi: &RemoveKeyValue<Trigger>,
     ) {
-        let trigger_id = isi.object_id();
+        let trigger_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
@@ -1545,7 +1531,7 @@ pub mod trigger {
         }
         let can_remove_key_value_in_trigger_token =
             permissions::trigger::CanRemoveKeyValueInTrigger {
-                trigger_id: trigger_id.clone(),
+                trigger: trigger_id.clone(),
             };
         if can_remove_key_value_in_trigger_token.is_owned_by(authority) {
             execute!(executor, isi);
@@ -1562,16 +1548,12 @@ pub mod trigger {
             return false;
         };
         match permission {
-            AnyPermission::CanExecuteUserTrigger(permission) => {
-                &permission.trigger_id == trigger_id
-            }
-            AnyPermission::CanBurnUserTrigger(permission) => &permission.trigger_id == trigger_id,
-            AnyPermission::CanMintUserTrigger(permission) => &permission.trigger_id == trigger_id,
-            AnyPermission::CanSetKeyValueInTrigger(permission) => {
-                &permission.trigger_id == trigger_id
-            }
+            AnyPermission::CanExecuteUserTrigger(permission) => &permission.trigger == trigger_id,
+            AnyPermission::CanBurnUserTrigger(permission) => &permission.trigger == trigger_id,
+            AnyPermission::CanMintUserTrigger(permission) => &permission.trigger == trigger_id,
+            AnyPermission::CanSetKeyValueInTrigger(permission) => &permission.trigger == trigger_id,
             AnyPermission::CanRemoveKeyValueInTrigger(permission) => {
-                &permission.trigger_id == trigger_id
+                &permission.trigger == trigger_id
             }
             AnyPermission::CanRegisterUserTrigger(_)
             | AnyPermission::CanUnregisterUserTrigger(_)
@@ -1618,7 +1600,7 @@ pub mod permission {
 
     macro_rules! impl_validate {
         ($executor:ident, $authority:ident, $isi:ident, $method:ident, $isi_type:ty) => {
-            let account_id = $isi.destination_id().clone();
+            let account_id = $isi.destination().clone();
             let token = $isi.object();
 
             if let Ok(any_token) = AnyPermission::try_from(token) {

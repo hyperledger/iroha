@@ -69,7 +69,7 @@ fn minimal_config_snapshot() {
     expect![[r#"
         Root {
             common: Common {
-                chain_id: ChainId(
+                chain: ChainId(
                     "0",
                 ),
                 key_pair: KeyPair {
@@ -80,7 +80,7 @@ fn minimal_config_snapshot() {
                     ),
                     private_key: "[REDACTED PrivateKey]",
                 },
-                peer_id: PeerId {
+                peer: PeerId {
                     address: 127.0.0.1:1337,
                     public_key: PublicKey(
                         ed25519(
@@ -256,7 +256,7 @@ fn self_is_presented_in_trusted_peers() {
         .value()
         .clone()
         .into_non_empty_vec()
-        .contains(&config.common.peer_id()));
+        .contains(&config.common.peer));
 }
 
 #[test]
@@ -264,7 +264,7 @@ fn missing_fields() {
     let error = load_config_from_fixtures("bad.missing_fields.toml")
         .expect_err("should fail without missing fields");
 
-    assert_contains!(format!("{error:?}"), "missing parameter: `chain_id`");
+    assert_contains!(format!("{error:?}"), "missing parameter: `chain`");
     assert_contains!(format!("{error:?}"), "missing parameter: `public_key`");
     assert_contains!(format!("{error:?}"), "missing parameter: `network.address`");
 }

@@ -29,7 +29,7 @@ fn call_execute_trigger() -> Result<()> {
     let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
     let instruction = Mint::asset_numeric(1u32, asset_id.clone());
-    let register_trigger = build_register_trigger_isi(asset_id.clone(), vec![instruction.into()]);
+    let register_trigger = build_register_trigger_isi(asset_id.account(), vec![instruction.into()]);
     test_client.submit_blocking(register_trigger)?;
 
     let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
@@ -52,7 +52,7 @@ fn execute_trigger_should_produce_event() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
     let instruction = Mint::asset_numeric(1u32, asset_id.clone());
-    let register_trigger = build_register_trigger_isi(asset_id, vec![instruction.into()]);
+    let register_trigger = build_register_trigger_isi(asset_id.account(), vec![instruction.into()]);
     test_client.submit_blocking(register_trigger)?;
 
     let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
@@ -94,7 +94,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
         Mint::asset_numeric(1u32, asset_id.clone()).into(),
         call_trigger.clone().into(),
     ];
-    let register_trigger = build_register_trigger_isi(asset_id.clone(), instructions);
+    let register_trigger = build_register_trigger_isi(asset_id.account(), instructions);
     test_client.submit_blocking(register_trigger)?;
 
     test_client.submit_blocking(call_trigger)?;
@@ -274,21 +274,21 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_035).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let domain_id = ALICE_ID.domain_id().clone();
+    let domain_id = ALICE_ID.domain().clone();
     let alice_account_id = ALICE_ID.clone();
     let rabbit_keys = KeyPair::random();
     let rabbit_account_id = AccountId::new(domain_id, rabbit_keys.public_key().clone());
     let rabbit_account = Account::new(rabbit_account_id.clone());
 
     let mut rabbit_client = test_client.clone();
-    rabbit_client.account_id = rabbit_account_id.clone();
+    rabbit_client.account = rabbit_account_id.clone();
     rabbit_client.key_pair = rabbit_keys;
 
     // Permission token for the trigger registration
     // on behalf of alice
     let permission_on_registration = Permission::new(
         "CanRegisterUserTrigger".parse().unwrap(),
-        json!({ "account_id": ALICE_ID.clone(), }),
+        json!({ "account": ALICE_ID.clone(), }),
     );
 
     // Trigger with 'alice' as authority
@@ -628,7 +628,7 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
 }
 
 fn build_register_trigger_isi(
-    asset_id: AssetId,
+    account_id: &AccountId,
     trigger_instructions: Vec<InstructionBox>,
 ) -> Register<Trigger> {
     let trigger_id: TriggerId = TRIGGER_NAME.parse().expect("Valid");
@@ -638,10 +638,10 @@ fn build_register_trigger_isi(
         Action::new(
             trigger_instructions,
             Repeats::Indefinitely,
-            asset_id.account_id.clone(),
+            account_id.clone(),
             ExecuteTriggerEventFilter::new()
                 .for_trigger(trigger_id)
-                .under_authority(asset_id.account_id),
+                .under_authority(account_id.clone()),
         ),
     ))
 }

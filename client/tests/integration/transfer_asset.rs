@@ -66,8 +66,8 @@ fn simulate_transfer_store_asset() {
             |result| {
                 let assets = result.collect::<QueryResult<Vec<_>>>().unwrap();
                 assets.iter().any(|asset| {
-                    asset.id().definition_id == asset_definition_id
-                        && asset.id().account_id == mouse_id
+                    *asset.id().definition() == asset_definition_id
+                        && *asset.id().account() == mouse_id
                 })
             },
         )
@@ -125,9 +125,9 @@ fn simulate_transfer<T>(
                 let assets = result.collect::<QueryResult<Vec<_>>>().unwrap();
 
                 assets.iter().any(|asset| {
-                    asset.id().definition_id == asset_definition_id
+                    *asset.id().definition() == asset_definition_id
                         && *asset.value() == amount_to_transfer.clone().into()
-                        && asset.id().account_id == mouse_id
+                        && *asset.id().account() == mouse_id
                 })
             },
         )

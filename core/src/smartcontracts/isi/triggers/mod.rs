@@ -120,7 +120,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let trigger_id = self.object_id;
+            let trigger_id = self.object;
 
             let triggers = &mut state_transaction.world.triggers;
             if triggers.remove(trigger_id.clone()) {
@@ -145,7 +145,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let id = self.destination_id;
+            let id = self.destination;
 
             let triggers = &mut state_transaction.world.triggers;
             triggers
@@ -167,7 +167,7 @@ pub mod isi {
                 .world
                 .emit_events(Some(TriggerEvent::Extended(
                     TriggerNumberOfExecutionsChanged {
-                        trigger_id: id,
+                        trigger: id,
                         by: self.object,
                     },
                 )));
@@ -183,7 +183,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let trigger = self.destination_id;
+            let trigger = self.destination;
             let triggers = &mut state_transaction.world.triggers;
             triggers.mod_repeats(&trigger, |n| {
                 n.checked_sub(self.object)
@@ -195,7 +195,7 @@ pub mod isi {
                 .world
                 .emit_events(Some(TriggerEvent::Shortened(
                     TriggerNumberOfExecutionsChanged {
-                        trigger_id: trigger,
+                        trigger,
                         by: self.object,
                     },
                 )));
@@ -211,7 +211,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let trigger_id = self.object_id;
+            let trigger_id = self.object;
 
             let trigger_metadata_limits = state_transaction.config.account_metadata_limits;
             state_transaction
@@ -229,7 +229,7 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(TriggerEvent::MetadataInserted(MetadataChanged {
-                    target_id: trigger_id,
+                    target: trigger_id,
                     key: self.key,
                     value: self.value,
                 })));
@@ -245,7 +245,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let trigger_id = self.object_id;
+            let trigger_id = self.object;
 
             let value = state_transaction
                 .world
@@ -261,7 +261,7 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(TriggerEvent::MetadataRemoved(MetadataChanged {
-                    target_id: trigger_id,
+                    target: trigger_id,
                     key: self.key,
                     value,
                 })));
@@ -277,7 +277,7 @@ pub mod isi {
             authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let id = &self.trigger_id;
+            let id = &self.trigger;
 
             state_transaction
                 .world
@@ -424,7 +424,7 @@ pub mod query {
                     .world()
                     .triggers()
                     .inspect_by_action(
-                        move |action| action.authority().domain_id() == &domain_id,
+                        move |action| action.authority().domain() == &domain_id,
                         |trigger_id, action| (trigger_id.clone(), action.clone_and_box()),
                     )
                     .map(|(trigger_id, action)| {

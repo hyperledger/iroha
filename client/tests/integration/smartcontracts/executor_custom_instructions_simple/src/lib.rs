@@ -45,10 +45,10 @@ fn execute_custom_instruction(isi: CustomInstructionBox) -> Result<(), Validatio
 }
 
 fn execute_mint_asset_for_all_accounts(isi: MintAssetForAllAccounts) -> Result<(), ValidationFail> {
-    let accounts = FindAccountsWithAsset::new(isi.asset_definition_id.clone()).execute()?;
+    let accounts = FindAccountsWithAsset::new(isi.asset_definition.clone()).execute()?;
     for account in accounts {
         let account = account.dbg_expect("Failed to get accounts with asset");
-        let asset_id = AssetId::new(isi.asset_definition_id.clone(), account.id().clone());
+        let asset_id = AssetId::new(isi.asset_definition.clone(), account.id().clone());
         Mint::asset_numeric(isi.quantity, asset_id).execute()?;
     }
     Ok(())

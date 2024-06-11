@@ -56,8 +56,8 @@ impl FromEnvStr for ChainIdInConfig {
 
 #[derive(Debug, ReadConfig)]
 pub struct Root {
-    #[config(env = "CHAIN_ID")]
-    chain_id: ChainIdInConfig,
+    #[config(env = "CHAIN")]
+    chain: ChainIdInConfig,
     #[config(env = "PUBLIC_KEY")]
     public_key: WithOrigin<PublicKey>,
     #[config(env = "PRIVATE_KEY")]
@@ -136,9 +136,9 @@ impl Root {
 
         let key_pair = key_pair.unwrap();
         let peer = actual::Common {
-            chain_id: self.chain_id.0,
+            chain: self.chain.0,
             key_pair,
-            peer_id: peer_id.unwrap(),
+            peer: peer_id.unwrap(),
         };
 
         Ok(actual::Root {

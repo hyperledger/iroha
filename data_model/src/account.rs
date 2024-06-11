@@ -58,13 +58,13 @@ mod model {
         SerializeDisplay,
         IntoSchema,
     )]
-    #[display(fmt = "{signatory}@{domain_id}")]
-    #[debug(fmt = "{signatory}@{domain_id}")]
+    #[display(fmt = "{signatory}@{domain}")]
+    #[debug(fmt = "{signatory}@{domain}")]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct AccountId {
         /// [`Domain`](crate::domain::Domain) that the [`Account`] belongs to.
-        pub domain_id: DomainId,
+        pub domain: DomainId,
         /// Sole signatory of the [`Account`].
         pub signatory: PublicKey,
     }
@@ -150,8 +150,8 @@ impl Account {
     /// Add [`Asset`] into the [`Account`] returning previous asset stored under the same id
     #[inline]
     pub fn add_asset(&mut self, asset: Asset) -> Option<Asset> {
-        assert_eq!(self.id, asset.id.account_id);
-        self.assets.insert(asset.id.definition_id.clone(), asset)
+        assert_eq!(self.id, asset.id.account);
+        self.assets.insert(asset.id.definition.clone(), asset)
     }
 
     /// Remove asset from the [`Account`] and return it

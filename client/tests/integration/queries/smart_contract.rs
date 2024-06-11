@@ -30,7 +30,7 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
     client.submit_transaction_blocking(&transaction)?;
 
     let metadata_value = client.request(FindAccountKeyValueByIdAndKey::new(
-        client.account_id.clone(),
+        client.account.clone(),
         Name::from_str("cursor").unwrap(),
     ))?;
     let cursor: String = metadata_value.try_into()?;

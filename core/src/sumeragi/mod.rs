@@ -179,7 +179,7 @@ impl SumeragiHandle {
         for block in blocks_iter {
             let mut state_block = state.block();
             recreate_topology = Self::replay_block(
-                &common_config.chain_id,
+                &common_config.chain,
                 &genesis_network.public_key,
                 &block,
                 &mut state_block,
@@ -199,12 +199,10 @@ impl SumeragiHandle {
         #[cfg(not(debug_assertions))]
         let debug_force_soft_fork = false;
 
-        let peer_id = common_config.peer_id();
-
         let sumeragi = main_loop::Sumeragi {
-            chain_id: common_config.chain_id,
+            chain_id: common_config.chain,
             key_pair: common_config.key_pair,
-            peer_id,
+            peer_id: common_config.peer,
             queue: Arc::clone(&queue),
             events_sender,
             commit_time: state.view().config.commit_time,

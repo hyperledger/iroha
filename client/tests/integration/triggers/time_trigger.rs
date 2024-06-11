@@ -269,14 +269,14 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     // Checking results
     for account_id in accounts {
         let start_pattern = "nft_number_";
-        let end_pattern = format!("_for_{}#{}", account_id.signatory, account_id.domain_id);
+        let end_pattern = format!("_for_{}#{}", account_id.signatory(), account_id.domain());
         let assets = test_client
             .request(client::asset::by_account_id(account_id.clone()))?
             .collect::<QueryResult<Vec<_>>>()?;
         let count: u64 = assets
             .into_iter()
             .filter(|asset| {
-                let s = asset.id().definition_id.to_string();
+                let s = asset.id().definition().to_string();
                 s.starts_with(start_pattern) && s.ends_with(&end_pattern)
             })
             .count()

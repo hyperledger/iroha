@@ -39,7 +39,7 @@ pub enum AcceptTransactionFail {
     SignatureVerification(#[source] SignatureVerificationFail<TransactionPayload>),
     /// The genesis account can only sign transactions in the genesis block
     UnexpectedGenesisAccountSignature,
-    /// Transaction's `chain_id` doesn't correspond to the id of current blockchain
+    /// Chain id doesn't correspond to the id of current blockchain
     ChainIdMismatch(Mismatch<ChainId>),
 }
 
@@ -54,7 +54,7 @@ impl AcceptedTransaction {
         expected_chain_id: &ChainId,
         genesis_public_key: &PublicKey,
     ) -> Result<Self, AcceptTransactionFail> {
-        let actual_chain_id = tx.0.chain_id();
+        let actual_chain_id = tx.0.chain();
 
         if expected_chain_id != actual_chain_id {
             return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
@@ -85,7 +85,7 @@ impl AcceptedTransaction {
         expected_chain_id: &ChainId,
         limits: &TransactionLimits,
     ) -> Result<Self, AcceptTransactionFail> {
-        let actual_chain_id = tx.chain_id();
+        let actual_chain_id = tx.chain();
 
         if expected_chain_id != actual_chain_id {
             return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
@@ -94,7 +94,7 @@ impl AcceptedTransaction {
             }));
         }
 
-        if *iroha_genesis::GENESIS_DOMAIN_ID == *tx.authority().domain_id() {
+        if *iroha_genesis::GENESIS_DOMAIN_ID == *tx.authority().domain() {
             return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
         }
 
@@ -202,10 +202,10 @@ impl TransactionExecutor {
 
         if !state_transaction
             .world
-            .domain(&authority.domain_id)
+            .domain(&authority.domain)
             .map_err(|_e| {
                 TransactionRejectionReason::AccountDoesNotExist(FindError::Domain(
-                    authority.domain_id.clone(),
+                    authority.domain.clone(),
                 ))
             })?
             .accounts

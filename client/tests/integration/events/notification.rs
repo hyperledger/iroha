@@ -21,10 +21,10 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
         Action::new(
             vec![InstructionBox::from(instruction)],
             Repeats::Indefinitely,
-            asset_id.account_id.clone(),
+            asset_id.account().clone(),
             ExecuteTriggerEventFilter::new()
                 .for_trigger(trigger_id.clone())
-                .under_authority(asset_id.account_id),
+                .under_authority(asset_id.account().clone()),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;

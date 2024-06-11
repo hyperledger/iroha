@@ -103,7 +103,7 @@ pub fn impl_has_origin(emitter: &mut Emitter, input: &syn::DeriveInput) -> Token
         impl #impl_generics HasOrigin for #enum_ident #ty_generics #where_clause {
             type Origin = #enum_origin;
 
-            fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id {
+            fn origin(&self) -> &<Self::Origin as Identifiable>::Id {
                 use #enum_ident::*;
                 match self {
                     #(

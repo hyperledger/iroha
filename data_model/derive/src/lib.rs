@@ -417,7 +417,7 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> Result<TokenSt
 /// #[derive(Debug, Clone, HasOrigin)]
 /// #[has_origin(origin = Layer)]
 /// pub enum LayerEvent {
-///     #[has_origin(sub_layer_event => &sub_layer_event.origin_id().parent_id)]
+///     #[has_origin(sub_layer_event => &sub_layer_event.origin().parent)]
 ///     SubLayer(SubLayerEvent),
 ///     Created(LayerId),
 /// }
@@ -436,7 +436,7 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> Result<TokenSt
 /// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// pub struct SubLayerId {
 ///     name: u32,
-///     parent_id: LayerId,
+///     parent: LayerId,
 /// }
 ///
 /// #[derive(Debug, Clone, IdEqOrdHash)]
@@ -464,15 +464,15 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> Result<TokenSt
 /// let layer_id = LayerId { name: 42 };
 /// let sub_layer_id = SubLayerId {
 ///     name: 24,
-///     parent_id: layer_id.clone(),
+///     parent: layer_id.clone(),
 /// };
 /// let layer_created_event = LayerEvent::Created(layer_id.clone());
 /// let sub_layer_created_event = SubLayerEvent::Created(sub_layer_id.clone());
 /// let layer_sub_layer_event = LayerEvent::SubLayer(sub_layer_created_event.clone());
 ///
-/// assert_eq!(&layer_id, layer_created_event.origin_id());
-/// assert_eq!(&layer_id, layer_sub_layer_event.origin_id());
-/// assert_eq!(&sub_layer_id, sub_layer_created_event.origin_id());
+/// assert_eq!(&layer_id, layer_created_event.origin());
+/// assert_eq!(&layer_id, layer_sub_layer_event.origin());
+/// assert_eq!(&sub_layer_id, sub_layer_created_event.origin());
 /// ```
 #[manyhow]
 #[proc_macro_derive(HasOrigin, attributes(has_origin))]

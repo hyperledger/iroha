@@ -1717,7 +1717,7 @@ mod tests {
     };
 
     fn world_with_test_account(authority: &AccountId) -> World {
-        let domain_id = authority.domain_id.clone();
+        let domain_id = authority.domain.clone();
         let account = Account::new(authority.clone()).build(authority);
         let mut domain = Domain::new(domain_id).build(authority);
         assert!(domain.add_account(account).is_none());

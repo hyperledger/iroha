@@ -385,7 +385,7 @@ pub trait WorldReadOnly {
     /// # Errors
     /// Fails if there is no domain or account
     fn account(&self, id: &AccountId) -> Result<&Account, FindError> {
-        self.domain(&id.domain_id).and_then(|domain| {
+        self.domain(&id.domain).and_then(|domain| {
             domain
                 .accounts
                 .get(id)
@@ -402,7 +402,7 @@ pub trait WorldReadOnly {
         id: &AccountId,
         f: impl FnOnce(&'slf Account) -> T,
     ) -> Result<T, QueryExecutionFail> {
-        let domain = self.domain(&id.domain_id)?;
+        let domain = self.domain(&id.domain)?;
         let account = domain
             .accounts
             .get(id)
@@ -434,7 +434,7 @@ pub trait WorldReadOnly {
     > {
         self.account_roles()
             .range(RoleIdByAccountBounds::new(id))
-            .map(|(role, ())| &role.role_id)
+            .map(|(role, ())| &role.id)
     }
 
     /// Return a set of all permission tokens granted to this account.
@@ -497,11 +497,11 @@ pub trait WorldReadOnly {
     /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
     fn asset(&self, id: &AssetId) -> Result<Asset, QueryExecutionFail> {
         self.map_account(
-            &id.account_id,
+            &id.account,
             |account| -> Result<Asset, QueryExecutionFail> {
                 account
                     .assets
-                    .get(&id.definition_id)
+                    .get(&id.definition)
                     .ok_or_else(|| QueryExecutionFail::from(FindError::Asset(id.clone())))
                     .cloned()
             },
@@ -515,7 +515,7 @@ pub trait WorldReadOnly {
     /// # Errors
     /// - Asset definition entry not found
     fn asset_definition(&self, asset_id: &AssetDefinitionId) -> Result<AssetDefinition, FindError> {
-        self.domain(&asset_id.domain_id)?
+        self.domain(&asset_id.domain)?
             .asset_definitions
             .get(asset_id)
             .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
@@ -527,7 +527,7 @@ pub trait WorldReadOnly {
     /// # Errors
     /// - Asset definition not found
     fn asset_total_amount(&self, definition_id: &AssetDefinitionId) -> Result<Numeric, FindError> {
-        self.domain(&definition_id.domain_id)?
+        self.domain(&definition_id.domain)?
             .asset_total_quantities
             .get(definition_id)
             .ok_or_else(|| FindError::AssetDefinition(definition_id.clone()))
@@ -671,7 +671,7 @@ impl WorldTransaction<'_, '_> {
     /// # Errors
     /// Fail if domain or account not found
     pub fn account_mut(&mut self, id: &AccountId) -> Result<&mut Account, FindError> {
-        self.domain_mut(&id.domain_id).and_then(move |domain| {
+        self.domain_mut(&id.domain).and_then(move |domain| {
             domain
                 .accounts
                 .get_mut(id)
@@ -713,10 +713,10 @@ impl WorldTransaction<'_, '_> {
     /// # Errors
     /// If domain, account or asset not found
     pub fn asset_mut(&mut self, id: &AssetId) -> Result<&mut Asset, FindError> {
-        self.account_mut(&id.account_id).and_then(move |account| {
+        self.account_mut(&id.account).and_then(move |account| {
             account
                 .assets
-                .get_mut(&id.definition_id)
+                .get_mut(&id.definition)
                 .ok_or_else(|| FindError::Asset(id.clone()))
         })
     }
@@ -733,8 +733,8 @@ impl WorldTransaction<'_, '_> {
     ) -> Result<&mut Asset, Error> {
         // Check that asset definition exists
         {
-            let asset_definition_id = &asset_id.definition_id;
-            let asset_definition_domain_id = &asset_id.definition_id.domain_id;
+            let asset_definition_id = &asset_id.definition;
+            let asset_definition_domain_id = &asset_id.definition.domain;
             let asset_definition_domain = self
                 .domains
                 .get(asset_definition_domain_id)
@@ -745,11 +745,11 @@ impl WorldTransaction<'_, '_> {
                 .ok_or(FindError::AssetDefinition(asset_definition_id.clone()))?;
         }
 
-        let account_id = &asset_id.account_id;
+        let account_id = &asset_id.account;
         let account_domain = self
             .domains
-            .get_mut(&asset_id.account_id.domain_id)
-            .ok_or(FindError::Domain(asset_id.account_id.domain_id.clone()))?;
+            .get_mut(&asset_id.account.domain)
+            .ok_or(FindError::Domain(asset_id.account.domain.clone()))?;
         let account = account_domain
             .accounts
             .get_mut(account_id)
@@ -757,7 +757,7 @@ impl WorldTransaction<'_, '_> {
 
         Ok(account
             .assets
-            .entry(asset_id.definition_id.clone())
+            .entry(asset_id.definition.clone())
             .or_insert_with(|| {
                 let asset = Asset::new(asset_id, default_asset_value.into());
                 Self::emit_events_impl(
@@ -777,7 +777,7 @@ impl WorldTransaction<'_, '_> {
         &mut self,
         id: &AssetDefinitionId,
     ) -> Result<&mut AssetDefinition, FindError> {
-        self.domain_mut(&id.domain_id).and_then(|domain| {
+        self.domain_mut(&id.domain).and_then(|domain| {
             domain
                 .asset_definitions
                 .get_mut(id)
@@ -795,7 +795,7 @@ impl WorldTransaction<'_, '_> {
         definition_id: &AssetDefinitionId,
         increment: Numeric,
     ) -> Result<(), Error> {
-        let domain = self.domain_mut(&definition_id.domain_id)?;
+        let domain = self.domain_mut(&definition_id.domain)?;
         let asset_total_amount: &mut Numeric = domain
             .asset_total_quantities.get_mut(definition_id)
             .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount");
@@ -807,7 +807,7 @@ impl WorldTransaction<'_, '_> {
         self.emit_events({
             Some(DomainEvent::AssetDefinition(
                 AssetDefinitionEvent::TotalQuantityChanged(AssetDefinitionTotalQuantityChanged {
-                    asset_definition_id: definition_id.clone(),
+                    asset_definition: definition_id.clone(),
                     total_amount: asset_total_amount,
                 }),
             ))
@@ -826,7 +826,7 @@ impl WorldTransaction<'_, '_> {
         definition_id: &AssetDefinitionId,
         decrement: Numeric,
     ) -> Result<(), Error> {
-        let domain = self.domain_mut(&definition_id.domain_id)?;
+        let domain = self.domain_mut(&definition_id.domain)?;
         let asset_total_amount: &mut Numeric = domain
             .asset_total_quantities.get_mut(definition_id)
             .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount");
@@ -838,7 +838,7 @@ impl WorldTransaction<'_, '_> {
         self.emit_events({
             Some(DomainEvent::AssetDefinition(
                 AssetDefinitionEvent::TotalQuantityChanged(AssetDefinitionTotalQuantityChanged {
-                    asset_definition_id: definition_id.clone(),
+                    asset_definition: definition_id.clone(),
                     total_amount: asset_total_amount,
                 }),
             ))
@@ -1549,8 +1549,8 @@ mod range_bounds {
     impl AsRoleIdByAccount for RoleIdWithOwner {
         fn as_key(&self) -> RoleIdByAccount<'_> {
             RoleIdByAccount {
-                account_id: &self.account_id,
-                role_id: (&self.role_id).into(),
+                account_id: &self.account,
+                role_id: (&self.id).into(),
             }
         }
     }
@@ -1919,7 +1919,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(range.len(), 2);
         for role in range {
-            assert_eq!(&role.account_id, &account_id);
+            assert_eq!(&role.account, &account_id);
         }
     }
 }

@@ -31,7 +31,7 @@ fn main(_id: TriggerId, _owner: AccountId, _event: EventBox) {
     for account in accounts_cursor {
         let account = account.dbg_unwrap();
 
-        if bad_domain_ids.contains(account.id().domain_id()) {
+        if bad_domain_ids.contains(account.id().domain()) {
             continue;
         }
 
@@ -39,7 +39,7 @@ fn main(_id: TriggerId, _owner: AccountId, _event: EventBox) {
         let name = format!(
             "nft_for_{}_in_{}",
             account.id().signatory(),
-            account.id().domain_id()
+            account.id().domain()
         )
         .parse()
         .dbg_unwrap();
@@ -69,7 +69,7 @@ fn generate_new_nft_id(account_id: &AccountId) -> AssetDefinitionId {
     let new_number = assets
         .into_iter()
         .map(|res| res.dbg_unwrap())
-        .filter(|asset| asset.id().definition_id().to_string().starts_with("nft_"))
+        .filter(|asset| asset.id().definition().to_string().starts_with("nft_"))
         .count()
         .checked_add(1)
         .dbg_unwrap();
@@ -79,7 +79,7 @@ fn generate_new_nft_id(account_id: &AccountId) -> AssetDefinitionId {
         "nft_number_{}_for_{}#{}",
         new_number,
         account_id.signatory(),
-        account_id.domain_id()
+        account_id.domain()
     )
     .parse()
     .dbg_unwrap()

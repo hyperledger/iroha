@@ -36,7 +36,7 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
         .collect::<QueryResult<Vec<_>>>()?;
     let asset = assets
         .iter()
-        .find(|asset| asset.id().definition_id == roses)
+        .find(|asset| *asset.id().definition() == roses)
         .unwrap();
     assert_eq!(AssetValue::Numeric(alice_has_roses), *asset.value());
     Ok(())

@@ -20,7 +20,7 @@ pub enum CustomInstructionBox {
 
 #[derive(Debug, Deserialize, Serialize, IntoSchema)]
 pub struct MintAssetForAllAccounts {
-    pub asset_definition_id: AssetDefinitionId,
+    pub asset_definition: AssetDefinitionId,
     pub quantity: Numeric,
 }
 

@@ -30,10 +30,10 @@ pub mod samples {
             .parse()
             .expect("should be valid");
         Config {
-            chain_id,
+            chain: chain_id,
             key_pair,
             torii_api_url,
-            account_id,
+            account: account_id,
             basic_auth: None,
             transaction_ttl: DEFAULT_TRANSACTION_TIME_TO_LIVE,
             transaction_status_timeout: DEFAULT_TRANSACTION_STATUS_TIMEOUT,

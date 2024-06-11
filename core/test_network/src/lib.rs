@@ -91,11 +91,11 @@ impl TestGenesis for GenesisTransaction {
 
         let mint_rose_permission = Permission::new(
             "CanMintAssetWithDefinition".parse().unwrap(),
-            json!({ "asset_definition_id": rose_definition_id }),
+            json!({ "asset_definition": rose_definition_id }),
         );
         let burn_rose_permission = Permission::new(
             "CanBurnAssetWithDefinition".parse().unwrap(),
-            json!({ "asset_definition_id": rose_definition_id }),
+            json!({ "asset_definition": rose_definition_id }),
         );
         let unregister_any_peer_permission =
             Permission::new("CanUnregisterAnyPeer".parse().unwrap(), json!(null));
@@ -103,7 +103,7 @@ impl TestGenesis for GenesisTransaction {
             Permission::new("CanUnregisterAnyRole".parse().unwrap(), json!(null));
         let unregister_wonderland_domain = Permission::new(
             "CanUnregisterDomain".parse().unwrap(),
-            json!({ "domain_id": DomainId::from_str("wonderland").unwrap() }),
+            json!({ "domain": DomainId::from_str("wonderland").unwrap() }),
         );
         let upgrade_executor_permission =
             Permission::new("CanUpgradeExecutor".parse().unwrap(), json!(null));
@@ -416,7 +416,7 @@ impl Peer {
         Config {
             common: Common {
                 key_pair: self.key_pair.clone(),
-                peer_id: peer_id.clone(),
+                peer: peer_id.clone(),
                 ..config.common
             },
             network: Network {
@@ -815,7 +815,7 @@ impl TestClient for Client {
 
     fn test_with_account(api_addr: &SocketAddr, keys: KeyPair, account_id: &AccountId) -> Self {
         let mut config = ClientConfig::test(api_addr);
-        config.account_id = account_id.clone();
+        config.account = account_id.clone();
         config.key_pair = keys;
         Client::new(config)
     }
