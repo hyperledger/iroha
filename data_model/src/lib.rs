@@ -878,26 +878,6 @@ mod model {
 }
 
 impl JsonString {
-    /// Deserialize JSON into something
-    /// # Errors
-    /// See [`serde_json::from_str`].
-    pub fn deserialize<'a, T>(&'a self) -> serde_json::Result<T>
-    where
-        T: Deserialize<'a>,
-    {
-        serde_json::from_str(&self.0)
-    }
-
-    /// Serializes a value into [`JsonString`]
-    /// # Errors
-    /// See [`serde_json::to_string`].
-    pub fn serialize<T: serde::Serialize>(value: &T) -> serde_json::Result<Self> {
-        let serialized = serde_json::to_string(value)?;
-        // the string was obtained from serde_json serialization,
-        // so it should be a valid JSON string
-        Ok(Self(serialized))
-    }
-
     /// Create without checking whether the input is a valid JSON string.
     ///
     /// The caller must guarantee that the value is valid.
@@ -922,6 +902,12 @@ impl From<&serde_json::Value> for JsonString {
 impl From<serde_json::Value> for JsonString {
     fn from(value: serde_json::Value) -> Self {
         Self::from(&value)
+    }
+}
+
+impl AsRef<str> for JsonString {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 

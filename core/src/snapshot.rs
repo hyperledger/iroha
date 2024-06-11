@@ -1,6 +1,7 @@
 //! This module contains [`State`] snapshot actor service.
 use std::{
     io::Read,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -169,8 +170,8 @@ pub fn try_read_snapshot(
         });
     }
     for height in 1..snapshot_height {
-        let kura_block_hash = kura
-            .get_block_hash(height as u64)
+        let kura_block_hash = NonZeroUsize::new(height)
+            .and_then(|height| kura.get_block_hash(height))
             .expect("Kura has height at least as large as state height");
         let snapshot_block_hash = state_view.block_hashes[height - 1];
         if kura_block_hash != snapshot_block_hash {
@@ -286,7 +287,7 @@ mod tests {
             &store_dir,
             &Kura::blank_kura_for_testing(),
             LiveQueryStore::test().start(),
-            BlockCount(usize::try_from(state.view().height()).unwrap()),
+            BlockCount(state.view().height()),
         )
         .unwrap();
     }

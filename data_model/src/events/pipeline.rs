@@ -353,7 +353,7 @@ mod tests {
         fn dummy(height: u64) -> Self {
             Self {
                 height,
-                previous_block_hash: None,
+                prev_block_hash: None,
                 transactions_hash: None,
                 timestamp_ms: 0,
                 view_change_index: 0,

@@ -1,6 +1,6 @@
 //! Metrics and status reporting
 
-use std::{sync::Arc, time::SystemTime};
+use std::{num::NonZeroUsize, sync::Arc, time::SystemTime};
 
 use eyre::{Result, WrapErr as _};
 use iroha_telemetry::metrics::Metrics;
@@ -23,7 +23,7 @@ pub struct MetricsReporter {
     queue: Arc<Queue>,
     metrics: Metrics,
     /// Latest observed and processed height by metrics reporter
-    latest_block_height: Arc<Mutex<u64>>,
+    latest_block_height: Arc<Mutex<usize>>,
 }
 
 impl MetricsReporter {
@@ -53,14 +53,10 @@ impl MetricsReporter {
     /// - If either mutex is poisoned
     #[allow(clippy::cast_precision_loss)]
     pub fn update_metrics(&self) -> Result<()> {
-        let online_peers_count: u64 = self
-            .network
-            .online_peers(
-                #[allow(clippy::disallowed_types)]
-                std::collections::HashSet::len,
-            )
-            .try_into()
-            .expect("casting usize to u64");
+        let online_peers_count: usize = self.network.online_peers(
+            #[allow(clippy::disallowed_types)]
+            std::collections::HashSet::len,
+        );
 
         let state_view = self.state.view();
 
@@ -70,7 +66,12 @@ impl MetricsReporter {
         {
             let mut block_index = start_index;
             while block_index < state_view.height() {
-                let Some(block) = self.kura.get_block_by_height(block_index + 1) else {
+                let Some(block) = NonZeroUsize::new(
+                    block_index
+                        .checked_add(1)
+                        .expect("INTERNAL BUG: Blockchain height exceeds usize::MAX"),
+                )
+                .and_then(|index| self.kura.get_block_by_height(index)) else {
                     break;
                 };
                 block_index += 1;
@@ -126,7 +127,7 @@ impl MetricsReporter {
             )
         };
 
-        self.metrics.connected_peers.set(online_peers_count);
+        self.metrics.connected_peers.set(online_peers_count as u64);
 
         self.metrics
             .domains

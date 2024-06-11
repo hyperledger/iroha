@@ -56,7 +56,7 @@ mod model {
         pub height: u64,
         /// Hash of the previous block in the chain.
         #[getset(get = "pub")]
-        pub previous_block_hash: Option<HashOf<SignedBlock>>,
+        pub prev_block_hash: Option<HashOf<SignedBlock>>,
         /// Hash of merkle tree root of transactions' hashes.
         #[getset(get = "pub")]
         pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
@@ -65,7 +65,7 @@ mod model {
         pub timestamp_ms: u64,
         /// Value of view change index. Used to resolve soft forks.
         #[getset(skip)]
-        pub view_change_index: u64,
+        pub view_change_index: u32,
         /// Estimation of consensus duration (in milliseconds).
         pub consensus_estimation_ms: u64,
     }

@@ -1,5 +1,8 @@
 //! This module provides the [`State`] — an in-memory representation of the current blockchain state.
-use std::{borrow::Borrow, collections::BTreeSet, marker::PhantomData, sync::Arc, time::Duration};
+use std::{
+    borrow::Borrow, collections::BTreeSet, marker::PhantomData, num::NonZeroUsize, sync::Arc,
+    time::Duration,
+};
 
 use eyre::Result;
 use iroha_config::parameters::actual::ChainWide as Config;
@@ -171,7 +174,7 @@ pub struct State {
     // TODO: Cell is redundant here since block_hashes is very easy to rollback by just popping the last element
     pub block_hashes: Cell<Vec<HashOf<SignedBlock>>>,
     /// Hashes of transactions mapped onto block height where they stored
-    pub transactions: Storage<HashOf<SignedTransaction>, u64>,
+    pub transactions: Storage<HashOf<SignedTransaction>, usize>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
     #[serde(skip)]
     pub engine: wasmtime::Engine,
@@ -197,7 +200,7 @@ pub struct StateBlock<'state> {
     /// Blockchain.
     pub block_hashes: CellBlock<'state, Vec<HashOf<SignedBlock>>>,
     /// Hashes of transactions mapped onto block height where they stored
-    pub transactions: StorageBlock<'state, HashOf<SignedTransaction>, u64>,
+    pub transactions: StorageBlock<'state, HashOf<SignedTransaction>, usize>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
     pub engine: &'state wasmtime::Engine,
 
@@ -219,7 +222,7 @@ pub struct StateTransaction<'block, 'state> {
     /// Blockchain.
     pub block_hashes: CellTransaction<'block, 'state, Vec<HashOf<SignedBlock>>>,
     /// Hashes of transactions mapped onto block height where they stored
-    pub transactions: StorageTransaction<'block, 'state, HashOf<SignedTransaction>, u64>,
+    pub transactions: StorageTransaction<'block, 'state, HashOf<SignedTransaction>, usize>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
     pub engine: &'state wasmtime::Engine,
 
@@ -241,7 +244,7 @@ pub struct StateView<'state> {
     /// Blockchain.
     pub block_hashes: CellView<'state, Vec<HashOf<SignedBlock>>>,
     /// Hashes of transactions mapped onto block height where they stored
-    pub transactions: StorageView<'state, HashOf<SignedTransaction>, u64>,
+    pub transactions: StorageView<'state, HashOf<SignedTransaction>, usize>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
     pub engine: &'state wasmtime::Engine,
 
@@ -994,7 +997,7 @@ pub trait StateReadOnly {
     fn world(&self) -> &impl WorldReadOnly;
     fn config(&self) -> &Config;
     fn block_hashes(&self) -> &[HashOf<SignedBlock>];
-    fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, u64>;
+    fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, usize>;
     fn engine(&self) -> &wasmtime::Engine;
     fn kura(&self) -> &Kura;
     fn query_handle(&self) -> &LiveQueryStoreHandle;
@@ -1005,8 +1008,7 @@ pub trait StateReadOnly {
     /// Get a reference to the latest block. Returns none if genesis is not committed.
     #[inline]
     fn latest_block_ref(&self) -> Option<Arc<SignedBlock>> {
-        self.kura()
-            .get_block_by_height(self.block_hashes().len() as u64)
+        NonZeroUsize::new(self.height()).and_then(|height| self.kura().get_block_by_height(height))
     }
 
     /// Return the hash of the latest block
@@ -1015,10 +1017,10 @@ pub trait StateReadOnly {
     }
 
     /// Return the view change index of the latest block
-    fn latest_block_view_change_index(&self) -> u64 {
-        self.kura()
-            .get_block_by_height(self.height())
-            .map_or(0, |block| block.header().view_change_index)
+    fn latest_block_view_change_index(&self) -> usize {
+        NonZeroUsize::new(self.height())
+            .and_then(|height| self.kura().get_block_by_height(height))
+            .map_or(0, |block| block.header().view_change_index as usize)
     }
 
     /// Return the hash of the block one before the latest block
@@ -1028,10 +1030,9 @@ pub trait StateReadOnly {
 
     /// Load all blocks in the block chain from disc
     fn all_blocks(&self) -> impl DoubleEndedIterator<Item = Arc<SignedBlock>> + '_ {
-        let block_count = self.block_hashes().len() as u64;
-        (1..=block_count).map(|height| {
-            self.kura()
-                .get_block_by_height(height)
+        (1..=self.height()).map(|height| {
+            NonZeroUsize::new(height)
+                .and_then(|height| self.kura().get_block_by_height(height))
                 .expect("Failed to load block.")
         })
     }
@@ -1065,14 +1066,16 @@ pub trait StateReadOnly {
 
     /// Height of blockchain
     #[inline]
-    fn height(&self) -> u64 {
-        self.block_hashes().len() as u64
+    fn height(&self) -> usize {
+        self.block_hashes().len()
     }
 
     /// Find a [`SignedBlock`] by hash.
     fn block_with_tx(&self, hash: &HashOf<SignedTransaction>) -> Option<Arc<SignedBlock>> {
-        let height = *self.transactions().get(hash)?;
-        self.kura().get_block_by_height(height)
+        self.transactions()
+            .get(hash)
+            .and_then(|&height| NonZeroUsize::new(height))
+            .and_then(|height| self.kura().get_block_by_height(height))
     }
 
     /// Returns [`Some`] milliseconds since the genesis block was
@@ -1084,12 +1087,13 @@ pub trait StateReadOnly {
         } else {
             let opt = self
                 .kura()
-                .get_block_by_height(1)
+                .get_block_by_height(nonzero_ext::nonzero!(1_usize))
                 .map(|genesis_block| genesis_block.header().timestamp());
 
             if opt.is_none() {
                 error!("Failed to get genesis block from Kura.");
             }
+
             opt
         }
     }
@@ -1118,7 +1122,7 @@ macro_rules! impl_state_ro {
             fn block_hashes(&self) -> &[HashOf<SignedBlock>] {
                 &self.block_hashes
             }
-            fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, u64> {
+            fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, usize> {
                 &self.transactions
             }
             fn engine(&self) -> &wasmtime::Engine {
@@ -1220,7 +1224,12 @@ impl<'state> StateBlock<'state> {
         let time_event = self.create_time_event(block);
         self.world.events_buffer.push(time_event.into());
 
-        let block_height = block.as_ref().header().height;
+        let block_height = block
+            .as_ref()
+            .header()
+            .height
+            .try_into()
+            .expect("INTERNAL BUG: Block height exceeds usize::MAX");
         block
             .as_ref()
             .transactions()
@@ -1786,7 +1795,7 @@ mod tests {
         for i in 1..=BLOCK_CNT {
             let block = new_dummy_block_with_payload(|payload| {
                 payload.header.height = i as u64;
-                payload.header.previous_block_hash = block_hashes.last().copied();
+                payload.header.prev_block_hash = block_hashes.last().copied();
             });
 
             block_hashes.push(block.as_ref().hash());

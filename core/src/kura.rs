@@ -6,6 +6,7 @@ use std::{
     fmt::Debug,
     fs,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -165,7 +166,7 @@ impl Kura {
             match block_store.read_block_data(block.start, &mut block_data_buffer) {
                 Ok(()) => match SignedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
-                        if prev_block_hash != decoded_block.header().previous_block_hash {
+                        if prev_block_hash != decoded_block.header().prev_block_hash {
                             error!("Block has wrong previous block hash. Not reading any blocks beyond this height.");
                             break;
                         }
@@ -273,45 +274,46 @@ impl Kura {
     }
 
     /// Get the hash of the block at the provided height.
-    pub fn get_block_hash(&self, block_height: u64) -> Option<HashOf<SignedBlock>> {
+    pub fn get_block_hash(&self, block_height: NonZeroUsize) -> Option<HashOf<SignedBlock>> {
         let hash_data_guard = self.block_data.lock();
-        if block_height == 0 || block_height > hash_data_guard.len() as u64 {
+
+        let block_height = block_height.get();
+        if hash_data_guard.len() < block_height {
             return None;
         }
-        let index: usize = (block_height - 1)
-            .try_into()
-            .expect("block_height fits in 32 bits or we are running on a 64 bit machine");
-        Some(hash_data_guard[index].0)
+
+        let block_index = block_height - 1;
+        Some(hash_data_guard[block_index].0)
     }
 
     /// Search through blocks for the height of the block with the given hash.
-    pub fn get_block_height_by_hash(&self, hash: &HashOf<SignedBlock>) -> Option<u64> {
+    pub fn get_block_height_by_hash(&self, hash: &HashOf<SignedBlock>) -> Option<NonZeroUsize> {
         self.block_data
             .lock()
             .iter()
             .position(|(block_hash, _block_arc)| block_hash == hash)
-            .map(|index| index as u64 + 1)
+            .and_then(|idx| idx.checked_add(1))
+            .and_then(NonZeroUsize::new)
     }
 
     /// Get a reference to block by height, loading it from disk if needed.
     // The below lint suggests changing the code into something that does not compile due
     // to the borrow checker.
-    pub fn get_block_by_height(&self, block_height: u64) -> Option<Arc<SignedBlock>> {
+    pub fn get_block_by_height(&self, block_height: NonZeroUsize) -> Option<Arc<SignedBlock>> {
         let mut data_array_guard = self.block_data.lock();
-        if block_height == 0 || block_height > data_array_guard.len() as u64 {
+
+        if data_array_guard.len() < block_height.get() {
             return None;
         }
-        let block_number: usize = (block_height - 1)
-            .try_into()
-            .expect("Failed to cast to u32.");
 
-        if let Some(block_arc) = data_array_guard[block_number].1.as_ref() {
+        let block_index = block_height.get() - 1;
+        if let Some(block_arc) = data_array_guard[block_index].1.as_ref() {
             return Some(Arc::clone(block_arc));
         };
 
         let block_store = self.block_store.lock();
         let BlockIndex { start, length } = block_store
-            .read_block_index(block_number as u64)
+            .read_block_index(block_index as u64)
             .expect("Failed to read block index from disk.");
 
         let mut block_buf =
@@ -322,23 +324,8 @@ impl Kura {
         let block = SignedBlock::decode_all_versioned(&block_buf).expect("Failed to decode block");
 
         let block_arc = Arc::new(block);
-        data_array_guard[block_number].1 = Some(Arc::clone(&block_arc));
+        data_array_guard[block_index].1 = Some(Arc::clone(&block_arc));
         Some(block_arc)
-    }
-
-    /// Get a reference to block by hash, loading it from disk if needed.
-    ///
-    /// Internally this function searches linearly for the block's height and
-    /// then calls `get_block_by_height`. If you know the height of the block,
-    /// call `get_block_by_height` directly.
-    pub fn get_block_by_hash(&self, block_hash: &HashOf<SignedBlock>) -> Option<Arc<SignedBlock>> {
-        let index = self
-            .block_data
-            .lock()
-            .iter()
-            .position(|(hash, _arc)| hash == block_hash);
-
-        index.and_then(|index| self.get_block_by_height(index as u64 + 1))
     }
 
     /// Put a block in kura's in memory block store.

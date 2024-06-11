@@ -168,7 +168,7 @@ impl Sumeragi {
             &self.current_topology.ordered_peers,
             self.current_topology.max_faults(),
             state_view.latest_block_hash(),
-        ) as u64;
+        );
 
         loop {
             let block_msg = self
@@ -182,8 +182,10 @@ impl Sumeragi {
                 })
                 .ok()?;
 
-            let block_vc_index: Option<u64> = match &block_msg {
-                BlockMessage::BlockCreated(bc) => Some(bc.block.header().view_change_index),
+            let block_vc_index: Option<usize> = match &block_msg {
+                BlockMessage::BlockCreated(bc) => {
+                    Some(bc.block.header().view_change_index as usize)
+                }
                 // Signed and Committed contain no block.
                 // Block sync updates are exempt from early pruning.
                 BlockMessage::BlockSigned(_)
@@ -416,13 +418,13 @@ impl Sumeragi {
         &self,
         state_view: &StateView<'_>,
         view_change_proof_chain: &mut ProofChain,
-    ) -> u64 {
+    ) -> usize {
         view_change_proof_chain.prune(state_view.latest_block_hash());
         view_change_proof_chain.verify_with_state(
             &self.current_topology.ordered_peers,
             self.current_topology.max_faults(),
             state_view.latest_block_hash(),
-        ) as u64
+        )
     }
 
     #[allow(clippy::too_many_lines)]
@@ -431,7 +433,7 @@ impl Sumeragi {
         message: BlockMessage,
         state: &'state State,
         voting_block: &mut Option<VotingBlock<'state>>,
-        current_view_change_index: u64,
+        current_view_change_index: usize,
         genesis_public_key: &PublicKey,
         voting_signatures: &mut Vec<SignatureOf<BlockPayload>>,
     ) {
@@ -654,7 +656,7 @@ impl Sumeragi {
         &mut self,
         state: &'state State,
         voting_block: &mut Option<VotingBlock<'state>>,
-        current_view_change_index: u64,
+        current_view_change_index: usize,
         round_start_time: &Instant,
         #[cfg_attr(not(debug_assertions), allow(unused_variables))] is_genesis_peer: bool,
     ) {
@@ -758,8 +760,8 @@ impl Sumeragi {
 fn reset_state(
     peer_id: &PeerId,
     pipeline_time: Duration,
-    current_view_change_index: u64,
-    old_view_change_index: &mut u64,
+    current_view_change_index: usize,
+    old_view_change_index: &mut usize,
     old_latest_block_hash: &mut HashOf<SignedBlock>,
     latest_block: &SignedBlock,
     // below is the state that gets reset.
@@ -923,7 +925,9 @@ pub(crate) fn run(
             &mut last_view_change_time,
             &mut view_change_time,
         );
-        sumeragi.view_changes_metric.set(old_view_change_index);
+        sumeragi
+            .view_changes_metric
+            .set(old_view_change_index as u64);
 
         if let Some(message) = {
             let (msg, sleep) =
@@ -1004,7 +1008,9 @@ pub(crate) fn run(
             &mut last_view_change_time,
             &mut view_change_time,
         );
-        sumeragi.view_changes_metric.set(old_view_change_index);
+        sumeragi
+            .view_changes_metric
+            .set(old_view_change_index as u64);
 
         sumeragi.process_message_independent(
             &state,
@@ -1101,12 +1107,12 @@ enum BlockSyncError {
     BlockNotValid(BlockValidationError),
     SoftForkBlockNotValid(BlockValidationError),
     SoftForkBlockSmallViewChangeIndex {
-        peer_view_change_index: u64,
-        block_view_change_index: u64,
+        peer_view_change_index: usize,
+        block_view_change_index: usize,
     },
     BlockNotProperHeight {
-        peer_height: u64,
-        block_height: u64,
+        peer_height: usize,
+        block_height: usize,
     },
 }
 
@@ -1117,7 +1123,12 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
     state: &'state State,
     handle_events: &F,
 ) -> Result<BlockSyncOk<'state>, (SignedBlock, BlockSyncError)> {
-    let block_height = block.header().height;
+    let block_height = block
+        .header()
+        .height
+        .try_into()
+        .expect("INTERNAL BUG: Block height exceeds usize::MAX");
+
     let state_height = state.view().height();
     if state_height + 1 == block_height {
         // Normal branch for adding new block on top of current
@@ -1127,7 +1138,7 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
                 .latest_block_ref()
                 .expect("Not in genesis round so must have at least genesis block");
             let new_peers = state_block.world.peers().cloned().collect();
-            let view_change_index = block.header().view_change_index;
+            let view_change_index = block.header().view_change_index as usize;
             Topology::recreate_topology(&last_committed_block, view_change_index, new_peers)
         };
         ValidBlock::validate(
@@ -1151,7 +1162,7 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
         // Soft fork branch for replacing current block with valid one
 
         let peer_view_change_index = state.view().latest_block_view_change_index();
-        let block_view_change_index = block.header().view_change_index;
+        let block_view_change_index = block.header().view_change_index as usize;
         if peer_view_change_index >= block_view_change_index {
             return Err((
                 block,
@@ -1168,7 +1179,7 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
                 .latest_block_ref()
                 .expect("Not in genesis round so must have at least genesis block");
             let new_peers = state_block.world.peers().cloned().collect();
-            let view_change_index = block.header().view_change_index;
+            let view_change_index = block.header().view_change_index as usize;
             Topology::recreate_topology(&last_committed_block, view_change_index, new_peers)
         };
         ValidBlock::validate(

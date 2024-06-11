@@ -607,7 +607,7 @@
         "type": "u64"
       },
       {
-        "name": "previous_block_hash",
+        "name": "prev_block_hash",
         "type": "Option<HashOf<SignedBlock>>"
       },
       {
@@ -620,7 +620,7 @@
       },
       {
         "name": "view_change_index",
-        "type": "u64"
+        "type": "u32"
       },
       {
         "name": "consensus_estimation_ms",

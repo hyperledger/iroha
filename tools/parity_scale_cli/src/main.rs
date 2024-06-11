@@ -425,9 +425,9 @@ mod tests {
             Args::try_parse_from(["test", "list-types"])?.terminal_colors,
             is_coloring_supported()
         );
-        assert_eq!(try_with("--terminal-colors")?, true);
-        assert_eq!(try_with("--terminal-colors=false")?, false);
-        assert_eq!(try_with("--terminal-colors=true")?, true);
+        assert!(try_with("--terminal-colors")?);
+        assert!(try_with("--terminal-colors=false")?);
+        assert!(try_with("--terminal-colors=true")?);
         assert!(try_with("--terminal-colors=random").is_err());
 
         Ok(())

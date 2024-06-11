@@ -64,7 +64,7 @@ pub struct Status {
     pub uptime: Uptime,
     /// Number of view changes in the current round
     #[codec(compact)]
-    pub view_changes: u64,
+    pub view_changes: u32,
     /// Number of the transactions in the queue
     #[codec(compact)]
     pub queue_size: u64,
@@ -79,7 +79,11 @@ impl<T: Deref<Target = Metrics>> From<&T> for Status {
             txs_accepted: val.txs.with_label_values(&["accepted"]).get(),
             txs_rejected: val.txs.with_label_values(&["rejected"]).get(),
             uptime: Uptime(Duration::from_millis(val.uptime_since_genesis_ms.get())),
-            view_changes: val.view_changes.get(),
+            view_changes: val
+                .view_changes
+                .get()
+                .try_into()
+                .expect("INTERNAL BUG: Number of view changes exceeds u32::MAX"),
             queue_size: val.queue_size.get(),
         }
     }

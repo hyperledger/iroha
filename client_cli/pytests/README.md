@@ -67,7 +67,7 @@ The test model has the following structure:
 
 	 ```shell
      CLIENT_CLI_BINARY=/path/to/iroha_client_cli
-     CLIENT_CLI_CONFIG=/path/to/config.toml
+     CLIENT_CLI_CONFIG=/path/to/client.toml
 	 TORII_API_PORT_MIN=8080
 	 TORII_API_PORT_MAX=8083
 	 ```
@@ -156,7 +156,7 @@ Tests are configured via environment variables. These variables can be optionall
 
 The variables:
 
-- `CLIENT_CLI_DIR` — Specifies a path to a directory containing the `iroha` binary and its `config.json` configuration file.\
+- `CLIENT_CLI_DIR` — Specifies a path to a directory containing the `iroha` binary and its `client.toml` configuration file.\
 	Set to `/client_cli`, by default.
 - `TORII_API_PORT_MIN`/`TORII_API_PORT_MAX` — This pair specifies the range of local ports through which the Iroha 2 peers are deployed. A randomly selected port from the specified range is used for each test.\
 	Set to `8080` and `8083` respectively, by default.
