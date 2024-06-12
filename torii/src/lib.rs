@@ -59,7 +59,6 @@ pub struct Torii {
     kiso: KisoHandle,
     queue: Arc<Queue>,
     events: EventsSender,
-    // shutdown_cancel_token: CancellationToken,
     query_service: LiveQueryStoreHandle,
     kura: Arc<Kura>,
     transaction_max_content_len: Bytes<u64>,

@@ -3250,6 +3250,7 @@ dependencies = [
 name = "iroha_futures"
 version = "2.0.0-rc.1.0"
 dependencies = [
+ "futures",
  "iroha_config",
  "iroha_futures_derive",
  "iroha_logger",

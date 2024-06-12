@@ -180,7 +180,7 @@ impl Iroha {
         ),
         StartError,
     > {
-        let supervisor = Supervisor::new();
+        let mut supervisor = Supervisor::new();
 
         let (kura, block_count) = Kura::new(&config.kura).change_context(StartError::InitKura)?;
         let child = Kura::start(kura.clone(), supervisor.shutdown_signal());
@@ -237,7 +237,7 @@ impl Iroha {
         supervisor.monitor(child);
 
         #[cfg(feature = "telemetry")]
-        start_telemetry(&logger, &config, &supervisor).await?;
+        start_telemetry(&logger, &config, &mut supervisor).await?;
 
         #[cfg(feature = "telemetry")]
         let metrics_reporter = MetricsReporter::new(
@@ -344,7 +344,7 @@ impl Iroha {
                 #[cfg(debug_assertions)]
                 freeze_status,
             },
-            supervisor.wait_all(),
+            supervisor.start(),
         ))
     }
 
@@ -369,7 +369,7 @@ impl Iroha {
 async fn start_telemetry(
     logger: &LoggerHandle,
     config: &Config,
-    supervisor: &Supervisor,
+    supervisor: &mut Supervisor,
 ) -> Result<(), StartError> {
     const MSG_SUBSCRIBE: &str = "unable to subscribe to the channel";
     const MSG_START_TASK: &str = "unable to start the task";
