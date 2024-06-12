@@ -174,7 +174,7 @@ mod tests {
             -p 20 \
             -c ./config \
             -i hyperledger/iroha \
-            -o sample.yml\
+            -o sample.yml \
             -PF",
         )
         .is_err())

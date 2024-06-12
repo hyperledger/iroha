@@ -94,7 +94,7 @@ struct Bool<const VALUE: bool>;
 #[derive(serde::Serialize, Debug)]
 #[serde(rename_all = "UPPERCASE")]
 struct PeerEnv<'a> {
-    chain_id: &'a iroha_data_model::ChainId,
+    chain: &'a iroha_data_model::ChainId,
     public_key: &'a iroha_crypto::PublicKey,
     private_key: &'a iroha_crypto::ExposedPrivateKey,
     p2p_address: iroha_primitives::addr::SocketAddr,
@@ -109,7 +109,7 @@ impl<'a> PeerEnv<'a> {
     fn new(
         (public_key, private_key): &'a peer::ExposedKeyPair,
         [port_p2p, port_api]: [u16; 2],
-        chain_id: &'a iroha_data_model::ChainId,
+        chain: &'a iroha_data_model::ChainId,
         genesis_public_key: &'a iroha_crypto::PublicKey,
         trusted_peers: impl Iterator<Item = &'a iroha_data_model::peer::PeerId>,
     ) -> Self {
@@ -117,7 +117,7 @@ impl<'a> PeerEnv<'a> {
             .filter(|&trusted| trusted.public_key() != public_key)
             .collect();
         Self {
-            chain_id,
+            chain,
             public_key,
             private_key,
             p2p_address: iroha_primitives::addr::socket_addr!(0.0.0.0:port_p2p),
@@ -235,7 +235,7 @@ impl<'a> Irohad0<'a> {
         image: ImageId<'a>,
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
-        chain_id: &'a iroha_data_model::ChainId,
+        chain: &'a iroha_data_model::ChainId,
         genesis_key_pair: &'a peer::ExposedKeyPair,
         trusted_peers: impl Iterator<Item = &'a iroha_data_model::peer::PeerId>,
     ) -> Self {
@@ -243,13 +243,7 @@ impl<'a> Irohad0<'a> {
             base: BaseIrohad::new(
                 image,
                 GenesisEnv {
-                    base: PeerEnv::new(
-                        key_pair,
-                        ports,
-                        chain_id,
-                        &genesis_key_pair.0,
-                        trusted_peers,
-                    ),
+                    base: PeerEnv::new(key_pair, ports, chain, &genesis_key_pair.0, trusted_peers),
                     genesis_signed_file: ContainerPath(GENESIS_SIGNED_FILE),
                 },
                 ports,
@@ -276,14 +270,14 @@ impl<'a> Irohad<'a> {
         ports: [u16; 2],
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
-        chain_id: &'a iroha_data_model::ChainId,
+        chain: &'a iroha_data_model::ChainId,
         genesis_public_key: &'a iroha_crypto::PublicKey,
         trusted_peers: impl Iterator<Item = &'a iroha_data_model::peer::PeerId>,
     ) -> Self {
         Self {
             base: BaseIrohad::new(
                 image,
-                PeerEnv::new(key_pair, ports, chain_id, genesis_public_key, trusted_peers),
+                PeerEnv::new(key_pair, ports, chain, genesis_public_key, trusted_peers),
                 ports,
                 volumes,
                 healthcheck,
@@ -333,7 +327,7 @@ impl<'a> DockerCompose<'a> {
         PeerSettings {
             healthcheck,
             config_dir,
-            chain_id,
+            chain,
             genesis_key_pair,
             network,
             trusted_peers,
@@ -374,7 +368,7 @@ impl<'a> DockerCompose<'a> {
                         image,
                         volumes,
                         *healthcheck,
-                        chain_id,
+                        chain,
                         genesis_key_pair,
                         trusted_peers.iter(),
                     )
@@ -391,7 +385,7 @@ impl<'a> DockerCompose<'a> {
                                 *ports,
                                 volumes,
                                 *healthcheck,
-                                chain_id,
+                                chain,
                                 &genesis_key_pair.0,
                                 trusted_peers.iter(),
                             ),
@@ -414,5 +408,74 @@ impl<'a> DockerCompose<'a> {
             writeln!(writer).map_err(Error::BannerWrite)?;
         }
         serde_yaml::to_writer(writer, &self).map_err(Error::SerdeYaml)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{BASE_PORT_API, BASE_PORT_P2P};
+
+    impl<'a> From<PeerEnv<'a>> for iroha_config::base::env::MockEnv {
+        fn from(env: PeerEnv<'a>) -> Self {
+            let json = serde_json::to_string(&env).expect("should be serializable");
+            let map = serde_json::from_str(&json).expect("should be deserializable into a map");
+            Self::with_map(map)
+        }
+    }
+
+    impl<'a> From<GenesisEnv<'a>> for iroha_config::base::env::MockEnv {
+        fn from(env: GenesisEnv<'a>) -> Self {
+            let json = serde_json::to_string(&env).expect("should be serializable");
+            let map = serde_json::from_str(&json).expect("should be deserializable into a map");
+            Self::with_map(map)
+        }
+    }
+
+    #[test]
+    fn peer_env_produces_exhaustive_config() {
+        let key_pair = peer::generate_key_pair(None, &[]);
+        let genesis_key_pair = peer::generate_key_pair(None, &[]);
+        let ports = [BASE_PORT_P2P, BASE_PORT_API];
+        let chain = peer::chain();
+        let peer_id = peer::peer_id("dummy", BASE_PORT_API, key_pair.0.clone());
+        let env = PeerEnv::new(
+            &key_pair,
+            ports,
+            &chain,
+            &genesis_key_pair.0,
+            std::iter::once(&peer_id),
+        );
+        let mock_env = iroha_config::base::env::MockEnv::from(env);
+        let _ = iroha_config::base::read::ConfigReader::new()
+            .with_env(mock_env.clone())
+            .read_and_complete::<iroha_config::parameters::user::Root>()
+            .expect("config in env should be exhaustive");
+        assert!(mock_env.unvisited().is_empty());
+    }
+
+    #[test]
+    fn genesis_env_produces_exhaustive_config() {
+        let key_pair = peer::generate_key_pair(None, &[]);
+        let genesis_key_pair = peer::generate_key_pair(None, &[]);
+        let ports = [BASE_PORT_P2P, BASE_PORT_API];
+        let chain = peer::chain();
+        let peer_id = peer::peer_id("dummy", BASE_PORT_API, key_pair.0.clone());
+        let env = GenesisEnv {
+            base: PeerEnv::new(
+                &key_pair,
+                ports,
+                &chain,
+                &genesis_key_pair.0,
+                std::iter::once(&peer_id),
+            ),
+            genesis_signed_file: ContainerPath("/"),
+        };
+        let mock_env = iroha_config::base::env::MockEnv::from(env);
+        let _ = iroha_config::base::read::ConfigReader::new()
+            .with_env(mock_env.clone())
+            .read_and_complete::<iroha_config::parameters::user::Root>()
+            .expect("config in env should be exhaustive");
+        assert!(mock_env.unvisited().is_empty());
     }
 }

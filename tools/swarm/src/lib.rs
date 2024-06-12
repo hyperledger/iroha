@@ -38,7 +38,7 @@ struct PeerSettings {
     healthcheck: bool,
     /// Path to a directory with peer configuration relative to the target path.
     config_dir: path::RelativePath,
-    chain_id: iroha_data_model::ChainId,
+    chain: iroha_data_model::ChainId,
     genesis_key_pair: peer::ExposedKeyPair,
     network: std::collections::BTreeMap<u16, peer::PeerInfo>,
     trusted_peers: std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
@@ -52,20 +52,13 @@ impl PeerSettings {
         config_dir: &std::path::Path,
         target_dir: &path::AbsolutePath,
     ) -> Result<Self, Error> {
-        let config_dir = path::AbsolutePath::new(config_dir)?.relative_to(target_dir)?;
-        let chain_id = iroha_data_model::ChainId::from(CHAIN_ID);
-        let (genesis_public_key, genesis_private_key) =
-            peer::generate_key_pair(seed, GENESIS_SEED).into_parts();
         let network = peer::generate_peers(count.get(), seed);
         let trusted_peers = peer::get_trusted_peers(network.values());
         Ok(Self {
             healthcheck,
-            config_dir,
-            chain_id,
-            genesis_key_pair: (
-                genesis_public_key,
-                iroha_crypto::ExposedPrivateKey(genesis_private_key),
-            ),
+            config_dir: path::AbsolutePath::new(config_dir)?.relative_to(target_dir)?,
+            chain: peer::chain(),
+            genesis_key_pair: peer::generate_key_pair(seed, GENESIS_SEED),
             network,
             trusted_peers,
         })
