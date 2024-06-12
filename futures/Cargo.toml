@@ -27,6 +27,7 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "sign
 tokio-util = { workspace = true }
 thread-local-panic-hook = { version = "0.1.0" }
 thiserror = { workspace = true }
+futures = { workspace = true, features = ["std", "alloc"] }
 
 [dev-dependencies]
-tokio-stream = "0.1.15"
+tokio-stream = { version = "0.1.15", features = ["sync"] }
