@@ -82,12 +82,12 @@ struct ImageSettings<'a> {
     ignore_cache: bool,
 }
 
-impl<'a> ImageSettings<'a> {
+impl<'a, 'temp> ImageSettings<'a> {
     fn new(
         name: &'a str,
         build_dir: Option<&std::path::Path>,
         ignore_cache: bool,
-        target_dir: &path::AbsolutePath,
+        target_dir: &'temp path::AbsolutePath,
     ) -> Result<Self, Error> {
         Ok(Self {
             name,
@@ -106,13 +106,13 @@ impl<'a> Swarm<'a> {
     #[allow(clippy::too_many_arguments, clippy::missing_errors_doc)]
     pub fn new(
         count: std::num::NonZeroU16,
-        seed: Option<&[u8]>,
+        seed: Option<&'a [u8]>,
         healthcheck: bool,
-        config_dir: &std::path::Path,
+        config_dir: &'a std::path::Path,
         image: &'a str,
-        build_dir: Option<&std::path::Path>,
+        build_dir: Option<&'a std::path::Path>,
         ignore_cache: bool,
-        target_path: &std::path::Path,
+        target_path: &'a std::path::Path,
     ) -> Result<Self, Error> {
         if target_path.is_dir() {
             return Err(Error::TargetFileIsADirectory);
@@ -178,7 +178,7 @@ mod tests {
         )
         .unwrap()
         .build()
-        .write(&mut buffer, true)
+        .write(&mut buffer, Some(&["Single-line banner"]))
         .unwrap();
         let actual = std::str::from_utf8(&buffer).unwrap();
         assert_yml_eq(EXPECTED, actual);
@@ -200,7 +200,10 @@ mod tests {
         )
         .unwrap()
         .build()
-        .write(&mut buffer, true)
+        .write(
+            &mut buffer,
+            Some(&["Multi-line banner 1", "Multi-line banner 2"]),
+        )
         .unwrap();
         let actual = std::str::from_utf8(&buffer).unwrap();
         assert_yml_eq(EXPECTED, actual);
@@ -222,7 +225,7 @@ mod tests {
         )
         .unwrap()
         .build()
-        .write(&mut buffer, false)
+        .write(&mut buffer, None)
         .unwrap();
         let actual = std::str::from_utf8(&buffer).unwrap();
         assert_yml_eq(EXPECTED, actual);
@@ -244,7 +247,7 @@ mod tests {
         )
         .unwrap()
         .build()
-        .write(&mut buffer, false)
+        .write(&mut buffer, None)
         .unwrap();
         let actual = std::str::from_utf8(&buffer).unwrap();
         assert_yml_eq(EXPECTED, actual);
