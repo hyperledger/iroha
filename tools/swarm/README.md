@@ -2,6 +2,10 @@
 
 Command-line tool for generating Docker Compose configuration for Iroha.
 
+## Configuration structure
+
+The generated Compose configuration consists of a number of peer services that depend on a dummy `image_provider` service. The image provider pulls or builds the specified Iroha image, which is then used by the peers. This is needed to avoid redundant building of the same image by every peer.
+
 ## Usage
 
 ```bash
@@ -47,7 +51,7 @@ iroha_swarm [OPTIONS] --peers <COUNT> --config-dir <DIR> --image <NAME> --out-fi
 
 ## Examples
 
-Generate `docker-compose.dev.yml` with 4 peers, using `xyzzy` as the cryptographic seed, using `./peer_config` as a directory with configuration, and using `.` as a directory with the Iroha `Dockerfile` to build a `myiroha:local` image: 
+Generate a configuration with 4 peers, using `xyzzy` as the cryptographic seed, using `./peer_config` as a directory with configuration, and using `.` as a directory with the Iroha `Dockerfile` to build a `myiroha:local` image, saving the Compose config to `./my-configs/docker-compose.build.yml` in the current directory: 
 
 ```bash
 iroha_swarm \
@@ -56,10 +60,10 @@ iroha_swarm \
     --config-dir ./peer_config \
     --image myiroha:local \
     --build . \
-    --out-file docker-compose.yml
+    --out-file ./my-configs/docker-compose.build.yml
 ```
 
-Same, but using an existing image pulled from Docker Hub instead, and adding a healthcheck to every peer:
+Generate the same configuration, but use an existing image pulled from Docker Hub instead. The output is printed to stdout (notice how the target path still has to be provided, as it is used to resolve the config and build directories):
 
 ```bash
 iroha_swarm \
@@ -68,5 +72,6 @@ iroha_swarm \
     --healthcheck \
     --config-dir ./peer_config \
     --image hyperledger/iroha:dev \
-    --out-file docker-compose.yml
+    --out-file ./my-configs/docker-compose.pull.yml \
+    --print
 ```
