@@ -185,6 +185,6 @@
       }
     }
   ],
-  "executor_file": "./executor.wasm",
-  "chain_id": "00000000-0000-0000-0000-000000000000"
+  "executor": "./executor.wasm",
+  "chain": "00000000-0000-0000-0000-000000000000"
 }
