@@ -4,6 +4,9 @@
 use alloc::format;
 use core::fmt::Debug;
 
+use cfg_if::cfg_if;
+
+#[cfg(target_family = "wasm")]
 #[cfg(not(test))]
 mod host {
     #[cfg(feature = "debug")]
@@ -23,18 +26,23 @@ mod host {
 /// Print `obj` in debug representation to the stdout.
 ///
 /// Do nothing if `debug` feature is not specified
-pub fn dbg<T: Debug + ?Sized>(_obj: &T) {
-    #[cfg(feature = "debug")]
-    {
-        #[cfg(not(test))]
-        use host::dbg as host_dbg;
-        #[cfg(test)]
-        use tests::_dbg_mock as host_dbg;
+#[allow(unused_variables)]
+pub fn dbg<T: Debug + ?Sized>(obj: &T) {
+    cfg_if! {
+        if #[cfg(not(target_family = "wasm"))] {
+            // when not on wasm - just print it
+            eprintln!("dbg: {obj:?}");
+        } else if #[cfg(feature = "debug")] {
+            // when `debug` feature is enabled - call the host `dbg` function
+            #[cfg(not(test))]
+            use host::dbg as host_dbg;
+            #[cfg(test)]
+            use tests::_dbg_mock as host_dbg;
 
-        #[allow(clippy::used_underscore_binding)]
-        let s = format!("{_obj:?}");
-        // Safety: `host_dbg` doesn't take ownership of it's pointer parameter
-        unsafe { crate::encode_and_execute(&s, host_dbg) }
+            let s = format!("{obj:?}");
+            // Safety: `host_dbg` doesn't take ownership of it's pointer parameter
+            unsafe { crate::encode_and_execute(&s, host_dbg) }
+        }
     }
 }
 

@@ -1,9 +1,11 @@
 //! WASM logging utilities
 
+use cfg_if::cfg_if;
 pub use iroha_data_model::Level;
 
 use super::*;
 
+#[cfg(target_family = "wasm")]
 #[cfg(not(test))]
 mod host {
     #[link(wasm_import_module = "iroha")]
@@ -19,19 +21,26 @@ mod host {
 
 /// Log `obj` with desired log level
 pub fn log<T: alloc::string::ToString + ?Sized>(log_level: Level, obj: &T) {
-    #[cfg(not(test))]
-    use host::log as host_log;
-    #[cfg(test)]
-    use tests::_log_mock as host_log;
+    cfg_if! {
+        if #[cfg(not(target_family = "wasm"))] {
+            // when not on wasm - just print it
+            eprintln!("{}: {}", log_level, obj.to_string());
+        } else {
+            #[cfg(not(test))]
+            use host::log as host_log;
+            #[cfg(test)]
+            use tests::_log_mock as host_log;
 
-    let log_level_id = log_level as u8;
+            let log_level_id = log_level as u8;
 
-    let msg = obj.to_string();
-    let bytes = (log_level_id, msg).encode();
-    let ptr = bytes.as_ptr();
-    let len = bytes.len();
+            let msg = obj.to_string();
+            let bytes = (log_level_id, msg).encode();
+            let ptr = bytes.as_ptr();
+            let len = bytes.len();
 
-    unsafe { host_log(ptr, len) }
+            unsafe { host_log(ptr, len) }
+        }
+    }
 }
 
 /// Construct a new event
