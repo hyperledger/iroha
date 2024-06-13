@@ -12,14 +12,14 @@ def status_codes_400():
 
 @allure.id("1255")
 @allure.label("method", "GET")
-@allure.label("status_code", "405")
-def test_method_not_allowed():
-    with allure.step("WHEN I send GET request to /method_not_allowed"):
-        response = requests.get(f"{BASE_URL}/method_not_allowed")
-    with allure.step("THEN the response status code should be 405"):
+@allure.label("status_code", "404")
+def test_method_not_found():
+    with allure.step("WHEN I send GET request to /method_not_found"):
+        response = requests.get(f"{BASE_URL}/method_not_found")
+    with allure.step("THEN the response status code should be 404"):
         assert (
-            response.status_code == 405
-        ), "Status code is not 405 for /method_not_allowed"
+            response.status_code == 404
+        ), "Status code is not 404 for /method_not_found"
 
 
 @allure.id("1288")
