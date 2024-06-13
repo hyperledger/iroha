@@ -27,16 +27,12 @@ impl serde::Serialize for super::ImageBuilderRef {
     }
 }
 
-impl serde::Serialize for super::SignAndSubmitGenesis<'_> {
+impl serde::Serialize for super::SignAndSubmitGenesis {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let private_key = self.0;
-        ser.serialize_str(
-            &super::SIGN_AND_SUBMIT_GENESIS
-                .replace("$$GENESIS_PRIVATE_KEY", &private_key.to_string()),
-        )
+        ser.serialize_str(super::SIGN_AND_SUBMIT_GENESIS)
     }
 }
 

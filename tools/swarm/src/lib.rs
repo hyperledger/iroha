@@ -195,6 +195,7 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1337
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
+                  GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
                 ports:
                 - 1337:1337
@@ -204,7 +205,7 @@ mod tests {
                 init: true
                 command: |-
                   /bin/sh -c "
-                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E --out-file $$GENESIS_SIGNED_FILE &&
+                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
                     irohad --submit-genesis
                   "
         "##]).assert_eq(&build_as_string(
@@ -240,6 +241,7 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1337
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
+                  GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
                 ports:
                 - 1337:1337
@@ -249,7 +251,7 @@ mod tests {
                 init: true
                 command: |-
                   /bin/sh -c "
-                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E --out-file $$GENESIS_SIGNED_FILE &&
+                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
                     irohad --submit-genesis
                   "
         "##]).assert_eq(&build_as_string(
@@ -274,6 +276,7 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1337
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
+                  GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
                 ports:
                 - 1337:1337
@@ -289,7 +292,7 @@ mod tests {
                   start_period: 4s
                 command: |-
                   /bin/sh -c "
-                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E --out-file $$GENESIS_SIGNED_FILE &&
+                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
                     irohad --submit-genesis
                   "
         "#]).assert_eq(&build_as_string(
@@ -316,6 +319,7 @@ mod tests {
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
+                  GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
                 ports:
                 - 1337:1337
@@ -331,7 +335,7 @@ mod tests {
                   start_period: 4s
                 command: |-
                   /bin/sh -c "
-                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E --out-file $$GENESIS_SIGNED_FILE &&
+                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
                     irohad --submit-genesis
                   "
               irohad1:

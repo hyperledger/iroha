@@ -184,6 +184,7 @@ impl<'a> PeerEnv<'a> {
 struct GenesisEnv<'a> {
     #[serde(flatten)]
     base: PeerEnv<'a>,
+    genesis_private_key: &'a iroha_crypto::ExposedPrivateKey,
     genesis_signed_file: ContainerPath<'a>,
 }
 
@@ -192,11 +193,12 @@ impl<'a> GenesisEnv<'a> {
         key_pair: &'a peer::ExposedKeyPair,
         ports: [u16; 2],
         chain: &'a iroha_data_model::ChainId,
-        genesis_public_key: &'a iroha_crypto::PublicKey,
+        (genesis_public_key, genesis_private_key): peer::ExposedKeyPairRef<'a>,
         trusted_peers: impl Iterator<Item = &'a iroha_data_model::peer::PeerId>,
     ) -> Self {
         Self {
             base: PeerEnv::new(key_pair, ports, chain, genesis_public_key, trusted_peers),
+            genesis_private_key,
             genesis_signed_file: ContainerPath(GENESIS_SIGNED_FILE),
         }
     }
@@ -278,7 +280,7 @@ where
 
 /// Command used by the genesis service to sign and submit genesis.
 #[derive(Debug)]
-struct SignAndSubmitGenesis<'a>(&'a iroha_crypto::ExposedPrivateKey);
+struct SignAndSubmitGenesis;
 
 const SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/sh -c "
   kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
@@ -293,7 +295,7 @@ where
 {
     #[serde(flatten)]
     base: Irohad<'a, Image, GenesisEnv<'a>>,
-    command: SignAndSubmitGenesis<'a>,
+    command: SignAndSubmitGenesis,
 }
 
 impl<'a, Image> Irohad0<'a, Image>
@@ -307,11 +309,10 @@ where
         ports: [u16; 2],
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
-        genesis_private_key: &'a iroha_crypto::ExposedPrivateKey,
     ) -> Self {
         Self {
             base: Irohad::new(image, environment, ports, volumes, healthcheck),
-            command: SignAndSubmitGenesis(genesis_private_key),
+            command: SignAndSubmitGenesis,
         }
     }
 }
@@ -353,13 +354,12 @@ where
                         key_pair,
                         *ports,
                         chain,
-                        genesis_public_key,
+                        (genesis_public_key, genesis_private_key),
                         trusted_peers.iter(),
                     ),
                     *ports,
                     volumes,
                     healthcheck,
-                    genesis_private_key,
                 )
             },
             irohads: network
@@ -487,7 +487,12 @@ mod tests {
     impl<'a> From<GenesisEnv<'a>> for iroha_config::base::env::MockEnv {
         fn from(env: GenesisEnv<'a>) -> Self {
             let json = serde_json::to_string(&env).expect("should be serializable");
-            let map = serde_json::from_str(&json).expect("should be deserializable into a map");
+            let mut map: std::collections::HashMap<_, _> =
+                serde_json::from_str(&json).expect("should be deserializable into a map");
+            assert!(
+                map.remove("GENESIS_PRIVATE_KEY").is_some(),
+                "GENESIS_PRIVATE_KEY must have been removed"
+            );
             Self::with_map(map)
         }
     }
@@ -515,9 +520,9 @@ mod tests {
     }
 
     #[test]
-    fn genesis_env_produces_exhaustive_config() {
+    fn genesis_env_produces_exhaustive_config_removing_genesis_private_key() {
         let key_pair = peer::generate_key_pair(None, &[]);
-        let genesis_key_pair = peer::generate_key_pair(None, &[]);
+        let (genesis_public_key, genesis_private_key) = &peer::generate_key_pair(None, &[]);
         let ports = [BASE_PORT_P2P, BASE_PORT_API];
         let chain = peer::chain();
         let peer_id = peer::peer_id("dummy", BASE_PORT_API, key_pair.0.clone());
@@ -526,9 +531,10 @@ mod tests {
                 &key_pair,
                 ports,
                 &chain,
-                &genesis_key_pair.0,
+                genesis_public_key,
                 std::iter::once(&peer_id),
             ),
+            genesis_private_key,
             genesis_signed_file: ContainerPath("/"),
         };
         let mock_env = iroha_config::base::env::MockEnv::from(env);
