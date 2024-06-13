@@ -51,7 +51,7 @@ enum Pull {
 
 impl Pull {
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn is_missing(&self) -> bool {
+    fn is_on_cache_miss(&self) -> bool {
         matches!(self, Self::OnCacheMiss)
     }
 }
@@ -91,13 +91,13 @@ impl<'a> ImageBuilder<'a> {
     }
 }
 
-/// Reference to the image provider.
+/// Reference to the image builder.
 #[derive(Copy, Clone, Debug)]
 struct ImageBuilderRef;
 
 const IMAGE_BUILDER: &str = "builder";
 
-/// Image that has been pulled or built.
+/// Image that has been built.
 #[derive(serde::Serialize, Copy, Clone, Debug)]
 struct BuiltImage<'a> {
     depends_on: [ImageBuilderRef; 1],
@@ -105,11 +105,11 @@ struct BuiltImage<'a> {
     pull_policy: UseBuilt,
 }
 
-/// Image that has been pulled or built.
+/// Image that has been pulled.
 #[derive(serde::Serialize, Copy, Clone, Debug)]
 struct PulledImage<'a> {
     image: ImageId<'a>,
-    #[serde(skip_serializing_if = "Pull::is_missing")]
+    #[serde(skip_serializing_if = "Pull::is_on_cache_miss")]
     pull_policy: Pull,
 }
 
@@ -187,6 +187,21 @@ struct GenesisEnv<'a> {
     genesis_signed_file: ContainerPath<'a>,
 }
 
+impl<'a> GenesisEnv<'a> {
+    fn new(
+        key_pair: &'a peer::ExposedKeyPair,
+        ports: [u16; 2],
+        chain: &'a iroha_data_model::ChainId,
+        genesis_public_key: &'a iroha_crypto::PublicKey,
+        trusted_peers: impl Iterator<Item = &'a iroha_data_model::peer::PeerId>,
+    ) -> Self {
+        Self {
+            base: PeerEnv::new(key_pair, ports, chain, genesis_public_key, trusted_peers),
+            genesis_signed_file: ContainerPath(GENESIS_SIGNED_FILE),
+        }
+    }
+}
+
 /// Mapping between `host:container` ports.
 #[derive(Debug)]
 struct PortMapping(u16, u16);
@@ -218,12 +233,12 @@ const HEALTH_CHECK_RETRIES: u8 = 30u8;
 // default pipeline time
 const HEALTH_CHECK_START_PERIOD: &str = "4s";
 
-/// Base Iroha peer service.
+/// Iroha peer service.
 #[derive(serde::Serialize, Debug)]
-struct BaseIrohad<'a, Environment, Image>
+struct Irohad<'a, Image, Environment = PeerEnv<'a>>
 where
-    Environment: serde::Serialize,
     Image: serde::Serialize,
+    Environment: serde::Serialize,
 {
     #[serde(flatten)]
     image: Image,
@@ -235,10 +250,10 @@ where
     healthcheck: Option<Healthcheck>,
 }
 
-impl<'a, Environment, Image> BaseIrohad<'a, Environment, Image>
+impl<'a, Image, Environment> Irohad<'a, Image, Environment>
 where
-    Environment: serde::Serialize,
     Image: serde::Serialize,
+    Environment: serde::Serialize,
 {
     fn new(
         image: Image,
@@ -277,7 +292,7 @@ where
     Image: serde::Serialize,
 {
     #[serde(flatten)]
-    base: BaseIrohad<'a, GenesisEnv<'a>, Image>,
+    base: Irohad<'a, Image, GenesisEnv<'a>>,
     command: SignAndSubmitGenesis<'a>,
 }
 
@@ -287,64 +302,16 @@ where
 {
     #[allow(clippy::too_many_arguments)]
     fn new(
-        key_pair: &'a peer::ExposedKeyPair,
-        ports: [u16; 2],
         image: Image,
+        environment: GenesisEnv<'a>,
+        ports: [u16; 2],
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
-        chain: &'a iroha_data_model::ChainId,
-        (genesis_public_key, genesis_private_key): &'a peer::ExposedKeyPair,
-        trusted_peers: impl Iterator<Item = &'a iroha_data_model::peer::PeerId>,
+        genesis_private_key: &'a iroha_crypto::ExposedPrivateKey,
     ) -> Self {
         Self {
-            base: BaseIrohad::new(
-                image,
-                GenesisEnv {
-                    base: PeerEnv::new(key_pair, ports, chain, genesis_public_key, trusted_peers),
-                    genesis_signed_file: ContainerPath(GENESIS_SIGNED_FILE),
-                },
-                ports,
-                volumes,
-                healthcheck,
-            ),
+            base: Irohad::new(image, environment, ports, volumes, healthcheck),
             command: SignAndSubmitGenesis(genesis_private_key),
-        }
-    }
-}
-
-/// Configuration of a regular `irohad` service.
-#[derive(serde::Serialize, Debug)]
-struct Irohad<'a, ImagePolicy>
-where
-    ImagePolicy: serde::Serialize,
-{
-    #[serde(flatten)]
-    base: BaseIrohad<'a, PeerEnv<'a>, ImagePolicy>,
-}
-
-impl<'a, Image> Irohad<'a, Image>
-where
-    Image: serde::Serialize,
-{
-    #[allow(clippy::too_many_arguments)]
-    fn new(
-        image: Image,
-        key_pair: &'a peer::ExposedKeyPair,
-        ports: [u16; 2],
-        volumes: [PathMapping<'a>; 1],
-        healthcheck: bool,
-        chain: &'a iroha_data_model::ChainId,
-        genesis_public_key: &'a iroha_crypto::PublicKey,
-        trusted_peers: impl Iterator<Item = &'a iroha_data_model::peer::PeerId>,
-    ) -> Self {
-        Self {
-            base: BaseIrohad::new(
-                image,
-                PeerEnv::new(key_pair, ports, chain, genesis_public_key, trusted_peers),
-                ports,
-                volumes,
-                healthcheck,
-            ),
         }
     }
 }
@@ -373,23 +340,26 @@ where
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
-        genesis_key_pair: &'a peer::ExposedKeyPair,
+        (genesis_public_key, genesis_private_key): &'a peer::ExposedKeyPair,
         network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
         trusted_peers: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
     ) -> Self {
         Self {
             irohad0: {
-                let (_, irohad0_ports, irohad0_key_pair) =
-                    network.get(&0).expect("irohad0 must be present");
+                let (_, ports, key_pair) = network.get(&0).expect("irohad0 must be present");
                 Irohad0::new(
-                    irohad0_key_pair,
-                    *irohad0_ports,
                     image,
+                    GenesisEnv::new(
+                        key_pair,
+                        *ports,
+                        chain,
+                        genesis_public_key,
+                        trusted_peers.iter(),
+                    ),
+                    *ports,
                     volumes,
                     healthcheck,
-                    chain,
-                    genesis_key_pair,
-                    trusted_peers.iter(),
+                    genesis_private_key,
                 )
             },
             irohads: network
@@ -400,13 +370,16 @@ where
                         IrohadRef(*id),
                         Irohad::new(
                             image,
-                            key_pair,
+                            PeerEnv::new(
+                                key_pair,
+                                *ports,
+                                chain,
+                                genesis_public_key,
+                                trusted_peers.iter(),
+                            ),
                             *ports,
                             volumes,
                             healthcheck,
-                            chain,
-                            &genesis_key_pair.0,
-                            trusted_peers.iter(),
                         ),
                     )
                 })
