@@ -10,7 +10,7 @@ use common::*;
 pub struct StateValidateBlocks {
     state: State,
     instructions: Vec<Vec<InstructionBox>>,
-    key_pair: KeyPair,
+    private_key: PrivateKey,
     account_id: AccountId,
 }
 
@@ -41,7 +41,7 @@ impl StateValidateBlocks {
         Self {
             state,
             instructions,
-            key_pair: alice_keypair,
+            private_key: alice_keypair.private_key().clone(),
             account_id: alice_id,
         }
     }
@@ -58,7 +58,7 @@ impl StateValidateBlocks {
         Self {
             state,
             instructions,
-            key_pair,
+            private_key,
             account_id,
         }: Self,
     ) {
@@ -68,7 +68,7 @@ impl StateValidateBlocks {
                 &mut state_block,
                 instructions,
                 account_id.clone(),
-                &key_pair,
+                &private_key,
             );
             let _events = state_block.apply_without_execution(&block);
             assert_eq!(state_block.height(), i);

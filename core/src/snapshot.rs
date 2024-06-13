@@ -162,7 +162,7 @@ pub fn try_read_snapshot(
     };
     let state = seed.deserialize(&mut deserializer)?;
     let state_view = state.view();
-    let snapshot_height = state_view.block_hashes.len();
+    let snapshot_height = state_view.height();
     if snapshot_height > block_count {
         return Err(TryReadError::MismatchedHeight {
             snapshot_height,

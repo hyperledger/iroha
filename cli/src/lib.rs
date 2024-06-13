@@ -75,7 +75,7 @@ pub struct Iroha {
     /// A boolean value indicating whether or not the peers will receive data from the network.
     /// Used in sumeragi testing.
     #[cfg(debug_assertions)]
-    pub freeze_status: Arc<AtomicBool>,
+    pub freeze_status: FreezeStatus,
 }
 
 impl Drop for Iroha {
@@ -107,6 +107,29 @@ pub enum StartError {
     StartTorii,
 }
 
+/// Handle for freezing and unfreezing the network
+#[derive(Clone)]
+#[cfg(debug_assertions)]
+pub struct FreezeStatus(Arc<AtomicBool>, PeerId);
+
+#[cfg(debug_assertions)]
+impl FreezeStatus {
+    pub(crate) fn new(peer_id: PeerId) -> Self {
+        Self(Arc::new(AtomicBool::new(false)), peer_id)
+    }
+
+    /// Stop listening for messages
+    pub fn freeze(&self) {
+        iroha_logger::warn!(peer_id=%self.1, "NetworkRelay is frozen");
+        self.0.store(true, Ordering::SeqCst);
+    }
+    /// Start listening for messages
+    pub fn unfreeze(&self) {
+        iroha_logger::warn!(peer_id=%self.1, "NetworkRelay is unfrozen");
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 struct NetworkRelay {
     sumeragi: SumeragiHandle,
     block_sync: BlockSynchronizerHandle,
@@ -114,7 +137,7 @@ struct NetworkRelay {
     network: IrohaNetwork,
     shutdown_notify: Arc<Notify>,
     #[cfg(debug_assertions)]
-    freeze_status: Arc<AtomicBool>,
+    freeze_status: FreezeStatus,
 }
 
 impl NetworkRelay {
@@ -145,7 +168,7 @@ impl NetworkRelay {
         use iroha_core::NetworkMessage::*;
 
         #[cfg(debug_assertions)]
-        if self.freeze_status.load(Ordering::SeqCst) {
+        if self.freeze_status.0.load(Ordering::SeqCst) {
             return;
         }
 
@@ -335,7 +358,8 @@ impl Iroha {
         .start();
 
         #[cfg(debug_assertions)]
-        let freeze_status = Arc::new(AtomicBool::new(false));
+        let freeze_status = FreezeStatus::new(config.common.peer.clone());
+        Arc::new(AtomicBool::new(false));
 
         let notify_shutdown = Arc::new(Notify::new());
 
@@ -510,7 +534,7 @@ impl Iroha {
 
     #[allow(missing_docs)]
     #[cfg(debug_assertions)]
-    pub fn freeze_status(&self) -> &Arc<AtomicBool> {
+    pub fn freeze_status(&self) -> &FreezeStatus {
         &self.freeze_status
     }
 

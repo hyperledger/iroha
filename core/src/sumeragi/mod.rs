@@ -10,8 +10,7 @@ use std::{
 
 use eyre::Result;
 use iroha_config::parameters::actual::{Common as CommonConfig, Sumeragi as SumeragiConfig};
-use iroha_crypto::{KeyPair, SignatureOf};
-use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_data_model::{account::AccountId, block::SignedBlock, prelude::*};
 use iroha_genesis::GenesisTransaction;
 use iroha_logger::prelude::*;
 use network_topology::{Role, Topology};
@@ -34,6 +33,7 @@ use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, Ne
 /// Handle to `Sumeragi` actor
 #[derive(Clone)]
 pub struct SumeragiHandle {
+    peer_id: PeerId,
     /// Counter for amount of dropped messages by sumeragi
     dropped_messages_metric: iroha_telemetry::metrics::DroppedMessagesCounter,
     _thread_handle: Arc<ThreadHandler>,
@@ -47,7 +47,9 @@ impl SumeragiHandle {
     pub fn incoming_control_flow_message(&self, msg: ControlFlowMessage) {
         if let Err(error) = self.control_message_sender.try_send(msg) {
             self.dropped_messages_metric.inc();
+
             error!(
+                peer_id=%self.peer_id,
                 ?error,
                 "This peer is faulty. \
                  Incoming control messages have to be dropped due to low processing speed."
@@ -56,10 +58,12 @@ impl SumeragiHandle {
     }
 
     /// Deposit a sumeragi network message.
-    pub fn incoming_block_message(&self, msg: BlockMessage) {
-        if let Err(error) = self.message_sender.try_send(msg) {
+    pub fn incoming_block_message(&self, msg: impl Into<BlockMessage>) {
+        if let Err(error) = self.message_sender.try_send(msg.into()) {
             self.dropped_messages_metric.inc();
+
             error!(
+                peer_id=%self.peer_id,
                 ?error,
                 "This peer is faulty. \
                  Incoming messages have to be dropped due to low processing speed."
@@ -69,34 +73,37 @@ impl SumeragiHandle {
 
     fn replay_block(
         chain_id: &ChainId,
-        genesis_public_key: &PublicKey,
+        genesis_account: &AccountId,
         block: &SignedBlock,
         state_block: &mut StateBlock<'_>,
         events_sender: &EventsSender,
-        recreate_topology: RecreateTopologyByViewChangeIndex,
-    ) -> RecreateTopologyByViewChangeIndex {
+        topology: &mut Topology,
+    ) {
         // NOTE: topology need to be updated up to block's view_change_index
-        let current_topology = recreate_topology(block.header().view_change_index as usize);
+        topology.nth_rotation(block.header().view_change_index as usize);
 
         let block = ValidBlock::validate(
             block.clone(),
-            &current_topology,
+            topology,
             chain_id,
-            genesis_public_key,
+            genesis_account,
             state_block,
         )
         .unpack(|e| {
             let _ = events_sender.send(e.into());
         })
-        .expect("Kura: Invalid block")
-        .commit(&current_topology)
+        .expect("INTERNAL BUG: Invalid block stored in Kura")
+        .commit(topology)
         .unpack(|e| {
             let _ = events_sender.send(e.into());
         })
-        .expect("Kura: Invalid block");
+        .expect("INTERNAL BUG: Invalid block stored in Kura");
 
         if block.as_ref().header().is_genesis() {
-            *state_block.world.trusted_peers_ids = block.as_ref().commit_topology().clone();
+            *state_block.world.trusted_peers_ids =
+                block.as_ref().commit_topology().cloned().collect();
+
+            *topology = Topology::new(block.as_ref().commit_topology().cloned());
         }
 
         state_block
@@ -106,10 +113,7 @@ impl SumeragiHandle {
                 let _ = events_sender.send(e);
             });
 
-        let peers = state_block.world.peers().cloned().collect();
-        Box::new(move |view_change_index| {
-            Topology::recreate_topology(block.as_ref(), view_change_index, peers)
-        })
+        topology.block_committed(block.as_ref(), state_block.world.peers().cloned());
     }
 
     /// Start [`Sumeragi`] actor and return handle to it.
@@ -139,11 +143,11 @@ impl SumeragiHandle {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
         let blocks_iter;
-        let mut recreate_topology: RecreateTopologyByViewChangeIndex;
+        let mut topology;
 
         {
             let state_view = state.view();
-            let skip_block_count = state_view.block_hashes.len();
+            let skip_block_count = state_view.height();
             blocks_iter = (skip_block_count + 1..=block_count).map(|block_height| {
                 NonZeroUsize::new(block_height).and_then(|height| kura.get_block_by_height(height)).expect(
                     "Sumeragi should be able to load the block that was reported as presented. \
@@ -151,16 +155,14 @@ impl SumeragiHandle {
                 )
             });
 
-            recreate_topology = match state_view.height() {
-                // View change index of the next block doesn't affect init topology
-                0 => {
-                    let peers = sumeragi_config
+            topology = match state_view.height() {
+                0 => Topology::new(
+                    sumeragi_config
                         .trusted_peers
                         .value()
                         .clone()
-                        .into_non_empty_vec();
-                    Box::new(move |_view_change_index| Topology::new(peers))
-                }
+                        .into_non_empty_vec(),
+                ),
                 height => {
                     let block_ref = NonZeroUsize::new(height)
                         .and_then(|height| kura.get_block_by_height(height))
@@ -168,29 +170,32 @@ impl SumeragiHandle {
                             "Sumeragi could not load block that was reported as present. \
                              Please check that the block storage was not disconnected.",
                         );
-                    let peers = state_view.world.peers_ids().iter().cloned().collect();
-                    Box::new(move |view_change_index| {
-                        Topology::recreate_topology(&block_ref, view_change_index, peers)
-                    })
+                    let mut topology = Topology::new(block_ref.commit_topology().cloned());
+                    topology
+                        .block_committed(&block_ref, state_view.world.peers_ids().iter().cloned());
+                    topology
                 }
             };
         }
 
+        let genesis_account = AccountId::new(
+            iroha_genesis::GENESIS_DOMAIN_ID.clone(),
+            genesis_network.public_key.clone(),
+        );
+
         for block in blocks_iter {
             let mut state_block = state.block();
-            recreate_topology = Self::replay_block(
+            Self::replay_block(
                 &common_config.chain,
-                &genesis_network.public_key,
+                &genesis_account,
                 &block,
                 &mut state_block,
                 &events_sender,
-                recreate_topology,
+                &mut topology,
             );
+
             state_block.commit();
         }
-
-        // There is no more blocks so we pick 0 as view change index
-        let current_topology = recreate_topology(0);
 
         info!("Sumeragi has finished loading blocks and setting up the state");
 
@@ -199,10 +204,11 @@ impl SumeragiHandle {
         #[cfg(not(debug_assertions))]
         let debug_force_soft_fork = false;
 
+        let peer_id = common_config.peer;
         let sumeragi = main_loop::Sumeragi {
             chain_id: common_config.chain,
             key_pair: common_config.key_pair,
-            peer_id: common_config.peer,
+            peer_id: peer_id.clone(),
             queue: Arc::clone(&queue),
             events_sender,
             commit_time: state.view().config.commit_time,
@@ -213,9 +219,11 @@ impl SumeragiHandle {
             control_message_receiver,
             message_receiver,
             debug_force_soft_fork,
-            current_topology,
+            topology,
             transaction_cache: Vec::new(),
             view_changes_metric: view_changes,
+            was_commit: false,
+            round_start_time: Instant::now(),
         };
 
         // Oneshot channel to allow forcefully stopping the thread.
@@ -228,7 +236,7 @@ impl SumeragiHandle {
                 .spawn(move || {
                     main_loop::run(genesis_network, sumeragi, shutdown_receiver, state);
                 })
-                .expect("Sumeragi thread spawn should not fail.")
+                .expect("INTERNAL BUG: Sumeragi thread spawn failed")
         };
 
         let shutdown = move || {
@@ -239,6 +247,7 @@ impl SumeragiHandle {
 
         let thread_handle = ThreadHandler::new(Box::new(shutdown), thread_handle);
         SumeragiHandle {
+            peer_id,
             dropped_messages_metric: dropped_messages,
             control_message_sender,
             message_sender,
@@ -246,9 +255,6 @@ impl SumeragiHandle {
         }
     }
 }
-
-/// Closure to get topology recreated at certain view change index
-type RecreateTopologyByViewChangeIndex = Box<dyn FnOnce(usize) -> Topology>;
 
 /// The interval at which sumeragi checks if there are tx in the
 /// `queue`.  And will create a block if is leader and the voting is
@@ -277,22 +283,10 @@ impl AsRef<ValidBlock> for VotingBlock<'_> {
 
 impl VotingBlock<'_> {
     /// Construct new `VotingBlock` with current time.
-    pub fn new(block: ValidBlock, state_block: StateBlock<'_>) -> VotingBlock {
+    fn new(block: ValidBlock, state_block: StateBlock<'_>) -> VotingBlock {
         VotingBlock {
             block,
             voted_at: Instant::now(),
-            state_block,
-        }
-    }
-    /// Construct new `VotingBlock` with the given time.
-    pub(crate) fn voted_at(
-        block: ValidBlock,
-        state_block: StateBlock<'_>,
-        voted_at: Instant,
-    ) -> VotingBlock {
-        VotingBlock {
-            block,
-            voted_at,
             state_block,
         }
     }

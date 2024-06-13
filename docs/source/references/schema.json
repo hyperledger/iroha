@@ -612,7 +612,7 @@
       },
       {
         "name": "transactions_hash",
-        "type": "Option<HashOf<MerkleTree<SignedTransaction>>>"
+        "type": "HashOf<MerkleTree<SignedTransaction>>"
       },
       {
         "name": "timestamp_ms",
@@ -655,6 +655,12 @@
         "tag": "ConsensusBlockRejection",
         "discriminant": 0
       }
+    ]
+  },
+  "BlockSignature": {
+    "Tuple": [
+      "u64",
+      "SignatureOf<BlockPayload>"
     ]
   },
   "BlockStatus": {
@@ -2492,9 +2498,6 @@
   "Option<Duration>": {
     "Option": "Duration"
   },
-  "Option<HashOf<MerkleTree<SignedTransaction>>>": {
-    "Option": "HashOf<MerkleTree<SignedTransaction>>"
-  },
   "Option<HashOf<SignedBlock>>": {
     "Option": "HashOf<SignedBlock>"
   },
@@ -2933,31 +2936,26 @@
   "QueryExecutionFail": {
     "Enum": [
       {
-        "tag": "Signature",
-        "discriminant": 0,
-        "type": "String"
-      },
-      {
         "tag": "Find",
-        "discriminant": 1,
+        "discriminant": 0,
         "type": "FindError"
       },
       {
         "tag": "Conversion",
-        "discriminant": 2,
+        "discriminant": 1,
         "type": "String"
       },
       {
         "tag": "UnknownCursor",
-        "discriminant": 3
+        "discriminant": 2
       },
       {
         "tag": "FetchSizeTooBig",
-        "discriminant": 4
+        "discriminant": 3
       },
       {
         "tag": "InvalidSingularParameters",
-        "discriminant": 5
+        "discriminant": 4
       }
     ]
   },
@@ -3048,6 +3046,7 @@
       }
     ]
   },
+  "QuerySignature": "SignatureOf<ClientQueryPayload>",
   "Register<Account>": {
     "Struct": [
       {
@@ -3568,10 +3567,6 @@
   "Signature": {
     "Struct": [
       {
-        "name": "public_key",
-        "type": "PublicKey"
-      },
-      {
         "name": "payload",
         "type": "Vec<u8>"
       }
@@ -3580,14 +3575,6 @@
   "SignatureOf<BlockPayload>": "Signature",
   "SignatureOf<ClientQueryPayload>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
-  "SignaturesOf<BlockPayload>": {
-    "Struct": [
-      {
-        "name": "signatures",
-        "type": "SortedVec<SignatureOf<BlockPayload>>"
-      }
-    ]
-  },
   "SignedBlock": {
     "Enum": [
       {
@@ -3601,7 +3588,7 @@
     "Struct": [
       {
         "name": "signatures",
-        "type": "SignaturesOf<BlockPayload>"
+        "type": "Vec<BlockSignature>"
       },
       {
         "name": "payload",
@@ -3622,7 +3609,7 @@
     "Struct": [
       {
         "name": "signature",
-        "type": "SignatureOf<ClientQueryPayload>"
+        "type": "QuerySignature"
       },
       {
         "name": "payload",
@@ -3643,7 +3630,7 @@
     "Struct": [
       {
         "name": "signature",
-        "type": "SignatureOf<TransactionPayload>"
+        "type": "TransactionSignature"
       },
       {
         "name": "payload",
@@ -3753,9 +3740,6 @@
   },
   "SortedVec<PermissionId>": {
     "Vec": "PermissionId"
-  },
-  "SortedVec<SignatureOf<BlockPayload>>": {
-    "Vec": "SignatureOf<BlockPayload>"
   },
   "Sorting": {
     "Struct": [
@@ -3940,6 +3924,7 @@
       }
     ]
   },
+  "TransactionSignature": "SignatureOf<TransactionPayload>",
   "TransactionStatus": {
     "Enum": [
       {
@@ -4374,6 +4359,9 @@
         "discriminant": 4
       }
     ]
+  },
+  "Vec<BlockSignature>": {
+    "Vec": "BlockSignature"
   },
   "Vec<CommittedTransaction>": {
     "Vec": "CommittedTransaction"

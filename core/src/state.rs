@@ -796,9 +796,11 @@ impl WorldTransaction<'_, '_> {
         increment: Numeric,
     ) -> Result<(), Error> {
         let domain = self.domain_mut(&definition_id.domain)?;
-        let asset_total_amount: &mut Numeric = domain
-            .asset_total_quantities.get_mut(definition_id)
-            .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount");
+        let asset_total_amount: &mut Numeric =
+            domain.asset_total_quantities.get_mut(definition_id).expect(
+                "INTERNAL BUG: Asset total amount not found. \
+                Insert initial total amount on `Register<AssetDefinition>`",
+            );
         *asset_total_amount = asset_total_amount
             .checked_add(increment)
             .ok_or(MathError::Overflow)?;
@@ -827,9 +829,11 @@ impl WorldTransaction<'_, '_> {
         decrement: Numeric,
     ) -> Result<(), Error> {
         let domain = self.domain_mut(&definition_id.domain)?;
-        let asset_total_amount: &mut Numeric = domain
-            .asset_total_quantities.get_mut(definition_id)
-            .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount");
+        let asset_total_amount: &mut Numeric =
+            domain.asset_total_quantities.get_mut(definition_id).expect(
+                "INTERNAL BUG: Asset total amount not found. \
+                Insert initial total amount on `Register<AssetDefinition>`",
+            );
         *asset_total_amount = asset_total_amount
             .checked_sub(decrement)
             .ok_or(MathError::NotEnoughQuantity)?;
@@ -1007,24 +1011,17 @@ pub trait StateReadOnly {
     fn query_handle(&self) -> &LiveQueryStoreHandle;
     fn new_tx_amounts(&self) -> &Mutex<Vec<f64>>;
 
-    // Block-related methods
-
     /// Get a reference to the latest block. Returns none if genesis is not committed.
+    ///
+    /// If you only need hash of the latest block prefer using [`Self::latest_block_hash`]
     #[inline]
-    fn latest_block_ref(&self) -> Option<Arc<SignedBlock>> {
+    fn latest_block(&self) -> Option<Arc<SignedBlock>> {
         NonZeroUsize::new(self.height()).and_then(|height| self.kura().get_block_by_height(height))
     }
 
     /// Return the hash of the latest block
     fn latest_block_hash(&self) -> Option<HashOf<SignedBlock>> {
         self.block_hashes().iter().nth_back(0).copied()
-    }
-
-    /// Return the view change index of the latest block
-    fn latest_block_view_change_index(&self) -> usize {
-        NonZeroUsize::new(self.height())
-            .and_then(|height| self.kura().get_block_by_height(height))
-            .map_or(0, |block| block.header().view_change_index as usize)
     }
 
     /// Return the hash of the block one before the latest block
@@ -1037,7 +1034,7 @@ pub trait StateReadOnly {
         (1..=self.height()).map(|height| {
             NonZeroUsize::new(height)
                 .and_then(|height| self.kura().get_block_by_height(height))
-                .expect("Failed to load block.")
+                .expect("INTERNAL BUG: Failed to load block")
         })
     }
 
@@ -1102,7 +1099,7 @@ pub trait StateReadOnly {
         }
     }
 
-    /// Check if this [`SignedTransaction`] is already committed or rejected.
+    /// Check if [`SignedTransaction`] is already committed
     #[inline]
     fn has_transaction(&self, hash: HashOf<SignedTransaction>) -> bool {
         self.transactions().get(&hash).is_some()
@@ -1269,7 +1266,7 @@ impl<'state> StateBlock<'state> {
 
     /// Create time event using previous and current blocks
     fn create_time_event(&self, block: &CommittedBlock) -> TimeEvent {
-        let prev_interval = self.latest_block_ref().map(|latest_block| {
+        let prev_interval = self.latest_block().map(|latest_block| {
             let header = &latest_block.as_ref().header();
 
             TimeInterval {
@@ -1363,7 +1360,7 @@ impl StateTransaction<'_, '_> {
             ) -> Self {
                 if let Some(param) = self.0 {
                     if param.id().name().as_ref() == id {
-                        if let Some(value) = param.val.try_into().ok() {
+                        if let Ok(value) = param.val.try_into() {
                             fun(value);
                         }
                         Self(None)
@@ -1484,7 +1481,7 @@ impl StateTransaction<'_, '_> {
                     .world
                     .triggers
                     .get_compiled_contract(blob_hash)
-                    .expect("contract is not present it's a bug")
+                    .expect("INTERNAL BUG: contract is not present")
                     .clone();
                 let mut wasm_runtime = wasm::RuntimeBuilder::<wasm::state::Trigger>::new()
                     .with_config(self.config.wasm_runtime)
@@ -1829,7 +1826,6 @@ pub(crate) mod deserialize {
 #[cfg(test)]
 mod tests {
     use iroha_data_model::block::BlockPayload;
-    use iroha_primitives::unique_vec::UniqueVec;
     use test_samples::gen_account_in;
 
     use super::*;
@@ -1840,7 +1836,10 @@ mod tests {
 
     /// Used to inject faulty payload for testing
     fn new_dummy_block_with_payload(f: impl FnOnce(&mut BlockPayload)) -> CommittedBlock {
-        let topology = Topology::new(UniqueVec::new());
+        let (leader_public_key, _) = iroha_crypto::KeyPair::random().into_parts();
+        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let topology = Topology::new(vec![peer_id]);
+
         ValidBlock::new_dummy_and_modify_payload(f)
             .commit(&topology)
             .unpack(|_| {})

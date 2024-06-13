@@ -1,8 +1,10 @@
 //! This file contains examples from the Rust tutorial.
 use std::{thread, time::Duration};
 
-use iroha::{crypto::KeyPair, data_model::prelude::*};
-use iroha_data_model::isi::InstructionBox;
+use iroha::{
+    crypto::KeyPair,
+    data_model::{isi::InstructionBox, prelude::*},
+};
 use iroha_genesis::{GenesisTransaction, GenesisTransactionBuilder};
 use iroha_primitives::unique_vec;
 use irohad::samples::{construct_executor, get_config};

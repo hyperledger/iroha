@@ -9,10 +9,9 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
-use iroha_crypto::{HashOf, MerkleTree, SignaturesOf};
+use iroha_crypto::{HashOf, MerkleTree, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
-use iroha_primitives::unique_vec::UniqueVec;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -55,11 +54,11 @@ mod model {
         #[getset(get_copy = "pub")]
         pub height: u64,
         /// Hash of the previous block in the chain.
-        #[getset(get = "pub")]
+        #[getset(get_copy = "pub")]
         pub prev_block_hash: Option<HashOf<SignedBlock>>,
         /// Hash of merkle tree root of transactions' hashes.
-        #[getset(get = "pub")]
-        pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
+        #[getset(get_copy = "pub")]
+        pub transactions_hash: HashOf<MerkleTree<SignedTransaction>>,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub timestamp_ms: u64,
@@ -90,12 +89,33 @@ mod model {
         /// Block header
         pub header: BlockHeader,
         /// Topology of the network at the time of block commit.
-        pub commit_topology: UniqueVec<peer::PeerId>,
+        pub commit_topology: Vec<peer::PeerId>,
         /// array of transactions, which successfully passed validation and consensus step.
         pub transactions: Vec<CommittedTransaction>,
         /// Event recommendations.
         pub event_recommendations: Vec<EventBox>,
     }
+
+    /// Signature of a block
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct BlockSignature(
+        /// Index of the peer in the topology
+        pub u64,
+        /// Payload
+        pub SignatureOf<BlockPayload>,
+    );
 
     /// Signed block
     #[version_with_scale(version = 1, versioned_alias = "SignedBlock")]
@@ -107,8 +127,9 @@ mod model {
     #[ffi_type]
     pub struct SignedBlockV1 {
         /// Signatures of peers which approved this block.
-        pub(super) signatures: SignaturesOf<BlockPayload>,
+        pub(super) signatures: Vec<BlockSignature>,
         /// Block payload
+        #[serde(flatten)]
         pub(super) payload: BlockPayload,
     }
 }
@@ -137,24 +158,21 @@ impl BlockHeader {
     }
 }
 
-impl SignedBlockV1 {
+impl BlockPayload {
     /// Create new signed block, using `key_pair` to sign `payload`
     #[cfg(feature = "transparent_api")]
-    pub fn new(payload: BlockPayload, key_pair: &iroha_crypto::KeyPair) -> SignedBlockV1 {
-        let signature = iroha_crypto::SignatureOf::new(key_pair, &payload);
-        let signatures = SignaturesOf::from(signature);
+    pub fn sign(self, private_key: &iroha_crypto::PrivateKey) -> SignedBlock {
+        let signatures = vec![BlockSignature(0, SignatureOf::new(private_key, &self))];
+
         SignedBlockV1 {
             signatures,
-            payload,
+            payload: self,
         }
+        .into()
     }
+}
 
-    /// Block payload. Used for tests
-    #[cfg(feature = "transparent_api")]
-    pub fn payload(&self) -> &BlockPayload {
-        &self.payload
-    }
-
+impl SignedBlockV1 {
     #[cfg(feature = "std")]
     fn hash(&self) -> iroha_crypto::HashOf<SignedBlock> {
         iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::HashOf::new(self).into())
@@ -162,6 +180,13 @@ impl SignedBlockV1 {
 }
 
 impl SignedBlock {
+    /// Block payload. Used for tests
+    #[cfg(feature = "transparent_api")]
+    pub fn payload(&self) -> &BlockPayload {
+        let SignedBlock::V1(block) = self;
+        &block.payload
+    }
+
     /// Block header
     #[inline]
     pub fn header(&self) -> &BlockHeader {
@@ -179,23 +204,59 @@ impl SignedBlock {
     /// Topology of the network at the time of block commit.
     #[inline]
     #[cfg(feature = "transparent_api")]
-    pub fn commit_topology(&self) -> &UniqueVec<peer::PeerId> {
+    pub fn commit_topology(&self) -> impl ExactSizeIterator<Item = &peer::PeerId> {
         let SignedBlock::V1(block) = self;
-        &block.payload.commit_topology
+        block.payload.commit_topology.iter()
     }
 
     /// Signatures of peers which approved this block.
     #[inline]
-    #[allow(private_interfaces)]
-    pub fn signatures(&self) -> &SignaturesOf<BlockPayload> {
+    pub fn signatures(
+        &self,
+    ) -> impl ExactSizeIterator<Item = &BlockSignature> + DoubleEndedIterator {
         let SignedBlock::V1(block) = self;
-        &block.signatures
+        block.signatures.iter()
     }
 
     /// Calculate block hash
     #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         iroha_crypto::HashOf::new(self)
+    }
+
+    /// Add signature to the block
+    ///
+    /// # Errors
+    ///
+    /// if signature is invalid
+    #[cfg(feature = "transparent_api")]
+    pub fn add_signature(
+        &mut self,
+        signature: BlockSignature,
+        public_key: &iroha_crypto::PublicKey,
+    ) -> Result<(), iroha_crypto::Error> {
+        if self.signatures().any(|s| signature.0 == s.0) {
+            return Err(iroha_crypto::Error::Signing(
+                "Duplicate signature".to_owned(),
+            ));
+        }
+
+        signature.1.verify(public_key, self.payload())?;
+
+        let SignedBlock::V1(block) = self;
+        block.signatures.push(signature);
+
+        Ok(())
+    }
+
+    /// Replace signatures without verification
+    #[cfg(feature = "transparent_api")]
+    pub fn replace_signatures_unchecked(
+        &mut self,
+        signatures: Vec<BlockSignature>,
+    ) -> Vec<BlockSignature> {
+        let SignedBlock::V1(block) = self;
+        std::mem::replace(&mut block.signatures, signatures)
     }
 
     /// Calculate block payload [`Hash`](`iroha_crypto::HashOf`).
@@ -208,66 +269,31 @@ impl SignedBlock {
     }
 
     /// Add additional signatures to this block
-    #[must_use]
     #[cfg(all(feature = "std", feature = "transparent_api"))]
-    pub fn sign(mut self, key_pair: &iroha_crypto::KeyPair) -> Self {
-        let SignedBlock::V1(block) = &mut self;
-        let signature = iroha_crypto::SignatureOf::new(key_pair, &block.payload);
-        block.signatures.insert(signature);
-        self
-    }
-
-    /// Add additional signatures to this block
-    ///
-    /// # Errors
-    ///
-    /// If given signature doesn't match block hash
-    #[cfg(feature = "transparent_api")]
-    pub fn add_signature(
-        &mut self,
-        signature: iroha_crypto::SignatureOf<BlockPayload>,
-    ) -> Result<(), iroha_crypto::error::Error> {
+    pub fn sign(&mut self, private_key: &iroha_crypto::PrivateKey, signatory: usize) {
         let SignedBlock::V1(block) = self;
-        signature.verify(&block.payload)?;
 
-        let SignedBlock::V1(block) = self;
-        block.signatures.insert(signature);
-
-        Ok(())
-    }
-
-    /// Add additional signatures to this block
-    #[cfg(feature = "transparent_api")]
-    pub fn replace_signatures(
-        &mut self,
-        signatures: iroha_crypto::SignaturesOf<BlockPayload>,
-    ) -> bool {
-        #[cfg(not(feature = "std"))]
-        use alloc::collections::BTreeSet;
-        #[cfg(feature = "std")]
-        use std::collections::BTreeSet;
-
-        let SignedBlock::V1(block) = self;
-        block.signatures = BTreeSet::new().into();
-
-        for signature in signatures {
-            if self.add_signature(signature).is_err() {
-                return false;
-            }
-        }
-
-        true
+        block.signatures.push(BlockSignature(
+            signatory as u64,
+            SignatureOf::new(private_key, &block.payload),
+        ));
     }
 }
 
 mod candidate {
+    #[cfg(not(feature = "std"))]
+    use alloc::collections::BTreeSet;
+    #[cfg(feature = "std")]
+    use std::collections::BTreeSet;
+
     use parity_scale_codec::Input;
 
     use super::*;
 
     #[derive(Decode, Deserialize)]
     struct SignedBlockCandidate {
-        signatures: SignaturesOf<BlockPayload>,
+        signatures: Vec<BlockSignature>,
+        #[serde(flatten)]
         payload: BlockPayload,
     }
 
@@ -276,14 +302,29 @@ mod candidate {
             self.validate_signatures()?;
             self.validate_header()?;
 
-            if self.payload.transactions.is_empty() {
-                return Err("Block is empty");
+            Ok(SignedBlockV1 {
+                signatures: self.signatures,
+                payload: self.payload,
+            })
+        }
+
+        fn validate_signatures(&self) -> Result<(), &'static str> {
+            if self.signatures.is_empty() {
+                return Err("Block missing signatures");
             }
 
-            Ok(SignedBlockV1 {
-                payload: self.payload,
-                signatures: self.signatures,
-            })
+            self.signatures
+                .iter()
+                .map(|signature| signature.0)
+                .try_fold(BTreeSet::new(), |mut acc, elem| {
+                    if !acc.insert(elem) {
+                        return Err("Duplicate signature in block");
+                    }
+
+                    Ok(acc)
+                })?;
+
+            Ok(())
         }
 
         fn validate_header(&self) -> Result<(), &'static str> {
@@ -295,7 +336,8 @@ mod candidate {
                 .iter()
                 .map(|value| value.as_ref().hash())
                 .collect::<MerkleTree<_>>()
-                .hash();
+                .hash()
+                .ok_or("Block is empty")?;
 
             if expected_txs_hash != actual_txs_hash {
                 return Err("Transactions' hash incorrect. Expected: {expected_txs_hash:?}, actual: {actual_txs_hash:?}");
@@ -303,12 +345,6 @@ mod candidate {
             // TODO: Validate Event recommendations somehow?
 
             Ok(())
-        }
-
-        fn validate_signatures(&self) -> Result<(), &'static str> {
-            self.signatures
-                .verify(&self.payload)
-                .map_err(|_| "Transaction contains invalid signatures")
         }
     }
 

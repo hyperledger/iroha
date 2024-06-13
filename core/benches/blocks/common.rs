@@ -25,23 +25,25 @@ pub fn create_block(
     state: &mut StateBlock<'_>,
     instructions: Vec<InstructionBox>,
     account_id: AccountId,
-    key_pair: &KeyPair,
+    private_key: &PrivateKey,
 ) -> CommittedBlock {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)
-        .sign(key_pair);
+        .sign(private_key);
     let limits = state.transaction_executor().transaction_limits;
 
-    let topology = Topology::new(UniqueVec::new());
+    let (peer_public_key, _) = KeyPair::random().into_parts();
+    let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+    let topology = Topology::new(vec![peer_id]);
     let block = BlockBuilder::new(
-        vec![AcceptedTransaction::accept(transaction, &chain_id, &limits).unwrap()],
+        vec![AcceptedTransaction::accept(transaction, &chain_id, limits).unwrap()],
         topology.clone(),
         Vec::new(),
     )
     .chain(0, state)
-    .sign(key_pair)
+    .sign(private_key)
     .unpack(|_| {})
     .commit(&topology)
     .unpack(|_| {})

@@ -4,11 +4,10 @@ use eyre::Result;
 use iroha::{
     client::{self, Client, QueryResult},
     crypto::KeyPair,
-    data_model::prelude::*,
-};
-use iroha_data_model::{
-    permission::Permission, role::RoleId, transaction::error::TransactionRejectionReason,
-    JsonString,
+    data_model::{
+        permission::Permission, prelude::*, role::RoleId,
+        transaction::error::TransactionRejectionReason, JsonString,
+    },
 };
 use iroha_genesis::GenesisTransaction;
 use serde_json::json;
@@ -103,7 +102,7 @@ fn permissions_disallow_asset_transfer() {
     );
     let transfer_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([transfer_asset])
-        .sign(&mouse_keypair);
+        .sign(mouse_keypair.private_key());
     let err = iroha
         .submit_transaction_blocking(&transfer_tx)
         .expect_err("Transaction was not rejected.");
@@ -152,7 +151,7 @@ fn permissions_disallow_asset_burn() {
     );
     let burn_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([burn_asset])
-        .sign(&mouse_keypair);
+        .sign(mouse_keypair.private_key());
 
     let err = iroha
         .submit_transaction_blocking(&burn_tx)
@@ -240,7 +239,7 @@ fn permissions_differ_not_only_by_names() {
 
     let grant_hats_access_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
         .with_instructions([allow_alice_to_set_key_value_in_hats])
-        .sign(&mouse_keypair);
+        .sign(mouse_keypair.private_key());
     client
         .submit_transaction_blocking(&grant_hats_access_tx)
         .expect("Failed grant permission to modify Mouse's hats");
@@ -276,7 +275,7 @@ fn permissions_differ_not_only_by_names() {
 
     let grant_shoes_access_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([allow_alice_to_set_key_value_in_shoes])
-        .sign(&mouse_keypair);
+        .sign(mouse_keypair.private_key());
 
     client
         .submit_transaction_blocking(&grant_shoes_access_tx)
@@ -329,7 +328,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
 
     let transaction = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([allow_alice_to_set_key_value_in_mouse_asset])
-        .sign(&mouse_keypair);
+        .sign(mouse_keypair.private_key());
     iroha
         .submit_transaction_blocking(&transaction)
         .expect("Failed to grant permission to alice.");

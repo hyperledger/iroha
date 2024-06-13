@@ -110,7 +110,7 @@ impl TransactionGossiper {
 
         let state_view = self.state.view();
         for tx in txs {
-            let transaction_limits = &state_view.config.transaction_limits;
+            let transaction_limits = state_view.config.transaction_limits;
 
             match AcceptedTransaction::accept(tx, &self.chain_id, transaction_limits) {
                 Ok(tx) => match self.queue.push(tx, &state_view) {
@@ -125,7 +125,7 @@ impl TransactionGossiper {
                         tx,
                         err: crate::queue::Error::IsInQueue,
                     }) => {
-                        iroha_logger::debug!(tx_payload_hash = %tx.as_ref().hash(), "Transaction already in the queue, ignoring...")
+                        iroha_logger::trace!(tx_payload_hash = %tx.as_ref().hash(), "Transaction already in the queue, ignoring...")
                     }
                     Err(crate::queue::Failure { tx, err }) => {
                         iroha_logger::error!(?err, tx_payload_hash = %tx.as_ref().hash(), "Failed to enqueue transaction.")

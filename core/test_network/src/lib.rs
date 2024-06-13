@@ -1,7 +1,5 @@
 //! Module for starting peers and networks. Used only for tests
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
-#[cfg(debug_assertions)]
-use std::sync::atomic::AtomicBool;
 use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc, thread};
 
 use eyre::Result;
@@ -136,10 +134,11 @@ impl TestGenesis for GenesisTransaction {
 impl Network {
     /// Collect the freeze handles from all the peers in the network.
     #[cfg(debug_assertions)]
-    pub fn get_freeze_status_handles(&self) -> Vec<Arc<AtomicBool>> {
+    pub fn get_freeze_status_handles(&self) -> Vec<irohad::FreezeStatus> {
         self.peers()
             .filter_map(|peer| peer.irohad.as_ref())
-            .map(|irohad| irohad.freeze_status().clone())
+            .map(|iroha| iroha.freeze_status())
+            .cloned()
             .collect()
     }
 
@@ -342,7 +341,6 @@ pub fn wait_for_genesis_committed_with_max_retries(
         let ready_peers = clients
             .iter()
             .map(|client| {
-                println!("KITA: {:?}", client.get_status().unwrap());
                 let is_ready = match client.get_status() {
                     Ok(status) => status.blocks >= 1,
                     Err(error) => {
@@ -354,7 +352,6 @@ pub fn wait_for_genesis_committed_with_max_retries(
             })
             .sum::<u32>();
 
-        println!("Ready peers: {ready_peers}");
         let without_genesis_peers = clients.len() as u32 - ready_peers;
         if without_genesis_peers <= offline_peers {
             return;

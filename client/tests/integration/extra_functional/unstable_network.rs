@@ -1,9 +1,8 @@
-use core::sync::atomic::Ordering;
 use std::thread;
 
 use iroha::{
     client::{self, Client, QueryResult},
-    data_model::{prelude::*, Level},
+    data_model::prelude::*,
 };
 use iroha_config::parameters::actual::Root as Config;
 use rand::seq::SliceRandom;
@@ -14,7 +13,7 @@ use tokio::runtime::Runtime;
 const MAX_TRANSACTIONS_IN_BLOCK: u32 = 5;
 
 #[test]
-fn unstable_network_4_peers_1_fault() {
+fn unstable_network_5_peers_1_fault() {
     let n_peers = 4;
     let n_transactions = 20;
     unstable_network(n_peers, 1, n_transactions, false, 10_805);
@@ -28,7 +27,7 @@ fn soft_fork() {
 }
 
 #[test]
-fn unstable_network_7_peers_1_fault() {
+fn unstable_network_8_peers_1_fault() {
     let n_peers = 7;
     let n_transactions = 20;
     unstable_network(n_peers, 1, n_transactions, false, 10_850);
@@ -36,7 +35,7 @@ fn unstable_network_7_peers_1_fault() {
 
 #[test]
 #[ignore = "This test does not guarantee to have positive outcome given a fixed time."]
-fn unstable_network_7_peers_2_faults() {
+fn unstable_network_9_peers_2_faults() {
     unstable_network(7, 2, 5, false, 10_890);
 }
 
@@ -56,7 +55,6 @@ fn unstable_network(
         let mut configuration = Config::test();
         configuration.chain_wide.max_transactions_in_block =
             MAX_TRANSACTIONS_IN_BLOCK.try_into().unwrap();
-        configuration.logger.level = Level::INFO;
         #[cfg(debug_assertions)]
         {
             configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
@@ -97,7 +95,7 @@ fn unstable_network(
     for _i in 0..n_transactions {
         // Make random peers faulty.
         for f in freezers.choose_multiple(&mut rng, n_offline_peers as usize) {
-            f.store(true, Ordering::SeqCst);
+            f.freeze();
         }
 
         let quantity = Numeric::ONE;
@@ -127,7 +125,7 @@ fn unstable_network(
 
         // Return all peers to normal function.
         for f in &freezers {
-            f.store(false, Ordering::SeqCst);
+            f.unfreeze();
         }
     }
 }

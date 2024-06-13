@@ -9,6 +9,8 @@ use core::{
 };
 
 use derive_more::{DebugCustom, Display};
+#[cfg(feature = "http")]
+pub use http::*;
 use iroha_crypto::SignatureOf;
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
@@ -30,6 +32,7 @@ mod model {
     use getset::{CopyGetters, Getters};
 
     use super::*;
+    use crate::account::AccountId;
 
     /// Either ISI or Wasm binary
     #[derive(
@@ -141,6 +144,22 @@ mod model {
         pub max_wasm_size_bytes: u64,
     }
 
+    /// Signature of transaction
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct TransactionSignature(pub SignatureOf<TransactionPayload>);
+
     /// Transaction that contains a signature
     ///
     /// `Iroha` and its clients use [`Self`] to send transactions over the network.
@@ -156,8 +175,9 @@ mod model {
     #[ffi_type]
     pub struct SignedTransactionV1 {
         /// Signature of [`Self::payload`].
-        pub(super) signature: SignatureOf<TransactionPayload>,
+        pub(super) signature: TransactionSignature,
         /// Payload of the transaction.
+        #[serde(flatten)]
         pub(super) payload: TransactionPayload,
     }
 
@@ -240,6 +260,13 @@ declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq,
 declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
 
 impl SignedTransaction {
+    /// Transaction payload. Used for tests
+    #[cfg(feature = "transparent_api")]
+    pub fn payload(&self) -> &TransactionPayload {
+        let SignedTransaction::V1(tx) = self;
+        &tx.payload
+    }
+
     /// Return transaction instructions
     #[inline]
     pub fn instructions(&self) -> &Executable {
@@ -293,8 +320,7 @@ impl SignedTransaction {
 
     /// Return the transaction signature
     #[inline]
-    #[allow(private_interfaces)]
-    pub fn signature(&self) -> &SignatureOf<TransactionPayload> {
+    pub fn signature(&self) -> &TransactionSignature {
         let SignedTransaction::V1(tx) = self;
         &tx.signature
     }
@@ -303,20 +329,6 @@ impl SignedTransaction {
     #[inline]
     pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
         iroha_crypto::HashOf::new(self)
-    }
-
-    /// Sign transaction with provided key pair.
-    #[must_use]
-    pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
-        let SignedTransaction::V1(mut tx) = self;
-        let signature = iroha_crypto::SignatureOf::new(key_pair, &tx.payload);
-        tx.signature = signature;
-
-        SignedTransactionV1 {
-            payload: tx.payload,
-            signature: tx.signature,
-        }
-        .into()
     }
 }
 
@@ -348,33 +360,40 @@ mod candidate {
 
     #[derive(Decode, Deserialize)]
     struct SignedTransactionCandidate {
-        signature: SignatureOf<TransactionPayload>,
+        signature: TransactionSignature,
+        #[serde(flatten)]
         payload: TransactionPayload,
     }
 
     impl SignedTransactionCandidate {
         fn validate(self) -> Result<SignedTransactionV1, &'static str> {
+            self.validate_instructions()?;
             self.validate_signature()?;
-            self.validate_instructions()
+
+            Ok(SignedTransactionV1 {
+                signature: self.signature,
+                payload: self.payload,
+            })
         }
 
-        fn validate_instructions(self) -> Result<SignedTransactionV1, &'static str> {
+        fn validate_instructions(&self) -> Result<(), &'static str> {
             if let Executable::Instructions(instructions) = &self.payload.instructions {
                 if instructions.is_empty() {
                     return Err("Transaction is empty");
                 }
             }
 
-            Ok(SignedTransactionV1 {
-                payload: self.payload,
-                signature: self.signature,
-            })
+            Ok(())
         }
 
         fn validate_signature(&self) -> Result<(), &'static str> {
-            self.signature
-                .verify(&self.payload)
-                .map_err(|_| "Transaction contains invalid signatures")
+            let TransactionSignature(signature) = &self.signature;
+
+            signature
+                .verify(&self.payload.authority.signatory, &self.payload)
+                .map_err(|_| "Transaction signature is invalid")?;
+
+            Ok(())
         }
     }
 
@@ -743,12 +762,12 @@ mod http {
 
         /// Sign transaction with provided key pair.
         #[must_use]
-        pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
-            let signature = SignatureOf::new(key_pair, &self.payload);
+        pub fn sign(self, private_key: &iroha_crypto::PrivateKey) -> SignedTransaction {
+            let signature = TransactionSignature(SignatureOf::new(private_key, &self.payload));
 
             SignedTransactionV1 {
-                payload: self.payload,
                 signature,
+                payload: self.payload,
             }
             .into()
         }

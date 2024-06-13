@@ -3,9 +3,8 @@ use std::str::FromStr as _;
 use eyre::Result;
 use iroha::{
     client::{self, QueryResult},
-    data_model::prelude::*,
+    data_model::{prelude::*, transaction::error::TransactionRejectionReason},
 };
-use iroha_data_model::transaction::error::TransactionRejectionReason;
 use serde_json::json;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
@@ -77,7 +76,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let grant_role = Grant::role(role_id.clone(), alice_id.clone());
     let grant_role_tx = TransactionBuilder::new(chain_id, mouse_id.clone())
         .with_instructions([grant_role])
-        .sign(&mouse_keypair);
+        .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&grant_role_tx)?;
 
     // Alice modifies Mouse's metadata
@@ -237,7 +236,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
     let grant_role = Grant::role(role_id.clone(), alice_id.clone());
     let grant_role_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
         .with_instructions([grant_role])
-        .sign(&mouse_keypair);
+        .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&grant_role_tx)?;
 
     let set_key_value = SetKeyValue::account(
@@ -264,7 +263,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
     // Alice can modify Mouse's metadata after permission token is granted to role
     let grant_role_permission_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
         .with_instructions([grant_role_permission])
-        .sign(&mouse_keypair);
+        .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&grant_role_permission_tx)?;
     let found_permissions = test_client
         .request(FindPermissionsByAccountId::new(alice_id.clone()))?
@@ -275,7 +274,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
     // Alice can't modify Mouse's metadata after permission token is removed from role
     let revoke_role_permission_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
         .with_instructions([revoke_role_permission])
-        .sign(&mouse_keypair);
+        .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&revoke_role_permission_tx)?;
     let found_permissions = test_client
         .request(FindPermissionsByAccountId::new(alice_id.clone()))?

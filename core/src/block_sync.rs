@@ -203,7 +203,11 @@ pub mod message {
                     let start_height = match prev_hash {
                         Some(hash) => match block_sync.kura.get_block_height_by_hash(hash) {
                             None => {
-                                error!(?prev_hash, "Block hash not found");
+                                error!(
+                                    peer_id=%block_sync.peer_id,
+                                    block=%hash,
+                                    "Block hash not found"
+                                );
                                 return;
                             }
                             // It's get blocks *after*, so we add 1.
@@ -237,11 +241,11 @@ pub mod message {
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
-                    use crate::sumeragi::message::BlockMessage;
+                    use crate::sumeragi::message::BlockSyncUpdate;
+
                     for block in blocks.clone() {
-                        block_sync
-                            .sumeragi
-                            .incoming_block_message(BlockMessage::BlockSyncUpdate(block.into()));
+                        let msg = BlockSyncUpdate::from(&block);
+                        block_sync.sumeragi.incoming_block_message(msg);
                     }
                 }
             }

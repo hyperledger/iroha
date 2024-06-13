@@ -3,13 +3,13 @@ use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 use eyre::{eyre, Result, WrapErr};
 use iroha::{
     client::{self, Client},
+    crypto::KeyPair,
     data_model::{
         prelude::*,
         query::error::{FindError, QueryExecutionFail},
         transaction::{Executable, WasmSmartContract},
     },
 };
-use iroha_crypto::KeyPair;
 use iroha_genesis::GenesisTransaction;
 use iroha_logger::info;
 use serde_json::json;

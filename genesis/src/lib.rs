@@ -99,7 +99,7 @@ fn build_and_sign_genesis(
     );
     let transaction = TransactionBuilder::new(chain_id, genesis_account_id)
         .with_instructions(instructions)
-        .sign(genesis_key_pair);
+        .sign(genesis_key_pair.private_key());
     GenesisTransaction(transaction)
 }
 

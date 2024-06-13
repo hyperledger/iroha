@@ -44,7 +44,7 @@ impl StateApplyBlocks {
                         &mut state_block,
                         instructions,
                         alice_id.clone(),
-                        &alice_keypair,
+                        alice_keypair.private_key(),
                     );
                     let _events = state_block.apply_without_execution(&block);
                     state_block.commit();

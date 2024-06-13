@@ -1,10 +1,11 @@
 use std::fmt::Debug;
 
-use iroha_data_model::query::{IterableQuery, QueryOutputBox};
-
 use crate::{
     client::{Client, QueryOutput, QueryResult},
-    data_model::query::{predicate::PredicateBox, sorting::Sorting, FetchSize, Pagination, Query},
+    data_model::query::{
+        predicate::PredicateBox, sorting::Sorting, FetchSize, IterableQuery, Pagination, Query,
+        QueryOutputBox,
+    },
 };
 
 pub struct QueryRequestBuilder<'a, R> {

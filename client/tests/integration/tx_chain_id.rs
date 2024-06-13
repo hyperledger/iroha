@@ -1,6 +1,4 @@
-use std::str::FromStr;
-
-use iroha_data_model::prelude::*;
+use iroha::data_model::prelude::*;
 use iroha_primitives::numeric::numeric;
 use test_network::*;
 use test_samples::gen_account_in;
@@ -12,7 +10,9 @@ fn send_tx_with_different_chain_id() {
     // Given
     let (sender_id, sender_keypair) = gen_account_in("wonderland");
     let (receiver_id, _receiver_keypair) = gen_account_in("wonderland");
-    let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").unwrap();
+    let asset_definition_id = "test_asset#wonderland"
+        .parse::<AssetDefinitionId>()
+        .unwrap();
     let to_transfer = numeric!(1);
 
     let create_sender_account: InstructionBox =
@@ -44,10 +44,10 @@ fn send_tx_with_different_chain_id() {
     );
     let asset_transfer_tx_0 = TransactionBuilder::new(chain_id_0, sender_id.clone())
         .with_instructions([transfer_instruction.clone()])
-        .sign(&sender_keypair);
+        .sign(sender_keypair.private_key());
     let asset_transfer_tx_1 = TransactionBuilder::new(chain_id_1, sender_id.clone())
         .with_instructions([transfer_instruction])
-        .sign(&sender_keypair);
+        .sign(sender_keypair.private_key());
     test_client
         .submit_transaction_blocking(&asset_transfer_tx_0)
         .unwrap();

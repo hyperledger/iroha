@@ -2,13 +2,14 @@ use std::str::FromStr;
 
 use iroha::{
     client::{self, QueryResult},
-    data_model::{isi::Instruction, prelude::*, Registered},
-};
-use iroha_data_model::{
-    account::{Account, AccountId},
-    asset::{Asset, AssetDefinition},
-    isi::InstructionBox,
-    name::Name,
+    data_model::{
+        account::{Account, AccountId},
+        asset::{Asset, AssetDefinition},
+        isi::{Instruction, InstructionBox},
+        name::Name,
+        prelude::*,
+        Registered,
+    },
 };
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};

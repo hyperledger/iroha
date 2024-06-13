@@ -4,7 +4,6 @@ use eyre::Result;
 use futures_util::TryStreamExt as _;
 use iroha::{
     client::{self, Client, QueryResult},
-    crypto::KeyPair,
     data_model::prelude::*,
 };
 use iroha_data_model::parameter::{default::EXECUTOR_FUEL_LIMIT, ParametersBuilder};
@@ -24,11 +23,9 @@ fn executor_upgrade_should_work() -> Result<()> {
     let admin_id: AccountId = format!("{ADMIN_PUBLIC_KEY_MULTIHASH}@admin")
         .parse()
         .unwrap();
-    let admin_keypair = KeyPair::new(
-        admin_id.signatory().clone(),
-        ADMIN_PRIVATE_KEY_MULTIHASH.parse().unwrap(),
-    )
-    .unwrap();
+    let admin_private_key = ADMIN_PRIVATE_KEY_MULTIHASH
+        .parse::<iroha::crypto::PrivateKey>()
+        .unwrap();
 
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_795).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
@@ -49,7 +46,7 @@ fn executor_upgrade_should_work() -> Result<()> {
     let transfer_alice_rose = Transfer::asset_numeric(alice_rose, 1u32, admin_id.clone());
     let transfer_rose_tx = TransactionBuilder::new(chain_id.clone(), admin_id.clone())
         .with_instructions([transfer_alice_rose.clone()])
-        .sign(&admin_keypair);
+        .sign(&admin_private_key);
     let _ = client
         .submit_transaction_blocking(&transfer_rose_tx)
         .expect_err("Should fail");
@@ -63,7 +60,7 @@ fn executor_upgrade_should_work() -> Result<()> {
     // Creating new transaction instead of cloning, because we need to update it's creation time
     let transfer_rose_tx = TransactionBuilder::new(chain_id, admin_id.clone())
         .with_instructions([transfer_alice_rose])
-        .sign(&admin_keypair);
+        .sign(&admin_private_key);
     client
         .submit_transaction_blocking(&transfer_rose_tx)
         .expect("Should succeed");
