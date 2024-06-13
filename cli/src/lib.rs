@@ -359,8 +359,6 @@ impl Iroha {
 
         #[cfg(debug_assertions)]
         let freeze_status = FreezeStatus::new(config.common.peer.clone());
-        Arc::new(AtomicBool::new(false));
-
         let notify_shutdown = Arc::new(Notify::new());
 
         NetworkRelay {

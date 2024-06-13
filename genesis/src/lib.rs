@@ -31,9 +31,9 @@ pub struct GenesisTransaction(pub SignedTransaction);
 pub struct RawGenesisTransaction {
     instructions: Vec<InstructionBox>,
     /// Path to the [`Executor`] file
-    executor_file: PathBuf,
+    executor: PathBuf,
     /// Unique id of blockchain
-    chain_id: ChainId,
+    chain: ChainId,
 }
 
 impl RawGenesisTransaction {
@@ -61,11 +61,11 @@ impl RawGenesisTransaction {
                 path.as_ref().display()
             )
         })?;
-        value.executor_file = path
+        value.executor = path
             .as_ref()
             .parent()
             .expect("genesis must be a file in some directory")
-            .join(value.executor_file);
+            .join(value.executor);
         Ok(value)
     }
 
@@ -79,9 +79,9 @@ impl RawGenesisTransaction {
     /// # Errors
     /// If executor couldn't be read from provided path
     pub fn build_and_sign(self, genesis_key_pair: &KeyPair) -> Result<GenesisTransaction> {
-        let executor = get_executor(&self.executor_file)?;
+        let executor = get_executor(&self.executor)?;
         let genesis =
-            build_and_sign_genesis(self.instructions, executor, self.chain_id, genesis_key_pair);
+            build_and_sign_genesis(self.instructions, executor, self.chain, genesis_key_pair);
         Ok(genesis)
     }
 }
@@ -181,8 +181,8 @@ impl GenesisTransactionBuilder {
     pub fn build_raw(self, executor_file: PathBuf, chain_id: ChainId) -> RawGenesisTransaction {
         RawGenesisTransaction {
             instructions: self.instructions,
-            executor_file,
-            chain_id,
+            executor: executor_file,
+            chain: chain_id,
         }
     }
 }
