@@ -4,26 +4,25 @@ use crate::{path, peer, ImageSettings, PeerSettings};
 
 mod serde_impls;
 
+/// Schema serialization error.
+#[derive(displaydoc::Display, Debug)]
+pub enum Error {
+    /// Could not write the banner: {0}
+    BannerWrite(std::io::Error),
+    /// Could not serialize the schema: {0}
+    SerdeYaml(serde_yaml::Error),
+}
+
+impl std::error::Error for Error {}
+
 /// Image identifier.
 #[derive(serde::Serialize, Copy, Clone, Debug)]
 #[serde(transparent)]
 struct ImageId<'a>(&'a str);
 
-/// Dictates how the image provider will pull the image from Docker Hub.
-#[derive(serde::Serialize, Debug)]
-enum PullPolicy {
-    /// Always pull the image, ignoring the local cache.
-    #[serde(rename = "always")]
-    IgnoreCache,
-    /// Only pull the image when it is missing from the local cache.
-    #[serde(rename = "missing")]
-    OnCacheMiss,
-}
-
 /// Dictates how the image provider will build the image from a Dockerfile.
-#[derive(serde::Serialize, Debug)]
-//#[serde(untagged)]
-enum BuildPolicy {
+#[derive(serde::Serialize, Copy, Clone, Debug)]
+enum Build {
     /// Rebuild the image, ignoring the local cache.
     #[serde(rename = "build")]
     IgnoreCache,
@@ -32,57 +31,109 @@ enum BuildPolicy {
     OnCacheMiss,
 }
 
+/// Dictates that a service must use the built image.
+#[derive(serde::Serialize, Copy, Clone, Debug)]
+enum UseBuilt {
+    #[serde(rename = "never")]
+    UseCached,
+}
+
+/// Dictates how a service will pull the image from Docker Hub.
+#[derive(serde::Serialize, Copy, Clone, Debug)]
+enum Pull {
+    /// Always pull the image, ignoring the local cache.
+    #[serde(rename = "always")]
+    IgnoreCache,
+    /// Only pull the image when it is missing from the local cache.
+    #[serde(rename = "missing")]
+    OnCacheMiss,
+}
+
+impl Pull {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn is_missing(&self) -> bool {
+        matches!(self, Self::OnCacheMiss)
+    }
+}
+
 /// Path on the host.
 #[derive(serde::Serialize, Copy, Clone, Debug)]
 #[serde(transparent)]
 struct HostPath<'a>(&'a path::RelativePath);
 
-/// Dictates whether the image provider will pull or build the image.
-#[derive(serde::Serialize, Debug)]
-#[serde(untagged)]
-#[allow(variant_size_differences)]
-enum ImagePolicy<'a> {
-    Pull {
-        pull_policy: PullPolicy,
-    },
-    Build {
-        build: HostPath<'a>,
-        pull_policy: BuildPolicy,
-    },
-}
-
 /// Dummy command used to terminate a service instead of running the image.
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 struct EchoOk;
 
 const ECHO_OK: &str = "echo ok";
 
-/// Dummy service that pulls or builds the image and terminates.
-#[derive(serde::Serialize, Debug)]
-struct ImageProvider<'a> {
+/// Dummy service that builds the image and terminates.
+#[derive(serde::Serialize, Copy, Clone, Debug)]
+struct ImageBuilder<'a> {
     image: ImageId<'a>,
-    #[serde(flatten)]
-    policy: ImagePolicy<'a>,
+    build: HostPath<'a>,
+    pull_policy: Build,
     command: EchoOk,
 }
 
+impl<'a> ImageBuilder<'a> {
+    fn new(image: ImageId<'a>, build: HostPath<'a>, ignore_cache: bool) -> Self {
+        Self {
+            image,
+            build,
+            pull_policy: if ignore_cache {
+                Build::IgnoreCache
+            } else {
+                Build::OnCacheMiss
+            },
+            command: EchoOk,
+        }
+    }
+}
+
 /// Reference to the image provider.
-#[derive(Debug)]
-struct ImageProviderRef;
+#[derive(Copy, Clone, Debug)]
+struct ImageBuilderRef;
 
-const IMAGE_PROVIDER: &str = "image_provider";
-
-/// Always use the image from the local cache.
-#[derive(Debug)]
-struct UseCached;
-
-const USE_CACHED: &str = "never";
+const IMAGE_BUILDER: &str = "builder";
 
 /// Image that has been pulled or built.
-#[derive(serde::Serialize, Debug)]
-struct LocalImage<'a> {
+#[derive(serde::Serialize, Copy, Clone, Debug)]
+struct BuiltImage<'a> {
+    depends_on: [ImageBuilderRef; 1],
     image: ImageId<'a>,
-    pull_policy: UseCached,
+    pull_policy: UseBuilt,
+}
+
+/// Image that has been pulled or built.
+#[derive(serde::Serialize, Copy, Clone, Debug)]
+struct PulledImage<'a> {
+    image: ImageId<'a>,
+    #[serde(skip_serializing_if = "Pull::is_missing")]
+    pull_policy: Pull,
+}
+
+impl<'a> BuiltImage<'a> {
+    fn new(image: ImageId<'a>) -> Self {
+        Self {
+            depends_on: [ImageBuilderRef],
+            image,
+            pull_policy: UseBuilt::UseCached,
+        }
+    }
+}
+
+impl<'a> PulledImage<'a> {
+    fn new(image: ImageId<'a>, ignore_cache: bool) -> Self {
+        Self {
+            image,
+            pull_policy: if ignore_cache {
+                Pull::IgnoreCache
+            } else {
+                Pull::OnCacheMiss
+            },
+        }
+    }
 }
 
 /// Compile-time boolean literal.
@@ -169,11 +220,14 @@ const HEALTH_CHECK_START_PERIOD: &str = "4s";
 
 /// Base Iroha peer service.
 #[derive(serde::Serialize, Debug)]
-struct BaseIrohad<'a, Env: serde::Serialize> {
-    depends_on: [ImageProviderRef; 1],
+struct BaseIrohad<'a, Environment, Image>
+where
+    Environment: serde::Serialize,
+    Image: serde::Serialize,
+{
     #[serde(flatten)]
-    image: LocalImage<'a>,
-    environment: Env,
+    image: Image,
+    environment: Environment,
     ports: [PortMapping; 2],
     volumes: [PathMapping<'a>; 1],
     init: Bool<true>,
@@ -181,20 +235,20 @@ struct BaseIrohad<'a, Env: serde::Serialize> {
     healthcheck: Option<Healthcheck>,
 }
 
-impl<'a, Env: serde::Serialize> BaseIrohad<'a, Env> {
+impl<'a, Environment, Image> BaseIrohad<'a, Environment, Image>
+where
+    Environment: serde::Serialize,
+    Image: serde::Serialize,
+{
     fn new(
-        image: ImageId<'a>,
-        environment: Env,
+        image: Image,
+        environment: Environment,
         [port_p2p, port_api]: [u16; 2],
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
     ) -> Self {
         Self {
-            depends_on: [ImageProviderRef],
-            image: LocalImage {
-                image,
-                pull_policy: UseCached,
-            },
+            image,
             environment,
             ports: [
                 PortMapping(port_p2p, port_p2p),
@@ -209,63 +263,72 @@ impl<'a, Env: serde::Serialize> BaseIrohad<'a, Env> {
 
 /// Command used by the genesis service to sign and submit genesis.
 #[derive(Debug)]
-struct SignAndSubmitGenesis<'a>(&'a peer::ExposedKeyPair);
+struct SignAndSubmitGenesis<'a>(&'a iroha_crypto::ExposedPrivateKey);
 
 const SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/sh -c "
-  kagami genesis sign /config/genesis.json \
-    --public-key $$GENESIS_PUBLIC_KEY \
-    --private-key $$GENESIS_PRIVATE_KEY \
-    --out-file $$GENESIS_SIGNED_FILE && \
+  kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
   irohad --submit-genesis
 ""#;
 
 /// Configuration of the `irohad` service that submits genesis.
 #[derive(serde::Serialize, Debug)]
-struct Irohad0<'a> {
+struct Irohad0<'a, Image>
+where
+    Image: serde::Serialize,
+{
     #[serde(flatten)]
-    base: BaseIrohad<'a, GenesisEnv<'a>>,
+    base: BaseIrohad<'a, GenesisEnv<'a>, Image>,
     command: SignAndSubmitGenesis<'a>,
 }
 
-impl<'a> Irohad0<'a> {
+impl<'a, Image> Irohad0<'a, Image>
+where
+    Image: serde::Serialize,
+{
     #[allow(clippy::too_many_arguments)]
     fn new(
         key_pair: &'a peer::ExposedKeyPair,
         ports: [u16; 2],
-        image: ImageId<'a>,
+        image: Image,
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
-        genesis_key_pair: &'a peer::ExposedKeyPair,
+        (genesis_public_key, genesis_private_key): &'a peer::ExposedKeyPair,
         trusted_peers: impl Iterator<Item = &'a iroha_data_model::peer::PeerId>,
     ) -> Self {
         Self {
             base: BaseIrohad::new(
                 image,
                 GenesisEnv {
-                    base: PeerEnv::new(key_pair, ports, chain, &genesis_key_pair.0, trusted_peers),
+                    base: PeerEnv::new(key_pair, ports, chain, genesis_public_key, trusted_peers),
                     genesis_signed_file: ContainerPath(GENESIS_SIGNED_FILE),
                 },
                 ports,
                 volumes,
                 healthcheck,
             ),
-            command: SignAndSubmitGenesis(key_pair),
+            command: SignAndSubmitGenesis(genesis_private_key),
         }
     }
 }
 
 /// Configuration of a regular `irohad` service.
 #[derive(serde::Serialize, Debug)]
-struct Irohad<'a> {
+struct Irohad<'a, ImagePolicy>
+where
+    ImagePolicy: serde::Serialize,
+{
     #[serde(flatten)]
-    base: BaseIrohad<'a, PeerEnv<'a>>,
+    base: BaseIrohad<'a, PeerEnv<'a>, ImagePolicy>,
 }
 
-impl<'a> Irohad<'a> {
+impl<'a, Image> Irohad<'a, Image>
+where
+    Image: serde::Serialize,
+{
     #[allow(clippy::too_many_arguments)]
     fn new(
-        image: ImageId<'a>,
+        image: Image,
         key_pair: &'a peer::ExposedKeyPair,
         ports: [u16; 2],
         volumes: [PathMapping<'a>; 1],
@@ -290,30 +353,83 @@ impl<'a> Irohad<'a> {
 #[derive(Debug, PartialOrd, PartialEq, Ord, Eq)]
 struct IrohadRef(u16);
 
-/// Compose services.
+/// Peer services.
 #[derive(serde::Serialize, Debug)]
-struct Services<'a> {
-    image_provider: ImageProvider<'a>,
-    irohad0: Irohad0<'a>,
+struct Services<'a, Image>
+where
+    Image: serde::Serialize,
+{
+    irohad0: Irohad0<'a, Image>,
     #[serde(flatten, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    irohads: std::collections::BTreeMap<IrohadRef, Irohad<'a>>,
+    irohads: std::collections::BTreeMap<IrohadRef, Irohad<'a, Image>>,
 }
 
-/// Schema serialization error.
-#[derive(displaydoc::Display, Debug)]
-pub enum Error {
-    /// Could not write the banner: {0}.
-    BannerWrite(std::io::Error),
-    /// Could not serialize the schema: {0}.
-    SerdeYaml(serde_yaml::Error),
+impl<'a, Image> Services<'a, Image>
+where
+    Image: serde::Serialize + Copy,
+{
+    fn new(
+        image: Image,
+        volumes: [PathMapping<'a>; 1],
+        healthcheck: bool,
+        chain: &'a iroha_data_model::ChainId,
+        genesis_key_pair: &'a peer::ExposedKeyPair,
+        network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
+        trusted_peers: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
+    ) -> Self {
+        Self {
+            irohad0: {
+                let (_, irohad0_ports, irohad0_key_pair) =
+                    network.get(&0).expect("irohad0 must be present");
+                Irohad0::new(
+                    irohad0_key_pair,
+                    *irohad0_ports,
+                    image,
+                    volumes,
+                    healthcheck,
+                    chain,
+                    genesis_key_pair,
+                    trusted_peers.iter(),
+                )
+            },
+            irohads: network
+                .iter()
+                .skip(1)
+                .map(|(id, (_, ports, key_pair))| {
+                    (
+                        IrohadRef(*id),
+                        Irohad::new(
+                            image,
+                            key_pair,
+                            *ports,
+                            volumes,
+                            healthcheck,
+                            chain,
+                            &genesis_key_pair.0,
+                            trusted_peers.iter(),
+                        ),
+                    )
+                })
+                .collect(),
+        }
+    }
 }
 
-impl std::error::Error for Error {}
+#[derive(serde::Serialize, Debug)]
+#[serde(untagged)]
+enum BuildOrPull<'a> {
+    Build {
+        builder: ImageBuilder<'a>,
+        #[serde(flatten)]
+        services: Services<'a, BuiltImage<'a>>,
+    },
+    Pull(Services<'a, PulledImage<'a>>),
+}
 
 /// Docker Compose configuration.
 #[derive(serde::Serialize, Debug)]
 pub struct DockerCompose<'a> {
-    services: Services<'a>,
+    services: BuildOrPull<'a>,
 }
 
 impl<'a> DockerCompose<'a> {
@@ -339,60 +455,31 @@ impl<'a> DockerCompose<'a> {
             ContainerPath(CONTAINER_CONFIG_DIR),
         )];
         Self {
-            services: Services {
-                image_provider: ImageProvider {
-                    image,
-                    policy: build_dir.as_ref().map_or(
-                        ImagePolicy::Pull {
-                            pull_policy: match ignore_cache {
-                                true => PullPolicy::IgnoreCache,
-                                false => PullPolicy::OnCacheMiss,
-                            },
-                        },
-                        |build| ImagePolicy::Build {
-                            build: HostPath(build),
-                            pull_policy: match ignore_cache {
-                                true => BuildPolicy::IgnoreCache,
-                                false => BuildPolicy::OnCacheMiss,
-                            },
-                        },
-                    ),
-                    command: EchoOk,
-                },
-                irohad0: {
-                    let (_, irohad0_ports, irohad0_key_pair) =
-                        network.get(&0).expect("irohad0 must be present");
-                    Irohad0::new(
-                        irohad0_key_pair,
-                        *irohad0_ports,
-                        image,
+            services: build_dir.as_ref().map_or_else(
+                || {
+                    BuildOrPull::Pull(Services::new(
+                        PulledImage::new(image, *ignore_cache),
                         volumes,
                         *healthcheck,
                         chain,
                         genesis_key_pair,
-                        trusted_peers.iter(),
-                    )
+                        network,
+                        trusted_peers,
+                    ))
                 },
-                irohads: network
-                    .iter()
-                    .skip(1)
-                    .map(|(id, (_, ports, key_pair))| {
-                        (
-                            IrohadRef(*id),
-                            Irohad::new(
-                                image,
-                                key_pair,
-                                *ports,
-                                volumes,
-                                *healthcheck,
-                                chain,
-                                &genesis_key_pair.0,
-                                trusted_peers.iter(),
-                            ),
-                        )
-                    })
-                    .collect(),
-            },
+                |build| BuildOrPull::Build {
+                    builder: ImageBuilder::new(image, HostPath(build), *ignore_cache),
+                    services: Services::new(
+                        BuiltImage::new(image),
+                        volumes,
+                        *healthcheck,
+                        chain,
+                        genesis_key_pair,
+                        network,
+                        trusted_peers,
+                    ),
+                },
+            ),
         }
     }
 

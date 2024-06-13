@@ -18,21 +18,12 @@ impl<const VALUE: bool> serde::Serialize for super::Bool<VALUE> {
     }
 }
 
-impl serde::Serialize for super::ImageProviderRef {
+impl serde::Serialize for super::ImageBuilderRef {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        ser.serialize_str(super::IMAGE_PROVIDER)
-    }
-}
-
-impl serde::Serialize for super::UseCached {
-    fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        ser.serialize_str(super::USE_CACHED)
+        ser.serialize_str(super::IMAGE_BUILDER)
     }
 }
 
@@ -41,12 +32,10 @@ impl serde::Serialize for super::SignAndSubmitGenesis<'_> {
     where
         S: serde::Serializer,
     {
-        let (public_key, private_key) = self.0;
+        let private_key = self.0;
         ser.serialize_str(
             &super::SIGN_AND_SUBMIT_GENESIS
-                .replace("$$GENESIS_PUBLIC_KEY", &public_key.to_string())
-                .replace("$$GENESIS_PRIVATE_KEY", &private_key.to_string())
-                .replace("$$GENESIS_SIGNED_FILE", super::GENESIS_SIGNED_FILE),
+                .replace("$$GENESIS_PRIVATE_KEY", &private_key.to_string()),
         )
     }
 }

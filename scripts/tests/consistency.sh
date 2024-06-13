@@ -18,23 +18,22 @@ case $1 in
             cmd_base=$1
             target=$2
             full_cmd="$cmd_base --out-file $target --print"
-            # skip the first line with the argument list
-            diff <(eval "$full_cmd" | tail -n +2) <(tail -n +2 "$target") || {
+            diff <(eval "$full_cmd") "$target" || {
                 echo "Please re-generate \`$target\` with \`$cmd_base --out-file $target\`"
                 exit 1
             }
         }
 
         command_base_for_single() {
-            echo "cargo run --release --bin iroha_swarm -- -H -p 1 -s xyzzy -c ./configs/swarm -i hyperledger/iroha:local -b ."
+            echo "cargo run --release --bin iroha_swarm -- -p 1 -s Iroha -H -c ./configs/swarm -i hyperledger/iroha:local -b ."
         }
 
         command_base_for_multiple_local() {
-            echo "cargo run --release --bin iroha_swarm -- -H -p 4 -s xyzzy -c ./configs/swarm -i hyperledger/iroha:local -b ."
+            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha -H -c ./configs/swarm -i hyperledger/iroha:local -b ."
         }
 
         command_base_for_default() {
-            echo "cargo run --release --bin iroha_swarm -- -H -p 4 -s xyzzy -c ./configs/swarm -i hyperledger/iroha:dev"
+            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha -H -c ./configs/swarm -i hyperledger/iroha:dev"
         }
 
 

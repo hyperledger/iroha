@@ -12,7 +12,7 @@ pub struct RelativePath(std::path::PathBuf);
 
 #[derive(displaydoc::Display, Debug)]
 pub enum Error {
-    /// Failed to construct an absolute path: {0}.
+    /// Failed to construct an absolute path: {0}
     AbsolutePath(std::io::Error),
     /// Failed to construct a relative path.
     RelativePath,
