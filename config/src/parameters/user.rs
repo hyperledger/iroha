@@ -512,7 +512,7 @@ impl ChainWide {
 pub struct Torii {
     #[config(env = "API_ADDRESS")]
     pub address: WithOrigin<SocketAddr>,
-    #[config(default = "defaults::torii::MAX_CONTENT_LENGTH")]
+    #[config(default = "defaults::torii::MAX_CONTENT_LEN")]
     pub max_content_len: Bytes<u64>,
     #[config(default = "defaults::torii::QUERY_IDLE_TIME.into()")]
     pub query_idle_time_ms: DurationMs,

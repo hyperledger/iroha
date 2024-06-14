@@ -382,7 +382,7 @@ fn full_config_ok() {
 
                 [torii]
                 address = "127.0.0.2:1337"
-                max_content_length = 19
+                max_content_len = 19
 
                 [kura]
                 store_dir = "./my-storage"

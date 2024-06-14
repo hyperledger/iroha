@@ -85,7 +85,7 @@ pub mod torii {
 
     use iroha_config_base::util::Bytes;
 
-    pub const MAX_CONTENT_LENGTH: Bytes<u64> = Bytes(2_u64.pow(20) * 16);
+    pub const MAX_CONTENT_LEN: Bytes<u64> = Bytes(2_u64.pow(20) * 16);
     pub const QUERY_IDLE_TIME: Duration = Duration::from_secs(30);
 }
 

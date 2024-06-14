@@ -52,7 +52,7 @@ pub struct Torii {
     notify_shutdown: Arc<Notify>,
     query_service: LiveQueryStoreHandle,
     kura: Arc<Kura>,
-    transaction_max_content_length: Bytes<u64>,
+    transaction_max_content_len: Bytes<u64>,
     address: SocketAddr,
     state: Arc<State>,
     #[cfg(feature = "telemetry")]
@@ -86,7 +86,7 @@ impl Torii {
             #[cfg(feature = "telemetry")]
             metrics_reporter,
             address: config.address.into_value(),
-            transaction_max_content_length: config.max_content_len,
+            transaction_max_content_len: config.max_content_len,
         }
     }
 
@@ -168,7 +168,7 @@ impl Torii {
                     warp::path(uri::TRANSACTION)
                         .and(add_state!(self.chain_id, self.queue, self.state.clone()))
                         .and(warp::body::content_length_limit(
-                            self.transaction_max_content_length.get(),
+                            self.transaction_max_content_len.get(),
                         ))
                         .and(body::versioned()),
                 )
