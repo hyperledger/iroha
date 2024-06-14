@@ -1323,7 +1323,7 @@
       },
       {
         "name": "authority",
-        "type": "AccountId"
+        "type": "FilterOpt<AccountId>"
       }
     ]
   },
@@ -1542,6 +1542,19 @@
         "tag": "BySome",
         "discriminant": 1,
         "type": "AccountFilter"
+      }
+    ]
+  },
+  "FilterOpt<AccountId>": {
+    "Enum": [
+      {
+        "tag": "AcceptAll",
+        "discriminant": 0
+      },
+      {
+        "tag": "BySome",
+        "discriminant": 1,
+        "type": "AccountId"
       }
     ]
   },
