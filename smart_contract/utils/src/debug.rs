@@ -23,9 +23,12 @@ mod host {
     }
 }
 
-/// Print `obj` in debug representation to the stdout.
+/// Print `obj` in debug representation.
 ///
-/// Do nothing if `debug` feature is not specified
+/// When running as a wasm smart contract, prints to host's stdout.
+/// Does nothing unless `debug` feature is enabled.
+///
+/// When running outside of wasm, always prints the output to stderr
 #[allow(unused_variables)]
 pub fn dbg<T: Debug + ?Sized>(obj: &T) {
     cfg_if! {
