@@ -21,7 +21,7 @@ use error_stack::{Result, ResultExt};
 use iroha_config_base::{
     attach::ConfigValueAndOrigin,
     env::FromEnvStr,
-    util::{Emitter, EmitterResultExt, HumanBytes, HumanDuration},
+    util::{Bytes, DurationMs, Emitter, EmitterResultExt},
     ReadConfig, WithOrigin,
 };
 use iroha_crypto::{PrivateKey, PublicKey};
@@ -275,14 +275,14 @@ pub struct Network {
     #[config(default = "defaults::network::BLOCK_GOSSIP_MAX_SIZE")]
     pub block_gossip_max_size: NonZeroU32,
     #[config(default = "defaults::network::BLOCK_GOSSIP_PERIOD.into()")]
-    pub block_gossip_period: HumanDuration,
+    pub block_gossip_period_ms: DurationMs,
     #[config(default = "defaults::network::TRANSACTION_GOSSIP_MAX_SIZE")]
     pub transaction_gossip_max_size: NonZeroU32,
     #[config(default = "defaults::network::TRANSACTION_GOSSIP_PERIOD.into()")]
-    pub transaction_gossip_period: HumanDuration,
+    pub transaction_gossip_period_ms: DurationMs,
     /// Duration of time after which connection with peer is terminated if peer is idle
     #[config(default = "defaults::network::IDLE_TIMEOUT.into()")]
-    pub idle_timeout: HumanDuration,
+    pub idle_timeout_ms: DurationMs,
 }
 
 impl Network {
@@ -296,10 +296,10 @@ impl Network {
         let Self {
             address,
             block_gossip_max_size,
-            block_gossip_period,
+            block_gossip_period_ms: block_gossip_period,
             transaction_gossip_max_size,
-            transaction_gossip_period,
-            idle_timeout,
+            transaction_gossip_period_ms: transaction_gossip_period,
+            idle_timeout_ms: idle_timeout,
         } = self;
 
         (
@@ -330,10 +330,10 @@ pub struct Queue {
     pub capacity_per_user: NonZeroUsize,
     /// The transaction will be dropped after this time if it is still in the queue.
     #[config(default = "defaults::queue::TRANSACTION_TIME_TO_LIVE.into()")]
-    pub transaction_time_to_live: HumanDuration,
+    pub transaction_time_to_live_ms: DurationMs,
     /// The threshold to determine if a transaction has been tampered to have a future timestamp.
     #[config(default = "defaults::queue::FUTURE_THRESHOLD.into()")]
-    pub future_threshold: HumanDuration,
+    pub future_threshold_ms: DurationMs,
 }
 
 impl Queue {
@@ -341,8 +341,8 @@ impl Queue {
         let Self {
             capacity,
             capacity_per_user,
-            transaction_time_to_live,
-            future_threshold,
+            transaction_time_to_live_ms: transaction_time_to_live,
+            future_threshold_ms: future_threshold,
         } = self;
         actual::Queue {
             capacity,
@@ -374,17 +374,17 @@ pub struct Telemetry {
     name: String,
     url: Url,
     #[serde(default)]
-    min_retry_period: TelemetryMinRetryPeriod,
+    min_retry_period_ms: TelemetryMinRetryPeriod,
     #[serde(default)]
     max_retry_delay_exponent: TelemetryMaxRetryDelayExponent,
 }
 
 #[derive(Deserialize, Debug, Copy, Clone)]
-struct TelemetryMinRetryPeriod(HumanDuration);
+struct TelemetryMinRetryPeriod(DurationMs);
 
 impl Default for TelemetryMinRetryPeriod {
     fn default() -> Self {
-        Self(HumanDuration(defaults::telemetry::MIN_RETRY_PERIOD))
+        Self(DurationMs(defaults::telemetry::MIN_RETRY_PERIOD))
     }
 }
 
@@ -402,7 +402,7 @@ impl From<Telemetry> for actual::Telemetry {
         Telemetry {
             name,
             url,
-            min_retry_period: TelemetryMinRetryPeriod(HumanDuration(min_retry_period)),
+            min_retry_period_ms: TelemetryMinRetryPeriod(DurationMs(min_retry_period)),
             max_retry_delay_exponent: TelemetryMaxRetryDelayExponent(max_retry_delay_exponent),
         }: Telemetry,
     ) -> Self {
@@ -425,7 +425,7 @@ pub struct Snapshot {
     #[config(default, env = "SNAPSHOT_MODE")]
     pub mode: SnapshotMode,
     #[config(default = "defaults::snapshot::CREATE_EVERY.into()")]
-    pub create_every: HumanDuration,
+    pub create_every_ms: DurationMs,
     #[config(
         default = "PathBuf::from(defaults::snapshot::STORE_DIR)",
         env = "SNAPSHOT_STORE_DIR"
@@ -439,9 +439,9 @@ pub struct ChainWide {
     #[config(default = "defaults::chain_wide::MAX_TXS")]
     pub max_transactions_in_block: NonZeroU32,
     #[config(default = "defaults::chain_wide::BLOCK_TIME.into()")]
-    pub block_time: HumanDuration,
+    pub block_time_ms: DurationMs,
     #[config(default = "defaults::chain_wide::COMMIT_TIME.into()")]
-    pub commit_time: HumanDuration,
+    pub commit_time_ms: DurationMs,
     #[config(default = "defaults::chain_wide::TRANSACTION_LIMITS")]
     pub transaction_limits: TransactionLimits,
     #[config(default = "defaults::chain_wide::METADATA_LIMITS")]
@@ -458,20 +458,20 @@ pub struct ChainWide {
     pub ident_length_limits: LengthLimits,
     #[config(default = "defaults::chain_wide::WASM_FUEL_LIMIT")]
     pub executor_fuel_limit: u64,
-    #[config(default = "defaults::chain_wide::WASM_MAX_MEMORY_BYTES")]
-    pub executor_max_memory: u32,
+    #[config(default = "defaults::chain_wide::WASM_MAX_MEMORY")]
+    pub executor_max_memory: Bytes<u32>,
     #[config(default = "defaults::chain_wide::WASM_FUEL_LIMIT")]
     pub wasm_fuel_limit: u64,
-    #[config(default = "defaults::chain_wide::WASM_MAX_MEMORY_BYTES")]
-    pub wasm_max_memory: u32,
+    #[config(default = "defaults::chain_wide::WASM_MAX_MEMORY")]
+    pub wasm_max_memory: Bytes<u32>,
 }
 
 impl ChainWide {
     fn parse(self) -> actual::ChainWide {
         let Self {
             max_transactions_in_block,
-            block_time,
-            commit_time,
+            block_time_ms: DurationMs(block_time),
+            commit_time_ms: DurationMs(commit_time),
             transaction_limits,
             asset_metadata_limits,
             trigger_metadata_limits,
@@ -487,8 +487,8 @@ impl ChainWide {
 
         actual::ChainWide {
             max_transactions_in_block,
-            block_time: block_time.get(),
-            commit_time: commit_time.get(),
+            block_time,
+            commit_time,
             transaction_limits,
             asset_metadata_limits,
             trigger_metadata_limits,
@@ -498,11 +498,11 @@ impl ChainWide {
             ident_length_limits,
             executor_runtime: actual::WasmRuntime {
                 fuel_limit: executor_fuel_limit,
-                max_memory_bytes: executor_max_memory,
+                max_memory: executor_max_memory,
             },
             wasm_runtime: actual::WasmRuntime {
                 fuel_limit: wasm_fuel_limit,
-                max_memory_bytes: wasm_max_memory,
+                max_memory: wasm_max_memory,
             },
         }
     }
@@ -512,21 +512,21 @@ impl ChainWide {
 pub struct Torii {
     #[config(env = "API_ADDRESS")]
     pub address: WithOrigin<SocketAddr>,
-    #[config(default = "defaults::torii::MAX_CONTENT_LENGTH.into()")]
-    pub max_content_length: HumanBytes<u64>,
+    #[config(default = "defaults::torii::MAX_CONTENT_LEN")]
+    pub max_content_len: Bytes<u64>,
     #[config(default = "defaults::torii::QUERY_IDLE_TIME.into()")]
-    pub query_idle_time: HumanDuration,
+    pub query_idle_time_ms: DurationMs,
 }
 
 impl Torii {
     fn parse(self) -> (actual::Torii, actual::LiveQueryStore) {
         let torii = actual::Torii {
             address: self.address,
-            max_content_len_bytes: self.max_content_length.get(),
+            max_content_len: self.max_content_len,
         };
 
         let query = actual::LiveQueryStore {
-            idle_time: self.query_idle_time.get(),
+            idle_time: self.query_idle_time_ms.get(),
         };
 
         (torii, query)

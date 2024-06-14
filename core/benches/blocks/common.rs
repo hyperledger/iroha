@@ -184,7 +184,7 @@ pub fn build_state(rt: &tokio::runtime::Handle, account_id: &AccountId) -> State
 
         state_block.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);
         state_block.config.executor_runtime.fuel_limit = u64::MAX;
-        state_block.config.executor_runtime.max_memory_bytes = u32::MAX;
+        state_block.config.executor_runtime.max_memory = u32::MAX.into();
 
         let mut state_transaction = state_block.transaction();
         let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

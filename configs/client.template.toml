@@ -13,7 +13,7 @@
 # private_key =
 
 [transaction]
-# time_to_live = "100s"
-# status_timeout = "100s"
+# time_to_live_ms = 100_000
+# status_timeout_ms = 100_000
 ## Nonce is TODO describe what it is
 # nonce = false

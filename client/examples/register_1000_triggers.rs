@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Increase executor limits for large genesis
     configuration.chain_wide.executor_runtime.fuel_limit = u64::MAX;
-    configuration.chain_wide.executor_runtime.max_memory_bytes = u32::MAX;
+    configuration.chain_wide.executor_runtime.max_memory = u32::MAX.into();
 
     let genesis = generate_genesis(1_000_u32, chain_id, &genesis_key_pair)?;
 

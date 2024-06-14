@@ -7,38 +7,37 @@ use drop_bomb::DropBomb;
 use error_stack::Report;
 use serde::{Deserialize, Serialize};
 
-/// [`Duration`], but can parse a human-readable string.
-/// TODO: currently deserializes just as [`Duration`]
+/// (De-)serialize [`Duration`] as a number of milliseconds
 #[serde_with::serde_as]
 #[derive(Debug, Copy, Clone, Deserialize, Serialize, Ord, PartialOrd, Eq, PartialEq, Display)]
 #[display(fmt = "{_0:?}")]
-pub struct HumanDuration(#[serde_as(as = "serde_with::DurationMilliSeconds")] pub Duration);
+pub struct DurationMs(#[serde_as(as = "serde_with::DurationMilliSeconds")] pub Duration);
 
-impl HumanDuration {
+impl DurationMs {
     /// Get the [`Duration`]
     pub fn get(self) -> Duration {
         self.0
     }
 }
 
-impl From<Duration> for HumanDuration {
+impl From<Duration> for DurationMs {
     fn from(value: Duration) -> Self {
         Self(value)
     }
 }
 
-/// Representation of number of bytes, parseable from a human-readable string.
+/// A number of bytes
 #[derive(Debug, Copy, Clone, Deserialize, Serialize)]
-pub struct HumanBytes<T: num_traits::int::PrimInt>(pub T);
+pub struct Bytes<T: num_traits::int::PrimInt>(pub T);
 
-impl<T: num_traits::int::PrimInt> HumanBytes<T> {
+impl<T: num_traits::int::PrimInt> Bytes<T> {
     /// Get the number of bytes
     pub fn get(self) -> T {
         self.0
     }
 }
 
-impl<T: num_traits::int::PrimInt> From<T> for HumanBytes<T> {
+impl<T: num_traits::int::PrimInt> From<T> for Bytes<T> {
     fn from(value: T) -> Self {
         Self(value)
     }
@@ -238,10 +237,10 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_human_duration() {
+    fn deserialize_duration_ms() {
         #[derive(Deserialize)]
         struct Test {
-            value: HumanDuration,
+            value: DurationMs,
         }
 
         let Test { value } = toml::toml! {

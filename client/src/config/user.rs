@@ -3,7 +3,7 @@
 use error_stack::{Report, ResultExt};
 use iroha_config_base::{
     attach::ConfigValueAndOrigin,
-    util::{Emitter, EmitterResultExt, HumanDuration},
+    util::{DurationMs, Emitter, EmitterResultExt},
     ReadConfig, WithOrigin,
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
@@ -55,8 +55,8 @@ impl Root {
                 },
             transaction:
                 Transaction {
-                    time_to_live: tx_ttl,
-                    status_timeout: tx_timeout,
+                    time_to_live_ms: tx_ttl,
+                    status_timeout_ms: tx_timeout,
                     nonce: tx_add_nonce,
                 },
         } = self;
@@ -122,9 +122,9 @@ pub struct Account {
 #[allow(missing_docs)]
 pub struct Transaction {
     #[config(default = "super::DEFAULT_TRANSACTION_TIME_TO_LIVE.into()")]
-    pub time_to_live: WithOrigin<HumanDuration>,
+    pub time_to_live_ms: WithOrigin<DurationMs>,
     #[config(default = "super::DEFAULT_TRANSACTION_STATUS_TIMEOUT.into()")]
-    pub status_timeout: WithOrigin<HumanDuration>,
+    pub status_timeout_ms: WithOrigin<DurationMs>,
     #[config(default = "super::DEFAULT_TRANSACTION_NONCE")]
     pub nonce: bool,
 }
