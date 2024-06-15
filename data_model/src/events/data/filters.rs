@@ -740,10 +740,7 @@ mod tests {
     use iroha_crypto::KeyPair;
 
     use super::*;
-    use crate::{
-        account::AccountsMap,
-        asset::{AssetDefinitionsMap, AssetTotalQuantityMap},
-    };
+    use crate::asset::{AssetDefinitionsMap, AssetTotalQuantityMap};
 
     #[test]
     #[cfg(feature = "transparent_api")]
@@ -755,7 +752,6 @@ mod tests {
 
         let domain = Domain {
             id: domain_id.clone(),
-            accounts: AccountsMap::default(),
             asset_definitions: AssetDefinitionsMap::default(),
             asset_total_quantities: AssetTotalQuantityMap::default(),
             logo: None,

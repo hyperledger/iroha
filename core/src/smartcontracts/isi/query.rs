@@ -313,12 +313,11 @@ mod tests {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build(&ALICE_ID);
         let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
-        assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
             .add_asset_definition(AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID))
             .is_none());
-        World::with([domain], PeersIds::new())
+        World::with([domain], [account], PeersIds::new())
     }
 
     fn world_with_test_asset_with_metadata() -> World {
@@ -344,8 +343,7 @@ mod tests {
         let asset = Asset::new(asset_id, AssetValue::Store(store));
 
         assert!(account.add_asset(asset).is_none());
-        assert!(domain.add_account(account).is_none());
-        World::with([domain], PeersIds::new())
+        World::with([domain], [account], PeersIds::new())
     }
 
     fn world_with_test_account_with_metadata() -> Result<World> {
@@ -360,12 +358,11 @@ mod tests {
         let account = Account::new(ALICE_ID.clone())
             .with_metadata(metadata)
             .build(&ALICE_ID);
-        assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
             .add_asset_definition(AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID))
             .is_none());
-        Ok(World::with([domain], PeersIds::new()))
+        Ok(World::with([domain], [account], PeersIds::new()))
     }
 
     fn state_with_test_blocks_and_transactions(
@@ -619,7 +616,6 @@ mod tests {
                 .with_metadata(metadata)
                 .build(&ALICE_ID);
             let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
-            assert!(domain.add_account(account).is_none());
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             assert!(domain
                 .add_asset_definition(
@@ -627,7 +623,11 @@ mod tests {
                 )
                 .is_none());
             let query_handle = LiveQueryStore::test().start();
-            State::new(World::with([domain], PeersIds::new()), kura, query_handle)
+            State::new(
+                World::with([domain], [account], PeersIds::new()),
+                kura,
+                query_handle,
+            )
         };
 
         let domain_id = DomainId::from_str("wonderland")?;

@@ -259,6 +259,7 @@ impl Iroha {
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
             [genesis_domain(config.genesis.public_key.clone())],
+            [genesis_account(config.genesis.public_key.clone())],
             config
                 .sumeragi
                 .trusted_peers
@@ -554,14 +555,7 @@ fn genesis_account(public_key: PublicKey) -> Account {
 
 fn genesis_domain(public_key: PublicKey) -> Domain {
     let genesis_account = genesis_account(public_key);
-    let mut domain =
-        Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone()).build(&genesis_account.id);
-
-    domain
-        .accounts
-        .insert(genesis_account.id.clone(), genesis_account);
-
-    domain
+    Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone()).build(&genesis_account.id)
 }
 
 /// Error of [`read_config_and_genesis`]

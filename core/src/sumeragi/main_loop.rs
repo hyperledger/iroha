@@ -1350,9 +1350,8 @@ mod tests {
         );
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = "wonderland".parse().expect("Valid");
-        let mut domain = Domain::new(domain_id).build(&alice_id);
-        assert!(domain.add_account(account).is_none());
-        let world = World::with([domain], topology.iter().cloned().collect());
+        let domain = Domain::new(domain_id).build(&alice_id);
+        let world = World::with([domain], [account], topology.iter().cloned().collect());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, Arc::clone(&kura), query_handle);
