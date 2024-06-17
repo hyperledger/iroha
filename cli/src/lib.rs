@@ -391,13 +391,12 @@ impl Iroha {
             metrics_reporter,
         );
 
-        tokio::spawn(async move {
-            torii
-                .start()
-                .await
-                .into_report()
-                .map_err(|report| report.change_context(StartError::StartTorii))
-        });
+        let run_torii = torii
+            .start()
+            .await
+            .map_err(|report| report.change_context(StartError::StartTorii))?;
+
+        tokio::spawn(run_torii);
 
         Self::spawn_config_updates_broadcasting(kiso.clone(), logger.clone());
 

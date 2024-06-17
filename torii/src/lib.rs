@@ -14,8 +14,12 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use futures::{stream::FuturesUnordered, StreamExt, TryFutureExt};
-use iroha_config::{base::util::Bytes, parameters::actual::Torii as Config};
+use error_stack::IntoReportCompat;
+use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
+use iroha_config::{
+    base::{util::Bytes, WithOrigin},
+    parameters::actual::Torii as Config,
+};
 #[cfg(feature = "telemetry")]
 use iroha_core::metrics::MetricsReporter;
 use iroha_core::{
@@ -58,7 +62,7 @@ pub struct Torii {
     query_service: LiveQueryStoreHandle,
     kura: Arc<Kura>,
     transaction_max_content_len: Bytes<u64>,
-    address: SocketAddr,
+    address: WithOrigin<SocketAddr>,
     state: Arc<State>,
     #[cfg(feature = "telemetry")]
     metrics_reporter: MetricsReporter,
@@ -90,7 +94,7 @@ impl Torii {
             state,
             #[cfg(feature = "telemetry")]
             metrics_reporter,
-            address: config.address.into_value(),
+            address: config.address,
             transaction_max_content_len: config.max_content_len,
         }
     }
@@ -244,25 +248,29 @@ impl Torii {
     ///
     /// # Errors
     /// Can fail due to listening to network or if http server fails
-    fn start_api(self: Arc<Self>) -> eyre::Result<Vec<task::JoinHandle<eyre::Result<()>>>> {
-        let torii_address = &self.address;
+    async fn start_api(self: Arc<Self>) -> eyre::Result<Vec<task::JoinHandle<eyre::Result<()>>>> {
+        let torii_address = self.address.value();
 
         let handles = torii_address
             .to_socket_addrs()?
-            .map(|addr| {
+            .map(TcpListener::bind)
+            .collect::<FuturesUnordered<_>>()
+            .try_collect::<Vec<TcpListener>>()
+            .await?
+            .into_iter()
+            .map(|listener| {
                 let torii = Arc::clone(&self);
                 let api_router = torii.create_api_router();
 
                 let signal = async move { torii.notify_shutdown.notified().await };
 
                 let serve_fut = async move {
-                    let listener = TcpListener::bind(addr).await?;
                     axum::serve(listener, api_router)
                         .with_graceful_shutdown(signal)
                         .await
+                        .map_err(eyre::Report::from)
                 };
-
-                task::spawn(serve_fut.map_err(eyre::Report::from))
+                task::spawn(serve_fut)
             })
             .collect();
 
@@ -274,13 +282,21 @@ impl Torii {
     /// # Errors
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
-    pub async fn start(self) -> eyre::Result<()> {
+    pub async fn start(
+        self,
+    ) -> error_stack::Result<impl core::future::Future<Output = ()>, eyre::Report> {
         let torii = Arc::new(self);
         let mut handles = vec![];
 
-        handles.extend(Arc::clone(&torii).start_api()?);
+        handles.extend(
+            Arc::clone(&torii)
+                .start_api()
+                .await
+                .into_report()
+                .map_err(|err| err.attach_printable(torii.address.clone().into_attachment()))?,
+        );
 
-        handles
+        let run = handles
             .into_iter()
             .collect::<FuturesUnordered<_>>()
             .for_each(|handle| {
@@ -294,10 +310,9 @@ impl Torii {
                     _ => {}
                 }
                 futures::future::ready(())
-            })
-            .await;
+            });
 
-        Ok(())
+        Ok(run)
     }
 }
 

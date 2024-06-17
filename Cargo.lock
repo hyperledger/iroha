@@ -3527,6 +3527,7 @@ dependencies = [
  "async-trait",
  "axum 0.7.5",
  "displaydoc",
+ "error-stack",
  "eyre",
  "futures",
  "iroha_config",
