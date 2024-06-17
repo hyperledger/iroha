@@ -65,6 +65,8 @@ pub enum BlockValidationError {
     SignatureVerification(#[from] SignatureVerificationError),
     /// Received view change index is too large
     ViewChangeIndexTooLarge,
+    /// Genesis block must have single transaction authorized by genesis account
+    InvalidGenesisBlock,
 }
 
 /// Error during signature verification
@@ -434,7 +436,24 @@ mod valid {
                 )));
             }
 
-            if !block.header().is_genesis() {
+            if block.header().is_genesis() {
+                let transactions = block.payload().transactions.as_slice();
+                let transaction = match transactions {
+                    [transaction] => transaction,
+                    _ => {
+                        return WithEvents::new(Err((
+                            block,
+                            BlockValidationError::InvalidGenesisBlock,
+                        )))
+                    }
+                };
+                if transaction.value.authority() != genesis_account {
+                    return WithEvents::new(Err((
+                        block,
+                        BlockValidationError::InvalidGenesisBlock,
+                    )));
+                }
+            } else {
                 if let Err(err) = Self::verify_leader_signature(&block, topology)
                     .and_then(|()| Self::verify_validator_signatures(&block, topology))
                     .and_then(|()| Self::verify_no_undefined_signatures(&block, topology))

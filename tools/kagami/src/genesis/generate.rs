@@ -11,7 +11,7 @@ use iroha_data_model::{
     parameter::{default::*, ParametersBuilder},
     prelude::*,
 };
-use iroha_genesis::{GenesisTransactionBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
+use iroha_genesis::{GenesisBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
 use serde_json::json;
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
 
@@ -62,7 +62,7 @@ impl<T: Write> RunArgs<T> for Args {
             mode,
         } = self;
 
-        let builder = GenesisTransactionBuilder::default();
+        let builder = GenesisBuilder::default();
         let genesis = match mode.unwrap_or_default() {
             Mode::Default => {
                 generate_default(builder, executor_path_in_genesis, genesis_public_key)
@@ -85,9 +85,29 @@ impl<T: Write> RunArgs<T> for Args {
     }
 }
 
+// This should be consistent with `scripts/test_env.py`
+const DEFAULT_TOPOLOGY: [(&str, &str); 4] = [
+    (
+        "127.0.0.1:1337",
+        "ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4",
+    ),
+    (
+        "127.0.0.1:1338",
+        "ed0120C347219ECE4248E3664C780456B00A34A57B573FC40909FD453CF79D2E5254D5",
+    ),
+    (
+        "127.0.0.1:1339",
+        "ed0120979E08F87349AEED9E620E9FED60B78EC01ED46AF645C193845FC1CB972EFF9A",
+    ),
+    (
+        "127.0.0.1:1340",
+        "ed01203DF52ED2B730A7AC1407AFE0B3F291501D4421035D6DC1E920FC000AA26EA4E1",
+    ),
+];
+
 #[allow(clippy::too_many_lines)]
 pub fn generate_default(
-    builder: GenesisTransactionBuilder,
+    builder: GenesisBuilder,
     executor_path: PathBuf,
     genesis_public_key: PublicKey,
 ) -> color_eyre::Result<RawGenesisTransaction> {
@@ -217,13 +237,19 @@ pub fn generate_default(
         builder = builder.append_instruction(isi);
     }
 
+    let topology = DEFAULT_TOPOLOGY
+        .iter()
+        .map(|(address, public_key)| {
+            PeerId::new(address.parse().unwrap(), public_key.parse().unwrap())
+        })
+        .collect::<Vec<_>>();
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-    let genesis = builder.build_raw(executor_path, chain_id);
+    let genesis = builder.build_raw(executor_path, chain_id, topology);
     Ok(genesis)
 }
 
 fn generate_synthetic(
-    builder: GenesisTransactionBuilder,
+    builder: GenesisBuilder,
     executor_path: PathBuf,
     genesis_public_key: PublicKey,
     domains: u64,

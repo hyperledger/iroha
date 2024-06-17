@@ -5,7 +5,7 @@ use iroha::{
     client::Client,
     data_model::{prelude::*, trigger::TriggerId},
 };
-use iroha_genesis::{GenesisTransaction, GenesisTransactionBuilder};
+use iroha_genesis::{GenesisBlock, GenesisBuilder};
 use iroha_primitives::unique_vec;
 use irohad::samples::{construct_executor, get_config};
 use test_network::{
@@ -19,8 +19,9 @@ fn generate_genesis(
     num_triggers: u32,
     chain_id: ChainId,
     genesis_key_pair: &iroha_crypto::KeyPair,
-) -> Result<GenesisTransaction, Box<dyn std::error::Error>> {
-    let builder = GenesisTransactionBuilder::default();
+    topology: Vec<PeerId>,
+) -> Result<GenesisBlock, Box<dyn std::error::Error>> {
+    let builder = GenesisBuilder::default();
 
     let wasm =
         iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose_trigger")
@@ -51,10 +52,10 @@ fn generate_genesis(
             let trigger = build_trigger(trigger_id);
             Register::trigger(trigger)
         })
-        .fold(builder, GenesisTransactionBuilder::append_instruction);
+        .fold(builder, GenesisBuilder::append_instruction);
 
     let executor = construct_executor("../default_executor").expect("Failed to construct executor");
-    Ok(builder.build_and_sign(executor, chain_id, genesis_key_pair))
+    Ok(builder.build_and_sign(executor, chain_id, genesis_key_pair, topology))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -62,6 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let chain_id = get_chain_id();
     let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
+    let topology = vec![peer.id.clone()];
     let mut configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
@@ -73,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     configuration.chain_wide.executor_runtime.fuel_limit = u64::MAX;
     configuration.chain_wide.executor_runtime.max_memory = u32::MAX.into();
 
-    let genesis = generate_genesis(1_000_u32, chain_id, &genesis_key_pair)?;
+    let genesis = generate_genesis(1_000_u32, chain_id, &genesis_key_pair, topology)?;
 
     let builder = PeerBuilder::new()
         .with_genesis(genesis)

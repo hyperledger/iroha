@@ -281,7 +281,7 @@ if __name__ == "__main__":
                         help="Directory containing Iroha project root. \
                         Defaults to `.`, i.e. the directory script is being run from. \
                         This is used to locate the `irohad` binary and config files")
-    parser.add_argument("--peer-name-as-seed", action="store_true",
+    parser.add_argument("--peer-name-as-seed", default="True", action="store_true",
                         help="Use peer name as seed for key generation. \
                         This option could be useful to preserve the same peer keys between script invocations")
 

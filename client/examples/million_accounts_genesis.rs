@@ -5,7 +5,7 @@ use iroha::{
     crypto::KeyPair,
     data_model::{isi::InstructionBox, prelude::*},
 };
-use iroha_genesis::{GenesisTransaction, GenesisTransactionBuilder};
+use iroha_genesis::{GenesisBlock, GenesisBuilder};
 use iroha_primitives::unique_vec;
 use irohad::samples::{construct_executor, get_config};
 use test_network::{
@@ -18,8 +18,9 @@ fn generate_genesis(
     num_domains: u32,
     chain_id: ChainId,
     genesis_key_pair: &KeyPair,
-) -> GenesisTransaction {
-    let mut builder = GenesisTransactionBuilder::default();
+    topology: Vec<PeerId>,
+) -> GenesisBlock {
+    let mut builder = GenesisBuilder::default();
 
     let signatory_alice = get_key_pair(test_network::Signatory::Alice).into_parts().0;
     for i in 0_u32..num_domains {
@@ -34,7 +35,7 @@ fn generate_genesis(
     }
 
     let executor = construct_executor("../default_executor").expect("Failed to construct executor");
-    builder.build_and_sign(executor, chain_id, genesis_key_pair)
+    builder.build_and_sign(executor, chain_id, genesis_key_pair, topology)
 }
 
 fn main_genesis() {
@@ -42,6 +43,7 @@ fn main_genesis() {
 
     let chain_id = get_chain_id();
     let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
+    let topology = vec![peer.id.clone()];
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
@@ -49,7 +51,7 @@ fn main_genesis() {
         genesis_key_pair.public_key(),
     );
     let rt = Runtime::test();
-    let genesis = generate_genesis(1_000_000_u32, chain_id, &genesis_key_pair);
+    let genesis = generate_genesis(1_000_000_u32, chain_id, &genesis_key_pair, topology);
 
     let builder = PeerBuilder::new()
         .with_genesis(genesis)

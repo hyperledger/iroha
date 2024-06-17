@@ -170,6 +170,16 @@ impl BlockPayload {
         }
         .into()
     }
+
+    /// Converts to genesis block without signatures (not signed by any peer)
+    #[cfg(feature = "transparent_api")]
+    pub fn to_genesis_block(self) -> SignedBlock {
+        SignedBlockV1 {
+            signatures: vec![],
+            payload: self,
+        }
+        .into()
+    }
 }
 
 impl SignedBlockV1 {
@@ -309,7 +319,7 @@ mod candidate {
         }
 
         fn validate_signatures(&self) -> Result<(), &'static str> {
-            if self.signatures.is_empty() {
+            if self.signatures.is_empty() && self.payload.header.height != 1 {
                 return Err("Block missing signatures");
             }
 
