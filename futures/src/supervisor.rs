@@ -103,33 +103,29 @@ impl Supervisor {
             return Ok(());
         }
 
-        SupervisorTask::new(self.shutdown_signal)
+        SupervisorMonitor::new(self.shutdown_signal)
             .monitor(self.children)
+            .into_loop()
             .run()
             .await
     }
 }
 
-struct SupervisorTask {
-    /// A set of tasks spawned by the supervisor. Aborts all of them when on Drop
+struct SupervisorMonitor {
     set: JoinSet<()>,
-    caught_panic: bool,
-    caught_unexpected_exit: bool,
     shutdown_signal: ShutdownSignal,
-    exit_tx: Option<mpsc::Sender<ChildExitResult>>,
-    exit_rx: mpsc::Receiver<ChildExitResult>,
+    exit: (
+        mpsc::Sender<ChildExitResult>,
+        mpsc::Receiver<ChildExitResult>,
+    ),
 }
 
-impl SupervisorTask {
+impl SupervisorMonitor {
     fn new(shutdown_signal: ShutdownSignal) -> Self {
-        let (exit_tx, exit_rx) = mpsc::channel(256);
         Self {
             set: JoinSet::new(),
-            caught_panic: false,
-            caught_unexpected_exit: false,
             shutdown_signal,
-            exit_tx: Some(exit_tx),
-            exit_rx,
+            exit: mpsc::channel(256),
         }
     }
 
@@ -148,11 +144,7 @@ impl SupervisorTask {
             span,
         }: Child,
     ) {
-        let exit_tx = self
-            .exit_tx
-            .as_ref()
-            .expect("sender should exist until `run()` is called")
-            .clone();
+        let exit_tx = self.exit.0.clone();
 
         // FIXME: tried to use `Notify` - couldn't make it to work for all cases
         //        CancellationToken just works, although semantically not a great fit
@@ -211,28 +203,32 @@ impl SupervisorTask {
         }.instrument(span));
     }
 
-    fn handle_child_exit(&mut self, result: ChildExitResult) {
-        match result {
-            ChildExitResult::Ok | ChildExitResult::Cancel if !self.shutdown_signal.is_sent() => {
-                iroha_logger::error!("Some task exited unexpectedly, shutting down everything...");
-                self.caught_unexpected_exit = true;
-                self.shutdown_signal.send();
-            }
-            ChildExitResult::Panic if !self.caught_panic => {
-                iroha_logger::error!("Some task panicked, shutting down everything...");
-                self.caught_panic = true;
-                self.shutdown_signal.send();
-            }
-            _ => {}
+    fn into_loop(self) -> SupervisorLoop {
+        let Self {
+            set,
+            shutdown_signal,
+            exit: (_tx, exit_rx),
+        } = self;
+        SupervisorLoop {
+            set,
+            shutdown_signal,
+            exit: exit_rx,
+            caught_panic: false,
+            caught_unexpected_exit: false,
         }
     }
+}
 
+struct SupervisorLoop {
+    set: JoinSet<()>,
+    shutdown_signal: ShutdownSignal,
+    exit: mpsc::Receiver<ChildExitResult>,
+    caught_panic: bool,
+    caught_unexpected_exit: bool,
+}
+
+impl SupervisorLoop {
     async fn run(mut self) -> Result<(), Error> {
-        // no more new children monitors
-        {
-            self.exit_tx.take();
-        }
-
         loop {
             tokio::select! {
                 // this should naturally finish when all supervisor-spawned tasks finish
@@ -245,7 +241,7 @@ impl SupervisorTask {
                 }
 
                 // this should finish when all task monitors finish
-                Some(result) = self.exit_rx.recv() => {
+                Some(result) = self.exit.recv() => {
                     iroha_logger::debug!(?result, "Child exited");
                     self.handle_child_exit(result);
                 }
@@ -261,6 +257,22 @@ impl SupervisorTask {
             Err(Error::UnexpectedExit)
         } else {
             Ok(())
+        }
+    }
+
+    fn handle_child_exit(&mut self, result: ChildExitResult) {
+        match result {
+            ChildExitResult::Ok | ChildExitResult::Cancel if !self.shutdown_signal.is_sent() => {
+                iroha_logger::error!("Some task exited unexpectedly, shutting down everything...");
+                self.caught_unexpected_exit = true;
+                self.shutdown_signal.send();
+            }
+            ChildExitResult::Panic if !self.caught_panic => {
+                iroha_logger::error!("Some task panicked, shutting down everything...");
+                self.caught_panic = true;
+                self.shutdown_signal.send();
+            }
+            _ => {}
         }
     }
 }
