@@ -110,7 +110,7 @@ displaydoc = { git = "https://github.com/akonradi-signal/displaydoc.git", branch
 error-stack = "0.4.1"
 
 cfg-if = "1.0.0"
-derive_more = { version = "0.99.17", default-features = false }
+derive_more = { version = "0.99.18", default-features = false }
 async-trait = "0.1.80"
 strum = { version = "0.25.0", default-features = false }
 getset = "0.1.2"
