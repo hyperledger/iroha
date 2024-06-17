@@ -19,7 +19,7 @@
 //!   messaging system, and, most importantly, address registry
 //!   (for reference, see [Registry - Elixir](https://hexdocs.pm/elixir/1.17.0-rc.1/Registry.html)).
 
-use std::{sync::RwLock, time::Duration};
+use std::time::Duration;
 
 use iroha_logger::{prelude::Span, InstrumentFutures};
 use tokio::{
@@ -326,7 +326,7 @@ impl ShutdownSignal {
 ///                 }
 ///             },
 ///         )),
-///         OnShutdown::Wait(Duration::from(1)),
+///         OnShutdown::Wait(Duration::from_secs(1)),
 ///     )
 /// }
 ///
@@ -352,24 +352,13 @@ where
     F: FnOnce(),
     F: Send + 'static,
 {
-    let (ok_tx, ok_rx) = oneshot::channel();
-    let (err_tx, err_rx) = oneshot::channel();
-
-    // FIXME we cannot just _move_ `err_tx` inside of the thread's panic hook
-    let err_tx = RwLock::new(Some(err_tx));
+    let (complete_tx, complete_rx) = oneshot::channel();
 
     // we are okay to drop the handle; thread will continue running in a detached way
     let _handle: std::thread::JoinHandle<_> = builder
         .spawn(move || {
             let default_hook = thread_local_panic_hook::take_hook();
             thread_local_panic_hook::set_hook(Box::new(move |info| {
-                // the receiver might be dropped
-                let _ = err_tx
-                    .write()
-                    .expect("no one else should lock this sender")
-                    .take()
-                    .expect("should be taken only once, on hook trigger")
-                    .send(());
                 // TODO: need to print info in a custom way?
                 default_hook(info);
             }));
@@ -377,18 +366,13 @@ where
             f();
 
             // the receiver might be dropped
-            let _ = ok_tx.send(());
+            let _ = complete_tx.send(());
         })
         .expect("should spawn thread normally");
 
-    tokio::select! {
-        _ = ok_rx => {
-            // fine, do nothing
-        }
-        _ = err_rx => {
-            panic!("thread panicked");
-        }
-    }
+    complete_rx
+        .await
+        .expect("thread completion notifier was dropped; thread probably panicked");
 }
 
 /// Supervisor child.
@@ -600,7 +584,7 @@ mod tests {
             panic!("other errors aren't expected")
         };
 
-        assert!(signal.is_sent())
+        assert!(signal.is_sent());
     }
 
     fn spawn_task_with_graceful_shutdown(
@@ -724,5 +708,6 @@ mod tests {
         else {
             panic!("no other error expected");
         };
+        println!("hey");
     }
 }
