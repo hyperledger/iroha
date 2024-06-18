@@ -3258,7 +3258,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "thread-local-panic-hook",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -5890,12 +5889,6 @@ dependencies = [
  "libc",
  "winapi",
 ]
-
-[[package]]
-name = "thread-local-panic-hook"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e70399498abd3ec85f99a2f2d765c8638588e20361678af93a9f47de96719743"
 
 [[package]]
 name = "thread_local"
