@@ -65,8 +65,8 @@ pub enum BlockValidationError {
     SignatureVerification(#[from] SignatureVerificationError),
     /// Received view change index is too large
     ViewChangeIndexTooLarge,
-    /// Genesis block must have single transaction authorized by genesis account
-    InvalidGenesisBlock,
+    /// Invalid genesis block: {0}
+    InvalidGenesis(#[from] InvalidGenesisError),
 }
 
 /// Error during signature verification
@@ -92,6 +92,23 @@ pub enum SignatureVerificationError {
     ProxyTailMissing,
     /// The block doesn't have leader signature
     LeaderMissing,
+}
+
+/// Errors occurred on genesis block validation
+#[derive(Debug, Copy, Clone, displaydoc::Display, PartialEq, Eq, Error)]
+pub enum InvalidGenesisError {
+    /// Genesis block must have single transaction
+    NotSingleTransaction,
+    /// Genesis transaction must be authorized by genesis account
+    UnexpectedAuthority,
+    /// Genesis block must not be signed by any peer
+    SignedBySomePeer,
+    /// Genesis transaction contains error
+    ContainsErrors,
+    /// Genesis transaction must contain instructions
+    InvalidInstructions,
+    /// First instruction must set executor
+    FirstInstructionMustBeUpgrade,
 }
 
 /// Builder for blocks
@@ -247,7 +264,7 @@ mod chained {
 
 mod valid {
     use indexmap::IndexMap;
-    use iroha_data_model::{account::AccountId, ChainId};
+    use iroha_data_model::{account::AccountId, prelude::InstructionBox, ChainId};
 
     use super::*;
     use crate::{state::StateBlock, sumeragi::network_topology::Role};
@@ -437,21 +454,8 @@ mod valid {
             }
 
             if block.header().is_genesis() {
-                let transactions = block.payload().transactions.as_slice();
-                let transaction = match transactions {
-                    [transaction] => transaction,
-                    _ => {
-                        return WithEvents::new(Err((
-                            block,
-                            BlockValidationError::InvalidGenesisBlock,
-                        )))
-                    }
-                };
-                if transaction.value.authority() != genesis_account {
-                    return WithEvents::new(Err((
-                        block,
-                        BlockValidationError::InvalidGenesisBlock,
-                    )));
+                if let Err(e) = check_genesis_block(&block, genesis_account) {
+                    return WithEvents::new(Err((block, e.into())));
                 }
             } else {
                 if let Err(err) = Self::verify_leader_signature(&block, topology)
@@ -675,6 +679,34 @@ mod valid {
         fn as_ref(&self) -> &SignedBlock {
             &self.0
         }
+    }
+
+    fn check_genesis_block(
+        block: &SignedBlock,
+        genesis_account: &AccountId,
+    ) -> Result<(), InvalidGenesisError> {
+        let transactions = block.payload().transactions.as_slice();
+        let [transaction] = transactions else {
+            return Err(InvalidGenesisError::NotSingleTransaction);
+        };
+        if transaction.value.authority() != genesis_account {
+            return Err(InvalidGenesisError::UnexpectedAuthority);
+        }
+        if block.signatures().next().is_some() {
+            return Err(InvalidGenesisError::SignedBySomePeer);
+        }
+
+        if transaction.error.is_some() {
+            return Err(InvalidGenesisError::ContainsErrors);
+        }
+
+        let Executable::Instructions(instructions) = transaction.value.instructions() else {
+            return Err(InvalidGenesisError::InvalidInstructions);
+        };
+        let [InstructionBox::Upgrade(_), ..] = instructions.as_slice() else {
+            return Err(InvalidGenesisError::FirstInstructionMustBeUpgrade);
+        };
+        Ok(())
     }
 
     #[cfg(test)]

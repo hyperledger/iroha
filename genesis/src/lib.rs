@@ -27,6 +27,7 @@ pub static GENESIS_DOMAIN_ID: Lazy<DomainId> = Lazy::new(|| "genesis".parse().un
 pub struct GenesisTransaction(pub SignedTransaction);
 
 /// Genesis block.
+/// Should contain single transaction.
 /// First instruction should be [`Upgrade`].
 #[derive(Debug, Clone)]
 #[repr(transparent)]
