@@ -73,14 +73,14 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_990).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    let can_unregister_domain_token_id = "CanUnregisterDomain".parse().unwrap();
+    let can_unregister_domain_token_id = "CanUnregisterDomain";
 
     // Check that `CanUnregisterDomain` exists
     assert!(client
         .request(FindExecutorDataModel)?
         .permissions()
         .iter()
-        .any(|id| id == &can_unregister_domain_token_id));
+        .any(|id| id == can_unregister_domain_token_id));
 
     // Check that Alice has permission to unregister Wonderland
     let alice_id = ALICE_ID.clone();
@@ -89,7 +89,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
     assert!(alice_tokens.contains(&Permission::new(
-        can_unregister_domain_token_id.clone(),
+        can_unregister_domain_token_id.parse().unwrap(),
         json!({ "domain": DomainId::from_str("wonderland").unwrap() }),
     )));
 
@@ -103,14 +103,14 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     assert!(!data_model
         .permissions()
         .iter()
-        .any(|id| id == &can_unregister_domain_token_id));
+        .any(|id| id == can_unregister_domain_token_id));
 
-    let can_control_domain_lives_token_id = "CanControlDomainLives".parse().unwrap();
+    let can_control_domain_lives_token_id = "CanControlDomainLives";
 
     assert!(data_model
         .permissions()
         .iter()
-        .any(|id| id == &can_control_domain_lives_token_id));
+        .any(|id| id == can_control_domain_lives_token_id));
 
     // Check that Alice has `can_control_domain_lives` permission
     let alice_tokens = client
@@ -118,7 +118,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
     assert!(alice_tokens.contains(&Permission::new(
-        can_control_domain_lives_token_id,
+        can_control_domain_lives_token_id.parse().unwrap(),
         json!(null),
     )));
 
@@ -146,7 +146,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
     assert!(client
         .request(FindExecutorDataModel)?
         .permissions()
-        .contains(&can_unregister_domain_token.id));
+        .contains(can_unregister_domain_token.name()));
 
     // Check that `TEST_ROLE` has permission
     assert!(client
@@ -174,7 +174,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
     assert!(!client
         .request(FindExecutorDataModel)?
         .permissions()
-        .contains(&can_unregister_domain_token.id));
+        .contains(can_unregister_domain_token.name()));
 
     // Check that `TEST_ROLE` doesn't have permission
     assert!(!client

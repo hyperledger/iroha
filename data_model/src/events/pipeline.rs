@@ -357,7 +357,7 @@ mod tests {
                 transactions_hash: HashOf::from_untyped_unchecked(Hash::prehashed(
                     [1_u8; Hash::LENGTH],
                 )),
-                timestamp_ms: 0,
+                creation_time_ms: 0,
                 view_change_index: 0,
                 consensus_estimation_ms: 0,
             }

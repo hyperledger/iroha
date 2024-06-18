@@ -157,7 +157,7 @@
       },
       {
         "name": "permission",
-        "type": "PermissionId"
+        "type": "Permission"
       }
     ]
   },
@@ -266,8 +266,8 @@
         "type": "AssetDefinitionId"
       },
       {
-        "name": "value_type",
-        "type": "AssetValueType"
+        "name": "type_",
+        "type": "AssetType"
       },
       {
         "name": "mintable",
@@ -512,6 +512,19 @@
       }
     ]
   },
+  "AssetType": {
+    "Enum": [
+      {
+        "tag": "Numeric",
+        "discriminant": 0,
+        "type": "NumericSpec"
+      },
+      {
+        "tag": "Store",
+        "discriminant": 1
+      }
+    ]
+  },
   "AssetValue": {
     "Enum": [
       {
@@ -523,19 +536,6 @@
         "tag": "Store",
         "discriminant": 1,
         "type": "Metadata"
-      }
-    ]
-  },
-  "AssetValueType": {
-    "Enum": [
-      {
-        "tag": "Numeric",
-        "discriminant": 0,
-        "type": "NumericSpec"
-      },
-      {
-        "tag": "Store",
-        "discriminant": 1
       }
     ]
   },
@@ -615,7 +615,7 @@
         "type": "HashOf<MerkleTree<SignedTransaction>>"
       },
       {
-        "name": "timestamp_ms",
+        "name": "creation_time_ms",
         "type": "u64"
       },
       {
@@ -1205,7 +1205,7 @@
     "Struct": [
       {
         "name": "permissions",
-        "type": "SortedVec<PermissionId>"
+        "type": "SortedVec<String>"
       },
       {
         "name": "custom_instruction",
@@ -1284,7 +1284,7 @@
   "FindAccountsByDomainId": {
     "Struct": [
       {
-        "name": "domain_id",
+        "name": "domain",
         "type": "DomainId"
       }
     ]
@@ -1292,7 +1292,7 @@
   "FindAccountsWithAsset": {
     "Struct": [
       {
-        "name": "asset_definition_id",
+        "name": "asset_definition",
         "type": "AssetDefinitionId"
       }
     ]
@@ -1360,7 +1360,7 @@
   "FindAssetsByAccountId": {
     "Struct": [
       {
-        "name": "account_id",
+        "name": "account",
         "type": "AccountId"
       }
     ]
@@ -1368,7 +1368,7 @@
   "FindAssetsByAssetDefinitionId": {
     "Struct": [
       {
-        "name": "asset_definition_id",
+        "name": "asset_definition",
         "type": "AssetDefinitionId"
       }
     ]
@@ -1376,7 +1376,7 @@
   "FindAssetsByDomainId": {
     "Struct": [
       {
-        "name": "domain_id",
+        "name": "domain",
         "type": "DomainId"
       }
     ]
@@ -1384,11 +1384,11 @@
   "FindAssetsByDomainIdAndAssetDefinitionId": {
     "Struct": [
       {
-        "name": "domain_id",
+        "name": "domain",
         "type": "DomainId"
       },
       {
-        "name": "asset_definition_id",
+        "name": "asset_definition",
         "type": "AssetDefinitionId"
       }
     ]
@@ -1484,7 +1484,7 @@
       {
         "tag": "Permission",
         "discriminant": 10,
-        "type": "PermissionId"
+        "type": "Permission"
       },
       {
         "tag": "Parameter",
@@ -1542,7 +1542,7 @@
   "FindTransactionsByAccountId": {
     "Struct": [
       {
-        "name": "account_id",
+        "name": "account",
         "type": "AccountId"
       }
     ]
@@ -1570,7 +1570,7 @@
   "FindTriggersByAuthorityDomainId": {
     "Struct": [
       {
-        "name": "domain_id",
+        "name": "domain",
         "type": "DomainId"
       }
     ]
@@ -1578,7 +1578,7 @@
   "FindTriggersByAuthorityId": {
     "Struct": [
       {
-        "name": "account_id",
+        "name": "account",
         "type": "AccountId"
       }
     ]
@@ -1586,7 +1586,7 @@
   "ForwardCursor": {
     "Struct": [
       {
-        "name": "query_id",
+        "name": "query",
         "type": "Option<String>"
       },
       {
@@ -1716,9 +1716,9 @@
         "type": "RoleId"
       },
       {
-        "tag": "PermissionId",
+        "tag": "Permission",
         "discriminant": 7,
-        "type": "PermissionId"
+        "type": "Permission"
       },
       {
         "tag": "ParameterId",
@@ -2316,15 +2316,15 @@
       }
     ]
   },
-  "Mismatch<AssetValueType>": {
+  "Mismatch<AssetType>": {
     "Struct": [
       {
         "name": "expected",
-        "type": "AssetValueType"
+        "type": "AssetType"
       },
       {
         "name": "actual",
-        "type": "AssetValueType"
+        "type": "AssetType"
       }
     ]
   },
@@ -2348,8 +2348,8 @@
         "type": "AssetDefinitionId"
       },
       {
-        "name": "value_type",
-        "type": "AssetValueType"
+        "name": "type_",
+        "type": "AssetType"
       },
       {
         "name": "mintable",
@@ -2612,20 +2612,12 @@
   "Permission": {
     "Struct": [
       {
-        "name": "id",
-        "type": "PermissionId"
+        "name": "name",
+        "type": "String"
       },
       {
         "name": "payload",
         "type": "JsonString"
-      }
-    ]
-  },
-  "PermissionId": {
-    "Struct": [
-      {
-        "name": "name",
-        "type": "Name"
       }
     ]
   },
@@ -3207,7 +3199,7 @@
   "RepetitionError": {
     "Struct": [
       {
-        "name": "instruction_type",
+        "name": "instruction",
         "type": "InstructionType"
       },
       {
@@ -3358,7 +3350,7 @@
       },
       {
         "name": "permission",
-        "type": "PermissionId"
+        "type": "Permission"
       }
     ]
   },
@@ -3692,8 +3684,8 @@
   "SortedVec<Permission>": {
     "Vec": "Permission"
   },
-  "SortedVec<PermissionId>": {
-    "Vec": "PermissionId"
+  "SortedVec<String>": {
+    "Vec": "String"
   },
   "Sorting": {
     "Struct": [
@@ -4168,19 +4160,14 @@
   "TypeError": {
     "Enum": [
       {
-        "tag": "AssetValueType",
+        "tag": "AssetType",
         "discriminant": 0,
-        "type": "Mismatch<AssetValueType>"
+        "type": "Mismatch<AssetType>"
       },
       {
-        "tag": "NumericAssetValueTypeExpected",
+        "tag": "NumericAssetTypeExpected",
         "discriminant": 1,
-        "type": "AssetValueType"
-      },
-      {
-        "tag": "StoreAssetValueTypeExpected",
-        "discriminant": 2,
-        "type": "AssetValueType"
+        "type": "AssetType"
       }
     ]
   },

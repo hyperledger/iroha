@@ -42,7 +42,7 @@ pub mod isi {
             }
 
             let last_block_estimation = state_transaction.latest_block().map(|block| {
-                block.header().timestamp()
+                block.header().creation_time()
                     + Duration::from_millis(block.header().consensus_estimation_ms)
             });
 
@@ -99,7 +99,7 @@ pub mod isi {
 
             if !success {
                 return Err(RepetitionError {
-                    instruction_type: InstructionType::Register,
+                    instruction: InstructionType::Register,
                     id: trigger_id.into(),
                 }
                 .into());
@@ -130,7 +130,7 @@ pub mod isi {
                 Ok(())
             } else {
                 Err(RepetitionError {
-                    instruction_type: InstructionType::Unregister,
+                    instruction: InstructionType::Unregister,
                     id: trigger_id.into(),
                 }
                 .into())
@@ -389,7 +389,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> eyre::Result<Box<dyn Iterator<Item = Trigger> + 'state>, Error> {
-            let account_id = self.account_id.clone();
+            let account_id = self.account.clone();
 
             Ok(Box::new(
                 state_ro
@@ -417,7 +417,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> eyre::Result<Box<dyn Iterator<Item = Trigger> + 'state>, Error> {
-            let domain_id = self.domain_id.clone();
+            let domain_id = self.domain.clone();
 
             Ok(Box::new(
                 state_ro

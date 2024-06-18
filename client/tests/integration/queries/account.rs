@@ -24,8 +24,8 @@ fn find_accounts_with_asset() -> Result<()> {
 
     assert_eq!(received_asset_definition.id(), asset_definition.id());
     assert!(matches!(
-        received_asset_definition.value_type(),
-        AssetValueType::Numeric(_)
+        received_asset_definition.type_(),
+        AssetType::Numeric(_)
     ));
 
     let accounts: [AccountId; 5] = [
@@ -61,8 +61,8 @@ fn find_accounts_with_asset() -> Result<()> {
 
     assert_eq!(received_asset_definition.id(), asset_definition.id());
     assert_eq!(
-        received_asset_definition.value_type(),
-        AssetValueType::Numeric(NumericSpec::default()),
+        received_asset_definition.type_(),
+        AssetType::Numeric(NumericSpec::default()),
     );
 
     let found_accounts = test_client

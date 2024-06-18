@@ -18,7 +18,7 @@ impl Registrable for NewAssetDefinition {
     fn build(self, authority: &AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
-            value_type: self.value_type,
+            type_: self.type_,
             mintable: self.mintable,
             logo: self.logo,
             metadata: self.metadata,
@@ -32,7 +32,7 @@ impl Registrable for NewAssetDefinition {
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
-    use iroha_data_model::{asset::AssetValueType, isi::error::MintabilityError};
+    use iroha_data_model::{asset::AssetType, isi::error::MintabilityError};
 
     use super::*;
     use crate::smartcontracts::account::isi::forbid_minting;
@@ -49,7 +49,7 @@ pub mod isi {
             assert_asset_type(
                 &asset_id.definition,
                 state_transaction,
-                expected_asset_value_type_store,
+                expected_asset_type_store,
             )?;
 
             // Increase `Store` asset total quantity by 1 if asset was not present earlier
@@ -103,7 +103,7 @@ pub mod isi {
             assert_asset_type(
                 &asset_id.definition,
                 state_transaction,
-                expected_asset_value_type_store,
+                expected_asset_type_store,
             )?;
 
             let value = {
@@ -141,7 +141,7 @@ pub mod isi {
             assert_asset_type(
                 &asset_id.definition,
                 state_transaction,
-                expected_asset_value_type_store,
+                expected_asset_type_store,
             )?;
 
             let asset = state_transaction
@@ -183,7 +183,7 @@ pub mod isi {
             let asset_definition = assert_asset_type(
                 &asset_id.definition,
                 state_transaction,
-                expected_asset_value_type_numeric,
+                expected_asset_type_numeric,
             )?;
             assert_numeric_spec(&self.object, &asset_definition)?;
 
@@ -231,7 +231,7 @@ pub mod isi {
             let asset_definition = assert_asset_type(
                 &asset_id.definition,
                 state_transaction,
-                expected_asset_value_type_numeric,
+                expected_asset_type_numeric,
             )?;
             assert_numeric_spec(&self.object, &asset_definition)?;
 
@@ -286,7 +286,7 @@ pub mod isi {
             let asset_definition = assert_asset_type(
                 &source_id.definition,
                 state_transaction,
-                expected_asset_value_type_numeric,
+                expected_asset_type_numeric,
             )?;
             assert_numeric_spec(&self.object, &asset_definition)?;
 
@@ -348,34 +348,34 @@ pub mod isi {
         asset_definition: &AssetDefinition,
     ) -> Result<NumericSpec, Error> {
         let object_spec = NumericSpec::fractional(object.scale());
-        let object_asset_value_type = AssetValueType::Numeric(object_spec);
-        let asset_definition_spec = match asset_definition.value_type {
-            AssetValueType::Numeric(spec) => spec,
+        let object_asset_type = AssetType::Numeric(object_spec);
+        let asset_definition_spec = match asset_definition.type_ {
+            AssetType::Numeric(spec) => spec,
             other => {
                 return Err(TypeError::from(Mismatch {
                     expected: other,
-                    actual: object_asset_value_type,
+                    actual: object_asset_type,
                 })
                 .into())
             }
         };
         asset_definition_spec.check(object).map_err(|_| {
             TypeError::from(Mismatch {
-                expected: AssetValueType::Numeric(asset_definition_spec),
-                actual: object_asset_value_type,
+                expected: AssetType::Numeric(asset_definition_spec),
+                actual: object_asset_type,
             })
         })?;
         Ok(asset_definition_spec)
     }
 
-    /// Asserts that asset definition with [`definition_id`] has asset type [`expected_value_type`].
+    /// Asserts that asset definition with [`definition_id`] has asset type [`expected_type`].
     pub(crate) fn assert_asset_type(
         definition_id: &AssetDefinitionId,
         state_transaction: &StateTransaction<'_, '_>,
-        expected_value_type: impl Fn(&AssetValueType) -> Result<(), TypeError>,
+        expected_type: impl Fn(&AssetType) -> Result<(), TypeError>,
     ) -> Result<AssetDefinition, Error> {
         let asset_definition = state_transaction.world.asset_definition(definition_id)?;
-        expected_value_type(&asset_definition.value_type)
+        expected_type(&asset_definition.type_)
             .map(|()| asset_definition)
             .map_err(Into::into)
     }
@@ -402,21 +402,17 @@ pub mod isi {
         }
     }
 
-    pub(crate) fn expected_asset_value_type_numeric(
-        asset_value_type: &AssetValueType,
-    ) -> Result<(), TypeError> {
-        match asset_value_type {
-            AssetValueType::Numeric(_) => Ok(()),
-            other => Err(TypeError::NumericAssetValueTypeExpected(*other)),
+    pub(crate) fn expected_asset_type_numeric(asset_type: &AssetType) -> Result<(), TypeError> {
+        match asset_type {
+            AssetType::Numeric(_) => Ok(()),
+            other => Err(TypeError::NumericAssetTypeExpected(*other)),
         }
     }
 
-    pub(crate) fn expected_asset_value_type_store(
-        asset_value_type: &AssetValueType,
-    ) -> Result<(), TypeError> {
-        match asset_value_type {
-            AssetValueType::Store => Ok(()),
-            other => Err(TypeError::NumericAssetValueTypeExpected(*other)),
+    pub(crate) fn expected_asset_type_store(asset_type: &AssetType) -> Result<(), TypeError> {
+        match asset_type {
+            AssetType::Store => Ok(()),
+            other => Err(TypeError::NumericAssetTypeExpected(*other)),
         }
     }
 }
@@ -522,7 +518,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let id = &self.account_id;
+            let id = &self.account;
             iroha_logger::trace!(%id);
             Ok(Box::new(state_ro.world().account_assets(id)?.cloned()))
         }
@@ -534,7 +530,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let id = self.asset_definition_id.clone();
+            let id = self.asset_definition.clone();
             iroha_logger::trace!(%id);
             Ok(Box::new(
                 state_ro
@@ -559,7 +555,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let id = &self.domain_id;
+            let id = &self.domain;
             iroha_logger::trace!(%id);
             Ok(Box::new(
                 state_ro
@@ -577,8 +573,8 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let domain_id = self.domain_id.clone();
-            let asset_definition_id = self.asset_definition_id.clone();
+            let domain_id = self.domain.clone();
+            let asset_definition_id = self.asset_definition.clone();
             let domain = state_ro.world().domain(&domain_id)?;
             let _definition = domain
                 .asset_definitions

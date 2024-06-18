@@ -61,7 +61,7 @@ Check the [Bash guide in Iroha Tutorial](https://hyperledger.github.io/iroha-2-d
 ```bash
 ./iroha domain register --id="Soramitsu"
 ./iroha account register --id="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu"
-./iroha asset register --id="XOR#Soramitsu" --value-type=Numeric
+./iroha asset register --id="XOR#Soramitsu" --type=Numeric
 ./iroha asset mint --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
 ./iroha asset get --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu"
 ```
@@ -111,7 +111,7 @@ To do so, you must first register an Asset Definition and only then add some Ass
 Every asset has its own value spec. In this example, it is defined as `Numeric`, a 96-bit unsigned decimal. We also support `Store` for key-value structured data.
 
 ```bash
-./iroha asset register --id="XOR#Soramitsu" --value-type=Numeric
+./iroha asset register --id="XOR#Soramitsu" --type=Numeric
 ./iroha asset mint --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
 ```
 
@@ -186,8 +186,8 @@ To test transactions in the JSON format (used in the genesis block and by other 
 cat /path/to/file.json | ./iroha json transaction
 ```
 
-### Request arbitrary query 
+### Request arbitrary query
 
-```bash 
+```bash
 echo '{ "FindAllParameters": null }' | ./iroha --config client.toml json query
 ```

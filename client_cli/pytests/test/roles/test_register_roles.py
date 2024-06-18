@@ -16,7 +16,7 @@ def test_register_role(GIVEN_fake_name):
 @allure.label("sdk_test_id", "attach_permissions_to_role")
 @pytest.mark.xfail(reason="TO DO")
 def test_attach_permissions_to_role(
-    GIVEN_registered_asset_definition_with_store_value_type,
+    GIVEN_registered_asset_definition_with_store_type,
 ):
     assert 0
 
@@ -26,6 +26,6 @@ def test_attach_permissions_to_role(
 def test_grant_role_to_account(
     GIVEN_currently_authorized_account,
     GIVEN_registered_account,
-    GIVEN_registered_asset_definition_with_store_value_type,
+    GIVEN_registered_asset_definition_with_store_type,
 ):
     assert 0

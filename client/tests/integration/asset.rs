@@ -5,7 +5,7 @@ use iroha::{
     client::{self, QueryResult},
     crypto::KeyPair,
     data_model::{
-        asset::{AssetId, AssetValue, AssetValueType},
+        asset::{AssetId, AssetType, AssetValue},
         isi::error::{InstructionEvaluationError, InstructionExecutionError, Mismatch, TypeError},
         prelude::*,
         transaction::error::TransactionRejectionReason,
@@ -402,7 +402,7 @@ fn fail_if_dont_satisfy_spec() {
     // Create asset definition which accepts only integers
     let asset_definition = AssetDefinition::new(
         asset_definition_id.clone(),
-        AssetValueType::Numeric(NumericSpec::integer()),
+        AssetType::Numeric(NumericSpec::integer()),
     );
 
     test_client
@@ -435,8 +435,8 @@ fn fail_if_dont_satisfy_spec() {
             &TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
                 InstructionExecutionError::Evaluate(InstructionEvaluationError::Type(
                     TypeError::from(Mismatch {
-                        expected: AssetValueType::Numeric(NumericSpec::integer()),
-                        actual: AssetValueType::Numeric(NumericSpec::fractional(2))
+                        expected: AssetType::Numeric(NumericSpec::integer()),
+                        actual: AssetType::Numeric(NumericSpec::fractional(2))
                     })
                 ))
             ))

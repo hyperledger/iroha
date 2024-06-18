@@ -43,8 +43,6 @@ pub mod pagination;
 pub mod predicate;
 pub mod sorting;
 
-const FETCH_SIZE: &str = "fetch_size";
-
 /// Default value for `fetch_size` parameter in queries.
 pub const DEFAULT_FETCH_SIZE: NonZeroU32 = nonzero!(10_u32);
 
@@ -73,19 +71,6 @@ pub struct FetchSize {
     pub fetch_size: Option<NonZeroU32>,
 }
 
-impl FetchSize {
-    /// Converts self to iterator of tuples to be used in queries.
-    ///
-    /// The length of the output iterator is not constant and has either 0 or 1 value.
-    pub fn into_query_parameters(
-        self,
-    ) -> impl IntoIterator<Item = (&'static str, NonZeroU32)> + Clone {
-        self.fetch_size
-            .map(|fetch_size| (FETCH_SIZE, fetch_size))
-            .into_iter()
-    }
-}
-
 macro_rules! queries {
     ($($($meta:meta)* $item:item)+) => {
         pub use self::model::*;
@@ -104,9 +89,6 @@ macro_rules! queries {
         }
     };
 }
-
-/// Unique id of a query.
-pub type QueryId = String;
 
 /// Trait for typesafe query output
 pub trait Query: Into<QueryBox> + seal::Sealed {
@@ -136,7 +118,7 @@ mod model {
     use strum::EnumDiscriminants;
 
     use super::*;
-    use crate::{block::SignedBlock, permission::PermissionId};
+    use crate::block::SignedBlock;
 
     /// Sized container for all possible Queries.
     #[allow(clippy::enum_variant_names)]
@@ -728,25 +710,25 @@ pub mod account {
         /// [`FindAccountsByDomainId`] Iroha Query gets [`Domain`]s id as input and
         /// finds all [`Account`]s under this [`Domain`].
         #[derive(Display)]
-        #[display(fmt = "Find accounts under `{domain_id}` domain")]
+        #[display(fmt = "Find accounts under `{domain}` domain")]
         #[repr(transparent)]
         // SAFETY: `FindAccountsByDomainId` has no trap representation in `EvaluatesTo<DomainId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAccountsByDomainId {
             /// `Id` of the domain under which accounts should be found.
-            pub domain_id: DomainId,
+            pub domain: DomainId,
         }
 
         /// [`FindAccountsWithAsset`] Iroha Query gets [`AssetDefinition`]s id as input and
         /// finds all [`Account`]s storing [`Asset`] with such definition.
         #[derive(Display)]
-        #[display(fmt = "Find accounts with `{asset_definition_id}` asset")]
+        #[display(fmt = "Find accounts with `{asset_definition}` asset")]
         #[repr(transparent)]
         // SAFETY: `FindAccountsWithAsset` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAccountsWithAsset {
             /// `Id` of the definition of the asset which should be stored in founded accounts.
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
     }
 
@@ -825,50 +807,50 @@ pub mod asset {
         /// [`FindAssetsByAccountId`] Iroha Query gets [`AccountId`] as input and find all [`Asset`]s
         /// owned by the [`Account`] in Iroha Peer.
         #[derive(Display)]
-        #[display(fmt = "Find assets owned by the `{account_id}` account")]
+        #[display(fmt = "Find assets owned by the `{account}` account")]
         #[repr(transparent)]
         // SAFETY: `FindAssetsByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetsByAccountId {
             /// [`AccountId`] under which assets should be found.
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
 
         /// [`FindAssetsByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and
         /// finds all [`Asset`]s with this [`AssetDefinition`] in Iroha Peer.
         #[derive(Display)]
-        #[display(fmt = "Find assets with `{asset_definition_id}` asset definition")]
+        #[display(fmt = "Find assets with `{asset_definition}` asset definition")]
         #[repr(transparent)]
         // SAFETY: `FindAssetsByAssetDefinitionId` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetsByAssetDefinitionId {
             /// [`AssetDefinitionId`] with type of [`Asset`]s should be found.
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
 
         /// [`FindAssetsByDomainId`] Iroha Query gets [`Domain`]s id as input and
         /// finds all [`Asset`]s under this [`Domain`] in Iroha [`Peer`].
         #[derive(Display)]
-        #[display(fmt = "Find assets under the `{domain_id}` domain")]
+        #[display(fmt = "Find assets under the `{domain}` domain")]
         #[repr(transparent)]
         // SAFETY: `FindAssetsByDomainId` has no trap representation in `EvaluatesTo<DomainId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetsByDomainId {
             /// `Id` of the domain under which assets should be found.
-            pub domain_id: DomainId,
+            pub domain: DomainId,
         }
 
         /// [`FindAssetsByDomainIdAndAssetDefinitionId`] Iroha Query gets [`DomainId`] and
         /// [`AssetDefinitionId`] as inputs and finds [`Asset`]s under the [`Domain`]
         /// with this [`AssetDefinition`] in Iroha [`Peer`].
         #[derive(Display)]
-        #[display(fmt = "Find assets under the `{domain_id}` domain with `{asset_definition_id}` asset definition")]
+        #[display(fmt = "Find assets under the `{domain}` domain with `{asset_definition}` asset definition")]
         #[ffi_type]
         pub struct FindAssetsByDomainIdAndAssetDefinitionId {
             /// `Id` of the domain under which assets should be found.
-            pub domain_id: DomainId,
+            pub domain: DomainId,
             /// [`AssetDefinitionId`] assets of which type should be found.
-            pub asset_definition_id: AssetDefinitionId,
+            pub asset_definition: AssetDefinitionId,
         }
 
         /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`]
@@ -1087,24 +1069,24 @@ pub mod trigger {
 
         /// Find all triggers executable on behalf of the given account.
         #[derive(Display)]
-        #[display(fmt = "Find triggers executable on behalf of the `{account_id}` account")]
+        #[display(fmt = "Find triggers executable on behalf of the `{account}` account")]
         #[repr(transparent)]
         // SAFETY: `FindTriggersByAuthorityId` has no trap representation in `EvaluatesTo<DomainId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTriggersByAuthorityId {
             /// [`AccountId`] specifies the authority behind the trigger execution.
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
 
         /// Find all triggers whose authority belongs to the given domain.
         #[derive(Display)]
-        #[display(fmt = "Find triggers with authority under `{domain_id}` domain")]
+        #[display(fmt = "Find triggers with authority under `{domain}` domain")]
         #[repr(transparent)]
         // SAFETY: `FindTriggersByAuthorityDomainId` has no trap representation in `EvaluatesTo<DomainId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTriggersByAuthorityDomainId {
             /// [`DomainId`] specifies the domain in which to search for triggers.
-            pub domain_id: DomainId,
+            pub domain: DomainId,
         }
     }
 
@@ -1142,13 +1124,13 @@ pub mod transaction {
         /// [`FindTransactionsByAccountId`] Iroha Query finds all transactions included in a blockchain
         /// for the account
         #[derive(Display)]
-        #[display(fmt = "Find all transactions for `{account_id}` account")]
+        #[display(fmt = "Find all transactions for `{account}` account")]
         #[repr(transparent)]
         // SAFETY: `FindTransactionsByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTransactionsByAccountId {
             /// Signer's [`AccountId`] under which transactions should be found.
-            pub account_id: AccountId,
+            pub account: AccountId,
         }
 
         /// [`FindTransactionByHash`] Iroha Query finds a transaction (if any)
@@ -1554,8 +1536,8 @@ pub mod error {
             Trigger(TriggerId),
             /// Role with id `{0}` not found
             Role(RoleId),
-            /// Failed to find [`Permission`] by id.
-            Permission(PermissionId),
+            /// Failed to find [`Permission`]
+            Permission(Permission),
             /// Parameter with id `{0}` not found
             Parameter(ParameterId),
             /// Failed to find public key: `{0}`
@@ -1573,6 +1555,6 @@ pub mod prelude {
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
         executor::prelude::*, peer::prelude::*, permission::prelude::*, predicate::PredicateTrait,
         role::prelude::*, transaction::prelude::*, trigger::prelude::*, FetchSize, QueryBox,
-        QueryId, TransactionQueryOutput,
+        TransactionQueryOutput,
     };
 }

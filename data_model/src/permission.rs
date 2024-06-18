@@ -6,12 +6,9 @@ use std::collections::BTreeSet;
 
 use iroha_data_model_derive::model;
 use iroha_primitives::json::JsonString;
-use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
+use iroha_schema::{Ident, IntoSchema};
 
 pub use self::model::*;
-use crate::name::Name;
 
 /// Collection of [`Token`]s
 pub type Permissions = BTreeSet<Permission>;
@@ -20,36 +17,10 @@ use super::*;
 
 #[model]
 mod model {
-    use super::*;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
 
-    /// Identifies a [`Permission`].
-    /// The executor defines available permission names.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Hash,
-        Constructor,
-        FromStr,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[getset(get = "pub")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    #[ffi_type(opaque)]
-    pub struct PermissionId {
-        /// Should be unique.
-        pub name: Name,
-    }
+    use super::*;
 
     /// Stored proof of the account having a permission for a certain action.
     #[derive(
@@ -65,30 +36,32 @@ mod model {
         Serialize,
         IntoSchema,
         Display,
-        Getters,
     )]
     #[ffi_type]
-    #[display(fmt = "PERMISSION `{id}` = `{payload}`")]
-    #[getset(get = "pub")]
+    #[display(fmt = "PERMISSION `{name}` = `{payload}`")]
     pub struct Permission {
         /// Refers to a type defined in [`crate::executor::ExecutorDataModel`].
-        pub id: PermissionId,
+        pub name: Ident,
         /// Payload containing actual value.
         ///
         /// It is JSON-encoded, and its structure must correspond to the structure of
         /// the type defined in [`crate::executor::ExecutorDataModel`].
-        #[getset(skip)]
         pub payload: JsonString,
     }
 }
 
 impl Permission {
     /// Constructor
-    pub fn new(id: PermissionId, payload: impl Into<JsonString>) -> Self {
+    pub fn new(name: Ident, payload: impl Into<JsonString>) -> Self {
         Self {
-            id,
+            name,
             payload: payload.into(),
         }
+    }
+
+    /// Refers to a type defined in [`crate::executor::ExecutorDataModel`].
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Getter
@@ -100,5 +73,5 @@ impl Permission {
 
 pub mod prelude {
     //! The prelude re-exports most commonly used traits, structs and macros from this crate.
-    pub use super::{Permission, PermissionId};
+    pub use super::Permission;
 }

@@ -262,9 +262,9 @@ impl GenesisDomainBuilder {
     }
 
     /// Add [`AssetDefinition`] to current domain.
-    pub fn asset(mut self, asset_name: Name, asset_value_type: AssetValueType) -> Self {
+    pub fn asset(mut self, asset_name: Name, asset_type: AssetType) -> Self {
         let asset_definition_id = AssetDefinitionId::new(self.domain_id.clone(), asset_name);
-        let asset_definition = AssetDefinition::new(asset_definition_id, asset_value_type);
+        let asset_definition = AssetDefinition::new(asset_definition_id, asset_type);
         self.instructions
             .push(Register::asset_definition(asset_definition).into());
         self
@@ -337,7 +337,7 @@ mod tests {
             .account(public_key["mad_hatter"].clone())
             .asset(
                 "hats".parse().unwrap(),
-                AssetValueType::Numeric(NumericSpec::default()),
+                AssetType::Numeric(NumericSpec::default()),
             )
             .finish_domain();
 

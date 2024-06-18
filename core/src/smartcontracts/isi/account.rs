@@ -25,7 +25,7 @@ impl Registrable for iroha_data_model::account::NewAccount {
 /// - Revoke permissions or roles
 pub mod isi {
     use iroha_data_model::{
-        asset::{AssetValue, AssetValueType},
+        asset::{AssetType, AssetValue},
         isi::{
             error::{MintabilityError, RepetitionError},
             InstructionType,
@@ -78,7 +78,7 @@ pub mod isi {
                     _ => Err(err.into()),
                 },
                 Ok(_) => Err(RepetitionError {
-                    instruction_type: InstructionType::Register,
+                    instruction: InstructionType::Register,
                     id: IdBox::AssetId(asset_id.clone()),
                 }
                 .into()),
@@ -243,7 +243,6 @@ pub mod isi {
         ) -> Result<(), Error> {
             let account_id = self.destination;
             let permission = self.object;
-            let permission_id = permission.id.clone();
 
             // Check if account exists
             state_transaction.world.account_mut(&account_id)?;
@@ -253,22 +252,22 @@ pub mod isi {
                 .account_contains_inherent_permission(&account_id, &permission)
             {
                 return Err(RepetitionError {
-                    instruction_type: InstructionType::Grant,
-                    id: permission.id.into(),
+                    instruction: InstructionType::Grant,
+                    id: permission.into(),
                 }
                 .into());
             }
 
             state_transaction
                 .world
-                .add_account_permission(&account_id, permission);
+                .add_account_permission(&account_id, permission.clone());
 
             state_transaction
                 .world
                 .emit_events(Some(AccountEvent::PermissionAdded(
                     AccountPermissionChanged {
                         account: account_id,
-                        permission: permission_id,
+                        permission,
                     },
                 )));
 
@@ -293,7 +292,7 @@ pub mod isi {
                 .world
                 .remove_account_permission(&account_id, &permission)
             {
-                return Err(FindError::Permission(permission.id).into());
+                return Err(FindError::Permission(permission).into());
             }
 
             state_transaction
@@ -301,7 +300,7 @@ pub mod isi {
                 .emit_events(Some(AccountEvent::PermissionRemoved(
                     AccountPermissionChanged {
                         account: account_id,
-                        permission: permission.id,
+                        permission,
                     },
                 )));
 
@@ -324,10 +323,8 @@ pub mod isi {
                 .roles
                 .get(&role_id)
                 .ok_or_else(|| FindError::Role(role_id.clone()))?
-                .clone()
                 .permissions
-                .into_iter()
-                .map(|token| token.id);
+                .clone();
 
             state_transaction.world.account(&account_id)?;
 
@@ -341,7 +338,7 @@ pub mod isi {
                 .is_some()
             {
                 return Err(RepetitionError {
-                    instruction_type: InstructionType::Grant,
+                    instruction: InstructionType::Grant,
                     id: IdBox::RoleId(role_id),
                 }
                 .into());
@@ -350,10 +347,11 @@ pub mod isi {
             state_transaction.world.emit_events({
                 let account_id_clone = account_id.clone();
                 permissions
+                    .into_iter()
                     .zip(core::iter::repeat_with(move || account_id.clone()))
-                    .map(|(permission_id, account_id)| AccountPermissionChanged {
+                    .map(|(permission, account_id)| AccountPermissionChanged {
                         account: account_id,
-                        permission: permission_id,
+                        permission,
                     })
                     .map(AccountEvent::PermissionAdded)
                     .chain(std::iter::once(AccountEvent::RoleGranted(
@@ -383,10 +381,8 @@ pub mod isi {
                 .roles
                 .get(&role_id)
                 .ok_or_else(|| FindError::Role(role_id.clone()))?
-                .clone()
                 .permissions
-                .into_iter()
-                .map(|token| token.id);
+                .clone();
 
             if state_transaction
                 .world
@@ -403,10 +399,11 @@ pub mod isi {
             state_transaction.world.emit_events({
                 let account_id_clone = account_id.clone();
                 permissions
+                    .into_iter()
                     .zip(core::iter::repeat_with(move || account_id.clone()))
-                    .map(|(permission_id, account_id)| AccountPermissionChanged {
+                    .map(|(permission, account_id)| AccountPermissionChanged {
                         account: account_id,
-                        permission: permission_id,
+                        permission,
                     })
                     .map(AccountEvent::PermissionRemoved)
                     .chain(std::iter::once(AccountEvent::RoleRevoked(
@@ -427,15 +424,12 @@ pub mod isi {
         state_transaction: &mut StateTransaction<'_, '_>,
         value: &AssetValue,
     ) -> Result<(), Error> {
-        let expected_asset_value_type = match value.value_type() {
-            AssetValueType::Numeric(_) => asset::isi::expected_asset_value_type_numeric,
-            AssetValueType::Store => asset::isi::expected_asset_value_type_store,
+        let expected_asset_type = match value.type_() {
+            AssetType::Numeric(_) => asset::isi::expected_asset_type_numeric,
+            AssetType::Store => asset::isi::expected_asset_type_store,
         };
-        let definition = asset::isi::assert_asset_type(
-            definition_id,
-            state_transaction,
-            expected_asset_value_type,
-        )?;
+        let definition =
+            asset::isi::assert_asset_type(definition_id, state_transaction, expected_asset_type)?;
         if let AssetValue::Numeric(numeric) = value {
             assert_numeric_spec(numeric, &definition)?;
         }
@@ -563,7 +557,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
-            let id = &self.domain_id;
+            let id = &self.domain;
 
             iroha_logger::trace!(%id);
             Ok(Box::new(
@@ -592,7 +586,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
-            let asset_definition_id = self.asset_definition_id.clone();
+            let asset_definition_id = self.asset_definition.clone();
             iroha_logger::trace!(%asset_definition_id);
 
             Ok(Box::new(

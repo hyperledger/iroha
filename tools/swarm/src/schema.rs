@@ -202,7 +202,7 @@ impl<'a> GenesisEnv<'a> {
         Self {
             base: PeerEnv::new(key_pair, ports, chain, genesis_public_key, topology),
             genesis_private_key,
-            genesis_signed_file: ContainerPath(GENESIS_SIGNED_FILE),
+            genesis_signed_file: ContainerPath(GENESIS),
             topology: topology.iter().collect(),
         }
     }
@@ -218,7 +218,7 @@ struct PortMapping(u16, u16);
 struct ContainerPath<'a>(&'a str);
 
 const CONTAINER_CONFIG_DIR: &str = "/config";
-const GENESIS_SIGNED_FILE: &str = "/tmp/genesis.signed.scale";
+const GENESIS: &str = "/tmp/genesis.signed.scale";
 
 /// Mapping between `host:container` paths.
 #[derive(Copy, Clone, Debug)]

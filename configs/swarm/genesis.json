@@ -37,7 +37,7 @@
       "Register": {
         "AssetDefinition": {
           "id": "rose#wonderland",
-          "value_type": "Numeric",
+          "type_": "Numeric",
           "mintable": "Infinitely",
           "logo": null,
           "metadata": {}
@@ -65,7 +65,7 @@
       "Register": {
         "AssetDefinition": {
           "id": "cabbage#garden_of_live_flowers",
-          "value_type": "Numeric",
+          "type_": "Numeric",
           "mintable": "Infinitely",
           "logo": null,
           "metadata": {}
@@ -110,7 +110,7 @@
       "Grant": {
         "Permission": {
           "object": {
-            "id": "CanSetParameters",
+            "name": "CanSetParameters",
             "payload": null
           },
           "destination": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
@@ -165,13 +165,13 @@
           "id": "ALICE_METADATA_ACCESS",
           "permissions": [
             {
-              "id": "CanRemoveKeyValueInAccount",
+              "name": "CanRemoveKeyValueInAccount",
               "payload": {
                 "account": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
               }
             },
             {
-              "id": "CanSetKeyValueInAccount",
+              "name": "CanSetKeyValueInAccount",
               "payload": {
                 "account": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
               }
