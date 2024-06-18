@@ -239,7 +239,8 @@ impl SumeragiStartArgs {
 
         (
             SumeragiHandle {
-                peer_id,dropped_messages_metric: dropped_messages,
+                peer_id,
+                dropped_messages_metric: dropped_messages,
                 control_message_sender,
                 message_sender,
             },

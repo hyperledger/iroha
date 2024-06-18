@@ -956,24 +956,23 @@ pub(crate) fn run(
     );
 
     let span = span!(tracing::Level::TRACE, "genesis").entered();
-    let is_genesis_peer = if state.view().height() == 0
-        || state.view().latest_block_hash().is_none()
-    {
-        if let Some(genesis) = genesis_network.genesis {
-            sumeragi.init_commit_genesis(genesis, &genesis_account, &state);
-            true
-        } else {
-            if let Err(err) =
-                sumeragi.init_listen_for_genesis(&genesis_account, &state, shutdown_signal)
-            {
-                info!(?err, "Sumeragi Thread is being shut down.");
-                return;
+    let is_genesis_peer =
+        if state.view().height() == 0 || state.view().latest_block_hash().is_none() {
+            if let Some(genesis) = genesis_network.genesis {
+                sumeragi.init_commit_genesis(genesis, &genesis_account, &state);
+                true
+            } else {
+                if let Err(err) =
+                    sumeragi.init_listen_for_genesis(&genesis_account, &state, shutdown_signal)
+                {
+                    info!(?err, "Sumeragi Thread is being shut down.");
+                    return;
+                }
+                false
             }
+        } else {
             false
-        }
-    } else {
-        false
-    };
+        };
     span.exit();
 
     info!(

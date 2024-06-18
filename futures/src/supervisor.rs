@@ -369,12 +369,6 @@ where
     // we are okay to drop the handle; thread will continue running in a detached way
     let _handle: std::thread::JoinHandle<_> = builder
         .spawn(move || {
-            let default_hook = thread_local_panic_hook::take_hook();
-            thread_local_panic_hook::set_hook(Box::new(move |info| {
-                // TODO: need to print info in a custom way?
-                default_hook(info);
-            }));
-
             f();
 
             // the receiver might be dropped
