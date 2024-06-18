@@ -52,8 +52,6 @@ pub enum MigrationError {
 /// Executor that verifies that operation is valid and executes it.
 ///
 /// Executing is done in order to verify dependent instructions in transaction.
-/// So in fact it's more like an **Executor**, and it probably will be renamed soon.
-///
 /// Can be upgraded with [`Upgrade`](iroha_data_model::isi::Upgrade) instruction.
 #[derive(Debug, Default, Clone, Serialize)]
 pub enum Executor {
@@ -61,15 +59,8 @@ pub enum Executor {
     #[default]
     Initial,
     /// User-provided executor with arbitrary logic.
-    UserProvided(UserProvidedExecutor),
+    UserProvided(LoadedExecutor),
 }
-
-/// Executor provided by user.
-///
-/// Used to not to leak private data to the user.
-#[derive(Debug, Clone, Serialize)]
-#[serde(transparent)]
-pub struct UserProvidedExecutor(LoadedExecutor);
 
 impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Executor> {
     type Value = Executor;
@@ -108,7 +99,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Executor> {
                     ("UserProvided", variant) => {
                         let loaded =
                             variant.newtype_variant_seed(self.loader.cast::<LoadedExecutor>())?;
-                        Ok(Executor::UserProvided(UserProvidedExecutor(loaded)))
+                        Ok(Executor::UserProvided(loaded))
                     }
                     (other, _) => Err(serde::de::Error::unknown_variant(
                         other,
@@ -146,14 +137,17 @@ impl Executor {
             Self::Initial => {
                 let (_authority, Executable::Instructions(instructions)) = transaction.into()
                 else {
-                    return Ok(());
+                    return Err(ValidationFail::NotPermitted(
+                        "Genesis transaction must not be a smart contract".to_owned(),
+                    ));
                 };
+
                 for isi in instructions {
                     isi.execute(authority, state_transaction)?
                 }
                 Ok(())
             }
-            Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
+            Self::UserProvided(loaded_executor) => {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateTransaction>::new()
                         .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
@@ -189,7 +183,7 @@ impl Executor {
             Self::Initial => instruction
                 .execute(authority, state_transaction)
                 .map_err(Into::into),
-            Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
+            Self::UserProvided(loaded_executor) => {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateInstruction>::new()
                         .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
@@ -223,7 +217,7 @@ impl Executor {
 
         match self {
             Self::Initial => Ok(()),
-            Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
+            Self::UserProvided(loaded_executor) => {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery<S>>::new()
                         .with_engine(state_ro.engine().clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
@@ -269,7 +263,7 @@ impl Executor {
             .execute_executor_migration(state_transaction, authority, &loaded_executor.module)?
             .map_err(MigrationError::EntrypointExecution)?;
 
-        *self = Self::UserProvided(UserProvidedExecutor(loaded_executor));
+        *self = Self::UserProvided(loaded_executor);
         Ok(())
     }
 }
@@ -280,14 +274,14 @@ impl Executor {
 /// step and reuse it later on validating steps.
 #[derive(DebugCustom, Clone, Serialize)]
 #[debug(fmt = "LoadedExecutor {{ module: <Module is truncated> }}")]
-struct LoadedExecutor {
+pub struct LoadedExecutor {
     #[serde(skip)]
     module: wasmtime::Module,
     raw_executor: data_model_executor::Executor,
 }
 
 impl LoadedExecutor {
-    pub fn load(
+    fn load(
         engine: &wasmtime::Engine,
         raw_executor: data_model_executor::Executor,
     ) -> Result<Self, wasm::error::Error> {

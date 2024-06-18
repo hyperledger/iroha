@@ -248,15 +248,6 @@ pub mod isi {
             // Check if account exists
             state_transaction.world.account_mut(&account_id)?;
 
-            if !state_transaction
-                .world
-                .executor_data_model
-                .permissions
-                .contains(&permission_id)
-            {
-                return Err(FindError::Permission(permission_id).into());
-            }
-
             if state_transaction
                 .world
                 .account_contains_inherent_permission(&account_id, &permission)
