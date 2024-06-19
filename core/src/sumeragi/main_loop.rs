@@ -466,6 +466,13 @@ fn handle_message(
                 )) => {
                     warn!(%addr, %role, %block_hash, %block_height, %peer_height, "Other peer send irrelevant or outdated block to the peer (it's neither `peer_height` nor `peer_height + 1`).")
                 }
+                Err((_, BlockSyncError::SameBlock)) => {
+                    debug!(
+                        %addr, %role,
+                        hash=%block_hash,
+                        "Other peer sent block already committed by this peer",
+                    );
+                }
             }
         }
         (
@@ -1112,6 +1119,7 @@ enum BlockSyncError {
         peer_height: u64,
         block_height: u64,
     },
+    SameBlock,
 }
 
 fn handle_block_sync(
@@ -1119,6 +1127,10 @@ fn handle_block_sync(
     wsv: &WorldStateView,
     finalized_wsv: &WorldStateView,
 ) -> Result<BlockSyncOk, (SignedBlock, BlockSyncError)> {
+    if Some(block.hash()) == wsv.latest_block_hash() {
+        return Err((block, BlockSyncError::SameBlock));
+    }
+
     let block_height = block.payload().header.height;
     let wsv_height = wsv.height();
     if wsv_height + 1 == block_height {
@@ -1143,6 +1155,17 @@ fn handle_block_sync(
     } else if wsv_height == block_height && block_height > 1 {
         // Soft-fork on genesis block isn't possible
         // Soft fork branch for replacing current block with valid one
+        let peer_view_change_index = wsv.latest_block_view_change_index();
+        let block_view_change_index = block.payload().header.view_change_index;
+        if peer_view_change_index >= block_view_change_index {
+            return Err((
+                block.into(),
+                BlockSyncError::SoftForkBlockSmallViewChangeIndex {
+                    peer_view_change_index,
+                    block_view_change_index,
+                },
+            ));
+        }
         let mut new_wsv = finalized_wsv.clone();
         let topology = {
             let last_committed_block = new_wsv
@@ -1159,21 +1182,7 @@ fn handle_block_sync(
                     .map_err(|(block, err)| (block.into(), err))
             })
             .map_err(|(block, error)| (block, BlockSyncError::SoftForkBlockNotValid(error)))
-            .and_then(|block| {
-                let peer_view_change_index = wsv.latest_block_view_change_index();
-                let block_view_change_index = block.payload().header.view_change_index;
-                if peer_view_change_index < block_view_change_index {
-                    Ok(BlockSyncOk::ReplaceTopBlock(block, new_wsv))
-                } else {
-                    Err((
-                        block.into(),
-                        BlockSyncError::SoftForkBlockSmallViewChangeIndex {
-                            peer_view_change_index,
-                            block_view_change_index,
-                        },
-                    ))
-                }
-            })
+            .map(|block| BlockSyncOk::ReplaceTopBlock(block, new_wsv))
     } else {
         // Error branch other peer send irrelevant block
         Err((
@@ -1299,6 +1308,7 @@ mod tests {
 
         // Malform block to make it invalid
         block.payload_mut().commit_topology.clear();
+        block.payload_mut().header.view_change_index += 1;
 
         let result = handle_block_sync(block, &wsv, &finalized_wsv);
         assert!(matches!(
@@ -1429,5 +1439,27 @@ mod tests {
                 }
             ))
         ))
+    }
+
+    #[test]
+    fn block_sync_same_block() {
+        let leader_key_pair = KeyPair::generate().unwrap();
+        let topology = Topology::new(unique_vec![PeerId::new(
+            &"127.0.0.1:8080".parse().unwrap(),
+            leader_key_pair.public_key(),
+        )]);
+        let (finalized_wsv, kura, block) = create_data_for_test(&topology, leader_key_pair);
+        let mut wsv = finalized_wsv.clone();
+
+        let validated_block = ValidBlock::validate(block.clone(), &topology, &mut wsv).unwrap();
+        let committed_block = validated_block.commit(&topology).expect("Block is valid");
+        wsv.apply_without_execution(&committed_block)
+            .expect("Failed to apply block");
+        kura.store_block(committed_block);
+        assert_eq!(wsv.height(), 2);
+
+        // Try the same block
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
+        assert!(matches!(result, Err((_, BlockSyncError::SameBlock))))
     }
 }
