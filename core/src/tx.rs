@@ -106,6 +106,10 @@ impl AcceptedTransaction {
             }));
         }
 
+        if *iroha_genesis::GENESIS_DOMAIN_ID == *tx.authority().domain() {
+            return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
+        }
+
         match &tx.instructions() {
             Executable::Instructions(instructions) => {
                 let instruction_count = instructions.len();

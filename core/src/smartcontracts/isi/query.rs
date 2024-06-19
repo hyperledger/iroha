@@ -409,12 +409,12 @@ mod tests {
             let mut transactions = vec![valid_tx; valid_tx_per_block];
             transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
-            let (peer_public_key, _) = KeyPair::random().into_parts();
+            let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
             let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
             let topology = Topology::new(vec![peer_id]);
             let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                 .chain(0, &mut state_block)
-                .sign(ALICE_KEYPAIR.private_key())
+                .sign(&peer_private_key)
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
@@ -426,7 +426,7 @@ mod tests {
             for _ in 1u64..blocks {
                 let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                     .chain(0, &mut state_block)
-                    .sign(ALICE_KEYPAIR.private_key())
+                    .sign(&peer_private_key)
                     .unpack(|_| {})
                     .commit(&topology)
                     .unpack(|_| {})
@@ -481,7 +481,9 @@ mod tests {
         let blocks = FindAllBlocks.execute(&state.view())?.collect::<Vec<_>>();
 
         assert_eq!(blocks.len() as u64, num_blocks);
-        assert!(blocks.windows(2).all(|wnd| wnd[0] >= wnd[1]));
+        assert!(blocks
+            .windows(2)
+            .all(|wnd| wnd[0].header() >= wnd[1].header()));
 
         Ok(())
     }

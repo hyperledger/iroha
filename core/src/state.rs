@@ -1837,11 +1837,11 @@ mod tests {
 
     /// Used to inject faulty payload for testing
     fn new_dummy_block_with_payload(f: impl FnOnce(&mut BlockPayload)) -> CommittedBlock {
-        let (leader_public_key, _) = iroha_crypto::KeyPair::random().into_parts();
+        let (leader_public_key, leader_private_key) = iroha_crypto::KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
 
-        ValidBlock::new_dummy_and_modify_payload(f)
+        ValidBlock::new_dummy_and_modify_payload(&leader_private_key, f)
             .commit(&topology)
             .unpack(|_| {})
             .unwrap()

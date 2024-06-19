@@ -426,7 +426,7 @@ mod tests {
             is_coloring_supported()
         );
         assert!(try_with("--terminal-colors")?);
-        assert!(try_with("--terminal-colors=false")?);
+        assert!(!try_with("--terminal-colors=false")?);
         assert!(try_with("--terminal-colors=true")?);
         assert!(try_with("--terminal-colors=random").is_err());
 
