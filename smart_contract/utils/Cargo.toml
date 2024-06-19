@@ -14,6 +14,7 @@ workspace = true
 debug = []
 
 [dependencies]
+cfg-if.workspace = true
 iroha_data_model.workspace = true
 
 parity-scale-codec.workspace = true
