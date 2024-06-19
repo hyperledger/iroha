@@ -530,26 +530,49 @@ fn handle_message(
                 *voting_block = Some(v_block);
             }
         }
-        (Message::BlockCreated(block_created), Role::ObservingPeer) => {
+        (Message::BlockCreated(BlockCreated { block }), Role::ObservingPeer) => {
             let current_topology = current_topology.is_consensus_required().expect(
                 "Peer has `ObservingPeer` role, which mean that current topology require consensus",
             );
 
-            if let Some(v_block) = vote_for_block(sumeragi, &current_topology, block_created) {
-                if current_view_change_index >= 1 {
-                    let block_hash = v_block.block.payload().hash();
+            let v_block = {
+                let block_hash = block.payload().hash();
+                trace!(%addr, %role, block_hash=%block_hash, "Block received, voting...");
 
+                let mut new_wsv = sumeragi.wsv.clone();
+                match ValidBlock::validate(block, &current_topology, &mut new_wsv) {
+                    Ok(block) => {
+                        let block = if current_view_change_index >= 1 {
+                            block
+                                .sign(sumeragi.key_pair.clone())
+                                .expect("Block signing failed")
+                        } else {
+                            block
+                        };
+
+                        Some(VotingBlock::new(block, new_wsv))
+                    }
+                    Err((_, error)) => {
+                        warn!(%addr, %role, ?error, "Block validation failed");
+                        None
+                    }
+                }
+            };
+
+            if let Some(v_block) = v_block {
+                let block_hash = v_block.block.payload().hash();
+                info!(%addr, %block_hash, "Block validated");
+
+                if current_view_change_index >= 1 {
                     let msg = MessagePacket::new(
                         view_change_proof_chain.clone(),
                         Some(BlockSigned::from(v_block.block.clone()).into()),
                     );
 
                     sumeragi.broadcast_packet_to(msg, [current_topology.proxy_tail()]);
-                    info!(%addr, %block_hash, "Block validated, signed and forwarded");
-                    *voting_block = Some(v_block);
-                } else {
-                    error!(%addr, %role, "Received BlockCreated message, but shouldn't");
+                    info!(%addr, %block_hash, "Block signed and forwarded");
                 }
+                *voting_block = Some(v_block);
             }
         }
         (Message::BlockCreated(block_created), Role::ProxyTail) => {
@@ -634,7 +657,7 @@ fn process_message_independent(
                     };
 
                     let created_in = create_block_start_time.elapsed();
-                    if let Some(current_topology) = current_topology.is_consensus_required() {
+                    if current_topology.is_consensus_required().is_some() {
                         info!(%addr, created_in_ms=%created_in.as_millis(), block_payload_hash=%new_block.payload().hash(), "Block created");
 
                         if created_in > sumeragi.pipeline_time() / 2 {
@@ -646,11 +669,7 @@ fn process_message_independent(
                             view_change_proof_chain.clone(),
                             Some(BlockCreated::from(new_block).into()),
                         );
-                        if current_view_change_index >= 1 {
-                            sumeragi.broadcast_packet(msg);
-                        } else {
-                            sumeragi.broadcast_packet_to(msg, current_topology.voting_peers());
-                        }
+                        sumeragi.broadcast_packet(msg);
                     } else {
                         match new_block.commit(current_topology) {
                             Ok(committed_block) => {
@@ -682,32 +701,16 @@ fn process_message_independent(
                             Some(BlockCommitted::from(committed_block.clone()).into()),
                         );
 
-                        let current_topology = current_topology
-                            .is_consensus_required()
-                            .expect("Peer has `ProxyTail` role, which mean that current topology require consensus");
-
                         #[cfg(debug_assertions)]
                         if is_genesis_peer && sumeragi.debug_force_soft_fork {
                             std::thread::sleep(sumeragi.pipeline_time() * 2);
-                        } else if current_view_change_index >= 1 {
-                            sumeragi.broadcast_packet(msg);
                         } else {
-                            sumeragi.broadcast_packet_to(msg, current_topology.voting_peers());
+                            sumeragi.broadcast_packet(msg);
                         }
 
                         #[cfg(not(debug_assertions))]
                         {
-                            if current_view_change_index >= 1 {
-                                sumeragi.broadcast_packet(msg);
-                            } else {
-                                sumeragi.broadcast_packet_to(
-                                    msg,
-                                    current_topology
-                                        .ordered_peers
-                                        .iter()
-                                        .take(current_topology.min_votes_for_commit()),
-                                );
-                            }
+                            sumeragi.broadcast_packet(msg);
                         }
                         sumeragi.commit_block(committed_block, new_wsv);
                     }
