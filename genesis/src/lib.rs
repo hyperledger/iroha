@@ -9,11 +9,8 @@ use std::{
 };
 
 use eyre::{eyre, Result, WrapErr};
-use iroha_crypto::{KeyPair, MerkleTree, PublicKey};
-use iroha_data_model::{
-    block::{BlockHeader, BlockPayload, SignedBlock},
-    prelude::*,
-};
+use iroha_crypto::{KeyPair, PublicKey};
+use iroha_data_model::{block::SignedBlock, prelude::*};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
@@ -125,37 +122,8 @@ fn build_and_sign_genesis(
     let genesis_transaction = TransactionBuilder::new(chain_id, genesis_account_id)
         .with_instructions(instructions)
         .sign(genesis_key_pair.private_key());
-    create_genesis_block(genesis_transaction, topology)
-}
-
-fn create_genesis_block(
-    genesis_transaction: SignedTransaction,
-    topology: Vec<PeerId>,
-) -> GenesisBlock {
-    let transactions_hash = vec![genesis_transaction.hash()]
-        .into_iter()
-        .collect::<MerkleTree<_>>()
-        .hash()
-        .expect("Tree is not empty");
-    let header = BlockHeader {
-        height: 1,
-        prev_block_hash: None,
-        transactions_hash,
-        timestamp_ms: genesis_transaction.payload().creation_time_ms,
-        view_change_index: 0,
-        consensus_estimation_ms: 0,
-    };
-    let transaction = CommittedTransaction {
-        value: genesis_transaction,
-        error: None,
-    };
-    let payload = BlockPayload {
-        header,
-        commit_topology: topology,
-        transactions: vec![transaction],
-        event_recommendations: vec![],
-    };
-    GenesisBlock(payload.to_genesis_block())
+    let block = SignedBlock::new_genesis_block(genesis_transaction, topology);
+    GenesisBlock(block)
 }
 
 fn build_instructions(

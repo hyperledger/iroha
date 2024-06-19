@@ -5,7 +5,7 @@
 //! starts from `PendingBlock`.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
@@ -18,7 +18,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{events::prelude::*, peer, transaction::prelude::*};
+use crate::{events::prelude::*, peer, peer::PeerId, transaction::prelude::*};
 
 #[model]
 mod model {
@@ -170,16 +170,6 @@ impl BlockPayload {
         }
         .into()
     }
-
-    /// Converts to genesis block without signatures (not signed by any peer)
-    #[cfg(feature = "transparent_api")]
-    pub fn to_genesis_block(self) -> SignedBlock {
-        SignedBlockV1 {
-            signatures: vec![],
-            payload: self,
-        }
-        .into()
-    }
 }
 
 impl SignedBlockV1 {
@@ -287,6 +277,42 @@ impl SignedBlock {
             signatory as u64,
             SignatureOf::new(private_key, &block.payload),
         ));
+    }
+
+    /// Creates genesis block without signatures (not signed by any peer)
+    pub fn new_genesis_block(
+        genesis_transaction: SignedTransaction,
+        topology: Vec<PeerId>,
+    ) -> SignedBlock {
+        let transactions_hash = vec![genesis_transaction.hash()]
+            .into_iter()
+            .collect::<MerkleTree<_>>()
+            .hash()
+            .expect("Tree is not empty");
+        let timestamp_ms = genesis_transaction.creation_time().as_millis() as u64;
+        let header = BlockHeader {
+            height: 1,
+            prev_block_hash: None,
+            transactions_hash,
+            timestamp_ms,
+            view_change_index: 0,
+            consensus_estimation_ms: 0,
+        };
+        let transaction = CommittedTransaction {
+            value: genesis_transaction,
+            error: None,
+        };
+        let payload = BlockPayload {
+            header,
+            commit_topology: topology,
+            transactions: vec![transaction],
+            event_recommendations: vec![],
+        };
+        SignedBlockV1 {
+            signatures: vec![],
+            payload,
+        }
+        .into()
     }
 }
 
