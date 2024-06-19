@@ -280,16 +280,14 @@ impl SignedBlock {
     }
 
     /// Creates genesis block without signatures (not signed by any peer)
-    pub fn new_genesis_block(
-        genesis_transaction: SignedTransaction,
-        topology: Vec<PeerId>,
-    ) -> SignedBlock {
+    pub fn genesis(genesis_transaction: SignedTransaction, topology: Vec<PeerId>) -> SignedBlock {
         let transactions_hash = vec![genesis_transaction.hash()]
             .into_iter()
             .collect::<MerkleTree<_>>()
             .hash()
             .expect("Tree is not empty");
-        let timestamp_ms = genesis_transaction.creation_time().as_millis() as u64;
+        let timestamp_ms = u64::try_from(genesis_transaction.creation_time().as_millis())
+            .expect("Must fit since Duration was created from u64 in creation_time()");
         let header = BlockHeader {
             height: 1,
             prev_block_hash: None,
