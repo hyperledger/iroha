@@ -56,6 +56,7 @@ class Network:
             tomli_w.dump(shared_config, f)
 
         copy_or_prompt_build_bin("irohad", args.root_dir, peers_dir)
+        copy_genesis_json_and_change_topology(args, trusted_peers)
         sign_genesis_with_kagami(args, genesis_public_key, genesis_private_key)
 
 
@@ -138,15 +139,6 @@ class _Peer:
             # }
         }
         if nth == 0:
-            try:
-                shutil.copy2(self.root_dir / SWARM_CONFIGS_DIRECTORY / "genesis.json", self.peer_dir)
-                # assuming that `genesis.json` contains path to the executor as `./executor.wasm`
-                shutil.copy2(self.root_dir / SWARM_CONFIGS_DIRECTORY / "executor.wasm", self.peer_dir)
-            except FileNotFoundError:
-                target = self.root_dir / SWARM_CONFIGS_DIRECTORY
-                logging.error(f"Some of the config files are missing. \
-                                          Please provide them in the `{target}` directory")
-                sys.exit(1)
             config["genesis"] = {
                 "signed_file": "../../genesis.signed.scale"
             }
@@ -199,8 +191,24 @@ def copy_or_prompt_build_bin(bin_name: str, root_dir: pathlib.Path, target_dir: 
             else:
                 logging.error("Please answer with either `y[es]` or `n[o]`")
 
+def copy_genesis_json_and_change_topology(args: argparse.Namespace, topology):
+    try:
+        with open(args.root_dir / SWARM_CONFIGS_DIRECTORY / "genesis.json", 'r') as f:
+            genesis = json.load(f)
+    except FileNotFoundError:
+        target = args.root_dir / SWARM_CONFIGS_DIRECTORY
+        logging.error(f"`genesis.json` config file is missing in the `{target}` directory")
+        sys.exit(1)
+
+    executor_path = args.root_dir / SWARM_CONFIGS_DIRECTORY / genesis["executor"]
+    genesis["executor"] = str(executor_path.resolve())
+    genesis["topology"] = topology
+
+    with open(args.out_dir / "genesis.json", 'w') as f:
+        json.dump(genesis, f, indent=4)
+
 def sign_genesis_with_kagami(args: argparse.Namespace, genesis_public_key, genesis_private_key):
-    genesis_path = args.root_dir / SWARM_CONFIGS_DIRECTORY / "genesis.json"
+    genesis_path = args.out_dir / "genesis.json"
 
     command = [
         args.out_dir / "kagami",
@@ -211,7 +219,7 @@ def sign_genesis_with_kagami(args: argparse.Namespace, genesis_public_key, genes
         "--private-key", genesis_private_key,
         "--out-file", args.out_dir / "genesis.signed.scale"
     ]
-    kagami = subprocess.run(command, capture_output=True)
+    kagami = subprocess.run(command)
     if kagami.returncode:
         logging.error("Kagami failed to sign genesis.json")
         sys.exit(5)
@@ -281,7 +289,7 @@ if __name__ == "__main__":
                         help="Directory containing Iroha project root. \
                         Defaults to `.`, i.e. the directory script is being run from. \
                         This is used to locate the `irohad` binary and config files")
-    parser.add_argument("--peer-name-as-seed", default="True", action="store_true",
+    parser.add_argument("--peer-name-as-seed", action="store_true",
                         help="Use peer name as seed for key generation. \
                         This option could be useful to preserve the same peer keys between script invocations")
 

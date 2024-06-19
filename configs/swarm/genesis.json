@@ -187,22 +187,5 @@
   ],
   "executor": "./executor.wasm",
   "chain": "00000000-0000-0000-0000-000000000000",
-  "topology": [
-    {
-      "address": "127.0.0.1:1337",
-      "public_key": "ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4"
-    },
-    {
-      "address": "127.0.0.1:1338",
-      "public_key": "ed0120C347219ECE4248E3664C780456B00A34A57B573FC40909FD453CF79D2E5254D5"
-    },
-    {
-      "address": "127.0.0.1:1339",
-      "public_key": "ed0120979E08F87349AEED9E620E9FED60B78EC01ED46AF645C193845FC1CB972EFF9A"
-    },
-    {
-      "address": "127.0.0.1:1340",
-      "public_key": "ed01203DF52ED2B730A7AC1407AFE0B3F291501D4421035D6DC1E920FC000AA26EA4E1"
-    }
-  ]
+  "topology": []
 }

@@ -85,26 +85,6 @@ impl<T: Write> RunArgs<T> for Args {
     }
 }
 
-// This should be consistent with `scripts/test_env.py`
-const DEFAULT_TOPOLOGY: [(&str, &str); 4] = [
-    (
-        "127.0.0.1:1337",
-        "ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4",
-    ),
-    (
-        "127.0.0.1:1338",
-        "ed0120C347219ECE4248E3664C780456B00A34A57B573FC40909FD453CF79D2E5254D5",
-    ),
-    (
-        "127.0.0.1:1339",
-        "ed0120979E08F87349AEED9E620E9FED60B78EC01ED46AF645C193845FC1CB972EFF9A",
-    ),
-    (
-        "127.0.0.1:1340",
-        "ed01203DF52ED2B730A7AC1407AFE0B3F291501D4421035D6DC1E920FC000AA26EA4E1",
-    ),
-];
-
 #[allow(clippy::too_many_lines)]
 pub fn generate_default(
     builder: GenesisBuilder,
@@ -237,12 +217,8 @@ pub fn generate_default(
         builder = builder.append_instruction(isi);
     }
 
-    let topology = DEFAULT_TOPOLOGY
-        .iter()
-        .map(|(address, public_key)| {
-            PeerId::new(address.parse().unwrap(), public_key.parse().unwrap())
-        })
-        .collect::<Vec<_>>();
+    // Will be replaced with actual topology either in scripts/test_env.py or in iroha_swarm
+    let topology = vec![];
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
     let genesis = builder.build_raw(executor_path, chain_id, topology);
     Ok(genesis)
