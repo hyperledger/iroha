@@ -84,7 +84,7 @@ jobs:
         with:
           install: true
       - name: Build and push iroha2:dev image
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         if: always()
         with:
           push: true
