@@ -13,7 +13,6 @@ use iroha_data_model::{
     peer::PeerId,
     transaction::{error::TransactionRejectionReason, prelude::*},
 };
-use iroha_genesis::GenesisTransaction;
 use thiserror::Error;
 
 pub(crate) use self::event::WithEvents;
@@ -97,18 +96,18 @@ pub enum SignatureVerificationError {
 /// Errors occurred on genesis block validation
 #[derive(Debug, Copy, Clone, displaydoc::Display, PartialEq, Eq, Error)]
 pub enum InvalidGenesisError {
-    /// Genesis block must have single transaction
-    NotSingleTransaction,
-    /// Genesis transaction must be authorized by genesis account
-    UnexpectedAuthority,
     /// Genesis block must be signed with genesis private key and not signed by any peer
     InvalidSignature,
+    /// Genesis transaction must be authorized by genesis account
+    UnexpectedAuthority,
     /// Genesis transaction contains error
     ContainsErrors,
     /// Genesis transaction must contain instructions
     InvalidInstructions,
-    /// First instruction must set executor
-    FirstInstructionMustBeUpgrade,
+    /// First transaction must contain single `Upgrade` instruction to set executor
+    FirstTransactionMustSetExecutor,
+    /// Genesis block must have one or two transactions (first with executor upgrade)
+    InvalidNumberOfTransactions,
 }
 
 /// Builder for blocks
@@ -517,7 +516,7 @@ mod valid {
 
                     let tx = if is_genesis {
                         AcceptedTransaction::accept_genesis(
-                            GenesisTransaction(value),
+                            value,
                             expected_chain_id,
                             genesis_account,
                         )
@@ -695,23 +694,34 @@ mod valid {
             .map_err(|_| InvalidGenesisError::InvalidSignature)?;
 
         let transactions = block.payload().transactions.as_slice();
-        let [transaction] = transactions else {
-            return Err(InvalidGenesisError::NotSingleTransaction);
+        for transaction in transactions {
+            if transaction.value.authority() != genesis_account {
+                return Err(InvalidGenesisError::UnexpectedAuthority);
+            }
+            if transaction.error.is_some() {
+                return Err(InvalidGenesisError::ContainsErrors);
+            }
+            let Executable::Instructions(_) = transaction.value.instructions() else {
+                return Err(InvalidGenesisError::InvalidInstructions);
+            };
+        }
+
+        let Some(transaction_executor) = transactions.first() else {
+            return Err(InvalidGenesisError::FirstTransactionMustSetExecutor);
         };
-        if transaction.value.authority() != genesis_account {
-            return Err(InvalidGenesisError::UnexpectedAuthority);
-        }
-
-        if transaction.error.is_some() {
-            return Err(InvalidGenesisError::ContainsErrors);
-        }
-
-        let Executable::Instructions(instructions) = transaction.value.instructions() else {
+        let Executable::Instructions(instructions_executor) =
+            transaction_executor.value.instructions()
+        else {
             return Err(InvalidGenesisError::InvalidInstructions);
         };
-        let [InstructionBox::Upgrade(_), ..] = instructions.as_slice() else {
-            return Err(InvalidGenesisError::FirstInstructionMustBeUpgrade);
+        let [InstructionBox::Upgrade(_)] = instructions_executor.as_slice() else {
+            return Err(InvalidGenesisError::FirstTransactionMustSetExecutor);
         };
+
+        if transactions.len() > 2 {
+            return Err(InvalidGenesisError::InvalidNumberOfTransactions);
+        }
+
         Ok(())
     }
 

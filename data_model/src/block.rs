@@ -280,16 +280,18 @@ impl SignedBlock {
 
     /// Creates genesis block signed with genesis private key (and not signed by any peer)
     pub fn genesis(
-        genesis_transaction: SignedTransaction,
+        genesis_transactions: Vec<SignedTransaction>,
         genesis_private_key: &PrivateKey,
         topology: Vec<PeerId>,
     ) -> SignedBlock {
-        let transactions_hash = vec![genesis_transaction.hash()]
-            .into_iter()
+        let transactions_hash = genesis_transactions
+            .iter()
+            .map(SignedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
             .expect("Tree is not empty");
-        let timestamp_ms = u64::try_from(genesis_transaction.creation_time().as_millis())
+        let first_transaction = &genesis_transactions[0];
+        let timestamp_ms = u64::try_from(first_transaction.creation_time().as_millis())
             .expect("Must fit since Duration was created from u64 in creation_time()");
         let header = BlockHeader {
             height: 1,
@@ -299,14 +301,17 @@ impl SignedBlock {
             view_change_index: 0,
             consensus_estimation_ms: 0,
         };
-        let transaction = CommittedTransaction {
-            value: genesis_transaction,
-            error: None,
-        };
+        let transactions = genesis_transactions
+            .into_iter()
+            .map(|transaction| CommittedTransaction {
+                value: transaction,
+                error: None,
+            })
+            .collect();
         let payload = BlockPayload {
             header,
             commit_topology: topology,
-            transactions: vec![transaction],
+            transactions,
             event_recommendations: vec![],
         };
 
