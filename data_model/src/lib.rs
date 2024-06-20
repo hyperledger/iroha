@@ -635,7 +635,7 @@ mod ffi {
 #[allow(ambiguous_glob_reexports)]
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
-    pub use iroha_crypto::PublicKey;
+    pub use iroha_crypto::{HashOf, PublicKey};
     pub use iroha_primitives::{
         json::*,
         numeric::{numeric, Numeric, NumericSpec},
