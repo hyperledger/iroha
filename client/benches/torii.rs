@@ -7,7 +7,7 @@ use iroha::{
     client::{asset, Client},
     data_model::prelude::*,
 };
-use iroha_genesis::GenesisTransactionBuilder;
+use iroha_genesis::GenesisBuilder;
 use iroha_primitives::unique_vec;
 use iroha_version::Encode;
 use irohad::samples::{construct_executor, get_config};
@@ -31,11 +31,12 @@ fn query_requests(criterion: &mut Criterion) {
 
     let rt = Runtime::test();
     let executor = construct_executor("../default_executor").expect("Failed to construct executor");
-    let genesis = GenesisTransactionBuilder::default()
+    let topology = vec![peer.id.clone()];
+    let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
         .account(get_key_pair(test_network::Signatory::Alice).into_parts().0)
         .finish_domain()
-        .build_and_sign(executor, chain_id, &genesis_key_pair);
+        .build_and_sign(executor, chain_id, &genesis_key_pair, topology);
 
     let builder = PeerBuilder::new()
         .with_config(configuration)
@@ -118,6 +119,7 @@ fn instruction_submits(criterion: &mut Criterion) {
 
     let chain_id = get_chain_id();
     let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
+    let topology = vec![peer.id.clone()];
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
@@ -125,11 +127,11 @@ fn instruction_submits(criterion: &mut Criterion) {
         genesis_key_pair.public_key(),
     );
     let executor = construct_executor("../default_executor").expect("Failed to construct executor");
-    let genesis = GenesisTransactionBuilder::default()
+    let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
         .account(configuration.common.key_pair.public_key().clone())
         .finish_domain()
-        .build_and_sign(executor, chain_id, &genesis_key_pair);
+        .build_and_sign(executor, chain_id, &genesis_key_pair, topology);
     let builder = PeerBuilder::new()
         .with_config(configuration)
         .with_genesis(genesis);

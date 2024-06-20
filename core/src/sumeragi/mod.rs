@@ -11,7 +11,7 @@ use std::{
 use eyre::Result;
 use iroha_config::parameters::actual::{Common as CommonConfig, Sumeragi as SumeragiConfig};
 use iroha_data_model::{account::AccountId, block::SignedBlock, prelude::*};
-use iroha_genesis::GenesisTransaction;
+use iroha_genesis::GenesisBlock;
 use iroha_logger::prelude::*;
 use network_topology::{Role, Topology};
 
@@ -318,6 +318,6 @@ pub struct SumeragiMetrics {
 /// Optional genesis paired with genesis public key for verification
 #[allow(missing_docs)]
 pub struct GenesisWithPubKey {
-    pub genesis: Option<GenesisTransaction>,
+    pub genesis: Option<GenesisBlock>,
     pub public_key: PublicKey,
 }

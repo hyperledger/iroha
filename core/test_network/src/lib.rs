@@ -13,7 +13,7 @@ use iroha_config::parameters::actual::{Root as Config, Sumeragi, TrustedPeers};
 pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair};
 use iroha_data_model::{query::QueryOutputBox, ChainId};
-use iroha_genesis::{GenesisTransaction, RawGenesisTransaction};
+use iroha_genesis::{GenesisBlock, RawGenesisTransaction};
 use iroha_logger::{warn, InstrumentFutures};
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
@@ -66,16 +66,22 @@ pub enum Signatory {
 /// Trait used to differentiate a test instance of `genesis`.
 pub trait TestGenesis: Sized {
     /// Construct Iroha genesis
-    fn test() -> Self {
-        Self::test_with_instructions([])
+    fn test(topology: Vec<PeerId>) -> Self {
+        Self::test_with_instructions([], topology)
     }
 
     /// Construct genesis with additional instructions
-    fn test_with_instructions(extra_isi: impl IntoIterator<Item = InstructionBox>) -> Self;
+    fn test_with_instructions(
+        extra_isi: impl IntoIterator<Item = InstructionBox>,
+        topology: Vec<PeerId>,
+    ) -> Self;
 }
 
-impl TestGenesis for GenesisTransaction {
-    fn test_with_instructions(extra_isi: impl IntoIterator<Item = InstructionBox>) -> Self {
+impl TestGenesis for GenesisBlock {
+    fn test_with_instructions(
+        extra_isi: impl IntoIterator<Item = InstructionBox>,
+        topology: Vec<PeerId>,
+    ) -> Self {
         let cfg = Config::test();
 
         // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
@@ -126,6 +132,7 @@ impl TestGenesis for GenesisTransaction {
             panic!("`Config::test` expected to use SAMPLE_GENESIS_ACCOUNT_KEYPAIR");
         }
         genesis
+            .with_topology(topology)
             .build_and_sign(&genesis_key_pair)
             .expect("genesis should load fine")
     }
@@ -209,11 +216,7 @@ impl Network {
         config.sumeragi.trusted_peers.value_mut().others =
             UniqueVec::from_iter(self.peers().map(|peer| &peer.id).cloned());
 
-        let peer = PeerBuilder::new()
-            .with_config(config)
-            .with_test_genesis()
-            .start()
-            .await;
+        let peer = PeerBuilder::new().with_config(config).start().await;
 
         time::sleep(Config::pipeline_time() + Config::block_sync_gossip_time()).await;
 
@@ -247,12 +250,11 @@ impl Network {
                     let offset: u16 = (n * 5)
                         .try_into()
                         .expect("The `n_peers` is too large to fit into `u16`");
-                    (n, builder.with_port(port + offset))
+                    builder.with_port(port + offset)
                 } else {
-                    (n, builder)
+                    builder
                 }
             })
-            .map(|(n, builder)| builder.with_into_genesis((n == 0).then(GenesisTransaction::test)))
             .take(n_peers as usize)
             .collect::<Vec<_>>();
         let mut peers = builders
@@ -261,11 +263,15 @@ impl Network {
             .collect::<Result<Vec<_>>>()?;
 
         let mut config = default_config.unwrap_or_else(Config::test);
+        let topology = peers.iter().map(|peer| peer.id.clone()).collect::<Vec<_>>();
         config.sumeragi.trusted_peers.value_mut().others =
             UniqueVec::from_iter(peers.iter().map(|peer| peer.id.clone()));
 
         let mut genesis_peer = peers.remove(0);
-        let genesis_builder = builders.remove(0).with_config(config.clone());
+        let genesis_builder = builders
+            .remove(0)
+            .with_config(config.clone())
+            .with_genesis(GenesisBlock::test(topology));
 
         // Offset by one to account for genesis
         let online_peers = n_peers - offline_peers - 1;
@@ -279,7 +285,11 @@ impl Network {
             .zip(peers.iter_mut())
             .choose_multiple(rng, online_peers as usize)
         {
-            futures.push(builder.with_config(config.clone()).start_with_peer(peer));
+            let peer = builder
+                .with_config(config.clone())
+                .with_into_genesis(None)
+                .start_with_peer(peer);
+            futures.push(peer);
         }
         futures.collect::<()>().await;
 
@@ -439,7 +449,7 @@ impl Peer {
     async fn start(
         &mut self,
         config: Config,
-        genesis: Option<GenesisTransaction>,
+        genesis: Option<GenesisBlock>,
         temp_dir: Arc<TempDir>,
     ) {
         let mut config = self.get_config(config);
@@ -508,11 +518,11 @@ pub enum WithGenesis {
     /// Do not use any genesis.
     None,
     /// Use the given genesis.
-    Has(GenesisTransaction),
+    Has(GenesisBlock),
 }
 
-impl From<Option<GenesisTransaction>> for WithGenesis {
-    fn from(genesis: Option<GenesisTransaction>) -> Self {
+impl From<Option<GenesisBlock>> for WithGenesis {
+    fn from(genesis: Option<GenesisBlock>) -> Self {
         genesis.map_or(Self::None, Self::Has)
     }
 }
@@ -551,15 +561,9 @@ impl PeerBuilder {
 
     /// Set the genesis.
     #[must_use]
-    pub fn with_genesis(mut self, genesis: GenesisTransaction) -> Self {
+    pub fn with_genesis(mut self, genesis: GenesisBlock) -> Self {
         self.genesis = WithGenesis::Has(genesis);
         self
-    }
-
-    /// Set the test genesis.
-    #[must_use]
-    pub fn with_test_genesis(self) -> Self {
-        self.with_genesis(GenesisTransaction::test())
     }
 
     /// Set Iroha configuration
@@ -601,7 +605,10 @@ impl PeerBuilder {
     pub async fn start_with_peer(self, peer: &mut Peer) {
         let config = self.config.unwrap_or_else(Config::test);
         let genesis = match self.genesis {
-            WithGenesis::Default => Some(GenesisTransaction::test()),
+            WithGenesis::Default => {
+                let topology = vec![peer.id.clone()];
+                Some(GenesisBlock::test(topology))
+            }
             WithGenesis::None => None,
             WithGenesis::Has(genesis) => Some(genesis),
         };

@@ -13,6 +13,8 @@ services:
       API_ADDRESS: 0.0.0.0:8080
       GENESIS_PUBLIC_KEY: ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
       GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
+      GENESIS_PRIVATE_KEY: 80264082B3BDE54AEBECA4146257DA0DE8D59D8E46D5FE34887DCD8072866792FCB3AD4164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
+      TOPOLOGY: '[{"address":"irohad0:1337","public_key":"ed012082528CCC8727333530C8F6F19F70C23882DEB1BF2BA3BE4A6654C7E8A91A7731"}]'
     ports:
     - 1337:1337
     - 8080:8080
@@ -21,7 +23,20 @@ services:
     init: true
     command: |-
       /bin/sh -c "
-      kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key 80264082B3BDE54AEBECA4146257DA0DE8D59D8E46D5FE34887DCD8072866792FCB3AD4164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 --out-file $$GENESIS_SIGNED_FILE &&
+      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+      jq \\
+          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+          --argjson topology \"$$TOPOLOGY\" \\
+          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+          >/tmp/genesis.json && \\
+
+      kagami genesis sign /tmp/genesis.json \\
+          --public-key $$GENESIS_PUBLIC_KEY \\
+          --private-key $$GENESIS_PRIVATE_KEY \\
+          --out-file $$GENESIS_SIGNED_FILE \\
+      && \\
+
       irohad --submit-genesis
       "
     healthcheck:

@@ -5,11 +5,11 @@
 //! starts from `PendingBlock`.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
-use iroha_crypto::{HashOf, MerkleTree, SignatureOf};
+use iroha_crypto::{HashOf, MerkleTree, PrivateKey, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -18,7 +18,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{events::prelude::*, peer, transaction::prelude::*};
+use crate::{events::prelude::*, peer, peer::PeerId, transaction::prelude::*};
 
 #[model]
 mod model {
@@ -278,6 +278,46 @@ impl SignedBlock {
             SignatureOf::new(private_key, &block.payload),
         ));
     }
+
+    /// Creates genesis block signed with genesis private key (and not signed by any peer)
+    pub fn genesis(
+        genesis_transaction: SignedTransaction,
+        genesis_private_key: &PrivateKey,
+        topology: Vec<PeerId>,
+    ) -> SignedBlock {
+        let transactions_hash = vec![genesis_transaction.hash()]
+            .into_iter()
+            .collect::<MerkleTree<_>>()
+            .hash()
+            .expect("Tree is not empty");
+        let timestamp_ms = u64::try_from(genesis_transaction.creation_time().as_millis())
+            .expect("Must fit since Duration was created from u64 in creation_time()");
+        let header = BlockHeader {
+            height: 1,
+            prev_block_hash: None,
+            transactions_hash,
+            timestamp_ms,
+            view_change_index: 0,
+            consensus_estimation_ms: 0,
+        };
+        let transaction = CommittedTransaction {
+            value: genesis_transaction,
+            error: None,
+        };
+        let payload = BlockPayload {
+            header,
+            commit_topology: topology,
+            transactions: vec![transaction],
+            event_recommendations: vec![],
+        };
+
+        let signature = BlockSignature(0, SignatureOf::new(genesis_private_key, &payload));
+        SignedBlockV1 {
+            signatures: vec![signature],
+            payload,
+        }
+        .into()
+    }
 }
 
 mod candidate {
@@ -309,7 +349,7 @@ mod candidate {
         }
 
         fn validate_signatures(&self) -> Result<(), &'static str> {
-            if self.signatures.is_empty() {
+            if self.signatures.is_empty() && self.payload.header.height != 1 {
                 return Err("Block missing signatures");
             }
 

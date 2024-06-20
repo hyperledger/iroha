@@ -290,7 +290,7 @@ impl Sumeragi {
 
     fn init_commit_genesis(
         &mut self,
-        genesis_transaction: GenesisTransaction,
+        genesis: GenesisBlock,
         genesis_account: &AccountId,
         state: &State,
     ) {
@@ -302,19 +302,16 @@ impl Sumeragi {
             assert_eq!(state_view.latest_block_hash(), None);
         }
 
-        let transaction = AcceptedTransaction::accept_genesis(
-            genesis_transaction,
+        let mut state_block = state.block();
+        let genesis = ValidBlock::validate(
+            genesis.0,
+            &self.topology,
             &self.chain_id,
             genesis_account,
+            &mut state_block,
         )
+        .unpack(|e| self.send_event(e))
         .expect("Genesis invalid");
-        let transactions = vec![transaction];
-
-        let mut state_block = state.block();
-        let genesis = BlockBuilder::new(transactions, self.topology.clone(), vec![])
-            .chain(0, &mut state_block)
-            .sign(self.key_pair.private_key())
-            .unpack(|e| self.send_event(e));
 
         assert!(
             !genesis.as_ref().transactions().any(|tx| tx.error.is_some()),

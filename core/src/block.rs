@@ -65,6 +65,8 @@ pub enum BlockValidationError {
     SignatureVerification(#[from] SignatureVerificationError),
     /// Received view change index is too large
     ViewChangeIndexTooLarge,
+    /// Invalid genesis block: {0}
+    InvalidGenesis(#[from] InvalidGenesisError),
 }
 
 /// Error during signature verification
@@ -90,6 +92,23 @@ pub enum SignatureVerificationError {
     ProxyTailMissing,
     /// The block doesn't have leader signature
     LeaderMissing,
+}
+
+/// Errors occurred on genesis block validation
+#[derive(Debug, Copy, Clone, displaydoc::Display, PartialEq, Eq, Error)]
+pub enum InvalidGenesisError {
+    /// Genesis block must have single transaction
+    NotSingleTransaction,
+    /// Genesis transaction must be authorized by genesis account
+    UnexpectedAuthority,
+    /// Genesis block must be signed with genesis private key and not signed by any peer
+    InvalidSignature,
+    /// Genesis transaction contains error
+    ContainsErrors,
+    /// Genesis transaction must contain instructions
+    InvalidInstructions,
+    /// First instruction must set executor
+    FirstInstructionMustBeUpgrade,
 }
 
 /// Builder for blocks
@@ -245,7 +264,7 @@ mod chained {
 
 mod valid {
     use indexmap::IndexMap;
-    use iroha_data_model::{account::AccountId, ChainId};
+    use iroha_data_model::{account::AccountId, prelude::InstructionBox, ChainId};
 
     use super::*;
     use crate::{state::StateBlock, sumeragi::network_topology::Role};
@@ -434,7 +453,11 @@ mod valid {
                 )));
             }
 
-            if !block.header().is_genesis() {
+            if block.header().is_genesis() {
+                if let Err(e) = check_genesis_block(&block, genesis_account) {
+                    return WithEvents::new(Err((block, e.into())));
+                }
+            } else {
                 if let Err(err) = Self::verify_leader_signature(&block, topology)
                     .and_then(|()| Self::verify_validator_signatures(&block, topology))
                     .and_then(|()| Self::verify_no_undefined_signatures(&block, topology))
@@ -656,6 +679,40 @@ mod valid {
         fn as_ref(&self) -> &SignedBlock {
             &self.0
         }
+    }
+
+    fn check_genesis_block(
+        block: &SignedBlock,
+        genesis_account: &AccountId,
+    ) -> Result<(), InvalidGenesisError> {
+        let signatures = block.signatures().collect::<Vec<_>>();
+        let [signature] = signatures.as_slice() else {
+            return Err(InvalidGenesisError::InvalidSignature);
+        };
+        signature
+            .1
+            .verify(&genesis_account.signatory, block.payload())
+            .map_err(|_| InvalidGenesisError::InvalidSignature)?;
+
+        let transactions = block.payload().transactions.as_slice();
+        let [transaction] = transactions else {
+            return Err(InvalidGenesisError::NotSingleTransaction);
+        };
+        if transaction.value.authority() != genesis_account {
+            return Err(InvalidGenesisError::UnexpectedAuthority);
+        }
+
+        if transaction.error.is_some() {
+            return Err(InvalidGenesisError::ContainsErrors);
+        }
+
+        let Executable::Instructions(instructions) = transaction.value.instructions() else {
+            return Err(InvalidGenesisError::InvalidInstructions);
+        };
+        let [InstructionBox::Upgrade(_), ..] = instructions.as_slice() else {
+            return Err(InvalidGenesisError::FirstInstructionMustBeUpgrade);
+        };
+        Ok(())
     }
 
     #[cfg(test)]
@@ -913,7 +970,7 @@ mod tests {
     use iroha_data_model::prelude::*;
     use iroha_genesis::GENESIS_DOMAIN_ID;
     use iroha_primitives::unique_vec::UniqueVec;
-    use test_samples::{gen_account_in, SAMPLE_GENESIS_ACCOUNT_ID};
+    use test_samples::gen_account_in;
 
     use super::*;
     use crate::{
@@ -1194,7 +1251,7 @@ mod tests {
         let topology = Topology::new(vec![peer_id]);
         let valid_block = BlockBuilder::new(transactions, topology.clone(), Vec::new())
             .chain(0, &mut state_block)
-            .sign(KeyPair::random().private_key())
+            .sign(genesis_correct_key.private_key())
             .unpack(|_| {});
 
         // Validate genesis block
@@ -1204,18 +1261,16 @@ mod tests {
             block,
             &topology,
             &chain_id,
-            &SAMPLE_GENESIS_ACCOUNT_ID,
+            &genesis_correct_account_id,
             &mut state_block,
         )
         .unpack(|_| {})
         .unwrap_err();
 
         // The first transaction should be rejected
-        assert!(matches!(
+        assert_eq!(
             error,
-            BlockValidationError::TransactionValidation(TransactionValidationError::Accept(
-                AcceptTransactionFail::UnexpectedGenesisAccountSignature
-            ))
-        ))
+            BlockValidationError::InvalidGenesis(InvalidGenesisError::UnexpectedAuthority)
+        )
     }
 }

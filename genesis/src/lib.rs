@@ -1,5 +1,5 @@
-//! Genesis-related logic and constructs. Contains the [`GenesisTransaction`],
-//! [`RawGenesisTransaction`] and the [`GenesisTransactionBuilder`] structures.
+//! Genesis-related logic and constructs. Contains the [`GenesisBlock`],
+//! [`RawGenesisTransaction`] and the [`GenesisBuilder`] structures.
 use std::{
     fmt::Debug,
     fs,
@@ -10,7 +10,7 @@ use std::{
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{block::SignedBlock, prelude::*};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
@@ -23,9 +23,16 @@ pub static GENESIS_DOMAIN_ID: Lazy<DomainId> = Lazy::new(|| "genesis".parse().un
 #[repr(transparent)]
 pub struct GenesisTransaction(pub SignedTransaction);
 
+/// Genesis block.
+/// Should contain single transaction.
+/// First instruction should be [`Upgrade`].
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+pub struct GenesisBlock(pub SignedBlock);
+
 /// Format of genesis.json user file.
-/// It should be signed and serialized to [`GenesisTransaction`]
-/// in SCALE format before supplying to Iroha peer.
+/// It should be signed, converted to [`GenesisBlock`],
+/// and serialized in SCALE format before supplying to Iroha peer.
 /// See `kagami genesis sign`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawGenesisTransaction {
@@ -34,6 +41,8 @@ pub struct RawGenesisTransaction {
     executor: PathBuf,
     /// Unique id of blockchain
     chain: ChainId,
+    /// Initial topology
+    topology: Vec<PeerId>,
 }
 
 impl RawGenesisTransaction {
@@ -74,14 +83,26 @@ impl RawGenesisTransaction {
         self.instructions.push(instruction);
     }
 
-    /// Build and sign genesis transaction.
+    /// Change topology
+    #[must_use]
+    pub fn with_topology(mut self, topology: Vec<PeerId>) -> Self {
+        self.topology = topology;
+        self
+    }
+
+    /// Build and sign genesis block.
     ///
     /// # Errors
     /// If executor couldn't be read from provided path
-    pub fn build_and_sign(self, genesis_key_pair: &KeyPair) -> Result<GenesisTransaction> {
+    pub fn build_and_sign(self, genesis_key_pair: &KeyPair) -> Result<GenesisBlock> {
         let executor = get_executor(&self.executor)?;
-        let genesis =
-            build_and_sign_genesis(self.instructions, executor, self.chain, genesis_key_pair);
+        let genesis = build_and_sign_genesis(
+            self.instructions,
+            executor,
+            self.chain,
+            genesis_key_pair,
+            self.topology,
+        );
         Ok(genesis)
     }
 }
@@ -91,16 +112,22 @@ fn build_and_sign_genesis(
     executor: Executor,
     chain_id: ChainId,
     genesis_key_pair: &KeyPair,
-) -> GenesisTransaction {
+    topology: Vec<PeerId>,
+) -> GenesisBlock {
     let instructions = build_instructions(instructions, executor);
     let genesis_account_id = AccountId::new(
         GENESIS_DOMAIN_ID.clone(),
         genesis_key_pair.public_key().clone(),
     );
-    let transaction = TransactionBuilder::new(chain_id, genesis_account_id)
+    let genesis_transaction = TransactionBuilder::new(chain_id, genesis_account_id)
         .with_instructions(instructions)
         .sign(genesis_key_pair.private_key());
-    GenesisTransaction(transaction)
+    let block = SignedBlock::genesis(
+        genesis_transaction,
+        genesis_key_pair.private_key(),
+        topology,
+    );
+    GenesisBlock(block)
 }
 
 fn build_instructions(
@@ -118,16 +145,16 @@ fn get_executor(file: &Path) -> Result<Executor> {
     Ok(Executor::new(WasmSmartContract::from_compiled(wasm)))
 }
 
-/// Builder type for [`GenesisTransaction`]/[`RawGenesisTransaction`]
+/// Builder type for [`GenesisBlock`]/[`RawGenesisTransaction`]
 /// that does not perform any correctness checking on the block produced.
 /// Use with caution in tests and other things to register domains and accounts.
 #[must_use]
 #[derive(Default)]
-pub struct GenesisTransactionBuilder {
+pub struct GenesisBuilder {
     instructions: Vec<InstructionBox>,
 }
 
-/// `Domain` subsection of the [`GenesisTransactionBuilder`]. Makes
+/// `Domain` subsection of the [`GenesisBuilder`]. Makes
 /// it easier to create accounts and assets without needing to
 /// provide a `DomainId`.
 #[must_use]
@@ -136,7 +163,7 @@ pub struct GenesisDomainBuilder {
     domain_id: DomainId,
 }
 
-impl GenesisTransactionBuilder {
+impl GenesisBuilder {
     /// Create a domain and return a domain builder which can
     /// be used to create assets and accounts.
     pub fn domain(self, domain_name: Name) -> GenesisDomainBuilder {
@@ -164,25 +191,36 @@ impl GenesisTransactionBuilder {
         self.instructions.push(instruction.into());
         self
     }
-}
 
-impl GenesisTransactionBuilder {
-    /// Finish building, sign, and produce a [`GenesisTransaction`].
+    /// Finish building, sign, and produce a [`GenesisBlock`].
     pub fn build_and_sign(
         self,
         executor_blob: Executor,
         chain_id: ChainId,
         genesis_key_pair: &KeyPair,
-    ) -> GenesisTransaction {
-        build_and_sign_genesis(self.instructions, executor_blob, chain_id, genesis_key_pair)
+        topology: Vec<PeerId>,
+    ) -> GenesisBlock {
+        build_and_sign_genesis(
+            self.instructions,
+            executor_blob,
+            chain_id,
+            genesis_key_pair,
+            topology,
+        )
     }
 
     /// Finish building and produce a [`RawGenesisTransaction`].
-    pub fn build_raw(self, executor_file: PathBuf, chain_id: ChainId) -> RawGenesisTransaction {
+    pub fn build_raw(
+        self,
+        executor_file: PathBuf,
+        chain_id: ChainId,
+        topology: Vec<PeerId>,
+    ) -> RawGenesisTransaction {
         RawGenesisTransaction {
             instructions: self.instructions,
             executor: executor_file,
             chain: chain_id,
+            topology,
         }
     }
 }
@@ -190,8 +228,8 @@ impl GenesisTransactionBuilder {
 impl GenesisDomainBuilder {
     /// Finish this domain and return to
     /// genesis block building.
-    pub fn finish_domain(self) -> GenesisTransactionBuilder {
-        GenesisTransactionBuilder {
+    pub fn finish_domain(self) -> GenesisBuilder {
+        GenesisBuilder {
             instructions: self.instructions,
         }
     }
@@ -235,11 +273,11 @@ mod tests {
         let genesis_key_pair = KeyPair::random();
         let (alice_public_key, _) = KeyPair::random().into_parts();
 
-        let _genesis_block = GenesisTransactionBuilder::default()
+        let _genesis_block = GenesisBuilder::default()
             .domain("wonderland".parse()?)
             .account(alice_public_key)
             .finish_domain()
-            .build_and_sign(dummy_executor(), chain_id, &genesis_key_pair);
+            .build_and_sign(dummy_executor(), chain_id, &genesis_key_pair, vec![]);
         Ok(())
     }
 
@@ -253,7 +291,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let mut genesis_builder = GenesisTransactionBuilder::default();
+        let mut genesis_builder = GenesisBuilder::default();
 
         genesis_builder = genesis_builder
             .domain("wonderland".parse().unwrap())
@@ -276,9 +314,11 @@ mod tests {
             dummy_executor(),
             ChainId::from("00000000-0000-0000-0000-000000000000"),
             &KeyPair::random(),
+            vec![],
         );
 
-        let instructions = finished_genesis.0.instructions();
+        let transaction = &finished_genesis.0.payload().transactions[0];
+        let instructions = transaction.value.instructions();
         let Executable::Instructions(instructions) = instructions else {
             panic!("Expected instructions");
         };

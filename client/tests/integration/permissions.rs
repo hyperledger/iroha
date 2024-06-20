@@ -9,7 +9,7 @@ use iroha::{
         transaction::error::TransactionRejectionReason, JsonString,
     },
 };
-use iroha_genesis::GenesisTransaction;
+use iroha_genesis::GenesisBlock;
 use serde_json::json;
 use test_network::{PeerBuilder, *};
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
@@ -21,11 +21,11 @@ fn genesis_transactions_are_validated() {
 
     // Setting up genesis
 
-    let genesis = GenesisTransaction::test_with_instructions([Grant::permission(
+    let invalid_instruction = Grant::permission(
         Permission::new("InvalidToken".parse().unwrap(), json!(null)),
         ALICE_ID.clone(),
-    )
-    .into()]);
+    );
+    let genesis = GenesisBlock::test_with_instructions([invalid_instruction.into()], vec![]);
 
     // Starting peer
     let (_rt, _peer, test_client) = <PeerBuilder>::new()
