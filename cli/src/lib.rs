@@ -812,7 +812,7 @@ mod tests {
         async fn iroha_should_notify_on_panic() {
             let notify = Arc::new(Notify::new());
             let hook = panic::take_hook();
-            <crate::Iroha<ToriiNotStarted>>::prepare_panic_hook(Arc::clone(&notify));
+            crate::Iroha::prepare_panic_hook(Arc::clone(&notify));
             let waiters: Vec<_> = repeat(()).take(10).map(|_| Arc::clone(&notify)).collect();
             let handles: Vec<_> = waiters.iter().map(|waiter| waiter.notified()).collect();
             thread::spawn(move || {
@@ -837,7 +837,7 @@ mod tests {
 
             let mut table = toml::Table::new();
             iroha_config::base::toml::Writer::new(&mut table)
-                .write("chain_id", "0")
+                .write("chain", "0")
                 .write("public_key", pubkey)
                 .write("private_key", ExposedPrivateKey(privkey))
                 .write(["network", "address"], socket_addr!(127.0.0.1:1337))

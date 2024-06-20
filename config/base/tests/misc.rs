@@ -72,7 +72,7 @@ pub mod sample_config {
                 .finish_with_origin();
 
             let max_content_len = reader
-                .read_parameter::<u64>(["max_content_length"])
+                .read_parameter::<u64>(["max_content_len"])
                 .value_or_else(|| 1024)
                 .finish();
 
