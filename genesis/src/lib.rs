@@ -122,7 +122,11 @@ fn build_and_sign_genesis(
     let genesis_transaction = TransactionBuilder::new(chain_id, genesis_account_id)
         .with_instructions(instructions)
         .sign(genesis_key_pair.private_key());
-    let block = SignedBlock::genesis(genesis_transaction, topology);
+    let block = SignedBlock::genesis(
+        genesis_transaction,
+        genesis_key_pair.private_key(),
+        topology,
+    );
     GenesisBlock(block)
 }
 

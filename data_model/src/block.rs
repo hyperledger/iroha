@@ -9,7 +9,7 @@ use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
-use iroha_crypto::{HashOf, MerkleTree, SignatureOf};
+use iroha_crypto::{HashOf, MerkleTree, PrivateKey, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -279,8 +279,12 @@ impl SignedBlock {
         ));
     }
 
-    /// Creates genesis block without signatures (not signed by any peer)
-    pub fn genesis(genesis_transaction: SignedTransaction, topology: Vec<PeerId>) -> SignedBlock {
+    /// Creates genesis block signed with genesis private key (and not signed by any peer)
+    pub fn genesis(
+        genesis_transaction: SignedTransaction,
+        genesis_private_key: &PrivateKey,
+        topology: Vec<PeerId>,
+    ) -> SignedBlock {
         let transactions_hash = vec![genesis_transaction.hash()]
             .into_iter()
             .collect::<MerkleTree<_>>()
@@ -306,8 +310,10 @@ impl SignedBlock {
             transactions: vec![transaction],
             event_recommendations: vec![],
         };
+
+        let signature = BlockSignature(0, SignatureOf::new(genesis_private_key, &payload));
         SignedBlockV1 {
-            signatures: vec![],
+            signatures: vec![signature],
             payload,
         }
         .into()

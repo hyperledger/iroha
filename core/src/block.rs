@@ -101,8 +101,8 @@ pub enum InvalidGenesisError {
     NotSingleTransaction,
     /// Genesis transaction must be authorized by genesis account
     UnexpectedAuthority,
-    /// Genesis block must not be signed by any peer
-    SignedBySomePeer,
+    /// Genesis block must be signed with genesis private key and not signed by any peer
+    InvalidSignature,
     /// Genesis transaction contains error
     ContainsErrors,
     /// Genesis transaction must contain instructions
@@ -685,15 +685,21 @@ mod valid {
         block: &SignedBlock,
         genesis_account: &AccountId,
     ) -> Result<(), InvalidGenesisError> {
+        let signatures = block.signatures().collect::<Vec<_>>();
+        let [signature] = signatures.as_slice() else {
+            return Err(InvalidGenesisError::InvalidSignature);
+        };
+        signature
+            .1
+            .verify(&genesis_account.signatory, block.payload())
+            .map_err(|_| InvalidGenesisError::InvalidSignature)?;
+
         let transactions = block.payload().transactions.as_slice();
         let [transaction] = transactions else {
             return Err(InvalidGenesisError::NotSingleTransaction);
         };
         if transaction.value.authority() != genesis_account {
             return Err(InvalidGenesisError::UnexpectedAuthority);
-        }
-        if block.signatures().next().is_some() {
-            return Err(InvalidGenesisError::SignedBySomePeer);
         }
 
         if transaction.error.is_some() {
@@ -964,7 +970,7 @@ mod tests {
     use iroha_data_model::prelude::*;
     use iroha_genesis::GENESIS_DOMAIN_ID;
     use iroha_primitives::unique_vec::UniqueVec;
-    use test_samples::{gen_account_in, SAMPLE_GENESIS_ACCOUNT_ID};
+    use test_samples::gen_account_in;
 
     use super::*;
     use crate::{
@@ -1245,7 +1251,7 @@ mod tests {
         let topology = Topology::new(vec![peer_id]);
         let valid_block = BlockBuilder::new(transactions, topology.clone(), Vec::new())
             .chain(0, &mut state_block)
-            .sign(KeyPair::random().private_key())
+            .sign(genesis_correct_key.private_key())
             .unpack(|_| {});
 
         // Validate genesis block
@@ -1255,18 +1261,16 @@ mod tests {
             block,
             &topology,
             &chain_id,
-            &SAMPLE_GENESIS_ACCOUNT_ID,
+            &genesis_correct_account_id,
             &mut state_block,
         )
         .unpack(|_| {})
         .unwrap_err();
 
         // The first transaction should be rejected
-        assert!(matches!(
+        assert_eq!(
             error,
-            BlockValidationError::TransactionValidation(TransactionValidationError::Accept(
-                AcceptTransactionFail::UnexpectedGenesisAccountSignature
-            ))
-        ))
+            BlockValidationError::InvalidGenesis(InvalidGenesisError::UnexpectedAuthority)
+        )
     }
 }
