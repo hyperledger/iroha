@@ -59,7 +59,7 @@ ENV GID=1001
 
 RUN <<EOT
   set -eux
-  apk add --no-cache curl ca-certificates
+  apk add --no-cache curl ca-certificates jq
   addgroup -g $GID $USER
   adduser \
     --disabled-password \

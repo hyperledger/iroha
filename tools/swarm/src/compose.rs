@@ -21,12 +21,20 @@ const DIR_CONFIG_IN_DOCKER: &str = "/config";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
 const GENESIS_SIGNED_FILE: &str = "/tmp/genesis.signed.scale";
 const COMMAND_SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/sh -c "
-kagami genesis sign /config/genesis.json \\
+EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+jq \\
+    --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+    --argjson topology \"$$TOPOLOGY\" \\
+    '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+    >/tmp/genesis.json && \\
+
+kagami genesis sign /tmp/genesis.json \\
     --public-key $$GENESIS_PUBLIC_KEY \\
-    --private-key {GENESIS_PRIVATE_KEY} \\
-    --topology '{TOPOLOGY}' \\
+    --private-key $$GENESIS_PRIVATE_KEY \\
     --out-file $$GENESIS_SIGNED_FILE \\
 && \\
+
 irohad --submit-genesis
 ""#;
 const DOCKER_COMPOSE_VERSION: &str = "3.8";
@@ -156,17 +164,17 @@ impl DockerComposeServiceBuilder {
         let genesis_signed_file = genesis_private_key
             .as_ref()
             .map(|_| GENESIS_SIGNED_FILE.to_owned());
-        let command = genesis_private_key.map_or(ServiceCommand::None, |genesis_private_key| {
-            ServiceCommand::SignAndSubmitGenesis {
-                genesis_private_key,
-                topology: topology.clone(),
-            }
-        });
+        let command = if genesis_private_key.is_some() {
+            ServiceCommand::SignAndSubmitGenesis
+        } else {
+            ServiceCommand::None
+        };
 
         let compact_env = CompactPeerEnv {
             chain_id,
             topology,
             genesis_public_key,
+            genesis_private_key,
             genesis_signed_file,
             key_pair: peer.key_pair.clone(),
             p2p_addr: socket_addr!(0.0.0.0:peer.port_p2p),
@@ -201,10 +209,7 @@ impl Serialize for AlwaysTrue {
 
 #[derive(Debug)]
 enum ServiceCommand {
-    SignAndSubmitGenesis {
-        genesis_private_key: PrivateKey,
-        topology: BTreeSet<PeerId>,
-    },
+    SignAndSubmitGenesis,
     None,
 }
 
@@ -221,21 +226,7 @@ impl Serialize for ServiceCommand {
     {
         match self {
             Self::None => serializer.serialize_none(),
-            Self::SignAndSubmitGenesis {
-                genesis_private_key,
-                topology,
-            } => {
-                let genesis_private_key =
-                    ExposedPrivateKey(genesis_private_key.clone()).to_string();
-                let topology =
-                    serde_json::to_string(topology).expect("Failed to serialize topology");
-                // escaping is needed because argument `--topology ...` is inside other argument `/bin/sh -c "..."`
-                let topology = topology.replace('"', "\\\"");
-                let command = COMMAND_SIGN_AND_SUBMIT_GENESIS
-                    .replace("{GENESIS_PRIVATE_KEY}", &genesis_private_key)
-                    .replace("{TOPOLOGY}", &topology);
-                serializer.serialize_str(&command)
-            }
+            Self::SignAndSubmitGenesis => COMMAND_SIGN_AND_SUBMIT_GENESIS.serialize(serializer),
         }
     }
 }
@@ -319,12 +310,19 @@ struct FullPeerEnv {
     genesis_signed_file: Option<String>,
     #[serde_as(as = "Option<serde_with::json::JsonString>")]
     sumeragi_trusted_peers: Option<BTreeSet<PeerId>>,
+
+    // Those variables will not be used by `irohad`.
+    // They are needed for genesis block preparation.
+    genesis_private_key: Option<ExposedPrivateKey>,
+    #[serde_as(as = "Option<serde_with::json::JsonString>")]
+    topology: Option<BTreeSet<PeerId>>,
 }
 
 struct CompactPeerEnv {
     chain_id: ChainId,
     key_pair: KeyPair,
     genesis_public_key: PublicKey,
+    genesis_private_key: Option<PrivateKey>,
     genesis_signed_file: Option<String>,
     p2p_addr: SocketAddr,
     api_addr: SocketAddr,
@@ -336,9 +334,13 @@ impl From<CompactPeerEnv> for FullPeerEnv {
         let public_key = value.key_pair.public_key().clone();
         let trusted_peers = value
             .topology
+            .clone()
             .into_iter()
             .filter(|peer| peer.public_key() != &public_key)
             .collect::<BTreeSet<_>>();
+
+        let topology = value.genesis_private_key.as_ref().map(|_| value.topology);
+        let genesis_private_key = value.genesis_private_key.map(ExposedPrivateKey);
 
         Self {
             chain: value.chain_id,
@@ -353,6 +355,9 @@ impl From<CompactPeerEnv> for FullPeerEnv {
             } else {
                 Some(trusted_peers)
             },
+
+            genesis_private_key,
+            topology,
         }
     }
 }
@@ -587,6 +592,7 @@ mod tests {
             chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
             genesis_public_key: keypair.public_key().clone(),
+            genesis_private_key: Some(keypair.private_key().clone()),
             genesis_signed_file: Some("/tmp/genesis.signed.scale".to_owned()),
             p2p_addr: socket_addr!(127.0.0.1:1337),
             api_addr: socket_addr!(127.0.0.1:1338),
@@ -610,7 +616,12 @@ mod tests {
             .read_and_complete::<UserConfig>()
             .expect("config in env should be exhaustive");
 
-        assert_eq!(env.unvisited(), HashSet::new());
+        // These are used in `command`
+        let expected = ["GENESIS_PRIVATE_KEY", "TOPOLOGY"]
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect::<HashSet<_>>();
+        assert_eq!(env.unvisited(), expected);
     }
 
     #[test]
@@ -639,6 +650,7 @@ mod tests {
                             chain_id,
                             key_pair: key_pair.clone(),
                             genesis_public_key: key_pair.public_key().clone(),
+                            genesis_private_key: Some(key_pair.private_key().clone()),
                             genesis_signed_file: Some("/tmp/genesis.signed.scale".to_owned()),
                             p2p_addr: SocketAddr::from_str("iroha1:1339").unwrap(),
                             api_addr: SocketAddr::from_str("iroha1:1338").unwrap(),
@@ -655,15 +667,7 @@ mod tests {
                             "/config".to_owned(),
                         )],
                         init: AlwaysTrue,
-                        command: ServiceCommand::SignAndSubmitGenesis {
-                            genesis_private_key: key_pair.private_key().clone(),
-                            topology: [PeerId::new(
-                                "iroha1:1339".parse().unwrap(),
-                                key_pair.public_key().clone(),
-                            )]
-                            .into_iter()
-                            .collect(),
-                        },
+                        command: ServiceCommand::SignAndSubmitGenesis,
                         healthcheck: None,
                     },
                 );
@@ -687,6 +691,8 @@ mod tests {
                   API_ADDRESS: iroha1:1338
                   GENESIS_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
                   GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
+                  GENESIS_PRIVATE_KEY: 802640DB9D90D20F969177BD5882F9FE211D14D1399D5440D04E3468783D169BBC4A8E39E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
+                  TOPOLOGY: '[]'
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -696,12 +702,20 @@ mod tests {
                 init: true
                 command: |-
                   /bin/sh -c "
-                  kagami genesis sign /config/genesis.json \\
+                  EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                  EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                  jq \\
+                      --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                      --argjson topology \"$$TOPOLOGY\" \\
+                      '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                      >/tmp/genesis.json && \\
+
+                  kagami genesis sign /tmp/genesis.json \\
                       --public-key $$GENESIS_PUBLIC_KEY \\
-                      --private-key 802640DB9D90D20F969177BD5882F9FE211D14D1399D5440D04E3468783D169BBC4A8E39E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8 \\
-                      --topology '[{\"address\":\"iroha1:1339\",\"public_key\":\"ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8\"}]' \\
+                      --private-key $$GENESIS_PRIVATE_KEY \\
                       --out-file $$GENESIS_SIGNED_FILE \\
                   && \\
+
                   irohad --submit-genesis
                   "
         "#]];
@@ -718,6 +732,7 @@ mod tests {
             chain_id,
             key_pair: key_pair.clone(),
             genesis_public_key: key_pair.public_key().clone(),
+            genesis_private_key: None,
             genesis_signed_file: None,
             p2p_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             api_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
@@ -776,6 +791,8 @@ mod tests {
                   GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"irohad2:1339","public_key":"ed0120222832FD8DF02882F07C13554DBA5BAE10C07A97E4AE7C2114DC05E95C3E6E32"},{"address":"irohad1:1338","public_key":"ed0120ACD30C7213EF11C4EC1006C6039E4089FC39C9BD211F688B866BCA59C8073883"},{"address":"irohad3:1340","public_key":"ed0120FB35DF84B28FAF8BB5A24D6910EFD7D7B22101EB99BFC74C4213CB1E7215F91B"}]'
+                  GENESIS_PRIVATE_KEY: 8026405A6D5F06A90D29AD906E2F6EA8B41B4EF187849D0D397081A4A15FFCBE71E7C73420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
+                  TOPOLOGY: '[{"address":"irohad2:1339","public_key":"ed0120222832FD8DF02882F07C13554DBA5BAE10C07A97E4AE7C2114DC05E95C3E6E32"},{"address":"irohad0:1337","public_key":"ed0120AB0B22BC053C954A4CA7CF451872E9C5B971F0DA5D92133648226D02E3ABB611"},{"address":"irohad1:1338","public_key":"ed0120ACD30C7213EF11C4EC1006C6039E4089FC39C9BD211F688B866BCA59C8073883"},{"address":"irohad3:1340","public_key":"ed0120FB35DF84B28FAF8BB5A24D6910EFD7D7B22101EB99BFC74C4213CB1E7215F91B"}]'
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -784,12 +801,20 @@ mod tests {
                 init: true
                 command: |-
                   /bin/sh -c "
-                  kagami genesis sign /config/genesis.json \\
+                  EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                  EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                  jq \\
+                      --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                      --argjson topology \"$$TOPOLOGY\" \\
+                      '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                      >/tmp/genesis.json && \\
+
+                  kagami genesis sign /tmp/genesis.json \\
                       --public-key $$GENESIS_PUBLIC_KEY \\
-                      --private-key 8026405A6D5F06A90D29AD906E2F6EA8B41B4EF187849D0D397081A4A15FFCBE71E7C73420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9 \\
-                      --topology '[{\"address\":\"irohad2:1339\",\"public_key\":\"ed0120222832FD8DF02882F07C13554DBA5BAE10C07A97E4AE7C2114DC05E95C3E6E32\"},{\"address\":\"irohad0:1337\",\"public_key\":\"ed0120AB0B22BC053C954A4CA7CF451872E9C5B971F0DA5D92133648226D02E3ABB611\"},{\"address\":\"irohad1:1338\",\"public_key\":\"ed0120ACD30C7213EF11C4EC1006C6039E4089FC39C9BD211F688B866BCA59C8073883\"},{\"address\":\"irohad3:1340\",\"public_key\":\"ed0120FB35DF84B28FAF8BB5A24D6910EFD7D7B22101EB99BFC74C4213CB1E7215F91B\"}]' \\
+                      --private-key $$GENESIS_PRIVATE_KEY \\
                       --out-file $$GENESIS_SIGNED_FILE \\
                   && \\
+
                   irohad --submit-genesis
                   "
                 healthcheck:
