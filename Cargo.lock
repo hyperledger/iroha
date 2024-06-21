@@ -1452,19 +1452,9 @@ dependencies = [
 
 [[package]]
 name = "displaydoc"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "487585f4d0c6655fe74905e2504d8ad6908e4db67f744eb140876906c2f3175d"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.66",
-]
-
-[[package]]
-name = "displaydoc"
-version = "0.2.4"
-source = "git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const#ff2f562740a478e05551881f7355941c62dbfcc2"
+checksum = "97369cbbc041bc366949bc74d34658d6cda5621039731c6310521892a3a20ae0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2793,7 +2783,7 @@ dependencies = [
  "color-eyre",
  "criterion",
  "derive_more",
- "displaydoc 0.2.4 (git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const)",
+ "displaydoc",
  "error-stack",
  "executor_custom_data_model",
  "eyre",
@@ -2860,7 +2850,7 @@ dependencies = [
  "assertables",
  "cfg-if",
  "derive_more",
- "displaydoc 0.2.4 (git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const)",
+ "displaydoc",
  "error-stack",
  "expect-test",
  "hex",
@@ -2928,7 +2918,7 @@ dependencies = [
  "crossbeam-queue",
  "dashmap",
  "derive_more",
- "displaydoc 0.2.4 (git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const)",
+ "displaydoc",
  "eyre",
  "futures",
  "hex",
@@ -2985,7 +2975,7 @@ dependencies = [
  "curve25519-dalek",
  "derive_more",
  "digest",
- "displaydoc 0.2.4 (git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const)",
+ "displaydoc",
  "ed25519-dalek",
  "elliptic-curve",
  "getset",
@@ -3022,7 +3012,7 @@ dependencies = [
  "base64 0.22.1",
  "criterion",
  "derive_more",
- "displaydoc 0.2.4 (git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const)",
+ "displaydoc",
  "getset",
  "iroha_crypto",
  "iroha_data_model_derive",
@@ -3211,7 +3201,7 @@ name = "iroha_numeric"
 version = "2.0.0-pre-rc.21"
 dependencies = [
  "derive_more",
- "displaydoc 0.2.4 (git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const)",
+ "displaydoc",
  "iroha_ffi",
  "iroha_schema",
  "parity-scale-codec",
@@ -3229,7 +3219,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "derive_more",
- "displaydoc 0.2.4 (git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const)",
+ "displaydoc",
  "futures",
  "iroha_config",
  "iroha_config_base",
@@ -3250,7 +3240,7 @@ name = "iroha_primitives"
 version = "2.0.0-pre-rc.21"
 dependencies = [
  "derive_more",
- "displaydoc 0.2.4 (git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const)",
+ "displaydoc",
  "iroha_ffi",
  "iroha_macro",
  "iroha_numeric",
@@ -3417,7 +3407,7 @@ name = "iroha_torii"
 version = "2.0.0-pre-rc.21"
 dependencies = [
  "async-trait",
- "displaydoc 0.2.4 (git+https://github.com/akonradi-signal/displaydoc.git?branch=anonymous-const)",
+ "displaydoc",
  "eyre",
  "futures",
  "iroha_config",
@@ -7153,7 +7143,7 @@ dependencies = [
  "arbitrary",
  "crc32fast",
  "crossbeam-utils",
- "displaydoc 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "displaydoc",
  "flate2",
  "indexmap 2.2.6",
  "memchr",
