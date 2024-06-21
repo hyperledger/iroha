@@ -100,14 +100,6 @@ pub enum InvalidGenesisError {
     InvalidSignature,
     /// Genesis transaction must be authorized by genesis account
     UnexpectedAuthority,
-    /// Genesis transaction contains error
-    ContainsErrors,
-    /// Genesis transaction must contain instructions
-    InvalidInstructions,
-    /// First transaction must contain single `Upgrade` instruction to set executor
-    FirstTransactionMustSetExecutor,
-    /// Genesis block must have one or two transactions (first with executor upgrade)
-    InvalidNumberOfTransactions,
 }
 
 /// Builder for blocks
@@ -263,7 +255,7 @@ mod chained {
 
 mod valid {
     use indexmap::IndexMap;
-    use iroha_data_model::{account::AccountId, prelude::InstructionBox, ChainId};
+    use iroha_data_model::{account::AccountId, ChainId};
 
     use super::*;
     use crate::{state::StateBlock, sumeragi::network_topology::Role};
@@ -680,6 +672,7 @@ mod valid {
         }
     }
 
+    // See also [SignedBlockCandidate::validate_genesis]
     fn check_genesis_block(
         block: &SignedBlock,
         genesis_account: &AccountId,
@@ -698,30 +691,7 @@ mod valid {
             if transaction.value.authority() != genesis_account {
                 return Err(InvalidGenesisError::UnexpectedAuthority);
             }
-            if transaction.error.is_some() {
-                return Err(InvalidGenesisError::ContainsErrors);
-            }
-            let Executable::Instructions(_) = transaction.value.instructions() else {
-                return Err(InvalidGenesisError::InvalidInstructions);
-            };
         }
-
-        let Some(transaction_executor) = transactions.first() else {
-            return Err(InvalidGenesisError::FirstTransactionMustSetExecutor);
-        };
-        let Executable::Instructions(instructions_executor) =
-            transaction_executor.value.instructions()
-        else {
-            return Err(InvalidGenesisError::InvalidInstructions);
-        };
-        let [InstructionBox::Upgrade(_)] = instructions_executor.as_slice() else {
-            return Err(InvalidGenesisError::FirstTransactionMustSetExecutor);
-        };
-
-        if transactions.len() > 2 {
-            return Err(InvalidGenesisError::InvalidNumberOfTransactions);
-        }
-
         Ok(())
     }
 

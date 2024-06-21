@@ -333,6 +333,7 @@ mod candidate {
     use parity_scale_codec::Input;
 
     use super::*;
+    use crate::isi::InstructionBox;
 
     #[derive(Decode, Deserialize)]
     struct SignedBlockCandidate {
@@ -344,11 +345,48 @@ mod candidate {
         fn validate(self) -> Result<SignedBlockV1, &'static str> {
             self.validate_signatures()?;
             self.validate_header()?;
+            if self.payload.header.height == 1 {
+                self.validate_genesis()?;
+            }
 
             Ok(SignedBlockV1 {
                 signatures: self.signatures,
                 payload: self.payload,
             })
+        }
+
+        fn validate_genesis(&self) -> Result<(), &'static str> {
+            let transactions = self.payload.transactions.as_slice();
+            for transaction in transactions {
+                if transaction.error.is_some() {
+                    return Err("Genesis transaction must not contain errors");
+                }
+                let Executable::Instructions(_) = transaction.value.instructions() else {
+                    return Err("Genesis transaction must contain instructions");
+                };
+            }
+
+            let Some(transaction_executor) = transactions.first() else {
+                return Err("Genesis block must contain at least one transaction");
+            };
+            let Executable::Instructions(instructions_executor) =
+                transaction_executor.value.instructions()
+            else {
+                return Err("Genesis transaction must contain instructions");
+            };
+            let [InstructionBox::Upgrade(_)] = instructions_executor.as_slice() else {
+                return Err(
+                    "First transaction must contain single `Upgrade` instruction to set executor",
+                );
+            };
+
+            if transactions.len() > 2 {
+                return Err(
+                    "Genesis block must have one or two transactions (first with executor upgrade)",
+                );
+            }
+
+            Ok(())
         }
 
         fn validate_signatures(&self) -> Result<(), &'static str> {
