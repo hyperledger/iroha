@@ -1,9 +1,7 @@
 //! Structures, traits and impls related to `Account`s.
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_map, format, string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::str::FromStr;
-#[cfg(feature = "std")]
-use std::collections::btree_map;
 
 use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
@@ -20,9 +18,6 @@ use crate::{
     metadata::Metadata,
     HasMetadata, Identifiable, ParseError, PublicKey, Registered,
 };
-
-/// API to work with collections of [`Id`] : [`Account`] mappings.
-pub type AccountsMap = btree_map::BTreeMap<AccountId, Account>;
 
 #[model]
 mod model {

@@ -941,10 +941,6 @@
         "type": "DomainId"
       },
       {
-        "name": "accounts",
-        "type": "SortedMap<AccountId, Account>"
-      },
-      {
         "name": "asset_definitions",
         "type": "SortedMap<AssetDefinitionId, AssetDefinition>"
       },
@@ -3704,12 +3700,6 @@
         "type": "u16"
       }
     ]
-  },
-  "SortedMap<AccountId, Account>": {
-    "Map": {
-      "key": "AccountId",
-      "value": "Account"
-    }
   },
   "SortedMap<AssetDefinitionId, Asset>": {
     "Map": {

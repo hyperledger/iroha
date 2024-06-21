@@ -19,10 +19,11 @@ use iroha_data_model::{
 use iroha_genesis::GenesisTransaction;
 use iroha_logger::{debug, error};
 use iroha_macro::FromVariant;
+use storage::storage::StorageReadOnly;
 
 use crate::{
     smartcontracts::wasm,
-    state::{StateBlock, StateTransaction, WorldReadOnly},
+    state::{StateBlock, StateTransaction},
 };
 
 /// `AcceptedTransaction` — a transaction accepted by Iroha peer.
@@ -212,17 +213,7 @@ impl TransactionExecutor {
     ) -> Result<(), TransactionRejectionReason> {
         let authority = tx.as_ref().authority();
 
-        if !state_transaction
-            .world
-            .domain(&authority.domain)
-            .map_err(|_e| {
-                TransactionRejectionReason::AccountDoesNotExist(FindError::Domain(
-                    authority.domain.clone(),
-                ))
-            })?
-            .accounts
-            .contains_key(authority)
-        {
+        if state_transaction.world.accounts.get(authority).is_none() {
             return Err(TransactionRejectionReason::AccountDoesNotExist(
                 FindError::Account(authority.clone()),
             ));

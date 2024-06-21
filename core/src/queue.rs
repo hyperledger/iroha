@@ -437,10 +437,9 @@ pub mod tests {
     pub fn world_with_test_domains() -> World {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let (account_id, _account_keypair) = gen_account_in("wonderland");
-        let mut domain = Domain::new(domain_id).build(&account_id);
+        let domain = Domain::new(domain_id).build(&account_id);
         let account = Account::new(account_id.clone()).build(&account_id);
-        assert!(domain.add_account(account).is_none());
-        World::with([domain], PeersIds::new())
+        World::with([domain], [account], PeersIds::new())
     }
 
     fn config_factory() -> Config {
@@ -833,12 +832,10 @@ pub mod tests {
         let (bob_id, bob_keypair) = gen_account_in("wonderland");
         let world = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id).build(&alice_id);
+            let domain = Domain::new(domain_id).build(&alice_id);
             let alice_account = Account::new(alice_id.clone()).build(&alice_id);
             let bob_account = Account::new(bob_id.clone()).build(&bob_id);
-            assert!(domain.add_account(alice_account).is_none());
-            assert!(domain.add_account(bob_account).is_none());
-            World::with([domain], PeersIds::new())
+            World::with([domain], [alice_account, bob_account], PeersIds::new())
         };
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);

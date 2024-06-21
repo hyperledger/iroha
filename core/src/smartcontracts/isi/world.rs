@@ -141,6 +141,15 @@ pub mod isi {
                         .expect("should succeed")
                 });
 
+            let remove_accounts: Vec<AccountId> = state_transaction
+                .world
+                .accounts_in_domain_iter(&domain_id)
+                .map(|account| account.id().clone())
+                .collect();
+            for account in remove_accounts {
+                state_transaction.world.accounts.remove(account);
+            }
+
             if state_transaction
                 .world
                 .domains
