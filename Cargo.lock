@@ -3152,6 +3152,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_schema",
  "once_cell",
+ "parity-scale-codec",
  "serde",
  "serde_json",
  "test_samples",

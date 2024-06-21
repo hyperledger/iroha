@@ -13,6 +13,7 @@ use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{block::SignedBlock, prelude::*};
 use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
+use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 /// [`DomainId`](iroha_data_model::domain::DomainId) of the genesis account.
@@ -30,7 +31,7 @@ pub struct GenesisBlock(pub SignedBlock);
 /// It should be signed, converted to [`GenesisBlock`],
 /// and serialized in SCALE format before supplying to Iroha peer.
 /// See `kagami genesis sign`.
-#[derive(Debug, Clone, Serialize, Deserialize, IntoSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, Encode, Decode)]
 pub struct RawGenesisTransaction {
     /// Unique id of blockchain
     chain: ChainId,
@@ -267,6 +268,23 @@ impl GenesisDomainBuilder {
         self.instructions
             .push(Register::asset_definition(asset_definition).into());
         self
+    }
+}
+
+impl Encode for ExecutorPath {
+    fn encode(&self) -> Vec<u8> {
+        self.0
+            .to_str()
+            .expect("path contains not valid UTF-8")
+            .encode()
+    }
+}
+
+impl Decode for ExecutorPath {
+    fn decode<I: parity_scale_codec::Input>(
+        input: &mut I,
+    ) -> std::result::Result<Self, parity_scale_codec::Error> {
+        String::decode(input).map(PathBuf::from).map(ExecutorPath)
     }
 }
 
