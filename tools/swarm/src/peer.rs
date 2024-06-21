@@ -4,7 +4,7 @@ pub type PeerInfo = (PeerName, P2pApiPorts, ExposedKeyPair);
 pub type PeerName = String;
 pub type P2pApiPorts = [u16; 2];
 pub type ExposedKeyPair = (iroha_crypto::PublicKey, iroha_crypto::ExposedPrivateKey);
-pub type ExposedKeyPairRef<'a> = (
+pub type ExposedKeyRefPair<'a> = (
     &'a iroha_crypto::PublicKey,
     &'a iroha_crypto::ExposedPrivateKey,
 );
@@ -23,10 +23,7 @@ pub fn generate_key_pair(base_seed: Option<&[u8]>, extra_seed: &[u8]) -> Exposed
     (public_key, iroha_crypto::ExposedPrivateKey(private_key))
 }
 
-pub fn generate_peers(
-    count: u16,
-    key_seed: Option<&[u8]>,
-) -> std::collections::BTreeMap<u16, PeerInfo> {
+pub fn network(count: u16, key_seed: Option<&[u8]>) -> std::collections::BTreeMap<u16, PeerInfo> {
     (0..count)
         .map(|nth| {
             let name = format!("{SERVICE_NAME}{nth}");
@@ -57,7 +54,7 @@ pub fn peer_id(
 }
 
 #[allow(single_use_lifetimes)]
-pub fn get_trusted_peers<'a>(
+pub fn topology<'a>(
     peers: impl Iterator<Item = &'a PeerInfo>,
 ) -> std::collections::BTreeSet<iroha_data_model::peer::PeerId> {
     peers

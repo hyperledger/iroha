@@ -41,7 +41,7 @@ struct PeerSettings {
     chain: iroha_data_model::ChainId,
     genesis_key_pair: peer::ExposedKeyPair,
     network: std::collections::BTreeMap<u16, peer::PeerInfo>,
-    trusted_peers: std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
+    topology: std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
 }
 
 impl PeerSettings {
@@ -52,15 +52,15 @@ impl PeerSettings {
         config_dir: &std::path::Path,
         target_dir: &path::AbsolutePath,
     ) -> Result<Self, Error> {
-        let network = peer::generate_peers(count.get(), seed);
-        let trusted_peers = peer::get_trusted_peers(network.values());
+        let network = peer::network(count.get(), seed);
+        let topology = peer::topology(network.values());
         Ok(Self {
             healthcheck,
             config_dir: path::AbsolutePath::new(config_dir)?.relative_to(target_dir)?,
             chain: peer::chain(),
             genesis_key_pair: peer::generate_key_pair(seed, GENESIS_SEED),
             network,
-            trusted_peers,
+            topology,
         })
     }
 }
@@ -197,6 +197,7 @@ mod tests {
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
+                  TOPOLOGY: '[{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"}]'
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -205,8 +206,19 @@ mod tests {
                 init: true
                 command: |-
                   /bin/sh -c "
-                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
-                    irohad --submit-genesis
+                      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      jq \\
+                          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --argjson topology \"$$TOPOLOGY\" \\
+                          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                          >/tmp/genesis.json && \\
+                      kagami genesis sign /tmp/genesis.json \\
+                          --public-key $$GENESIS_PUBLIC_KEY \\
+                          --private-key $$GENESIS_PRIVATE_KEY \\
+                          --out-file $$GENESIS_SIGNED_FILE \\
+                      && \\
+                      irohad --submit-genesis
                   "
         "##]).assert_eq(&build_as_string(
             nonzero_ext::nonzero!(1u16),
@@ -243,6 +255,7 @@ mod tests {
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
+                  TOPOLOGY: '[{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"}]'
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -251,8 +264,19 @@ mod tests {
                 init: true
                 command: |-
                   /bin/sh -c "
-                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
-                    irohad --submit-genesis
+                      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      jq \\
+                          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --argjson topology \"$$TOPOLOGY\" \\
+                          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                          >/tmp/genesis.json && \\
+                      kagami genesis sign /tmp/genesis.json \\
+                          --public-key $$GENESIS_PUBLIC_KEY \\
+                          --private-key $$GENESIS_PRIVATE_KEY \\
+                          --out-file $$GENESIS_SIGNED_FILE \\
+                      && \\
+                      irohad --submit-genesis
                   "
         "##]).assert_eq(&build_as_string(
             nonzero_ext::nonzero!(1u16),
@@ -278,6 +302,7 @@ mod tests {
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
+                  TOPOLOGY: '[{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"}]'
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -292,8 +317,19 @@ mod tests {
                   start_period: 4s
                 command: |-
                   /bin/sh -c "
-                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
-                    irohad --submit-genesis
+                      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      jq \\
+                          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --argjson topology \"$$TOPOLOGY\" \\
+                          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                          >/tmp/genesis.json && \\
+                      kagami genesis sign /tmp/genesis.json \\
+                          --public-key $$GENESIS_PUBLIC_KEY \\
+                          --private-key $$GENESIS_PRIVATE_KEY \\
+                          --out-file $$GENESIS_SIGNED_FILE \\
+                      && \\
+                      irohad --submit-genesis
                   "
         "#]).assert_eq(&build_as_string(
             nonzero_ext::nonzero!(1u16),
@@ -321,6 +357,7 @@ mod tests {
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
                   GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
+                  TOPOLOGY: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -335,8 +372,19 @@ mod tests {
                   start_period: 4s
                 command: |-
                   /bin/sh -c "
-                    kagami genesis sign /config/genesis.json --public-key $$GENESIS_PUBLIC_KEY --private-key $$GENESIS_PRIVATE_KEY --out-file $$GENESIS_SIGNED_FILE &&
-                    irohad --submit-genesis
+                      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      jq \\
+                          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --argjson topology \"$$TOPOLOGY\" \\
+                          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                          >/tmp/genesis.json && \\
+                      kagami genesis sign /tmp/genesis.json \\
+                          --public-key $$GENESIS_PUBLIC_KEY \\
+                          --private-key $$GENESIS_PRIVATE_KEY \\
+                          --out-file $$GENESIS_SIGNED_FILE \\
+                      && \\
+                      irohad --submit-genesis
                   "
               irohad1:
                 image: hyperledger/iroha:dev
