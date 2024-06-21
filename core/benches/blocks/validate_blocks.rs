@@ -1,4 +1,4 @@
-use iroha_core::{prelude::*, state::State};
+use iroha_core::{prelude::*, state::State, sumeragi::network_topology::Topology};
 use iroha_data_model::{isi::InstructionBox, prelude::*};
 use test_samples::gen_account_in;
 
@@ -10,8 +10,10 @@ use common::*;
 pub struct StateValidateBlocks {
     state: State,
     instructions: Vec<Vec<InstructionBox>>,
-    private_key: PrivateKey,
+    account_private_key: PrivateKey,
     account_id: AccountId,
+    topology: Topology,
+    peer_private_key: PrivateKey,
 }
 
 impl StateValidateBlocks {
@@ -26,14 +28,19 @@ impl StateValidateBlocks {
         let domains = 100;
         let accounts_per_domain = 1000;
         let assets_per_domain = 1000;
+        let (domain_ids, account_ids, asset_definition_ids) =
+            generate_ids(domains, accounts_per_domain, assets_per_domain);
+        let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
+        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+        let topology = Topology::new(vec![peer_id]);
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let state = build_state(rt, &alice_id);
 
         let nth = 100;
         let instructions = [
-            populate_state(domains, accounts_per_domain, assets_per_domain, &alice_id),
-            delete_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
-            restore_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
+            populate_state(&domain_ids, &account_ids, &asset_definition_ids, &alice_id),
+            delete_every_nth(&domain_ids, &account_ids, &asset_definition_ids, nth),
+            restore_every_nth(&domain_ids, &account_ids, &asset_definition_ids, nth),
         ]
         .into_iter()
         .collect::<Vec<_>>();
@@ -41,8 +48,10 @@ impl StateValidateBlocks {
         Self {
             state,
             instructions,
-            private_key: alice_keypair.private_key().clone(),
+            account_private_key: alice_keypair.private_key().clone(),
             account_id: alice_id,
+            topology,
+            peer_private_key,
         }
     }
 
@@ -58,8 +67,10 @@ impl StateValidateBlocks {
         Self {
             state,
             instructions,
-            private_key,
+            account_private_key,
             account_id,
+            topology,
+            peer_private_key,
         }: Self,
     ) {
         for (instructions, i) in instructions.into_iter().zip(1..) {
@@ -68,7 +79,9 @@ impl StateValidateBlocks {
                 &mut state_block,
                 instructions,
                 account_id.clone(),
-                &private_key,
+                &account_private_key,
+                &topology,
+                &peer_private_key,
             );
             let _events = state_block.apply_without_execution(&block);
             assert_eq!(state_block.height(), i);
