@@ -1,6 +1,6 @@
 //! Time event and filter
 use core::{ops::Range, time::Duration};
-
+use chrono::{DateTime, Utc, TimeZone};
 use derive_more::Constructor;
 use getset::Getters;
 use iroha_data_model_derive::model;
@@ -99,7 +99,7 @@ mod model {
     )]
     pub struct Schedule {
         /// The first execution time
-        pub start: Duration,
+        pub start_ms: Duration,
         /// If some, the period between cyclic executions
         pub period: Option<Duration>,
     }
@@ -125,7 +125,7 @@ mod model {
     #[ffi_type]
     pub struct TimeInterval {
         /// The start of a time interval
-        pub since: Duration,
+        pub since_ms: Duration,
         /// The length of a time interval
         pub length: Duration,
     }
@@ -175,13 +175,13 @@ impl EventFilter for TimeEventFilter {
                     //
                     // Schedule start is after current block (c1).
                     // In this case event won't match and it will be handled in the next block.
-                    let since = if Range::from(prev).contains(&schedule.start) {
-                        schedule.start
+                    let since = if Range::from(prev).contains(&schedule.start_ms) {
+                        schedule.start_ms
                     } else {
                         prev.since + prev.length
                     };
-                    let estimation = event.interval.since + event.interval.length;
-                    let length = estimation - since;
+                    let estimation = event.interval.since_ms + event.interval.length;
+                    let length = estimation - since_ms;
 
                     TimeInterval { since, length }
                 });
@@ -245,34 +245,28 @@ fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
 }
 
 impl Schedule {
-    /// Create new [`Schedule`] starting at `start` and without period
+    /// Create new [`Schedule`] starting at `start_ms` and without period
     #[must_use]
     #[inline]
-    pub const fn starting_at(start: Duration) -> Self {
+    pub const fn starting_at(start_ms: Duration) -> Self {
         Self {
-            start,
+            start_ms,
             period: None,
         }
     }
-
-    /// Add `period` to `self`
-    #[must_use]
-    #[inline]
-    pub const fn with_period(mut self, period: Duration) -> Self {
-        self.period = Some(period);
-        self
+    /// Getter for `start_ms` returning `chrono::DateTime`
+    pub fn start(&self) -> DateTime<Utc> {
+        Utc.timestamp_millis(self.start_ms.as_millis() as i64)
     }
 }
-
 impl TimeInterval {
-    /// Getter for `since`
-    pub fn since(&self) -> &Duration {
-        &self.since
+    /// Getter for `since_ms` returning `chrono::DateTime`
+    pub fn since(&self) -> DateTime<Utc> {
+        Utc.timestamp_millis(self.since_ms.as_millis() as i64)
     }
-
-    /// Getter for `length`
-    pub fn length(&self) -> &Duration {
-        &self.length
+    /// Getter for `since_ms`
+    pub fn since(&self) -> &Duration {
+        &self.since_ms
     }
 }
 
