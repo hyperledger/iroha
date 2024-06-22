@@ -20,7 +20,7 @@ jobs:
         with:
           install: true
       - name: Build and export to Docker iroha2:dev image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         if: always()
         with:
           context: .
@@ -55,7 +55,7 @@ jobs:
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Push iroha2:dev image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true

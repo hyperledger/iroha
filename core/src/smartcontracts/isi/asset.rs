@@ -442,13 +442,8 @@ pub mod query {
             Ok(Box::new(
                 state_ro
                     .world()
-                    .domains_iter()
-                    .flat_map(|domain| {
-                        domain
-                            .accounts
-                            .values()
-                            .flat_map(|account| account.assets.values())
-                    })
+                    .accounts_iter()
+                    .flat_map(|account| account.assets.values())
                     .cloned(),
             ))
         }
@@ -507,18 +502,14 @@ pub mod query {
             Ok(Box::new(
                 state_ro
                     .world()
-                    .domains_iter()
-                    .flat_map(move |domain| {
+                    .accounts_iter()
+                    .flat_map(move |account| {
                         let name = name.clone();
 
-                        domain.accounts.values().flat_map(move |account| {
-                            let name = name.clone();
-
-                            account
-                                .assets
-                                .values()
-                                .filter(move |asset| asset.id().definition.name == name)
-                        })
+                        account
+                            .assets
+                            .values()
+                            .filter(move |asset| asset.id().definition.name == name)
                     })
                     .cloned(),
             ))
@@ -548,18 +539,14 @@ pub mod query {
             Ok(Box::new(
                 state_ro
                     .world()
-                    .domains_iter()
-                    .flat_map(move |domain| {
+                    .accounts_iter()
+                    .flat_map(move |account| {
                         let id = id.clone();
 
-                        domain.accounts.values().flat_map(move |account| {
-                            let id = id.clone();
-
-                            account
-                                .assets
-                                .values()
-                                .filter(move |asset| asset.id().definition == id)
-                        })
+                        account
+                            .assets
+                            .values()
+                            .filter(move |asset| asset.id().definition == id)
                     })
                     .cloned(),
             ))
@@ -577,9 +564,7 @@ pub mod query {
             Ok(Box::new(
                 state_ro
                     .world()
-                    .domain(id)?
-                    .accounts
-                    .values()
+                    .accounts_in_domain_iter(id)
                     .flat_map(|account| account.assets.values())
                     .cloned(),
             ))
@@ -601,9 +586,9 @@ pub mod query {
                 .ok_or_else(|| FindError::AssetDefinition(asset_definition_id.clone()))?;
             iroha_logger::trace!(%domain_id, %asset_definition_id);
             Ok(Box::new(
-                domain
-                    .accounts
-                    .values()
+                state_ro
+                    .world()
+                    .accounts_in_domain_iter(&domain_id)
                     .flat_map(move |account| {
                         let domain_id = domain_id.clone();
                         let asset_definition_id = asset_definition_id.clone();

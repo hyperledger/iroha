@@ -35,8 +35,8 @@ use iroha_core::{
     sumeragi::{GenesisWithPubKey, SumeragiHandle, SumeragiMetrics, SumeragiStartArgs},
     IrohaNetwork,
 };
-use iroha_data_model::prelude::*;
-use iroha_genesis::GenesisTransaction;
+use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_genesis::GenesisBlock;
 use iroha_logger::{actor::LoggerHandle, InitConfig as LoggerInitConfig};
 use iroha_primitives::addr::SocketAddr;
 use iroha_torii::Torii;
@@ -249,7 +249,7 @@ impl Iroha {
     #[iroha_logger::log(name = "init", skip_all)] // This is actually easier to understand as a linear sequence of init statements.
     pub async fn start_network(
         config: Config,
-        genesis: Option<GenesisTransaction>,
+        genesis: Option<GenesisBlock>,
         logger: LoggerHandle,
     ) -> Result<(impl core::future::Future<Output = ()>, Self), StartError> {
         let network = IrohaNetwork::start(config.common.key_pair.clone(), config.network.clone())
@@ -259,6 +259,7 @@ impl Iroha {
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
             [genesis_domain(config.genesis.public_key.clone())],
+            [genesis_account(config.genesis.public_key.clone())],
             config
                 .sumeragi
                 .trusted_peers
@@ -554,14 +555,7 @@ fn genesis_account(public_key: PublicKey) -> Account {
 
 fn genesis_domain(public_key: PublicKey) -> Domain {
     let genesis_account = genesis_account(public_key);
-    let mut domain =
-        Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone()).build(&genesis_account.id);
-
-    domain
-        .accounts
-        .insert(genesis_account.id.clone(), genesis_account);
-
-    domain
+    Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone()).build(&genesis_account.id)
 }
 
 /// Error of [`read_config_and_genesis`]
@@ -597,7 +591,7 @@ pub enum ConfigError {
 /// - If failed to load the genesis block
 pub fn read_config_and_genesis(
     args: &Args,
-) -> Result<(Config, LoggerInitConfig, Option<GenesisTransaction>), ConfigError> {
+) -> Result<(Config, LoggerInitConfig, Option<GenesisBlock>), ConfigError> {
     let mut reader = ConfigReader::new();
 
     if let Some(path) = &args.config {
@@ -627,11 +621,11 @@ pub fn read_config_and_genesis(
     Ok((config, logger_config, genesis))
 }
 
-fn read_genesis(path: &Path) -> Result<GenesisTransaction, ConfigError> {
+fn read_genesis(path: &Path) -> Result<GenesisBlock, ConfigError> {
     let bytes = std::fs::read(path).change_context(ConfigError::ReadGenesis)?;
     let genesis =
-        SignedTransaction::decode_all_versioned(&bytes).change_context(ConfigError::ReadGenesis)?;
-    Ok(GenesisTransaction(genesis))
+        SignedBlock::decode_all_versioned(&bytes).change_context(ConfigError::ReadGenesis)?;
+    Ok(GenesisBlock(genesis))
 }
 
 fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigError> {
@@ -794,7 +788,7 @@ pub struct Args {
 
 #[cfg(test)]
 mod tests {
-    use iroha_genesis::GenesisTransactionBuilder;
+    use iroha_genesis::GenesisBuilder;
 
     use super::*;
 
@@ -812,7 +806,7 @@ mod tests {
         async fn iroha_should_notify_on_panic() {
             let notify = Arc::new(Notify::new());
             let hook = panic::take_hook();
-            <crate::Iroha<ToriiNotStarted>>::prepare_panic_hook(Arc::clone(&notify));
+            crate::Iroha::prepare_panic_hook(Arc::clone(&notify));
             let waiters: Vec<_> = repeat(()).take(10).map(|_| Arc::clone(&notify)).collect();
             let handles: Vec<_> = waiters.iter().map(|waiter| waiter.notified()).collect();
             thread::spawn(move || {
@@ -837,7 +831,7 @@ mod tests {
 
             let mut table = toml::Table::new();
             iroha_config::base::toml::Writer::new(&mut table)
-                .write("chain_id", "0")
+                .write("chain", "0")
                 .write("public_key", pubkey)
                 .write("private_key", ExposedPrivateKey(privkey))
                 .write(["network", "address"], socket_addr!(127.0.0.1:1337))
@@ -855,10 +849,11 @@ mod tests {
             // Given
 
             let genesis_key_pair = KeyPair::random();
-            let genesis = GenesisTransactionBuilder::default().build_and_sign(
+            let genesis = GenesisBuilder::default().build_and_sign(
                 dummy_executor(),
                 ChainId::from("00000000-0000-0000-0000-000000000000"),
                 &genesis_key_pair,
+                vec![],
             );
 
             let mut config = config_factory(genesis_key_pair.public_key());
@@ -925,10 +920,11 @@ mod tests {
             // Given
 
             let genesis_key_pair = KeyPair::random();
-            let genesis = GenesisTransactionBuilder::default().build_and_sign(
+            let genesis = GenesisBuilder::default().build_and_sign(
                 dummy_executor(),
                 ChainId::from("00000000-0000-0000-0000-000000000000"),
                 &genesis_key_pair,
+                vec![],
             );
 
             let mut config = config_factory(genesis_key_pair.public_key());

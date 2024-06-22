@@ -290,7 +290,7 @@ impl Sumeragi {
 
     fn init_commit_genesis(
         &mut self,
-        genesis_transaction: GenesisTransaction,
+        genesis: GenesisBlock,
         genesis_account: &AccountId,
         state: &State,
     ) {
@@ -302,19 +302,16 @@ impl Sumeragi {
             assert_eq!(state_view.latest_block_hash(), None);
         }
 
-        let transaction = AcceptedTransaction::accept_genesis(
-            genesis_transaction,
+        let mut state_block = state.block();
+        let genesis = ValidBlock::validate(
+            genesis.0,
+            &self.topology,
             &self.chain_id,
             genesis_account,
+            &mut state_block,
         )
+        .unpack(|e| self.send_event(e))
         .expect("Genesis invalid");
-        let transactions = vec![transaction];
-
-        let mut state_block = state.block();
-        let genesis = BlockBuilder::new(transactions, self.topology.clone(), vec![])
-            .chain(0, &mut state_block)
-            .sign(self.key_pair.private_key())
-            .unpack(|e| self.send_event(e));
 
         assert!(
             !genesis.as_ref().transactions().any(|tx| tx.error.is_some()),
@@ -1353,9 +1350,8 @@ mod tests {
         );
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = "wonderland".parse().expect("Valid");
-        let mut domain = Domain::new(domain_id).build(&alice_id);
-        assert!(domain.add_account(account).is_none());
-        let world = World::with([domain], topology.iter().cloned().collect());
+        let domain = Domain::new(domain_id).build(&alice_id);
+        let world = World::with([domain], [account], topology.iter().cloned().collect());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, Arc::clone(&kura), query_handle);

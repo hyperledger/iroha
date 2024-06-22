@@ -65,6 +65,8 @@ pub enum BlockValidationError {
     SignatureVerification(#[from] SignatureVerificationError),
     /// Received view change index is too large
     ViewChangeIndexTooLarge,
+    /// Invalid genesis block: {0}
+    InvalidGenesis(#[from] InvalidGenesisError),
 }
 
 /// Error during signature verification
@@ -90,6 +92,23 @@ pub enum SignatureVerificationError {
     ProxyTailMissing,
     /// The block doesn't have leader signature
     LeaderMissing,
+}
+
+/// Errors occurred on genesis block validation
+#[derive(Debug, Copy, Clone, displaydoc::Display, PartialEq, Eq, Error)]
+pub enum InvalidGenesisError {
+    /// Genesis block must have single transaction
+    NotSingleTransaction,
+    /// Genesis transaction must be authorized by genesis account
+    UnexpectedAuthority,
+    /// Genesis block must be signed with genesis private key and not signed by any peer
+    InvalidSignature,
+    /// Genesis transaction contains error
+    ContainsErrors,
+    /// Genesis transaction must contain instructions
+    InvalidInstructions,
+    /// First instruction must set executor
+    FirstInstructionMustBeUpgrade,
 }
 
 /// Builder for blocks
@@ -245,7 +264,7 @@ mod chained {
 
 mod valid {
     use indexmap::IndexMap;
-    use iroha_data_model::{account::AccountId, ChainId};
+    use iroha_data_model::{account::AccountId, prelude::InstructionBox, ChainId};
 
     use super::*;
     use crate::{state::StateBlock, sumeragi::network_topology::Role};
@@ -434,7 +453,11 @@ mod valid {
                 )));
             }
 
-            if !block.header().is_genesis() {
+            if block.header().is_genesis() {
+                if let Err(e) = check_genesis_block(&block, genesis_account) {
+                    return WithEvents::new(Err((block, e.into())));
+                }
+            } else {
                 if let Err(err) = Self::verify_leader_signature(&block, topology)
                     .and_then(|()| Self::verify_validator_signatures(&block, topology))
                     .and_then(|()| Self::verify_no_undefined_signatures(&block, topology))
@@ -615,12 +638,15 @@ mod valid {
         }
 
         #[cfg(test)]
-        pub(crate) fn new_dummy() -> Self {
-            Self::new_dummy_and_modify_payload(|_| {})
+        pub(crate) fn new_dummy(leader_private_key: &PrivateKey) -> Self {
+            Self::new_dummy_and_modify_payload(leader_private_key, |_| {})
         }
 
         #[cfg(test)]
-        pub(crate) fn new_dummy_and_modify_payload(f: impl FnOnce(&mut BlockPayload)) -> Self {
+        pub(crate) fn new_dummy_and_modify_payload(
+            leader_private_key: &PrivateKey,
+            f: impl FnOnce(&mut BlockPayload),
+        ) -> Self {
             let mut payload = BlockPayload {
                 header: BlockHeader {
                     height: 2,
@@ -638,7 +664,7 @@ mod valid {
             };
             f(&mut payload);
             BlockBuilder(Chained(payload))
-                .sign(iroha_crypto::KeyPair::random().private_key())
+                .sign(leader_private_key)
                 .unpack(|_| {})
         }
     }
@@ -653,6 +679,40 @@ mod valid {
         fn as_ref(&self) -> &SignedBlock {
             &self.0
         }
+    }
+
+    fn check_genesis_block(
+        block: &SignedBlock,
+        genesis_account: &AccountId,
+    ) -> Result<(), InvalidGenesisError> {
+        let signatures = block.signatures().collect::<Vec<_>>();
+        let [signature] = signatures.as_slice() else {
+            return Err(InvalidGenesisError::InvalidSignature);
+        };
+        signature
+            .1
+            .verify(&genesis_account.signatory, block.payload())
+            .map_err(|_| InvalidGenesisError::InvalidSignature)?;
+
+        let transactions = block.payload().transactions.as_slice();
+        let [transaction] = transactions else {
+            return Err(InvalidGenesisError::NotSingleTransaction);
+        };
+        if transaction.value.authority() != genesis_account {
+            return Err(InvalidGenesisError::UnexpectedAuthority);
+        }
+
+        if transaction.error.is_some() {
+            return Err(InvalidGenesisError::ContainsErrors);
+        }
+
+        let Executable::Instructions(instructions) = transaction.value.instructions() else {
+            return Err(InvalidGenesisError::InvalidInstructions);
+        };
+        let [InstructionBox::Upgrade(_), ..] = instructions.as_slice() else {
+            return Err(InvalidGenesisError::FirstInstructionMustBeUpgrade);
+        };
+        Ok(())
     }
 
     #[cfg(test)]
@@ -671,17 +731,25 @@ mod valid {
             let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
             let topology = Topology::new(peers);
 
-            let mut block = ValidBlock::new_dummy();
+            let mut block = ValidBlock::new_dummy(key_pairs[0].private_key());
             let payload = block.0.payload().clone();
             key_pairs
                 .iter()
-                .map(|key_pair| {
-                    BlockSignature(0, SignatureOf::new(key_pair.private_key(), &payload))
+                .enumerate()
+                // Include only peers in validator set
+                .take(topology.min_votes_for_commit())
+                // Skip leader since already singed
+                .skip(1)
+                .filter(|(i, _)| *i != 4) // Skip proxy tail
+                .map(|(i, key_pair)| {
+                    BlockSignature(i as u64, SignatureOf::new(key_pair.private_key(), &payload))
                 })
                 .try_for_each(|signature| block.add_signature(signature, &topology))
                 .expect("Failed to add signatures");
 
-            assert!(block.commit(&topology).unpack(|_| {}).is_ok());
+            block.sign(&key_pairs[4], &topology);
+
+            let _ = block.commit(&topology).unpack(|_| {}).unwrap();
         }
 
         #[test]
@@ -693,15 +761,7 @@ mod valid {
             let peers = test_peers![0,: key_pairs_iter];
             let topology = Topology::new(peers);
 
-            let mut block = ValidBlock::new_dummy();
-            let payload = block.0.payload().clone();
-            key_pairs
-                .iter()
-                .map(|key_pair| {
-                    BlockSignature(0, SignatureOf::new(key_pair.private_key(), &payload))
-                })
-                .try_for_each(|signature| block.add_signature(signature, &topology))
-                .expect("Failed to add signatures");
+            let block = ValidBlock::new_dummy(key_pairs[0].private_key());
 
             assert!(block.commit(&topology).unpack(|_| {}).is_ok());
         }
@@ -716,18 +776,13 @@ mod valid {
             let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
             let topology = Topology::new(peers);
 
-            let mut block = ValidBlock::new_dummy();
-            let payload = block.0.payload().clone();
-            let proxy_tail_signature =
-                BlockSignature(0, SignatureOf::new(key_pairs[4].private_key(), &payload));
-            block
-                .add_signature(proxy_tail_signature, &topology)
-                .expect("Failed to add signature");
+            let mut block = ValidBlock::new_dummy(key_pairs[0].private_key());
+            block.sign(&key_pairs[4], &topology);
 
             assert_eq!(
                 block.commit(&topology).unpack(|_| {}).unwrap_err().1,
                 SignatureVerificationError::NotEnoughSignatures {
-                    votes_count: 1,
+                    votes_count: 2,
                     min_votes_for_commit: topology.min_votes_for_commit(),
                 }
                 .into()
@@ -744,14 +799,18 @@ mod valid {
             let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
             let topology = Topology::new(peers);
 
-            let mut block = ValidBlock::new_dummy();
+            let mut block = ValidBlock::new_dummy(key_pairs[0].private_key());
             let payload = block.0.payload().clone();
             key_pairs
                 .iter()
                 .enumerate()
+                // Include only peers in validator set
+                .take(topology.min_votes_for_commit())
+                // Skip leader since already singed
+                .skip(1)
                 .filter(|(i, _)| *i != 4) // Skip proxy tail
-                .map(|(_, key_pair)| {
-                    BlockSignature(0, SignatureOf::new(key_pair.private_key(), &payload))
+                .map(|(i, key_pair)| {
+                    BlockSignature(i as u64, SignatureOf::new(key_pair.private_key(), &payload))
                 })
                 .try_for_each(|signature| block.add_signature(signature, &topology))
                 .expect("Failed to add signatures");
@@ -911,20 +970,23 @@ mod tests {
     use iroha_data_model::prelude::*;
     use iroha_genesis::GENESIS_DOMAIN_ID;
     use iroha_primitives::unique_vec::UniqueVec;
-    use test_samples::{gen_account_in, SAMPLE_GENESIS_ACCOUNT_ID};
+    use test_samples::gen_account_in;
 
     use super::*;
     use crate::{
         kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _,
-        state::State, tx::SignatureVerificationFail,
+        state::State,
     };
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
-        let valid_block = ValidBlock::new_dummy();
-        let (peer_public_key, _) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+        let peer_key_pair = KeyPair::random();
+        let peer_id = PeerId::new(
+            "127.0.0.1:8080".parse().unwrap(),
+            peer_key_pair.public_key().clone(),
+        );
         let topology = Topology::new(vec![peer_id]);
+        let valid_block = ValidBlock::new_dummy(peer_key_pair.private_key());
         let committed_block = valid_block
             .clone()
             .commit(&topology)
@@ -942,9 +1004,8 @@ mod tests {
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build(&alice_id);
-        assert!(domain.add_account(account).is_none());
-        let world = World::with([domain], UniqueVec::new());
+        let domain = Domain::new(domain_id).build(&alice_id);
+        let world = World::with([domain], [account], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -999,9 +1060,8 @@ mod tests {
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build(&alice_id);
-        assert!(domain.add_account(account).is_none());
-        let world = World::with([domain], UniqueVec::new());
+        let domain = Domain::new(domain_id).build(&alice_id);
+        let world = World::with([domain], [account], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -1074,12 +1134,8 @@ mod tests {
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build(&alice_id);
-        assert!(
-            domain.add_account(account).is_none(),
-            "{alice_id} already exist in the blockchain"
-        );
-        let world = World::with([domain], UniqueVec::new());
+        let domain = Domain::new(domain_id).build(&alice_id);
+        let world = World::with([domain], [account], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -1157,12 +1213,11 @@ mod tests {
             GENESIS_DOMAIN_ID.clone(),
             genesis_wrong_key.public_key().clone(),
         );
-        let mut genesis_domain =
+        let genesis_domain =
             Domain::new(GENESIS_DOMAIN_ID.clone()).build(&genesis_correct_account_id);
         let genesis_wrong_account =
             Account::new(genesis_wrong_account_id.clone()).build(&genesis_wrong_account_id);
-        assert!(genesis_domain.add_account(genesis_wrong_account).is_none(),);
-        let world = World::with([genesis_domain], UniqueVec::new());
+        let world = World::with([genesis_domain], [genesis_wrong_account], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -1176,15 +1231,11 @@ mod tests {
 
         // Create genesis transaction
         // Sign with `genesis_wrong_key` as peer which has incorrect genesis key pair
+        // Bypass `accept_genesis` check to allow signing with wrong key
         let tx = TransactionBuilder::new(chain_id.clone(), genesis_wrong_account_id.clone())
             .with_instructions([isi])
             .sign(genesis_wrong_key.private_key());
-        let tx = AcceptedTransaction::accept_genesis(
-            iroha_genesis::GenesisTransaction(tx),
-            &chain_id,
-            &SAMPLE_GENESIS_ACCOUNT_ID,
-        )
-        .expect("Valid");
+        let tx = AcceptedTransaction(tx);
 
         // Create genesis block
         let transactions = vec![tx];
@@ -1193,7 +1244,7 @@ mod tests {
         let topology = Topology::new(vec![peer_id]);
         let valid_block = BlockBuilder::new(transactions, topology.clone(), Vec::new())
             .chain(0, &mut state_block)
-            .sign(KeyPair::random().private_key())
+            .sign(genesis_correct_key.private_key())
             .unpack(|_| {});
 
         // Validate genesis block
@@ -1203,18 +1254,16 @@ mod tests {
             block,
             &topology,
             &chain_id,
-            &SAMPLE_GENESIS_ACCOUNT_ID,
+            &genesis_correct_account_id,
             &mut state_block,
         )
         .unpack(|_| {})
         .unwrap_err();
 
         // The first transaction should be rejected
-        assert!(matches!(
+        assert_eq!(
             error,
-            BlockValidationError::TransactionValidation(TransactionValidationError::Accept(
-                AcceptTransactionFail::SignatureVerification(SignatureVerificationFail { reason, .. })
-            )) if reason == "Signature doesn't correspond to genesis public key"
-        ));
+            BlockValidationError::InvalidGenesis(InvalidGenesisError::UnexpectedAuthority)
+        )
     }
 }

@@ -26,7 +26,7 @@ jobs:
           TAG=${RELEASE_VERSION#$PREFIX}
           echo "TAG=$TAG" >>$GITHUB_ENV
       - name: Build and export to Docker iroha2 image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         if: always()
         with:
           context: .
@@ -61,7 +61,7 @@ jobs:
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Build and push iroha2 image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true

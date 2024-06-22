@@ -42,7 +42,7 @@ jobs:
         with:
           install: true
       - name: Build and push iroha2-profiling image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         if: always()
         with:
           push: true

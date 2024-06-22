@@ -313,12 +313,11 @@ mod tests {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build(&ALICE_ID);
         let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
-        assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
             .add_asset_definition(AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID))
             .is_none());
-        World::with([domain], PeersIds::new())
+        World::with([domain], [account], PeersIds::new())
     }
 
     fn world_with_test_asset_with_metadata() -> World {
@@ -344,8 +343,7 @@ mod tests {
         let asset = Asset::new(asset_id, AssetValue::Store(store));
 
         assert!(account.add_asset(asset).is_none());
-        assert!(domain.add_account(account).is_none());
-        World::with([domain], PeersIds::new())
+        World::with([domain], [account], PeersIds::new())
     }
 
     fn world_with_test_account_with_metadata() -> Result<World> {
@@ -360,12 +358,11 @@ mod tests {
         let account = Account::new(ALICE_ID.clone())
             .with_metadata(metadata)
             .build(&ALICE_ID);
-        assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
             .add_asset_definition(AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID))
             .is_none());
-        Ok(World::with([domain], PeersIds::new()))
+        Ok(World::with([domain], [account], PeersIds::new()))
     }
 
     fn state_with_test_blocks_and_transactions(
@@ -409,12 +406,12 @@ mod tests {
             let mut transactions = vec![valid_tx; valid_tx_per_block];
             transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
-            let (peer_public_key, _) = KeyPair::random().into_parts();
+            let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
             let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
             let topology = Topology::new(vec![peer_id]);
             let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                 .chain(0, &mut state_block)
-                .sign(ALICE_KEYPAIR.private_key())
+                .sign(&peer_private_key)
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
@@ -426,7 +423,7 @@ mod tests {
             for _ in 1u64..blocks {
                 let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                     .chain(0, &mut state_block)
-                    .sign(ALICE_KEYPAIR.private_key())
+                    .sign(&peer_private_key)
                     .unpack(|_| {})
                     .commit(&topology)
                     .unpack(|_| {})
@@ -481,7 +478,9 @@ mod tests {
         let blocks = FindAllBlocks.execute(&state.view())?.collect::<Vec<_>>();
 
         assert_eq!(blocks.len() as u64, num_blocks);
-        assert!(blocks.windows(2).all(|wnd| wnd[0] >= wnd[1]));
+        assert!(blocks
+            .windows(2)
+            .all(|wnd| wnd[0].header() >= wnd[1].header()));
 
         Ok(())
     }
@@ -617,7 +616,6 @@ mod tests {
                 .with_metadata(metadata)
                 .build(&ALICE_ID);
             let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
-            assert!(domain.add_account(account).is_none());
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             assert!(domain
                 .add_asset_definition(
@@ -625,7 +623,11 @@ mod tests {
                 )
                 .is_none());
             let query_handle = LiveQueryStore::test().start();
-            State::new(World::with([domain], PeersIds::new()), kura, query_handle)
+            State::new(
+                World::with([domain], [account], PeersIds::new()),
+                kura,
+                query_handle,
+            )
         };
 
         let domain_id = DomainId::from_str("wonderland")?;

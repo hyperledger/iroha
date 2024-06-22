@@ -831,6 +831,7 @@ impl<T> AddErrContextExt<T> for Result<T, std::io::Error> {
 #[cfg(test)]
 mod tests {
 
+    use iroha_crypto::KeyPair;
     use tempfile::TempDir;
 
     use super::*;
@@ -934,7 +935,7 @@ mod tests {
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
-        let dummy_block = ValidBlock::new_dummy().into();
+        let dummy_block = ValidBlock::new_dummy(KeyPair::random().private_key()).into();
 
         let append_count = 35;
         for _ in 0..append_count {
@@ -950,7 +951,7 @@ mod tests {
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
-        let dummy_block = ValidBlock::new_dummy().into();
+        let dummy_block = ValidBlock::new_dummy(KeyPair::random().private_key()).into();
 
         let append_count = 35;
         for _ in 0..append_count {
@@ -966,7 +967,7 @@ mod tests {
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
-        let dummy_block = ValidBlock::new_dummy().into();
+        let dummy_block = ValidBlock::new_dummy(KeyPair::random().private_key()).into();
 
         let append_count = 35;
         for _ in 0..append_count {
@@ -986,7 +987,7 @@ mod tests {
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
-        let dummy_block = ValidBlock::new_dummy().into();
+        let dummy_block = ValidBlock::new_dummy(KeyPair::random().private_key()).into();
 
         let append_count = 35;
         for _ in 0..append_count {

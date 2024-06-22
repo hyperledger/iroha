@@ -14,7 +14,6 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    account::{Account, AccountsMap},
     asset::{AssetDefinition, AssetDefinitionsMap, AssetTotalQuantityMap},
     ipfs::IpfsPath,
     metadata::Metadata,
@@ -73,8 +72,6 @@ mod model {
     pub struct Domain {
         /// Identification of this [`Domain`].
         pub id: DomainId,
-        /// [`Account`]s of the domain.
-        pub accounts: AccountsMap,
         /// [`Asset`](AssetDefinition)s defined of the `Domain`.
         pub asset_definitions: AssetDefinitionsMap,
         /// Total amount of [`Asset`].
@@ -158,12 +155,6 @@ impl Domain {
 }
 
 impl Domain {
-    /// Return a reference to the [`Account`] corresponding to the account id.
-    #[inline]
-    pub fn account(&self, account_id: &AccountId) -> Option<&Account> {
-        self.accounts.get(account_id)
-    }
-
     /// Return a reference to the asset definition corresponding to the asset definition id
     #[inline]
     pub fn asset_definition(
@@ -182,18 +173,6 @@ impl Domain {
         self.asset_total_quantities.get(asset_definition_id)
     }
 
-    /// Get an iterator over [`Account`]s of the `Domain`
-    #[inline]
-    pub fn accounts(&self) -> impl ExactSizeIterator<Item = &Account> {
-        self.accounts.values()
-    }
-
-    /// Return `true` if the `Domain` contains [`Account`]
-    #[inline]
-    pub fn contains_account(&self, account_id: &AccountId) -> bool {
-        self.accounts.contains_key(account_id)
-    }
-
     /// Get an iterator over asset definitions of the `Domain`
     #[inline]
     pub fn asset_definitions(&self) -> impl ExactSizeIterator<Item = &AssetDefinition> {
@@ -203,18 +182,6 @@ impl Domain {
 
 #[cfg(feature = "transparent_api")]
 impl Domain {
-    /// Add [`Account`] into the [`Domain`] returning previous account stored under the same id
-    #[inline]
-    pub fn add_account(&mut self, account: Account) -> Option<Account> {
-        self.accounts.insert(account.id().clone(), account)
-    }
-
-    /// Remove account from the [`Domain`] and return it
-    #[inline]
-    pub fn remove_account(&mut self, account_id: &AccountId) -> Option<Account> {
-        self.accounts.remove(account_id)
-    }
-
     /// Add asset definition into the [`Domain`] returning previous
     /// asset definition stored under the same id
     #[inline]

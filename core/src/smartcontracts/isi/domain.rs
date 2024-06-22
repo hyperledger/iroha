@@ -2,7 +2,6 @@
 
 use eyre::Result;
 use iroha_data_model::{
-    account::AccountsMap,
     asset::{AssetDefinitionsMap, AssetTotalQuantityMap},
     prelude::*,
     query::error::FindError,
@@ -19,7 +18,6 @@ impl Registrable for iroha_data_model::domain::NewDomain {
     fn build(self, authority: &AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
-            accounts: AccountsMap::default(),
             asset_definitions: AssetDefinitionsMap::default(),
             asset_total_quantities: AssetTotalQuantityMap::default(),
             metadata: self.metadata,
@@ -56,15 +54,18 @@ pub mod isi {
                 ));
             }
 
-            let domain = state_transaction.world.domain_mut(&account_id.domain)?;
-            if domain.accounts.contains_key(&account_id) {
+            let _domain = state_transaction.world.domain_mut(&account_id.domain)?;
+            if state_transaction.world.account(&account_id).is_ok() {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
                     id: IdBox::AccountId(account_id),
                 }
                 .into());
             }
-            domain.add_account(account.clone());
+            state_transaction
+                .world
+                .accounts
+                .insert(account_id, account.clone());
 
             state_transaction
                 .world
@@ -103,8 +104,8 @@ pub mod isi {
 
             if state_transaction
                 .world
-                .domain_mut(&account_id.domain)?
-                .remove_account(&account_id)
+                .accounts
+                .remove(account_id.clone())
                 .is_none()
             {
                 return Err(FindError::Account(account_id).into());
@@ -168,22 +169,20 @@ pub mod isi {
             let asset_definition_id = self.object;
 
             let mut assets_to_remove = Vec::new();
-            for domain in state_transaction.world.domains_iter() {
-                for account in domain.accounts.values() {
-                    assets_to_remove.extend(
-                        account
-                            .assets
-                            .values()
-                            .filter_map(|asset| {
-                                if asset.id().definition == asset_definition_id {
-                                    return Some(asset.id());
-                                }
+            for (_, account) in state_transaction.world.accounts.iter() {
+                assets_to_remove.extend(
+                    account
+                        .assets
+                        .values()
+                        .filter_map(|asset| {
+                            if asset.id().definition == asset_definition_id {
+                                return Some(asset.id());
+                            }
 
-                                None
-                            })
-                            .cloned(),
-                    )
-                }
+                            None
+                        })
+                        .cloned(),
+                )
             }
 
             let mut events = Vec::with_capacity(assets_to_remove.len() + 1);

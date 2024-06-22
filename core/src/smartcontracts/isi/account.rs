@@ -546,13 +546,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .domains_iter()
-                    .flat_map(|domain| domain.accounts.values())
-                    .cloned(),
-            ))
+            Ok(Box::new(state_ro.world().accounts_iter().cloned()))
         }
     }
 
@@ -561,6 +555,10 @@ pub mod query {
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Account, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
+            state_ro
+                .world()
+                .domain(id.domain())
+                .map_err(|_| FindError::Domain(id.domain().clone()))?;
             state_ro
                 .world()
                 .map_account(id, Clone::clone)
@@ -578,7 +576,7 @@ pub mod query {
 
             iroha_logger::trace!(%id);
             Ok(Box::new(
-                state_ro.world().domain(id)?.accounts.values().cloned(),
+                state_ro.world().accounts_in_domain_iter(id).cloned(),
             ))
         }
     }
@@ -609,11 +607,8 @@ pub mod query {
             Ok(Box::new(
                 state_ro
                     .world()
-                    .map_domain(&asset_definition_id.domain.clone(), move |domain| {
-                        domain.accounts.values().filter(move |account| {
-                            account.assets.contains_key(&asset_definition_id)
-                        })
-                    })?
+                    .accounts_iter()
+                    .filter(move |account| account.assets.contains_key(&asset_definition_id))
                     .cloned(),
             ))
         }

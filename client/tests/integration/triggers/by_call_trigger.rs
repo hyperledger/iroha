@@ -10,7 +10,7 @@ use iroha::{
         transaction::{Executable, WasmSmartContract},
     },
 };
-use iroha_genesis::GenesisTransaction;
+use iroha_genesis::GenesisBlock;
 use iroha_logger::info;
 use serde_json::json;
 use test_network::*;
@@ -440,7 +440,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     );
 
     // Registering trigger in genesis
-    let genesis = GenesisTransaction::test_with_instructions([Register::trigger(trigger).into()]);
+    let genesis = GenesisBlock::test_with_instructions([Register::trigger(trigger).into()], vec![]);
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
         .with_genesis(genesis)

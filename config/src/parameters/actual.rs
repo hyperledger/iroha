@@ -87,7 +87,7 @@ pub struct Network {
 pub struct Genesis {
     /// Genesis account public key
     pub public_key: PublicKey,
-    /// Path to `GenesisTransaction`.
+    /// Path to `GenesisBlock`.
     /// If it is none, the peer can only observe the genesis block.
     /// If it is some, the peer is responsible for submitting the genesis block.
     pub signed_file: Option<WithOrigin<PathBuf>>,

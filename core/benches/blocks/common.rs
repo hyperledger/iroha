@@ -172,12 +172,16 @@ pub fn build_state(rt: &tokio::runtime::Handle, account_id: &AccountId) -> State
         let _guard = rt.enter();
         LiveQueryStore::test().start()
     };
-    let mut domain = Domain::new(account_id.domain().clone()).build(account_id);
-    domain.accounts.insert(
-        account_id.clone(),
-        Account::new(account_id.clone()).build(account_id),
+    let domain = Domain::new(account_id.domain().clone()).build(account_id);
+    let state = State::new(
+        World::with(
+            [domain],
+            [Account::new(account_id.clone()).build(account_id)],
+            UniqueVec::new(),
+        ),
+        kura,
+        query_handle,
     );
-    let state = State::new(World::with([domain], UniqueVec::new()), kura, query_handle);
 
     {
         let mut state_block = state.block();

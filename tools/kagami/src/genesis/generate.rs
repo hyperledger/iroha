@@ -11,7 +11,7 @@ use iroha_data_model::{
     parameter::{default::*, ParametersBuilder},
     prelude::*,
 };
-use iroha_genesis::{GenesisTransactionBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
+use iroha_genesis::{GenesisBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
 use serde_json::json;
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
 
@@ -62,7 +62,7 @@ impl<T: Write> RunArgs<T> for Args {
             mode,
         } = self;
 
-        let builder = GenesisTransactionBuilder::default();
+        let builder = GenesisBuilder::default();
         let genesis = match mode.unwrap_or_default() {
             Mode::Default => {
                 generate_default(builder, executor_path_in_genesis, genesis_public_key)
@@ -87,7 +87,7 @@ impl<T: Write> RunArgs<T> for Args {
 
 #[allow(clippy::too_many_lines)]
 pub fn generate_default(
-    builder: GenesisTransactionBuilder,
+    builder: GenesisBuilder,
     executor_path: PathBuf,
     genesis_public_key: PublicKey,
 ) -> color_eyre::Result<RawGenesisTransaction> {
@@ -217,13 +217,15 @@ pub fn generate_default(
         builder = builder.append_instruction(isi);
     }
 
+    // Will be replaced with actual topology either in scripts/test_env.py or in iroha_swarm
+    let topology = vec![];
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-    let genesis = builder.build_raw(executor_path, chain_id);
+    let genesis = builder.build_raw(executor_path, chain_id, topology);
     Ok(genesis)
 }
 
 fn generate_synthetic(
-    builder: GenesisTransactionBuilder,
+    builder: GenesisBuilder,
     executor_path: PathBuf,
     genesis_public_key: PublicKey,
     domains: u64,

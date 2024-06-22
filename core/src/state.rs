@@ -31,7 +31,7 @@ use iroha_data_model::{
 use iroha_logger::prelude::*;
 use iroha_primitives::{must_use::MustUse, numeric::Numeric, small::SmallVec};
 use parking_lot::Mutex;
-use range_bounds::RoleIdByAccountBounds;
+use range_bounds::{AccountByDomainBounds, AsAccountIdDomainCompare, RoleIdByAccountBounds};
 use serde::{
     de::{DeserializeSeed, MapAccess, Visitor},
     Deserializer, Serialize,
@@ -75,6 +75,8 @@ pub struct World {
     pub(crate) trusted_peers_ids: Cell<PeersIds>,
     /// Registered domains.
     pub(crate) domains: Storage<DomainId, Domain>,
+    /// Registered accounts.
+    pub(crate) accounts: Storage<AccountId, Account>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: Storage<RoleId, Role>,
     /// Permission tokens of an account.
@@ -97,6 +99,8 @@ pub struct WorldBlock<'world> {
     pub(crate) trusted_peers_ids: CellBlock<'world, PeersIds>,
     /// Registered domains.
     pub(crate) domains: StorageBlock<'world, DomainId, Domain>,
+    /// Registered accounts.
+    pub(crate) accounts: StorageBlock<'world, AccountId, Account>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageBlock<'world, RoleId, Role>,
     /// Permission tokens of an account.
@@ -121,6 +125,8 @@ pub struct WorldTransaction<'block, 'world> {
     pub(crate) trusted_peers_ids: CellTransaction<'block, 'world, PeersIds>,
     /// Registered domains.
     pub(crate) domains: StorageTransaction<'block, 'world, DomainId, Domain>,
+    /// Registered accounts.
+    pub(crate) accounts: StorageTransaction<'block, 'world, AccountId, Account>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageTransaction<'block, 'world, RoleId, Role>,
     /// Permission tokens of an account.
@@ -153,6 +159,8 @@ pub struct WorldView<'world> {
     pub(crate) trusted_peers_ids: CellView<'world, PeersIds>,
     /// Registered domains.
     pub(crate) domains: StorageView<'world, DomainId, Domain>,
+    /// Registered accounts.
+    pub(crate) accounts: StorageView<'world, AccountId, Account>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageView<'world, RoleId, Role>,
     /// Permission tokens of an account.
@@ -268,17 +276,23 @@ impl World {
     }
 
     /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
-    pub fn with<D>(domains: D, trusted_peers_ids: PeersIds) -> Self
+    pub fn with<D, A>(domains: D, accounts: A, trusted_peers_ids: PeersIds) -> Self
     where
         D: IntoIterator<Item = Domain>,
+        A: IntoIterator<Item = Account>,
     {
         let domains = domains
             .into_iter()
             .map(|domain| (domain.id().clone(), domain))
             .collect();
+        let accounts = accounts
+            .into_iter()
+            .map(|account| (account.id().clone(), account))
+            .collect();
         World {
             trusted_peers_ids: Cell::new(trusted_peers_ids),
             domains,
+            accounts,
             ..World::new()
         }
     }
@@ -289,6 +303,7 @@ impl World {
             parameters: self.parameters.block(),
             trusted_peers_ids: self.trusted_peers_ids.block(),
             domains: self.domains.block(),
+            accounts: self.accounts.block(),
             roles: self.roles.block(),
             account_permissions: self.account_permissions.block(),
             account_roles: self.account_roles.block(),
@@ -305,6 +320,7 @@ impl World {
             parameters: self.parameters.block_and_revert(),
             trusted_peers_ids: self.trusted_peers_ids.block_and_revert(),
             domains: self.domains.block_and_revert(),
+            accounts: self.accounts.block_and_revert(),
             roles: self.roles.block_and_revert(),
             account_permissions: self.account_permissions.block_and_revert(),
             account_roles: self.account_roles.block_and_revert(),
@@ -321,6 +337,7 @@ impl World {
             parameters: self.parameters.view(),
             trusted_peers_ids: self.trusted_peers_ids.view(),
             domains: self.domains.view(),
+            accounts: self.accounts.view(),
             roles: self.roles.view(),
             account_permissions: self.account_permissions.view(),
             account_roles: self.account_roles.view(),
@@ -337,6 +354,7 @@ pub trait WorldReadOnly {
     fn parameters(&self) -> &Parameters;
     fn trusted_peers_ids(&self) -> &PeersIds;
     fn domains(&self) -> &impl StorageReadOnly<DomainId, Domain>;
+    fn accounts(&self) -> &impl StorageReadOnly<AccountId, Account>;
     fn roles(&self) -> &impl StorageReadOnly<RoleId, Role>;
     fn account_permissions(&self) -> &impl StorageReadOnly<AccountId, Permissions>;
     fn account_roles(&self) -> &impl StorageReadOnly<RoleIdWithOwner, ()>;
@@ -378,6 +396,26 @@ pub trait WorldReadOnly {
         self.domains().iter().map(|(_, domain)| domain)
     }
 
+    /// Iterate accounts in domain
+    #[allow(clippy::type_complexity)]
+    fn accounts_in_domain_iter<'slf>(
+        &'slf self,
+        id: &DomainId,
+    ) -> core::iter::Map<
+        RangeIter<'slf, AccountId, Account>,
+        fn((&'slf AccountId, &'slf Account)) -> &'slf Account,
+    > {
+        self.accounts()
+            .range::<dyn AsAccountIdDomainCompare>(AccountByDomainBounds::new(id))
+            .map(|(_, account)| account)
+    }
+
+    /// Returns reference for domains map
+    #[inline]
+    fn accounts_iter(&self) -> impl Iterator<Item = &Account> {
+        self.accounts().iter().map(|(_, account)| account)
+    }
+
     // Account-related methods
 
     /// Get `Account` and return reference to it.
@@ -385,12 +423,9 @@ pub trait WorldReadOnly {
     /// # Errors
     /// Fails if there is no domain or account
     fn account(&self, id: &AccountId) -> Result<&Account, FindError> {
-        self.domain(&id.domain).and_then(|domain| {
-            domain
-                .accounts
-                .get(id)
-                .ok_or_else(|| FindError::Account(id.clone()))
-        })
+        self.accounts()
+            .get(id)
+            .ok_or_else(|| FindError::Account(id.clone()))
     }
 
     /// Get `Account` and pass it to closure.
@@ -402,9 +437,8 @@ pub trait WorldReadOnly {
         id: &AccountId,
         f: impl FnOnce(&'slf Account) -> T,
     ) -> Result<T, QueryExecutionFail> {
-        let domain = self.domain(&id.domain)?;
-        let account = domain
-            .accounts
+        let account = self
+            .accounts()
             .get(id)
             .ok_or(FindError::Account(id.clone()))?;
         Ok(f(account))
@@ -578,6 +612,9 @@ macro_rules! impl_world_ro {
             fn domains(&self) -> &impl StorageReadOnly<DomainId, Domain> {
                 &self.domains
             }
+            fn accounts(&self) -> &impl StorageReadOnly<AccountId, Account> {
+                &self.accounts
+            }
             fn roles(&self) -> &impl StorageReadOnly<RoleId, Role> {
                 &self.roles
             }
@@ -611,6 +648,7 @@ impl<'world> WorldBlock<'world> {
             parameters: self.parameters.transaction(),
             trusted_peers_ids: self.trusted_peers_ids.transaction(),
             domains: self.domains.transaction(),
+            accounts: self.accounts.transaction(),
             roles: self.roles.transaction(),
             account_permissions: self.account_permissions.transaction(),
             account_roles: self.account_roles.transaction(),
@@ -633,6 +671,7 @@ impl<'world> WorldBlock<'world> {
         self.account_roles.commit();
         self.account_permissions.commit();
         self.roles.commit();
+        self.accounts.commit();
         self.domains.commit();
         self.trusted_peers_ids.commit();
         self.parameters.commit();
@@ -648,6 +687,7 @@ impl WorldTransaction<'_, '_> {
         self.account_roles.apply();
         self.account_permissions.apply();
         self.roles.apply();
+        self.accounts.apply();
         self.domains.apply();
         self.trusted_peers_ids.apply();
         self.parameters.apply();
@@ -671,12 +711,9 @@ impl WorldTransaction<'_, '_> {
     /// # Errors
     /// Fail if domain or account not found
     pub fn account_mut(&mut self, id: &AccountId) -> Result<&mut Account, FindError> {
-        self.domain_mut(&id.domain).and_then(move |domain| {
-            domain
-                .accounts
-                .get_mut(id)
-                .ok_or_else(|| FindError::Account(id.clone()))
-        })
+        self.accounts
+            .get_mut(id)
+            .ok_or_else(|| FindError::Account(id.clone()))
     }
 
     /// Add [`permission`](Permission) to the [`Account`] if the account does not have this permission yet.
@@ -746,11 +783,7 @@ impl WorldTransaction<'_, '_> {
         }
 
         let account_id = &asset_id.account;
-        let account_domain = self
-            .domains
-            .get_mut(&asset_id.account.domain)
-            .ok_or(FindError::Domain(asset_id.account.domain.clone()))?;
-        let account = account_domain
+        let account = self
             .accounts
             .get_mut(account_id)
             .ok_or(FindError::Account(account_id.clone()))?;
@@ -1558,6 +1591,71 @@ mod range_bounds {
         key: RoleIdByAccount<'_>,
         trait: AsRoleIdByAccount
     }
+
+    /// `DomainId` wrapper for fetching accounts beloning to a domain from the global store
+    #[derive(PartialEq, Eq, PartialOrd, Copy, Clone)]
+    pub struct AccountIdDomainCompare<'a> {
+        domain_id: &'a DomainId,
+        signatory: MinMaxExt<&'a PublicKey>,
+    }
+
+    // Sorting needed to be flipped for the storage lookup to work.
+    impl Ord for AccountIdDomainCompare<'_> {
+        fn cmp(&self, other: &AccountIdDomainCompare<'_>) -> std::cmp::Ordering {
+            if self.domain_id == other.domain_id {
+                other.signatory.cmp(&self.signatory)
+            } else {
+                other.domain_id.cmp(self.domain_id)
+            }
+        }
+    }
+
+    /// Bounds for range quired over accounts by domain
+    pub struct AccountByDomainBounds<'a> {
+        start: AccountIdDomainCompare<'a>,
+        end: AccountIdDomainCompare<'a>,
+    }
+
+    impl<'a> AccountByDomainBounds<'a> {
+        /// Create range bounds for range quires over accounts by domain
+        pub fn new(domain_id: &'a DomainId) -> Self {
+            Self {
+                start: AccountIdDomainCompare {
+                    domain_id,
+                    signatory: MinMaxExt::Min,
+                },
+                end: AccountIdDomainCompare {
+                    domain_id,
+                    signatory: MinMaxExt::Max,
+                },
+            }
+        }
+    }
+
+    impl<'a> RangeBounds<dyn AsAccountIdDomainCompare + 'a> for AccountByDomainBounds<'a> {
+        fn start_bound(&self) -> Bound<&(dyn AsAccountIdDomainCompare + 'a)> {
+            Bound::Excluded(&self.start)
+        }
+
+        fn end_bound(&self) -> Bound<&(dyn AsAccountIdDomainCompare + 'a)> {
+            Bound::Excluded(&self.end)
+        }
+    }
+
+    impl AsAccountIdDomainCompare for AccountId {
+        fn as_key(&self) -> AccountIdDomainCompare<'_> {
+            AccountIdDomainCompare {
+                domain_id: &self.domain,
+                signatory: (&self.signatory).into(),
+            }
+        }
+    }
+
+    impl_as_dyn_key! {
+        target: AccountId,
+        key: AccountIdDomainCompare<'_>,
+        trait: AsAccountIdDomainCompare
+    }
 }
 
 pub(crate) mod deserialize {
@@ -1654,6 +1752,7 @@ pub(crate) mod deserialize {
                     let mut parameters = None;
                     let mut trusted_peers_ids = None;
                     let mut domains = None;
+                    let mut accounts = None;
                     let mut roles = None;
                     let mut account_permissions = None;
                     let mut account_roles = None;
@@ -1671,6 +1770,9 @@ pub(crate) mod deserialize {
                             }
                             "domains" => {
                                 domains = Some(map.next_value()?);
+                            }
+                            "accounts" => {
+                                accounts = Some(map.next_value()?);
                             }
                             "roles" => {
                                 roles = Some(map.next_value()?);
@@ -1705,6 +1807,8 @@ pub(crate) mod deserialize {
                             .ok_or_else(|| serde::de::Error::missing_field("trusted_peers_ids"))?,
                         domains: domains
                             .ok_or_else(|| serde::de::Error::missing_field("domains"))?,
+                        accounts: accounts
+                            .ok_or_else(|| serde::de::Error::missing_field("accounts"))?,
                         roles: roles.ok_or_else(|| serde::de::Error::missing_field("roles"))?,
                         account_permissions: account_permissions.ok_or_else(|| {
                             serde::de::Error::missing_field("account_permissions")
@@ -1837,11 +1941,11 @@ mod tests {
 
     /// Used to inject faulty payload for testing
     fn new_dummy_block_with_payload(f: impl FnOnce(&mut BlockPayload)) -> CommittedBlock {
-        let (leader_public_key, _) = iroha_crypto::KeyPair::random().into_parts();
+        let (leader_public_key, leader_private_key) = iroha_crypto::KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
 
-        ValidBlock::new_dummy_and_modify_payload(f)
+        ValidBlock::new_dummy_and_modify_payload(&leader_private_key, f)
             .commit(&topology)
             .unpack(|_| {})
             .unwrap()

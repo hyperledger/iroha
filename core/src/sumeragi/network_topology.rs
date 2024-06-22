@@ -360,7 +360,7 @@ mod tests {
         let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
         let topology = Topology::new(peers);
 
-        let dummy_block = ValidBlock::new_dummy();
+        let dummy_block = ValidBlock::new_dummy(key_pairs[0].private_key());
         let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
         let dummy_signatures = (0..key_pairs.len())
             .map(|i| BlockSignature(i as u64, dummy_signature.clone()))
@@ -400,7 +400,7 @@ mod tests {
         let peers = test_peers![0: key_pairs_iter];
         let topology = Topology::new(peers);
 
-        let dummy_block = ValidBlock::new_dummy();
+        let dummy_block = ValidBlock::new_dummy(key_pairs[0].private_key());
         let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
         let dummy_signatures = (0..key_pairs.len())
             .map(|i| BlockSignature(i as u64, dummy_signature.clone()))
@@ -434,7 +434,7 @@ mod tests {
         let peers = test_peers![0, 1: key_pairs_iter];
         let topology = Topology::new(peers);
 
-        let dummy_block = ValidBlock::new_dummy();
+        let dummy_block = ValidBlock::new_dummy(key_pairs[0].private_key());
         let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
         let dummy_signatures = (0..key_pairs.len())
             .map(|i| BlockSignature(i as u64, dummy_signature.clone()))
@@ -470,7 +470,7 @@ mod tests {
         let peers = test_peers![0, 1, 2: key_pairs_iter];
         let topology = Topology::new(peers);
 
-        let dummy_block = ValidBlock::new_dummy();
+        let dummy_block = ValidBlock::new_dummy(key_pairs[0].private_key());
         let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
         let dummy_signatures = (0..key_pairs.len())
             .map(|i| BlockSignature(i as u64, dummy_signature.clone()))
@@ -742,7 +742,7 @@ mod tests {
                 .is_consensus_required()
                 .as_ref()
                 .map(ConsensusTopology::validating_peers),
-            None,
+            Some::<&[_]>(&[]),
         );
     }
 
@@ -756,7 +756,7 @@ mod tests {
                 .is_consensus_required()
                 .as_ref()
                 .map(ConsensusTopology::observing_peers),
-            None,
+            Some::<&[_]>(&[]),
         );
     }
 }
