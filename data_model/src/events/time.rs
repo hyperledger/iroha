@@ -145,7 +145,7 @@ impl EventFilter for TimeEventFilter {
             ExecutionTime::PreCommit => 1,
             ExecutionTime::Schedule(schedule) => {
                 // Prevent matching in the future it will be handled by the next block
-                if schedule.start > event.interval.since {
+                if schedule.start_ms > event.interval.since_ms {
                     return 0;
                 }
 
@@ -175,10 +175,10 @@ impl EventFilter for TimeEventFilter {
                     //
                     // Schedule start is after current block (c1).
                     // In this case event won't match and it will be handled in the next block.
-                    let since = if Range::from(prev).contains(&schedule.start_ms) {
+                    let since_ms = if Range::from(prev).contains(&schedule.start_ms) {
                         schedule.start_ms
                     } else {
-                        prev.since + prev.length
+                        prev.since_ms + prev.length
                     };
                     let estimation = event.interval.since_ms + event.interval.length;
                     let length = estimation - since_ms;
@@ -203,15 +203,15 @@ impl EventFilter for TimeEventFilter {
 #[cfg(feature = "transparent_api")]
 fn count_matches_in_interval(schedule: &Schedule, interval: &TimeInterval) -> u32 {
     schedule.period.map_or_else(
-        || u32::from(Range::from(*interval).contains(&schedule.start)),
+        || u32::from(Range::from(*interval).contains(&schedule.start_ms)),
         |period| {
             #[allow(clippy::integer_division)]
-            let k = interval.since.saturating_sub(schedule.start).as_millis() / period.as_millis();
-            let start = schedule.start + multiply_duration_by_u128(period, k);
+            let k = interval.since_ms.saturating_sub(schedule.start_ms).as_millis() / period.as_millis();
+            let start_ms = schedule.start_ms + multiply_duration_by_u128(period, k);
             let range = Range::from(*interval);
             (0..)
-                .map(|i| start + period * i)
-                .skip_while(|time| *time < interval.since)
+                .map(|i| start_ms + period * i)
+                .skip_while(|time| *time < interval.since_ms)
                 .take_while(|time| range.contains(time))
                 .count()
                 .try_into()
@@ -273,7 +273,7 @@ impl TimeInterval {
 impl From<TimeInterval> for Range<Duration> {
     #[inline]
     fn from(interval: TimeInterval) -> Self {
-        interval.since..interval.since + interval.length
+        interval.since..interval.since_ms + interval.length
     }
 }
 
@@ -302,7 +302,7 @@ mod tests {
             //     p    i1     i2
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 5));
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(10);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
@@ -315,7 +315,7 @@ mod tests {
             //   p, i1      i2
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP));
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(10);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
@@ -327,7 +327,7 @@ mod tests {
             //     i1     p    i2
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 5));
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(10);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
@@ -340,7 +340,7 @@ mod tests {
             //    i1      i2, p
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 10));
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(10);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
@@ -353,7 +353,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 5))
                 .with_period(Duration::from_secs(30));
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(10);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
@@ -366,7 +366,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(10));
-            let since = Duration::from_secs(TIMESTAMP + 35);
+            let since_ms = Duration::from_secs(TIMESTAMP + 35);
             let length = Duration::from_secs(4);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
@@ -379,7 +379,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(6));
-            let since = Duration::from_secs(TIMESTAMP - 10);
+            let since_ms = Duration::from_secs(TIMESTAMP - 10);
             let length = Duration::from_secs(4);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
@@ -392,7 +392,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(6));
-            let since = Duration::from_secs(TIMESTAMP - 10);
+            let since_ms = Duration::from_secs(TIMESTAMP - 10);
             let length = Duration::from_secs(30);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 4);
@@ -405,7 +405,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_millis(600));
-            let since = Duration::from_secs(TIMESTAMP + 3) + Duration::from_millis(500);
+            let since_ms = Duration::from_secs(TIMESTAMP + 3) + Duration::from_millis(500);
             let length = Duration::from_secs(2);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 4);
@@ -419,7 +419,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 10))
                 .with_period(Duration::from_secs(10));
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(5);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
@@ -433,7 +433,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(5));
-            let since = Duration::from_secs(TIMESTAMP - 10);
+            let since_ms = Duration::from_secs(TIMESTAMP - 10);
             let length = Duration::from_secs(15);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
@@ -447,7 +447,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 10))
                 .with_period(Duration::from_secs(15));
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(5);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
@@ -461,7 +461,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(1));
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(7);
             let interval = TimeInterval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 7);
@@ -482,11 +482,11 @@ mod tests {
                 .with_period(Duration::from_secs(10));
             let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
 
-            let since = Duration::from_secs(TIMESTAMP + 5);
+            let since_ms = Duration::from_secs(TIMESTAMP + 5);
             let length = Duration::from_secs(10);
             let prev_interval = TimeInterval { since, length };
 
-            let since = Duration::from_secs(TIMESTAMP + 25);
+            let since_ms = Duration::from_secs(TIMESTAMP + 25);
             let length = Duration::from_secs(10);
             let interval = TimeInterval { since, length };
 
@@ -508,11 +508,11 @@ mod tests {
                 .with_period(Duration::from_secs(10));
             let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
 
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(10);
             let prev_interval = TimeInterval { since, length };
 
-            let since = Duration::from_secs(TIMESTAMP + 20);
+            let since_ms = Duration::from_secs(TIMESTAMP + 20);
             let length = Duration::from_secs(10);
             let interval = TimeInterval { since, length };
 
@@ -534,11 +534,11 @@ mod tests {
                 .with_period(Duration::from_secs(10));
             let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
 
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(10);
             let prev_interval = TimeInterval { since, length };
 
-            let since = Duration::from_secs(TIMESTAMP + 20);
+            let since_ms = Duration::from_secs(TIMESTAMP + 20);
             let length = Duration::from_secs(10);
             let interval = TimeInterval { since, length };
 
@@ -560,11 +560,11 @@ mod tests {
                 .with_period(Duration::from_secs(10));
             let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
 
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(10);
             let prev_interval = TimeInterval { since, length };
 
-            let since = Duration::from_secs(TIMESTAMP + 20);
+            let since_ms = Duration::from_secs(TIMESTAMP + 20);
             let length = Duration::from_secs(10);
             let interval = TimeInterval { since, length };
 
@@ -586,11 +586,11 @@ mod tests {
                 .with_period(Duration::from_secs(10));
             let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
 
-            let since = Duration::from_secs(TIMESTAMP);
+            let since_ms = Duration::from_secs(TIMESTAMP);
             let length = Duration::from_secs(10);
             let prev_interval = TimeInterval { since, length };
 
-            let since = Duration::from_secs(TIMESTAMP + 20);
+            let since_ms = Duration::from_secs(TIMESTAMP + 20);
             let length = Duration::from_secs(10);
             let interval = TimeInterval { since, length };
 
