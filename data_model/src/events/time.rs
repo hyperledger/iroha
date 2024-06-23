@@ -99,7 +99,7 @@ mod model {
     )]
     pub struct Schedule {
         /// The first execution time
-        pub start_ms: Duration,
+        pub start_ms: u64,
         /// If some, the period between cyclic executions
         pub period: Option<Duration>,
     }
