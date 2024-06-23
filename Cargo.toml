@@ -9,7 +9,6 @@ repository = "https://github.com/hyperledger/iroha/tree/iroha2-lts"
 documentation = "https://hyperledger.github.io/iroha-2-docs"
 homepage = "https://iroha.tech"
 
-chrono = "0.4.38"
 license = "Apache-2.0"
 keywords = ["blockchain", "crypto", "iroha", "ledger"]
 categories = ["cryptography::cryptocurrencies"]
