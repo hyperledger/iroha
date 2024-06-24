@@ -177,7 +177,6 @@ mod model {
         /// Signature of [`Self::payload`].
         pub(super) signature: TransactionSignature,
         /// Payload of the transaction.
-        #[serde(flatten)]
         pub(super) payload: TransactionPayload,
     }
 
@@ -361,7 +360,6 @@ mod candidate {
     #[derive(Decode, Deserialize)]
     struct SignedTransactionCandidate {
         signature: TransactionSignature,
-        #[serde(flatten)]
         payload: TransactionPayload,
     }
 

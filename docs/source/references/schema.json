@@ -3043,6 +3043,26 @@
     ]
   },
   "QuerySignature": "SignatureOf<ClientQueryPayload>",
+  "RawGenesisTransaction": {
+    "Struct": [
+      {
+        "name": "chain",
+        "type": "ChainId"
+      },
+      {
+        "name": "executor",
+        "type": "String"
+      },
+      {
+        "name": "instructions",
+        "type": "Vec<InstructionBox>"
+      },
+      {
+        "name": "topology",
+        "type": "Vec<PeerId>"
+      }
+    ]
+  },
   "Register<Account>": {
     "Struct": [
       {

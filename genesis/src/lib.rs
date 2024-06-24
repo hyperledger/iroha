@@ -11,6 +11,7 @@ use std::{
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
@@ -34,16 +35,21 @@ pub struct GenesisBlock(pub SignedBlock);
 /// It should be signed, converted to [`GenesisBlock`],
 /// and serialized in SCALE format before supplying to Iroha peer.
 /// See `kagami genesis sign`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, IntoSchema)]
 pub struct RawGenesisTransaction {
-    instructions: Vec<InstructionBox>,
-    /// Path to the [`Executor`] file
-    executor: PathBuf,
     /// Unique id of blockchain
     chain: ChainId,
+    /// Path to the [`Executor`] file
+    executor: ExecutorPath,
+    instructions: Vec<InstructionBox>,
     /// Initial topology
     topology: Vec<PeerId>,
 }
+
+/// Path to [`Executor`] file
+#[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
+#[schema(transparent = "String")]
+pub struct ExecutorPath(PathBuf);
 
 impl RawGenesisTransaction {
     const WARN_ON_GENESIS_GTE: u64 = 1024 * 1024 * 1024; // 1Gb
@@ -70,11 +76,12 @@ impl RawGenesisTransaction {
                 path.as_ref().display()
             )
         })?;
-        value.executor = path
-            .as_ref()
-            .parent()
-            .expect("genesis must be a file in some directory")
-            .join(value.executor);
+        value.executor = ExecutorPath(
+            path.as_ref()
+                .parent()
+                .expect("genesis must be a file in some directory")
+                .join(value.executor.0),
+        );
         Ok(value)
     }
 
@@ -95,7 +102,7 @@ impl RawGenesisTransaction {
     /// # Errors
     /// If executor couldn't be read from provided path
     pub fn build_and_sign(self, genesis_key_pair: &KeyPair) -> Result<GenesisBlock> {
-        let executor = get_executor(&self.executor)?;
+        let executor = get_executor(&self.executor.0)?;
         let genesis = build_and_sign_genesis(
             self.instructions,
             executor,
@@ -212,13 +219,13 @@ impl GenesisBuilder {
     /// Finish building and produce a [`RawGenesisTransaction`].
     pub fn build_raw(
         self,
-        executor_file: PathBuf,
         chain_id: ChainId,
+        executor_file: PathBuf,
         topology: Vec<PeerId>,
     ) -> RawGenesisTransaction {
         RawGenesisTransaction {
             instructions: self.instructions,
-            executor: executor_file,
+            executor: ExecutorPath(executor_file),
             chain: chain_id,
             topology,
         }

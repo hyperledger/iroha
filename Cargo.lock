@@ -3150,6 +3150,7 @@ dependencies = [
  "eyre",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_schema",
  "once_cell",
  "serde",
  "serde_json",

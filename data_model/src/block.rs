@@ -129,7 +129,6 @@ mod model {
         /// Signatures of peers which approved this block.
         pub(super) signatures: Vec<BlockSignature>,
         /// Block payload
-        #[serde(flatten)]
         pub(super) payload: BlockPayload,
     }
 }
@@ -333,7 +332,6 @@ mod candidate {
     #[derive(Decode, Deserialize)]
     struct SignedBlockCandidate {
         signatures: Vec<BlockSignature>,
-        #[serde(flatten)]
         payload: BlockPayload,
     }
 
