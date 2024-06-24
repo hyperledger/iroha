@@ -1317,7 +1317,6 @@ pub mod http {
         #[derive(Decode, Deserialize)]
         struct SignedQueryCandidate {
             signature: QuerySignature,
-            #[serde(flatten)]
             payload: ClientQueryPayload,
         }
 

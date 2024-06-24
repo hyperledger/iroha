@@ -1,4 +1,6 @@
 {
+  "chain": "00000000-0000-0000-0000-000000000000",
+  "executor": "./executor.wasm",
   "instructions": [
     {
       "Register": {
@@ -185,7 +187,5 @@
       }
     }
   ],
-  "executor": "./executor.wasm",
-  "chain": "00000000-0000-0000-0000-000000000000",
   "topology": []
 }
