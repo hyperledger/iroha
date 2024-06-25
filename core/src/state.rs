@@ -745,6 +745,19 @@ impl WorldTransaction<'_, '_> {
             .map_or(false, |permissions| permissions.remove(token))
     }
 
+    /// Remove all [`Role`]s from the [`Account`]
+    pub fn remove_account_roles(&mut self, account: &AccountId) {
+        let roles_to_remove = self
+            .account_roles_iter(&account)
+            .cloned()
+            .map(|role| RoleIdWithOwner::new(account.clone(), role.clone()))
+            .collect::<Vec<_>>();
+
+        for role in roles_to_remove {
+            self.account_roles.remove(role);
+        }
+    }
+
     /// Get mutable reference to [`Asset`]
     ///
     /// # Errors
