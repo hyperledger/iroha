@@ -13,7 +13,6 @@ use iroha_data_model::{
     peer::PeerId,
     transaction::{error::TransactionRejectionReason, prelude::*},
 };
-use iroha_genesis::GenesisTransaction;
 use thiserror::Error;
 
 pub(crate) use self::event::WithEvents;
@@ -97,18 +96,10 @@ pub enum SignatureVerificationError {
 /// Errors occurred on genesis block validation
 #[derive(Debug, Copy, Clone, displaydoc::Display, PartialEq, Eq, Error)]
 pub enum InvalidGenesisError {
-    /// Genesis block must have single transaction
-    NotSingleTransaction,
-    /// Genesis transaction must be authorized by genesis account
-    UnexpectedAuthority,
     /// Genesis block must be signed with genesis private key and not signed by any peer
     InvalidSignature,
-    /// Genesis transaction contains error
-    ContainsErrors,
-    /// Genesis transaction must contain instructions
-    InvalidInstructions,
-    /// First instruction must set executor
-    FirstInstructionMustBeUpgrade,
+    /// Genesis transaction must be authorized by genesis account
+    UnexpectedAuthority,
 }
 
 /// Builder for blocks
@@ -264,7 +255,7 @@ mod chained {
 
 mod valid {
     use indexmap::IndexMap;
-    use iroha_data_model::{account::AccountId, prelude::InstructionBox, ChainId};
+    use iroha_data_model::{account::AccountId, ChainId};
 
     use super::*;
     use crate::{state::StateBlock, sumeragi::network_topology::Role};
@@ -517,7 +508,7 @@ mod valid {
 
                     let tx = if is_genesis {
                         AcceptedTransaction::accept_genesis(
-                            GenesisTransaction(value),
+                            value,
                             expected_chain_id,
                             genesis_account,
                         )
@@ -681,6 +672,7 @@ mod valid {
         }
     }
 
+    // See also [SignedBlockCandidate::validate_genesis]
     fn check_genesis_block(
         block: &SignedBlock,
         genesis_account: &AccountId,
@@ -695,23 +687,11 @@ mod valid {
             .map_err(|_| InvalidGenesisError::InvalidSignature)?;
 
         let transactions = block.payload().transactions.as_slice();
-        let [transaction] = transactions else {
-            return Err(InvalidGenesisError::NotSingleTransaction);
-        };
-        if transaction.value.authority() != genesis_account {
-            return Err(InvalidGenesisError::UnexpectedAuthority);
+        for transaction in transactions {
+            if transaction.value.authority() != genesis_account {
+                return Err(InvalidGenesisError::UnexpectedAuthority);
+            }
         }
-
-        if transaction.error.is_some() {
-            return Err(InvalidGenesisError::ContainsErrors);
-        }
-
-        let Executable::Instructions(instructions) = transaction.value.instructions() else {
-            return Err(InvalidGenesisError::InvalidInstructions);
-        };
-        let [InstructionBox::Upgrade(_), ..] = instructions.as_slice() else {
-            return Err(InvalidGenesisError::FirstInstructionMustBeUpgrade);
-        };
         Ok(())
     }
 

@@ -18,15 +18,10 @@ use serde::{Deserialize, Serialize};
 /// [`DomainId`](iroha_data_model::domain::DomainId) of the genesis account.
 pub static GENESIS_DOMAIN_ID: Lazy<DomainId> = Lazy::new(|| "genesis".parse().unwrap());
 
-/// Genesis transaction.
-/// First instruction should be [`Upgrade`].
-#[derive(Debug, Clone)]
-#[repr(transparent)]
-pub struct GenesisTransaction(pub SignedTransaction);
-
 /// Genesis block.
-/// Should contain single transaction.
-/// First instruction should be [`Upgrade`].
+/// First transaction should contain single [`Upgrade`] instruction to set executor.
+/// Second transaction should contain all other instructions.
+/// If there are no other instructions, second transaction will be omitted.
 #[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct GenesisBlock(pub SignedBlock);
@@ -121,29 +116,40 @@ fn build_and_sign_genesis(
     genesis_key_pair: &KeyPair,
     topology: Vec<PeerId>,
 ) -> GenesisBlock {
-    let instructions = build_instructions(instructions, executor);
+    let transactions = build_transactions(instructions, executor, chain_id, genesis_key_pair);
+    let block = SignedBlock::genesis(transactions, genesis_key_pair.private_key(), topology);
+    GenesisBlock(block)
+}
+
+fn build_transactions(
+    instructions: Vec<InstructionBox>,
+    executor: Executor,
+    chain_id: ChainId,
+    genesis_key_pair: &KeyPair,
+) -> Vec<SignedTransaction> {
+    let upgrade_isi = Upgrade::new(executor).into();
+    let transaction_executor =
+        build_transaction(vec![upgrade_isi], chain_id.clone(), genesis_key_pair);
+    if instructions.is_empty() {
+        vec![transaction_executor]
+    } else {
+        let transaction_instructions = build_transaction(instructions, chain_id, genesis_key_pair);
+        vec![transaction_executor, transaction_instructions]
+    }
+}
+
+fn build_transaction(
+    instructions: Vec<InstructionBox>,
+    chain_id: ChainId,
+    genesis_key_pair: &KeyPair,
+) -> SignedTransaction {
     let genesis_account_id = AccountId::new(
         GENESIS_DOMAIN_ID.clone(),
         genesis_key_pair.public_key().clone(),
     );
-    let genesis_transaction = TransactionBuilder::new(chain_id, genesis_account_id)
+    TransactionBuilder::new(chain_id, genesis_account_id)
         .with_instructions(instructions)
-        .sign(genesis_key_pair.private_key());
-    let block = SignedBlock::genesis(
-        genesis_transaction,
-        genesis_key_pair.private_key(),
-        topology,
-    );
-    GenesisBlock(block)
-}
-
-fn build_instructions(
-    instructions: Vec<InstructionBox>,
-    executor: Executor,
-) -> Vec<InstructionBox> {
-    let mut result = vec![Upgrade::new(executor).into()];
-    result.extend(instructions);
-    result
+        .sign(genesis_key_pair.private_key())
 }
 
 fn get_executor(file: &Path) -> Result<Executor> {
@@ -289,6 +295,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn genesis_block_builder_example() {
         let public_key: std::collections::HashMap<&'static str, PublicKey> = [
             ("alice", ALICE_KEYPAIR.public_key().clone()),
@@ -324,20 +331,35 @@ mod tests {
             vec![],
         );
 
-        let transaction = &finished_genesis.0.payload().transactions[0];
+        let transactions = &finished_genesis.0.transactions().collect::<Vec<_>>();
+
+        // First transaction
+        {
+            let transaction = transactions[0];
+            let instructions = transaction.value.instructions();
+            let Executable::Instructions(instructions) = instructions else {
+                panic!("Expected instructions");
+            };
+
+            assert_eq!(instructions[0], Upgrade::new(dummy_executor()).into());
+            assert_eq!(instructions.len(), 1);
+        }
+
+        // Second transaction
+        let transaction = transactions[1];
         let instructions = transaction.value.instructions();
         let Executable::Instructions(instructions) = instructions else {
             panic!("Expected instructions");
         };
-        assert_eq!(instructions[0], Upgrade::new(dummy_executor()).into());
+
         {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(
-                instructions[1],
+                instructions[0],
                 Register::domain(Domain::new(domain_id.clone())).into()
             );
             assert_eq!(
-                instructions[2],
+                instructions[1],
                 Register::account(Account::new(AccountId::new(
                     domain_id.clone(),
                     public_key["alice"].clone()
@@ -345,7 +367,7 @@ mod tests {
                 .into()
             );
             assert_eq!(
-                instructions[3],
+                instructions[2],
                 Register::account(Account::new(AccountId::new(
                     domain_id,
                     public_key["bob"].clone()
@@ -356,11 +378,11 @@ mod tests {
         {
             let domain_id: DomainId = "tulgey_wood".parse().unwrap();
             assert_eq!(
-                instructions[4],
+                instructions[3],
                 Register::domain(Domain::new(domain_id.clone())).into()
             );
             assert_eq!(
-                instructions[5],
+                instructions[4],
                 Register::account(Account::new(AccountId::new(
                     domain_id,
                     public_key["cheshire_cat"].clone()
@@ -371,11 +393,11 @@ mod tests {
         {
             let domain_id: DomainId = "meadow".parse().unwrap();
             assert_eq!(
-                instructions[6],
+                instructions[5],
                 Register::domain(Domain::new(domain_id.clone())).into()
             );
             assert_eq!(
-                instructions[7],
+                instructions[6],
                 Register::account(Account::new(AccountId::new(
                     domain_id,
                     public_key["mad_hatter"].clone()
@@ -383,7 +405,7 @@ mod tests {
                 .into()
             );
             assert_eq!(
-                instructions[8],
+                instructions[7],
                 Register::asset_definition(AssetDefinition::numeric(
                     "hats#meadow".parse().unwrap(),
                 ))

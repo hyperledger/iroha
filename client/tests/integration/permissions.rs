@@ -15,12 +15,8 @@ use test_network::{PeerBuilder, *};
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 
 #[test]
-fn genesis_transactions_are_validated() {
-    const POLL_PERIOD: Duration = Duration::from_millis(1000);
-    const MAX_RETRIES: u32 = 3;
-
+fn genesis_transactions_are_validated_by_iroha_core() {
     // Setting up genesis
-
     let invalid_instruction = Grant::permission(
         Permission::new("InvalidToken".parse().unwrap(), json!(null)),
         ALICE_ID.clone(),
@@ -32,6 +28,30 @@ fn genesis_transactions_are_validated() {
         .with_genesis(genesis)
         .with_port(11_110)
         .start_with_runtime();
+
+    check_no_blocks(&test_client);
+}
+
+#[test]
+fn genesis_transactions_are_validated_by_executor() {
+    // `wonderland` domain is owned by Alice,
+    // so default executor will deny genesis account to register asset definition.
+    let asset_definition_id = "xor#wonderland".parse().expect("Valid");
+    let invalid_instruction =
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
+    let genesis = GenesisBlock::test_with_instructions([invalid_instruction.into()], vec![]);
+
+    let (_rt, _peer, test_client) = <PeerBuilder>::new()
+        .with_genesis(genesis)
+        .with_port(11_115)
+        .start_with_runtime();
+
+    check_no_blocks(&test_client);
+}
+
+fn check_no_blocks(test_client: &Client) {
+    const POLL_PERIOD: Duration = Duration::from_millis(1000);
+    const MAX_RETRIES: u32 = 3;
 
     // Checking that peer contains no blocks multiple times
     // See also `wait_for_genesis_committed()`
