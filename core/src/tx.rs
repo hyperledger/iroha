@@ -16,7 +16,6 @@ use iroha_data_model::{
     query::error::FindError,
     transaction::{error::TransactionLimitError, TransactionLimits, TransactionPayload},
 };
-use iroha_genesis::GenesisTransaction;
 use iroha_logger::{debug, error};
 use iroha_macro::FromVariant;
 use storage::storage::StorageReadOnly;
@@ -62,17 +61,17 @@ pub enum AcceptTransactionFail {
 }
 
 impl AcceptedTransaction {
-    /// Accept genesis transaction. Transition from [`GenesisTransaction`] to [`AcceptedTransaction`].
+    /// Accept genesis transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
     ///
     /// # Errors
     ///
     /// - if transaction chain id doesn't match
     pub fn accept_genesis(
-        tx: GenesisTransaction,
+        tx: SignedTransaction,
         expected_chain_id: &ChainId,
         genesis_account: &AccountId,
     ) -> Result<Self, AcceptTransactionFail> {
-        let actual_chain_id = tx.0.chain();
+        let actual_chain_id = tx.chain();
 
         if expected_chain_id != actual_chain_id {
             return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
@@ -81,11 +80,11 @@ impl AcceptedTransaction {
             }));
         }
 
-        if genesis_account != tx.0.authority() {
+        if genesis_account != tx.authority() {
             return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
         }
 
-        Ok(Self(tx.0))
+        Ok(Self(tx))
     }
 
     /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].

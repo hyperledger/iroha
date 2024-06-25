@@ -280,16 +280,18 @@ impl SignedBlock {
 
     /// Creates genesis block signed with genesis private key (and not signed by any peer)
     pub fn genesis(
-        genesis_transaction: SignedTransaction,
+        genesis_transactions: Vec<SignedTransaction>,
         genesis_private_key: &PrivateKey,
         topology: Vec<PeerId>,
     ) -> SignedBlock {
-        let transactions_hash = vec![genesis_transaction.hash()]
-            .into_iter()
+        let transactions_hash = genesis_transactions
+            .iter()
+            .map(SignedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
             .expect("Tree is not empty");
-        let timestamp_ms = u64::try_from(genesis_transaction.creation_time().as_millis())
+        let first_transaction = &genesis_transactions[0];
+        let timestamp_ms = u64::try_from(first_transaction.creation_time().as_millis())
             .expect("Must fit since Duration was created from u64 in creation_time()");
         let header = BlockHeader {
             height: 1,
@@ -299,14 +301,17 @@ impl SignedBlock {
             view_change_index: 0,
             consensus_estimation_ms: 0,
         };
-        let transaction = CommittedTransaction {
-            value: genesis_transaction,
-            error: None,
-        };
+        let transactions = genesis_transactions
+            .into_iter()
+            .map(|transaction| CommittedTransaction {
+                value: transaction,
+                error: None,
+            })
+            .collect();
         let payload = BlockPayload {
             header,
             commit_topology: topology,
-            transactions: vec![transaction],
+            transactions,
             event_recommendations: vec![],
         };
 
@@ -328,6 +333,7 @@ mod candidate {
     use parity_scale_codec::Input;
 
     use super::*;
+    use crate::isi::InstructionBox;
 
     #[derive(Decode, Deserialize)]
     struct SignedBlockCandidate {
@@ -339,11 +345,48 @@ mod candidate {
         fn validate(self) -> Result<SignedBlockV1, &'static str> {
             self.validate_signatures()?;
             self.validate_header()?;
+            if self.payload.header.height == 1 {
+                self.validate_genesis()?;
+            }
 
             Ok(SignedBlockV1 {
                 signatures: self.signatures,
                 payload: self.payload,
             })
+        }
+
+        fn validate_genesis(&self) -> Result<(), &'static str> {
+            let transactions = self.payload.transactions.as_slice();
+            for transaction in transactions {
+                if transaction.error.is_some() {
+                    return Err("Genesis transaction must not contain errors");
+                }
+                let Executable::Instructions(_) = transaction.value.instructions() else {
+                    return Err("Genesis transaction must contain instructions");
+                };
+            }
+
+            let Some(transaction_executor) = transactions.first() else {
+                return Err("Genesis block must contain at least one transaction");
+            };
+            let Executable::Instructions(instructions_executor) =
+                transaction_executor.value.instructions()
+            else {
+                return Err("Genesis transaction must contain instructions");
+            };
+            let [InstructionBox::Upgrade(_)] = instructions_executor.as_slice() else {
+                return Err(
+                    "First transaction must contain single `Upgrade` instruction to set executor",
+                );
+            };
+
+            if transactions.len() > 2 {
+                return Err(
+                    "Genesis block must have one or two transactions (first with executor upgrade)",
+                );
+            }
+
+            Ok(())
         }
 
         fn validate_signatures(&self) -> Result<(), &'static str> {
