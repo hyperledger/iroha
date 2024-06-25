@@ -25,9 +25,9 @@ impl StateValidateBlocks {
     /// - Failed to generate [`KeyPair`]
     /// - Failed to create instructions for block
     pub fn setup(rt: &tokio::runtime::Handle) -> Self {
-        let domains = 100;
-        let accounts_per_domain = 1000;
-        let assets_per_domain = 1000;
+        let domains = 10;
+        let accounts_per_domain = 100;
+        let assets_per_domain = 100;
         let (domain_ids, account_ids, asset_definition_ids) =
             generate_ids(domains, accounts_per_domain, assets_per_domain);
         let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
@@ -36,7 +36,7 @@ impl StateValidateBlocks {
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let state = build_state(rt, &alice_id);
 
-        let nth = 100;
+        let nth = 10;
         let instructions = [
             populate_state(&domain_ids, &account_ids, &asset_definition_ids, &alice_id),
             delete_every_nth(&domain_ids, &account_ids, &asset_definition_ids, nth),
