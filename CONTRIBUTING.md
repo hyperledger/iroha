@@ -8,7 +8,7 @@ Reading these guidelines will save you time later.
 
 ## How Can I Contribute?
 
-There are a lot ways you could contribute to our project:
+There are a lot of ways you could contribute to our project:
 
 - Report [bugs](#reporting-bugs) and [vulnerabilities](#reporting-vulnerabilities)
 - [Suggest improvements](#suggesting-improvements) and implement them
@@ -77,7 +77,7 @@ While we are proactive in preventing security problems, it is possible that you 
 - Before the First Major Release (2.0) all vulnerabilities are considered bugs, so feel free to submit them as bugs [following the instructions above](#reporting-bugs).
 - After the First Major Release, use our [bug bounty program](https://hackerone.com/hyperledger) to submit vulnerabilities and get your reward.
 
-:exclamation: To minimize the damage caused by an un-patched security vulnerability, you should disclose the vulnerability directly to Hyperledger as soon as possible and **avoid disclosing the same vulnerability publicly** for a reasonable period of time.
+:exclamation: To minimize the damage caused by an unpatched security vulnerability, you should disclose the vulnerability directly to Hyperledger as soon as possible and **avoid disclosing the same vulnerability publicly** for a reasonable period of time.
 
 If you have any questions regarding our handling of security vulnerabilities, please feel free to contact any of the currently active maintainers in Rocket.Chat private messages.
 
@@ -245,7 +245,7 @@ tokio-console http://127.0.0.1:5555
 
 ### Profiling
 
-<details> <summary> Expand to learn ho to profile Iroha. </summary>
+<details> <summary> Expand to learn how to profile Iroha. </summary>
 
 To optimize performance it's useful to profile Iroha.
 
@@ -343,7 +343,7 @@ Comment guidelines:
 - When writing non-doc comments, instead of describing *what* your function does, try to explain *why* it does something in a particular way. This will save you and the reviewer time.
 - You may leave `TODO` markers in code as long as you reference an issue that you created for it. Not creating an issue means it doesn't get merged.
 
-We use pinned dependencies. Follow these guideline for versioning:
+We use pinned dependencies. Follow these guidelines for versioning:
 
 - If your work depends on a particular crate, see if it wasn't already installed using [`cargo tree`](https://doc.rust-lang.org/cargo/commands/cargo-tree.html) (use `bat` or `grep`), and try to use that version, instead of the latest version.
 - Use the full version "X.Y.Z" in `Cargo.toml`.
