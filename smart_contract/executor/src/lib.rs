@@ -250,13 +250,43 @@ impl DataModelBuilder {
     /// Set the data model of the executor via [`set_data_model`]
     #[cfg(not(test))]
     pub fn build_and_set(self) {
+        use crate::smart_contract::{ExecuteOnHost as _, ExecuteQueryOnHost as _};
+
+        let all_accounts = FindAllAccounts::new().execute().unwrap();
+        let all_roles = FindAllRoles::new().execute().unwrap();
+
+        for role in all_roles.into_iter().map(|role| role.unwrap()) {
+            for permission in role.permissions() {
+                if !self.permissions.contains(permission.id()) {
+                    Revoke::role_permission(permission.clone(), role.id().clone())
+                        .execute()
+                        .unwrap();
+                }
+            }
+        }
+
+        for account in all_accounts.into_iter().map(|account| account.unwrap()) {
+            let account_permissions = FindPermissionsByAccountId::new(account.id().clone())
+                .execute()
+                .unwrap()
+                .into_iter();
+
+            for permission in account_permissions.map(|permission| permission.unwrap()) {
+                if !self.permissions.contains(permission.id()) {
+                    Revoke::permission(permission, account.id().clone())
+                        .execute()
+                        .unwrap();
+                }
+            }
+        }
+
         set_data_model(&ExecutorDataModel::new(
             self.permissions,
             self.custom_instruction,
             serde_json::to_value(&self.schema)
                 .expect("INTERNAL BUG: Failed to serialize Executor data model entity")
                 .into(),
-        ))
+        ));
     }
 }
 

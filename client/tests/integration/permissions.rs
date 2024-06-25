@@ -15,24 +15,6 @@ use test_network::{PeerBuilder, *};
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 
 #[test]
-fn genesis_transactions_are_validated_by_iroha_core() {
-    // Setting up genesis
-    let invalid_instruction = Grant::permission(
-        Permission::new("InvalidToken".parse().unwrap(), json!(null)),
-        ALICE_ID.clone(),
-    );
-    let genesis = GenesisBlock::test_with_instructions([invalid_instruction.into()], vec![]);
-
-    // Starting peer
-    let (_rt, _peer, test_client) = <PeerBuilder>::new()
-        .with_genesis(genesis)
-        .with_port(11_110)
-        .start_with_runtime();
-
-    check_no_blocks(&test_client);
-}
-
-#[test]
 fn genesis_transactions_are_validated_by_executor() {
     // `wonderland` domain is owned by Alice,
     // so default executor will deny genesis account to register asset definition.
