@@ -1179,9 +1179,9 @@ pub mod role {
             let role = Role::try_from(find_role_query_res).unwrap();
 
             let mut unknown_tokens = Vec::new();
-            if !is_genesis($executor) {
-                for token in role.permissions() {
-                    if let Ok(token) = AnyPermission::try_from(token) {
+            for token in role.permissions() {
+                if let Ok(token) = AnyPermission::try_from(token) {
+                    if !is_genesis($executor) {
                         if let Err(error) = crate::permission::ValidateGrantRevoke::$method(
                             &token,
                             $authority,
@@ -1189,11 +1189,12 @@ pub mod role {
                         ) {
                             deny!($executor, error);
                         }
-                        continue;
                     }
 
-                    unknown_tokens.push(token);
+                    continue;
                 }
+
+                unknown_tokens.push(token);
             }
 
             assert!(
@@ -1212,15 +1213,15 @@ pub mod role {
             if let Ok(any_token) = AnyPermission::try_from(token) {
                 let token = Permission::from(any_token.clone());
                 let isi = <$isi_type>::role_permission(token, role_id);
-                if is_genesis($executor) {
-                    execute!($executor, isi);
-                }
-                if let Err(error) = crate::permission::ValidateGrantRevoke::$method(
-                    &any_token,
-                    $authority,
-                    $executor.block_height(),
-                ) {
-                    deny!($executor, error);
+
+                if !is_genesis($executor) {
+                    if let Err(error) = crate::permission::ValidateGrantRevoke::$method(
+                        &any_token,
+                        $authority,
+                        $executor.block_height(),
+                    ) {
+                        deny!($executor, error);
+                    }
                 }
 
                 execute!($executor, isi);

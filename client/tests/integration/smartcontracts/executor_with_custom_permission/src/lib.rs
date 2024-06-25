@@ -63,7 +63,7 @@ struct Executor {
 
 impl Executor {
     fn get_all_accounts_with_can_unregister_domain_permission(
-    ) -> Result<Vec<(Account, DomainId)>, MigrationError> {
+    ) -> Result<Vec<Account>, MigrationError> {
         let accounts = FindAllAccounts.execute().map_err(|error| {
             format!("{:?}", anyhow!(error).context("Failed to get all accounts"))
         })?;
@@ -94,12 +94,12 @@ impl Executor {
                     )
                 })?;
 
-                if let Ok(can_unregister_domain_token) =
-                    iroha_executor::default::permissions::domain::CanUnregisterDomain::try_from(
-                        &token,
-                    )
+                if iroha_executor::default::permissions::domain::CanUnregisterDomain::try_from(
+                    &token,
+                )
+                .is_ok()
                 {
-                    found_accounts.push((account, can_unregister_domain_token.domain));
+                    found_accounts.push(account);
                     break;
                 }
             }
@@ -108,7 +108,7 @@ impl Executor {
         Ok(found_accounts)
     }
 
-    fn replace_token(accounts: &[(Account, DomainId)]) -> MigrationResult {
+    fn replace_token(accounts: &[Account]) -> MigrationResult {
         let can_unregister_domain_definition_id =
             iroha_executor::default::permissions::domain::CanUnregisterDomain::id();
 
@@ -116,26 +116,7 @@ impl Executor {
 
         accounts
             .iter()
-            .try_for_each(|(account, domain_id)| {
-                Revoke::permission(
-                    Permission::new(
-                        can_unregister_domain_definition_id.clone(),
-                        json!({ "domain": domain_id }),
-                    ),
-                    account.id().clone(),
-                )
-                .execute()
-                .map_err(|error| {
-                    format!(
-                        "{:?}",
-                        anyhow!(error).context(format!(
-                            "Failed to revoke `{}` token from account `{}`",
-                            can_unregister_domain_definition_id,
-                            account.id()
-                        ))
-                    )
-                })?;
-
+            .try_for_each(|account| {
                 Grant::permission(
                     Permission::new(can_control_domain_lives_definition_id.clone(), json!(null)),
                     account.id().clone(),

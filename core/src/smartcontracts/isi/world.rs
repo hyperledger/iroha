@@ -17,8 +17,6 @@ impl Registrable for NewRole {
 
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
-    use std::collections::BTreeSet;
-
     use eyre::Result;
     use iroha_data_model::{
         isi::error::{InstructionExecutionError, InvalidParameterError, RepetitionError},
@@ -184,17 +182,6 @@ pub mod isi {
                 .into());
             }
 
-            for permission in &role.permissions {
-                if !state_transaction
-                    .world
-                    .executor_data_model
-                    .permissions
-                    .contains(&permission.id)
-                {
-                    return Err(FindError::Permission(permission.id.clone()).into());
-                }
-            }
-
             let world = &mut state_transaction.world;
             let role_id = role.id().clone();
             world.roles.insert(role_id, role.clone());
@@ -252,16 +239,6 @@ pub mod isi {
         ) -> Result<(), Error> {
             let role_id = self.destination;
             let permission = self.object;
-            let permission_id = permission.id.clone();
-
-            if !state_transaction
-                .world
-                .executor_data_model
-                .permissions
-                .contains(&permission_id)
-            {
-                return Err(FindError::Permission(permission_id).into());
-            }
 
             let Some(role) = state_transaction.world.roles.get_mut(&role_id) else {
                 return Err(FindError::Role(role_id).into());
@@ -279,7 +256,7 @@ pub mod isi {
                 .world
                 .emit_events(Some(RoleEvent::PermissionAdded(RolePermissionChanged {
                     role: role_id,
-                    permission: permission_id,
+                    permission: permission.id,
                 })));
 
             Ok(())
@@ -374,12 +351,6 @@ pub mod isi {
         ) -> Result<(), Error> {
             let raw_executor = self.executor;
 
-            let permissions_before = state_transaction
-                .world
-                .executor_data_model
-                .permissions
-                .clone();
-
             // Cloning executor to avoid multiple mutable borrows of `state_transaction`.
             // Also it's a cheap operation.
             let mut upgraded_executor = state_transaction.world.executor.clone();
@@ -394,8 +365,6 @@ pub mod isi {
 
             *state_transaction.world.executor.get_mut() = upgraded_executor;
 
-            revoke_removed_permissions(authority, state_transaction, permissions_before)?;
-
             state_transaction
                 .world
                 .emit_events(std::iter::once(ExecutorEvent::Upgraded(ExecutorUpgrade {
@@ -404,67 +373,6 @@ pub mod isi {
 
             Ok(())
         }
-    }
-
-    fn revoke_removed_permissions(
-        authority: &AccountId,
-        state_transaction: &mut StateTransaction,
-        permissions_before: BTreeSet<PermissionId>,
-    ) -> Result<(), Error> {
-        let world = state_transaction.world();
-        let permissions_after = world.executor_data_model().permissions();
-        let permissions_removed = permissions_before
-            .into_iter()
-            .filter(|permission| !permissions_after.contains(permission))
-            .collect::<BTreeSet<_>>();
-        if permissions_removed.is_empty() {
-            return Ok(());
-        }
-
-        let to_revoke_from_accounts = find_related_accounts(world, &permissions_removed);
-        let to_revoke_from_roles = find_related_roles(world, &permissions_removed);
-
-        for (account_id, permission) in to_revoke_from_accounts {
-            let revoke = Revoke::permission(permission, account_id);
-            revoke.execute(authority, state_transaction)?
-        }
-        for (role_id, permission) in to_revoke_from_roles {
-            let revoke = Revoke::role_permission(permission, role_id);
-            revoke.execute(authority, state_transaction)?
-        }
-        Ok(())
-    }
-
-    fn find_related_accounts(
-        world: &impl WorldReadOnly,
-        permissions: &BTreeSet<PermissionId>,
-    ) -> Vec<(AccountId, Permission)> {
-        world
-            .account_permissions()
-            .iter()
-            .flat_map(|(account_id, account_permissions)| {
-                account_permissions
-                    .iter()
-                    .filter(|permission| permissions.contains(&permission.id))
-                    .map(|permission| (account_id.clone(), permission.clone()))
-            })
-            .collect()
-    }
-
-    fn find_related_roles(
-        world: &impl WorldReadOnly,
-        permissions: &BTreeSet<PermissionId>,
-    ) -> Vec<(RoleId, Permission)> {
-        world
-            .roles()
-            .iter()
-            .flat_map(|(role_id, role)| {
-                role.permissions
-                    .iter()
-                    .filter(|permission| permissions.contains(&permission.id))
-                    .map(|permission| (role_id.clone(), permission.clone()))
-            })
-            .collect()
     }
 
     impl Execute for Log {
