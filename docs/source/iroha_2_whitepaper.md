@@ -7,7 +7,7 @@ The following is a specification for Hyperledger Iroha 2.0
 ## 1. Overview
 
 Hyperledger Iroha 2 aims to be an even more simple, highly performant distributed ledger platform than Iroha 1.
-Iroha 2 carries on the tradition of putting on emphasis on having a library of pre-defined smart contracts in the core, so that developers do not have to write their own code to perform many tasks related to digital identity and asset management.
+Iroha 2 carries on the tradition of putting emphasis on having a library of pre-defined smart contracts in the core, so that developers do not have to write their own code to perform many tasks related to digital identity and asset management.
 
 ### 1.1. Relationship to Hyperledger Fabric, Hyperledger Sawtooth, Hyperledger Besu, and Others
 
@@ -284,13 +284,13 @@ to which it then will add its vote in order to get $2f+1$ votes to commit the bl
 - proxy tail selectively sends a committed block to some, but not other nodes
 
   - Either the *commit timer* on nodes will go off and a new leader and proxy tail are elected, or the other nodes
-  will recieve the block through P2P sync. If a new round is performed, the leader will add information to the new block
+  will receive the block through P2P sync. If a new round is performed, the leader will add information to the new block
   containing the block hashes it invalidates. If the block passes, then the peers are to replace partially shared block with the
   new block but not the other way around due to the signatures invalidating the hash.
 
 **Possible faulty cases related to any node in set $a$ are:**
 
-- a peer could delay signing on purpose so they slow down consensus, without witholding their signature
+- a peer could delay signing on purpose so they slow down consensus, without withholding their signature
 
   - this is not very nice, but it is also hard to prove;
   the Hijiri reputation system can be used to lower the reputation of slow nodes anyway
@@ -354,8 +354,8 @@ It is practical to track these changes in the following serialized objects:
 For this purpose these structures will be serialized together with their version information. The detailed description of the versioning support in relation to the serialization formats used in Iroha can be found in this [RFC](https://wiki.hyperledger.org/display/iroha/Message+Versioning).
 
 Versioning support will have the following benefits:
-1. Client libraries will be able to clearly indicate if they recieve an unsupported versioned response.
-2. Iroha peers will be able to clearly indicate if they recieve an unsupported versioned request.
+1. Client libraries will be able to clearly indicate if they receive an unsupported versioned response.
+2. Iroha peers will be able to clearly indicate if they receive an unsupported versioned request.
 3. The network upgrade will not require for all peers to be upgraded simultaneously.
 4. Transactions and Blocks older versions can be handled conditionally after the network upgrade.
 

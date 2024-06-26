@@ -52,7 +52,7 @@ To recommit a custom genesis block, remove the previously stored blocks before r
 rm blocks/*
 ```
 
-The new genesis block will be automatically recommited upon container restart.
+The new genesis block will be automatically recommitted upon container restart.
 
 ## Use custom configuration files
 
