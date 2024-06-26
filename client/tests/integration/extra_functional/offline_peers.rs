@@ -11,18 +11,13 @@ use iroha_config::parameters::actual::Root as Config;
 use iroha_primitives::addr::socket_addr;
 use test_network::*;
 use test_samples::ALICE_ID;
-use tokio::runtime::Runtime;
 
 #[test]
 fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
     // Given
-    let rt = Runtime::test();
-
-    let (network, client) = rt.block_on(Network::start_test_with_offline_and_set_n_shifts(
-        4,
-        1,
-        Some(10_560),
-    ));
+    let (_rt, network, client) = NetworkBuilder::new(4, Some(10_560))
+        .with_offline_peers(1)
+        .create_with_runtime();
     wait_for_genesis_committed(&network.clients(), 1);
 
     //When
