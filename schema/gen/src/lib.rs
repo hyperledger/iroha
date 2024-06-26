@@ -120,7 +120,7 @@ types!(
     ConstVec<u8>,
     Container,
     ClientQueryPayload,
-    Custom,
+    CustomInstruction,
     DataEvent,
     DataEventFilter,
     Domain,
@@ -144,8 +144,7 @@ types!(
     ExecutorEventSet,
     ExecutorUpgrade,
     ExecutorDataModel,
-    iroha_genesis::ExecutorPath,
-    Fail,
+    ExecutorPath,
     EventFilterBox,
     FetchSize,
     FindAccountById,
@@ -451,6 +450,7 @@ pub mod complete_data_model {
         },
         BatchedResponse, BatchedResponseV1, Level,
     };
+    pub use iroha_genesis::ExecutorPath;
     pub use iroha_primitives::{
         addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
         const_vec::ConstVec,

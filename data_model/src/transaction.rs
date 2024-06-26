@@ -586,7 +586,6 @@ pub mod error {
             use InstructionBox::*;
             let kind = match self.instruction {
                 Burn(_) => "burn",
-                Fail(_) => "fail",
                 Mint(_) => "mint",
                 Register(_) => "register",
                 Transfer(_) => "transfer",

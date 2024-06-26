@@ -19,10 +19,8 @@ fn failed_trigger_revert() -> Result<()> {
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let instructions: [InstructionBox; 2] = [
-        create_asset.into(),
-        Fail::new("Always fail".to_owned()).into(),
-    ];
+    let fail_isi = Unregister::domain("dummy".parse().unwrap());
+    let instructions: [InstructionBox; 2] = [create_asset.into(), fail_isi.into()];
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id.clone(),
         Action::new(

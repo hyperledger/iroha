@@ -197,7 +197,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
 #[test]
 fn executor_custom_instructions_simple() -> Result<()> {
-    use executor_custom_data_model::simple::{CustomInstructionBox, MintAssetForAllAccounts};
+    use executor_custom_data_model::simple_isi::MintAssetForAllAccounts;
 
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_270).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
@@ -224,8 +224,7 @@ fn executor_custom_instructions_simple() -> Result<()> {
         asset_definition: asset_definition_id,
         quantity: Numeric::from(1u32),
     };
-    let isi = CustomInstructionBox::MintAssetForAllAccounts(isi);
-    client.submit_blocking(isi.into_instruction())?;
+    client.submit_blocking(isi)?;
 
     // Check that bob has 2 roses
     assert_eq!(
@@ -238,8 +237,8 @@ fn executor_custom_instructions_simple() -> Result<()> {
 
 #[test]
 fn executor_custom_instructions_complex() -> Result<()> {
-    use executor_custom_data_model::complex::{
-        ConditionalExpr, CoreExpr, CustomInstructionExpr, EvaluatesTo, Expression, Greater,
+    use executor_custom_data_model::complex_isi::{
+        ConditionalExpr, CoreExpr, EvaluatesTo, Expression, Greater,
     };
     use iroha_config::parameters::actual::Root as Config;
 
@@ -286,9 +285,9 @@ fn executor_custom_instructions_complex() -> Result<()> {
         );
         let then = Burn::asset_numeric(Numeric::from(1u32), bob_rose.clone());
         let then: InstructionBox = then.into();
-        let then = CustomInstructionExpr::Core(CoreExpr::new(then));
-        let isi = CustomInstructionExpr::If(Box::new(ConditionalExpr::new(condition, then)));
-        client.submit_blocking(isi.into_instruction())?;
+        let then = CoreExpr::new(then);
+        let isi = ConditionalExpr::new(condition, then);
+        client.submit_blocking(isi)?;
         Ok(())
     };
     burn_bob_rose_if_more_then_5()?;

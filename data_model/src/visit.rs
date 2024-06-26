@@ -28,7 +28,6 @@ pub trait Visit {
 
         // Visit InstructionBox
         visit_burn(&BurnBox),
-        visit_fail(&Fail),
         visit_grant(&GrantBox),
         visit_mint(&MintBox),
         visit_register(&RegisterBox),
@@ -43,7 +42,7 @@ pub trait Visit {
         visit_new_parameter(&NewParameter),
         visit_set_parameter(&SetParameter),
         visit_log(&Log),
-        visit_custom(&Custom),
+        visit_custom(&CustomInstruction),
 
         // Visit QueryBox
         visit_find_account_by_id(&FindAccountById),
@@ -244,7 +243,6 @@ pub fn visit_instruction<V: Visit + ?Sized>(
         }
         InstructionBox::Log(variant_value) => visitor.visit_log(authority, variant_value),
         InstructionBox::Burn(variant_value) => visitor.visit_burn(authority, variant_value),
-        InstructionBox::Fail(variant_value) => visitor.visit_fail(authority, variant_value),
         InstructionBox::Grant(variant_value) => visitor.visit_grant(authority, variant_value),
         InstructionBox::Mint(variant_value) => visitor.visit_mint(authority, variant_value),
         InstructionBox::Register(variant_value) => visitor.visit_register(authority, variant_value),
@@ -431,9 +429,8 @@ leaf_visitors! {
     visit_new_parameter(&NewParameter),
     visit_set_parameter(&SetParameter),
     visit_execute_trigger(&ExecuteTrigger),
-    visit_fail(&Fail),
     visit_log(&Log),
-    visit_custom(&Custom),
+    visit_custom(&CustomInstruction),
 
     // Query visitors
     visit_find_account_by_id(&FindAccountById),

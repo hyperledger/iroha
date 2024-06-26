@@ -8,8 +8,8 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use executor_custom_data_model::simple::{CustomInstructionBox, MintAssetForAllAccounts};
-use iroha_executor::{data_model::isi::Custom, debug::DebugExpectExt, prelude::*};
+use executor_custom_data_model::simple_isi::{CustomInstructionBox, MintAssetForAllAccounts};
+use iroha_executor::{data_model::isi::CustomInstruction, debug::DebugExpectExt, prelude::*};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
@@ -24,7 +24,7 @@ struct Executor {
     block_height: u64,
 }
 
-fn visit_custom(executor: &mut Executor, _authority: &AccountId, isi: &Custom) {
+fn visit_custom(executor: &mut Executor, _authority: &AccountId, isi: &CustomInstruction) {
     let Ok(isi) = CustomInstructionBox::try_from(isi.payload()) else {
         deny!(executor, "Failed to parse custom instruction");
     };

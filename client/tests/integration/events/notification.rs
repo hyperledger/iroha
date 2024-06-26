@@ -59,11 +59,11 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
     let account_id = ALICE_ID.clone();
     let trigger_id = TriggerId::from_str("fail_box")?;
 
-    let instruction = Fail::new("Fail box".to_owned());
+    let fail_isi = Unregister::domain("dummy".parse().unwrap());
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id.clone(),
         Action::new(
-            vec![InstructionBox::from(instruction)],
+            vec![InstructionBox::from(fail_isi)],
             Repeats::Indefinitely,
             account_id.clone(),
             ExecuteTriggerEventFilter::new()

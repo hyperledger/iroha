@@ -1369,12 +1369,12 @@ mod tests {
 
         // Create "genesis" block
         // Creating an instruction
-        let fail_box = Fail::new("Dummy isi".to_owned());
+        let fail_isi = Unregister::domain("dummy".parse().unwrap());
 
         let mut state_block = state.block();
         // Making two transactions that have the same instruction
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
-            .with_instructions([fail_box])
+            .with_instructions([fail_isi])
             .sign(alice_keypair.private_key());
         let tx = AcceptedTransaction::accept(
             tx,
