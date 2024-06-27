@@ -2158,7 +2158,7 @@
   "MerkleTree<SignedTransaction>": {
     "Vec": "HashOf<SignedTransaction>"
   },
-  "Metadata": "SortedMap<Name, MetadataValueBox>",
+  "Metadata": "SortedMap<Name, JsonString>",
   "MetadataChanged<AccountId>": {
     "Struct": [
       {
@@ -2171,7 +2171,7 @@
       },
       {
         "name": "value",
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       }
     ]
   },
@@ -2187,7 +2187,7 @@
       },
       {
         "name": "value",
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       }
     ]
   },
@@ -2203,7 +2203,7 @@
       },
       {
         "name": "value",
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       }
     ]
   },
@@ -2219,7 +2219,7 @@
       },
       {
         "name": "value",
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       }
     ]
   },
@@ -2235,7 +2235,7 @@
       },
       {
         "name": "value",
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       }
     ]
   },
@@ -2264,45 +2264,11 @@
         "tag": "InvalidSegment",
         "discriminant": 4,
         "type": "Name"
-      }
-    ]
-  },
-  "MetadataValueBox": {
-    "Enum": [
-      {
-        "tag": "Bool",
-        "discriminant": 0,
-        "type": "bool"
       },
       {
-        "tag": "String",
-        "discriminant": 1,
-        "type": "String"
-      },
-      {
-        "tag": "Name",
-        "discriminant": 2,
-        "type": "Name"
-      },
-      {
-        "tag": "Bytes",
-        "discriminant": 3,
-        "type": "Vec<u8>"
-      },
-      {
-        "tag": "Numeric",
-        "discriminant": 4,
-        "type": "Numeric"
-      },
-      {
-        "tag": "LimitedMetadata",
+        "tag": "InvalidJson",
         "discriminant": 5,
-        "type": "Metadata"
-      },
-      {
-        "tag": "Vec",
-        "discriminant": 6,
-        "type": "Vec<MetadataValueBox>"
+        "type": "String"
       }
     ]
   },
@@ -2980,7 +2946,7 @@
       {
         "tag": "LimitedMetadata",
         "discriminant": 4,
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       },
       {
         "tag": "Numeric",
@@ -3475,7 +3441,7 @@
       },
       {
         "name": "value",
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       }
     ]
   },
@@ -3491,7 +3457,7 @@
       },
       {
         "name": "value",
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       }
     ]
   },
@@ -3507,7 +3473,7 @@
       },
       {
         "name": "value",
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       }
     ]
   },
@@ -3523,7 +3489,7 @@
       },
       {
         "name": "value",
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       }
     ]
   },
@@ -3539,7 +3505,7 @@
       },
       {
         "name": "value",
-        "type": "MetadataValueBox"
+        "type": "JsonString"
       }
     ]
   },
@@ -3739,10 +3705,10 @@
       "value": "Numeric"
     }
   },
-  "SortedMap<Name, MetadataValueBox>": {
+  "SortedMap<Name, JsonString>": {
     "Map": {
       "key": "Name",
-      "value": "MetadataValueBox"
+      "value": "JsonString"
     }
   },
   "SortedVec<Permission>": {
@@ -3889,7 +3855,7 @@
       },
       {
         "name": "metadata",
-        "type": "SortedMap<Name, MetadataValueBox>"
+        "type": "SortedMap<Name, JsonString>"
       }
     ]
   },
@@ -4388,9 +4354,6 @@
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
   },
-  "Vec<MetadataValueBox>": {
-    "Vec": "MetadataValueBox"
-  },
   "Vec<PeerId>": {
     "Vec": "PeerId"
   },
@@ -4409,7 +4372,6 @@
     ]
   },
   "WasmSmartContract": "Vec<u8>",
-  "bool": "bool",
   "u128": {
     "Int": "FixedWidth"
   },

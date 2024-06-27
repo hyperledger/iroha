@@ -9,12 +9,7 @@
 extern crate alloc;
 
 #[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
 use derive_more::{Constructor, Display, From, FromStr};
@@ -876,69 +871,6 @@ mod model {
         /// in the next request to continue fetching results of the original query
         pub cursor: crate::query::cursor::ForwardCursor,
     }
-
-    /// String containing serialized valid JSON.
-    ///
-    /// This string is guaranteed to be parsed as JSON.
-    #[derive(Display, Debug, Clone, Encode, Decode, Ord, PartialOrd, Eq, PartialEq, IntoSchema)]
-    #[ffi_type(unsafe {robust})]
-    #[repr(transparent)]
-    #[display(fmt = "{}", "0")]
-    pub struct JsonString(pub(super) String);
-}
-
-impl JsonString {
-    /// Create without checking whether the input is a valid JSON string.
-    ///
-    /// The caller must guarantee that the value is valid.
-    pub fn from_string_unchecked(value: String) -> Self {
-        Self(value)
-    }
-}
-
-impl Default for JsonString {
-    fn default() -> Self {
-        // NOTE: empty string isn't valid JSON
-        Self("null".to_string())
-    }
-}
-
-impl From<&serde_json::Value> for JsonString {
-    fn from(value: &serde_json::Value) -> Self {
-        Self(value.to_string())
-    }
-}
-
-impl From<serde_json::Value> for JsonString {
-    fn from(value: serde_json::Value) -> Self {
-        Self::from(&value)
-    }
-}
-
-impl AsRef<str> for JsonString {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> serde::de::Deserialize<'de> for JsonString {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let json = serde_json::Value::deserialize(deserializer)?;
-        Ok(Self::from(&json))
-    }
-}
-
-impl serde::ser::Serialize for JsonString {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let json = serde_json::Value::from_str(&self.0).map_err(serde::ser::Error::custom)?;
-        json.serialize(serializer)
-    }
 }
 
 macro_rules! impl_encode_as_id_box {
@@ -1150,7 +1082,10 @@ mod ffi {
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     pub use iroha_crypto::PublicKey;
-    pub use iroha_primitives::numeric::{numeric, Numeric, NumericSpec};
+    pub use iroha_primitives::{
+        json::*,
+        numeric::{numeric, Numeric, NumericSpec},
+    };
 
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, events::prelude::*,

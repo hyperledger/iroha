@@ -8,12 +8,13 @@ use std::collections::BTreeSet;
 use derive_more::{Constructor, Display};
 use getset::Getters;
 use iroha_data_model_derive::model;
+use iroha_primitives::json::JsonString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{permission::PermissionId, transaction::WasmSmartContract, JsonString};
+use crate::{permission::PermissionId, transaction::WasmSmartContract};
 
 #[model]
 mod model {

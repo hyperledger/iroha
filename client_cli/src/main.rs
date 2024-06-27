@@ -13,9 +13,9 @@ use eyre::{eyre, Error, Result, WrapErr};
 use iroha::{
     client::{Client, QueryResult},
     config::Config,
-    data_model::{metadata::MetadataValueBox, prelude::*},
+    data_model::prelude::*,
 };
-use iroha_primitives::addr::SocketAddr;
+use iroha_primitives::{addr::SocketAddr, json::JsonString};
 use thiserror::Error;
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
@@ -61,20 +61,18 @@ pub struct MetadataValueArg {
     /// The following types are supported:
     /// Numbers: decimal with optional point
     /// Booleans: false/true
-    /// JSON: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
+    /// Objects: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
     #[arg(short, long)]
-    value: MetadataValueBox,
+    value: JsonString,
 }
 
 impl FromStr for MetadataValueArg {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<bool>()
-            .map(MetadataValueBox::Bool)
-            .or_else(|_| s.parse::<Numeric>().map(MetadataValueBox::Numeric))
-            .or_else(|_| serde_json::from_str::<MetadataValueBox>(s).map_err(Into::into))
-            .map(|value| MetadataValueArg { value })
+        Ok(MetadataValueArg {
+            value: JsonString::from_str(s)?,
+        })
     }
 }
 
@@ -1110,22 +1108,15 @@ mod tests {
         }
 
         // Boolean values
-        case!("true", true.into());
-        case!("false", false.into());
+        case!("true", JsonString::new(true));
+        case!("false", JsonString::new(false));
 
         // Numeric values
-        case!("123", numeric!(123).into());
-        case!("123.0", numeric!(123.0).into());
+        case!("\"123\"", JsonString::new(numeric!(123)));
+        case!("\"123.0\"", JsonString::new(numeric!(123.0)));
 
         // JSON Value
         let json_str = r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#;
         case!(json_str, serde_json::from_str(json_str).unwrap());
-    }
-
-    #[test]
-    fn error_parse_invalid_value() {
-        let invalid_str = "not_a_valid_value";
-        let _invalid_value = MetadataValueArg::from_str(invalid_str)
-            .expect_err("Should fail invalid type from string but passed");
     }
 }

@@ -26,7 +26,7 @@ fn main(id: TriggerId, owner: AccountId, _event: EventBox) {
         .execute()
         .dbg_unwrap()
         .into_inner()
-        .try_into()
+        .try_into_any()
         .dbg_unwrap();
 
     Mint::asset_numeric(val, rose_id)

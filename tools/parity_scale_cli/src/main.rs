@@ -318,7 +318,7 @@ mod tests {
         metadata
             .insert_with_limits(
                 "hat".parse().expect("Valid"),
-                "white".parse::<Name>().unwrap(),
+                "white".parse::<JsonString>().expect("Valid"),
                 limits,
             )
             .expect("Valid");

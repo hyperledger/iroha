@@ -15,9 +15,9 @@ use iroha_data_model::{
     isi::InstructionBox,
     prelude::*,
     transaction::TransactionLimits,
-    ChainId, JsonString,
+    ChainId,
 };
-use iroha_primitives::unique_vec::UniqueVec;
+use iroha_primitives::{json::JsonString, unique_vec::UniqueVec};
 use serde_json::json;
 
 /// Create block

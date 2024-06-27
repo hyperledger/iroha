@@ -426,9 +426,9 @@ pub mod query {
     use eyre::Result;
     use iroha_data_model::{
         asset::{Asset, AssetDefinition, AssetValue},
-        metadata::MetadataValueBox,
         query::{asset::FindAssetDefinitionById, error::QueryExecutionFail as Error},
     };
+    use iroha_primitives::json::JsonString;
 
     use super::*;
     use crate::state::StateReadOnly;
@@ -641,7 +641,7 @@ pub mod query {
 
     impl ValidQuery for FindAssetKeyValueByIdAndKey {
         #[metrics(+"find_asset_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
             let key = &self.key;
             let asset = state_ro.world().asset(id).map_err(|asset_err| {

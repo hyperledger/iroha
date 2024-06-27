@@ -165,7 +165,7 @@ impl_lazy! {
     iroha_data_model::account::Account,
     iroha_data_model::domain::Domain,
     iroha_data_model::block::BlockHeader,
-    iroha_data_model::metadata::MetadataValueBox,
+    iroha_primitives::json::JsonString,
     iroha_data_model::query::TransactionQueryOutput,
     iroha_data_model::executor::ExecutorDataModel,
     iroha_data_model::trigger::Trigger,
@@ -291,9 +291,8 @@ mod tests {
     use std::str::FromStr as _;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{
-        metadata::MetadataValueBox, query::error::FindError, transaction::TransactionLimits,
-    };
+    use iroha_data_model::{query::error::FindError, transaction::TransactionLimits};
+    use iroha_primitives::json::JsonString;
     use test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use tokio::test;
 
@@ -335,7 +334,7 @@ mod tests {
         store
             .insert_with_limits(
                 Name::from_str("Bytes").expect("Valid"),
-                MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
+                vec![1_u32, 2_u32, 3_u32],
                 MetadataLimits::new(10, 100),
             )
             .unwrap();
@@ -350,7 +349,7 @@ mod tests {
         let mut metadata = Metadata::new();
         metadata.insert_with_limits(
             Name::from_str("Bytes")?,
-            MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
+            vec![1_u32, 2_u32, 3_u32],
             MetadataLimits::new(10, 100),
         )?;
 
@@ -448,10 +447,7 @@ mod tests {
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
         let bytes = FindAssetKeyValueByIdAndKey::new(asset_id, Name::from_str("Bytes")?)
             .execute(&state.view())?;
-        assert_eq!(
-            MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
-            bytes,
-        );
+        assert_eq!(JsonString::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
 
@@ -463,10 +459,7 @@ mod tests {
 
         let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
             .execute(&state.view())?;
-        assert_eq!(
-            MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
-            bytes,
-        );
+        assert_eq!(JsonString::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
 
@@ -609,7 +602,7 @@ mod tests {
             let mut metadata = Metadata::new();
             metadata.insert_with_limits(
                 Name::from_str("Bytes")?,
-                MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
+                vec![1_u32, 2_u32, 3_u32],
                 MetadataLimits::new(10, 100),
             )?;
             let mut domain = Domain::new(DomainId::from_str("wonderland")?)
@@ -633,10 +626,7 @@ mod tests {
         let domain_id = DomainId::from_str("wonderland")?;
         let key = Name::from_str("Bytes")?;
         let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&state.view())?;
-        assert_eq!(
-            MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
-            bytes,
-        );
+        assert_eq!(JsonString::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
 }

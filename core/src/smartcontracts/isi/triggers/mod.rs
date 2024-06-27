@@ -320,10 +320,10 @@ pub mod isi {
 pub mod query {
     //! Queries associated to triggers.
     use iroha_data_model::{
-        metadata::MetadataValueBox,
         query::error::QueryExecutionFail as Error,
         trigger::{Trigger, TriggerId},
     };
+    use iroha_primitives::json::JsonString;
 
     use super::*;
     use crate::{prelude::*, smartcontracts::triggers::set::SetReadOnly, state::StateReadOnly};
@@ -364,7 +364,7 @@ pub mod query {
 
     impl ValidQuery for FindTriggerKeyValueByIdAndKey {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);

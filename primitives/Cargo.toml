@@ -42,6 +42,8 @@ smallstr = { version = "0.3.0", default-features = false, features = ["serde", "
 thiserror = { workspace = true, optional = true }
 displaydoc = { workspace = true }
 parking_lot = { workspace = true, optional = true }
+serde_json = { workspace = true }
+
 
 [dev-dependencies]
 serde_json = { workspace = true, features = ["alloc"] }

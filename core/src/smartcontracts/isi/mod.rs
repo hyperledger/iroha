@@ -243,7 +243,6 @@ mod tests {
     use core::str::FromStr as _;
     use std::sync::Arc;
 
-    use iroha_data_model::metadata::MetadataValueBox;
     use test_samples::{
         gen_account_in, ALICE_ID, SAMPLE_GENESIS_ACCOUNT_ID, SAMPLE_GENESIS_ACCOUNT_KEYPAIR,
     };
@@ -285,25 +284,15 @@ mod tests {
         let account_id = ALICE_ID.clone();
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-        SetKeyValue::asset(
-            asset_id.clone(),
-            Name::from_str("Bytes")?,
-            vec![1_u32, 2_u32, 3_u32],
-        )
-        .execute(&account_id, &mut state_transaction)?;
+        let key = Name::from_str("Bytes")?;
+        SetKeyValue::asset(asset_id.clone(), key.clone(), vec![1_u32, 2_u32, 3_u32])
+            .execute(&account_id, &mut state_transaction)?;
         let asset = state_transaction.world.asset(&asset_id)?;
         let AssetValue::Store(store) = &asset.value else {
             panic!("expected store asset");
         };
-        let bytes = store.get(&"Bytes".parse::<Name>().expect("Valid")).cloned();
-        assert_eq!(
-            bytes,
-            Some(MetadataValueBox::Vec(vec![
-                1_u32.into(),
-                2_u32.into(),
-                3_u32.into(),
-            ]))
-        );
+        let value = store.get(&key).cloned();
+        assert_eq!(value, Some(vec![1_u32, 2_u32, 3_u32,].into()));
         Ok(())
     }
 
@@ -314,28 +303,13 @@ mod tests {
         let mut state_block = state.block();
         let mut state_transaction = state_block.transaction();
         let account_id = ALICE_ID.clone();
-        SetKeyValue::account(
-            account_id.clone(),
-            Name::from_str("Bytes")?,
-            vec![1_u32, 2_u32, 3_u32],
-        )
-        .execute(&account_id, &mut state_transaction)?;
+        let key = Name::from_str("Bytes")?;
+        SetKeyValue::account(account_id.clone(), key.clone(), vec![1_u32, 2_u32, 3_u32])
+            .execute(&account_id, &mut state_transaction)?;
         let bytes = state_transaction
             .world
-            .map_account(&account_id, |account| {
-                account
-                    .metadata()
-                    .get(&Name::from_str("Bytes").expect("Valid"))
-                    .cloned()
-            })?;
-        assert_eq!(
-            bytes,
-            Some(MetadataValueBox::Vec(vec![
-                1_u32.into(),
-                2_u32.into(),
-                3_u32.into(),
-            ]))
-        );
+            .map_account(&account_id, |account| account.metadata().get(&key).cloned())?;
+        assert_eq!(bytes, Some(vec![1_u32, 2_u32, 3_u32,].into()));
         Ok(())
     }
 
@@ -347,26 +321,20 @@ mod tests {
         let mut state_transaction = state_block.transaction();
         let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let account_id = ALICE_ID.clone();
+        let key = Name::from_str("Bytes")?;
         SetKeyValue::asset_definition(
             definition_id.clone(),
-            Name::from_str("Bytes")?,
+            key.clone(),
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(&account_id, &mut state_transaction)?;
-        let bytes = state_transaction
+        let value = state_transaction
             .world
             .asset_definition(&definition_id)?
             .metadata()
-            .get(&Name::from_str("Bytes")?)
+            .get(&key)
             .cloned();
-        assert_eq!(
-            bytes,
-            Some(MetadataValueBox::Vec(vec![
-                1_u32.into(),
-                2_u32.into(),
-                3_u32.into(),
-            ]))
-        );
+        assert_eq!(value, Some(vec![1_u32, 2_u32, 3_u32,].into()));
         Ok(())
     }
 
@@ -378,26 +346,16 @@ mod tests {
         let mut state_transaction = state_block.transaction();
         let domain_id = DomainId::from_str("wonderland")?;
         let account_id = ALICE_ID.clone();
-        SetKeyValue::domain(
-            domain_id.clone(),
-            Name::from_str("Bytes")?,
-            vec![1_u32, 2_u32, 3_u32],
-        )
-        .execute(&account_id, &mut state_transaction)?;
+        let key = Name::from_str("Bytes")?;
+        SetKeyValue::domain(domain_id.clone(), key.clone(), vec![1_u32, 2_u32, 3_u32])
+            .execute(&account_id, &mut state_transaction)?;
         let bytes = state_transaction
             .world
             .domain(&domain_id)?
             .metadata()
-            .get(&Name::from_str("Bytes")?)
+            .get(&key)
             .cloned();
-        assert_eq!(
-            bytes,
-            Some(MetadataValueBox::Vec(vec![
-                1_u32.into(),
-                2_u32.into(),
-                3_u32.into(),
-            ]))
-        );
+        assert_eq!(bytes, Some(vec![1_u32, 2_u32, 3_u32,].into()));
         Ok(())
     }
 

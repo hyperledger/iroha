@@ -1,5 +1,6 @@
 use eyre::Result;
 use iroha::data_model::{prelude::*, transaction::error::TransactionRejectionReason};
+use iroha_primitives::json::JsonString;
 use serde_json::json;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
@@ -58,7 +59,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
 
     // check that "alice@wonderland" as owner of domain can edit metadata in her domain
     let key: Name = "key".parse()?;
-    let value: Name = "value".parse()?;
+    let value = JsonString::new("value");
     test_client.submit_blocking(SetKeyValue::domain(kingdom_id.clone(), key.clone(), value))?;
     test_client.submit_blocking(RemoveKeyValue::domain(kingdom_id.clone(), key))?;
 
@@ -93,7 +94,7 @@ fn domain_owner_account_permissions() -> Result<()> {
 
     // check that "alice@wonderland" as owner of domain can edit metadata of account in her domain
     let key: Name = "key".parse()?;
-    let value: Name = "value".parse()?;
+    let value = JsonString::new("value");
     test_client.submit_blocking(SetKeyValue::account(
         mad_hatter_id.clone(),
         key.clone(),
@@ -160,7 +161,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
 
     // check that "alice@wonderland" as owner of domain can edit metadata of asset definition in her domain
     let key: Name = "key".parse()?;
-    let value: Name = "value".parse()?;
+    let value = JsonString::new("value");
     test_client.submit_blocking(SetKeyValue::asset_definition(
         coin_id.clone(),
         key.clone(),
@@ -233,7 +234,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
 
     // check that "alice@wonderland" as owner of domain can edit metadata of store asset in her domain
     let key: Name = "key".parse()?;
-    let value: Name = "value".parse()?;
+    let value = JsonString::new("value");
     let bob_store_id = AssetId::new(store_id, bob_id.clone());
     test_client.submit_blocking(SetKeyValue::asset(bob_store_id.clone(), key.clone(), value))?;
     test_client.submit_blocking(RemoveKeyValue::asset(bob_store_id.clone(), key))?;
