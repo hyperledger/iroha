@@ -265,7 +265,7 @@ impl TimeInterval {
         Utc.timestamp_millis(self.since_ms.as_millis() as i64)
     }
     /// Getter for `since_ms`
-    pub fn since(&self) -> &Duration {
+    pub fn since(&self) -> DateTime<Utc> {
         &self.since_ms
     }
 }
