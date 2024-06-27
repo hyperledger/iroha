@@ -494,9 +494,9 @@ pub mod query {
 
     use eyre::Result;
     use iroha_data_model::{
-        account::Account, metadata::MetadataValueBox, permission::Permission,
-        query::error::QueryExecutionFail as Error,
+        account::Account, permission::Permission, query::error::QueryExecutionFail as Error,
     };
+    use iroha_primitives::json::JsonString;
 
     use super::*;
     use crate::state::StateReadOnly;
@@ -574,7 +574,7 @@ pub mod query {
 
     impl ValidQuery for FindAccountKeyValueByIdAndKey {
         #[metrics(+"find_account_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);

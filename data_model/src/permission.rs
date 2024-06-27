@@ -5,6 +5,7 @@ use alloc::{collections::BTreeSet, format, string::String, vec::Vec};
 use std::collections::BTreeSet;
 
 use iroha_data_model_derive::model;
+use iroha_primitives::json::JsonString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};

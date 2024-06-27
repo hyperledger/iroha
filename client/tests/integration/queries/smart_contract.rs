@@ -3,10 +3,7 @@ use std::str::FromStr as _;
 use eyre::Result;
 use iroha::{
     client::ClientQueryError,
-    data_model::{
-        prelude::*,
-        query::{cursor::ForwardCursor, error::QueryExecutionFail},
-    },
+    data_model::{prelude::*, query::error::QueryExecutionFail},
 };
 use test_network::*;
 
@@ -29,12 +26,11 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
     );
     client.submit_transaction_blocking(&transaction)?;
 
-    let metadata_value = client.request(FindAccountKeyValueByIdAndKey::new(
+    let metadata_value: JsonString = client.request(FindAccountKeyValueByIdAndKey::new(
         client.account.clone(),
         Name::from_str("cursor").unwrap(),
     ))?;
-    let cursor: String = metadata_value.try_into()?;
-    let asset_cursor = serde_json::from_str::<ForwardCursor>(&cursor)?;
+    let asset_cursor = metadata_value.try_into_any()?;
 
     let err = client
         .request_with_cursor::<Vec<Asset>>(asset_cursor)

@@ -388,9 +388,8 @@ pub mod isi {
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
     use eyre::Result;
-    use iroha_data_model::{
-        domain::Domain, metadata::MetadataValueBox, query::error::QueryExecutionFail as Error,
-    };
+    use iroha_data_model::{domain::Domain, query::error::QueryExecutionFail as Error};
+    use iroha_primitives::json::JsonString;
 
     use super::*;
     use crate::state::StateReadOnly;
@@ -416,7 +415,7 @@ pub mod query {
 
     impl ValidQuery for FindDomainKeyValueByIdAndKey {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
@@ -430,7 +429,7 @@ pub mod query {
 
     impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);

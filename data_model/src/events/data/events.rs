@@ -3,11 +3,10 @@
 
 use getset::Getters;
 use iroha_data_model_derive::{model, EventSet, HasOrigin};
-use iroha_primitives::numeric::Numeric;
+use iroha_primitives::{json::JsonString, numeric::Numeric};
 
 pub use self::model::*;
 use super::*;
-use crate::metadata::MetadataValueBox;
 
 macro_rules! data_event {
     ($item:item) => {
@@ -61,7 +60,7 @@ mod model {
     pub struct MetadataChanged<Id> {
         pub target: Id,
         pub key: Name,
-        pub value: MetadataValueBox,
+        pub value: JsonString,
     }
 
     /// Event
@@ -618,7 +617,7 @@ impl<Id> MetadataChanged<Id> {
     }
 
     /// Getter for `value`
-    pub fn value(&self) -> &MetadataValueBox {
+    pub fn value(&self) -> &JsonString {
         &self.value
     }
 }

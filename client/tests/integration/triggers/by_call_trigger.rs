@@ -457,7 +457,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
         .submit_blocking(SetKeyValue::trigger(
             trigger_id.clone(),
             "VAL".parse()?,
-            numeric!(1),
+            1_u32,
         ))
         .unwrap();
     let call_trigger = ExecuteTrigger::new(trigger_id);

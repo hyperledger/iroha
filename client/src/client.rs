@@ -16,6 +16,7 @@ use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
 pub use iroha_config::client_api::ConfigDTO;
 use iroha_logger::prelude::*;
+use iroha_primitives::json;
 use iroha_telemetry::metrics::Status;
 use iroha_torii_const::uri as torii_uri;
 use iroha_version::prelude::*;
@@ -326,7 +327,7 @@ impl_query_output! {
     crate::data_model::account::Account,
     crate::data_model::domain::Domain,
     crate::data_model::block::BlockHeader,
-    crate::data_model::metadata::MetadataValueBox,
+    json::JsonString,
     crate::data_model::query::TransactionQueryOutput,
     crate::data_model::executor::ExecutorDataModel,
     crate::data_model::trigger::Trigger,
