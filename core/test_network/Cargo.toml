@@ -9,12 +9,13 @@ license.workspace = true
 
 [dependencies]
 iroha_core = { workspace = true }
-irohad = { workspace = true, features = ["test-network"] }
+irohad = { workspace = true }
 iroha = { workspace = true }
 
 iroha_crypto = { workspace = true }
 iroha_config = { workspace = true }
 iroha_data_model = { workspace = true }
+iroha_futures = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_genesis = { workspace = true }

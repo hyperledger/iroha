@@ -3,6 +3,7 @@ use std::env;
 
 use clap::Parser;
 use error_stack::{IntoReportCompat, ResultExt};
+use iroha_futures::supervisor::ShutdownSignal;
 use irohad::{Args, Iroha};
 
 #[derive(thiserror::Error, Debug)]
@@ -13,8 +14,10 @@ enum MainError {
     Config,
     #[error("Could not initialize logger")]
     Logger,
-    #[error("Could not start Iroha")]
+    #[error("Failed to start Iroha")]
     IrohaStart,
+    #[error("Error occured while running Iroha")]
+    IrohaRun,
 }
 
 #[tokio::main]
@@ -54,13 +57,19 @@ async fn main() -> error_stack::Result<(), MainError> {
         iroha_logger::debug!("Submitting genesis.");
     }
 
-    Iroha::start_network(config, genesis, logger)
-        .await
-        .change_context(MainError::IrohaStart)?
-        .0
-        .await;
+    let shutdown_on_panic = ShutdownSignal::new();
+    let default_hook = std::panic::take_hook();
+    let signal_clone = shutdown_on_panic.clone();
+    std::panic::set_hook(Box::new(move |info| {
+        iroha_logger::error!("Panic occurred, shutting down Iroha gracefully...");
+        signal_clone.send();
+        default_hook(info);
+    }));
 
-    Ok(())
+    let (_iroha, supervisor_fut) = Iroha::start(config, genesis, logger, shutdown_on_panic)
+        .await
+        .change_context(MainError::IrohaStart)?;
+    supervisor_fut.await.change_context(MainError::IrohaRun)
 }
 
 /// Configures globals of [`error_stack::Report`]

@@ -5,6 +5,7 @@ pub mod telemetry;
 
 use std::{
     fmt::Debug,
+    str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
         OnceLock,
@@ -87,6 +88,8 @@ pub fn init_global(config: InitConfig) -> Result<LoggerHandle> {
 
 /// Returns once lazily initialised global logger for testing purposes.
 ///
+/// Log level may be modified via `TEST_LOG_LEVEL` environment variable
+///
 /// # Panics
 /// If [`init_global`] or [`disable_global`] were called first.
 pub fn test_logger() -> LoggerHandle {
@@ -100,7 +103,10 @@ pub fn test_logger() -> LoggerHandle {
             // `test_logger` simple and also will emphasise isolation which is necessary anyway in
             // case of singleton mocking (where the logger is the singleton).
             let config = Config {
-                level: Level::DEBUG,
+                level: std::env::var("TEST_LOG_LEVEL")
+                    .ok()
+                    .and_then(|raw| Level::from_str(&raw).ok())
+                    .unwrap_or(Level::DEBUG),
                 format: Format::Pretty,
             };
 

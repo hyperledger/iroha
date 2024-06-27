@@ -10,9 +10,9 @@ use std::{
     fmt::{Debug, Write as _},
     net::ToSocketAddrs,
     sync::Arc,
+    time::Duration,
 };
 
-use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_config::{base::util::Bytes, parameters::actual::Torii as Config};
 #[cfg(feature = "telemetry")]
 use iroha_core::metrics::MetricsReporter;
@@ -26,9 +26,9 @@ use iroha_core::{
     EventsSender,
 };
 use iroha_data_model::ChainId;
+use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use iroha_primitives::addr::SocketAddr;
 use iroha_torii_const::uri;
-use tokio::{sync::Notify, task};
 use utils::*;
 use warp::{
     http::StatusCode,
@@ -49,7 +49,6 @@ pub struct Torii {
     kiso: KisoHandle,
     queue: Arc<Queue>,
     events: EventsSender,
-    notify_shutdown: Arc<Notify>,
     query_service: LiveQueryStoreHandle,
     kura: Arc<Kura>,
     transaction_max_content_len: Bytes<u64>,
@@ -68,7 +67,6 @@ impl Torii {
         config: Config,
         queue: Arc<Queue>,
         events: EventsSender,
-        notify_shutdown: Arc<Notify>,
         query_service: LiveQueryStoreHandle,
         kura: Arc<Kura>,
         state: Arc<State>,
@@ -79,7 +77,6 @@ impl Torii {
             kiso,
             queue,
             events,
-            notify_shutdown,
             query_service,
             kura,
             state,
@@ -236,57 +233,34 @@ impl Torii {
                 .with(warp::trace::request()))
     }
 
-    /// Start main API endpoints.
-    ///
-    /// # Errors
-    /// Can fail due to listening to network or if http server fails
-    fn start_api(self: Arc<Self>) -> eyre::Result<Vec<task::JoinHandle<()>>> {
-        let torii_address = &self.address;
-
-        let handles = torii_address
-            .to_socket_addrs()?
-            .map(|addr| {
-                let torii = Arc::clone(&self);
-
-                let api_router = torii.create_api_router();
-                let signal_fut = async move { torii.notify_shutdown.notified().await };
-                // FIXME: warp panics if fails to bind!
-                //        handle this properly, report address origin after Axum
-                //        migration: https://github.com/hyperledger/iroha/issues/3776
-                let (_, serve_fut) =
-                    warp::serve(api_router).bind_with_graceful_shutdown(addr, signal_fut);
-
-                task::spawn(serve_fut)
-            })
-            .collect();
-
-        Ok(handles)
-    }
-
     /// To handle incoming requests `Torii` should be started first.
     ///
     /// # Errors
     /// Can fail due to listening to network or if http server fails
-    #[iroha_futures::telemetry_future]
-    pub async fn start(self) -> eyre::Result<()> {
-        let torii = Arc::new(self);
-        let mut handles = vec![];
+    // #[iroha_futures::telemetry_future] // FIXME
+    pub fn start(self, shutdown_signal: &ShutdownSignal) -> eyre::Result<Vec<Child>> {
+        let children = self
+            .address
+            .to_socket_addrs()?
+            .map(|addr| {
+                let api_router = self.create_api_router();
+                let shutdown_signal = shutdown_signal.clone();
 
-        handles.extend(Arc::clone(&torii).start_api()?);
-
-        handles
-            .into_iter()
-            .collect::<FuturesUnordered<_>>()
-            .for_each(|handle| {
-                if let Err(error) = handle {
-                    iroha_logger::error!(%error, "Join handle error");
-                }
-
-                futures::future::ready(())
+                // FIXME: warp panics if fails to bind!
+                //        handle this properly, report address origin after Axum
+                //        migration: https://github.com/hyperledger/iroha/issues/3776
+                let (_, serve_fut) =
+                    warp::serve(api_router).bind_with_graceful_shutdown(addr, async move {
+                        shutdown_signal.receive().await
+                    });
+                Child::new(
+                    tokio::spawn(serve_fut),
+                    OnShutdown::Wait(Duration::from_secs(5)),
+                )
             })
-            .await;
+            .collect();
 
-        Ok(())
+        Ok(children)
     }
 }
 

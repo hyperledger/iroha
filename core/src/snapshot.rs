@@ -10,9 +10,9 @@ use std::{
 use iroha_config::{base::WithOrigin, parameters::actual::Snapshot as Config, snapshot::Mode};
 use iroha_crypto::HashOf;
 use iroha_data_model::block::SignedBlock;
+use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use iroha_logger::prelude::*;
 use serde::{de::DeserializeSeed, Serialize};
-use tokio::sync::mpsc;
 
 use crate::{
     kura::{BlockCount, Kura},
@@ -28,13 +28,6 @@ const SNAPSHOT_TMP_FILE_NAME: &str = "snapshot.tmp";
 // /// Errors produced by [`SnapshotMaker`] actor.
 // pub type Result<T, E = Error> = core::result::Result<T, E>;
 
-/// [`SnapshotMaker`] actor handle.
-#[derive(Clone)]
-pub struct SnapshotMakerHandle {
-    /// Not used to actually send messages but to signal that there is no more handles to [`SnapshotMaker`]
-    _message_sender: mpsc::Sender<()>,
-}
-
 /// Actor responsible for [`State`] snapshot reading and writing.
 pub struct SnapshotMaker {
     state: Arc<State>,
@@ -47,18 +40,15 @@ pub struct SnapshotMaker {
 }
 
 impl SnapshotMaker {
-    /// Start [`Self`] actor.
-    pub fn start(self) -> SnapshotMakerHandle {
-        let (message_sender, message_receiver) = mpsc::channel(1);
-        tokio::task::spawn(self.run(message_receiver));
-
-        SnapshotMakerHandle {
-            _message_sender: message_sender,
-        }
+    /// Start the actor.
+    pub fn start(self, shutdown_signal: ShutdownSignal) -> Child {
+        Child::new(
+            tokio::spawn(self.run(shutdown_signal)),
+            OnShutdown::Wait(Duration::from_secs(2)),
+        )
     }
 
-    /// [`Self`] task.
-    async fn run(mut self, mut message_receiver: mpsc::Receiver<()>) {
+    async fn run(mut self, shutdown_signal: ShutdownSignal) {
         let mut snapshot_create_every = tokio::time::interval(self.create_every);
         // Don't try to create snapshot more frequently if previous take longer time
         snapshot_create_every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -69,8 +59,8 @@ impl SnapshotMaker {
                     // Offload snapshot creation into blocking thread
                     self.create_snapshot().await;
                 },
-                _ = message_receiver.recv() => {
-                    info!("All handler to SnapshotMaker are dropped. Saving latest snapshot and shutting down...");
+                () = shutdown_signal.receive() => {
+                    info!("Saving latest snapshot and shutting down");
                     self.create_snapshot().await;
                     break;
                 }
@@ -138,7 +128,7 @@ impl SnapshotMaker {
 pub fn try_read_snapshot(
     store_dir: impl AsRef<Path>,
     kura: &Arc<Kura>,
-    query_handle: LiveQueryStoreHandle,
+    live_query_store_lazy: impl FnOnce() -> LiveQueryStoreHandle,
     BlockCount(block_count): BlockCount,
 ) -> Result<State, TryReadError> {
     let mut bytes = Vec::new();
@@ -158,7 +148,7 @@ pub fn try_read_snapshot(
     let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
     let seed = KuraSeed {
         kura: Arc::clone(kura),
-        query_handle,
+        query_handle: live_query_store_lazy(),
     };
     let state = seed.deserialize(&mut deserializer)?;
     let state_view = state.view();
@@ -257,7 +247,7 @@ mod tests {
 
     fn state_factory() -> State {
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         State::new(
             crate::queue::tests::world_with_test_domains(),
             kura,
@@ -286,7 +276,7 @@ mod tests {
         let _wsv = try_read_snapshot(
             &store_dir,
             &Kura::blank_kura_for_testing(),
-            LiveQueryStore::test().start(),
+            LiveQueryStore::start_test,
             BlockCount(state.view().height()),
         )
         .unwrap();
@@ -300,7 +290,7 @@ mod tests {
         let Err(error) = try_read_snapshot(
             store_dir,
             &Kura::blank_kura_for_testing(),
-            LiveQueryStore::test().start(),
+            LiveQueryStore::start_test,
             BlockCount(15),
         ) else {
             panic!("should not be ok")
@@ -322,7 +312,7 @@ mod tests {
         let Err(error) = try_read_snapshot(
             &store_dir,
             &Kura::blank_kura_for_testing(),
-            LiveQueryStore::test().start(),
+            LiveQueryStore::start_test,
             BlockCount(15),
         ) else {
             panic!("should not be ok")

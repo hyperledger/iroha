@@ -11,6 +11,7 @@ use iroha_data_model::{
     query::{cursor::ForwardCursor, error::QueryExecutionFail, QueryId, QueryOutputBox},
     BatchedResponse, BatchedResponseV1, ValidationFail,
 };
+use iroha_futures::supervisor::{Child, OnShutdown};
 use iroha_logger::trace;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -77,52 +78,50 @@ impl LiveQueryStore {
     /// Default configuration will be used.
     ///
     /// Not marked as `#[cfg(test)]` because it is used in benches as well.
-    pub fn test() -> Self {
-        Self::from_config(Config::default())
+    pub fn start_test() -> LiveQueryStoreHandle {
+        Self::from_config(Config::default()).start().0
     }
 
     /// Start [`LiveQueryStore`]. Requires a [`tokio::runtime::Runtime`] being run
     /// as it will create new [`tokio::task`] and detach it.
     ///
     /// Returns a handle to interact with the service.
-    pub fn start(mut self) -> LiveQueryStoreHandle {
-        const ALL_HANDLERS_DROPPED: &str =
-            "All handler to LiveQueryStore are dropped. Shutting down...";
-
+    pub fn start(mut self) -> (LiveQueryStoreHandle, Child) {
         let (message_sender, mut message_receiver) = mpsc::channel(1);
 
         let mut idle_interval = tokio::time::interval(self.idle_time);
 
-        tokio::task::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = idle_interval.tick() => {
-                        self.queries
-                            .retain(|_, (_, last_access_time)| last_access_time.elapsed() <= self.idle_time);
-                    },
-                    msg = message_receiver.recv() => {
-                        let Some(msg) = msg else {
-                            iroha_logger::info!("{ALL_HANDLERS_DROPPED}");
-                            break;
-                        };
-
-                        match msg {
-                            Message::Insert(query_id, live_query) => {
-                                self.insert(query_id, live_query)
-                            }
-                            Message::Remove(query_id, response_sender) => {
-                                let live_query_opt = self.remove(&query_id);
-                                let _ = response_sender.send(live_query_opt);
+        let child = Child::new(
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = idle_interval.tick() => {
+                            self.queries
+                                .retain(|_, (_, last_access_time)| last_access_time.elapsed() <= self.idle_time);
+                        },
+                        Some(msg) = message_receiver.recv() => {
+                            match msg {
+                                Message::Insert(query_id, live_query) => {
+                                    self.insert(query_id, live_query)
+                                }
+                                Message::Remove(query_id, response_sender) => {
+                                    let live_query_opt = self.remove(&query_id);
+                                    let _ = response_sender.send(live_query_opt);
+                                }
                             }
                         }
+                        else => {
+                            iroha_logger::debug!("Terminating live query store");
+                            break;
+                        },
                     }
-                    else => break,
+                    tokio::task::yield_now().await;
                 }
-                tokio::task::yield_now().await;
-            }
-        });
+            }),
+            OnShutdown::Abort,
+        );
 
-        LiveQueryStoreHandle { message_sender }
+        (LiveQueryStoreHandle { message_sender }, child)
     }
 
     fn insert(&mut self, query_id: QueryId, live_query: LiveQuery) {
@@ -257,9 +256,8 @@ mod tests {
 
     #[test]
     fn query_message_order_preserved() {
-        let query_store = LiveQueryStore::test();
         let threaded_rt = tokio::runtime::Runtime::new().unwrap();
-        let query_store_handle = threaded_rt.block_on(async { query_store.start() });
+        let query_handle = threaded_rt.block_on(async { LiveQueryStore::start_test() });
 
         for i in 0..10_000 {
             let filter = PredicateBox::default();
@@ -279,7 +277,7 @@ mod tests {
                 .apply_postprocessing(&filter, &sorting, pagination, fetch_size)
                 .unwrap();
 
-            let (batch, mut cursor) = query_store_handle
+            let (batch, mut cursor) = query_handle
                 .handle_query_output(query_output)
                 .unwrap()
                 .into();
@@ -289,7 +287,7 @@ mod tests {
             counter += v.len();
 
             while cursor.cursor.is_some() {
-                let Ok(batched) = query_store_handle.handle_query_cursor(cursor) else {
+                let Ok(batched) = query_handle.handle_query_cursor(cursor) else {
                     break;
                 };
                 let (batch, new_cursor) = batched.into();

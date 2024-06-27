@@ -1,4 +1,7 @@
 //! Crate with various Iroha futures
+
+pub mod supervisor;
+
 use std::{
     future::Future,
     pin::Pin,
