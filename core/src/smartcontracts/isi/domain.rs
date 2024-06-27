@@ -102,6 +102,13 @@ pub mod isi {
                         .expect("should succeed")
                 });
 
+            state_transaction
+                .world
+                .account_permissions
+                .remove(account_id.clone());
+
+            state_transaction.world.remove_account_roles(&account_id);
+
             if state_transaction
                 .world
                 .accounts
