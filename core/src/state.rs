@@ -745,6 +745,19 @@ impl WorldTransaction<'_, '_> {
             .map_or(false, |permissions| permissions.remove(token))
     }
 
+    /// Remove all [`Role`]s from the [`Account`]
+    pub fn remove_account_roles(&mut self, account: &AccountId) {
+        let roles_to_remove = self
+            .account_roles_iter(&account)
+            .cloned()
+            .map(|role| RoleIdWithOwner::new(account.clone(), role.clone()))
+            .collect::<Vec<_>>();
+
+        for role in roles_to_remove {
+            self.account_roles.remove(role);
+        }
+    }
+
     /// Get mutable reference to [`Asset`]
     ///
     /// # Errors
@@ -1593,21 +1606,10 @@ mod range_bounds {
     }
 
     /// `DomainId` wrapper for fetching accounts beloning to a domain from the global store
-    #[derive(PartialEq, Eq, PartialOrd, Copy, Clone)]
+    #[derive(PartialEq, Eq, Ord, PartialOrd, Copy, Clone)]
     pub struct AccountIdDomainCompare<'a> {
         domain_id: &'a DomainId,
         signatory: MinMaxExt<&'a PublicKey>,
-    }
-
-    // Sorting needed to be flipped for the storage lookup to work.
-    impl Ord for AccountIdDomainCompare<'_> {
-        fn cmp(&self, other: &AccountIdDomainCompare<'_>) -> std::cmp::Ordering {
-            if self.domain_id == other.domain_id {
-                other.signatory.cmp(&self.signatory)
-            } else {
-                other.domain_id.cmp(self.domain_id)
-            }
-        }
     }
 
     /// Bounds for range quired over accounts by domain
@@ -2015,15 +2017,46 @@ mod tests {
             RoleIdWithOwner::new(gen_account_in("wonderland").0, "4".parse().unwrap()),
             RoleIdWithOwner::new(gen_account_in("0").0, "5".parse().unwrap()),
             RoleIdWithOwner::new(gen_account_in("1").0, "6".parse().unwrap()),
-        ];
-        let map = BTreeSet::from(roles);
+        ]
+        .map(|role| (role, ()));
+        let map = Storage::from_iter(roles);
 
-        let range = map
+        let view = map.view();
+        let range = view
             .range(RoleIdByAccountBounds::new(&account_id))
             .collect::<Vec<_>>();
         assert_eq!(range.len(), 2);
-        for role in range {
+        for (role, ()) in range {
             assert_eq!(&role.account, &account_id);
+        }
+    }
+
+    #[test]
+    fn account_domain_range() {
+        let accounts = [
+            gen_account_in("wonderland").0,
+            gen_account_in("wonderland").0,
+            gen_account_in("a").0,
+            gen_account_in("b").0,
+            gen_account_in("z").0,
+            gen_account_in("z").0,
+        ]
+        .map(|account| (account, ()));
+        let map = Storage::from_iter(accounts);
+
+        let domain_id = "kingdom".parse().unwrap();
+        let view = map.view();
+        let range = view.range(AccountByDomainBounds::new(&domain_id));
+        assert_eq!(range.count(), 0);
+
+        let domain_id = "wonderland".parse().unwrap();
+        let view = map.view();
+        let range = view
+            .range(AccountByDomainBounds::new(&domain_id))
+            .collect::<Vec<_>>();
+        assert_eq!(range.len(), 2);
+        for (account, ()) in range {
+            assert_eq!(&account.domain, &domain_id);
         }
     }
 }
