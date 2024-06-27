@@ -55,7 +55,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             .expect("Asset not found");
         assert_eq!(AssetValue::Numeric(quantity), *asset.value());
 
-        let mut all_peers: Vec<_> = core::iter::once(network.genesis)
+        let mut all_peers: Vec<_> = core::iter::once(network.first_peer)
             .chain(network.peers.into_values())
             .collect();
         let removed_peer_idx = rand::thread_rng().gen_range(0..all_peers.len());

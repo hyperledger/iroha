@@ -13,8 +13,9 @@ use iroha::{
 use iroha_genesis::GenesisBlock;
 use iroha_logger::info;
 use serde_json::json;
-use test_network::*;
+use test_network::{Peer as TestPeer, *};
 use test_samples::ALICE_ID;
+use tokio::runtime::Runtime;
 
 const TRIGGER_NAME: &str = "mint_rose";
 
@@ -439,13 +440,17 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
         ),
     );
 
-    // Registering trigger in genesis
-    let genesis = GenesisBlock::test_with_instructions([Register::trigger(trigger).into()], vec![]);
+    let mut peer = TestPeer::new().expect("Failed to create peer");
+    let topology = vec![peer.id.clone()];
 
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
-        .with_genesis(genesis)
-        .with_port(10_045)
-        .start_with_runtime();
+    // Registering trigger in genesis
+    let genesis =
+        GenesisBlock::test_with_instructions([Register::trigger(trigger).into()], topology);
+
+    let rt = Runtime::test();
+    let builder = PeerBuilder::new().with_genesis(genesis).with_port(10_045);
+    rt.block_on(builder.start_with_peer(&mut peer));
+    let mut test_client = Client::test(&peer.api_address);
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;

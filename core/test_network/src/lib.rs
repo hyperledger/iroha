@@ -7,7 +7,7 @@ use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::{
     client::{Client, QueryOutput},
     config::Config as ClientConfig,
-    data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level},
+    data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query},
 };
 use iroha_config::parameters::actual::{Root as Config, Sumeragi, TrustedPeers};
 pub use iroha_core::state::StateReadOnly;
@@ -20,7 +20,7 @@ use iroha_primitives::{
     unique_vec::UniqueVec,
 };
 use irohad::Iroha;
-use rand::{seq::IteratorRandom, thread_rng};
+use rand::{prelude::SliceRandom, seq::IteratorRandom, thread_rng};
 use serde_json::json;
 use tempfile::TempDir;
 use test_samples::{ALICE_ID, ALICE_KEYPAIR, PEER_KEYPAIR, SAMPLE_GENESIS_ACCOUNT_KEYPAIR};
@@ -32,9 +32,9 @@ pub use unique_port;
 
 /// Network of peers
 pub struct Network {
-    /// Genesis peer which sends genesis block to everyone
-    pub genesis: Peer,
-    /// Peers excluding the `genesis` peer. Use [`Network::peers`] function to get all instead.
+    /// First peer, guaranteed to be online and submit genesis block.
+    pub first_peer: Peer,
+    /// Peers excluding the `first_peer`. Use [`Network::peers`] function to get all instead.
     ///
     /// [`BTreeMap`] is used in order to have deterministic order of peers.
     pub peers: BTreeMap<PeerId, Peer>,
@@ -138,6 +138,163 @@ impl TestGenesis for GenesisBlock {
     }
 }
 
+pub struct NetworkBuilder {
+    n_peers: u32,
+    port: Option<u16>,
+    config: Option<Config>,
+    /// Number of offline peers.
+    /// By default all peers are online.
+    offline_peers: Option<u32>,
+    /// Number of peers which will submit genesis.
+    /// By default only first peer submits genesis.
+    genesis_peers: Option<u32>,
+}
+
+impl NetworkBuilder {
+    pub fn new(n_peers: u32, port: Option<u16>) -> Self {
+        assert_ne!(n_peers, 0);
+        Self {
+            n_peers,
+            port,
+            config: None,
+            offline_peers: None,
+            genesis_peers: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_config(mut self, config: Config) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    #[must_use]
+    pub fn with_offline_peers(mut self, offline_peers: u32) -> Self {
+        assert!(offline_peers < self.n_peers);
+        self.offline_peers = Some(offline_peers);
+        self
+    }
+
+    #[must_use]
+    pub fn with_genesis_peers(mut self, genesis_peers: u32) -> Self {
+        assert!(0 < genesis_peers && genesis_peers <= self.n_peers);
+        self.genesis_peers = Some(genesis_peers);
+        self
+    }
+
+    /// Creates new network with options provided.
+    pub async fn create(self) -> Network {
+        let (builders, mut peers) = self.prepare_peers();
+
+        let peer_infos = self.generate_peer_infos();
+        let mut config = self.config.unwrap_or_else(Config::test);
+        let topology = peers.iter().map(|peer| peer.id.clone()).collect::<Vec<_>>();
+        config.sumeragi.trusted_peers.value_mut().others = UniqueVec::from_iter(topology.clone());
+        let genesis_block = GenesisBlock::test(topology);
+
+        let futures = FuturesUnordered::new();
+        for ((builder, peer), peer_info) in builders
+            .into_iter()
+            .zip(peers.iter_mut())
+            .zip(peer_infos.iter())
+        {
+            match peer_info {
+                PeerInfo::Offline => { /* peer offline, do nothing */ }
+                PeerInfo::Online { is_genesis } => {
+                    let future = builder
+                        .with_config(config.clone())
+                        .with_into_genesis(is_genesis.then(|| genesis_block.clone()))
+                        .start_with_peer(peer);
+                    futures.push(future);
+                }
+            }
+        }
+        futures.collect::<()>().await;
+        time::sleep(Duration::from_millis(500) * (self.n_peers + 1)).await;
+
+        assert_eq!(peer_infos[0], PeerInfo::Online { is_genesis: true });
+        let first_peer = peers.remove(0);
+        let other_peers = peers
+            .into_iter()
+            .map(|peer| (peer.id.clone(), peer))
+            .collect::<BTreeMap<_, _>>();
+        Network {
+            first_peer,
+            peers: other_peers,
+        }
+    }
+
+    fn prepare_peers(&self) -> (Vec<PeerBuilder>, Vec<Peer>) {
+        let mut builders = (0..self.n_peers)
+            .map(|n| {
+                let mut builder = PeerBuilder::new();
+                if let Some(port) = self.port {
+                    let offset: u16 = (n * 5)
+                        .try_into()
+                        .expect("The `n_peers` is too large to fit into `u16`");
+                    builder = builder.with_port(port + offset)
+                }
+                builder
+            })
+            .collect::<Vec<_>>();
+        let peers = builders
+            .iter_mut()
+            .map(PeerBuilder::build)
+            .collect::<Result<Vec<_>>>()
+            .expect("Failed to init peers");
+        (builders, peers)
+    }
+
+    fn generate_peer_infos(&self) -> Vec<PeerInfo> {
+        let n_peers = self.n_peers as usize;
+        let n_offline_peers = self.offline_peers.unwrap_or(0) as usize;
+        let n_genesis_peers = self.genesis_peers.unwrap_or(1) as usize;
+        assert!(n_genesis_peers + n_offline_peers <= n_peers);
+
+        let mut peers = (0..n_peers).collect::<Vec<_>>();
+        let mut result = vec![PeerInfo::Online { is_genesis: false }; n_peers];
+
+        // First n_genesis_peers will be genesis peers.
+        // Last n_offline_peers will be offline peers.
+        // First peer must be online and submit genesis so don't shuffle it.
+        peers[1..].shuffle(&mut thread_rng());
+        for &peer in &peers[0..n_genesis_peers] {
+            result[peer] = PeerInfo::Online { is_genesis: true };
+        }
+        for &peer in peers.iter().rev().take(n_offline_peers) {
+            result[peer] = PeerInfo::Offline;
+        }
+        result
+    }
+
+    /// Creates new network with options provided.
+    /// Returns network and client for connecting to it.
+    pub async fn create_with_client(self) -> (Network, Client) {
+        let network = self.create().await;
+        let client = Client::test(
+            &Network::peers(&network)
+                .choose(&mut thread_rng())
+                .unwrap()
+                .api_address,
+        );
+        (network, client)
+    }
+
+    /// Creates new network with options provided in a new async runtime.
+    pub fn create_with_runtime(self) -> (Runtime, Network, Client) {
+        let rt = Runtime::test();
+        let (network, client) = rt.block_on(self.create_with_client());
+        (rt, network, client)
+    }
+}
+
+// Auxiliary enum for `NetworkBuilder::create` implementation
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum PeerInfo {
+    Online { is_genesis: bool },
+    Offline,
+}
+
 impl Network {
     /// Collect the freeze handles from all the peers in the network.
     #[cfg(debug_assertions)]
@@ -156,50 +313,7 @@ impl Network {
         n_peers: u32,
         start_port: Option<u16>,
     ) -> (Runtime, Self, Client) {
-        let rt = Runtime::test();
-        let (network, client) = rt.block_on(Self::start_test(n_peers, start_port));
-        (rt, network, client)
-    }
-
-    /// Starts network with peers with default configuration and
-    /// specified options.  Returns its info and client for connecting
-    /// to it.
-    pub async fn start_test(n_peers: u32, start_port: Option<u16>) -> (Self, Client) {
-        Self::start_test_with_offline(n_peers, 0, start_port).await
-    }
-
-    /// Starts network with peers with default configuration and
-    /// specified options.  Returns its info and client for connecting
-    /// to it.
-    pub async fn start_test_with_offline_and_set_n_shifts(
-        n_peers: u32,
-        offline_peers: u32,
-        start_port: Option<u16>,
-    ) -> (Self, Client) {
-        let mut config = Config::test();
-        config.logger.level = Level::INFO;
-        let network =
-            Network::new_with_offline_peers(Some(config), n_peers, offline_peers, start_port)
-                .await
-                .expect("Failed to init peers");
-        let client = Client::test(
-            &Network::peers(&network)
-                .choose(&mut thread_rng())
-                .unwrap()
-                .api_address,
-        );
-        (network, client)
-    }
-
-    /// Starts network with peers with default configuration and
-    /// specified options.  Returns its info and client for connecting
-    /// to it.
-    pub async fn start_test_with_offline(
-        n_peers: u32,
-        offline_peers: u32,
-        start_port: Option<u16>,
-    ) -> (Self, Client) {
-        Self::start_test_with_offline_and_set_n_shifts(n_peers, offline_peers, start_port).await
+        NetworkBuilder::new(n_peers, start_port).create_with_runtime()
     }
 
     /// Adds peer to network and waits for it to start block
@@ -227,86 +341,9 @@ impl Network {
         (peer, peer_client)
     }
 
-    /// Creates new network with some offline peers
-    ///
-    /// # Panics
-    /// - If loading an environment configuration fails when
-    /// no default configuration was provided.
-    /// - If keypair generation fails.
-    ///
-    /// # Errors
-    /// - (RARE) Creating new peers and collecting into a [`HashMap`] fails.
-    /// - Creating new [`Peer`] instance fails.
-    pub async fn new_with_offline_peers(
-        default_config: Option<Config>,
-        n_peers: u32,
-        offline_peers: u32,
-        start_port: Option<u16>,
-    ) -> Result<Self> {
-        let mut builders = core::iter::repeat_with(PeerBuilder::new)
-            .enumerate()
-            .map(|(n, builder)| {
-                if let Some(port) = start_port {
-                    let offset: u16 = (n * 5)
-                        .try_into()
-                        .expect("The `n_peers` is too large to fit into `u16`");
-                    builder.with_port(port + offset)
-                } else {
-                    builder
-                }
-            })
-            .take(n_peers as usize)
-            .collect::<Vec<_>>();
-        let mut peers = builders
-            .iter_mut()
-            .map(PeerBuilder::build)
-            .collect::<Result<Vec<_>>>()?;
-
-        let mut config = default_config.unwrap_or_else(Config::test);
-        let topology = peers.iter().map(|peer| peer.id.clone()).collect::<Vec<_>>();
-        config.sumeragi.trusted_peers.value_mut().others =
-            UniqueVec::from_iter(peers.iter().map(|peer| peer.id.clone()));
-
-        let mut genesis_peer = peers.remove(0);
-        let genesis_builder = builders
-            .remove(0)
-            .with_config(config.clone())
-            .with_genesis(GenesisBlock::test(topology));
-
-        // Offset by one to account for genesis
-        let online_peers = n_peers - offline_peers - 1;
-        let rng = &mut rand::thread_rng();
-        let futures = FuturesUnordered::new();
-
-        futures.push(genesis_builder.start_with_peer(&mut genesis_peer));
-
-        for (builder, peer) in builders
-            .into_iter()
-            .zip(peers.iter_mut())
-            .choose_multiple(rng, online_peers as usize)
-        {
-            let peer = builder
-                .with_config(config.clone())
-                .with_into_genesis(None)
-                .start_with_peer(peer);
-            futures.push(peer);
-        }
-        futures.collect::<()>().await;
-
-        time::sleep(Duration::from_millis(500) * (n_peers + 1)).await;
-
-        Ok(Self {
-            genesis: genesis_peer,
-            peers: peers
-                .into_iter()
-                .map(|peer| (peer.id.clone(), peer))
-                .collect::<BTreeMap<_, _>>(),
-        })
-    }
-
     /// Returns all peers.
     pub fn peers(&self) -> impl Iterator<Item = &Peer> + '_ {
-        std::iter::once(&self.genesis).chain(self.peers.values())
+        std::iter::once(&self.first_peer).chain(self.peers.values())
     }
 
     /// Get active clients
@@ -318,8 +355,8 @@ impl Network {
 
     /// Get peer by its Id.
     pub fn peer_by_id(&self, id: &PeerId) -> Option<&Peer> {
-        self.peers.get(id).or(if self.genesis.id == *id {
-            Some(&self.genesis)
+        self.peers.get(id).or(if self.first_peer.id == *id {
+            Some(&self.first_peer)
         } else {
             None
         })

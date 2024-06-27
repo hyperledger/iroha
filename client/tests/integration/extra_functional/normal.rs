@@ -1,24 +1,17 @@
 use std::num::NonZeroU32;
 
-use iroha::client::{self, Client};
+use iroha::client;
 use iroha_config::parameters::actual::Root as Config;
 use iroha_data_model::{asset::AssetDefinitionId, prelude::*};
 use test_network::*;
-use tokio::runtime::Runtime;
 
 #[test]
 fn tranasctions_should_be_applied() {
-    let rt = Runtime::test();
-    let (network, iroha) = rt.block_on(async {
-        let mut configuration = Config::test();
-        configuration.chain_wide.max_transactions_in_block = NonZeroU32::new(1).unwrap();
-        let network = Network::new_with_offline_peers(Some(configuration), 4, 0, Some(11_300))
-            .await
-            .unwrap();
-        let iroha = Client::test(&network.genesis.api_address);
-
-        (network, iroha)
-    });
+    let mut configuration = Config::test();
+    configuration.chain_wide.max_transactions_in_block = NonZeroU32::new(1).unwrap();
+    let (_rt, network, iroha) = NetworkBuilder::new(4, Some(11_300))
+        .with_config(configuration)
+        .create_with_runtime();
     wait_for_genesis_committed(&network.clients(), 0);
 
     let domain_id = "and".parse::<DomainId>().unwrap();

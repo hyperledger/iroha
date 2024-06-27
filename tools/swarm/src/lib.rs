@@ -218,7 +218,7 @@ mod tests {
                           --private-key $$GENESIS_PRIVATE_KEY \\
                           --out-file $$GENESIS_SIGNED_FILE \\
                       && \\
-                      irohad --submit-genesis
+                      irohad
                   "
         "##]).assert_eq(&build_as_string(
             nonzero_ext::nonzero!(1u16),
@@ -276,7 +276,7 @@ mod tests {
                           --private-key $$GENESIS_PRIVATE_KEY \\
                           --out-file $$GENESIS_SIGNED_FILE \\
                       && \\
-                      irohad --submit-genesis
+                      irohad
                   "
         "##]).assert_eq(&build_as_string(
             nonzero_ext::nonzero!(1u16),
@@ -329,7 +329,7 @@ mod tests {
                           --private-key $$GENESIS_PRIVATE_KEY \\
                           --out-file $$GENESIS_SIGNED_FILE \\
                       && \\
-                      irohad --submit-genesis
+                      irohad
                   "
         "#]).assert_eq(&build_as_string(
             nonzero_ext::nonzero!(1u16),
@@ -384,7 +384,7 @@ mod tests {
                           --private-key $$GENESIS_PRIVATE_KEY \\
                           --out-file $$GENESIS_SIGNED_FILE \\
                       && \\
-                      irohad --submit-genesis
+                      irohad
                   "
               irohad1:
                 image: hyperledger/iroha:dev

@@ -37,8 +37,9 @@ class Network:
 
         logging.info("Generating shared configuration...")
         trusted_peers = [{"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key} for peer in self.peers]
-        genesis_public_key = self.peers[0].public_key
-        genesis_private_key = self.peers[0].private_key
+        genesis_key_pair = kagami_generate_key_pair(args.out_dir, seed="Irohagenesis")
+        genesis_public_key = genesis_key_pair["public_key"]
+        genesis_private_key = genesis_key_pair["private_key"]
         shared_config = {
             "chain": "00000000-0000-0000-0000-000000000000",
             "genesis": {
@@ -81,7 +82,7 @@ class Network:
 
     def run(self):
         for i, peer in enumerate(self.peers):
-            peer.run(submit_genesis=(i == 0))
+            peer.run()
         self.wait_for_genesis(20)
 
 class _Peer:
@@ -103,18 +104,8 @@ class _Peer:
 
         logging.info(f"Peer {self.name} generating key pair...")
 
-        command = [self.out_dir / "kagami", "crypto", "-j"]
-        if nth == 0:
-            command.extend(["-s", "Iroha" + "genesis"])
-        elif args.peer_name_as_seed:
-            command.extend(["-s", self.name])
-        kagami = subprocess.run(command, capture_output=True)
-        if kagami.returncode:
-            logging.error("Kagami failed to generate a key pair.")
-            sys.exit(3)
-        str_keypair = kagami.stdout
-        # dict with `{ public_key: string, private_key: { algorithm: string, payload: string } }`
-        self.key_pair = json.loads(str_keypair)
+        seed = self.name if args.peer_name_as_seed else None
+        self.key_pair = kagami_generate_key_pair(args.out_dir, seed)
         os.makedirs(self.peer_dir, exist_ok=True)
 
         config = {
@@ -138,10 +129,9 @@ class _Peer:
             #     "tokio_console_addr": f"{self.host_ip}:{self.tokio_console_port}",
             # }
         }
-        if nth == 0:
-            config["genesis"] = {
-                "signed_file": "../../genesis.signed.scale"
-            }
+        config["genesis"] = {
+            "signed_file": "../../genesis.signed.scale"
+        }
         with open(self.config_path, "wb") as f:
             tomli_w.dump(config, f)
         logging.info(f"Peer {self.name} initialized")
@@ -154,14 +144,14 @@ class _Peer:
     def private_key(self):
         return self.key_pair["private_key"]
 
-    def run(self, submit_genesis: bool = False):
+    def run(self):
         logging.info(f"Running peer {self.name}...")
 
         # FD never gets closed
         stdout_file = open(self.peer_dir / ".stdout", "w")
         stderr_file = open(self.peer_dir / ".stderr", "w")
         # These processes are created detached from the parent process already
-        subprocess.Popen([self.name, "--config", self.config_path] + (["--submit-genesis"] if submit_genesis else []),
+        subprocess.Popen([self.name, "--config", self.config_path],
                     executable=self.out_dir / "peers/irohad", stdout=stdout_file, stderr=stderr_file)
 
 def pos_int(arg):
@@ -190,6 +180,17 @@ def copy_or_prompt_build_bin(bin_name: str, root_dir: pathlib.Path, target_dir: 
                 sys.exit(4)
             else:
                 logging.error("Please answer with either `y[es]` or `n[o]`")
+
+def kagami_generate_key_pair(out_dir: pathlib.Path, seed: str = None):
+    command = [out_dir / "kagami", "crypto", "-j"]
+    if seed is not None:
+        command.extend(["-s", seed])
+    kagami = subprocess.run(command, capture_output=True)
+    if kagami.returncode:
+        logging.error("Kagami failed to generate a key pair.")
+        sys.exit(3)
+    # dict with `{ public_key: string, private_key: string }`
+    return json.loads(kagami.stdout)
 
 def copy_genesis_json_and_change_topology(args: argparse.Namespace, topology):
     try:

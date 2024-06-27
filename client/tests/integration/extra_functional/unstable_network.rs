@@ -1,14 +1,13 @@
 use std::thread;
 
 use iroha::{
-    client::{self, Client, QueryResult},
+    client::{self, QueryResult},
     data_model::prelude::*,
 };
 use iroha_config::parameters::actual::Root as Config;
 use rand::seq::SliceRandom;
 use test_network::*;
 use test_samples::ALICE_ID;
-use tokio::runtime::Runtime;
 
 const MAX_TRANSACTIONS_IN_BLOCK: u32 = 5;
 
@@ -49,27 +48,20 @@ fn unstable_network(
     if let Err(error) = iroha_logger::install_panic_hook() {
         eprintln!("Installing panic hook failed: {error}");
     }
-    let rt = Runtime::test();
+
     // Given
-    let (network, iroha) = rt.block_on(async {
-        let mut configuration = Config::test();
-        configuration.chain_wide.max_transactions_in_block =
-            MAX_TRANSACTIONS_IN_BLOCK.try_into().unwrap();
-        #[cfg(debug_assertions)]
-        {
-            configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
-        }
-        let network = Network::new_with_offline_peers(
-            Some(configuration),
-            n_peers + n_offline_peers,
-            0,
-            Some(port),
-        )
-        .await
-        .expect("Failed to init peers");
-        let client = Client::test(&network.genesis.api_address);
-        (network, client)
-    });
+    let mut configuration = Config::test();
+    configuration.chain_wide.max_transactions_in_block =
+        MAX_TRANSACTIONS_IN_BLOCK.try_into().unwrap();
+    #[cfg(debug_assertions)]
+    {
+        configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
+    }
+    let (_rt, network, iroha) = NetworkBuilder::new(n_peers + n_offline_peers, Some(port))
+        .with_config(configuration)
+        // Note: it is strange that we have `n_offline_peers` but don't set it as offline
+        .with_offline_peers(0)
+        .create_with_runtime();
     wait_for_genesis_committed(&network.clients(), n_offline_peers);
 
     let pipeline_time = Config::pipeline_time();

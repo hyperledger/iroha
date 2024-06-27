@@ -614,7 +614,7 @@ pub fn read_config_and_genesis(
         None
     };
 
-    validate_config(&config, args.submit_genesis)?;
+    validate_config(&config)?;
 
     let logger_config = LoggerInitConfig::new(config.logger, args.terminal_colors);
 
@@ -628,7 +628,7 @@ fn read_genesis(path: &Path) -> Result<GenesisBlock, ConfigError> {
     Ok(GenesisBlock(genesis))
 }
 
-fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigError> {
+fn validate_config(config: &Config) -> Result<(), ConfigError> {
     let mut emitter = Emitter::new();
 
     // These cause race condition in tests, due to them actually binding TCP listeners
@@ -643,13 +643,12 @@ fn validate_config(config: &Config, submit_genesis: bool) -> Result<(), ConfigEr
     // maybe validate only if snapshot mode is enabled
     validate_directory_path(&mut emitter, &config.snapshot.store_dir);
 
-    if !submit_genesis && !config.sumeragi.contains_other_trusted_peers() {
+    if config.genesis.signed_file.is_none() && !config.sumeragi.contains_other_trusted_peers() {
         emitter.emit(Report::new(ConfigError::LonePeer).attach_printable("\
             Reason: the network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
-            Since `--submit-genesis` is not set, there is no way to receive the genesis block.\n\
-            Either provide the genesis by setting `--submit-genesis` argument\n\
-            and `genesis.signed_file` configuration parameter, or increase the number of trusted peers in\n\
-            the network using `sumeragi.trusted_peers` configuration parameter.\
+            Since `genesis.signed_file` is not set, there is no way to receive the genesis block.\n\
+            Either provide the genesis by setting `genesis.signed_file` configuration parameter,\n\
+            or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter.\
         ").attach_printable(config.sumeragi.trusted_peers.clone().into_attachment().display_as_debug()));
     }
 
@@ -771,19 +770,6 @@ pub struct Args {
         num_args(0..=1),
     )]
     pub terminal_colors: bool,
-    /// Whether the current peer should submit the genesis block or not
-    ///
-    /// Only one peer in the network should submit the genesis block.
-    ///
-    /// This argument must be set alongside with `genesis.signed_file` configuration option.
-    /// If not, Iroha will exit with an error.
-    ///
-    /// In case when the network consists only of this one peer, i.e. the amount of trusted
-    /// peers in the configuration (`sumeragi.trusted_peers`) is less than 2, this peer must
-    /// submit the genesis, since there are no other peers who can provide it. In this case, Iroha
-    /// will exit with an error if `--submit-genesis` is not set.
-    #[arg(long)]
-    pub submit_genesis: bool,
 }
 
 #[cfg(test)]
@@ -879,7 +865,6 @@ mod tests {
 
             let (config, _logger, genesis) = read_config_and_genesis(&Args {
                 config: Some(config_path),
-                submit_genesis: true,
                 terminal_colors: false,
                 trace_config: false,
             })
@@ -920,20 +905,11 @@ mod tests {
             // Given
 
             let genesis_key_pair = KeyPair::random();
-            let genesis = GenesisBuilder::default().build_and_sign(
-                dummy_executor(),
-                ChainId::from("00000000-0000-0000-0000-000000000000"),
-                &genesis_key_pair,
-                vec![],
-            );
-
             let mut config = config_factory(genesis_key_pair.public_key());
-            iroha_config::base::toml::Writer::new(&mut config)
-                .write(["genesis", "signed_file"], "./genesis.signed.scale");
+            iroha_config::base::toml::Writer::new(&mut config);
 
             let dir = tempfile::tempdir()?;
             std::fs::write(dir.path().join("config.toml"), toml::to_string(&config)?)?;
-            std::fs::write(dir.path().join("genesis.signed.scale"), genesis.0.encode())?;
             std::fs::write(dir.path().join("executor.wasm"), "")?;
             let config_path = dir.path().join("config.toml");
 
@@ -941,7 +917,6 @@ mod tests {
 
             let report = read_config_and_genesis(&Args {
                 config: Some(config_path),
-                submit_genesis: false,
                 terminal_colors: false,
                 trace_config: false,
             })
@@ -962,7 +937,6 @@ mod tests {
         let args = Args::try_parse_from(["test"]).unwrap();
 
         assert_eq!(args.terminal_colors, is_coloring_supported());
-        assert_eq!(args.submit_genesis, false);
     }
 
     #[test]

@@ -103,11 +103,9 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
 
 3. Start an Iroha peer.
 
-    You can do this either with `--genesis` parameter to specify `genesis.json` location or without. Pay attention that for multi-peer setup only one peer should be started with `--genesis` parameter.
-
     ```bash
     cd deploy
-    ./irohad --submit-genesis
+    ./irohad
     ```
 
 ### Docker
