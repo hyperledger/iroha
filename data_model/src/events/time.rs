@@ -125,7 +125,7 @@ mod model {
     #[ffi_type]
     pub struct TimeInterval {
         /// The start of a time interval
-        pub since_ms: Duration,
+        pub since_ms: u64,
         /// The length of a time interval
         pub length: u64,
     }
