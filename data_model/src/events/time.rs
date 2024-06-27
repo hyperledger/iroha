@@ -127,7 +127,7 @@ mod model {
         /// The start of a time interval
         pub since_ms: u64,
         /// The length of a time interval
-        pub length: u64,
+        pub length: Duration,
     }
 }
 
