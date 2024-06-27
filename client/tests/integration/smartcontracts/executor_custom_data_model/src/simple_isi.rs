@@ -5,7 +5,7 @@ use alloc::{format, string::String, vec::Vec};
 
 use iroha_data_model::{
     asset::AssetDefinitionId,
-    isi::{Custom, InstructionBox},
+    isi::{CustomInstruction, Instruction, InstructionBox},
     prelude::{JsonString, Numeric},
 };
 use iroha_schema::IntoSchema;
@@ -23,7 +23,16 @@ pub struct MintAssetForAllAccounts {
     pub quantity: Numeric,
 }
 
-impl From<CustomInstructionBox> for Custom {
+impl From<MintAssetForAllAccounts> for CustomInstructionBox {
+    fn from(isi: MintAssetForAllAccounts) -> Self {
+        Self::MintAssetForAllAccounts(isi)
+    }
+}
+
+impl Instruction for CustomInstructionBox {}
+impl Instruction for MintAssetForAllAccounts {}
+
+impl From<CustomInstructionBox> for CustomInstruction {
     fn from(isi: CustomInstructionBox) -> Self {
         let payload = serde_json::to_value(&isi)
             .expect("INTERNAL BUG: Couldn't serialize custom instruction");
@@ -32,9 +41,15 @@ impl From<CustomInstructionBox> for Custom {
     }
 }
 
-impl CustomInstructionBox {
-    pub fn into_instruction(self) -> InstructionBox {
-        InstructionBox::Custom(self.into())
+impl From<MintAssetForAllAccounts> for InstructionBox {
+    fn from(isi: MintAssetForAllAccounts) -> Self {
+        Self::Custom(CustomInstructionBox::from(isi).into())
+    }
+}
+
+impl From<CustomInstructionBox> for InstructionBox {
+    fn from(isi: CustomInstructionBox) -> Self {
+        Self::Custom(isi.into())
     }
 }
 

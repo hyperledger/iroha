@@ -419,10 +419,8 @@ pub mod tests {
         time_source: &TimeSource,
     ) -> AcceptedTransaction {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-        let message = std::iter::repeat_with(rand::random::<char>)
-            .take(16)
-            .collect();
-        let instructions = [Fail { message }];
+        let fail_isi = Unregister::domain("dummy".parse().unwrap());
+        let instructions = [fail_isi];
         let tx =
             TransactionBuilder::new_with_time_source(chain_id.clone(), account_id, time_source)
                 .with_instructions(instructions)
@@ -669,9 +667,8 @@ pub mod tests {
         let mut queue = Queue::test(config_factory(), &time_source);
         let (event_sender, mut event_receiver) = tokio::sync::broadcast::channel(1);
         queue.events_sender = event_sender;
-        let instructions = [Fail {
-            message: "expired".to_owned(),
-        }];
+        let fail_isi = Unregister::domain("dummy".parse().unwrap());
+        let instructions = [fail_isi];
         let mut tx =
             TransactionBuilder::new_with_time_source(chain_id.clone(), alice_id, &time_source)
                 .with_instructions(instructions);

@@ -118,7 +118,8 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     // Registering trigger that should fail on execution
     let bad_trigger_id = TriggerId::from_str("bad_trigger")?;
     // Invalid instruction
-    let bad_trigger_instructions = vec![Fail::new("Bad trigger".to_owned())];
+    let fail_isi = Unregister::domain("dummy".parse()?);
+    let bad_trigger_instructions = vec![fail_isi];
     let register_bad_trigger = Register::trigger(Trigger::new(
         bad_trigger_id.clone(),
         Action::new(

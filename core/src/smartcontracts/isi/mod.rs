@@ -48,7 +48,6 @@ impl Execute for InstructionBox {
             Self::Mint(isi) => isi.execute(authority, state_transaction),
             Self::Burn(isi) => isi.execute(authority, state_transaction),
             Self::Transfer(isi) => isi.execute(authority, state_transaction),
-            Self::Fail(isi) => isi.execute(authority, state_transaction),
             Self::SetKeyValue(isi) => isi.execute(authority, state_transaction),
             Self::RemoveKeyValue(isi) => isi.execute(authority, state_transaction),
             Self::Grant(isi) => isi.execute(authority, state_transaction),
@@ -188,18 +187,6 @@ impl Execute for RemoveKeyValueBox {
             Self::Asset(isi) => isi.execute(authority, state_transaction),
             Self::Trigger(isi) => isi.execute(authority, state_transaction),
         }
-    }
-}
-
-impl Execute for Fail {
-    fn execute(
-        self,
-        _authority: &AccountId,
-        _state_transaction: &mut StateTransaction<'_, '_>,
-    ) -> Result<(), Error> {
-        iroha_logger::trace!(?self);
-
-        Err(Error::Fail(self.message))
     }
 }
 

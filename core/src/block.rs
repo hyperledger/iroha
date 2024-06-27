@@ -1127,10 +1127,9 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::from_str("coin#domain").expect("Valid");
         let create_asset =
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
-        let instructions_fail: [InstructionBox; 2] = [
-            create_domain.clone().into(),
-            Fail::new("Always fail".to_owned()).into(),
-        ];
+        let fail_isi = Unregister::domain("dummy".parse().unwrap());
+        let instructions_fail: [InstructionBox; 2] =
+            [create_domain.clone().into(), fail_isi.into()];
         let instructions_accept: [InstructionBox; 2] = [create_domain.into(), create_asset.into()];
         let tx_fail = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions(instructions_fail)

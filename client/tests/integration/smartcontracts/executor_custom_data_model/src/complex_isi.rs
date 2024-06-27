@@ -11,13 +11,13 @@ mod isi {
     use alloc::{boxed::Box, format, string::String, vec::Vec};
 
     use iroha_data_model::{
-        isi::{Custom, InstructionBox},
+        isi::{CustomInstruction, Instruction, InstructionBox},
         prelude::JsonString,
     };
     use iroha_schema::IntoSchema;
     use serde::{Deserialize, Serialize};
 
-    use crate::complex::expression::EvaluatesTo;
+    use crate::complex_isi::expression::EvaluatesTo;
 
     #[derive(Debug, Deserialize, Serialize, IntoSchema)]
     pub enum CustomInstructionExpr {
@@ -26,7 +26,23 @@ mod isi {
         // Other custom instructions
     }
 
-    impl From<CustomInstructionExpr> for Custom {
+    impl From<CoreExpr> for CustomInstructionExpr {
+        fn from(isi: CoreExpr) -> Self {
+            Self::Core(isi)
+        }
+    }
+
+    impl From<ConditionalExpr> for CustomInstructionExpr {
+        fn from(isi: ConditionalExpr) -> Self {
+            Self::If(Box::new(isi))
+        }
+    }
+
+    impl Instruction for CustomInstructionExpr {}
+    impl Instruction for ConditionalExpr {}
+    impl Instruction for CoreExpr {}
+
+    impl From<CustomInstructionExpr> for CustomInstruction {
         fn from(isi: CustomInstructionExpr) -> Self {
             let payload = serde_json::to_value(&isi)
                 .expect("INTERNAL BUG: Couldn't serialize custom instruction");
@@ -35,9 +51,21 @@ mod isi {
         }
     }
 
-    impl CustomInstructionExpr {
-        pub fn into_instruction(self) -> InstructionBox {
-            InstructionBox::Custom(self.into())
+    impl From<CustomInstructionExpr> for InstructionBox {
+        fn from(isi: CustomInstructionExpr) -> Self {
+            Self::Custom(isi.into())
+        }
+    }
+
+    impl From<CoreExpr> for InstructionBox {
+        fn from(isi: CoreExpr) -> Self {
+            Self::Custom(CustomInstructionExpr::from(isi).into())
+        }
+    }
+
+    impl From<ConditionalExpr> for InstructionBox {
+        fn from(isi: ConditionalExpr) -> Self {
+            Self::Custom(CustomInstructionExpr::from(isi).into())
         }
     }
 
@@ -250,7 +278,7 @@ mod evaluate {
         isi::error::InstructionExecutionError, query::QueryBox, ValidationFail,
     };
 
-    use crate::complex::expression::{EvaluatesTo, Expression, Greater, Value};
+    use crate::complex_isi::expression::{EvaluatesTo, Expression, Greater, Value};
 
     pub trait Evaluate {
         /// The resulting type of the expression.
