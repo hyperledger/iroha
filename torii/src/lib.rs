@@ -205,35 +205,34 @@ impl Torii {
             );
 
         let router = router
-            .route(uri::SUBSCRIPTION, get({
-                let events = self.events.clone();
-                move |ws: WebSocketUpgrade| {
-                    core::future::ready(
-                        ws.on_upgrade(|ws| async move {
+            .route(
+                uri::SUBSCRIPTION,
+                get({
+                    let events = self.events.clone();
+                    move |ws: WebSocketUpgrade| {
+                        core::future::ready(ws.on_upgrade(|ws| async move {
                             if let Err(error) =
                                 routing::subscription::handle_subscription(events, ws).await
                             {
-                                iroha_logger::error!(%error, "Failure during subscription");
+                                iroha_logger::error!(%error, "Failure during event streaming");
                             }
-                        })
-                    )
-                }
-            }))
-            .route(uri::BLOCKS_STREAM,
+                        }))
+                    }
+                }),
+            )
+            .route(
+                uri::BLOCKS_STREAM,
                 post({
                     let kura = self.kura.clone();
                     move |ws: WebSocketUpgrade| {
-                        core::future::ready(
-                            ws.on_upgrade(|ws| async move {
-                                if let Err(error) = routing::handle_blocks_stream(kura, ws).await {
-                                    iroha_logger::error!(%error, "Failed to subscribe to blocks stream");
-                                }
-                            })
-                        )
+                        core::future::ready(ws.on_upgrade(|ws| async move {
+                            if let Err(error) = routing::handle_blocks_stream(kura, ws).await {
+                                iroha_logger::error!(%error, "Failure during block streaming");
+                            }
+                        }))
                     }
-                })
-            )
-            ;
+                }),
+            );
 
         router.layer((
             TraceLayer::new_for_http()
