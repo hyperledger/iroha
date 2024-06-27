@@ -856,9 +856,8 @@ dependencies = [
 
 [[package]]
 name = "concread"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4539869aeea73afd414cc1750eceada0d042764f2d28873d74fbbd81610bffe"
+version = "0.5.2"
+source = "git+https://github.com/Erigara/concread.git?rev=bd80db2e85ed179f41aeabc6629e4eb3ec987ed9#bd80db2e85ed179f41aeabc6629e4eb3ec987ed9"
 dependencies = [
  "ahash 0.8.11",
  "arc-swap",
@@ -3152,6 +3151,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_schema",
  "once_cell",
+ "parity-scale-codec",
  "serde",
  "serde_json",
  "test_samples",
@@ -5440,7 +5440,7 @@ dependencies = [
 [[package]]
 name = "storage"
 version = "0.1.0"
-source = "git+https://github.com/Erigara/storage.git?rev=6bd9fdd95220da7626471d190b17b2f5b8815c47#6bd9fdd95220da7626471d190b17b2f5b8815c47"
+source = "git+https://github.com/Erigara/storage.git?rev=cf82588d20494a1c1613ea2f4faa1e66bd827b5c#cf82588d20494a1c1613ea2f4faa1e66bd827b5c"
 dependencies = [
  "concread",
  "serde",

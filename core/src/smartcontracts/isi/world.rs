@@ -145,6 +145,13 @@ pub mod isi {
                 .map(|account| account.id().clone())
                 .collect();
             for account in remove_accounts {
+                state_transaction
+                    .world
+                    .account_permissions
+                    .remove(account.clone());
+
+                state_transaction.world.remove_account_roles(&account);
+
                 state_transaction.world.accounts.remove(account);
             }
 
