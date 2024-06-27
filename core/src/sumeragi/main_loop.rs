@@ -410,6 +410,8 @@ impl Sumeragi {
             // Consider our peer has genesis,
             // and some other peer has genesis and broadcast it to our peer,
             // then we can ignore such genesis block because we already has genesis.
+            // Note: `ValidBlock::validate` also checks it,
+            // but we don't want warning to be printed since this is correct behaviour.
             return None;
         }
 

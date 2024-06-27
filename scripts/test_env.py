@@ -129,11 +129,9 @@ class _Peer:
             #     "tokio_console_addr": f"{self.host_ip}:{self.tokio_console_port}",
             # }
         }
-        self.submit_genesis = nth == 0 or args.all_peers_submit_genesis
-        if self.submit_genesis:
-            config["genesis"] = {
-                "signed_file": "../../genesis.signed.scale"
-            }
+        config["genesis"] = {
+            "signed_file": "../../genesis.signed.scale"
+        }
         with open(self.config_path, "wb") as f:
             tomli_w.dump(config, f)
         logging.info(f"Peer {self.name} initialized")
@@ -153,7 +151,7 @@ class _Peer:
         stdout_file = open(self.peer_dir / ".stdout", "w")
         stderr_file = open(self.peer_dir / ".stderr", "w")
         # These processes are created detached from the parent process already
-        subprocess.Popen([self.name, "--config", self.config_path] + (["--submit-genesis"] if self.submit_genesis else []),
+        subprocess.Popen([self.name, "--config", self.config_path],
                     executable=self.out_dir / "peers/irohad", stdout=stdout_file, stderr=stderr_file)
 
 def pos_int(arg):
@@ -295,8 +293,6 @@ if __name__ == "__main__":
     parser.add_argument("--peer-name-as-seed", action="store_true",
                         help="Use peer name as seed for key generation. \
                         This option could be useful to preserve the same peer keys between script invocations")
-    parser.add_argument("--all-peers-submit-genesis", action="store_true",
-                        help="Make all peers submit genesis (instead of only first one)")
 
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Enable verbose output")
