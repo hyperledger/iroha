@@ -116,8 +116,6 @@ mod seal {
         Upgrade,
         ExecuteTrigger,
         Log,
-        Custom,
-        Fail,
 
         // Boxed queries
         QueryBox,

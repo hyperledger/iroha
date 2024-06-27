@@ -9,17 +9,16 @@ use alloc::{boxed::Box, vec::Vec};
 #[cfg(not(test))]
 use data_model::smart_contract::payloads;
 use data_model::{
-    isi::Instruction,
+    isi::BuiltInInstruction,
     prelude::*,
     query::{
-        cursor::ForwardCursor, predicate::PredicateBox, sorting::Sorting, Pagination, Query,
-        QueryOutputBox,
+        cursor::ForwardCursor, predicate::PredicateBox, sorting::Sorting, IterableQuery,
+        Pagination, Query, QueryOutputBox,
     },
     BatchedResponse,
 };
 use derive_more::Display;
 pub use iroha_data_model as data_model;
-use iroha_data_model::query::IterableQuery;
 pub use iroha_smart_contract_derive::main;
 pub use iroha_smart_contract_utils::{debug, error, info, log, warn};
 use iroha_smart_contract_utils::{
@@ -116,7 +115,7 @@ macro_rules! parse {
 }
 
 /// Implementing instructions can be executed on the host
-pub trait ExecuteOnHost: Instruction {
+pub trait ExecuteOnHost {
     /// Execute instruction on the host
     ///
     /// # Errors
@@ -126,7 +125,7 @@ pub trait ExecuteOnHost: Instruction {
     fn execute(&self) -> Result<(), ValidationFail>;
 }
 
-impl<I: Instruction + Encode> ExecuteOnHost for I {
+impl<I: BuiltInInstruction + Encode> ExecuteOnHost for I {
     fn execute(&self) -> Result<(), ValidationFail> {
         #[cfg(not(test))]
         use host::execute_instruction as host_execute_instruction;

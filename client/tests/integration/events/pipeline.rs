@@ -18,6 +18,7 @@ use iroha::{
     },
 };
 use iroha_config::parameters::actual::Root as Config;
+use iroha_data_model::query::error::FindError;
 use test_network::*;
 
 // Needed to re-enable ignored tests.
@@ -33,13 +34,15 @@ fn transaction_with_no_instructions_should_be_committed() -> Result<()> {
 // #[ignore = "Experiment"]
 #[test]
 fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
-    let msg = "Should be rejected".to_owned();
+    let unknown_domain_id = "dummy".parse::<DomainId>().unwrap();
+    let fail_isi = Unregister::domain(unknown_domain_id.clone());
 
-    let fail = Fail::new(msg.clone());
     test_with_instruction_and_status_and_port(
-        Some(fail.into()),
+        Some(fail_isi.into()),
         &TransactionStatus::Rejected(Box::new(TransactionRejectionReason::Validation(
-            ValidationFail::InstructionFailed(InstructionExecutionError::Fail(msg)),
+            ValidationFail::InstructionFailed(InstructionExecutionError::Find(FindError::Domain(
+                unknown_domain_id,
+            ))),
         ))),
         10_350,
     )
@@ -116,7 +119,7 @@ fn applied_block_must_be_available_in_kura() {
         .expect("Failed to subscribe for events");
 
     client
-        .submit(Fail::new("Dummy instruction".to_owned()))
+        .submit(Unregister::domain("dummy".parse().unwrap()))
         .expect("Failed to submit transaction");
 
     let event: BlockEvent = event_iter

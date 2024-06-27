@@ -25,7 +25,6 @@ pub use domain::{
     visit_transfer_domain, visit_unregister_domain,
 };
 pub use executor::visit_upgrade;
-pub use fail::visit_fail;
 use iroha_smart_contract::data_model::isi::InstructionBox;
 pub use log::visit_log;
 pub use parameter::{visit_new_parameter, visit_set_parameter};
@@ -100,9 +99,6 @@ pub fn visit_instruction<V: Validate + Visit + ?Sized>(
         }
         InstructionBox::Burn(isi) => {
             executor.visit_burn(authority, isi);
-        }
-        InstructionBox::Fail(isi) => {
-            executor.visit_fail(authority, isi);
         }
         InstructionBox::Grant(isi) => {
             executor.visit_grant(authority, isi);
@@ -842,7 +838,7 @@ pub mod asset_definition {
 
 pub mod asset {
     use iroha_smart_contract::data_model::{
-        asset::AssetValue, isi::Instruction, metadata::Metadata,
+        asset::AssetValue, isi::BuiltInInstruction, metadata::Metadata,
     };
     use iroha_smart_contract_utils::Encode;
 
@@ -919,7 +915,7 @@ pub mod asset {
     where
         V: Validate + Visit + ?Sized,
         Q: Into<AssetValue>,
-        Mint<Q, Asset>: Instruction + Encode,
+        Mint<Q, Asset>: BuiltInInstruction + Encode,
     {
         let asset_id = isi.destination();
         if is_genesis(executor) {
@@ -962,7 +958,7 @@ pub mod asset {
     where
         V: Validate + Visit + ?Sized,
         Q: Into<AssetValue>,
-        Burn<Q, Asset>: Instruction + Encode,
+        Burn<Q, Asset>: BuiltInInstruction + Encode,
     {
         let asset_id = isi.destination();
         if is_genesis(executor) {
@@ -1010,7 +1006,7 @@ pub mod asset {
     ) where
         V: Validate + Visit + ?Sized,
         Q: Into<AssetValue>,
-        Transfer<Asset, Q, Account>: Instruction + Encode,
+        Transfer<Asset, Q, Account>: BuiltInInstruction + Encode,
     {
         let asset_id = isi.source();
         if is_genesis(executor) {
@@ -1695,24 +1691,12 @@ pub mod custom {
     pub fn visit_custom<V: Validate + ?Sized>(
         executor: &mut V,
         _authority: &AccountId,
-        _isi: &Custom,
+        _isi: &CustomInstruction,
     ) {
         deny!(
             executor,
             "Custom instructions should be handled in custom executor"
         )
-    }
-}
-
-pub mod fail {
-    use super::*;
-
-    pub fn visit_fail<V: Validate + Visit + ?Sized>(
-        executor: &mut V,
-        _authority: &AccountId,
-        isi: &Fail,
-    ) {
-        execute!(executor, isi)
     }
 }
 

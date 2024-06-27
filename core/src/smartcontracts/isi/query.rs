@@ -395,9 +395,9 @@ mod tests {
                 AcceptedTransaction::accept(tx, &chain_id, limits)?
             };
             let invalid_tx = {
-                let isi = Fail::new("fail".to_owned());
+                let fail_isi = Unregister::domain("dummy".parse().unwrap());
                 let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
-                    .with_instructions([isi.clone(), isi])
+                    .with_instructions([fail_isi.clone(), fail_isi])
                     .sign(ALICE_KEYPAIR.private_key());
                 AcceptedTransaction::accept(tx, &chain_id, huge_limits)?
             };

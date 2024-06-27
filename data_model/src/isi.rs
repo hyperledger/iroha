@@ -21,7 +21,10 @@ use crate::{seal, Level, Registered};
 /// Instructions allows to change the state of `Iroha`.
 /// All possible instructions are implementors of this trait, excluding
 /// [`InstructionBox`] which is just a wrapper.
-pub trait Instruction: Into<InstructionBox> + seal::Sealed {
+pub trait Instruction: Into<InstructionBox> {}
+
+/// Marker trait for built-in queries
+pub trait BuiltInInstruction: Instruction + seal::Sealed {
     /// [`Encode`] [`Self`] as [`InstructionBox`].
     ///
     /// Used to avoid an unnecessary clone
@@ -116,17 +119,17 @@ mod model {
         Upgrade(Upgrade),
         #[debug(fmt = "{_0:?}")]
         Log(Log),
-        #[debug(fmt = "{_0:?}")]
-        Custom(Custom),
 
         #[debug(fmt = "{_0:?}")]
-        Fail(Fail),
+        Custom(CustomInstruction),
     }
 }
 
 macro_rules! impl_instruction {
     ($($ty:ty),+ $(,)?) => { $(
-        impl Instruction for $ty {
+        impl Instruction for $ty {}
+
+        impl BuiltInInstruction for $ty {
             fn encode_as_instruction_box(&self) -> Vec<u8> {
                 InstructionBoxRef::from(self).encode()
             }
@@ -178,11 +181,11 @@ impl_instruction! {
     Upgrade,
     ExecuteTrigger,
     Log,
-    Custom,
-    Fail,
 }
 
-impl Instruction for InstructionBox {
+impl Instruction for InstructionBox {}
+impl Instruction for CustomInstruction {}
+impl BuiltInInstruction for InstructionBox {
     fn encode_as_instruction_box(&self) -> Vec<u8> {
         self.encode()
     }
@@ -816,18 +819,6 @@ mod transparent {
     }
 
     isi! {
-        /// Utilitary instruction to fail execution and submit an error `message`.
-        #[derive(Constructor, Display)]
-        #[display(fmt = "FAIL `{message}`")]
-        #[serde(transparent)]
-        #[repr(transparent)]
-        pub struct Fail {
-            /// Message to submit.
-            pub message: String,
-        }
-    }
-
-    isi! {
         /// Generic instruction for granting permission to an entity.
         #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
         pub struct Grant<O, D: Identifiable> {
@@ -998,13 +989,13 @@ mod transparent {
         /// to set `ExecutorDataModel::custom_instruction` in custom executor `migrate` entrypoint.
         #[derive(Display)]
         #[display(fmt = "CUSTOM({payload})")]
-        pub struct Custom {
+        pub struct CustomInstruction {
             /// Custom payload
             pub payload: JsonString,
         }
     }
 
-    impl Custom {
+    impl CustomInstruction {
         /// Constructor
         pub fn new(payload: impl Into<JsonString>) -> Self {
             Self {
@@ -1297,12 +1288,6 @@ pub mod error {
             Math(#[cfg_attr(feature = "std", source)] MathError),
             /// Metadata error
             Metadata(#[cfg_attr(feature = "std", source)] metadata::MetadataError),
-            /// Execution failed: {0}
-            Fail(
-                #[skip_from]
-                #[skip_try_from]
-                String,
-            ),
             /// Invalid instruction parameter
             InvalidParameter(#[cfg_attr(feature = "std", source)] InvalidParameterError),
             /// Iroha invariant violation: {0}
@@ -1533,7 +1518,7 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        AssetTransferBox, Burn, BurnBox, Custom, ExecuteTrigger, Fail, Grant, GrantBox,
+        AssetTransferBox, Burn, BurnBox, CustomInstruction, ExecuteTrigger, Grant, GrantBox,
         InstructionBox, Log, Mint, MintBox, NewParameter, Register, RegisterBox, RemoveKeyValue,
         RemoveKeyValueBox, Revoke, RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer,
         TransferBox, Unregister, UnregisterBox, Upgrade,

@@ -28,10 +28,11 @@ fn set_up_trigger(
         Register::account(Account::new(the_one_who_fails.clone())).into();
 
     let fail_on_account_events = "fail".parse::<TriggerId>()?;
+    let fail_isi = Unregister::domain("dummy".parse().unwrap());
     let register_fail_on_account_events: InstructionBox = Register::trigger(Trigger::new(
         fail_on_account_events.clone(),
         Action::new(
-            [Fail::new(":(".to_owned())],
+            [fail_isi],
             Repeats::Indefinitely,
             the_one_who_fails.clone(),
             AccountEventFilter::new(),

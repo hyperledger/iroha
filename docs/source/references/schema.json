@@ -839,7 +839,7 @@
       }
     ]
   },
-  "Custom": {
+  "CustomInstruction": {
     "Struct": [
       {
         "name": "payload",
@@ -1250,14 +1250,6 @@
       {
         "name": "new_data_model",
         "type": "ExecutorDataModel"
-      }
-    ]
-  },
-  "Fail": {
-    "Struct": [
-      {
-        "name": "message",
-        "type": "String"
       }
     ]
   },
@@ -1874,12 +1866,7 @@
       {
         "tag": "Custom",
         "discriminant": 14,
-        "type": "Custom"
-      },
-      {
-        "tag": "Fail",
-        "discriminant": 15,
-        "type": "Fail"
+        "type": "CustomInstruction"
       }
     ]
   },
@@ -1945,18 +1932,13 @@
         "type": "MetadataError"
       },
       {
-        "tag": "Fail",
-        "discriminant": 8,
-        "type": "String"
-      },
-      {
         "tag": "InvalidParameter",
-        "discriminant": 9,
+        "discriminant": 8,
         "type": "InvalidParameterError"
       },
       {
         "tag": "InvariantViolation",
-        "discriminant": 10,
+        "discriminant": 9,
         "type": "String"
       }
     ]
@@ -2034,10 +2016,6 @@
       {
         "tag": "Custom",
         "discriminant": 14
-      },
-      {
-        "tag": "Fail",
-        "discriminant": 15
       }
     ]
   },

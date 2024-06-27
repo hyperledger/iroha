@@ -10,11 +10,11 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use executor_custom_data_model::complex::{
+use executor_custom_data_model::complex_isi::{
     ConditionalExpr, CoreExpr, CustomInstructionExpr, Evaluate, Value,
 };
 use iroha_executor::{
-    data_model::{isi::Custom, query::QueryOutputBox},
+    data_model::{isi::CustomInstruction, query::QueryOutputBox},
     prelude::*,
 };
 use lol_alloc::{FreeListAllocator, LockedAllocator};
@@ -31,7 +31,7 @@ struct Executor {
     block_height: u64,
 }
 
-fn visit_custom(executor: &mut Executor, _authority: &AccountId, isi: &Custom) {
+fn visit_custom(executor: &mut Executor, _authority: &AccountId, isi: &CustomInstruction) {
     let Ok(isi) = CustomInstructionExpr::try_from(isi.payload()) else {
         deny!(executor, "Failed to parse custom instruction");
     };
@@ -66,7 +66,7 @@ fn execute_if(isi: ConditionalExpr) -> Result<(), ValidationFail> {
 
 struct Context;
 
-impl executor_custom_data_model::complex::Context for Context {
+impl executor_custom_data_model::complex_isi::Context for Context {
     fn query(&self, query: &QueryBox) -> Result<Value, ValidationFail> {
         // Note: supported only queries which return numeric result
         match query.execute()?.into_inner() {
