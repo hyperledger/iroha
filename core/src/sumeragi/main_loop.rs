@@ -318,6 +318,8 @@ impl Sumeragi {
             "Genesis contains invalid transactions"
         );
 
+        self.topology = Topology::new(genesis.as_ref().commit_topology().cloned());
+
         let msg = BlockCreated::from(&genesis);
         let genesis = genesis
             .commit(&self.topology)
@@ -403,6 +405,15 @@ impl Sumeragi {
         BlockCreated { block }: BlockCreated,
     ) -> Option<VotingBlock<'state>> {
         let mut state_block = state.block();
+
+        if state_block.height() == 1 && block.header().height == 1 {
+            // Consider our peer has genesis,
+            // and some other peer has genesis and broadcast it to our peer,
+            // then we can ignore such genesis block because we already has genesis.
+            // Note: `ValidBlock::validate` also checks it,
+            // but we don't want warning to be printed since this is correct behaviour.
+            return None;
+        }
 
         ValidBlock::validate(
             block,

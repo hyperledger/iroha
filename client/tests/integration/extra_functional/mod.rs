@@ -1,4 +1,5 @@
 mod connected_peers;
+mod genesis;
 mod multiple_blocks_created;
 mod normal;
 mod offline_peers;

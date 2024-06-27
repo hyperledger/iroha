@@ -49,5 +49,5 @@ services:
               --private-key $$GENESIS_PRIVATE_KEY \\
               --out-file $$GENESIS_SIGNED_FILE \\
           && \\
-          irohad --submit-genesis
+          irohad
       "
