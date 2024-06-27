@@ -24,11 +24,12 @@ impl<T: Encode + Send> IntoResponse for Scale<T> {
     }
 }
 
-pub mod body {
+pub mod extractors {
     use axum::{
         async_trait,
         body::Bytes,
         extract::{FromRequest, FromRequestParts, Query, Request},
+        http::StatusCode,
     };
     use iroha_data_model::query::cursor::ForwardCursor;
 
@@ -57,7 +58,7 @@ pub mod body {
                 .map_err(|err| {
                     (
                         axum::http::StatusCode::BAD_REQUEST,
-                        format!("Transaction Rejected (Malformed), Reason : '{err}'"),
+                        format!("Could not decode request: {err}"),
                     )
                         .into_response()
                 })
@@ -91,6 +92,29 @@ pub mod body {
                 // TODO: custom error to show that neither SignedQuery nor ForwardCursor
                 .map_err(IntoResponse::into_response)
                 .map(ClientQueryRequestExtractor)
+        }
+    }
+
+    /// Extractor of Accept header
+    pub struct ExtractAccept(pub HeaderValue);
+
+    #[async_trait]
+    impl<S> FromRequestParts<S> for ExtractAccept
+    where
+        S: Send + Sync,
+    {
+        type Rejection = (StatusCode, &'static str);
+
+        async fn from_request_parts(
+            parts: &mut axum::http::request::Parts,
+            _state: &S,
+        ) -> Result<Self, Self::Rejection> {
+            parts
+                .headers
+                .get(axum::http::header::ACCEPT)
+                .cloned()
+                .map(ExtractAccept)
+                .ok_or((StatusCode::BAD_REQUEST, "`Accept` header is missing"))
         }
     }
 }

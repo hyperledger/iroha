@@ -40,7 +40,7 @@ use tower_http::{
     trace::{DefaultMakeSpan, TraceLayer},
 };
 use utils::{
-    body::{ClientQueryRequestExtractor, ScaleVersioned},
+    extractors::{ClientQueryRequestExtractor, ExtractAccept, ScaleVersioned},
     Scale,
 };
 
@@ -118,11 +118,10 @@ impl Torii {
                 &format!("{}/*tail", uri::STATUS),
                 get({
                     let metrics_reporter = self.metrics_reporter.clone();
-                    move |headers: axum::http::header::HeaderMap, axum::extract::Path(tail): axum::extract::Path<String>| {
-                        let accept = headers.get(axum::http::header::ACCEPT);
+                    move |accept: Option<ExtractAccept>, axum::extract::Path(tail): axum::extract::Path<String>| {
                         core::future::ready(routing::handle_status(
                             &metrics_reporter,
-                            accept,
+                            accept.map(|extract| extract.0),
                             Some(&tail),
                         ))
                     }
@@ -132,9 +131,8 @@ impl Torii {
                 uri::STATUS,
                 get({
                     let metrics_reporter = self.metrics_reporter.clone();
-                    move |headers: axum::http::header::HeaderMap| {
-                        let accept = headers.get(axum::http::header::ACCEPT);
-                        core::future::ready(routing::handle_status(&metrics_reporter, accept, None))
+                    move |accept: Option<ExtractAccept>| {
+                        core::future::ready(routing::handle_status(&metrics_reporter, accept.map(|extract| extract.0), None))
                     }
                 }),
             )
