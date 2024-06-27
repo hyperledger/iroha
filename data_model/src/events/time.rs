@@ -248,7 +248,7 @@ impl Schedule {
     /// Create new [`Schedule`] starting at `start_ms` and without period
     #[must_use]
     #[inline]
-    pub const fn starting_at(start_ms: Duration) -> Self {
+    pub const fn starting_at(start: DateTime<Utc>) -> Self {
         Self {
             start_ms,
             period: None,
