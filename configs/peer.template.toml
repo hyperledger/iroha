@@ -20,9 +20,9 @@
 [network]
 # address =
 # block_gossip_period_ms = 10_000
-# block_gossip_max_size = 4
+# block_gossip_size = 4
 # transaction_gossip_period_ms = 1_000
-# transaction_gossip_max_size = 500
+# transaction_gossip_size = 500
 # idle_timeout_ms = 60_000
 
 [torii]

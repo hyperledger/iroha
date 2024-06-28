@@ -284,9 +284,9 @@ impl Queue {
     fn collect_transactions_for_block(
         &self,
         state_view: &StateView,
-        max_txs_in_block: usize,
+        max_txs_in_block: NonZeroUsize,
     ) -> Vec<AcceptedTransaction> {
-        let mut transactions = Vec::with_capacity(max_txs_in_block);
+        let mut transactions = Vec::with_capacity(max_txs_in_block.get());
         self.get_transactions_for_block(state_view, max_txs_in_block, &mut transactions);
         transactions
     }
@@ -297,10 +297,10 @@ impl Queue {
     pub fn get_transactions_for_block(
         &self,
         state_view: &StateView,
-        max_txs_in_block: usize,
+        max_txs_in_block: NonZeroUsize,
         transactions: &mut Vec<AcceptedTransaction>,
     ) {
-        if transactions.len() >= max_txs_in_block {
+        if transactions.len() >= max_txs_in_block.get() {
             return;
         }
 
@@ -315,7 +315,7 @@ impl Queue {
             transactions.iter().map(|tx| tx.as_ref().hash()).collect();
         let txs = txs_from_queue
             .filter(|tx| !transactions_hashes.contains(&tx.as_ref().hash()))
-            .take(max_txs_in_block - transactions.len());
+            .take(max_txs_in_block.get() - transactions.len());
         transactions.extend(txs);
 
         seen_queue
@@ -377,7 +377,7 @@ impl Queue {
 pub mod tests {
     use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
-    use iroha_data_model::{prelude::*, transaction::TransactionLimits};
+    use iroha_data_model::{parameter::TransactionParameters, prelude::*};
     use nonzero_ext::nonzero;
     use rand::Rng as _;
     use test_samples::gen_account_in;
@@ -425,9 +425,9 @@ pub mod tests {
             TransactionBuilder::new_with_time_source(chain_id.clone(), account_id, time_source)
                 .with_instructions(instructions)
                 .sign(key_pair.private_key());
-        let limits = TransactionLimits {
-            max_instruction_number: 4096,
-            max_wasm_size_bytes: 0,
+        let limits = TransactionParameters {
+            max_instructions: nonzero!(4096_u64),
+            smart_contract_size: nonzero!(1024_u64),
         };
         AcceptedTransaction::accept(tx, &chain_id, limits).expect("Failed to accept Transaction.")
     }
@@ -502,7 +502,7 @@ pub mod tests {
 
     #[test]
     async fn get_available_txs() {
-        let max_txs_in_block = 2;
+        let max_txs_in_block = nonzero!(2_usize);
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
@@ -525,7 +525,7 @@ pub mod tests {
         }
 
         let available = queue.collect_transactions_for_block(&state_view, max_txs_in_block);
-        assert_eq!(available.len(), max_txs_in_block);
+        assert_eq!(available.len(), max_txs_in_block.get());
     }
 
     #[test]
@@ -536,7 +536,9 @@ pub mod tests {
         let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
         let tx = accepted_tx_by_someone(&time_source);
         let mut state_block = state.block();
-        state_block.transactions.insert(tx.as_ref().hash(), 1);
+        state_block
+            .transactions
+            .insert(tx.as_ref().hash(), nonzero!(1_usize));
         state_block.commit();
         let state_view = state.view();
         let queue = Queue::test(config_factory(), &time_source);
@@ -552,7 +554,7 @@ pub mod tests {
 
     #[test]
     async fn get_tx_drop_if_in_blockchain() {
-        let max_txs_in_block = 2;
+        let max_txs_in_block = nonzero!(2_usize);
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_domains(), kura, query_handle);
@@ -561,7 +563,9 @@ pub mod tests {
         let queue = Queue::test(config_factory(), &time_source);
         queue.push(tx.clone(), &state.view()).unwrap();
         let mut state_block = state.block();
-        state_block.transactions.insert(tx.as_ref().hash(), 1);
+        state_block
+            .transactions
+            .insert(tx.as_ref().hash(), nonzero!(1_usize));
         state_block.commit();
         assert_eq!(
             queue
@@ -574,7 +578,7 @@ pub mod tests {
 
     #[test]
     async fn get_available_txs_with_timeout() {
-        let max_txs_in_block = 6;
+        let max_txs_in_block = nonzero!(6_usize);
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
@@ -589,7 +593,7 @@ pub mod tests {
             },
             &time_source,
         );
-        for _ in 0..(max_txs_in_block - 1) {
+        for _ in 0..(max_txs_in_block.get() - 1) {
             queue
                 .push(accepted_tx_by_someone(&time_source), &state_view)
                 .expect("Failed to push tx into queue");
@@ -623,7 +627,7 @@ pub mod tests {
     // Others should stay in the queue until that moment.
     #[test]
     async fn transactions_available_after_pop() {
-        let max_txs_in_block = 2;
+        let max_txs_in_block = nonzero!(2_usize);
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
@@ -656,7 +660,7 @@ pub mod tests {
 
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-        let max_txs_in_block = 2;
+        let max_txs_in_block = nonzero!(2_usize);
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
@@ -674,9 +678,9 @@ pub mod tests {
                 .with_instructions(instructions);
         tx.set_ttl(Duration::from_millis(TTL_MS));
         let tx = tx.sign(alice_keypair.private_key());
-        let limits = TransactionLimits {
-            max_instruction_number: 4096,
-            max_wasm_size_bytes: 0,
+        let limits = TransactionParameters {
+            max_instructions: nonzero!(4096_u64),
+            smart_contract_size: nonzero!(1024_u64),
         };
         let tx_hash = tx.hash();
         let tx = AcceptedTransaction::accept(tx, &chain_id, limits)
@@ -715,7 +719,7 @@ pub mod tests {
 
     #[test]
     async fn concurrent_stress_test() {
-        let max_txs_in_block = 10;
+        let max_txs_in_block = nonzero!(10_usize);
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
@@ -763,7 +767,9 @@ pub mod tests {
                     for tx in queue.collect_transactions_for_block(&state.view(), max_txs_in_block)
                     {
                         let mut state_block = state.block();
-                        state_block.transactions.insert(tx.as_ref().hash(), 1);
+                        state_block
+                            .transactions
+                            .insert(tx.as_ref().hash(), nonzero!(1_usize));
                         state_block.commit();
                     }
                     // Simulate random small delays
@@ -881,18 +887,18 @@ pub mod tests {
             )
             .expect("Failed to push tx into queue");
 
-        let transactions = queue.collect_transactions_for_block(&state.view(), 10);
+        let transactions = queue.collect_transactions_for_block(&state.view(), nonzero!(10_usize));
         assert_eq!(transactions.len(), 2);
         let mut state_block = state.block();
         for transaction in transactions {
             // Put transaction hashes into state as if they were in the blockchain
             state_block
                 .transactions
-                .insert(transaction.as_ref().hash(), 1);
+                .insert(transaction.as_ref().hash(), nonzero!(1_usize));
         }
         state_block.commit();
         // Cleanup transactions
-        let transactions = queue.collect_transactions_for_block(&state.view(), 10);
+        let transactions = queue.collect_transactions_for_block(&state.view(), nonzero!(10_usize));
         assert!(transactions.is_empty());
 
         // After cleanup Alice and Bob pushes should work fine

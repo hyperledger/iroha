@@ -9,18 +9,19 @@ use core::{
 };
 
 use derive_more::Display;
-use iroha_data_model_derive::{model, IdEqOrdHash};
+use iroha_data_model_derive::model;
 use iroha_primitives::addr::SocketAddr;
-use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{Identifiable, PublicKey, Registered};
+use crate::{PublicKey, Registered};
 
 #[model]
 mod model {
     use getset::Getters;
+    use iroha_data_model_derive::IdEqOrdHash;
+    use iroha_schema::IntoSchema;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
 
     use super::*;
 

@@ -48,16 +48,24 @@ ffi_type! {
     }
 }
 ffi_type! {
-    unsafe impl<T> Transparent for core::mem::ManuallyDrop<T> {
-        type Target = T;
-    }
-}
-ffi_type! {
     unsafe impl<T> Transparent for core::ptr::NonNull<T> {
         type Target = *mut T;
 
         validation_fn=unsafe {|target: &*mut T| !target.is_null()},
         niche_value=core::ptr::null_mut()
+    }
+}
+ffi_type! {
+    unsafe impl<T> Transparent for core::mem::ManuallyDrop<T> {
+        type Target = T;
+    }
+}
+ffi_type! {
+    unsafe impl Transparent for core::num::NonZeroU64 {
+        type Target = u64;
+
+        validation_fn=unsafe {|target: &u64| *target != 0},
+        niche_value=0
     }
 }
 

@@ -49,7 +49,7 @@ impl Executor {
 /// If `migrate()` entrypoint fails then the whole `Upgrade` instruction
 /// will be denied and previous executor will stay unchanged.
 #[entrypoint]
-pub fn migrate(block_height: u64) -> MigrationResult {
+fn migrate(block_height: u64) -> MigrationResult {
     Executor::ensure_genesis(block_height)?;
 
     DataModelBuilder::with_default_permissions().build_and_set();

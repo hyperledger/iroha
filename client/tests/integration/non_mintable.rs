@@ -3,7 +3,7 @@ use std::str::FromStr as _;
 use eyre::Result;
 use iroha::{
     client::{self, QueryResult},
-    data_model::{isi::InstructionBox, metadata::UnlimitedMetadata, prelude::*},
+    data_model::{isi::InstructionBox, prelude::*},
 };
 use test_network::*;
 use test_samples::ALICE_ID;
@@ -20,7 +20,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
         AssetDefinition::numeric(asset_definition_id.clone()).mintable_once(),
     );
 
-    let metadata = UnlimitedMetadata::default();
+    let metadata = Metadata::default();
 
     let mint = Mint::asset_numeric(
         200_u32,

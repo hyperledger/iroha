@@ -294,8 +294,7 @@ impl Iroha {
                 None
             }
         }.unwrap_or_else(|| {
-            State::from_config(
-                config.chain_wide,
+            State::new(
                 world,
                 Arc::clone(&kura),
                 live_query_store_handle.clone(),

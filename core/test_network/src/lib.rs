@@ -665,13 +665,9 @@ impl PeerBuilder {
 
     /// Create and start a peer, create a client and connect it to the peer and return both.
     pub async fn start_with_client(self) -> (Peer, Client) {
-        let config = self.config.clone().unwrap_or_else(Config::test);
-
         let peer = self.start().await;
-
         let client = Client::test(&peer.api_address);
-
-        time::sleep(config.chain_wide.pipeline_time()).await;
+        time::sleep(<Config as TestConfig>::pipeline_time()).await;
 
         (peer, client)
     }
@@ -818,7 +814,8 @@ impl TestConfig for Config {
     }
 
     fn pipeline_time() -> Duration {
-        Self::test().chain_wide.pipeline_time()
+        let defaults = iroha_data_model::parameter::SumeragiParameters::default();
+        defaults.block_time() + defaults.commit_time()
     }
 
     fn block_sync_gossip_time() -> Duration {

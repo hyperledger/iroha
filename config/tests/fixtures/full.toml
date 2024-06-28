@@ -11,9 +11,9 @@ signed_file = "genesis.signed.scale"
 [network]
 address = "localhost:3840"
 block_gossip_period_ms = 10_000
-block_gossip_max_size = 4
+block_gossip_size = 4
 transaction_gossip_period_ms = 1_000
-transaction_gossip_max_size = 500
+transaction_gossip_size = 500
 idle_timeout_ms = 10_000
 
 [torii]
@@ -40,8 +40,8 @@ level = "TRACE"
 format = "compact"
 
 [queue]
-capacity = 65536
-capacity_per_user = 65536
+capacity = 65_536
+capacity_per_user = 65_536
 transaction_time_to_live_ms = 100
 future_threshold_ms = 50
 
@@ -58,16 +58,3 @@ max_retry_delay_exponent = 4
 
 [dev_telemetry]
 out_file = "./dev_telemetry.json"
-
-[chain_wide]
-max_transactions_in_block = 512
-block_time_ms = 2_000
-commit_time_ms = 4_000
-transaction_limits = { max_instruction_number = 4096, max_wasm_size_bytes = 4194304 }
-asset_metadata_limits = { capacity = 1048576, max_entry_len = 4096 }
-asset_definition_metadata_limits = { capacity = 1048576, max_entry_len = 4096 }
-account_metadata_limits = { capacity = 1048576, max_entry_len = 4096 }
-domain_metadata_limits = { capacity = 1048576, max_entry_len = 4096 }
-ident_length_limits = { min = 1, max = 128 }
-wasm_fuel_limit = 55000000
-wasm_max_memory = 524288000

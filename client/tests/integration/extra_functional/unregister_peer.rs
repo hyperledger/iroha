@@ -3,12 +3,10 @@ use std::thread;
 use eyre::Result;
 use iroha::{
     client::{self, QueryResult},
-    data_model::{
-        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-        prelude::*,
-    },
+    data_model::{parameter::BlockParameter, prelude::*},
 };
 use iroha_config::parameters::actual::Root as Config;
+use nonzero_ext::nonzero;
 use test_network::*;
 use test_samples::gen_account_in;
 
@@ -117,20 +115,23 @@ fn init() -> Result<(
     let (rt, network, client) = Network::start_test_with_runtime(4, Some(10_925));
     let pipeline_time = Config::pipeline_time();
     iroha_logger::info!("Started");
-    let parameters = ParametersBuilder::new()
-        .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
-        .into_set_parameters();
+
+    let set_max_txns_in_block = SetParameter::new(Parameter::Block(
+        BlockParameter::MaxTransactions(nonzero!(1_u64)),
+    ));
+
     let create_domain = Register::domain(Domain::new("domain".parse()?));
     let (account_id, _account_keypair) = gen_account_in("domain");
     let create_account = Register::account(Account::new(account_id.clone()));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let instructions = parameters.into_iter().chain([
+    let instructions: [InstructionBox; 4] = [
+        set_max_txns_in_block.into(),
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
-    ]);
+    ];
     client.submit_all_blocking(instructions)?;
     iroha_logger::info!("Init");
     Ok((

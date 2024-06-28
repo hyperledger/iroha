@@ -134,11 +134,6 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let asset_definition = self.object.build(authority);
-            asset_definition
-                .id()
-                .name
-                .validate_len(state_transaction.config.ident_length_limits)
-                .map_err(Error::from)?;
 
             let asset_definition_id = asset_definition.id().clone();
             let domain = state_transaction
@@ -237,16 +232,14 @@ pub mod isi {
         ) -> Result<(), Error> {
             let asset_definition_id = self.object;
 
-            let metadata_limits = state_transaction.config.asset_definition_metadata_limits;
             state_transaction
                 .world
                 .asset_definition_mut(&asset_definition_id)
                 .map_err(Error::from)
-                .and_then(|asset_definition| {
+                .map(|asset_definition| {
                     asset_definition
                         .metadata
-                        .insert_with_limits(self.key.clone(), self.value.clone(), metadata_limits)
-                        .map_err(Error::from)
+                        .insert(self.key.clone(), self.value.clone())
                 })?;
 
             state_transaction
@@ -305,12 +298,8 @@ pub mod isi {
         ) -> Result<(), Error> {
             let domain_id = self.object;
 
-            let limits = state_transaction.config.domain_metadata_limits;
-
             let domain = state_transaction.world.domain_mut(&domain_id)?;
-            domain
-                .metadata
-                .insert_with_limits(self.key.clone(), self.value.clone(), limits)?;
+            domain.metadata.insert(self.key.clone(), self.value.clone());
 
             state_transaction
                 .world

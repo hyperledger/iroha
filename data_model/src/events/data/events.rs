@@ -128,16 +128,16 @@ mod asset {
         pub enum AssetDefinitionEvent {
             #[has_origin(asset_definition => asset_definition.id())]
             Created(AssetDefinition),
-            MintabilityChanged(AssetDefinitionId),
-            #[has_origin(ownership_changed => &ownership_changed.asset_definition)]
-            OwnerChanged(AssetDefinitionOwnerChanged),
             Deleted(AssetDefinitionId),
             #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataInserted(AssetDefinitionMetadataChanged),
             #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataRemoved(AssetDefinitionMetadataChanged),
+            MintabilityChanged(AssetDefinitionId),
             #[has_origin(total_quantity_changed => &total_quantity_changed.asset_definition)]
             TotalQuantityChanged(AssetDefinitionTotalQuantityChanged),
+            #[has_origin(ownership_changed => &ownership_changed.asset_definition)]
+            OwnerChanged(AssetDefinitionOwnerChanged),
         }
     }
 
@@ -243,14 +243,12 @@ mod role {
             #[has_origin(role => role.id())]
             Created(Role),
             Deleted(RoleId),
-            /// [`Permission`]s with particular [`Permission`]
-            /// were removed from the role.
-            #[has_origin(permission_removed => &permission_removed.role)]
-            PermissionRemoved(RolePermissionChanged),
-            /// [`Permission`]s with particular [`Permission`]
-            /// were removed added to the role.
+            /// [`Permission`] were added to the role.
             #[has_origin(permission_added => &permission_added.role)]
             PermissionAdded(RolePermissionChanged),
+            /// [`Permission`] were removed from the role.
+            #[has_origin(permission_removed => &permission_removed.role)]
+            PermissionRemoved(RolePermissionChanged),
         }
     }
 
@@ -297,21 +295,19 @@ mod account {
     data_event! {
         #[has_origin(origin = Account)]
         pub enum AccountEvent {
-            #[has_origin(asset_event => &asset_event.origin().account)]
-            Asset(AssetEvent),
             #[has_origin(account => account.id())]
             Created(Account),
             Deleted(AccountId),
-            AuthenticationAdded(AccountId),
-            AuthenticationRemoved(AccountId),
+            #[has_origin(asset_event => &asset_event.origin().account)]
+            Asset(AssetEvent),
             #[has_origin(permission_changed => &permission_changed.account)]
             PermissionAdded(AccountPermissionChanged),
             #[has_origin(permission_changed => &permission_changed.account)]
             PermissionRemoved(AccountPermissionChanged),
             #[has_origin(role_changed => &role_changed.account)]
-            RoleRevoked(AccountRoleChanged),
-            #[has_origin(role_changed => &role_changed.account)]
             RoleGranted(AccountRoleChanged),
+            #[has_origin(role_changed => &role_changed.account)]
+            RoleRevoked(AccountRoleChanged),
             #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataInserted(AccountMetadataChanged),
             #[has_origin(metadata_changed => &metadata_changed.target)]
@@ -389,13 +385,13 @@ mod domain {
     data_event! {
         #[has_origin(origin = Domain)]
         pub enum DomainEvent {
-            #[has_origin(account_event => &account_event.origin().domain)]
-            Account(AccountEvent),
-            #[has_origin(asset_definition_event => &asset_definition_event.origin().domain)]
-            AssetDefinition(AssetDefinitionEvent),
             #[has_origin(domain => domain.id())]
             Created(Domain),
             Deleted(DomainId),
+            #[has_origin(asset_definition_event => &asset_definition_event.origin().domain)]
+            AssetDefinition(AssetDefinitionEvent),
+            #[has_origin(account_event => &account_event.origin().domain)]
+            Account(AccountEvent),
             #[has_origin(metadata_changed => &metadata_changed.target)]
             MetadataInserted(DomainMetadataChanged),
             #[has_origin(metadata_changed => &metadata_changed.target)]
@@ -488,14 +484,54 @@ mod trigger {
 }
 
 mod config {
+    pub use self::model::*;
     use super::*;
+    use crate::parameter::Parameter;
 
-    data_event! {
-        #[has_origin(origin = Parameter)]
+    #[model]
+    mod model {
+        use super::*;
+
+        /// Changed parameter event
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
+        #[ffi_type]
+        pub struct ParameterChanged {
+            /// Previous value for the parameter
+            pub old_value: Parameter,
+            /// Next value for the parameter
+            pub new_value: Parameter,
+        }
+
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            EventSet,
+            FromVariant,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
+        #[ffi_type]
         pub enum ConfigurationEvent {
-            Changed(ParameterId),
-            Created(ParameterId),
-            Deleted(ParameterId),
+            Changed(ParameterChanged),
         }
     }
 }
@@ -630,7 +666,7 @@ pub mod prelude {
             AssetDefinitionOwnerChanged, AssetDefinitionTotalQuantityChanged, AssetEvent,
             AssetEventSet,
         },
-        config::{ConfigurationEvent, ConfigurationEventSet},
+        config::{ConfigurationEvent, ConfigurationEventSet, ParameterChanged},
         domain::{DomainEvent, DomainEventSet, DomainOwnerChanged},
         executor::{ExecutorEvent, ExecutorEventSet, ExecutorUpgrade},
         peer::{PeerEvent, PeerEventSet},

@@ -1,4 +1,4 @@
-use std::str::FromStr as _;
+use std::{num::NonZeroU64, str::FromStr as _};
 
 use iroha_core::{
     block::{BlockBuilder, CommittedBlock},
@@ -13,8 +13,8 @@ use iroha_data_model::{
     asset::{AssetDefinition, AssetDefinitionId},
     domain::Domain,
     isi::InstructionBox,
+    parameter::TransactionParameters,
     prelude::*,
-    transaction::TransactionLimits,
     ChainId,
 };
 use iroha_primitives::{json::JsonString, unique_vec::UniqueVec};
@@ -34,7 +34,7 @@ pub fn create_block(
     let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)
         .sign(account_private_key);
-    let limits = state.transaction_executor().transaction_limits;
+    let limits = state.transaction_executor().limits;
 
     let block = BlockBuilder::new(
         vec![AcceptedTransaction::accept(transaction, &chain_id, limits).unwrap()],
@@ -197,9 +197,10 @@ pub fn build_state(rt: &tokio::runtime::Handle, account_id: &AccountId) -> State
     {
         let mut state_block = state.block();
 
-        state_block.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);
-        state_block.config.executor_runtime.fuel_limit = u64::MAX;
-        state_block.config.executor_runtime.max_memory = u32::MAX.into();
+        state_block.world.parameters.transaction =
+            TransactionParameters::new(NonZeroU64::MAX, NonZeroU64::MAX);
+        state_block.world.parameters.executor.fuel = NonZeroU64::MAX;
+        state_block.world.parameters.executor.memory = NonZeroU64::MAX;
 
         let mut state_transaction = state_block.transaction();
         let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

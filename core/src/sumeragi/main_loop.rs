@@ -21,14 +21,6 @@ pub struct Sumeragi {
     pub peer_id: PeerId,
     /// An actor that sends events
     pub events_sender: EventsSender,
-    /// Time by which a newly created block should be committed. Prevents malicious nodes
-    /// from stalling the network by not participating in consensus
-    pub commit_time: Duration,
-    /// Time by which a new block should be created regardless if there were enough transactions or not.
-    /// Used to force block commits when there is a small influx of new transactions.
-    pub block_time: Duration,
-    /// The maximum number of transactions in the block
-    pub max_txs_in_block: usize,
     /// Kura instance used for IO
     pub kura: Arc<Kura>,
     /// [`iroha_p2p::Network`] actor address
@@ -120,12 +112,6 @@ impl Sumeragi {
     fn connect_peers(&self, topology: &Topology) {
         let peers = topology.iter().cloned().collect();
         self.network.update_topology(UpdateTopology(peers));
-    }
-
-    /// The maximum time a sumeragi round can take to produce a block when
-    /// there are no faulty peers in the a set.
-    fn pipeline_time(&self) -> Duration {
-        self.block_time + self.commit_time
     }
 
     fn send_event(&self, event: impl Into<EventBox>) {
@@ -347,8 +333,6 @@ impl Sumeragi {
 
         let state_events = state_block.apply_without_execution(&block);
 
-        // Parameters are updated before updating public copy of sumeragi
-        self.update_params(&state_block);
         self.cache_transaction(&state_block);
 
         self.topology
@@ -385,12 +369,6 @@ impl Sumeragi {
         self.was_commit = true;
     }
 
-    fn update_params(&mut self, state_block: &StateBlock<'_>) {
-        self.block_time = state_block.config.block_time;
-        self.commit_time = state_block.config.commit_time;
-        self.max_txs_in_block = state_block.config.max_transactions_in_block.get() as usize;
-    }
-
     fn cache_transaction(&mut self, state_block: &StateBlock<'_>) {
         self.transaction_cache.retain(|tx| {
             !state_block.has_transaction(tx.as_ref().hash()) && !self.queue.is_expired(tx)
@@ -406,7 +384,7 @@ impl Sumeragi {
     ) -> Option<VotingBlock<'state>> {
         let mut state_block = state.block();
 
-        if state_block.height() == 1 && block.header().height == 1 {
+        if state_block.height() == 1 && block.header().height.get() == 1 {
             // Consider our peer has genesis,
             // and some other peer has genesis and broadcast it to our peer,
             // then we can ignore such genesis block because we already has genesis.
@@ -818,7 +796,14 @@ impl Sumeragi {
 
             #[cfg(debug_assertions)]
             if is_genesis_peer && self.debug_force_soft_fork {
-                std::thread::sleep(self.pipeline_time() * 2);
+                let pipeline_time = voting_block
+                    .state_block
+                    .world
+                    .parameters()
+                    .sumeragi
+                    .pipeline_time();
+
+                std::thread::sleep(pipeline_time * 2);
             } else {
                 let msg = BlockCommitted::from(&committed_block);
                 self.broadcast_packet(msg);
@@ -846,8 +831,17 @@ impl Sumeragi {
     ) {
         assert_eq!(self.role(), Role::Leader);
 
-        let tx_cache_full = self.transaction_cache.len() >= self.max_txs_in_block;
-        let deadline_reached = self.round_start_time.elapsed() > self.block_time;
+        let max_transactions: NonZeroUsize = state
+            .world
+            .view()
+            .parameters
+            .block
+            .max_transactions
+            .try_into()
+            .expect("INTERNAL BUG: transactions in block exceed usize::MAX");
+        let block_time = state.world.view().parameters.sumeragi.block_time();
+        let tx_cache_full = self.transaction_cache.len() >= max_transactions.get();
+        let deadline_reached = self.round_start_time.elapsed() > block_time;
         let tx_cache_non_empty = !self.transaction_cache.is_empty();
 
         if tx_cache_full || (deadline_reached && tx_cache_non_empty) {
@@ -864,7 +858,8 @@ impl Sumeragi {
                     .unpack(|e| self.send_event(e));
 
             let created_in = create_block_start_time.elapsed();
-            if created_in > self.pipeline_time() / 2 {
+            let pipeline_time = state.world.view().parameters().sumeragi.pipeline_time();
+            if created_in > pipeline_time / 2 {
                 warn!(
                     role=%self.role(),
                     peer_id=%self.peer_id,
@@ -1010,7 +1005,7 @@ pub(crate) fn run(
     let mut should_sleep = false;
     let mut view_change_proof_chain = ProofChain::default();
     // Duration after which a view change is suggested
-    let mut view_change_time = sumeragi.pipeline_time();
+    let mut view_change_time = state.world.view().parameters().sumeragi.pipeline_time();
     // Instant when the previous view change or round happened.
     let mut last_view_change_time = Instant::now();
 
@@ -1040,7 +1035,14 @@ pub(crate) fn run(
 
         sumeragi.queue.get_transactions_for_block(
             &state_view,
-            sumeragi.max_txs_in_block,
+            state
+                .world
+                .view()
+                .parameters
+                .block
+                .max_transactions
+                .try_into()
+                .expect("INTERNAL BUG: transactions in block exceed usize::MAX"),
             &mut sumeragi.transaction_cache,
         );
 
@@ -1053,7 +1055,7 @@ pub(crate) fn run(
 
         reset_state(
             &sumeragi.peer_id,
-            sumeragi.pipeline_time(),
+            state.world.view().parameters().sumeragi.pipeline_time(),
             view_change_index,
             &mut sumeragi.was_commit,
             &mut sumeragi.topology,
@@ -1138,12 +1140,12 @@ pub(crate) fn run(
 
             // NOTE: View change must be periodically suggested until it is accepted.
             // Must be initialized to pipeline time but can increase by chosen amount
-            view_change_time += sumeragi.pipeline_time();
+            view_change_time += state.world.view().parameters().sumeragi.pipeline_time();
         }
 
         reset_state(
             &sumeragi.peer_id,
-            sumeragi.pipeline_time(),
+            state.world.view().parameters().sumeragi.pipeline_time(),
             view_change_index,
             &mut sumeragi.was_commit,
             &mut sumeragi.topology,
@@ -1235,7 +1237,7 @@ enum BlockSyncError {
     },
     BlockNotProperHeight {
         peer_height: usize,
-        block_height: usize,
+        block_height: NonZeroUsize,
     },
 }
 
@@ -1246,18 +1248,18 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
     genesis_account: &AccountId,
     handle_events: &F,
 ) -> Result<BlockSyncOk<'state>, (SignedBlock, BlockSyncError)> {
-    let block_height = block
+    let block_height: NonZeroUsize = block
         .header()
         .height
         .try_into()
         .expect("INTERNAL BUG: Block height exceeds usize::MAX");
 
     let state_height = state.view().height();
-    let (mut state_block, soft_fork) = if state_height + 1 == block_height {
+    let (mut state_block, soft_fork) = if state_height + 1 == block_height.get() {
         // NOTE: Normal branch for adding new block on top of current
 
         (state.block(), false)
-    } else if state_height == block_height && block_height > 1 {
+    } else if state_height == block_height.get() && block_height.get() > 1 {
         // NOTE: Soft fork branch for replacing current block with valid one
 
         let latest_block = state
@@ -1330,6 +1332,7 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
 #[cfg(test)]
 mod tests {
     use iroha_genesis::GENESIS_DOMAIN_ID;
+    use nonzero_ext::nonzero;
     use test_samples::gen_account_in;
     use tokio::test;
 
@@ -1376,12 +1379,9 @@ mod tests {
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_isi])
             .sign(alice_keypair.private_key());
-        let tx = AcceptedTransaction::accept(
-            tx,
-            chain_id,
-            state_block.transaction_executor().transaction_limits,
-        )
-        .expect("Valid");
+        let tx =
+            AcceptedTransaction::accept(tx, chain_id, state_block.transaction_executor().limits)
+                .expect("Valid");
 
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx.clone(), tx], topology.clone(), Vec::new())
@@ -1413,7 +1413,7 @@ mod tests {
             let tx1 = AcceptedTransaction::accept(
                 tx1,
                 chain_id,
-                state_block.transaction_executor().transaction_limits,
+                state_block.transaction_executor().limits,
             )
             .map(Into::into)
             .expect("Valid");
@@ -1423,7 +1423,7 @@ mod tests {
             let tx2 = AcceptedTransaction::accept(
                 tx2,
                 chain_id,
-                state_block.transaction_executor().transaction_limits,
+                state_block.transaction_executor().limits,
             )
             .map(Into::into)
             .expect("Valid");
@@ -1511,20 +1511,26 @@ mod tests {
 
         // Change block height
         let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
-            payload.header.height = 42;
+            payload.header.height = nonzero!(42_u64);
         });
 
         let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
+
         assert!(matches!(
             result,
-            Err((
-                _,
-                BlockSyncError::BlockNotProperHeight {
-                    peer_height: 1,
-                    block_height: 42
-                }
-            ))
-        ))
+            Err((_, BlockSyncError::BlockNotProperHeight { .. }))
+        ));
+        if let Err((
+            _,
+            BlockSyncError::BlockNotProperHeight {
+                peer_height,
+                block_height,
+            },
+        )) = result
+        {
+            assert_eq!(peer_height, 1);
+            assert_eq!(block_height, nonzero!(42_usize));
+        }
     }
 
     #[test]
@@ -1655,19 +1661,25 @@ mod tests {
         // Soft-fork on genesis block is not possible
         let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
             payload.header.view_change_index = 42;
-            payload.header.height = 1;
+            payload.header.height = nonzero!(1_u64);
         });
 
         let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
+
         assert!(matches!(
             result,
-            Err((
-                _,
-                BlockSyncError::BlockNotProperHeight {
-                    peer_height: 1,
-                    block_height: 1,
-                }
-            ))
-        ))
+            Err((_, BlockSyncError::BlockNotProperHeight { .. }))
+        ));
+        if let Err((
+            _,
+            BlockSyncError::BlockNotProperHeight {
+                peer_height,
+                block_height,
+            },
+        )) = result
+        {
+            assert_eq!(peer_height, 1);
+            assert_eq!(block_height, nonzero!(1_usize));
+        }
     }
 }

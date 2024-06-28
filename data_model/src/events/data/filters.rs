@@ -223,8 +223,6 @@ mod model {
         IntoSchema,
     )]
     pub struct ConfigurationEventFilter {
-        /// If specified matches only events originating from this configuration
-        pub(super) id_matcher: Option<super::ParameterId>,
         /// Matches only event from this set
         pub(super) event_set: ConfigurationEventSet,
     }
@@ -598,16 +596,8 @@ impl ConfigurationEventFilter {
     /// Creates a new [`ConfigurationEventFilter`] accepting all [`ConfigurationEvent`]s.
     pub const fn new() -> Self {
         Self {
-            id_matcher: None,
             event_set: ConfigurationEventSet::all(),
         }
-    }
-
-    /// Modifies a [`ConfigurationEventFilter`] to accept only [`ConfigurationEvent`]s originating from ids matching `id_matcher`.
-    #[must_use]
-    pub fn for_parameter(mut self, id_matcher: ParameterId) -> Self {
-        self.id_matcher = Some(id_matcher);
-        self
     }
 
     /// Modifies a [`ConfigurationEventFilter`] to accept only [`ConfigurationEvent`]s of types matching `event_set`.
@@ -629,12 +619,6 @@ impl super::EventFilter for ConfigurationEventFilter {
     type Event = super::ConfigurationEvent;
 
     fn matches(&self, event: &Self::Event) -> bool {
-        if let Some(id_matcher) = &self.id_matcher {
-            if id_matcher != event.origin() {
-                return false;
-            }
-        }
-
         if !self.event_set.matches(event) {
             return false;
         }

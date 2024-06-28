@@ -7,7 +7,6 @@ use core::{fmt, str::FromStr};
 use std::collections::btree_map;
 
 use derive_more::{Constructor, DebugCustom, Display};
-use getset::{CopyGetters, Getters};
 use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_primitives::numeric::{Numeric, NumericSpec, NumericSpecParseError};
 use iroha_schema::IntoSchema;
@@ -17,8 +16,8 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    account::prelude::*, domain::prelude::*, ipfs::IpfsPath, metadata::Metadata, HasMetadata,
-    Identifiable, Name, ParseError, Registered,
+    account::prelude::*, domain::prelude::*, ipfs::IpfsPath, metadata::Metadata, HasMetadata, Name,
+    ParseError, Registered,
 };
 
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
@@ -34,6 +33,7 @@ pub type AssetTotalQuantityMap = btree_map::BTreeMap<AssetDefinitionId, Numeric>
 
 #[model]
 mod model {
+    use getset::{CopyGetters, Getters};
     use iroha_macro::FromVariant;
 
     use super::*;

@@ -27,7 +27,7 @@ pub use domain::{
 pub use executor::visit_upgrade;
 use iroha_smart_contract::data_model::isi::InstructionBox;
 pub use log::visit_log;
-pub use parameter::{visit_new_parameter, visit_set_parameter};
+pub use parameter::visit_set_parameter;
 pub use peer::{visit_register_peer, visit_unregister_peer};
 pub use permission::{visit_grant_account_permission, visit_revoke_account_permission};
 use permissions::AnyPermission;
@@ -85,9 +85,6 @@ pub fn visit_instruction<V: Validate + Visit + ?Sized>(
     isi: &InstructionBox,
 ) {
     match isi {
-        InstructionBox::NewParameter(isi) => {
-            executor.visit_new_parameter(authority, isi);
-        }
         InstructionBox::SetParameter(isi) => {
             executor.visit_set_parameter(authority, isi);
         }
@@ -1116,25 +1113,6 @@ pub mod asset {
 
 pub mod parameter {
     use super::*;
-
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_new_parameter<V: Validate + Visit + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &NewParameter,
-    ) {
-        if is_genesis(executor) {
-            execute!(executor, isi);
-        }
-        if permissions::parameter::CanCreateParameters.is_owned_by(authority) {
-            execute!(executor, isi);
-        }
-
-        deny!(
-            executor,
-            "Can't create new configuration parameters outside genesis without permission"
-        );
-    }
 
     #[allow(clippy::needless_pass_by_value)]
     pub fn visit_set_parameter<V: Validate + Visit + ?Sized>(

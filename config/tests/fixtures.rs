@@ -162,11 +162,11 @@ fn minimal_config_snapshot() {
             },
             block_sync: BlockSync {
                 gossip_period: 10s,
-                gossip_max_size: 4,
+                gossip_size: 4,
             },
             transaction_gossiper: TransactionGossiper {
                 gossip_period: 1s,
-                gossip_max_size: 500,
+                gossip_size: 500,
             },
             live_query_store: LiveQueryStore {
                 idle_time: 30s,
@@ -196,51 +196,6 @@ fn minimal_config_snapshot() {
             telemetry: None,
             dev_telemetry: DevTelemetry {
                 out_file: None,
-            },
-            chain_wide: ChainWide {
-                max_transactions_in_block: 512,
-                block_time: 2s,
-                commit_time: 4s,
-                transaction_limits: TransactionLimits {
-                    max_instruction_number: 4096,
-                    max_wasm_size_bytes: 4194304,
-                },
-                domain_metadata_limits: Limits {
-                    capacity: 1048576,
-                    max_entry_len: 4096,
-                },
-                asset_definition_metadata_limits: Limits {
-                    capacity: 1048576,
-                    max_entry_len: 4096,
-                },
-                account_metadata_limits: Limits {
-                    capacity: 1048576,
-                    max_entry_len: 4096,
-                },
-                asset_metadata_limits: Limits {
-                    capacity: 1048576,
-                    max_entry_len: 4096,
-                },
-                trigger_metadata_limits: Limits {
-                    capacity: 1048576,
-                    max_entry_len: 4096,
-                },
-                ident_length_limits: LengthLimits {
-                    min: 1,
-                    max: 128,
-                },
-                executor_runtime: WasmRuntime {
-                    fuel_limit: 55000000,
-                    max_memory: Bytes(
-                        524288000,
-                    ),
-                },
-                wasm_runtime: WasmRuntime {
-                    fuel_limit: 55000000,
-                    max_memory: Bytes(
-                        524288000,
-                    ),
-                },
             },
         }"#]].assert_eq(&format!("{config:#?}"));
 }

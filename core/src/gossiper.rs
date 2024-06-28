@@ -8,7 +8,10 @@ use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
 
-use crate::{queue::Queue, state::State, tx::AcceptedTransaction, IrohaNetwork, NetworkMessage};
+use crate::{
+    queue::Queue, state::State, tx::AcceptedTransaction, IrohaNetwork, NetworkMessage,
+    StateReadOnly, WorldReadOnly,
+};
 
 /// [`Gossiper`] actor handle.
 #[derive(Clone)]
@@ -26,21 +29,18 @@ impl TransactionGossiperHandle {
     }
 }
 
-/// Actor to gossip transactions and receive transaction gossips
+/// Actor which gossips transactions and receives transaction gossips
 pub struct TransactionGossiper {
     /// Unique id of the blockchain. Used for simple replay attack protection.
     chain_id: ChainId,
-    /// The size of batch that is being gossiped. Smaller size leads
-    /// to longer time to synchronise, useful if you have high packet loss.
-    gossip_max_size: NonZeroU32,
-    /// The time between gossiping. More frequent gossiping shortens
+    /// The time between gossip messages. More frequent gossiping shortens
     /// the time to sync, but can overload the network.
     gossip_period: Duration,
-    /// Address of queue
-    queue: Arc<Queue>,
-    /// [`iroha_p2p::Network`] actor handle
+    /// Maximum size of a batch that is being gossiped. Smaller size leads
+    /// to longer time to synchronise, useful if you have high packet loss.
+    gossip_size: NonZeroU32,
     network: IrohaNetwork,
-    /// [`WorldState`]
+    queue: Arc<Queue>,
     state: Arc<State>,
 }
 
@@ -57,7 +57,7 @@ impl TransactionGossiper {
         chain_id: ChainId,
         Config {
             gossip_period,
-            gossip_max_size,
+            gossip_size,
         }: Config,
         network: IrohaNetwork,
         queue: Arc<Queue>,
@@ -65,10 +65,10 @@ impl TransactionGossiper {
     ) -> Self {
         Self {
             chain_id,
-            gossip_max_size,
             gossip_period,
-            queue,
+            gossip_size,
             network,
+            queue,
             state,
         }
     }
@@ -93,7 +93,7 @@ impl TransactionGossiper {
     fn gossip_transactions(&self) {
         let txs = self
             .queue
-            .n_random_transactions(self.gossip_max_size.get(), &self.state.view());
+            .n_random_transactions(self.gossip_size.get(), &self.state.view());
 
         if txs.is_empty() {
             return;
@@ -110,7 +110,7 @@ impl TransactionGossiper {
 
         let state_view = self.state.view();
         for tx in txs {
-            let transaction_limits = state_view.config.transaction_limits;
+            let transaction_limits = state_view.world().parameters().transaction;
 
             match AcceptedTransaction::accept(tx, &self.chain_id, transaction_limits) {
                 Ok(tx) => match self.queue.push(tx, &state_view) {

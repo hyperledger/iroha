@@ -2,6 +2,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
+use core::num::NonZeroU64;
 
 use iroha_crypto::HashOf;
 use iroha_data_model_derive::model;
@@ -84,7 +85,7 @@ mod model {
         #[getset(get = "pub")]
         pub hash: HashOf<SignedTransaction>,
         #[getset(get_copy = "pub")]
-        pub block_height: Option<u64>,
+        pub block_height: Option<NonZeroU64>,
         #[getset(get = "pub")]
         pub status: TransactionStatus,
     }
@@ -181,7 +182,7 @@ mod model {
     #[ffi_type]
     pub struct BlockEventFilter {
         #[getset(get_copy = "pub")]
-        pub height: Option<u64>,
+        pub height: Option<NonZeroU64>,
         #[getset(get = "pub")]
         pub status: Option<BlockStatus>,
     }
@@ -205,7 +206,7 @@ mod model {
     pub struct TransactionEventFilter {
         #[getset(get = "pub")]
         pub hash: Option<HashOf<SignedTransaction>>,
-        pub block_height: Option<Option<u64>>,
+        pub block_height: Option<Option<NonZeroU64>>,
         #[getset(get = "pub")]
         pub status: Option<TransactionStatus>,
     }
@@ -223,7 +224,7 @@ impl BlockEventFilter {
 
     /// Match only block with the given height
     #[must_use]
-    pub fn for_height(mut self, height: u64) -> Self {
+    pub fn for_height(mut self, height: NonZeroU64) -> Self {
         self.height = Some(height);
         self
     }
@@ -249,7 +250,7 @@ impl TransactionEventFilter {
 
     /// Match only transactions with the given block height
     #[must_use]
-    pub fn for_block_height(mut self, block_height: Option<u64>) -> Self {
+    pub fn for_block_height(mut self, block_height: Option<NonZeroU64>) -> Self {
         self.block_height = Some(block_height);
         self
     }
@@ -270,7 +271,7 @@ impl TransactionEventFilter {
 
     /// Block height
     // TODO: Derive with getset
-    pub fn block_height(&self) -> Option<Option<u64>> {
+    pub fn block_height(&self) -> Option<Option<NonZeroU64>> {
         self.block_height
     }
 }
@@ -345,12 +346,13 @@ mod tests {
     use alloc::{string::ToString as _, vec, vec::Vec};
 
     use iroha_crypto::Hash;
+    use nonzero_ext::nonzero;
 
     use super::{super::EventFilter, *};
     use crate::{transaction::error::TransactionRejectionReason::*, ValidationFail};
 
     impl BlockHeader {
-        fn dummy(height: u64) -> Self {
+        fn dummy(height: NonZeroU64) -> Self {
             Self {
                 height,
                 prev_block_hash: None,
@@ -375,7 +377,7 @@ mod tests {
             .into(),
             TransactionEvent {
                 hash: HashOf::from_untyped_unchecked(Hash::prehashed([0_u8; Hash::LENGTH])),
-                block_height: Some(3),
+                block_height: Some(nonzero!(3_u64)),
                 status: TransactionStatus::Rejected(Box::new(Validation(
                     ValidationFail::TooComplex,
                 ))),
@@ -388,7 +390,7 @@ mod tests {
             }
             .into(),
             BlockEvent {
-                header: BlockHeader::dummy(7),
+                header: BlockHeader::dummy(nonzero!(7_u64)),
                 hash: HashOf::from_untyped_unchecked(Hash::prehashed([7_u8; Hash::LENGTH])),
                 status: BlockStatus::Committed,
             }
@@ -418,7 +420,7 @@ mod tests {
                 .into(),
                 TransactionEvent {
                     hash: HashOf::from_untyped_unchecked(Hash::prehashed([0_u8; Hash::LENGTH])),
-                    block_height: Some(3),
+                    block_height: Some(nonzero!(3_u64)),
                     status: TransactionStatus::Rejected(Box::new(Validation(
                         ValidationFail::TooComplex,
                     ))),
@@ -439,7 +441,7 @@ mod tests {
             vec![BlockEvent {
                 status: BlockStatus::Committed,
                 hash: HashOf::from_untyped_unchecked(Hash::prehashed([7_u8; Hash::LENGTH])),
-                header: BlockHeader::dummy(7),
+                header: BlockHeader::dummy(nonzero!(7_u64)),
             }
             .into()],
         );

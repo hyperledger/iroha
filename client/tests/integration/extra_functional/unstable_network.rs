@@ -2,14 +2,16 @@ use std::thread;
 
 use iroha::{
     client::{self, QueryResult},
-    data_model::prelude::*,
+    data_model::{
+        parameter::{BlockParameter, Parameter},
+        prelude::*,
+    },
 };
 use iroha_config::parameters::actual::Root as Config;
+use nonzero_ext::nonzero;
 use rand::seq::SliceRandom;
 use test_network::*;
 use test_samples::ALICE_ID;
-
-const MAX_TRANSACTIONS_IN_BLOCK: u32 = 5;
 
 #[test]
 fn unstable_network_5_peers_1_fault() {
@@ -51,8 +53,6 @@ fn unstable_network(
 
     // Given
     let mut configuration = Config::test();
-    configuration.chain_wide.max_transactions_in_block =
-        MAX_TRANSACTIONS_IN_BLOCK.try_into().unwrap();
     #[cfg(debug_assertions)]
     {
         configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
@@ -63,6 +63,11 @@ fn unstable_network(
         .with_offline_peers(0)
         .create_with_runtime();
     wait_for_genesis_committed(&network.clients(), n_offline_peers);
+    iroha
+        .submit_blocking(SetParameter::new(Parameter::Block(
+            BlockParameter::MaxTransactions(nonzero!(5_u64)),
+        )))
+        .unwrap();
 
     let pipeline_time = Config::pipeline_time();
 

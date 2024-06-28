@@ -77,9 +77,11 @@ impl executor_custom_data_model::complex_isi::Context for Context {
 }
 
 #[entrypoint]
-pub fn migrate(_block_height: u64) -> MigrationResult {
+fn migrate(_block_height: u64) -> MigrationResult {
     DataModelBuilder::with_default_permissions()
-        .with_custom_instruction::<CustomInstructionExpr>()
+        .add_instruction::<CustomInstructionExpr>()
+        .add_instruction::<CoreExpr>()
+        .add_instruction::<ConditionalExpr>()
         .build_and_set();
 
     Ok(())

@@ -3,21 +3,23 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
-use derive_more::{Constructor, Display, FromStr};
-use getset::Getters;
-use iroha_data_model_derive::{model, IdEqOrdHash};
-use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
+use iroha_data_model_derive::model;
 
 pub use self::model::*;
 use crate::{
     permission::{Permission, Permissions},
-    Identifiable, Name, Registered,
+    Name, Registered,
 };
 
 #[model]
 mod model {
+    use derive_more::{Constructor, Display, FromStr};
+    use getset::Getters;
+    use iroha_data_model_derive::IdEqOrdHash;
+    use iroha_schema::IntoSchema;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
     use super::*;
 
     /// Identification of a role.

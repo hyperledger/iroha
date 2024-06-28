@@ -603,7 +603,7 @@ pub mod string {
                 IdBox::TriggerId(id) => self.applies(&id.to_string()),
                 IdBox::RoleId(id) => self.applies(&id.to_string()),
                 IdBox::Permission(id) => self.applies(&id.to_string()),
-                IdBox::ParameterId(id) => self.applies(&id.to_string()),
+                IdBox::CustomParameterId(id) => self.applies(&id.to_string()),
             }
         }
     }

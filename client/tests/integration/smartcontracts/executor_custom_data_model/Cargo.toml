@@ -8,6 +8,9 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+# TODO: Cargo complains if I take it from workspace
+iroha_executor = { version = "=2.0.0-pre-rc.21", path = "../../../../../smart_contract/executor", features = ["debug"] }
+
 iroha_data_model.workspace = true
 iroha_schema.workspace = true
 

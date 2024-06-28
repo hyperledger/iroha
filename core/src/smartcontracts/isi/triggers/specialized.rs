@@ -45,7 +45,7 @@ impl<F> SpecializedAction<F> {
             // TODO: At this point the authority is meaningless.
             authority,
             filter,
-            metadata: Metadata::new(),
+            metadata: Metadata::default(),
         }
     }
 }

@@ -10,12 +10,8 @@ use std::{
 use error_stack::{Result, ResultExt};
 use iroha_config_base::{read::ConfigReader, toml::TomlSource, util::Bytes, WithOrigin};
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{
-    metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
-    LengthLimits,
-};
+use iroha_data_model::{peer::PeerId, ChainId};
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
-use serde::{Deserialize, Serialize};
 use url::Url;
 pub use user::{DevTelemetry, Logger, Snapshot};
 
@@ -42,7 +38,6 @@ pub struct Root {
     pub snapshot: Snapshot,
     pub telemetry: Option<Telemetry>,
     pub dev_telemetry: DevTelemetry,
-    pub chain_wide: ChainWide,
 }
 
 /// See [`Root::from_toml_source`]
@@ -168,78 +163,14 @@ impl Default for LiveQueryStore {
 #[derive(Debug, Clone, Copy)]
 pub struct BlockSync {
     pub gossip_period: Duration,
-    pub gossip_max_size: NonZeroU32,
+    pub gossip_size: NonZeroU32,
 }
 
 #[derive(Debug, Clone, Copy)]
 #[allow(missing_docs)]
 pub struct TransactionGossiper {
     pub gossip_period: Duration,
-    pub gossip_max_size: NonZeroU32,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[allow(missing_docs)]
-pub struct ChainWide {
-    pub max_transactions_in_block: NonZeroU32,
-    pub block_time: Duration,
-    pub commit_time: Duration,
-    pub transaction_limits: TransactionLimits,
-    pub domain_metadata_limits: MetadataLimits,
-    pub asset_definition_metadata_limits: MetadataLimits,
-    pub account_metadata_limits: MetadataLimits,
-    pub asset_metadata_limits: MetadataLimits,
-    pub trigger_metadata_limits: MetadataLimits,
-    pub ident_length_limits: LengthLimits,
-    pub executor_runtime: WasmRuntime,
-    pub wasm_runtime: WasmRuntime,
-}
-
-impl ChainWide {
-    /// Calculate pipeline time based on the block time and commit time
-    pub fn pipeline_time(&self) -> Duration {
-        self.block_time + self.commit_time
-    }
-
-    /// Estimates as `block_time + commit_time / 2`
-    pub fn consensus_estimation(&self) -> Duration {
-        self.block_time + (self.commit_time / 2)
-    }
-}
-
-impl Default for ChainWide {
-    fn default() -> Self {
-        Self {
-            max_transactions_in_block: defaults::chain_wide::MAX_TXS,
-            block_time: defaults::chain_wide::BLOCK_TIME,
-            commit_time: defaults::chain_wide::COMMIT_TIME,
-            transaction_limits: defaults::chain_wide::TRANSACTION_LIMITS,
-            domain_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
-            account_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
-            asset_definition_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
-            asset_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
-            trigger_metadata_limits: defaults::chain_wide::METADATA_LIMITS,
-            ident_length_limits: defaults::chain_wide::IDENT_LENGTH_LIMITS,
-            executor_runtime: WasmRuntime::default(),
-            wasm_runtime: WasmRuntime::default(),
-        }
-    }
-}
-
-#[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct WasmRuntime {
-    pub fuel_limit: u64,
-    pub max_memory: Bytes<u32>,
-}
-
-impl Default for WasmRuntime {
-    fn default() -> Self {
-        Self {
-            fuel_limit: defaults::chain_wide::WASM_FUEL_LIMIT,
-            max_memory: defaults::chain_wide::WASM_MAX_MEMORY,
-        }
-    }
+    pub gossip_size: NonZeroU32,
 }
 
 #[derive(Debug, Clone)]

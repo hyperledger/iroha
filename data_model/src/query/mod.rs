@@ -212,7 +212,8 @@ mod model {
         Identifiable(IdentifiableBox),
         Transaction(TransactionQueryOutput),
         Permission(crate::permission::Permission),
-        LimitedMetadata(JsonString),
+        Parameters(crate::parameter::Parameters),
+        Metadata(JsonString),
         Numeric(Numeric),
         BlockHeader(BlockHeader),
         Block(crate::block::SignedBlock),
@@ -221,7 +222,7 @@ mod model {
         Vec(
             #[skip_from]
             #[skip_try_from]
-            Vec<QueryOutputBox>,
+            Vec<Self>,
         ),
     }
 
@@ -402,7 +403,7 @@ impl_queries! {
     FindDomainById => crate::domain::Domain,
     FindDomainKeyValueByIdAndKey => JsonString,
     FindAllPeers => Vec<crate::peer::Peer>,
-    FindAllParameters => Vec<crate::parameter::Parameter>,
+    FindAllParameters => crate::parameter::Parameters,
     FindAllActiveTriggerIds => Vec<crate::trigger::TriggerId>,
     FindTriggerById => crate::trigger::Trigger,
     FindTriggerKeyValueByIdAndKey => JsonString,
@@ -429,17 +430,18 @@ impl core::fmt::Display for QueryOutputBox {
     // TODO: Maybe derive
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            QueryOutputBox::Id(v) => core::fmt::Display::fmt(&v, f),
-            QueryOutputBox::Identifiable(v) => core::fmt::Display::fmt(&v, f),
-            QueryOutputBox::Transaction(_) => write!(f, "TransactionQueryOutput"),
-            QueryOutputBox::Permission(v) => core::fmt::Display::fmt(&v, f),
-            QueryOutputBox::Block(v) => core::fmt::Display::fmt(&v, f),
-            QueryOutputBox::BlockHeader(v) => core::fmt::Display::fmt(&v, f),
-            QueryOutputBox::Numeric(v) => core::fmt::Display::fmt(&v, f),
-            QueryOutputBox::LimitedMetadata(v) => core::fmt::Display::fmt(&v, f),
-            QueryOutputBox::ExecutorDataModel(v) => core::fmt::Display::fmt(&v, f),
+            Self::Id(v) => core::fmt::Display::fmt(&v, f),
+            Self::Identifiable(v) => core::fmt::Display::fmt(&v, f),
+            Self::Transaction(_) => write!(f, "TransactionQueryOutput"),
+            Self::Permission(v) => core::fmt::Display::fmt(&v, f),
+            Self::Parameters(v) => core::fmt::Debug::fmt(&v, f),
+            Self::Block(v) => core::fmt::Display::fmt(&v, f),
+            Self::BlockHeader(v) => core::fmt::Display::fmt(&v, f),
+            Self::Numeric(v) => core::fmt::Display::fmt(&v, f),
+            Self::Metadata(v) => core::fmt::Display::fmt(&v, f),
+            Self::ExecutorDataModel(v) => core::fmt::Display::fmt(&v, f),
 
-            QueryOutputBox::Vec(v) => {
+            Self::Vec(v) => {
                 // TODO: Remove so we can derive.
                 let list_of_display: Vec<_> = v.iter().map(ToString::to_string).collect();
                 // this prints with quotation marks, which is fine 90%
@@ -468,7 +470,7 @@ macro_rules! from_and_try_from_value_idbox {
 
         impl From<$ty> for QueryOutputBox {
             fn from(id: $ty) -> Self {
-                QueryOutputBox::Id(IdBox::$variant(id))
+                Self::Id(IdBox::$variant(id))
             }
         })+
     };
@@ -490,7 +492,7 @@ macro_rules! from_and_try_from_value_identifiable {
 
         impl From<$ty> for QueryOutputBox {
             fn from(id: $ty) -> Self {
-                QueryOutputBox::Identifiable(IdentifiableBox::$variant(id))
+                Self::Identifiable(IdentifiableBox::$variant(id))
             }
         } )+
     };
@@ -504,7 +506,6 @@ from_and_try_from_value_idbox!(
     AssetDefinitionId(crate::asset::AssetDefinitionId),
     TriggerId(crate::trigger::TriggerId),
     RoleId(crate::role::RoleId),
-    ParameterId(crate::parameter::ParameterId),
     // TODO: Should we wrap String with new type in order to convert like here?
     //from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
 );
@@ -521,12 +522,11 @@ from_and_try_from_value_identifiable!(
     Asset(crate::asset::Asset),
     Trigger(crate::trigger::Trigger),
     Role(crate::role::Role),
-    Parameter(crate::parameter::Parameter),
 );
 
 impl<V: Into<QueryOutputBox>> From<Vec<V>> for QueryOutputBox {
-    fn from(values: Vec<V>) -> QueryOutputBox {
-        QueryOutputBox::Vec(values.into_iter().map(Into::into).collect())
+    fn from(values: Vec<V>) -> Self {
+        Self::Vec(values.into_iter().map(Into::into).collect())
     }
 }
 
@@ -854,7 +854,7 @@ pub mod asset {
         }
 
         /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`]
-        /// parameter's value if [`Asset`] is presented in Iroha Peer.
+        /// value if [`Asset`] is presented in Iroha Peer.
         #[derive(Display)]
         #[display(fmt = "Find quantity of the `{id}` asset")]
         #[repr(transparent)]
@@ -1536,10 +1536,8 @@ pub mod error {
             Trigger(TriggerId),
             /// Role with id `{0}` not found
             Role(RoleId),
-            /// Failed to find [`Permission`]
+            /// Failed to find [`Permission`] by id.
             Permission(Permission),
-            /// Parameter with id `{0}` not found
-            Parameter(ParameterId),
             /// Failed to find public key: `{0}`
             PublicKey(PublicKey),
         }
