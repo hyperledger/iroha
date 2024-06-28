@@ -18,7 +18,7 @@ pub fn impl_derive_permission(input: &syn::DeriveInput) -> TokenStream {
                             account_id.clone(),
                         )
                     )
-                    .expect("`FindPermissionsByAccountId` query should never fail, it's a bug");
+                    .expect("INTERNAL BUG: `FindPermissionsByAccountId` should never fail");
 
                 account_tokens_cursor
                     .into_iter()
@@ -34,11 +34,11 @@ pub fn impl_derive_permission(input: &syn::DeriveInput) -> TokenStream {
         impl #impl_generics TryFrom<&::iroha_executor::data_model::permission::Permission> for #ident #ty_generics #where_clause {
             type Error = ::iroha_executor::TryFromDataModelObjectError;
 
-            fn try_from(
-                value: &::iroha_executor::data_model::permission::Permission,
-            ) -> core::result::Result<Self, Self::Error> {
-                if *value.id() != <Self as ::iroha_executor::permission::Permission>::id() {
-                    return Err(Self::Error::Id(value.id().name().clone()));
+            fn try_from(value: &::iroha_executor::data_model::permission::Permission) -> core::result::Result<Self, Self::Error> {
+                use alloc::borrow::ToOwned as _;
+
+                if *value.name() != <Self as ::iroha_executor::permission::Permission>::name() {
+                    return Err(Self::Error::UnknownIdent(value.name().to_owned()));
                 }
 
                 serde_json::from_str::<Self>(value.payload().as_ref()).map_err(Self::Error::Deserialize)
@@ -48,7 +48,7 @@ pub fn impl_derive_permission(input: &syn::DeriveInput) -> TokenStream {
         impl #impl_generics From<#ident #ty_generics> for ::iroha_executor::data_model::permission::Permission #where_clause {
             fn from(value: #ident #ty_generics) -> Self {
                 ::iroha_executor::data_model::permission::Permission::new(
-                    <#ident as ::iroha_executor::permission::Permission>::id(),
+                    <#ident as ::iroha_executor::permission::Permission>::name(),
                     ::serde_json::to_value::<#ident #ty_generics>(value)
                         .expect("INTERNAL BUG: Failed to serialize Executor data model entity"),
                 )

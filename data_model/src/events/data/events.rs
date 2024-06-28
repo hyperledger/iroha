@@ -243,11 +243,11 @@ mod role {
             #[has_origin(role => role.id())]
             Created(Role),
             Deleted(RoleId),
-            /// [`Permission`]s with particular [`PermissionId`]
+            /// [`Permission`]s with particular [`Permission`]
             /// were removed from the role.
             #[has_origin(permission_removed => &permission_removed.role)]
             PermissionRemoved(RolePermissionChanged),
-            /// [`Permission`]s with particular [`PermissionId`]
+            /// [`Permission`]s with particular [`Permission`]
             /// were removed added to the role.
             #[has_origin(permission_added => &permission_added.role)]
             PermissionAdded(RolePermissionChanged),
@@ -279,7 +279,7 @@ mod role {
             pub role: RoleId,
             // TODO: Skipped temporarily because of FFI
             #[getset(skip)]
-            pub permission: PermissionId,
+            pub permission: Permission,
         }
     }
 }
@@ -344,7 +344,7 @@ mod account {
             pub account: AccountId,
             // TODO: Skipped temporarily because of FFI
             #[getset(skip)]
-            pub permission: PermissionId,
+            pub permission: Permission,
         }
 
         /// Depending on the wrapping event, [`AccountRoleChanged`] represents the granted or revoked role
@@ -372,7 +372,7 @@ mod account {
 
     impl AccountPermissionChanged {
         /// Get permission id
-        pub fn permission(&self) -> &PermissionId {
+        pub fn permission(&self) -> &Permission {
             &self.permission
         }
     }

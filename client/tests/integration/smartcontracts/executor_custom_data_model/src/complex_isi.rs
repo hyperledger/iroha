@@ -135,14 +135,14 @@ mod expression {
     pub struct EvaluatesTo<V> {
         #[serde(flatten)]
         pub(crate) expression: Box<Expression>,
-        _value_type: PhantomData<V>,
+        type_: PhantomData<V>,
     }
 
     impl<V> EvaluatesTo<V> {
         pub fn new_unchecked(expression: impl Into<Expression>) -> Self {
             Self {
                 expression: Box::new(expression.into()),
-                _value_type: PhantomData,
+                type_: PhantomData,
             }
         }
     }

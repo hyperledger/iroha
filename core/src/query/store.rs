@@ -8,7 +8,11 @@ use std::{
 use indexmap::IndexMap;
 use iroha_config::parameters::actual::LiveQueryStore as Config;
 use iroha_data_model::{
-    query::{cursor::ForwardCursor, error::QueryExecutionFail, QueryId, QueryOutputBox},
+    query::{
+        cursor::{ForwardCursor, QueryId},
+        error::QueryExecutionFail,
+        QueryOutputBox,
+    },
     BatchedResponse, BatchedResponseV1, ValidationFail,
 };
 use iroha_logger::trace;
@@ -184,7 +188,7 @@ impl LiveQueryStoreHandle {
         &self,
         cursor: ForwardCursor,
     ) -> Result<BatchedResponse<QueryOutputBox>> {
-        let query_id = cursor.query_id.ok_or(UnknownCursor)?;
+        let query_id = cursor.query.ok_or(UnknownCursor)?;
         let live_query = self.remove(query_id.clone())?.ok_or(UnknownCursor)?;
 
         self.construct_query_response(query_id, cursor.cursor.map(NonZeroU64::get), live_query)
@@ -235,7 +239,7 @@ impl LiveQueryStoreHandle {
         let query_response = BatchedResponseV1 {
             batch: QueryOutputBox::Vec(batch),
             cursor: ForwardCursor {
-                query_id: Some(query_id),
+                query: Some(query_id),
                 cursor: next_cursor,
             },
         };

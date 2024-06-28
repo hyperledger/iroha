@@ -35,14 +35,14 @@ fn main(_owner: AccountId) {
 
     Register::asset_definition(AssetDefinition::new(
         time_id.clone(),
-        AssetValueType::Numeric(NumericSpec::default()),
+        AssetType::Numeric(NumericSpec::default()),
     ))
     .execute()
     .dbg_unwrap();
 
     Register::asset_definition(AssetDefinition::new(
         space_id.clone(),
-        AssetValueType::Numeric(NumericSpec::default()),
+        AssetType::Numeric(NumericSpec::default()),
     ))
     .execute()
     .dbg_unwrap();

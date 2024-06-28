@@ -14,13 +14,13 @@ class AssetDefinition:
     :type name: str
     :param domain: The domain of the asset definition.
     :type domain: str
-    :param value_type: The value type of the asset definition.
-    :type value_type: str
+    :param type_: The value type of the asset definition.
+    :type type_: str
     """
 
     name: str
     domain: str
-    value_type: str
+    type_: str
 
     def __repr__(self):
         return f"{self.name}#{self.domain}"

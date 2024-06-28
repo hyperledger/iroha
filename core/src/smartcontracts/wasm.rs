@@ -12,7 +12,7 @@ use iroha_data_model::{
     executor::{self, ExecutorDataModel, MigrationResult},
     isi::InstructionBox,
     prelude::*,
-    query::{QueryBox, QueryId, QueryOutputBox, QueryRequest, SmartContractQuery},
+    query::{cursor::QueryId, QueryBox, QueryOutputBox, QueryRequest, SmartContractQuery},
     smart_contract::payloads::{self, Validate},
     BatchedResponse, Level as LogLevel, ValidationFail,
 };
@@ -812,7 +812,7 @@ where
                 }?;
                 match &batched {
                     BatchedResponse::V1(batched) => {
-                        if let Some(query_id) = &batched.cursor.query_id {
+                        if let Some(query_id) = &batched.cursor.query {
                             state.executed_queries.insert(query_id.clone());
                         }
                     }
@@ -822,7 +822,7 @@ where
             QueryRequest::Cursor(cursor) => {
                 // In a normal situation we already have this `query_id` stored,
                 // so that's a protection from malicious smart contract
-                if let Some(query_id) = &cursor.query_id {
+                if let Some(query_id) = &cursor.query {
                     state.executed_queries.insert(query_id.clone());
                 }
                 state

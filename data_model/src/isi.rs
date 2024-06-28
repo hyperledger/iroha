@@ -1235,7 +1235,7 @@ pub mod error {
     pub use self::model::*;
     use super::InstructionType;
     use crate::{
-        asset::AssetValueType,
+        asset::AssetType,
         metadata,
         query::error::{FindError, QueryExecutionFail},
         IdBox,
@@ -1373,18 +1373,12 @@ pub mod error {
         #[ffi_type]
         pub enum TypeError {
             /// Asset Ids correspond to assets with different underlying types, {0}
-            AssetValueType(#[cfg_attr(feature = "std", source)] Mismatch<AssetValueType>),
+            AssetType(#[cfg_attr(feature = "std", source)] Mismatch<AssetType>),
             /// Numeric asset value type was expected, received: {0}
-            NumericAssetValueTypeExpected(
+            NumericAssetTypeExpected(
                 #[skip_from]
                 #[skip_try_from]
-                AssetValueType,
-            ),
-            /// Store asset value type was expected, received: {0}
-            StoreAssetValueTypeExpected(
-                #[skip_from]
-                #[skip_try_from]
-                AssetValueType,
+                AssetType,
             ),
         }
 
@@ -1483,7 +1477,7 @@ pub mod error {
             TimeTriggerInThePast,
         }
 
-        /// Repetition of of `{instruction_type}` for id `{id}`
+        /// Repetition of of `{instruction}` for id `{id}`
         #[derive(
             Debug,
             displaydoc::Display,
@@ -1502,7 +1496,7 @@ pub mod error {
         #[ffi_type]
         pub struct RepetitionError {
             /// Instruction type
-            pub instruction_type: InstructionType,
+            pub instruction: InstructionType,
             /// Id of the object being repeated
             pub id: IdBox,
         }

@@ -93,13 +93,13 @@ def GIVEN_currently_authorized_account():
 
 @pytest.fixture()
 def GIVEN_currently_account_quantity_with_two_quantity_of_asset(
-    GIVEN_currently_authorized_account, GIVEN_numeric_value_type, GIVEN_fake_asset_name
+    GIVEN_currently_authorized_account, GIVEN_numeric_type, GIVEN_fake_asset_name
 ):
     """Fixture to get the currently authorized account asset"""
     asset_def = AssetDefinition(
         name=GIVEN_fake_asset_name,
         domain=GIVEN_currently_authorized_account.domain,
-        value_type=GIVEN_numeric_value_type,
+        type_=GIVEN_numeric_type,
     )
     asset = Asset(
         definition=asset_def, value="2", account=GIVEN_currently_authorized_account
@@ -112,26 +112,26 @@ def GIVEN_currently_account_quantity_with_two_quantity_of_asset(
         client_cli.register().asset().definition(
             asset=asset.definition.name,
             domain=asset.definition.domain,
-            value_type=asset.definition.value_type,
+            type_=asset.definition.type_,
         )
         client_cli.mint().asset(
             account=GIVEN_currently_authorized_account,
             asset_definition=asset.definition,
-            value_of_value_type=asset.value,
+            value_of_type=asset.value,
         )
     return asset
 
 
 @pytest.fixture()
 def GIVEN_numeric_asset_for_account(
-    request, GIVEN_numeric_value_type, GIVEN_fake_asset_name, GIVEN_numeric_value
+    request, GIVEN_numeric_type, GIVEN_fake_asset_name, GIVEN_numeric_value
 ):
     """Fixture to get an asset for a given account and domain with specified quantity."""
     account, domain = request.param.split("@")
     account = Account(signatory=account, domain=domain)
 
     asset_def = AssetDefinition(
-        name=GIVEN_fake_asset_name, domain=domain, value_type=GIVEN_numeric_value_type
+        name=GIVEN_fake_asset_name, domain=domain, type_=GIVEN_numeric_type
     )
     asset = Asset(
         definition=asset_def, value=GIVEN_numeric_value, account=account.signatory
@@ -143,26 +143,26 @@ def GIVEN_numeric_asset_for_account(
         client_cli.register().asset().definition(
             asset=asset.definition.name,
             domain=asset.definition.domain,
-            value_type=asset.definition.value_type,
+            type_=asset.definition.type_,
         )
         client_cli.mint().asset(
             account=account,
             asset_definition=asset.definition,
-            value_of_value_type=asset.value,
+            value_of_type=asset.value,
         )
 
     return asset
 
 
 @pytest.fixture()
-def GIVEN_registered_asset_definition_with_numeric_value_type(
-    GIVEN_registered_domain, GIVEN_numeric_value_type, GIVEN_fake_asset_name
+def GIVEN_registered_asset_definition_with_numeric_type(
+    GIVEN_registered_domain, GIVEN_numeric_type, GIVEN_fake_asset_name
 ):
     """Fixture to create and register an asset definition with numeric value type."""
     asset_def = AssetDefinition(
         name=GIVEN_fake_asset_name,
         domain=GIVEN_registered_domain.name,
-        value_type=GIVEN_numeric_value_type,
+        type_=GIVEN_numeric_type,
     )
     with allure.step(
         f'GIVEN the asset_definition "{GIVEN_fake_asset_name}" '
@@ -171,14 +171,14 @@ def GIVEN_registered_asset_definition_with_numeric_value_type(
         client_cli.register().asset().definition(
             asset=asset_def.name,
             domain=asset_def.domain,
-            value_type=asset_def.value_type,
+            type_=asset_def.type_,
         )
     return asset_def
 
 
 @pytest.fixture()
 def GIVEN_minted_asset_quantity(
-    GIVEN_registered_asset_definition_with_numeric_value_type,
+    GIVEN_registered_asset_definition_with_numeric_type,
     GIVEN_registered_account,
     GIVEN_numeric_value,
 ):
@@ -187,26 +187,26 @@ def GIVEN_minted_asset_quantity(
     """
     asset = Asset(
         account=GIVEN_registered_account,
-        definition=GIVEN_registered_asset_definition_with_numeric_value_type,
+        definition=GIVEN_registered_asset_definition_with_numeric_type,
         value=GIVEN_numeric_value,
     )
     client_cli.mint().asset(
         account=asset.account,
         asset_definition=asset.definition,
-        value_of_value_type=asset.value,
+        value_of_type=asset.value,
     )
     return asset
 
 
 @pytest.fixture()
-def GIVEN_registered_asset_definition_with_store_value_type(
-    GIVEN_registered_domain, GIVEN_store_value_type, GIVEN_fake_asset_name
+def GIVEN_registered_asset_definition_with_store_type(
+    GIVEN_registered_domain, GIVEN_store_type, GIVEN_fake_asset_name
 ):
     """Fixture to create and register an asset definition with store value type."""
     asset_def = AssetDefinition(
         name=GIVEN_fake_asset_name,
         domain=GIVEN_registered_domain.name,
-        value_type=GIVEN_store_value_type,
+        type_=GIVEN_store_type,
     )
     with allure.step(
         f'GIVEN the asset_definition "{GIVEN_fake_asset_name}" '
@@ -215,7 +215,7 @@ def GIVEN_registered_asset_definition_with_store_value_type(
         client_cli.register().asset().definition(
             asset=asset_def.name,
             domain=asset_def.domain,
-            value_type=asset_def.value_type,
+            type=asset_def.type,
         )
     return asset_def
 
@@ -290,19 +290,19 @@ def GIVEN_key_with_invalid_character_in_key(
 
 
 @pytest.fixture()
-def GIVEN_numeric_value_type():
+def GIVEN_numeric_type():
     """Fixture to provide a numeric value type."""
-    value_type = ValueTypes.NUMERIC.value
-    with allure.step(f'GIVEN a "{value_type}" value type'):
-        return value_type
+    type_ = ValueTypes.NUMERIC.value
+    with allure.step(f'GIVEN a "{type_}" value type'):
+        return type_
 
 
 @pytest.fixture()
-def GIVEN_store_value_type():
+def GIVEN_store_type():
     """Fixture to provide a store value type."""
-    value_type = ValueTypes.STORE.value
-    with allure.step(f'GIVEN a "{value_type}" value type'):
-        return value_type
+    type_ = ValueTypes.STORE.value
+    with allure.step(f'GIVEN a "{type_}" value type'):
+        return type_
 
 
 @pytest.fixture()

@@ -73,6 +73,7 @@ impl IntoIterator for MetaMap {
     }
 }
 
+// TODO: Should be &str or ConstString.
 /// Identifier of the type
 pub type Ident = String;
 
@@ -82,14 +83,12 @@ pub type Ident = String;
 /// is devised that can prove that all impls are unique
 pub trait TypeId: 'static {
     /// Return unique type id
-    // TODO: Should return &str or ConstString.
     fn id() -> Ident;
 }
 
 /// `IntoSchema` trait
 pub trait IntoSchema: TypeId {
     /// Name under which a type is represented in the schema
-    // TODO: Should return &str or ConstString.
     fn type_name() -> Ident;
 
     /// Insert descriptions of types referenced by [`Self`]

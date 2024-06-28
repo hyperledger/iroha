@@ -41,7 +41,7 @@ def test_burn_asset_for_account_in_same_domain(
 @allure.label("permission", "can_burn_assets_with_definition")
 @pytest.mark.xfail(reason="TO DO")
 def test_burn_other_user_asset(
-    GIVEN_registered_asset_definition_with_numeric_value_type,
+    GIVEN_registered_asset_definition_with_numeric_type,
     GIVEN_registered_account,
     GIVEN_numeric_value,
 ):

@@ -12,7 +12,7 @@ def story_client_change_account_metadata():
 def test_set_key_value_in_foreign_asset_after_granting_role(
     GIVEN_currently_authorized_account,
     GIVEN_registered_account,
-    GIVEN_registered_asset_definition_with_store_value_type,
+    GIVEN_registered_asset_definition_with_store_type,
 ):
     assert 0
 
@@ -22,6 +22,6 @@ def test_set_key_value_in_foreign_asset_after_granting_role(
 def test_set_key_value_pair_for_another_account_asset_definition(
     GIVEN_currently_authorized_account,
     GIVEN_registered_account,
-    GIVEN_registered_asset_definition_with_store_value_type,
+    GIVEN_registered_asset_definition_with_store_type,
 ):
     assert 0

@@ -168,7 +168,7 @@ mod pending {
                     .collect::<MerkleTree<_>>()
                     .hash()
                     .expect("INTERNAL BUG: Empty block created"),
-                timestamp_ms: SystemTime::now()
+                creation_time_ms: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .expect("INTERNAL BUG: Failed to get the current system time")
                     .as_millis()
@@ -645,7 +645,7 @@ mod valid {
                     transactions_hash: HashOf::from_untyped_unchecked(Hash::prehashed(
                         [1; Hash::LENGTH],
                     )),
-                    timestamp_ms: 0,
+                    creation_time_ms: 0,
                     view_change_index: 0,
                     consensus_estimation_ms: 4_000,
                 },
