@@ -8,7 +8,7 @@ extern crate panic_halt;
 
 use alloc::borrow::ToOwned as _;
 
-use iroha_executor::{prelude::*, DataModelBuilder};
+use iroha_executor::{debug::dbg_panic, prelude::*, DataModelBuilder};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
@@ -28,14 +28,13 @@ pub struct Executor {
 }
 
 impl Executor {
-    fn ensure_genesis(block_height: u64) -> MigrationResult {
+    fn ensure_genesis(block_height: u64) {
         if block_height != 0 {
-            return Err("Default Executor is intended to be used only in genesis. \
-                 Write your own executor if you need to upgrade executor on existing chain."
-                .to_owned());
+            dbg_panic(
+                "Default Executor is intended to be used only in genesis. \
+                 Write your own executor if you need to upgrade executor on existing chain.",
+            );
         }
-
-        Ok(())
     }
 }
 
@@ -49,10 +48,7 @@ impl Executor {
 /// If `migrate()` entrypoint fails then the whole `Upgrade` instruction
 /// will be denied and previous executor will stay unchanged.
 #[entrypoint]
-fn migrate(block_height: u64) -> MigrationResult {
-    Executor::ensure_genesis(block_height)?;
-
+fn migrate(block_height: u64) {
+    Executor::ensure_genesis(block_height);
     DataModelBuilder::with_default_permissions().build_and_set();
-
-    Ok(())
 }

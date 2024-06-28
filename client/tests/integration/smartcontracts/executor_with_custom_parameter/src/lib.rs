@@ -9,6 +9,7 @@ use alloc::format;
 
 use executor_custom_data_model::parameters::DomainLimits;
 use iroha_executor::{prelude::*, DataModelBuilder};
+use iroha_executor_data_model::parameter::Parameter;
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
@@ -42,10 +43,8 @@ fn visit_register_domain(executor: &mut Executor, _authority: &AccountId, isi: &
 }
 
 #[entrypoint]
-fn migrate(_block_height: u64) -> MigrationResult {
+fn migrate(_block_height: u64) {
     DataModelBuilder::with_default_permissions()
         .add_parameter(DomainLimits::default())
         .build_and_set();
-
-    Ok(())
 }

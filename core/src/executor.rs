@@ -39,17 +39,6 @@ impl From<wasm::error::Error> for ValidationFail {
     }
 }
 
-/// Error used in [`migrate()`](Executor::migrate).
-#[derive(Debug, thiserror::Error)]
-pub enum MigrationError {
-    /// Error during WASM blob loading or runtime preparation.
-    #[error("WASM error: {0}")]
-    Wasm(#[from] wasm::error::Error),
-    /// Error returned by entrypoint during execution.
-    #[error("Entrypoint returned error: {0}")]
-    EntrypointExecution(data_model_executor::MigrationError),
-}
-
 /// Executor that verifies that operation is valid and executes it.
 ///
 /// Executing is done in order to verify dependent instructions in transaction.
@@ -250,7 +239,7 @@ impl Executor {
         raw_executor: data_model_executor::Executor,
         state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
-    ) -> Result<(), MigrationError> {
+    ) -> Result<(), wasm::error::Error> {
         trace!("Running executor migration");
 
         let loaded_executor = LoadedExecutor::load(state_transaction.engine, raw_executor)?;
@@ -260,9 +249,11 @@ impl Executor {
             .with_config(state_transaction.world().parameters().executor)
             .build()?;
 
-        runtime
-            .execute_executor_migration(state_transaction, authority, &loaded_executor.module)?
-            .map_err(MigrationError::EntrypointExecution)?;
+        runtime.execute_executor_migration(
+            state_transaction,
+            authority,
+            &loaded_executor.module,
+        )?;
 
         *self = Self::UserProvided(loaded_executor);
         Ok(())

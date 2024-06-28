@@ -18,44 +18,34 @@ iroha_core = { version = "=2.0.0-pre-rc.21 ", path = "core" }
 
 irohad = { version = "=2.0.0-pre-rc.21", path = "cli" }
 iroha_torii = { version = "=2.0.0-pre-rc.21", path = "torii" }
-iroha_torii_derive = { version = "=2.0.0-pre-rc.21", path = "torii/derive" }
 iroha_torii_const = { version = "=2.0.0-pre-rc.21", path = "torii/const" }
 
 iroha = { version = "=2.0.0-pre-rc.21", path = "client" }
 
 iroha_macro_utils = { version = "=2.0.0-pre-rc.21", path = "macro/utils" }
 iroha_telemetry = { version = "=2.0.0-pre-rc.21", path = "telemetry" }
-iroha_telemetry_derive = { version = "=2.0.0-pre-rc.21", path = "telemetry/derive" }
 iroha_p2p = { version = "=2.0.0-pre-rc.21", path = "p2p" }
 iroha_primitives = { version = "=2.0.0-pre-rc.21", path = "primitives", default-features = false }
-iroha_primitives_derive = { version = "=2.0.0-pre-rc.21", path = "primitives/derive" }
 iroha_data_model = { version = "=2.0.0-pre-rc.21", path = "data_model", default-features = false }
-iroha_data_model_derive = { version = "=2.0.0-pre-rc.21", path = "data_model/derive" }
 iroha_config = { version = "=2.0.0-pre-rc.21", path = "config" }
 iroha_config_base = { version = "=2.0.0-pre-rc.21", path = "config/base" }
-iroha_config_base_derive = { version = "=2.0.0-pre-rc.21", path = "config/base/derive" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.21", path = "schema/gen" }
 iroha_schema = { version = "=2.0.0-pre-rc.21", path = "schema", default-features = false }
-iroha_schema_derive = { version = "=2.0.0-pre-rc.21", path = "schema/derive" }
 iroha_logger = { version = "=2.0.0-pre-rc.21", path = "logger" }
 iroha_crypto = { version = "=2.0.0-pre-rc.21", path = "crypto", default-features = false }
 iroha_macro = { version = "=2.0.0-pre-rc.21", path = "macro", default-features = false }
-iroha_derive = { version = "=2.0.0-pre-rc.21", path = "macro/derive" }
 iroha_futures = { version = "=2.0.0-pre-rc.21", path = "futures" }
-iroha_futures_derive = { version = "=2.0.0-pre-rc.21", path = "futures/derive" }
 iroha_genesis = { version = "=2.0.0-pre-rc.21", path = "genesis" }
 iroha_ffi = { version = "=2.0.0-pre-rc.21", path = "ffi" }
-iroha_ffi_derive = { version = "=2.0.0-pre-rc.21", path = "ffi/derive" }
 iroha_version = { version = "=2.0.0-pre-rc.21", path = "version", default-features = false }
-iroha_version_derive = { version = "=2.0.0-pre-rc.21", path = "version/derive", default-features = false }
 iroha_wasm_codec = { version = "=2.0.0-pre-rc.21", path = "wasm_codec" }
 iroha_wasm_builder = { version = "=2.0.0-pre-rc.21", path = "wasm_builder" }
 
 iroha_smart_contract = { version = "=2.0.0-pre-rc.21", path = "smart_contract" }
-iroha_smart_contract_derive = { version = "=2.0.0-pre-rc.21", path = "smart_contract/derive" }
 iroha_smart_contract_utils = { version = "=2.0.0-pre-rc.21", path = "smart_contract/utils" }
-iroha_executor_derive = { version = "=2.0.0-pre-rc.21", path = "smart_contract/executor/derive" }
-iroha_trigger_derive = { version = "=2.0.0-pre-rc.21", path = "smart_contract/trigger/derive" }
+
+iroha_executor = { version = "=2.0.0-pre-rc.21", path = "smart_contract/executor" }
+iroha_executor_data_model = { version = "=2.0.0-pre-rc.21", path = "smart_contract/executor/data_model" }
 
 test_network = { version = "=2.0.0-pre-rc.21", path = "core/test_network" }
 test_samples = { version = "=2.0.0-pre-rc.21", path = "test_samples" }
@@ -213,41 +203,53 @@ members = [
     "crypto",
     "data_model",
     "genesis",
+
+    "logger",
+    "p2p",
+
+    "futures",
+    "futures/derive",
+
     "primitives",
     "primitives/derive",
     "primitives/numeric",
+
     "ffi",
     "ffi/derive",
-    "futures",
-    "futures/derive",
-    "logger",
-    "macro",
-    "macro/derive",
-    "macro/utils",
-    "p2p",
+
     "schema",
-    "schema/derive",
     "schema/gen",
+    "schema/derive",
+
     "smart_contract",
     "smart_contract/derive",
+    "smart_contract/utils",
+
     "smart_contract/trigger",
     "smart_contract/trigger/derive",
-    "smart_contract/utils",
+
     "smart_contract/executor",
     "smart_contract/executor/derive",
+    "smart_contract/executor/data_model",
+    "smart_contract/executor/data_model/derive",
+
     "telemetry",
     "test_samples",
+
+    "tools/swarm",
     "tools/kagami",
     "tools/kura_inspector",
     "tools/parity_scale_cli",
-    "tools/swarm",
     "tools/wasm_builder_cli",
     "tools/wasm_test_runner",
+
     "torii",
     "torii/derive",
     "torii/const",
+
     "version",
     "version/derive",
+
     "wasm_codec",
     "wasm_codec/derive",
     "wasm_builder",

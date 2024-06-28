@@ -1,5 +1,6 @@
-use std::{path::Path, str::FromStr as _};
+use std::path::Path;
 
+use executor_custom_data_model::permissions::CanControlDomainLives;
 use eyre::Result;
 use futures_util::TryStreamExt as _;
 use iroha::{
@@ -9,9 +10,9 @@ use iroha::{
         prelude::*,
     },
 };
+use iroha_executor_data_model::permission::{domain::CanUnregisterDomain, Permission as _};
 use iroha_logger::info;
 use nonzero_ext::nonzero;
-use serde_json::json;
 use test_network::*;
 use test_samples::{ALICE_ID, BOB_ID};
 
@@ -75,25 +76,27 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_990).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    let can_unregister_domain_token_id = "CanUnregisterDomain";
-
     // Check that `CanUnregisterDomain` exists
     assert!(client
         .request(FindExecutorDataModel)?
         .permissions()
         .iter()
-        .any(|id| id == can_unregister_domain_token_id));
+        .any(|permission| CanUnregisterDomain::name() == *permission));
 
     // Check that Alice has permission to unregister Wonderland
     let alice_id = ALICE_ID.clone();
-    let alice_tokens = client
+    let alice_permissions = client
         .request(FindPermissionsByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
-    assert!(alice_tokens.contains(&Permission::new(
-        can_unregister_domain_token_id.parse().unwrap(),
-        json!({ "domain": DomainId::from_str("wonderland").unwrap() }),
-    )));
+    let can_unregister_domain = CanUnregisterDomain {
+        domain: "wonderland".parse()?,
+    };
+
+    assert!(alice_permissions.iter().any(|permission| {
+        CanUnregisterDomain::try_from(permission)
+            .is_ok_and(|permission| permission == can_unregister_domain)
+    }));
 
     upgrade_executor(
         &client,
@@ -102,27 +105,26 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
 
     // Check that `CanUnregisterDomain` doesn't exist
     let data_model = client.request(FindExecutorDataModel)?;
-    assert!(!data_model
+    assert!(data_model
         .permissions()
         .iter()
-        .any(|id| id == can_unregister_domain_token_id));
-
-    let can_control_domain_lives_token_id = "CanControlDomainLives";
+        .all(|permission| CanUnregisterDomain::name() != *permission));
 
     assert!(data_model
         .permissions()
         .iter()
-        .any(|id| id == can_control_domain_lives_token_id));
+        .any(|permission| CanControlDomainLives::name() == *permission));
 
-    // Check that Alice has `can_control_domain_lives` permission
-    let alice_tokens = client
+    // Check that Alice has `CanControlDomainLives` permission
+    let alice_permissions = client
         .request(FindPermissionsByAccountId::new(alice_id))?
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
-    assert!(alice_tokens.contains(&Permission::new(
-        can_control_domain_lives_token_id.parse().unwrap(),
-        json!(null),
-    )));
+    let can_control_domain_lives = CanControlDomainLives;
+    assert!(alice_permissions.iter().any(|permission| {
+        CanControlDomainLives::try_from(permission)
+            .is_ok_and(|permission| permission == can_control_domain_lives)
+    }));
 
     Ok(())
 }
@@ -133,22 +135,20 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Permission which will be removed by executor
-    let can_unregister_domain_token = Permission::new(
-        "CanUnregisterDomain".parse()?,
-        json!({ "domain": DomainId::from_str("wonderland")? }),
-    );
+    let can_unregister_domain = CanUnregisterDomain {
+        domain: "wonderland".parse()?,
+    };
 
     // Register `TEST_ROLE` with permission
     let test_role_id: RoleId = "TEST_ROLE".parse()?;
-    let test_role =
-        Role::new(test_role_id.clone()).add_permission(can_unregister_domain_token.clone());
+    let test_role = Role::new(test_role_id.clone()).add_permission(can_unregister_domain.clone());
     client.submit_blocking(Register::role(test_role))?;
 
     // Check that permission exists
     assert!(client
         .request(FindExecutorDataModel)?
         .permissions()
-        .contains(can_unregister_domain_token.name()));
+        .contains(&CanUnregisterDomain::name()));
 
     // Check that `TEST_ROLE` has permission
     assert!(client
@@ -158,14 +158,22 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
         .find(|role| role.id == test_role_id)
         .expect("Failed to find Role")
         .permissions
-        .contains(&can_unregister_domain_token));
+        .iter()
+        .any(|permission| {
+            CanUnregisterDomain::try_from(permission)
+                .is_ok_and(|permission| permission == can_unregister_domain)
+        }));
 
     // Check that Alice has permission
     let alice_id = ALICE_ID.clone();
     assert!(client
         .request(FindPermissionsByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()?
-        .contains(&can_unregister_domain_token));
+        .iter()
+        .any(|permission| {
+            CanUnregisterDomain::try_from(permission)
+                .is_ok_and(|permission| permission == can_unregister_domain)
+        }));
 
     upgrade_executor(
         &client,
@@ -176,7 +184,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
     assert!(!client
         .request(FindExecutorDataModel)?
         .permissions()
-        .contains(can_unregister_domain_token.name()));
+        .contains(&CanUnregisterDomain::name()));
 
     // Check that `TEST_ROLE` doesn't have permission
     assert!(!client
@@ -186,13 +194,21 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
         .find(|role| role.id == test_role_id)
         .expect("Failed to find Role")
         .permissions
-        .contains(&can_unregister_domain_token));
+        .iter()
+        .any(|permission| {
+            CanUnregisterDomain::try_from(permission)
+                .is_ok_and(|permission| permission == can_unregister_domain)
+        }));
 
     // Check that Alice doesn't have permission
     assert!(!client
         .request(FindPermissionsByAccountId::new(alice_id.clone()))?
         .collect::<QueryResult<Vec<_>>>()?
-        .contains(&can_unregister_domain_token));
+        .iter()
+        .any(|permission| {
+            CanUnregisterDomain::try_from(permission)
+                .is_ok_and(|permission| permission == can_unregister_domain)
+        }));
 
     Ok(())
 }

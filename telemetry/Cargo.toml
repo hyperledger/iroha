@@ -18,10 +18,11 @@ dev-telemetry = []
 metric-instrumentation = []
 
 [dependencies]
+iroha_telemetry_derive = { path = "derive" }
+
 iroha_config = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_futures = { workspace = true, features = ["telemetry"] }
-iroha_telemetry_derive = { workspace = true }
 
 async-trait = { workspace = true }
 chrono = "0.4.38"

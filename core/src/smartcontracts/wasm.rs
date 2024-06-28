@@ -8,7 +8,7 @@ use error::*;
 use import::traits::{ExecuteOperations as _, GetExecutorPayloads as _, SetDataModel as _};
 use iroha_data_model::{
     account::AccountId,
-    executor::{self, ExecutorDataModel, MigrationResult},
+    executor::{self, ExecutorDataModel},
     isi::InstructionBox,
     parameter::SmartContractParameters as Config,
     prelude::*,
@@ -1367,13 +1367,12 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::Migrate<'wrld, 'block, 'sta
     /// - if failed to instantiate provided `module`
     /// - if failed to get export function for `migrate()`
     /// - if failed to call export function
-    /// - if failed to decode [`MigrationResult`]
     pub fn execute_executor_migration(
         &self,
         state_transaction: &'wrld mut StateTransaction<'block, 'state>,
         authority: &AccountId,
         module: &wasmtime::Module,
-    ) -> Result<MigrationResult> {
+    ) -> Result<(), error::Error> {
         let span = wasm_log_span!("Running migration");
         let state = state::executor::Migrate::new(
             authority.clone(),
@@ -1388,17 +1387,11 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::Migrate<'wrld, 'block, 'sta
 
         let migrate_fn = Self::get_typed_func(&instance, &mut store, import::EXECUTOR_MIGRATE)?;
 
-        let offset = migrate_fn
+        migrate_fn
             .call(&mut store, ())
             .map_err(ExportFnCallError::from)?;
 
-        let memory =
-            Self::get_memory(&mut (&instance, &mut store)).expect("Checked at instantiation step");
-        let dealloc_fn =
-            Self::get_typed_func(&instance, &mut store, import::SMART_CONTRACT_DEALLOC)
-                .expect("Checked at instantiation step");
-        codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
-            .map_err(Error::Decode)
+        Ok(())
     }
 }
 

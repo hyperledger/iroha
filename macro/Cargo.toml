@@ -22,4 +22,4 @@ default = ["std"]
 std = []
 
 [dependencies]
-iroha_derive = { workspace = true }
+iroha_derive = { path = "derive" }

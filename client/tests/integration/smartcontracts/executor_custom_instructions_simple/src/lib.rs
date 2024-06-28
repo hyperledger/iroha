@@ -55,11 +55,9 @@ fn execute_mint_asset_for_all_accounts(isi: MintAssetForAllAccounts) -> Result<(
 }
 
 #[entrypoint]
-fn migrate(_block_height: u64) -> MigrationResult {
+fn migrate(_block_height: u64) {
     DataModelBuilder::with_default_permissions()
         .add_instruction::<CustomInstructionBox>()
         .add_instruction::<MintAssetForAllAccounts>()
         .build_and_set();
-
-    Ok(())
 }

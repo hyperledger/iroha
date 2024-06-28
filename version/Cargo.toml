@@ -25,7 +25,8 @@ json = ["serde", "serde_json"]
 http = ["std", "warp"]
 
 [dependencies]
-iroha_version_derive = { workspace = true, optional = true }
+iroha_version_derive = { path = "derive", default-features = false, optional = true }
+
 iroha_macro = { workspace = true }
 
 parity-scale-codec = { workspace = true, optional = true, features = ["derive"] }

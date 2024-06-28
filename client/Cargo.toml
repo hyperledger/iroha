@@ -51,8 +51,9 @@ tls-rustls-webpki-roots = [
 iroha_config = { workspace = true }
 iroha_config_base = { workspace = true }
 iroha_crypto = { workspace = true }
-# FIXME: should remove `transparent_api` feature?
+# FIXME: should remove `transparent_api` feature. Check the other FIXME comment in dev-dependencies
 iroha_data_model = { workspace = true, features = ["http", "transparent_api"] }
+iroha_executor_data_model = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_telemetry = { workspace = true }
@@ -82,7 +83,7 @@ toml = { workspace = true }
 nonzero_ext = { workspace = true }
 
 [dev-dependencies]
-# TODO: These three activate `transparent_api` but client should never activate this feature.
+# FIXME: These three activate `transparent_api` but client should never activate this feature.
 # Additionally there is a dependency on iroha_core in dev-dependencies in telemetry/derive
 # Hopefully, once the integration tests migration is finished these can be removed
 irohad = { workspace = true }

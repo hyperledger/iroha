@@ -6,8 +6,11 @@ use std::{
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::WrapErr as _;
 use iroha_data_model::prelude::*;
+use iroha_executor_data_model::permission::{
+    account::{CanRemoveKeyValueInAccount, CanSetKeyValueInAccount},
+    parameter::CanSetParameters,
+};
 use iroha_genesis::{GenesisBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
-use serde_json::json;
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
 
 use crate::{Outcome, RunArgs};
@@ -112,10 +115,8 @@ pub fn generate_default(
         44u32,
         AssetId::new("cabbage#garden_of_live_flowers".parse()?, ALICE_ID.clone()),
     );
-    let grant_permission_to_set_parameters = Grant::permission(
-        Permission::new("CanSetParameters".parse()?, json!(null)),
-        ALICE_ID.clone(),
-    );
+    let grant_permission_to_set_parameters =
+        Grant::account_permission(CanSetParameters, ALICE_ID.clone());
     let transfer_rose_ownership = Transfer::asset_definition(
         genesis_account_id.clone(),
         "rose#wonderland".parse()?,
@@ -128,14 +129,12 @@ pub fn generate_default(
     );
     let register_user_metadata_access: InstructionBox = Register::role(
         Role::new("ALICE_METADATA_ACCESS".parse()?)
-            .add_permission(Permission::new(
-                "CanSetKeyValueInAccount".parse()?,
-                json!({ "account": ALICE_ID.clone() }),
-            ))
-            .add_permission(Permission::new(
-                "CanRemoveKeyValueInAccount".parse()?,
-                json!({ "account": ALICE_ID.clone() }),
-            )),
+            .add_permission(CanSetKeyValueInAccount {
+                account: ALICE_ID.clone(),
+            })
+            .add_permission(CanRemoveKeyValueInAccount {
+                account: ALICE_ID.clone(),
+            }),
     )
     .into();
 
@@ -172,23 +171,20 @@ fn generate_synthetic(
 
     for domain in 0..domains {
         let domain_id: DomainId = format!("domain_{domain}").parse()?;
-        genesis.append_instruction(Register::domain(Domain::new(domain_id.clone())).into());
+        genesis.append_instruction(Register::domain(Domain::new(domain_id.clone())));
 
         for _ in 0..accounts_per_domain {
             let (account_id, _account_keypair) = gen_account_in(&domain_id);
-            genesis.append_instruction(Register::account(Account::new(account_id.clone())).into());
+            genesis.append_instruction(Register::account(Account::new(account_id.clone())));
         }
 
         for asset in 0..assets_per_domain {
             let asset_definition_id: AssetDefinitionId =
                 format!("asset_{asset}#{domain_id}").parse()?;
-            genesis.append_instruction(
-                Register::asset_definition(AssetDefinition::new(
-                    asset_definition_id,
-                    AssetType::Numeric(NumericSpec::default()),
-                ))
-                .into(),
-            );
+            genesis.append_instruction(Register::asset_definition(AssetDefinition::new(
+                asset_definition_id,
+                AssetType::Numeric(NumericSpec::default()),
+            )));
         }
     }
 
@@ -203,8 +199,7 @@ fn generate_synthetic(
                         format!("asset_{asset}#domain_{domain}").parse()?,
                         format!("account_{account}@domain_{domain}").parse()?,
                     ),
-                )
-                .into();
+                );
                 genesis.append_instruction(mint);
             }
         }

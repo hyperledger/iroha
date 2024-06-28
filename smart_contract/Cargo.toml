@@ -15,10 +15,11 @@ workspace = true
 debug = ["iroha_smart_contract_utils/debug"]
 
 [dependencies]
-iroha_data_model.workspace = true
+iroha_smart_contract_derive = { path = "derive" }
+
 iroha_macro.workspace = true
+iroha_data_model.workspace = true
 iroha_smart_contract_utils.workspace = true
-iroha_smart_contract_derive.workspace = true
 
 parity-scale-codec.workspace = true
 derive_more.workspace = true

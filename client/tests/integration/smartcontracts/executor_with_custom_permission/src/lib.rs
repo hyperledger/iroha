@@ -1,12 +1,12 @@
 //! Runtime Executor which allows domain (un-)registration only for users who own
-//! [`token::CanControlDomainLives`] permission token.
+//! [`CanControlDomainLives`] permission token.
 //!
 //! This executor should be applied on top of the blockchain with default validation.
 //!
-//! It also doesn't have [`iroha_executor::default::permissions::domain::CanUnregisterDomain`].
+//! It also doesn't have [`CanUnregisterDomain`].
 //!
-//! In migration it replaces [`iroha_executor::default::permissions::domain::CanUnregisterDomain`]
-//! with [`token::CanControlDomainLives`] for all accounts.
+//! In migration it replaces [`CanUnregisterDomain`]
+//! with [`CanControlDomainLives`] for all accounts.
 //! So it doesn't matter which domain user was able to unregister before migration, they will
 //! get access to control all domains. Remember that this is just a test example.
 
@@ -16,133 +16,67 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use alloc::string::String;
-
-use anyhow::anyhow;
-use iroha_executor::{prelude::*, DataModelBuilder};
-use iroha_schema::IntoSchema;
+use executor_custom_data_model::permissions::CanControlDomainLives;
+use iroha_executor::{
+    data_model::prelude::*, permission::ExecutorPermision as _, prelude::*, DataModelBuilder,
+};
+use iroha_executor_data_model::permission::domain::CanUnregisterDomain;
 use lol_alloc::{FreeListAllocator, LockedAllocator};
-use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
 getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 
-use alloc::format;
-
-mod token {
-    //! Module with custom token.
-
-    use super::*;
-
-    /// Token to identify if user can (un-)register domains.
-    #[derive(
-        PartialEq,
-        Eq,
-        Permission,
-        ValidateGrantRevoke,
-        Decode,
-        Encode,
-        IntoSchema,
-        Serialize,
-        Deserialize,
-    )]
-    #[validate(iroha_executor::permission::OnlyGenesis)]
-    pub struct CanControlDomainLives;
-}
-
 #[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
-#[visit(custom(visit_register_domain, visit_unregister_domain))]
+#[visit(custom(
+    visit_register_domain,
+    visit_unregister_domain,
+
+    // FIXME: Don't derive manually (https://github.com/hyperledger/iroha/issues/3834)
+    visit_grant_role_permission,
+    visit_grant_role_permission,
+    visit_revoke_role_permission,
+    visit_revoke_role_permission
+))]
 struct Executor {
     verdict: Result,
     block_height: u64,
 }
 
 impl Executor {
-    fn get_all_accounts_with_can_unregister_domain_permission(
-    ) -> Result<Vec<Account>, MigrationError> {
-        let accounts = FindAllAccounts.execute().map_err(|error| {
-            format!("{:?}", anyhow!(error).context("Failed to get all accounts"))
-        })?;
+    fn get_all_accounts_with_can_unregister_domain_permission() -> impl Iterator<Item = Account> {
+        FindAllAccounts
+            .execute()
+            .expect("INTERNAL BUG: Failed to execute `FindAllAccounts`")
+            .into_iter()
+            .filter_map(|res| {
+                let account = res.dbg_unwrap();
 
-        let mut found_accounts = Vec::new();
-
-        for account in accounts {
-            let account = account.map_err(|error| {
-                format!("{:?}", anyhow!(error).context("Failed to get account"))
-            })?;
-            let permissions = FindPermissionsByAccountId::new(account.id().clone())
-                .execute()
-                .map_err(|error| {
-                    format!(
-                        "{:?}",
-                        anyhow!(error).context(format!(
-                            "Failed to get permissions for account `{}`",
-                            account.id()
-                        ))
-                    )
-                })?;
-
-            for token in permissions {
-                let token = token.map_err(|error| {
-                    format!(
-                        "{:?}",
-                        anyhow!(error).context("Failed to get permission token")
-                    )
-                })?;
-
-                if iroha_executor::default::permissions::domain::CanUnregisterDomain::try_from(
-                    &token,
-                )
-                .is_ok()
+                if FindPermissionsByAccountId::new(account.id().clone())
+                    .execute()
+                    .expect("INTERNAL BUG: Failed to execute `FindPermissionsByAccountId`")
+                    .into_iter()
+                    .filter_map(|res| {
+                        let permission = res.dbg_unwrap();
+                        CanUnregisterDomain::try_from(&permission).ok()
+                    })
+                    .next()
+                    .is_some()
                 {
-                    found_accounts.push(account);
-                    break;
+                    return Some(account);
                 }
-            }
-        }
 
-        Ok(found_accounts)
+                None
+            })
     }
 
-    fn replace_token(accounts: &[Account]) -> MigrationResult {
-        let can_unregister_domain_definition_id =
-            iroha_executor::default::permissions::domain::CanUnregisterDomain::name();
-
-        let can_control_domain_lives_definition_id = token::CanControlDomainLives::name();
-
-        accounts
-            .iter()
-            .try_for_each(|account| {
-                Grant::permission(
-                    Permission::new(can_control_domain_lives_definition_id.clone(), json!(null)),
-                    account.id().clone(),
-                )
+    fn replace_token(accounts: &[Account]) {
+        for account in accounts {
+            Grant::account_permission(CanControlDomainLives, account.id().clone())
                 .execute()
-                .map_err(|error| {
-                    format!(
-                        "{:?}",
-                        anyhow!(error).context(format!(
-                            "Failed to grant `{}` token from account `{}`",
-                            can_control_domain_lives_definition_id,
-                            account.id()
-                        ))
-                    )
-                })
-            })
-            .map_err(|error| {
-                iroha_executor::log::error!(&error);
-                format!(
-                    "{:?}",
-                    anyhow!(error).context(format!(
-                        "Failed to replace `{}` token with `{}` for accounts",
-                        can_unregister_domain_definition_id, can_control_domain_lives_definition_id,
-                    ))
-                )
-            })
+                .dbg_unwrap();
+        }
     }
 }
 
@@ -150,7 +84,7 @@ fn visit_register_domain(executor: &mut Executor, authority: &AccountId, isi: &R
     if executor.block_height() == 0 {
         execute!(executor, isi);
     }
-    if token::CanControlDomainLives.is_owned_by(authority) {
+    if CanControlDomainLives.is_owned_by(authority) {
         execute!(executor, isi);
     }
 
@@ -168,21 +102,82 @@ fn visit_unregister_domain(
     if executor.block_height() == 0 {
         execute!(executor, isi);
     }
-    if token::CanControlDomainLives.is_owned_by(authority) {
+    if CanControlDomainLives.is_owned_by(authority) {
         execute!(executor, isi);
     }
 
     deny!(executor, "You don't have permission to unregister domain");
 }
 
+pub fn visit_grant_role_permission<V: Validate + Visit + ?Sized>(
+    executor: &mut V,
+    authority: &AccountId,
+    isi: &Grant<Permission, Role>,
+) {
+    let role_id = isi.destination().clone();
+
+    if let Ok(permission) = CanControlDomainLives::try_from(isi.object()) {
+        let isi = Grant::role_permission(permission, role_id);
+        execute!(executor, isi);
+    }
+
+    iroha_executor::default::visit_grant_role_permission(executor, authority, isi)
+}
+
+pub fn visit_revoke_role_permission<V: Validate + Visit + ?Sized>(
+    executor: &mut V,
+    authority: &AccountId,
+    isi: &Revoke<Permission, Role>,
+) {
+    let role_id = isi.destination().clone();
+
+    if let Ok(permission) = CanControlDomainLives::try_from(isi.object()) {
+        let isi = Revoke::role_permission(permission, role_id);
+        execute!(executor, isi);
+    }
+
+    iroha_executor::default::visit_revoke_role_permission(executor, authority, isi)
+}
+
+pub fn visit_grant_account_permission<V: Validate + Visit + ?Sized>(
+    executor: &mut V,
+    authority: &AccountId,
+    isi: &Grant<Permission, Account>,
+) {
+    let account_id = isi.destination().clone();
+
+    if let Ok(permission) = CanControlDomainLives::try_from(isi.object()) {
+        let isi = Grant::account_permission(permission, account_id);
+        execute!(executor, isi);
+    }
+
+    iroha_executor::default::visit_grant_account_permission(executor, authority, isi)
+}
+
+pub fn visit_revoke_account_permission<V: Validate + Visit + ?Sized>(
+    executor: &mut V,
+    authority: &AccountId,
+    isi: &Revoke<Permission, Account>,
+) {
+    let account_id = isi.destination().clone();
+
+    if let Ok(permission) = CanControlDomainLives::try_from(isi.object()) {
+        let isi = Revoke::account_permission(permission, account_id);
+        execute!(executor, isi);
+    }
+
+    iroha_executor::default::visit_revoke_account_permission(executor, authority, isi)
+}
+
 #[entrypoint]
-pub fn migrate(_block_height: u64) -> MigrationResult {
-    let accounts = Executor::get_all_accounts_with_can_unregister_domain_permission()?;
+pub fn migrate(_block_height: u64) {
+    let accounts =
+        Executor::get_all_accounts_with_can_unregister_domain_permission().collect::<Vec<_>>();
 
     DataModelBuilder::with_default_permissions()
-        .remove_permission::<iroha_executor::default::permissions::domain::CanUnregisterDomain>()
-        .add_permission::<token::CanControlDomainLives>()
+        .remove_permission::<CanUnregisterDomain>()
+        .add_permission::<CanControlDomainLives>()
         .build_and_set();
 
-    Executor::replace_token(&accounts)
+    Executor::replace_token(&accounts);
 }

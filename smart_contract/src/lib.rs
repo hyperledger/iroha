@@ -78,42 +78,6 @@ pub fn stub_getrandom(_dest: &mut [u8]) -> Result<(), getrandom::Error> {
     unimplemented!("{ERROR_MESSAGE}")
 }
 
-/// Returns the annotated type of value parsed from the given expression, or fails with [`dbg_expect`](debug::DebugExpectExt::dbg_expect) message.
-/// Panics if the internal parsing fails.
-///
-/// # Examples
-///
-/// FIXME `cargo test --all-features -p iroha_smart_contract --doc -- parse`
-/// ```ignore
-/// use iroha_smart_contract::{parse, prelude::*};
-///
-/// let from_literal = parse!(DomainId, "wonderland");
-/// let expr = "wonderland";
-/// // Although "expr" would be less informative in debug message
-/// let from_expr = parse!(DomainId, expr);
-/// ```
-#[macro_export]
-macro_rules! parse {
-    (_, $e:expr) => {
-        compile_error!(
-            "Don't use `_` as a type in this macro, \
-             otherwise panic message would be less informative"
-        )
-    };
-    ($t:ty, $e:expr) => {
-        $crate::debug::DebugExpectExt::dbg_expect(
-            $e.parse::<$t>(),
-            concat!(
-                "Failed to parse `",
-                stringify!($e),
-                "` as `",
-                stringify!($t),
-                "`"
-            ),
-        )
-    };
-}
-
 /// Implementing instructions can be executed on the host
 pub trait ExecuteOnHost {
     /// Execute instruction on the host

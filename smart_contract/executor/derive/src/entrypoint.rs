@@ -137,11 +137,6 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
     } = fn_item;
     let fn_name = &sig.ident;
 
-    assert!(
-        matches!(sig.output, syn::ReturnType::Type(_, _)),
-        "Executor `migrate()` entrypoint must have `MigrationResult` return type"
-    );
-
     let migrate_fn_name = syn::Ident::new(export::EXECUTOR_MIGRATE, proc_macro2::Span::call_site());
 
     quote! {
@@ -152,12 +147,9 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         /// This function transfers the ownership of allocated [`Vec`](alloc::vec::Vec).
         #[no_mangle]
         #[doc(hidden)]
-        unsafe extern "C" fn #migrate_fn_name() -> *const u8 {
+        unsafe extern "C" fn #migrate_fn_name() {
             let payload = ::iroha_executor::get_migrate_payload();
-            let res: ::iroha_executor::data_model::executor::MigrationResult = #fn_name(payload.block_height);
-            let bytes = ::core::mem::ManuallyDrop::new(::iroha_executor::utils::encode_with_length_prefix(&res));
-
-            ::core::mem::ManuallyDrop::new(bytes).as_ptr()
+            #fn_name(payload.block_height);
         }
 
         // NOTE: False positive

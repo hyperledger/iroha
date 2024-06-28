@@ -9,8 +9,11 @@ use iroha::{
         transaction::error::TransactionRejectionReason,
     },
 };
+use iroha_executor_data_model::permission::{
+    asset::{CanSetKeyValueInUserAsset, CanTransferUserAsset},
+    domain::CanSetKeyValueInDomain,
+};
 use iroha_genesis::GenesisBlock;
-use serde_json::json;
 use test_network::{PeerBuilder, *};
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 
@@ -21,7 +24,7 @@ fn genesis_transactions_are_validated_by_executor() {
     let asset_definition_id = "xor#wonderland".parse().expect("Valid");
     let invalid_instruction =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
-    let genesis = GenesisBlock::test_with_instructions([invalid_instruction.into()], vec![]);
+    let genesis = GenesisBlock::test_with_instructions([invalid_instruction], vec![]);
 
     let (_rt, _peer, test_client) = <PeerBuilder>::new()
         .with_genesis(genesis)
@@ -231,13 +234,11 @@ fn permissions_differ_not_only_by_names() {
 
     // Granting permission to Alice to modify metadata in Mouse's hats
     let mouse_hat_id = AssetId::new(hat_definition_id, mouse_id.clone());
-    let allow_alice_to_set_key_value_in_hats = Grant::permission(
-        Permission::new(
-            "CanSetKeyValueInUserAsset".parse().unwrap(),
-            json!({ "asset": mouse_hat_id }),
-        ),
-        alice_id.clone(),
-    );
+    let mouse_hat_permission = CanSetKeyValueInUserAsset {
+        asset: mouse_hat_id.clone(),
+    };
+    let allow_alice_to_set_key_value_in_hats =
+        Grant::account_permission(mouse_hat_permission, alice_id.clone());
 
     let grant_hats_access_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
         .with_instructions([allow_alice_to_set_key_value_in_hats])
@@ -266,14 +267,11 @@ fn permissions_differ_not_only_by_names() {
         .submit_blocking(set_shoes_color.clone())
         .expect_err("Expected Alice to fail to modify Mouse's shoes");
 
-    // Granting permission to Alice to modify metadata in Mouse's shoes
-    let allow_alice_to_set_key_value_in_shoes = Grant::permission(
-        Permission::new(
-            "CanSetKeyValueInUserAsset".parse().unwrap(),
-            json!({ "asset": mouse_shoes_id }),
-        ),
-        alice_id,
-    );
+    let mouse_shoes_permission = CanSetKeyValueInUserAsset {
+        asset: mouse_shoes_id,
+    };
+    let allow_alice_to_set_key_value_in_shoes =
+        Grant::account_permission(mouse_shoes_permission, alice_id);
 
     let grant_shoes_access_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([allow_alice_to_set_key_value_in_shoes])
@@ -291,7 +289,7 @@ fn permissions_differ_not_only_by_names() {
 
 #[test]
 #[allow(deprecated)]
-fn stored_vs_granted_token_payload() -> Result<()> {
+fn stored_vs_granted_permission_payload() -> Result<()> {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
@@ -316,13 +314,13 @@ fn stored_vs_granted_token_payload() -> Result<()> {
 
     // Allow alice to mint mouse asset and mint initial value
     let value_json = JsonString::from_string_unchecked(format!(
-        // Introducing some whitespaces
-        // This way, if the executor compares just JSON strings, this test would fail
+        // NOTE: Permissions is created explicitly as a json string to introduce additional whitespace
+        // This way, if the executor compares permissions just as JSON strings, the test will fail
         r##"{{ "asset"   :   "xor#wonderland#{mouse_id}" }}"##
     ));
 
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
-    let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission(
+    let allow_alice_to_set_key_value_in_mouse_asset = Grant::account_permission(
         Permission::new("CanSetKeyValueInUserAsset".parse().unwrap(), value_json),
         alice_id,
     );
@@ -356,26 +354,19 @@ fn permissions_are_unified() {
     // Given
     let alice_id = ALICE_ID.clone();
 
-    let allow_alice_to_transfer_rose_1 = Grant::permission(
-        Permission::new(
-            "CanTransferUserAsset".parse().unwrap(),
-            json!({ "asset": format!("rose#wonderland#{alice_id}") }),
-        ),
-        alice_id.clone(),
-    );
+    let permission1 = CanTransferUserAsset {
+        asset: format!("rose#wonderland#{alice_id}").parse().unwrap(),
+    };
+    let allow_alice_to_transfer_rose_1 = Grant::account_permission(permission1, alice_id.clone());
 
-    let allow_alice_to_transfer_rose_2 = Grant::permission(
-        Permission::new(
-            "CanTransferUserAsset".parse().unwrap(),
-            // different content, but same meaning
-            json!({ "asset": format!("rose##{alice_id}") }),
-        ),
-        alice_id,
-    );
+    let permission2 = CanTransferUserAsset {
+        asset: format!("rose##{alice_id}").parse().unwrap(),
+    };
+    let allow_alice_to_transfer_rose_2 = Grant::account_permission(permission2, alice_id);
 
     iroha
         .submit_blocking(allow_alice_to_transfer_rose_1)
-        .expect("failed to grant permission token");
+        .expect("failed to grant permission");
 
     let _ = iroha
         .submit_blocking(allow_alice_to_transfer_rose_2)
@@ -393,12 +384,11 @@ fn associated_permissions_removed_on_unregister() {
 
     // register kingdom and give bob permissions in this domain
     let register_domain = Register::domain(kingdom);
-    let bob_to_set_kv_in_domain_token = Permission::new(
-        "CanSetKeyValueInDomain".parse().unwrap(),
-        json!({ "domain": kingdom_id }),
-    );
+    let bob_to_set_kv_in_domain = CanSetKeyValueInDomain {
+        domain: kingdom_id.clone(),
+    };
     let allow_bob_to_set_kv_in_domain =
-        Grant::permission(bob_to_set_kv_in_domain_token.clone(), bob_id.clone());
+        Grant::account_permission(bob_to_set_kv_in_domain.clone(), bob_id.clone());
 
     iroha
         .submit_all_blocking([
@@ -413,7 +403,10 @@ fn associated_permissions_removed_on_unregister() {
         .and_then(std::iter::Iterator::collect::<QueryResult<Vec<Permission>>>)
         .expect("failed to get permissions for bob")
         .into_iter()
-        .any(|token| { token == bob_to_set_kv_in_domain_token }));
+        .any(|permission| {
+            CanSetKeyValueInDomain::try_from(&permission)
+                .is_ok_and(|permission| permission == bob_to_set_kv_in_domain)
+        }));
 
     // unregister kingdom
     iroha
@@ -421,12 +414,15 @@ fn associated_permissions_removed_on_unregister() {
         .expect("failed to unregister domain");
 
     // check that permission is removed from bob
-    assert!(iroha
+    assert!(!iroha
         .request(client::permission::by_account_id(bob_id))
         .and_then(std::iter::Iterator::collect::<QueryResult<Vec<Permission>>>)
         .expect("failed to get permissions for bob")
         .into_iter()
-        .all(|token| { token != bob_to_set_kv_in_domain_token }));
+        .any(|permission| {
+            CanSetKeyValueInDomain::try_from(&permission)
+                .is_ok_and(|permission| permission == bob_to_set_kv_in_domain)
+        }));
 }
 
 #[test]
@@ -440,11 +436,10 @@ fn associated_permissions_removed_from_role_on_unregister() {
 
     // register kingdom and give bob permissions in this domain
     let register_domain = Register::domain(kingdom);
-    let set_kv_in_domain_token = Permission::new(
-        "CanSetKeyValueInDomain".parse().unwrap(),
-        json!({ "domain": kingdom_id }),
-    );
-    let role = Role::new(role_id.clone()).add_permission(set_kv_in_domain_token.clone());
+    let set_kv_in_domain = CanSetKeyValueInDomain {
+        domain: kingdom_id.clone(),
+    };
+    let role = Role::new(role_id.clone()).add_permission(set_kv_in_domain.clone());
     let register_role = Register::role(role);
 
     iroha
@@ -457,7 +452,10 @@ fn associated_permissions_removed_from_role_on_unregister() {
         .map(|role| role.permissions().cloned().collect::<Vec<_>>())
         .expect("failed to get permissions for role")
         .into_iter()
-        .any(|token| { token == set_kv_in_domain_token }));
+        .any(|permission| {
+            CanSetKeyValueInDomain::try_from(&permission)
+                .is_ok_and(|permission| permission == set_kv_in_domain)
+        }));
 
     // unregister kingdom
     iroha
@@ -465,10 +463,13 @@ fn associated_permissions_removed_from_role_on_unregister() {
         .expect("failed to unregister domain");
 
     // check that permission is removed from role
-    assert!(iroha
+    assert!(!iroha
         .request(client::role::by_id(role_id.clone()))
         .map(|role| role.permissions().cloned().collect::<Vec<_>>())
         .expect("failed to get permissions for role")
         .into_iter()
-        .all(|token| { token != set_kv_in_domain_token }));
+        .any(|permission| {
+            CanSetKeyValueInDomain::try_from(&permission)
+                .is_ok_and(|permission| permission == set_kv_in_domain)
+        }));
 }

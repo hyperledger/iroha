@@ -10,9 +10,9 @@ use iroha::{
         transaction::{Executable, WasmSmartContract},
     },
 };
+use iroha_executor_data_model::permission::trigger::CanRegisterUserTrigger;
 use iroha_genesis::GenesisBlock;
 use iroha_logger::info;
-use serde_json::json;
 use test_network::{Peer as TestPeer, *};
 use test_samples::ALICE_ID;
 use tokio::runtime::Runtime;
@@ -286,12 +286,10 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
     rabbit_client.account = rabbit_account_id.clone();
     rabbit_client.key_pair = rabbit_keys;
 
-    // Permission token for the trigger registration
-    // on behalf of alice
-    let permission_on_registration = Permission::new(
-        "CanRegisterUserTrigger".parse().unwrap(),
-        json!({ "account": ALICE_ID.clone(), }),
-    );
+    // Permission for the trigger registration on behalf of alice
+    let permission_on_registration = CanRegisterUserTrigger {
+        account: ALICE_ID.clone(),
+    };
 
     // Trigger with 'alice' as authority
     let trigger_id = TriggerId::from_str("alice_trigger")?;
@@ -323,7 +321,7 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
     info!("Rabbit couldn't register the trigger");
 
     // Give permissions to the rabbit
-    test_client.submit_blocking(Grant::permission(
+    test_client.submit_blocking(Grant::account_permission(
         permission_on_registration,
         rabbit_account_id,
     ))?;
@@ -445,8 +443,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     let topology = vec![peer.id.clone()];
 
     // Registering trigger in genesis
-    let genesis =
-        GenesisBlock::test_with_instructions([Register::trigger(trigger).into()], topology);
+    let genesis = GenesisBlock::test_with_instructions([Register::trigger(trigger)], topology);
 
     let rt = Runtime::test();
     let builder = PeerBuilder::new().with_genesis(genesis).with_port(10_045);

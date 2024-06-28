@@ -1,9 +1,11 @@
-use std::{fmt::Write as _, str::FromStr, sync::mpsc, thread};
+use std::{fmt::Write as _, sync::mpsc, thread};
 
 use eyre::Result;
 use iroha::data_model::{prelude::*, transaction::WasmSmartContract};
+use iroha_executor_data_model::permission::account::{
+    CanRemoveKeyValueInAccount, CanSetKeyValueInAccount,
+};
 use parity_scale_codec::Encode as _;
-use serde_json::json;
 use test_network::*;
 use test_samples::{ALICE_ID, BOB_ID};
 
@@ -198,18 +200,14 @@ fn produce_multiple_events() -> Result<()> {
 
     // Registering role
     let alice_id = ALICE_ID.clone();
-    let role_id = RoleId::from_str("TEST_ROLE")?;
-    let token_1 = Permission::new(
-        "CanRemoveKeyValueInAccount".parse()?,
-        json!({ "account": alice_id }),
-    );
-    let token_2 = Permission::new(
-        "CanSetKeyValueInAccount".parse()?,
-        json!({ "account": alice_id }),
-    );
+    let role_id = "TEST_ROLE".parse::<RoleId>()?;
+    let permission_1 = CanRemoveKeyValueInAccount {
+        account: alice_id.clone(),
+    };
+    let permission_2 = CanSetKeyValueInAccount { account: alice_id };
     let role = iroha::data_model::role::Role::new(role_id.clone())
-        .add_permission(token_1.clone())
-        .add_permission(token_2.clone());
+        .add_permission(permission_1.clone())
+        .add_permission(permission_2.clone());
     let instructions = [Register::role(role.clone())];
     client.submit_all_blocking(instructions)?;
 
@@ -230,58 +228,80 @@ fn produce_multiple_events() -> Result<()> {
 
         if let RoleEvent::Created(created_role) = role_event {
             assert_eq!(created_role.id(), role.id());
-            assert!(created_role
-                .permissions()
-                .eq([token_1.clone(), token_2.clone()].iter()));
+            assert!(created_role.permissions().eq([
+                permission_1.clone().into(),
+                permission_2.clone().into()
+            ]
+            .iter()));
         }
     }
 
-    let expected_domain_events: Vec<DataEvent> = [
-        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
-            AccountPermissionChanged {
-                account: bob_id.clone(),
-                permission: token_1.clone(),
-            },
-        ))),
-        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
-            AccountPermissionChanged {
-                account: bob_id.clone(),
-                permission: token_2.clone(),
-            },
-        ))),
-        DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
-            AccountRoleChanged {
-                account: bob_id.clone(),
-                role: role_id.clone(),
-            },
-        ))),
-        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
-            AccountPermissionChanged {
-                account: bob_id.clone(),
-                permission: token_1,
-            },
-        ))),
-        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
-            AccountPermissionChanged {
-                account: bob_id.clone(),
-                permission: token_2,
-            },
-        ))),
-        DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(
-            AccountRoleChanged {
-                account: bob_id,
-                role: role_id.clone(),
-            },
-        ))),
-        DataEvent::Role(RoleEvent::Deleted(role_id)),
-    ]
-    .into_iter()
-    .map(Into::into)
-    .collect();
+    if let DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(event))) =
+        event_receiver.recv()??.try_into()?
+    {
+        assert_eq!(*event.account(), bob_id);
+        assert_eq!(
+            CanRemoveKeyValueInAccount::try_from(event.permission()).unwrap(),
+            permission_1
+        );
+    } else {
+        panic!("Expected event is not an AccountEvent::PermissionAdded")
+    }
+    if let DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(event))) =
+        event_receiver.recv()??.try_into()?
+    {
+        assert_eq!(*event.account(), bob_id);
+        assert_eq!(
+            CanSetKeyValueInAccount::try_from(event.permission()).unwrap(),
+            permission_2
+        );
+    } else {
+        panic!("Expected event is not an AccountEvent::PermissionAdded")
+    }
+    if let DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(event))) =
+        event_receiver.recv()??.try_into()?
+    {
+        assert_eq!(*event.account(), bob_id);
+        assert_eq!(*event.role(), role_id);
+    } else {
+        panic!("Expected event is not an AccountEvent::RoleGranted")
+    }
 
-    for expected_event in expected_domain_events {
-        let event = event_receiver.recv()??.try_into()?;
-        assert_eq!(expected_event, event);
+    if let DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(event))) =
+        event_receiver.recv()??.try_into()?
+    {
+        assert_eq!(*event.account(), bob_id);
+        assert_eq!(
+            CanRemoveKeyValueInAccount::try_from(event.permission()).unwrap(),
+            permission_1
+        );
+    } else {
+        panic!("Expected event is not an AccountEvent::PermissionRemoved")
+    }
+    if let DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(event))) =
+        event_receiver.recv()??.try_into()?
+    {
+        assert_eq!(*event.account(), bob_id);
+        assert_eq!(
+            CanSetKeyValueInAccount::try_from(event.permission()).unwrap(),
+            permission_2
+        );
+    } else {
+        panic!("Expected event is not an AccountEvent::PermissionRemoved")
+    }
+    if let DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(event))) =
+        event_receiver.recv()??.try_into()?
+    {
+        assert_eq!(*event.account(), bob_id);
+        assert_eq!(*event.role(), role_id);
+    } else {
+        panic!("Expected event is not an AccountEvent::RoleRevoked")
+    }
+
+    if let DataEvent::Role(RoleEvent::Deleted(event)) = event_receiver.recv()??.try_into()? {
+        assert_eq!(event, role_id);
+    } else {
+        panic!("Expected event is not an RoleEvent::Deleted")
     }
 
     Ok(())

@@ -8,23 +8,24 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-iroha_core = { workspace = true }
 irohad = { workspace = true, features = ["test-network"] }
-iroha = { workspace = true }
+iroha_core.workspace = true
+iroha.workspace = true
 
-iroha_crypto = { workspace = true }
-iroha_config = { workspace = true }
-iroha_data_model = { workspace = true }
-iroha_primitives = { workspace = true }
-iroha_logger = { workspace = true }
-iroha_genesis = { workspace = true }
-test_samples = { workspace = true }
+iroha_executor_data_model.workspace = true
+iroha_crypto.workspace = true
+iroha_config.workspace = true
+iroha_data_model.workspace = true
+iroha_primitives.workspace = true
+iroha_logger.workspace = true
+iroha_genesis.workspace = true
+test_samples.workspace = true
 
-eyre = { workspace = true }
-futures = { workspace = true, features = ["std", "async-await"] }
-rand = { workspace = true }
-tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+eyre.workspace = true
+rand.workspace = true
+tempfile.workspace = true
 unique_port = "0.2.1"
+serde_json.workspace = true
 parity-scale-codec = { version = "3.6.12", default-features = false }
-serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+futures = { workspace = true, features = ["std", "async-await"] }

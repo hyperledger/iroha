@@ -3,23 +3,21 @@
 #![allow(unsafe_code)]
 
 extern crate alloc;
-extern crate self as iroha_executor;
 
 use alloc::collections::BTreeSet;
 
 use data_model::{executor::Result, ValidationFail};
 #[cfg(not(test))]
 use data_model::{prelude::*, smart_contract::payloads};
-use iroha_schema::Ident;
-pub use iroha_schema::MetaMap;
+use iroha_executor_data_model::{parameter::Parameter, permission::Permission};
+use iroha_schema::{Ident, MetaMap};
 pub use iroha_smart_contract as smart_contract;
 pub use iroha_smart_contract_utils::{debug, encode_with_length_prefix};
 #[cfg(not(test))]
 use iroha_smart_contract_utils::{decode_with_length_prefix_from_raw, encode_and_execute};
-pub use smart_contract::{data_model, parse, stub_getrandom};
+pub use smart_contract::{data_model, stub_getrandom};
 
 pub mod default;
-pub mod parameter;
 pub mod permission;
 
 pub mod utils {
@@ -140,6 +138,8 @@ mod host {
 macro_rules! execute {
     ($executor:ident, $isi:ident) => {{
         if $executor.verdict().is_ok() {
+            use $crate::smart_contract::ExecuteOnHost as _;
+
             if let Err(err) = $isi.execute() {
                 $executor.deny(err);
             }
@@ -172,18 +172,6 @@ macro_rules! deny {
         $executor.deny($e);
         return;
     }};
-}
-
-/// An error that might occur while converting a data model object (with id and payload)
-/// into a native executor type.
-///
-/// Such objects are [`data_model::prelude::Permission`] and [`data_model::prelude::Parameter`].
-#[derive(Debug)]
-pub enum TryFromDataModelObjectError {
-    /// Unexpected object name
-    UnknownIdent(iroha_schema::Ident),
-    /// Failed to deserialize object payload
-    Deserialize(serde_json::Error),
 }
 
 /// A convenience to build [`ExecutorDataModel`] from within the executor
@@ -219,14 +207,14 @@ impl DataModelBuilder {
             };
         }
 
-        default::permissions::map_default_permissions!(add_to_schema);
+        permission::map_default_permissions!(add_to_schema);
 
         builder
     }
 
     /// Define a permission in the data model
     #[must_use]
-    pub fn add_parameter<T: parameter::Parameter + Into<data_model::parameter::CustomParameter>>(
+    pub fn add_parameter<T: Parameter + Into<data_model::parameter::CustomParameter>>(
         mut self,
         param: T,
     ) -> Self {
@@ -246,19 +234,17 @@ impl DataModelBuilder {
 
     /// Define a permission in the data model
     #[must_use]
-    pub fn add_permission<T: permission::Permission>(mut self) -> Self {
+    pub fn add_permission<T: Permission>(mut self) -> Self {
         T::update_schema_map(&mut self.schema);
-        self.permissions
-            .insert(<T as permission::Permission>::name());
+        self.permissions.insert(T::name());
         self
     }
 
     /// Remove a permission from the data model
     #[must_use]
-    pub fn remove_permission<T: permission::Permission>(mut self) -> Self {
+    pub fn remove_permission<T: Permission>(mut self) -> Self {
         T::remove_from_schema(&mut self.schema);
-        self.permissions
-            .remove(&<T as permission::Permission>::name());
+        self.permissions.remove(&T::name());
         self
     }
 
@@ -288,7 +274,7 @@ impl DataModelBuilder {
 
             for permission in account_permissions.map(|permission| permission.unwrap()) {
                 if !self.permissions.contains(permission.name()) {
-                    Revoke::permission(permission, account.id().clone())
+                    Revoke::account_permission(permission, account.id().clone())
                         .execute()
                         .unwrap();
                 }
@@ -327,20 +313,12 @@ pub mod prelude {
     pub use alloc::vec::Vec;
 
     pub use iroha_executor_derive::{
-        entrypoint, Constructor, Parameter, Permission, Validate, ValidateEntrypoints,
-        ValidateGrantRevoke, Visit,
+        entrypoint, Constructor, Validate, ValidateEntrypoints, Visit,
     };
     pub use iroha_smart_contract::prelude::*;
 
     pub use super::{
-        data_model::{
-            executor::{MigrationError, MigrationResult, Result},
-            visit::Visit,
-            ValidationFail,
-        },
-        deny, execute,
-        parameter::Parameter as ParameterTrait,
-        permission::Permission as PermissionTrait,
-        DataModelBuilder, Validate,
+        data_model::{executor::Result, visit::Visit, ValidationFail},
+        deny, execute, DataModelBuilder, Validate,
     };
 }

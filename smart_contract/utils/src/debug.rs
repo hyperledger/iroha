@@ -57,7 +57,7 @@ pub fn dbg<T: Debug + ?Sized>(obj: &T) {
 /// Always
 pub fn dbg_panic(msg: &str) -> ! {
     dbg(msg);
-    panic!()
+    panic!("{msg}")
 }
 
 /// Extension implemented for `Result` and `Option` to provide unwrapping with error message,
