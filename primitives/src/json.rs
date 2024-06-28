@@ -7,23 +7,22 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::{
-    fmt::{Display, Formatter},
-    str::FromStr,
-};
+use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::{
     string::{String, ToString},
     vec::Vec,
 };
 
+use derive_more::Display;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
 /// A valid `JsonString` that consists of valid String of Json type
-#[derive(Debug, Clone, PartialOrd, PartialEq, Ord, Eq, IntoSchema, Encode, Decode)]
+#[derive(Debug, Display, Clone, PartialOrd, PartialEq, Ord, Eq, IntoSchema, Encode, Decode)]
+#[display(fmt = "{_0}")]
 pub struct JsonString(String);
 
 impl JsonString {
@@ -151,12 +150,6 @@ impl Default for JsonString {
 impl AsRef<str> for JsonString {
     fn as_ref(&self) -> &str {
         &self.0
-    }
-}
-
-impl Display for JsonString {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", &self.0)
     }
 }
 

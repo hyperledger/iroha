@@ -8,7 +8,6 @@ use std::{
     time::Duration,
 };
 
-use iroha_data_model::{prelude::MetadataLimits, transaction::TransactionLimits, LengthLimits};
 use nonzero_ext::nonzero;
 
 pub mod queue {
@@ -29,10 +28,10 @@ pub mod network {
     use super::*;
 
     pub const TRANSACTION_GOSSIP_PERIOD: Duration = Duration::from_secs(1);
-    pub const TRANSACTION_GOSSIP_MAX_SIZE: NonZeroU32 = nonzero!(500u32);
+    pub const TRANSACTION_GOSSIP_SIZE: NonZeroU32 = nonzero!(500u32);
 
     pub const BLOCK_GOSSIP_PERIOD: Duration = Duration::from_secs(10);
-    pub const BLOCK_GOSSIP_MAX_SIZE: NonZeroU32 = nonzero!(4u32);
+    pub const BLOCK_GOSSIP_SIZE: NonZeroU32 = nonzero!(4u32);
 
     pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 }
@@ -43,41 +42,6 @@ pub mod snapshot {
     pub const STORE_DIR: &str = "./storage/snapshot";
     // The default frequency of making snapshots is 1 minute, need to be adjusted for larger world state view size
     pub const CREATE_EVERY: Duration = Duration::from_secs(60);
-}
-
-pub mod chain_wide {
-    use iroha_config_base::util::Bytes;
-
-    use super::*;
-
-    pub const MAX_TXS: NonZeroU32 = nonzero!(2_u32.pow(9));
-    pub const BLOCK_TIME: Duration = Duration::from_secs(2);
-    pub const COMMIT_TIME: Duration = Duration::from_secs(4);
-    pub const WASM_FUEL_LIMIT: u64 = 55_000_000;
-    pub const WASM_MAX_MEMORY: Bytes<u32> = Bytes(500 * 2_u32.pow(20));
-
-    /// Default estimation of consensus duration.
-    pub const CONSENSUS_ESTIMATION: Duration =
-        match BLOCK_TIME.checked_add(match COMMIT_TIME.checked_div(2) {
-            Some(x) => x,
-            None => unreachable!(),
-        }) {
-            Some(x) => x,
-            None => unreachable!(),
-        };
-
-    /// Default limits for metadata
-    pub const METADATA_LIMITS: MetadataLimits = MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
-    /// Default limits for ident length
-    pub const IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
-    /// Default maximum number of instructions and expressions per transaction
-    pub const MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
-    /// Default maximum number of instructions and expressions per transaction
-    pub const MAX_WASM_SIZE_BYTES: u64 = 4 * 2_u64.pow(20);
-
-    /// Default transaction limits
-    pub const TRANSACTION_LIMITS: TransactionLimits =
-        TransactionLimits::new(MAX_INSTRUCTION_NUMBER, MAX_WASM_SIZE_BYTES);
 }
 
 pub mod torii {

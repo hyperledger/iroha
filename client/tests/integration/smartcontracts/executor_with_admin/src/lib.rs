@@ -32,6 +32,6 @@ fn visit_instruction(executor: &mut Executor, authority: &AccountId, isi: &Instr
 }
 
 #[entrypoint]
-pub fn migrate(_block_height: u64) -> MigrationResult {
+fn migrate(_block_height: u64) -> MigrationResult {
     Ok(())
 }

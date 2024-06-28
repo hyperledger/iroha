@@ -17,9 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
-use crate::{
-    events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name, Registered,
-};
+use crate::{events::prelude::*, metadata::Metadata, transaction::Executable, Name, Registered};
 
 #[model]
 mod model {
@@ -189,7 +187,7 @@ pub mod action {
                 // TODO: At this point the authority is meaningless.
                 authority,
                 filter: filter.into(),
-                metadata: Metadata::new(),
+                metadata: Metadata::default(),
             }
         }
 

@@ -19,6 +19,7 @@ use iroha_smart_contract_utils::{decode_with_length_prefix_from_raw, encode_and_
 pub use smart_contract::{data_model, parse, stub_getrandom};
 
 pub mod default;
+pub mod parameter;
 pub mod permission;
 
 pub mod utils {
@@ -188,8 +189,9 @@ pub enum TryFromDataModelObjectError {
 /// A convenience to build [`ExecutorDataModel`] from within the executor
 #[derive(Debug, Clone)]
 pub struct DataModelBuilder {
+    parameters: BTreeSet<data_model::parameter::CustomParameter>,
+    instructions: BTreeSet<Ident>,
     permissions: BTreeSet<Ident>,
-    custom_instruction: Option<Ident>,
     schema: MetaMap,
 }
 
@@ -199,8 +201,9 @@ impl DataModelBuilder {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
+            parameters: <_>::default(),
+            instructions: <_>::default(),
             permissions: <_>::default(),
-            custom_instruction: None,
             schema: <_>::default(),
         }
     }
@@ -223,26 +226,37 @@ impl DataModelBuilder {
 
     /// Define a permission in the data model
     #[must_use]
-    pub fn add_permission<T: permission::Permission>(mut self) -> Self {
-        <T as iroha_schema::IntoSchema>::update_schema_map(&mut self.schema);
-        self.permissions
-            .insert(<T as permission::Permission>::name());
+    pub fn add_parameter<T: parameter::Parameter + Into<data_model::parameter::CustomParameter>>(
+        mut self,
+        param: T,
+    ) -> Self {
+        T::update_schema_map(&mut self.schema);
+        self.parameters.insert(param.into());
         self
     }
 
     /// Define a type of custom instruction in the data model.
     /// Corresponds to payload of `InstructionBox::Custom`.
     #[must_use]
-    pub fn with_custom_instruction<T: iroha_schema::IntoSchema>(mut self) -> Self {
+    pub fn add_instruction<T: iroha_schema::IntoSchema>(mut self) -> Self {
         T::update_schema_map(&mut self.schema);
-        self.custom_instruction = Some(T::type_name());
+        self.instructions.insert(T::type_name());
+        self
+    }
+
+    /// Define a permission in the data model
+    #[must_use]
+    pub fn add_permission<T: permission::Permission>(mut self) -> Self {
+        T::update_schema_map(&mut self.schema);
+        self.permissions
+            .insert(<T as permission::Permission>::name());
         self
     }
 
     /// Remove a permission from the data model
     #[must_use]
     pub fn remove_permission<T: permission::Permission>(mut self) -> Self {
-        <T as iroha_schema::IntoSchema>::remove_from_schema(&mut self.schema);
+        T::remove_from_schema(&mut self.schema);
         self.permissions
             .remove(&<T as permission::Permission>::name());
         self
@@ -282,8 +296,12 @@ impl DataModelBuilder {
         }
 
         set_data_model(&ExecutorDataModel::new(
+            self.parameters
+                .into_iter()
+                .map(|param| (param.id().clone(), param))
+                .collect(),
+            self.instructions,
             self.permissions,
-            self.custom_instruction,
             serde_json::to_value(&self.schema)
                 .expect("INTERNAL BUG: Failed to serialize Executor data model entity")
                 .into(),
@@ -309,8 +327,8 @@ pub mod prelude {
     pub use alloc::vec::Vec;
 
     pub use iroha_executor_derive::{
-        entrypoint, Constructor, Permission, Validate, ValidateEntrypoints, ValidateGrantRevoke,
-        Visit,
+        entrypoint, Constructor, Parameter, Permission, Validate, ValidateEntrypoints,
+        ValidateGrantRevoke, Visit,
     };
     pub use iroha_smart_contract::prelude::*;
 
@@ -321,6 +339,7 @@ pub mod prelude {
             ValidationFail,
         },
         deny, execute,
+        parameter::Parameter as ParameterTrait,
         permission::Permission as PermissionTrait,
         DataModelBuilder, Validate,
     };

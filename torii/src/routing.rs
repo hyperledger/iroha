@@ -52,7 +52,7 @@ pub async fn handle_transaction(
     transaction: SignedTransaction,
 ) -> Result<Empty> {
     let state_view = state.view();
-    let transaction_limits = state_view.config.transaction_limits;
+    let transaction_limits = state_view.world().parameters().transaction;
     let transaction = AcceptedTransaction::accept(transaction, &chain_id, transaction_limits)
         .map_err(Error::AcceptTransaction)?;
     queue

@@ -62,21 +62,16 @@ pub mod isi {
                     .increase_asset_total_amount(&asset_id.definition, Numeric::ONE)?;
             }
 
-            let asset_metadata_limits = state_transaction.config.asset_metadata_limits;
             let asset = state_transaction
                 .world
-                .asset_or_insert(asset_id.clone(), Metadata::new())?;
+                .asset_or_insert(asset_id.clone(), Metadata::default())?;
 
             {
                 let AssetValue::Store(store) = &mut asset.value else {
                     return Err(Error::Conversion("Expected store asset type".to_owned()));
                 };
 
-                store.insert_with_limits(
-                    self.key.clone(),
-                    self.value.clone(),
-                    asset_metadata_limits,
-                )?;
+                store.insert(self.key.clone(), self.value.clone());
             }
 
             state_transaction

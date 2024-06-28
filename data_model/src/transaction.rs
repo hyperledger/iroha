@@ -23,13 +23,13 @@ pub use self::model::*;
 use crate::{
     account::AccountId,
     isi::{Instruction, InstructionBox},
-    metadata::UnlimitedMetadata,
+    metadata::Metadata,
     ChainId,
 };
 
 #[model]
 mod model {
-    use getset::{CopyGetters, Getters};
+    use getset::Getters;
 
     use super::*;
     use crate::account::AccountId;
@@ -114,34 +114,7 @@ mod model {
         /// Random value to make different hashes for transactions which occur repeatedly and simultaneously.
         pub nonce: Option<NonZeroU32>,
         /// Store for additional information.
-        pub metadata: UnlimitedMetadata,
-    }
-
-    /// Container for limits that transactions must obey.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        Copy,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        CopyGetters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[display(fmt = "{max_instruction_number},{max_wasm_size_bytes}_TL")]
-    #[getset(get_copy = "pub")]
-    #[ffi_type]
-    pub struct TransactionLimits {
-        /// Maximum number of instructions per transaction
-        pub max_instruction_number: u64,
-        /// Maximum size of wasm binary
-        pub max_wasm_size_bytes: u64,
+        pub metadata: Metadata,
     }
 
     /// Signature of transaction
@@ -203,16 +176,6 @@ mod model {
         pub value: SignedTransaction,
         /// Reason of rejection
         pub error: Option<error::TransactionRejectionReason>,
-    }
-}
-
-impl TransactionLimits {
-    /// Construct [`Self`]
-    pub const fn new(max_instruction_number: u64, max_wasm_size_bytes: u64) -> Self {
-        Self {
-            max_instruction_number,
-            max_wasm_size_bytes,
-        }
     }
 }
 
@@ -282,7 +245,7 @@ impl SignedTransaction {
 
     /// Return transaction metadata.
     #[inline]
-    pub fn metadata(&self) -> &UnlimitedMetadata {
+    pub fn metadata(&self) -> &Metadata {
         let SignedTransaction::V1(tx) = self;
         &tx.payload.metadata
     }
@@ -596,7 +559,6 @@ pub mod error {
                 Revoke(_) => "revoke",
                 ExecuteTrigger(_) => "execute trigger",
                 SetParameter(_) => "set parameter",
-                NewParameter(_) => "new parameter",
                 Upgrade(_) => "upgrade",
                 Log(_) => "log",
                 Custom(_) => "custom",
@@ -655,7 +617,7 @@ mod http {
                     nonce: None,
                     time_to_live_ms: None,
                     instructions: Vec::<InstructionBox>::new().into(),
-                    metadata: UnlimitedMetadata::new(),
+                    metadata: Metadata::default(),
                 },
             }
         }
@@ -722,7 +684,7 @@ mod http {
         }
 
         /// Adds metadata to the `Transaction`
-        pub fn with_metadata(mut self, metadata: UnlimitedMetadata) -> Self {
+        pub fn with_metadata(mut self, metadata: Metadata) -> Self {
             self.payload.metadata = metadata;
             self
         }

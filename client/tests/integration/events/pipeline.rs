@@ -1,7 +1,4 @@
-use std::{
-    num::NonZeroUsize,
-    thread::{self, JoinHandle},
-};
+use std::thread::{self, JoinHandle};
 
 use eyre::Result;
 use iroha::{
@@ -11,7 +8,7 @@ use iroha::{
             BlockEvent, BlockEventFilter, BlockStatus, TransactionEventFilter, TransactionStatus,
         },
         isi::error::InstructionExecutionError,
-        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+        parameter::BlockParameter,
         prelude::*,
         transaction::error::TransactionRejectionReason,
         ValidationFail,
@@ -19,6 +16,7 @@ use iroha::{
 };
 use iroha_config::parameters::actual::Root as Config;
 use iroha_data_model::query::error::FindError;
+use nonzero_ext::nonzero;
 use test_network::*;
 
 // Needed to re-enable ignored tests.
@@ -59,15 +57,13 @@ fn test_with_instruction_and_status_and_port(
     wait_for_genesis_committed(&clients, 0);
     let pipeline_time = Config::pipeline_time();
 
-    client.submit_all_blocking(
-        ParametersBuilder::new()
-            .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
-            .into_set_parameters(),
-    )?;
+    client.submit_blocking(SetParameter::new(Parameter::Block(
+        BlockParameter::MaxTransactions(nonzero!(1_u64)),
+    )))?;
 
     // Given
     let submitter = client;
-    let transaction = submitter.build_transaction(instruction, UnlimitedMetadata::new());
+    let transaction = submitter.build_transaction(instruction, Metadata::default());
     let hash = transaction.hash();
     let mut handles = Vec::new();
     for listener in clients {
@@ -133,8 +129,6 @@ fn applied_block_must_be_available_in_kura() {
         .as_ref()
         .expect("Must be some")
         .kura()
-        .get_block_by_height(
-            NonZeroUsize::new(event.header().height().try_into().unwrap()).unwrap(),
-        )
+        .get_block_by_height(event.header().height().try_into().unwrap())
         .expect("Block applied event was received earlier");
 }

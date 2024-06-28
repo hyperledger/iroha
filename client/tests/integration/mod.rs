@@ -1,4 +1,3 @@
-mod add_domain;
 mod asset;
 mod asset_propagation;
 mod domain_owner_permissions;

@@ -20,11 +20,12 @@ pub mod isi {
     use eyre::Result;
     use iroha_data_model::{
         isi::error::{InstructionExecutionError, InvalidParameterError, RepetitionError},
+        parameter::{CustomParameter, Parameter},
         prelude::*,
         query::error::FindError,
         Level,
     };
-    use iroha_primitives::unique_vec::PushResult;
+    use iroha_primitives::{json::JsonString, unique_vec::PushResult};
 
     use super::*;
 
@@ -84,11 +85,6 @@ pub mod isi {
             let domain: Domain = self.object.build(authority);
             let domain_id = domain.id().clone();
 
-            domain_id
-                .name
-                .validate_len(state_transaction.config.ident_length_limits)
-                .map_err(Error::from)?;
-
             if domain_id == *iroha_genesis::GENESIS_DOMAIN_ID {
                 return Err(InstructionExecutionError::InvariantViolation(
                     "Not allowed to register genesis domain".to_owned(),
@@ -105,7 +101,6 @@ pub mod isi {
             }
 
             world.domains.insert(domain_id, domain.clone());
-
             world.emit_events(Some(DomainEvent::Created(domain)));
 
             Ok(())
@@ -306,43 +301,70 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let parameter = self.parameter;
-            let parameter_id = parameter.id.clone();
+            macro_rules! set_parameter {
+                ($($container:ident($param:ident.$field:ident) => $single:ident::$variant:ident),* $(,)?) => {
+                    match self.0 { $(
+                        Parameter::$container(iroha_data_model::parameter::$single::$variant(next)) => {
+                            let prev = core::mem::replace(
+                                &mut state_transaction.world.parameters.$param.$field,
+                                next,
+                            );
 
-            if !state_transaction.world.parameters.swap_remove(&parameter) {
-                return Err(FindError::Parameter(parameter_id).into());
+                            state_transaction.world.emit_events(
+                                Some(ConfigurationEvent::Changed(ParameterChanged {
+                                    old_value: Parameter::$container(iroha_data_model::parameter::$single::$variant(
+                                        prev,
+                                    )),
+                                    new_value: Parameter::$container(iroha_data_model::parameter::$single::$variant(
+                                        next,
+                                    )),
+                                }))
+                            );
+                        })*
+                        Parameter::Custom(next) => {
+                            let prev = state_transaction
+                                .world
+                                .parameters
+                                .custom
+                                .insert(next.id.clone(), next.clone())
+                                .unwrap_or_else(|| {
+                                    iroha_logger::error!(
+                                        "{}: Initial parameter value not set during executor migration",
+                                        next.id
+                                    );
+
+                                    CustomParameter {
+                                        id: next.id.clone(),
+                                        payload: JsonString::default(),
+                                    }
+                                });
+
+                            state_transaction
+                                .world
+                                .emit_events(Some(ConfigurationEvent::Changed(ParameterChanged {
+                                    old_value: Parameter::Custom(prev),
+                                    new_value: Parameter::Custom(next),
+                                })));
+                        }
+                    }
+                };
             }
-            state_transaction.world.parameters.insert(parameter.clone());
-            state_transaction
-                .world
-                .emit_events(Some(ConfigurationEvent::Changed(parameter_id)));
-            state_transaction.try_apply_core_parameter(parameter);
 
-            Ok(())
-        }
-    }
+            set_parameter!(
+                Sumeragi(sumeragi.block_time_ms) => SumeragiParameter::BlockTimeMs,
+                Sumeragi(sumeragi.commit_time_ms) => SumeragiParameter::CommitTimeMs,
 
-    impl Execute for NewParameter {
-        #[metrics(+"new_parameter")]
-        fn execute(
-            self,
-            _authority: &AccountId,
-            state_transaction: &mut StateTransaction<'_, '_>,
-        ) -> Result<(), Error> {
-            let parameter = self.parameter;
-            let parameter_id = parameter.id.clone();
+                Block(block.max_transactions) => BlockParameter::MaxTransactions,
 
-            if !state_transaction.world.parameters.insert(parameter.clone()) {
-                return Err(RepetitionError {
-                    instruction: InstructionType::NewParameter,
-                    id: IdBox::ParameterId(parameter_id),
-                }
-                .into());
-            }
-            state_transaction
-                .world
-                .emit_events(Some(ConfigurationEvent::Created(parameter_id)));
-            state_transaction.try_apply_core_parameter(parameter);
+                Transaction(transaction.max_instructions) => TransactionParameter::MaxInstructions,
+                Transaction(transaction.smart_contract_size) => TransactionParameter::SmartContractSize,
+
+                SmartContract(smart_contract.fuel) => SmartContractParameter::Fuel,
+                SmartContract(smart_contract.memory) => SmartContractParameter::Memory,
+
+                Executor(executor.fuel) => SmartContractParameter::Fuel,
+                Executor(executor.memory) => SmartContractParameter::Memory,
+            );
 
             Ok(())
         }
@@ -406,7 +428,7 @@ pub mod isi {
 pub mod query {
     use eyre::Result;
     use iroha_data_model::{
-        parameter::Parameter,
+        parameter::Parameters,
         peer::Peer,
         prelude::*,
         query::error::{FindError, QueryExecutionFail as Error},
@@ -484,11 +506,8 @@ pub mod query {
 
     impl ValidQuery for FindAllParameters {
         #[metrics("find_all_parameters")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Parameter> + 'state>, Error> {
-            Ok(Box::new(state_ro.world().parameters_iter().cloned()))
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Parameters, Error> {
+            Ok(state_ro.world().parameters().clone())
         }
     }
 }

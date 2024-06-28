@@ -114,8 +114,6 @@ mod model {
         #[debug(fmt = "{_0:?}")]
         SetParameter(SetParameter),
         #[debug(fmt = "{_0:?}")]
-        NewParameter(NewParameter),
-        #[debug(fmt = "{_0:?}")]
         Upgrade(Upgrade),
         #[debug(fmt = "{_0:?}")]
         Log(Log),
@@ -177,7 +175,6 @@ impl_instruction! {
     Revoke<RoleId, Account>,
     Revoke<Permission, Role>,
     SetParameter,
-    NewParameter,
     Upgrade,
     ExecuteTrigger,
     Log,
@@ -253,31 +250,16 @@ mod transparent {
         };
     }
 
-    isi! {
+    iroha_data_model_derive::model_single! {
         /// Generic instruction for setting a chain-wide config parameter.
-        #[derive(Constructor, Display)]
-        #[display(fmt = "SET `{parameter}`")]
+        #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Constructor)]
+        #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
+        #[derive(serde::Deserialize, serde::Serialize)]
+        #[derive(iroha_schema::IntoSchema)]
+        #[display(fmt = "SET `{_0}`")]
         #[serde(transparent)]
         #[repr(transparent)]
-        pub struct SetParameter {
-            /// The configuration parameter being changed.
-            #[serde(flatten)]
-            pub parameter: Parameter,
-        }
-    }
-
-    isi! {
-        /// Sized structure for all possible on-chain configuration parameters when they are first created.
-        /// Generic instruction for setting a chain-wide config parameter.
-        #[derive(Constructor, Display)]
-        #[display(fmt = "SET `{parameter}`")]
-        #[serde(transparent)]
-        #[repr(transparent)]
-        pub struct NewParameter {
-            /// Parameter to be changed.
-            #[serde(flatten)]
-            pub parameter: Parameter,
-        }
+        pub struct SetParameter(pub Parameter);
     }
 
     isi! {
@@ -783,7 +765,7 @@ mod transparent {
         pub fn asset_store(asset_id: AssetId, to: AccountId) -> Self {
             Self {
                 source: asset_id,
-                object: Metadata::new(),
+                object: Metadata::default(),
                 destination: to,
             }
         }
@@ -979,14 +961,16 @@ mod transparent {
     }
 
     isi! {
-        /// Custom instruction with arbitrary payload.
-        /// Should be handled in custom executor, where it will be translated to usual ISIs.
+        /// Blockchain specific instruction (defined in the executor).
         /// Can be used to extend instruction set or add expression system.
-        /// See `executor_custom_instructions_simple` and `executor_custom_instructions_complex`
-        /// examples in `client/tests/integration/smartcontracts`.
         ///
-        /// Note: If using custom instructions, it is recommended
-        /// to set `ExecutorDataModel::custom_instruction` in custom executor `migrate` entrypoint.
+        /// Note: If using custom instructions remember to set (during the executor migration)
+        /// [`ExecutorDataModel::instructions`]
+        ///
+        /// # Examples
+        ///
+        /// Check `executor_custom_instructions_simple` and `executor_custom_instructions_complex`
+        /// integration tests
         #[derive(Display)]
         #[display(fmt = "CUSTOM({payload})")]
         pub struct CustomInstruction {
@@ -1236,7 +1220,6 @@ pub mod error {
     use super::InstructionType;
     use crate::{
         asset::AssetType,
-        metadata,
         query::error::{FindError, QueryExecutionFail},
         IdBox,
     };
@@ -1286,8 +1269,6 @@ pub mod error {
             Mintability(#[cfg_attr(feature = "std", source)] MintabilityError),
             /// Illegal math operation
             Math(#[cfg_attr(feature = "std", source)] MathError),
-            /// Metadata error
-            Metadata(#[cfg_attr(feature = "std", source)] metadata::MetadataError),
             /// Invalid instruction parameter
             InvalidParameter(#[cfg_attr(feature = "std", source)] InvalidParameterError),
             /// Iroha invariant violation: {0}
@@ -1513,7 +1494,7 @@ pub mod error {
 pub mod prelude {
     pub use super::{
         AssetTransferBox, Burn, BurnBox, CustomInstruction, ExecuteTrigger, Grant, GrantBox,
-        InstructionBox, Log, Mint, MintBox, NewParameter, Register, RegisterBox, RemoveKeyValue,
+        InstructionBox, Log, Mint, MintBox, Register, RegisterBox, RemoveKeyValue,
         RemoveKeyValueBox, Revoke, RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer,
         TransferBox, Unregister, UnregisterBox, Upgrade,
     };

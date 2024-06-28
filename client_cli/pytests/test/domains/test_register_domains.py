@@ -66,30 +66,6 @@ def test_register_one_letter_domain(GIVEN_random_character):
         iroha.should(have.domain(GIVEN_random_character))
 
 
-@allure.label("sdk_test_id", "register_max_length_domain")
-def test_register_max_length_domain(GIVEN_128_length_name):
-    with allure.step(
-        f'WHEN client_cli registers the longest domain "{GIVEN_128_length_name}"'
-    ):
-        client_cli.register().domain(GIVEN_128_length_name)
-    with allure.step(
-        f'THEN Iroha should have the longest domain "{GIVEN_128_length_name}"'
-    ):
-        iroha.should(have.domain(GIVEN_128_length_name))
-
-
-@allure.label("sdk_test_id", "register_domain_with_too_long_name")
-def test_register_domain_with_too_long_name(GIVEN_129_length_name):
-    with allure.step(
-        f'WHEN client_cli registers the domain "{GIVEN_129_length_name}" with too long name'
-    ):
-        client_cli.register().domain(GIVEN_129_length_name)
-    with allure.step(
-        f'THEN client_cli should have the too long domain error: "{Stderr.TOO_LONG}"'
-    ):
-        client_cli.should(have.error(Stderr.TOO_LONG.value))
-
-
 @allure.label("sdk_test_id", "register_domain_with_reserved_character")
 def test_register_domain_with_reserved_character(GIVEN_string_with_reserved_character):
     with allure.step(

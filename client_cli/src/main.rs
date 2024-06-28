@@ -30,20 +30,19 @@ pub struct MetadataArgs {
 }
 
 impl MetadataArgs {
-    fn load(self) -> Result<UnlimitedMetadata> {
-        let value: Option<UnlimitedMetadata> = self
+    fn load(self) -> Result<Metadata> {
+        let value: Option<Metadata> = self
             .metadata
             .map(|path| {
                 let content = fs::read_to_string(&path).wrap_err_with(|| {
                     eyre!("Failed to read the metadata file `{}`", path.display())
                 })?;
-                let metadata: UnlimitedMetadata =
-                    json5::from_str(&content).wrap_err_with(|| {
-                        eyre!(
-                            "Failed to deserialize metadata from file `{}`",
-                            path.display()
-                        )
-                    })?;
+                let metadata: Metadata = json5::from_str(&content).wrap_err_with(|| {
+                    eyre!(
+                        "Failed to deserialize metadata from file `{}`",
+                        path.display()
+                    )
+                })?;
                 Ok::<_, eyre::Report>(metadata)
             })
             .transpose()?;
@@ -235,7 +234,7 @@ fn color_mode() -> ColorMode {
 #[allow(clippy::shadow_unrelated)]
 fn submit(
     instructions: impl Into<Executable>,
-    metadata: UnlimitedMetadata,
+    metadata: Metadata,
     context: &mut dyn RunContext,
 ) -> Result<()> {
     let iroha = context.client_from_config();
@@ -488,7 +487,7 @@ mod domain {
                     value: MetadataValueArg { value },
                 } = self;
                 let set_key_value = SetKeyValue::domain(id, key, value);
-                submit([set_key_value], UnlimitedMetadata::new(), context)
+                submit([set_key_value], Metadata::default(), context)
                     .wrap_err("Failed to submit Set instruction")
             }
         }
@@ -508,7 +507,7 @@ mod domain {
             fn run(self, context: &mut dyn RunContext) -> Result<()> {
                 let Self { id, key } = self;
                 let remove_key_value = RemoveKeyValue::domain(id, key);
-                submit([remove_key_value], UnlimitedMetadata::new(), context)
+                submit([remove_key_value], Metadata::default(), context)
                     .wrap_err("Failed to submit Remove instruction")
             }
         }
@@ -885,7 +884,7 @@ mod asset {
             } = self;
 
             let set = iroha::data_model::isi::SetKeyValue::asset(asset_id, key, value);
-            submit([set], UnlimitedMetadata::default(), context)?;
+            submit([set], Metadata::default(), context)?;
             Ok(())
         }
     }
@@ -903,7 +902,7 @@ mod asset {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { asset_id, key } = self;
             let remove = iroha::data_model::isi::RemoveKeyValue::asset(asset_id, key);
-            submit([remove], UnlimitedMetadata::default(), context)?;
+            submit([remove], Metadata::default(), context)?;
             Ok(())
         }
     }
@@ -1034,7 +1033,7 @@ mod wasm {
 
             submit(
                 WasmSmartContract::from_compiled(raw_data),
-                UnlimitedMetadata::new(),
+                Metadata::default(),
                 context,
             )
             .wrap_err("Failed to submit a Wasm smart contract")
@@ -1074,7 +1073,7 @@ mod json {
             match self.variant {
                 Variant::Transaction => {
                     let instructions: Vec<InstructionBox> = json5::from_str(&string_content)?;
-                    submit(instructions, UnlimitedMetadata::new(), context)
+                    submit(instructions, Metadata::default(), context)
                         .wrap_err("Failed to submit parsed instructions")
                 }
                 Variant::Query => {

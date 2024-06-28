@@ -106,7 +106,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let metadata = iroha::data_model::metadata::UnlimitedMetadata::default();
+    let metadata = iroha::data_model::metadata::Metadata::default();
     //When
     let quantity = numeric!(200);
     let mint = Mint::asset_numeric(
@@ -137,7 +137,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let metadata = iroha::data_model::metadata::UnlimitedMetadata::default();
+    let metadata = iroha::data_model::metadata::Metadata::default();
     //When
     let quantity = Numeric::new(2_u128.pow(65), 0);
     let mint = Mint::asset_numeric(
@@ -168,7 +168,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let asset_definition = AssetDefinition::numeric(asset_definition_id.clone());
     let create_asset = Register::asset_definition(asset_definition);
-    let metadata = iroha::data_model::metadata::UnlimitedMetadata::default();
+    let metadata = iroha::data_model::metadata::Metadata::default();
 
     //When
     let quantity = numeric!(123.456);

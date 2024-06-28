@@ -4,7 +4,6 @@ use alloc::{format, string::String, vec::Vec};
 use core::str::FromStr;
 
 use derive_more::{Constructor, DebugCustom, Display};
-use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -16,11 +15,13 @@ use crate::{
     asset::{Asset, AssetDefinitionId, AssetsMap},
     domain::prelude::*,
     metadata::Metadata,
-    HasMetadata, Identifiable, ParseError, PublicKey, Registered,
+    HasMetadata, ParseError, PublicKey, Registered,
 };
 
 #[model]
 mod model {
+    use getset::Getters;
+
     use super::*;
 
     /// Identification of [`Account`] by the combination of the [`PublicKey`] as its sole signatory and the [`Domain`](crate::domain::Domain) it belongs to.
@@ -66,16 +67,7 @@ mod model {
 
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
     #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdEqOrdHash,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "({id})")] // TODO: Add more?

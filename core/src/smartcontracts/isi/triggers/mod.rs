@@ -213,18 +213,15 @@ pub mod isi {
         ) -> Result<(), Error> {
             let trigger_id = self.object;
 
-            let trigger_metadata_limits = state_transaction.config.account_metadata_limits;
             state_transaction
                 .world
                 .triggers
                 .inspect_by_id_mut(&trigger_id, |action| {
-                    action.metadata_mut().insert_with_limits(
-                        self.key.clone(),
-                        self.value.clone(),
-                        trigger_metadata_limits,
-                    )
+                    action
+                        .metadata_mut()
+                        .insert(self.key.clone(), self.value.clone())
                 })
-                .ok_or(FindError::Trigger(trigger_id.clone()))??;
+                .ok_or(FindError::Trigger(trigger_id.clone()))?;
 
             state_transaction
                 .world

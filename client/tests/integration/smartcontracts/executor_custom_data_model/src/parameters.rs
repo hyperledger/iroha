@@ -1,14 +1,12 @@
 //! Module with custom parameters
 use alloc::{format, string::String, vec::Vec};
 
+use iroha_executor::prelude::*;
 use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use iroha_executor::prelude::*;
-
 /// Parameter that controls domain limits
-#[derive(PartialEq, Eq, Parameter, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+#[derive(PartialEq, Eq, Parameter, Serialize, Deserialize, IntoSchema)]
 pub struct DomainLimits {
     /// Length of domain id in bytes
     pub id_len: u32,

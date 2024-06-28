@@ -5,12 +5,7 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::WrapErr as _;
-use iroha_config::parameters::defaults::chain_wide as chain_wide_defaults;
-use iroha_data_model::{
-    metadata::Limits,
-    parameter::{default::*, ParametersBuilder},
-    prelude::*,
-};
+use iroha_data_model::prelude::*;
 use iroha_genesis::{GenesisBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
 use serde_json::json;
 use test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
@@ -92,12 +87,8 @@ pub fn generate_default(
     genesis_public_key: PublicKey,
 ) -> color_eyre::Result<RawGenesisTransaction> {
     let genesis_account_id = AccountId::new(GENESIS_DOMAIN_ID.clone(), genesis_public_key);
-    let mut meta = Metadata::new();
-    meta.insert_with_limits(
-        "key".parse()?,
-        JsonString::new("value"),
-        Limits::new(1024, 1024),
-    )?;
+    let mut meta = Metadata::default();
+    meta.insert("key".parse()?, JsonString::new("value"));
 
     let mut builder = builder
         .domain_with_metadata("wonderland".parse()?, meta.clone())
@@ -135,7 +126,7 @@ pub fn generate_default(
         "wonderland".parse()?,
         ALICE_ID.clone(),
     );
-    let register_user_metadata_access = Register::role(
+    let register_user_metadata_access: InstructionBox = Register::role(
         Role::new("ALICE_METADATA_ACCESS".parse()?)
             .add_permission(Permission::new(
                 "CanSetKeyValueInAccount".parse()?,
@@ -148,62 +139,6 @@ pub fn generate_default(
     )
     .into();
 
-    let parameter_defaults = ParametersBuilder::new()
-        .add_parameter(
-            MAX_TRANSACTIONS_IN_BLOCK,
-            Numeric::new(chain_wide_defaults::MAX_TXS.get().into(), 0),
-        )?
-        .add_parameter(
-            BLOCK_TIME,
-            Numeric::new(chain_wide_defaults::BLOCK_TIME.as_millis(), 0),
-        )?
-        .add_parameter(
-            COMMIT_TIME_LIMIT,
-            Numeric::new(chain_wide_defaults::COMMIT_TIME.as_millis(), 0),
-        )?
-        .add_parameter(TRANSACTION_LIMITS, chain_wide_defaults::TRANSACTION_LIMITS)?
-        .add_parameter(
-            WSV_DOMAIN_METADATA_LIMITS,
-            chain_wide_defaults::METADATA_LIMITS,
-        )?
-        .add_parameter(
-            WSV_ASSET_DEFINITION_METADATA_LIMITS,
-            chain_wide_defaults::METADATA_LIMITS,
-        )?
-        .add_parameter(
-            WSV_ACCOUNT_METADATA_LIMITS,
-            chain_wide_defaults::METADATA_LIMITS,
-        )?
-        .add_parameter(
-            WSV_ASSET_METADATA_LIMITS,
-            chain_wide_defaults::METADATA_LIMITS,
-        )?
-        .add_parameter(
-            WSV_TRIGGER_METADATA_LIMITS,
-            chain_wide_defaults::METADATA_LIMITS,
-        )?
-        .add_parameter(
-            WSV_IDENT_LENGTH_LIMITS,
-            chain_wide_defaults::IDENT_LENGTH_LIMITS,
-        )?
-        .add_parameter(
-            EXECUTOR_FUEL_LIMIT,
-            Numeric::new(chain_wide_defaults::WASM_FUEL_LIMIT.into(), 0),
-        )?
-        .add_parameter(
-            EXECUTOR_MAX_MEMORY,
-            Numeric::new(chain_wide_defaults::WASM_MAX_MEMORY.get().into(), 0),
-        )?
-        .add_parameter(
-            WASM_FUEL_LIMIT,
-            Numeric::new(chain_wide_defaults::WASM_FUEL_LIMIT.into(), 0),
-        )?
-        .add_parameter(
-            WASM_MAX_MEMORY,
-            Numeric::new(chain_wide_defaults::WASM_MAX_MEMORY.get().into(), 0),
-        )?
-        .into_create_parameters();
-
     for isi in [
         mint.into(),
         mint_cabbage.into(),
@@ -212,7 +147,6 @@ pub fn generate_default(
         grant_permission_to_set_parameters.into(),
     ]
     .into_iter()
-    .chain(parameter_defaults.into_iter())
     .chain(std::iter::once(register_user_metadata_access))
     {
         builder = builder.append_instruction(isi);

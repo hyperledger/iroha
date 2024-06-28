@@ -21,8 +21,6 @@ fn main(_id: TriggerId, _owner: AccountId, _event: EventBox) {
 
     let accounts_cursor = FindAllAccounts.execute().dbg_unwrap();
 
-    let limits = MetadataLimits::new(256, 256);
-
     let bad_domain_ids: [DomainId; 2] = [
         "genesis".parse().dbg_unwrap(),
         "garden_of_live_flowers".parse().dbg_unwrap(),
@@ -35,7 +33,7 @@ fn main(_id: TriggerId, _owner: AccountId, _event: EventBox) {
             continue;
         }
 
-        let mut metadata = Metadata::new();
+        let mut metadata = Metadata::default();
         let name = format!(
             "nft_for_{}_in_{}",
             account.id().signatory(),
@@ -43,14 +41,14 @@ fn main(_id: TriggerId, _owner: AccountId, _event: EventBox) {
         )
         .parse()
         .dbg_unwrap();
-        metadata.insert_with_limits(name, true, limits).dbg_unwrap();
+        metadata.insert(name, true);
 
         let nft_id = generate_new_nft_id(account.id());
         let nft_definition = AssetDefinition::store(nft_id.clone())
             .mintable_once()
             .with_metadata(metadata);
         let account_nft_id = AssetId::new(nft_id, account.id().clone());
-        let account_nft = Asset::new(account_nft_id, Metadata::new());
+        let account_nft = Asset::new(account_nft_id, Metadata::default());
 
         Register::asset_definition(nft_definition)
             .execute()

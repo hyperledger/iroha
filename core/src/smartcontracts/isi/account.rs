@@ -174,21 +174,14 @@ pub mod isi {
         ) -> Result<(), Error> {
             let account_id = self.object;
 
-            let account_metadata_limits = state_transaction.config.account_metadata_limits;
-
             state_transaction
                 .world
                 .account_mut(&account_id)
                 .map_err(Error::from)
-                .and_then(|account| {
+                .map(|account| {
                     account
                         .metadata
-                        .insert_with_limits(
-                            self.key.clone(),
-                            self.value.clone(),
-                            account_metadata_limits,
-                        )
-                        .map_err(Error::from)
+                        .insert(self.key.clone(), self.value.clone())
                 })?;
 
             state_transaction

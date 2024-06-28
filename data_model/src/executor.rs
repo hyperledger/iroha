@@ -5,20 +5,22 @@ use alloc::{collections::BTreeSet, format, string::String, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::BTreeSet;
 
-use derive_more::{Constructor, Display};
-use getset::Getters;
 use iroha_data_model_derive::model;
 use iroha_primitives::json::JsonString;
 use iroha_schema::{Ident, IntoSchema};
-use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
 use crate::transaction::WasmSmartContract;
 
 #[model]
 mod model {
+    use derive_more::{Constructor, Display};
+    use getset::Getters;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
     use super::*;
+    use crate::parameter::CustomParameters;
 
     /// executor that checks if an operation satisfies some conditions.
     ///
@@ -78,19 +80,15 @@ mod model {
     #[ffi_type]
     #[display(fmt = "{self:?}")]
     pub struct ExecutorDataModel {
-        /// Permission tokens supported by the executor.
-        ///
-        /// These IDs refer to the types in the schema.
+        /// Corresponds to the [`Parameter::Custom`].
+        /// Holds the initial value of the parameter
+        pub parameters: CustomParameters,
+        /// Corresponds to the [`InstructionBox::Custom`].
+        /// Any type that implements [`Instruction`] should be listed here.
+        pub instructions: BTreeSet<Ident>,
+        /// Ids of permission tokens supported by the executor.
         pub permissions: BTreeSet<Ident>,
-        /// Type id in the schema.
-        /// Corresponds to payload of `InstructionBox::Custom`.
-        ///
-        /// Note that technically it is not needed
-        /// (custom instructions can be used without specifying it),
-        /// however it is recommended to set it,
-        /// so clients could retrieve it through Iroha API.
-        pub custom_instruction: Option<Ident>,
-        /// Data model JSON schema, typically produced by [`IntoSchema`].
+        /// Schema of executor defined data types (instructions, parameters, permissions)
         pub schema: JsonString,
     }
 

@@ -10,19 +10,16 @@ extern crate alloc;
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
-use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
-use derive_more::{Constructor, Display, From, FromStr};
-use getset::Getters;
+use derive_more::{Constructor, Display};
 use iroha_crypto::PublicKey;
-use iroha_data_model_derive::{model, EnumRef, IdEqOrdHash};
+use iroha_data_model_derive::{model, EnumRef};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use prelude::Executable;
 use serde::{Deserialize, Serialize};
-use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::FromRepr;
 
 pub use self::model::*;
@@ -38,6 +35,7 @@ pub mod ipfs;
 pub mod isi;
 pub mod metadata;
 pub mod name;
+pub mod parameter;
 pub mod peer;
 pub mod permission;
 pub mod query;
@@ -112,7 +110,6 @@ mod seal {
         Revoke<Permission, Role>,
 
         SetParameter,
-        NewParameter,
         Upgrade,
         ExecuteTrigger,
         Log,
@@ -182,8 +179,8 @@ pub struct EnumTryAsError<EXPECTED, GOT> {
 }
 
 // Manual implementation because this allow annotation does not affect `Display` derive
-impl<EXPECTED, GOT: Debug> fmt::Display for EnumTryAsError<EXPECTED, GOT> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> fmt::Result {
+impl<EXPECTED, GOT: core::fmt::Debug> core::fmt::Display for EnumTryAsError<EXPECTED, GOT> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "Expected: {}\nGot: {:?}",
@@ -204,414 +201,16 @@ impl<EXPECTED, GOT> EnumTryAsError<EXPECTED, GOT> {
 }
 
 #[cfg(feature = "std")]
-impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED, GOT> {}
-
-pub mod parameter {
-    //! Structures, traits and impls related to `Paramater`s.
-
-    use core::borrow::Borrow;
-
-    use iroha_primitives::numeric::Numeric;
-
-    pub use self::model::*;
-    use super::*;
-    use crate::isi::InstructionBox;
-
-    /// Set of parameter names currently used by Iroha
-    #[allow(missing_docs)]
-    pub mod default {
-        pub const MAX_TRANSACTIONS_IN_BLOCK: &str = "MaxTransactionsInBlock";
-        pub const BLOCK_TIME: &str = "BlockTime";
-        pub const COMMIT_TIME_LIMIT: &str = "CommitTimeLimit";
-        pub const TRANSACTION_LIMITS: &str = "TransactionLimits";
-        pub const WSV_DOMAIN_METADATA_LIMITS: &str = "WSVDomainMetadataLimits";
-        pub const WSV_ASSET_DEFINITION_METADATA_LIMITS: &str = "WSVAssetDefinitionMetadataLimits";
-        pub const WSV_ACCOUNT_METADATA_LIMITS: &str = "WSVAccountMetadataLimits";
-        pub const WSV_ASSET_METADATA_LIMITS: &str = "WSVAssetMetadataLimits";
-        pub const WSV_TRIGGER_METADATA_LIMITS: &str = "WSVTriggerMetadataLimits";
-        pub const WSV_IDENT_LENGTH_LIMITS: &str = "WSVIdentLengthLimits";
-        pub const EXECUTOR_FUEL_LIMIT: &str = "ExecutorFuelLimit";
-        pub const EXECUTOR_MAX_MEMORY: &str = "ExecutorMaxMemory";
-        pub const WASM_FUEL_LIMIT: &str = "WASMFuelLimit";
-        pub const WASM_MAX_MEMORY: &str = "WASMMaxMemory";
-    }
-
-    #[model]
-    mod model {
-        use super::*;
-
-        #[derive(
-            Debug,
-            Clone,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            FromVariant,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-        )]
-        #[ffi_type(local)]
-        pub enum ParameterValueBox {
-            TransactionLimits(transaction::TransactionLimits),
-            MetadataLimits(metadata::Limits),
-            LengthLimits(LengthLimits),
-            Numeric(
-                #[skip_from]
-                #[skip_try_from]
-                Numeric,
-            ),
-        }
-
-        /// Identification of a [`Parameter`].
-        #[derive(
-            Debug,
-            Display,
-            Clone,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            Hash,
-            Getters,
-            FromStr,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-        )]
-        #[display(fmt = "{name}")]
-        #[getset(get = "pub")]
-        #[serde(transparent)]
-        #[repr(transparent)]
-        #[ffi_type(opaque)]
-        pub struct ParameterId {
-            /// [`Name`] unique to a [`Parameter`].
-            pub name: Name,
-        }
-
-        #[derive(
-            Debug,
-            Display,
-            Clone,
-            Constructor,
-            IdEqOrdHash,
-            Decode,
-            Encode,
-            DeserializeFromStr,
-            SerializeDisplay,
-            IntoSchema,
-        )]
-        #[display(fmt = "?{id}={val}")]
-        /// A chain-wide configuration parameter and its value.
-        #[ffi_type]
-        pub struct Parameter {
-            /// Unique [`Id`] of the [`Parameter`].
-            pub id: ParameterId,
-            /// Current value of the [`Parameter`].
-            pub val: ParameterValueBox,
-        }
-    }
-
-    // TODO: Maybe derive
-    impl core::fmt::Display for ParameterValueBox {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            match self {
-                Self::MetadataLimits(v) => core::fmt::Display::fmt(&v, f),
-                Self::TransactionLimits(v) => core::fmt::Display::fmt(&v, f),
-                Self::LengthLimits(v) => core::fmt::Display::fmt(&v, f),
-                Self::Numeric(v) => core::fmt::Display::fmt(&v, f),
-            }
-        }
-    }
-
-    impl<T: Into<Numeric>> From<T> for ParameterValueBox {
-        fn from(value: T) -> Self {
-            Self::Numeric(value.into())
-        }
-    }
-
-    impl TryFrom<ParameterValueBox> for u32 {
-        type Error = iroha_macro::error::ErrorTryFromEnum<ParameterValueBox, Self>;
-
-        fn try_from(value: ParameterValueBox) -> Result<Self, Self::Error> {
-            use iroha_macro::error::ErrorTryFromEnum;
-
-            let ParameterValueBox::Numeric(numeric) = value else {
-                return Err(ErrorTryFromEnum::default());
-            };
-
-            numeric.try_into().map_err(|_| ErrorTryFromEnum::default())
-        }
-    }
-
-    impl TryFrom<ParameterValueBox> for u64 {
-        type Error = iroha_macro::error::ErrorTryFromEnum<ParameterValueBox, Self>;
-
-        fn try_from(value: ParameterValueBox) -> Result<Self, Self::Error> {
-            use iroha_macro::error::ErrorTryFromEnum;
-
-            let ParameterValueBox::Numeric(numeric) = value else {
-                return Err(ErrorTryFromEnum::default());
-            };
-
-            numeric.try_into().map_err(|_| ErrorTryFromEnum::default())
-        }
-    }
-
-    impl Parameter {
-        /// Current value of the [`Parameter`].
-        pub fn val(&self) -> &ParameterValueBox {
-            &self.val
-        }
-    }
-
-    impl Borrow<str> for ParameterId {
-        fn borrow(&self) -> &str {
-            self.name.borrow()
-        }
-    }
-
-    impl Borrow<str> for Parameter {
-        fn borrow(&self) -> &str {
-            self.id.borrow()
-        }
-    }
-
-    impl FromStr for Parameter {
-        type Err = ParseError;
-
-        fn from_str(string: &str) -> Result<Self, Self::Err> {
-            if let Some((parameter_id_candidate, val_candidate)) = string.rsplit_once('=') {
-                if let Some(parameter_id_candidate) = parameter_id_candidate.strip_prefix('?') {
-                    let param_id: ParameterId =
-                        parameter_id_candidate.parse().map_err(|_| ParseError {
-                            reason: "Failed to parse the `param_id` part of the `Parameter`.",
-                        })?;
-                    if let Some((val, ty)) = val_candidate.rsplit_once('_') {
-                        let val = match ty {
-                            // Shorthand for `LengthLimits`
-                            "LL" => {
-                                let (lower, upper) = val.rsplit_once(',').ok_or( ParseError {
-                                        reason:
-                                            "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Two comma-separated values are expected.",
-                                    })?;
-                                let lower = lower.parse::<u32>().map_err(|_| ParseError {
-                                    reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Invalid lower `u32` bound.",
-                                })?;
-                                let upper = upper.parse::<u32>().map_err(|_| ParseError {
-                                    reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Invalid upper `u32` bound.",
-                                })?;
-                                LengthLimits::new(lower, upper).into()
-                            }
-                            // Shorthand for `TransactionLimits`
-                            "TL" => {
-                                let (max_instr, max_wasm_size) = val.rsplit_once(',').ok_or( ParseError {
-                                        reason:
-                                            "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. Two comma-separated values are expected.",
-                                    })?;
-                                let max_instr = max_instr.parse::<u64>().map_err(|_| ParseError {
-                                    reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. `max_instruction_number` field should be a valid `u64`.",
-                                })?;
-                                let max_wasm_size = max_wasm_size.parse::<u64>().map_err(|_| ParseError {
-                                    reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. `max_wasm_size_bytes` field should be a valid `u64`.",
-                                })?;
-                                transaction::TransactionLimits::new(
-                                    max_instr,
-                                    max_wasm_size,
-                                ).into()
-                            }
-                            // Shorthand for `MetadataLimits`
-                            "ML" => {
-                                let (lower, upper) = val.rsplit_once(',').ok_or( ParseError {
-                                        reason:
-                                            "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Two comma-separated values are expected.",
-                                    })?;
-                                let lower = lower.parse::<u32>().map_err(|_| ParseError {
-                                    reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `capacity` field.",
-                                })?;
-                                let upper = upper.parse::<u32>().map_err(|_| ParseError {
-                                    reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_entry_len` field.",
-                                })?;
-                                metadata::Limits::new(lower, upper).into()
-                            }
-                            _ => return Err(ParseError {
-                                reason:
-                                    "Unsupported type provided for the `val` part of the `Parameter`.",
-                            }),
-                        };
-                        Ok(Self::new(param_id, val))
-                    } else {
-                        let val = val_candidate.parse::<Numeric>().map_err(|_| ParseError {
-                            reason:
-                                "Failed to parse the `val` part of the `Parameter` as `Numeric`.",
-                        })?;
-
-                        Ok(Self::new(param_id, val.into()))
-                    }
-                } else {
-                    Err(ParseError {
-                        reason: "`param_id` part of `Parameter` must start with `?`",
-                    })
-                }
-            } else {
-                Err(ParseError {
-                    reason: "The `Parameter` string did not contain the `=` character.",
-                })
-            }
-        }
-    }
-
-    /// Convenience tool for setting parameters
-    #[derive(Default)]
-    #[must_use]
-    pub struct ParametersBuilder {
-        parameters: Vec<Parameter>,
-    }
-
-    /// Error associated with parameters builder
-    #[derive(From, Debug, Display, Copy, Clone)]
-    pub enum ParametersBuilderError {
-        /// Error emerged during parsing of parameter id
-        Parse(ParseError),
-    }
-
-    #[cfg(feature = "std")]
-    impl std::error::Error for ParametersBuilderError {}
-
-    impl ParametersBuilder {
-        /// Construct [`Self`]
-        pub fn new() -> Self {
-            Self::default()
-        }
-
-        /// Add [`Parameter`] to self
-        ///
-        /// # Errors
-        /// - [`ParameterId`] parsing failed
-        pub fn add_parameter(
-            mut self,
-            parameter_id: &str,
-            val: impl Into<ParameterValueBox>,
-        ) -> Result<Self, ParametersBuilderError> {
-            let parameter = Parameter {
-                id: parameter_id.parse()?,
-                val: val.into(),
-            };
-            self.parameters.push(parameter);
-            Ok(self)
-        }
-
-        /// Create sequence isi for setting parameters
-        pub fn into_set_parameters(self) -> Vec<InstructionBox> {
-            self.parameters
-                .into_iter()
-                .map(isi::SetParameter::new)
-                .map(Into::into)
-                .collect()
-        }
-
-        /// Create sequence isi for creating parameters
-        pub fn into_create_parameters(self) -> Vec<InstructionBox> {
-            self.parameters
-                .into_iter()
-                .map(isi::NewParameter::new)
-                .map(Into::into)
-                .collect()
-        }
-    }
-
-    pub mod prelude {
-        //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
-
-        pub use super::{Parameter, ParameterId};
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use crate::{
-            prelude::{numeric, MetadataLimits},
-            transaction::TransactionLimits,
-        };
-
-        const INVALID_PARAM: [&str; 4] = [
-            "",
-            "Block?SyncGossipPeriod=20000",
-            "?BlockSyncGossipPeriod20000",
-            "?BlockSyncGossipPeriod=20000_u32",
-        ];
-
-        #[test]
-        fn test_invalid_parameter_str() {
-            assert!(matches!(
-                parameter::Parameter::from_str(INVALID_PARAM[0]),
-                Err(err) if err.reason == "The `Parameter` string did not contain the `=` character."
-            ));
-            assert!(matches!(
-                parameter::Parameter::from_str(INVALID_PARAM[1]),
-                Err(err) if err.reason == "`param_id` part of `Parameter` must start with `?`"
-            ));
-            assert!(matches!(
-                parameter::Parameter::from_str(INVALID_PARAM[2]),
-                Err(err) if err.to_string() == "The `Parameter` string did not contain the `=` character."
-            ));
-            assert!(matches!(
-                parameter::Parameter::from_str(INVALID_PARAM[3]),
-                Err(err) if err.to_string() == "Unsupported type provided for the `val` part of the `Parameter`."
-            ));
-        }
-
-        #[test]
-        fn test_parameter_serialize_deserialize_consistent() {
-            let parameters = [
-                Parameter::new(
-                    ParameterId::from_str("TransactionLimits")
-                        .expect("Failed to parse `ParameterId`"),
-                    TransactionLimits::new(42, 24).into(),
-                ),
-                Parameter::new(
-                    ParameterId::from_str("MetadataLimits").expect("Failed to parse `ParameterId`"),
-                    MetadataLimits::new(42, 24).into(),
-                ),
-                Parameter::new(
-                    ParameterId::from_str("LengthLimits").expect("Failed to parse `ParameterId`"),
-                    LengthLimits::new(24, 42).into(),
-                ),
-                Parameter::new(
-                    ParameterId::from_str("Int").expect("Failed to parse `ParameterId`"),
-                    numeric!(42).into(),
-                ),
-            ];
-
-            for parameter in parameters {
-                assert_eq!(
-                    parameter,
-                    serde_json::to_string(&parameter)
-                        .and_then(|parameter| serde_json::from_str(&parameter))
-                        .unwrap_or_else(|_| panic!(
-                            "Failed to de/serialize parameter {:?}",
-                            &parameter
-                        ))
-                );
-            }
-        }
-    }
+impl<EXPECTED: core::fmt::Debug, GOT: core::fmt::Debug> std::error::Error
+    for EnumTryAsError<EXPECTED, GOT>
+{
 }
 
 #[model]
 #[allow(clippy::redundant_pub_crate)]
 mod model {
+    use getset::Getters;
+
     use super::*;
 
     /// Unique id of blockchain
@@ -682,8 +281,8 @@ mod model {
         RoleId(role::RoleId),
         /// [`Permission`](`permission::Permission`) variant.
         Permission(permission::Permission),
-        /// [`ParameterId`](`parameter::ParameterId`) variant.
-        ParameterId(parameter::ParameterId),
+        /// [`CustomParameter`](`parameter::CustomParameter`) variant.
+        CustomParameterId(parameter::CustomParameterId),
     }
 
     /// Sized container for all possible entities.
@@ -728,35 +327,8 @@ mod model {
         Trigger(trigger::Trigger),
         /// [`Role`](`role::Role`) variant.
         Role(role::Role),
-        /// [`Parameter`](`parameter::Parameter`) variant.
-        Parameter(parameter::Parameter),
-    }
-
-    /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        Copy,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[display(fmt = "{min},{max}_LL")]
-    #[getset(get = "pub")]
-    #[ffi_type]
-    pub struct LengthLimits {
-        /// Minimal length in number of chars (inclusive).
-        pub(super) min: u32,
-        /// Maximal length in number of chars (inclusive).
-        pub(super) max: u32,
+        /// [`CustomParameter`](`parameter::CustomParameter`) variant.
+        CustomParameter(parameter::CustomParameter),
     }
 
     /// Operation validation failed.
@@ -906,7 +478,6 @@ impl_encode_as_id_box! {
     trigger::TriggerId,
     permission::Permission,
     role::RoleId,
-    parameter::ParameterId,
 }
 
 impl_encode_as_identifiable_box! {
@@ -921,7 +492,6 @@ impl_encode_as_identifiable_box! {
     asset::Asset,
     trigger::Trigger,
     role::Role,
-    parameter::Parameter,
 }
 
 impl Decode for ChainId {
@@ -960,7 +530,7 @@ impl IdentifiableBox {
             IdentifiableBox::Asset(a) => a.id().clone().into(),
             IdentifiableBox::Trigger(a) => a.id().clone().into(),
             IdentifiableBox::Role(a) => a.id().clone().into(),
-            IdentifiableBox::Parameter(a) => a.id().clone().into(),
+            IdentifiableBox::CustomParameter(a) => a.id().clone().into(),
         }
     }
 }
@@ -1009,20 +579,6 @@ pub trait Registered: Identifiable {
     /// would be empty, to save space you create a builder for it, and
     /// set `With` to the builder's type.
     type With;
-}
-
-impl LengthLimits {
-    /// Constructor.
-    pub const fn new(min: u32, max: u32) -> Self {
-        Self { min, max }
-    }
-}
-
-impl From<LengthLimits> for RangeInclusive<u32> {
-    #[inline]
-    fn from(limits: LengthLimits) -> Self {
-        RangeInclusive::new(limits.min, limits.max)
-    }
 }
 
 declare_versioned!(
@@ -1090,6 +646,6 @@ pub mod prelude {
         executor::prelude::*, isi::prelude::*, metadata::prelude::*, name::prelude::*,
         parameter::prelude::*, peer::prelude::*, permission::prelude::*, query::prelude::*,
         role::prelude::*, transaction::prelude::*, trigger::prelude::*, ChainId, EnumTryAsError,
-        HasMetadata, IdBox, Identifiable, IdentifiableBox, LengthLimits, ValidationFail,
+        HasMetadata, IdBox, Identifiable, IdentifiableBox, ValidationFail,
     };
 }

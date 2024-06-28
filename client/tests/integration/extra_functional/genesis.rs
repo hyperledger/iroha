@@ -1,4 +1,4 @@
-use iroha_data_model::{
+use iroha::data_model::{
     domain::{Domain, DomainId},
     isi::Register,
 };
