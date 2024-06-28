@@ -9,17 +9,15 @@ use derive_more::{Constructor, Display};
 use getset::Getters;
 use iroha_data_model_derive::model;
 use iroha_primitives::json::JsonString;
-use iroha_schema::IntoSchema;
+use iroha_schema::{Ident, IntoSchema};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{permission::PermissionId, transaction::WasmSmartContract};
+use crate::transaction::WasmSmartContract;
 
 #[model]
 mod model {
-    use iroha_schema::Ident;
-
     use super::*;
 
     /// executor that checks if an operation satisfies some conditions.
@@ -83,7 +81,7 @@ mod model {
         /// Permission tokens supported by the executor.
         ///
         /// These IDs refer to the types in the schema.
-        pub permissions: BTreeSet<PermissionId>,
+        pub permissions: BTreeSet<Ident>,
         /// Type id in the schema.
         /// Corresponds to payload of `InstructionBox::Custom`.
         ///
@@ -104,7 +102,7 @@ mod model {
 //       currently it fails for all fields
 impl ExecutorDataModel {
     /// Getter
-    pub fn permissions(&self) -> &BTreeSet<PermissionId> {
+    pub fn permissions(&self) -> &BTreeSet<Ident> {
         &self.permissions
     }
 

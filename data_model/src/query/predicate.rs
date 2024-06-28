@@ -602,7 +602,7 @@ pub mod string {
                 IdBox::PeerId(id) => self.applies(&id.to_string()),
                 IdBox::TriggerId(id) => self.applies(&id.to_string()),
                 IdBox::RoleId(id) => self.applies(&id.to_string()),
-                IdBox::PermissionId(id) => self.applies(&id.to_string()),
+                IdBox::Permission(id) => self.applies(&id.to_string()),
                 IdBox::ParameterId(id) => self.applies(&id.to_string()),
             }
         }
@@ -1163,7 +1163,7 @@ pub mod value {
                 QueryOutputPredicate::Display(pred) => pred.applies(&input.to_string()),
                 QueryOutputPredicate::TimeStamp(pred) => match input {
                     QueryOutputBox::Block(block) => {
-                        pred.applies(block.header().timestamp().as_millis())
+                        pred.applies(block.header().creation_time().as_millis())
                     }
                     _ => false,
                 },

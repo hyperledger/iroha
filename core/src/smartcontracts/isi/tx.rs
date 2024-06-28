@@ -87,7 +87,7 @@ impl ValidQuery for FindTransactionsByAccountId {
         &self,
         state_ro: &'state impl StateReadOnly,
     ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'state>, QueryExecutionFail> {
-        let account_id = self.account_id.clone();
+        let account_id = self.account.clone();
 
         Ok(Box::new(
             state_ro

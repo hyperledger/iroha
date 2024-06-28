@@ -61,7 +61,7 @@ mod model {
         pub transactions_hash: HashOf<MerkleTree<SignedTransaction>>,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
-        pub timestamp_ms: u64,
+        pub creation_time_ms: u64,
         /// Value of view change index. Used to resolve soft forks.
         #[getset(skip)]
         pub view_change_index: u32,
@@ -147,8 +147,8 @@ impl BlockHeader {
     }
 
     /// Creation timestamp
-    pub const fn timestamp(&self) -> Duration {
-        Duration::from_millis(self.timestamp_ms)
+    pub const fn creation_time(&self) -> Duration {
+        Duration::from_millis(self.creation_time_ms)
     }
 
     /// Consensus estimation
@@ -291,13 +291,13 @@ impl SignedBlock {
             .hash()
             .expect("Tree is not empty");
         let first_transaction = &genesis_transactions[0];
-        let timestamp_ms = u64::try_from(first_transaction.creation_time().as_millis())
+        let creation_time_ms = u64::try_from(first_transaction.creation_time().as_millis())
             .expect("Must fit since Duration was created from u64 in creation_time()");
         let header = BlockHeader {
             height: 1,
             prev_block_hash: None,
             transactions_hash,
-            timestamp_ms,
+            creation_time_ms,
             view_change_index: 0,
             consensus_estimation_ms: 0,
         };

@@ -2,7 +2,7 @@
 
 use alloc::borrow::ToOwned as _;
 
-use iroha_schema::IntoSchema;
+use iroha_schema::{Ident, IntoSchema};
 use iroha_smart_contract::QueryOutputCursor;
 use iroha_smart_contract_utils::debug::DebugExpectExt as _;
 use serde::{de::DeserializeOwned, Serialize};
@@ -17,12 +17,8 @@ pub trait Permission:
     fn is_owned_by(&self, account_id: &AccountId) -> bool;
 
     /// Permission id, according to [`IntoSchema`].
-    fn id() -> PermissionId {
-        PermissionId::new(
-            <Self as iroha_schema::IntoSchema>::type_name()
-                .parse()
-                .dbg_expect("Failed to parse permission id as `Name`"),
-        )
+    fn name() -> Ident {
+        <Self as iroha_schema::IntoSchema>::type_name()
     }
 }
 

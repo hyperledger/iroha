@@ -46,12 +46,12 @@ macro_rules! declare_permissions {
             type Error = $crate::TryFromDataModelObjectError;
 
             fn try_from(token: &$crate::data_model::permission::Permission) -> Result<Self, Self::Error> {
-                match token.id().name().as_ref() { $(
+                match token.name().as_ref() { $(
                     stringify!($token_ty) => {
                         let token = <$($token_path::)+$token_ty>::try_from(token)?;
                         Ok(Self::$token_ty(token))
                     } )+
-                    _ => Err(Self::Error::Id(token.id().name().clone()))
+                    _ => Err(Self::Error::UnknownIdent(token.name().to_owned()))
                 }
             }
         }

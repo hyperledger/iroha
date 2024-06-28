@@ -41,7 +41,7 @@ pub mod isi {
             if let PushResult::Duplicate(duplicate) = world.trusted_peers_ids.push(peer_id.clone())
             {
                 return Err(RepetitionError {
-                    instruction_type: InstructionType::Register,
+                    instruction: InstructionType::Register,
                     id: IdBox::PeerId(duplicate),
                 }
                 .into());
@@ -98,7 +98,7 @@ pub mod isi {
             let world = &mut state_transaction.world;
             if world.domains.get(&domain_id).is_some() {
                 return Err(RepetitionError {
-                    instruction_type: InstructionType::Register,
+                    instruction: InstructionType::Register,
                     id: IdBox::DomainId(domain_id),
                 }
                 .into());
@@ -183,7 +183,7 @@ pub mod isi {
 
             if state_transaction.world.roles.get(role.id()).is_some() {
                 return Err(RepetitionError {
-                    instruction_type: InstructionType::Register,
+                    instruction: InstructionType::Register,
                     id: IdBox::RoleId(role.id),
                 }
                 .into());
@@ -253,8 +253,8 @@ pub mod isi {
 
             if !role.permissions.insert(permission.clone()) {
                 return Err(RepetitionError {
-                    instruction_type: InstructionType::Grant,
-                    id: permission.id.into(),
+                    instruction: InstructionType::Grant,
+                    id: permission.into(),
                 }
                 .into());
             }
@@ -263,7 +263,7 @@ pub mod isi {
                 .world
                 .emit_events(Some(RoleEvent::PermissionAdded(RolePermissionChanged {
                     role: role_id,
-                    permission: permission.id,
+                    permission,
                 })));
 
             Ok(())
@@ -279,21 +279,20 @@ pub mod isi {
         ) -> Result<(), Error> {
             let role_id = self.destination;
             let permission = self.object;
-            let permission_id = permission.id.clone();
 
             let Some(role) = state_transaction.world.roles.get_mut(&role_id) else {
                 return Err(FindError::Role(role_id).into());
             };
 
             if !role.permissions.remove(&permission) {
-                return Err(FindError::Permission(permission_id).into());
+                return Err(FindError::Permission(permission).into());
             }
 
             state_transaction
                 .world
                 .emit_events(Some(RoleEvent::PermissionRemoved(RolePermissionChanged {
                     role: role_id,
-                    permission: permission_id,
+                    permission,
                 })));
 
             Ok(())
@@ -335,7 +334,7 @@ pub mod isi {
 
             if !state_transaction.world.parameters.insert(parameter.clone()) {
                 return Err(RepetitionError {
-                    instruction_type: InstructionType::NewParameter,
+                    instruction: InstructionType::NewParameter,
                     id: IdBox::ParameterId(parameter_id),
                 }
                 .into());

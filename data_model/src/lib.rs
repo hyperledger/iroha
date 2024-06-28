@@ -681,7 +681,7 @@ mod model {
         /// [`RoleId`](`role::RoleId`) variant.
         RoleId(role::RoleId),
         /// [`Permission`](`permission::Permission`) variant.
-        PermissionId(permission::PermissionId),
+        Permission(permission::Permission),
         /// [`ParameterId`](`parameter::ParameterId`) variant.
         ParameterId(parameter::ParameterId),
     }
@@ -904,7 +904,7 @@ impl_encode_as_id_box! {
     asset::AssetDefinitionId,
     asset::AssetId,
     trigger::TriggerId,
-    permission::PermissionId,
+    permission::Permission,
     role::RoleId,
     parameter::ParameterId,
 }

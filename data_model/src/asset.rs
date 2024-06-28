@@ -114,7 +114,7 @@ mod model {
         Serialize,
         IntoSchema,
     )]
-    #[display(fmt = "{id} {value_type}{mintable}")]
+    #[display(fmt = "{id} {type_}{mintable}")]
     #[allow(clippy::multiple_inherent_impl)]
     #[ffi_type]
     pub struct AssetDefinition {
@@ -122,7 +122,7 @@ mod model {
         pub id: AssetDefinitionId,
         /// Type of [`AssetValue`]
         #[getset(get_copy = "pub")]
-        pub value_type: AssetValueType,
+        pub type_: AssetType,
         /// Is the asset mintable
         #[getset(get_copy = "pub")]
         pub mintable: Mintable,
@@ -164,13 +164,13 @@ mod model {
     #[derive(
         Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
-    #[display(fmt = "{id} {mintable}{value_type}")]
+    #[display(fmt = "{id} {mintable}{type_}")]
     #[ffi_type]
     pub struct NewAssetDefinition {
         /// The identification associated with the asset definition builder.
         pub id: AssetDefinitionId,
         /// The type value associated with the asset definition builder.
-        pub value_type: AssetValueType,
+        pub type_: AssetType,
         /// The mintablility associated with the asset definition builder.
         pub mintable: Mintable,
         /// IPFS link to the [`AssetDefinition`] logo
@@ -196,7 +196,7 @@ mod model {
     )]
     #[ffi_type]
     #[repr(u8)]
-    pub enum AssetValueType {
+    pub enum AssetType {
         /// Asset's qualitative value.
         #[display(fmt = "{_0}")]
         Numeric(NumericSpec),
@@ -268,12 +268,12 @@ mod model {
     }
 }
 
-/// Error occurred while parsing `AssetValueType`
+/// Error occurred while parsing `AssetType`
 #[derive(Debug, displaydoc::Display, Clone)]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 #[repr(u8)]
-pub enum AssetValueTypeParseError {
-    /// `AssetValueType` should be either `Store` or `Numeric`
+pub enum AssetTypeParseError {
+    /// `AssetType` should be either `Store` or `Numeric`
     WrongVariant,
     /// Error occurred while parsing `Numeric` variant: {_0}
     Numeric(#[cfg_attr(feature = "std", source)] NumericSpecParseError),
@@ -283,22 +283,22 @@ impl AssetDefinition {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn new(id: AssetDefinitionId, value_type: AssetValueType) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, value_type)
+    pub fn new(id: AssetDefinitionId, type_: AssetType) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id, type_)
     }
 
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
     pub fn numeric(id: AssetDefinitionId) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, AssetValueType::Numeric(NumericSpec::default()))
+        <Self as Registered>::With::new(id, AssetType::Numeric(NumericSpec::default()))
     }
 
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
     pub fn store(id: AssetDefinitionId) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, AssetValueType::Store)
+        <Self as Registered>::With::new(id, AssetType::Store)
     }
 }
 
@@ -314,10 +314,10 @@ impl Asset {
 
 impl NewAssetDefinition {
     /// Create a [`NewAssetDefinition`], reserved for internal use.
-    fn new(id: AssetDefinitionId, value_type: AssetValueType) -> Self {
+    fn new(id: AssetDefinitionId, type_: AssetType) -> Self {
         Self {
             id,
-            value_type,
+            type_,
             mintable: Mintable::Infinitely,
             logo: None,
             metadata: Metadata::default(),
@@ -356,12 +356,10 @@ impl HasMetadata for AssetDefinition {
 
 impl AssetValue {
     /// Returns the asset type as a string.
-    pub const fn value_type(&self) -> AssetValueType {
+    pub const fn type_(&self) -> AssetType {
         match *self {
-            Self::Numeric(numeric) => {
-                AssetValueType::Numeric(NumericSpec::fractional(numeric.scale()))
-            }
-            Self::Store(_) => AssetValueType::Store,
+            Self::Numeric(numeric) => AssetType::Numeric(NumericSpec::fractional(numeric.scale())),
+            Self::Store(_) => AssetType::Store,
         }
     }
     /// Returns true if this value is zero, false if it contains [`Metadata`] or positive value
@@ -446,8 +444,8 @@ impl FromStr for AssetId {
     }
 }
 
-impl FromStr for AssetValueType {
-    type Err = AssetValueTypeParseError;
+impl FromStr for AssetType {
+    type Err = AssetTypeParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -455,8 +453,8 @@ impl FromStr for AssetValueType {
             s if s.starts_with("Numeric") => s
                 .parse::<NumericSpec>()
                 .map(Self::Numeric)
-                .map_err(AssetValueTypeParseError::Numeric),
-            _ => Err(AssetValueTypeParseError::WrongVariant),
+                .map_err(AssetTypeParseError::Numeric),
+            _ => Err(AssetTypeParseError::WrongVariant),
         }
     }
 }
@@ -478,7 +476,7 @@ impl Registered for AssetDefinition {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Asset, AssetDefinition, AssetDefinitionId, AssetId, AssetValue, AssetValueType, Mintable,
+        Asset, AssetDefinition, AssetDefinitionId, AssetId, AssetType, AssetValue, Mintable,
         NewAssetDefinition,
     };
 }

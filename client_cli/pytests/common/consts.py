@@ -20,7 +20,7 @@ class Stderr(Enum):
     TOO_LONG = "Name length violation"
     FAILED_TO_FIND_DOMAIN = "Failed to find domain"
     INVALID_CHARACTER = "Failed to parse"
-    INVALID_VALUE_TYPE = "should be either `Store` or `Numeric`"
+    INVALID_TYPE = "should be either `Store` or `Numeric`"
     RESERVED_CHARACTER = (
         "The `@` character is reserved for `account@domain` constructs, "
         "and `#` — for `asset#domain`."

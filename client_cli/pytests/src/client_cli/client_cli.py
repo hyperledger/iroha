@@ -150,7 +150,7 @@ class ClientCli:
         self.execute()
         return self
 
-    def asset(self, asset_definition=None, account=None, value_of_value_type=None):
+    def asset(self, asset_definition=None, account=None, value_of_type=None):
         """
         Executes the 'asset' command with the given asset definition, account, and value.
 
@@ -158,13 +158,13 @@ class ClientCli:
         :type asset_definition: AssetDefinition
         :param account: The account to be queried, defaults to None.
         :type account: Account
-        :param value_of_value_type: The value of the value type, defaults to None.
-        :type value_of_value_type: str, optional
+        :param value_of_type: The value of the asset type, defaults to None.
+        :type value_of_type: str, optional
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
         self.command.insert(2, "asset")
-        if asset_definition and account and value_of_value_type:
+        if asset_definition and account and value_of_type:
             self.command.append(
                 "--asset-id="
                 + asset_definition.name
@@ -175,7 +175,7 @@ class ClientCli:
                 + "@"
                 + account.domain
             )
-            self.command.append("--quantity=" + value_of_value_type)
+            self.command.append("--quantity=" + value_of_type)
             self.execute()
         return self
 
@@ -239,7 +239,7 @@ class ClientCli:
         self.execute()
         return self
 
-    def definition(self, asset: str, domain: str, value_type: str):
+    def definition(self, asset: str, domain: str, type_: str):
         """
         Executes the 'definition' command for the given asset, domain, and value type.
 
@@ -247,13 +247,13 @@ class ClientCli:
         :type asset: str
         :param domain: The domain of the asset.
         :type domain: str
-        :param value_type: The value type of the asset.
-        :type value_type: str
+        :param type_: The value type of the asset.
+        :type type_: str
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
         self.command.append("--definition-id=" + asset + "#" + domain)
-        self.command.append("--value-type=" + value_type)
+        self.command.append("--type=" + type_)
         self.execute()
         return self
 

@@ -1135,7 +1135,7 @@ pub trait StateReadOnly {
             let opt = self
                 .kura()
                 .get_block_by_height(nonzero_ext::nonzero!(1_usize))
-                .map(|genesis_block| genesis_block.header().timestamp());
+                .map(|genesis_block| genesis_block.header().creation_time());
 
             if opt.is_none() {
                 error!("Failed to get genesis block from Kura.");
@@ -1316,13 +1316,13 @@ impl<'state> StateBlock<'state> {
             let header = &latest_block.as_ref().header();
 
             TimeInterval {
-                since: header.timestamp(),
+                since: header.creation_time(),
                 length: header.consensus_estimation(),
             }
         });
 
         let interval = TimeInterval {
-            since: block.as_ref().header().timestamp(),
+            since: block.as_ref().header().creation_time(),
             length: block.as_ref().header().consensus_estimation(),
         };
 

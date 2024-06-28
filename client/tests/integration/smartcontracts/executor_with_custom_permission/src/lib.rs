@@ -110,9 +110,9 @@ impl Executor {
 
     fn replace_token(accounts: &[Account]) -> MigrationResult {
         let can_unregister_domain_definition_id =
-            iroha_executor::default::permissions::domain::CanUnregisterDomain::id();
+            iroha_executor::default::permissions::domain::CanUnregisterDomain::name();
 
-        let can_control_domain_lives_definition_id = token::CanControlDomainLives::id();
+        let can_control_domain_lives_definition_id = token::CanControlDomainLives::name();
 
         accounts
             .iter()

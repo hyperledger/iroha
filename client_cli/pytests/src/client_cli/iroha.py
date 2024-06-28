@@ -113,9 +113,9 @@ class Iroha(ClientCli):
             for domain in domains:
                 asset_defs = domain.get("asset_definitions")
                 for asset_def in asset_defs.values():
-                    value_type = asset_def.get("value_type")
-                    if value_type:
-                        asset_definitions[asset_def["id"]] = value_type
+                    type_ = asset_def.get("type_")
+                    if type_:
+                        asset_definitions[asset_def["id"]] = type_
             return asset_definitions
         else:
             return {}

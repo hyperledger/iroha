@@ -710,7 +710,7 @@ mod asset {
         pub unmintable: bool,
         /// Value type stored in asset
         #[arg(short, long)]
-        pub value_type: AssetValueType,
+        pub r#type: AssetType,
         #[command(flatten)]
         pub metadata: MetadataArgs,
     }
@@ -719,11 +719,11 @@ mod asset {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 definition_id,
-                value_type,
+                r#type,
                 unmintable,
                 metadata,
             } = self;
-            let mut asset_definition = AssetDefinition::new(definition_id, value_type);
+            let mut asset_definition = AssetDefinition::new(definition_id, r#type);
             if unmintable {
                 asset_definition = asset_definition.mintable_once();
             }

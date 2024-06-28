@@ -29,7 +29,7 @@ fn generate_genesis(
             .account(signatory_alice.clone())
             .asset(
                 format!("xor-{i}").parse().expect("Valid"),
-                AssetValueType::Numeric(NumericSpec::default()),
+                AssetType::Numeric(NumericSpec::default()),
             )
             .finish_domain();
     }

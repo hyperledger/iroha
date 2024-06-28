@@ -44,7 +44,7 @@ fn find_asset_total_quantity() -> Result<()> {
         &test_client,
         &accounts,
         "quantity#wonderland",
-        AssetValueType::Numeric(NumericSpec::default()),
+        AssetType::Numeric(NumericSpec::default()),
         numeric!(1),
         numeric!(10),
         numeric!(5),
@@ -56,7 +56,7 @@ fn find_asset_total_quantity() -> Result<()> {
         &test_client,
         &accounts,
         "fixed#wonderland",
-        AssetValueType::Numeric(NumericSpec::default()),
+        AssetType::Numeric(NumericSpec::default()),
         numeric!(1.0),
         numeric!(10.0),
         numeric!(5.0),
@@ -131,7 +131,7 @@ fn test_total_quantity<T>(
     test_client: &Client,
     accounts: &[AccountId; 5],
     definition: &str,
-    asset_value_type: AssetValueType,
+    asset_type: AssetType,
     initial_value: T,
     to_mint: T,
     to_burn: T,
@@ -147,7 +147,7 @@ where
     // Registering new asset definition
     let definition_id: AssetDefinitionId =
         definition.parse().expect("Failed to parse `definition_id`");
-    let asset_definition = AssetDefinition::new(definition_id.clone(), asset_value_type);
+    let asset_definition = AssetDefinition::new(definition_id.clone(), asset_type);
     test_client.submit_blocking(Register::asset_definition(asset_definition))?;
 
     let asset_ids = accounts

@@ -16,10 +16,12 @@ use parity_scale_codec::{Decode, Encode, Input};
 use serde::Serialize;
 
 pub use self::model::*;
-use super::QueryId;
 
-const QUERY_ID: &str = "query_id";
+const QUERY_ID: &str = "query";
 const CURSOR: &str = "cursor";
+
+/// Unique id of a query
+pub type QueryId = String;
 
 #[model]
 mod model {
@@ -31,15 +33,15 @@ mod model {
     pub struct ForwardCursor {
         /// Unique ID of query. When provided in a query the query will look up if there
         /// is was already a query with a matching ID and resume returning result batches
-        pub query_id: Option<QueryId>,
+        pub query: Option<QueryId>,
         /// Pointer to the next element in the result set
         pub cursor: Option<NonZeroU64>,
     }
 
     impl ForwardCursor {
         /// Create a new cursor.
-        pub const fn new(query_id: Option<QueryId>, cursor: Option<NonZeroU64>) -> Self {
-            Self { query_id, cursor }
+        pub const fn new(query: Option<QueryId>, cursor: Option<NonZeroU64>) -> Self {
+            Self { query, cursor }
         }
     }
 }
@@ -51,7 +53,7 @@ mod candidate {
 
     #[derive(Decode, Deserialize)]
     struct ForwardCursorCandidate {
-        query_id: Option<QueryId>,
+        query: Option<QueryId>,
         cursor: Option<NonZeroU64>,
     }
 
@@ -62,9 +64,9 @@ mod candidate {
         {
             let candidate = ForwardCursorCandidate::deserialize(deserializer)?;
 
-            if let Some(query_id) = candidate.query_id {
+            if let Some(query_id) = candidate.query {
                 Ok(ForwardCursor {
-                    query_id: Some(query_id),
+                    query: Some(query_id),
                     cursor: candidate.cursor,
                 })
             } else if candidate.cursor.is_some() {
@@ -79,9 +81,9 @@ mod candidate {
         fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
             let candidate = ForwardCursorCandidate::decode(input)?;
 
-            if let Some(query_id) = candidate.query_id {
+            if let Some(query_id) = candidate.query {
                 Ok(ForwardCursor {
-                    query_id: Some(query_id),
+                    query: Some(query_id),
                     cursor: candidate.cursor,
                 })
             } else if candidate.cursor.is_some() {
@@ -95,7 +97,7 @@ mod candidate {
 
 impl From<ForwardCursor> for Vec<(&'static str, QueryId)> {
     fn from(cursor: ForwardCursor) -> Self {
-        match (cursor.query_id, cursor.cursor) {
+        match (cursor.query, cursor.cursor) {
             (Some(query_id), Some(cursor)) => {
                 vec![(QUERY_ID, query_id), (CURSOR, cursor.to_string())]
             }

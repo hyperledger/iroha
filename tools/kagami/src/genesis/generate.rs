@@ -103,16 +103,13 @@ pub fn generate_default(
         .domain_with_metadata("wonderland".parse()?, meta.clone())
         .account_with_metadata(ALICE_ID.signatory().clone(), meta.clone())
         .account_with_metadata(BOB_ID.signatory().clone(), meta)
-        .asset(
-            "rose".parse()?,
-            AssetValueType::Numeric(NumericSpec::default()),
-        )
+        .asset("rose".parse()?, AssetType::Numeric(NumericSpec::default()))
         .finish_domain()
         .domain("garden_of_live_flowers".parse()?)
         .account(CARPENTER_ID.signatory().clone())
         .asset(
             "cabbage".parse()?,
-            AssetValueType::Numeric(NumericSpec::default()),
+            AssetType::Numeric(NumericSpec::default()),
         )
         .finish_domain();
 
@@ -254,7 +251,7 @@ fn generate_synthetic(
             genesis.append_instruction(
                 Register::asset_definition(AssetDefinition::new(
                     asset_definition_id,
-                    AssetValueType::Numeric(NumericSpec::default()),
+                    AssetType::Numeric(NumericSpec::default()),
                 ))
                 .into(),
             );

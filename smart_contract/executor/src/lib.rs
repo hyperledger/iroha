@@ -179,8 +179,8 @@ macro_rules! deny {
 /// Such objects are [`data_model::prelude::Permission`] and [`data_model::prelude::Parameter`].
 #[derive(Debug)]
 pub enum TryFromDataModelObjectError {
-    /// Unexpected object id
-    Id(data_model::prelude::Name),
+    /// Unexpected object name
+    UnknownIdent(iroha_schema::Ident),
     /// Failed to deserialize object payload
     Deserialize(serde_json::Error),
 }
@@ -188,7 +188,7 @@ pub enum TryFromDataModelObjectError {
 /// A convenience to build [`ExecutorDataModel`] from within the executor
 #[derive(Debug, Clone)]
 pub struct DataModelBuilder {
-    permissions: BTreeSet<prelude::PermissionId>,
+    permissions: BTreeSet<Ident>,
     custom_instruction: Option<Ident>,
     schema: MetaMap,
 }
@@ -225,7 +225,8 @@ impl DataModelBuilder {
     #[must_use]
     pub fn add_permission<T: permission::Permission>(mut self) -> Self {
         <T as iroha_schema::IntoSchema>::update_schema_map(&mut self.schema);
-        self.permissions.insert(<T as permission::Permission>::id());
+        self.permissions
+            .insert(<T as permission::Permission>::name());
         self
     }
 
@@ -243,7 +244,7 @@ impl DataModelBuilder {
     pub fn remove_permission<T: permission::Permission>(mut self) -> Self {
         <T as iroha_schema::IntoSchema>::remove_from_schema(&mut self.schema);
         self.permissions
-            .remove(&<T as permission::Permission>::id());
+            .remove(&<T as permission::Permission>::name());
         self
     }
 
@@ -257,7 +258,7 @@ impl DataModelBuilder {
 
         for role in all_roles.into_iter().map(|role| role.unwrap()) {
             for permission in role.permissions() {
-                if !self.permissions.contains(permission.id()) {
+                if !self.permissions.contains(permission.name()) {
                     Revoke::role_permission(permission.clone(), role.id().clone())
                         .execute()
                         .unwrap();
@@ -272,7 +273,7 @@ impl DataModelBuilder {
                 .into_iter();
 
             for permission in account_permissions.map(|permission| permission.unwrap()) {
-                if !self.permissions.contains(permission.id()) {
+                if !self.permissions.contains(permission.name()) {
                     Revoke::permission(permission, account.id().clone())
                         .execute()
                         .unwrap();
