@@ -72,11 +72,3 @@ def test_register_account_with_invalid_character_in_key(
         )
     with allure.step("THEN client_cli should have the error"):
         client_cli.should(have.error(Stderr.INVALID_CHARACTER.value))
-
-
-@allure.label("sdk_test_id", "register_account_with_metadata")
-@pytest.mark.xfail(reason="TO DO")
-def test_register_account_with_metadata(
-    GIVEN_fake_name, GIVEN_registered_domain, GIVEN_public_key
-):
-    assert 0

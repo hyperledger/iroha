@@ -55,22 +55,6 @@ def test_register_asset_definition_with_store_type(
         )
 
 
-@allure.label("sdk_test_id", "register_asset_definition_with_metadata")
-@pytest.mark.xfail(reason="TO DO")
-def test_register_asset_definition_with_metadata(
-    GIVEN_fake_asset_name, GIVEN_registered_domain
-):
-    assert 0
-
-
-@allure.label("sdk_test_id", "register_fixed_asset_definition")
-@pytest.mark.xfail(reason="TO DO")
-def test_register_fixed_asset_definition(
-    GIVEN_fake_asset_name, GIVEN_registered_domain
-):
-    assert 0
-
-
 @allure.label("sdk_test_id", "register_asset_with_existing_name")
 def test_register_asset_with_existing_name(
     GIVEN_registered_asset_definition_with_numeric_type,

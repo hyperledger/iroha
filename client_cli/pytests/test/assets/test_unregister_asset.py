@@ -18,7 +18,7 @@ def story_account_unregisters_asset():
     ],
     indirect=True,
 )
-@pytest.mark.xfail(reason="wait for #4039")
+@pytest.mark.xfail(reason="wait for #4753")
 def test_unregister_asset(
     GIVEN_numeric_asset_for_account,
 ):
