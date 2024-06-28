@@ -15,7 +15,7 @@
 
 [genesis]
 # public_key =
-# signed_file =
+# file =
 
 [network]
 # address =

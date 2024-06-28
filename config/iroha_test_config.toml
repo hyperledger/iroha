@@ -7,7 +7,7 @@ address = "127.0.0.1:1337"
 
 [genesis]
 public_key = "ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4"
-signed_file = "./genesis.signed.scale"
+file = "./genesis.signed.scale"
 
 [torii]
 address = "127.0.0.1:8080"

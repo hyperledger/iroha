@@ -158,15 +158,15 @@ impl Root {
 pub struct Genesis {
     #[config(env = "GENESIS_PUBLIC_KEY")]
     pub public_key: WithOrigin<PublicKey>,
-    #[config(env = "GENESIS_SIGNED_FILE")]
-    pub signed_file: Option<WithOrigin<PathBuf>>,
+    #[config(env = "GENESIS")]
+    pub file: Option<WithOrigin<PathBuf>>,
 }
 
 impl From<Genesis> for actual::Genesis {
     fn from(genesis: Genesis) -> Self {
         actual::Genesis {
             public_key: genesis.public_key.into_value(),
-            signed_file: genesis.signed_file,
+            file: genesis.file,
         }
     }
 }
@@ -211,7 +211,7 @@ pub struct KuraDebug {
 
 #[derive(Debug, ReadConfig)]
 pub struct Sumeragi {
-    #[config(env = "SUMERAGI_TRUSTED_PEERS", default)]
+    #[config(env = "TRUSTED_PEERS", default)]
     pub trusted_peers: WithOrigin<TrustedPeers>,
     #[config(nested)]
     pub debug: SumeragiDebug,

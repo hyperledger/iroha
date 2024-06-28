@@ -85,7 +85,7 @@ pub struct Genesis {
     /// Path to `GenesisBlock`.
     /// If it is none, the peer can only observe the genesis block.
     /// If it is some, the peer is responsible for submitting the genesis block.
-    pub signed_file: Option<WithOrigin<PathBuf>>,
+    pub file: Option<WithOrigin<PathBuf>>,
 }
 
 #[allow(missing_docs)]
