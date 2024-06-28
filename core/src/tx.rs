@@ -14,7 +14,7 @@ pub use iroha_data_model::prelude::*;
 use iroha_data_model::{
     isi::error::Mismatch,
     query::error::FindError,
-    transaction::{error::TransactionLimitError, TransactionLimits, TransactionPayload},
+    transaction::{error::TransactionLimitError, TransactionPayload},
 };
 use iroha_logger::{debug, error};
 use iroha_macro::FromVariant;
@@ -95,7 +95,7 @@ impl AcceptedTransaction {
     pub fn accept(
         tx: SignedTransaction,
         expected_chain_id: &ChainId,
-        limits: TransactionLimits,
+        limits: TransactionParameters,
     ) -> Result<Self, AcceptTransactionFail> {
         let actual_chain_id = tx.chain();
 
@@ -112,13 +112,19 @@ impl AcceptedTransaction {
 
         match &tx.instructions() {
             Executable::Instructions(instructions) => {
-                let instruction_count = instructions.len();
-                if Self::len_u64(instruction_count) > limits.max_instruction_number {
+                let instruction_limit = limits
+                    .max_instructions
+                    .get()
+                    .try_into()
+                    .expect("INTERNAL BUG: max instructions exceeds usize::MAX");
+
+                if instructions.len() > instruction_limit {
                     return Err(AcceptTransactionFail::TransactionLimit(
                         TransactionLimitError {
                             reason: format!(
                                 "Too many instructions in payload, max number is {}, but got {}",
-                                limits.max_instruction_number, instruction_count
+                                limits.max_instructions,
+                                instructions.len()
                             ),
                         },
                     ));
@@ -129,13 +135,21 @@ impl AcceptedTransaction {
             //
             // Should we allow infinite instructions in wasm? And deny only based on fuel and size
             Executable::Wasm(smart_contract) => {
-                let size_bytes = Self::len_u64(smart_contract.size_bytes());
-                let max_wasm_size_bytes = limits.max_wasm_size_bytes;
+                let smart_contract_size_limit = limits
+                    .smart_contract_size
+                    .get()
+                    .try_into()
+                    .expect("INTERNAL BUG: smart contract size exceeds usize::MAX");
 
-                if size_bytes > max_wasm_size_bytes {
+                if smart_contract.size_bytes() > smart_contract_size_limit {
                     return Err(AcceptTransactionFail::TransactionLimit(
                         TransactionLimitError {
-                            reason: format!("Wasm binary too large, max size is {max_wasm_size_bytes}, but got {size_bytes}"),
+                            reason: format!(
+                                "WASM binary size is too large: max {}, got {} \
+                                (configured by \"Parameter::SmartContractLimits\")",
+                                limits.smart_contract_size,
+                                smart_contract.size_bytes()
+                            ),
                         },
                     ));
                 }
@@ -143,11 +157,6 @@ impl AcceptedTransaction {
         }
 
         Ok(Self(tx))
-    }
-
-    #[inline]
-    fn len_u64(instruction_count: usize) -> u64 {
-        u64::try_from(instruction_count).expect("`usize` should always fit into `u64`")
     }
 }
 
@@ -174,14 +183,16 @@ impl AsRef<SignedTransaction> for AcceptedTransaction {
 /// Validation is skipped for genesis.
 #[derive(Clone, Copy)]
 pub struct TransactionExecutor {
-    /// [`TransactionLimits`] field
-    pub transaction_limits: TransactionLimits,
+    /// [`TransactionParameters`] field
+    pub limits: TransactionParameters,
 }
 
 impl TransactionExecutor {
     /// Construct [`TransactionExecutor`]
-    pub fn new(transaction_limits: TransactionLimits) -> Self {
-        Self { transaction_limits }
+    pub fn new(transaction_limits: TransactionParameters) -> Self {
+        Self {
+            limits: transaction_limits,
+        }
     }
 
     /// Move transaction lifecycle forward by checking if the
@@ -244,7 +255,7 @@ impl TransactionExecutor {
                     state_transaction,
                     authority,
                     wasm,
-                    self.transaction_limits.max_instruction_number,
+                    self.limits.max_instructions,
                 )
             })
             .map_err(|error| WasmExecutionFail {

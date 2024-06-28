@@ -10,13 +10,12 @@ use iroha_schema::{Ident, IntoSchema};
 
 pub use self::model::*;
 
-/// Collection of [`Token`]s
+/// Collection of [`Permission`]s
 pub type Permissions = BTreeSet<Permission>;
-
-use super::*;
 
 #[model]
 mod model {
+    use derive_more::Display;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -38,7 +37,7 @@ mod model {
         Display,
     )]
     #[ffi_type]
-    #[display(fmt = "PERMISSION `{name}` = `{payload}`")]
+    #[display(fmt = "{name}({payload})")]
     pub struct Permission {
         /// Refers to a type defined in [`crate::executor::ExecutorDataModel`].
         pub name: Ident,

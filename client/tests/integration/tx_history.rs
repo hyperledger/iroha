@@ -46,7 +46,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
             &mint_not_existed_asset
         };
         let instructions: Vec<InstructionBox> = vec![mint_asset.clone().into()];
-        let transaction = client.build_transaction(instructions, UnlimitedMetadata::new());
+        let transaction = client.build_transaction(instructions, Metadata::default());
         client.submit_transaction(&transaction)?;
     }
     thread::sleep(pipeline_time * 5);

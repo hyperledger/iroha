@@ -23,7 +23,7 @@ struct Executor {
 }
 
 #[entrypoint]
-pub fn migrate(_block_height: u64) -> MigrationResult {
+fn migrate(_block_height: u64) -> MigrationResult {
     // Note that actually migration will reset token schema to default (minus `CanUnregisterDomain`)
     // So any added custom permission tokens will be also removed
     DataModelBuilder::with_default_permissions()

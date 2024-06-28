@@ -313,13 +313,11 @@ mod tests {
 
     #[test]
     fn decode_account_sample() {
-        let limits = MetadataLimits::new(256, 256);
-        let mut metadata = Metadata::new();
+        let mut metadata = Metadata::default();
         metadata
-            .insert_with_limits(
+            .insert(
                 "hat".parse().expect("Valid"),
                 "white".parse::<JsonString>().expect("Valid"),
-                limits,
             )
             .expect("Valid");
         let account = Account::new(ALICE_ID.clone()).with_metadata(metadata);
@@ -329,10 +327,9 @@ mod tests {
 
     #[test]
     fn decode_domain_sample() {
-        let limits = MetadataLimits::new(256, 256);
-        let mut metadata = Metadata::new();
+        let mut metadata = Metadata::default();
         metadata
-            .insert_with_limits("Is_Jabberwocky_alive".parse().expect("Valid"), true, limits)
+            .insert("Is_Jabberwocky_alive".parse().expect("Valid"), true)
             .expect("Valid");
         let domain = Domain::new("wonderland".parse().expect("Valid"))
             .with_logo(

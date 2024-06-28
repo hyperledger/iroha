@@ -18,6 +18,7 @@ use serde::{
 use crate::{
     smartcontracts::{wasm, Execute as _},
     state::{deserialize::WasmSeed, StateReadOnly, StateTransaction},
+    WorldReadOnly as _,
 };
 
 impl From<wasm::error::Error> for ValidationFail {
@@ -151,7 +152,7 @@ impl Executor {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateTransaction>::new()
                         .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                        .with_config(state_transaction.config.executor_runtime)
+                        .with_config(state_transaction.world.parameters().executor)
                         .build()?;
 
                 runtime.execute_executor_validate_transaction(
@@ -187,7 +188,7 @@ impl Executor {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateInstruction>::new()
                         .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                        .with_config(state_transaction.config.executor_runtime)
+                        .with_config(state_transaction.world.parameters().executor)
                         .build()?;
 
                 runtime.execute_executor_validate_instruction(
@@ -221,7 +222,7 @@ impl Executor {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery<S>>::new()
                         .with_engine(state_ro.engine().clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                        .with_config(state_ro.config().executor_runtime)
+                        .with_config(state_ro.world().parameters().executor)
                         .build()?;
 
                 runtime.execute_executor_validate_query(
@@ -256,7 +257,7 @@ impl Executor {
 
         let runtime = wasm::RuntimeBuilder::<wasm::state::executor::Migrate>::new()
             .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-            .with_config(state_transaction.config.executor_runtime)
+            .with_config(state_transaction.world().parameters().executor)
             .build()?;
 
         runtime

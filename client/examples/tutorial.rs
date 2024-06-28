@@ -34,7 +34,7 @@ fn domain_registration_test(config: Config) -> Result<(), Error> {
     use iroha::{
         client::Client,
         data_model::{
-            metadata::UnlimitedMetadata,
+            metadata::Metadata,
             prelude::{Domain, DomainId, InstructionBox, Register},
         },
     };
@@ -57,7 +57,7 @@ fn domain_registration_test(config: Config) -> Result<(), Error> {
 
     // #region domain_register_example_prepare_tx
     // Prepare a transaction
-    let metadata = UnlimitedMetadata::default();
+    let metadata = Metadata::default();
     let instructions: Vec<InstructionBox> = vec![create_looking_glass.into()];
     let tx = iroha.build_transaction(instructions, metadata);
     // #endregion domain_register_example_prepare_tx
@@ -101,7 +101,7 @@ fn account_registration_test(config: Config) -> Result<(), Error> {
         client::Client,
         crypto::KeyPair,
         data_model::{
-            metadata::UnlimitedMetadata,
+            metadata::Metadata,
             prelude::{Account, AccountId, InstructionBox, Register},
         },
     };
@@ -127,7 +127,7 @@ fn account_registration_test(config: Config) -> Result<(), Error> {
     // #region register_account_prepare_tx
     // Prepare a transaction using the
     // Account's RegisterBox
-    let metadata = UnlimitedMetadata::new();
+    let metadata = Metadata::default();
     let instructions: Vec<InstructionBox> = vec![create_account.into()];
     let tx = iroha.build_transaction(instructions, metadata);
     // #endregion register_account_prepare_tx

@@ -14,6 +14,7 @@ use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, version_with_scale};
+use nonzero_ext::nonzero;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +23,8 @@ use crate::{events::prelude::*, peer, peer::PeerId, transaction::prelude::*};
 
 #[model]
 mod model {
+    use core::num::NonZeroU64;
+
     use getset::{CopyGetters, Getters};
 
     use super::*;
@@ -52,7 +55,7 @@ mod model {
     pub struct BlockHeader {
         /// Number of blocks in the chain including this block.
         #[getset(get_copy = "pub")]
-        pub height: u64,
+        pub height: NonZeroU64,
         /// Hash of the previous block in the chain.
         #[getset(get_copy = "pub")]
         pub prev_block_hash: Option<HashOf<SignedBlock>>,
@@ -143,7 +146,7 @@ impl BlockHeader {
     #[inline]
     #[cfg(feature = "transparent_api")]
     pub const fn is_genesis(&self) -> bool {
-        self.height == 1
+        self.height.get() == 1
     }
 
     /// Creation timestamp
@@ -294,7 +297,7 @@ impl SignedBlock {
         let creation_time_ms = u64::try_from(first_transaction.creation_time().as_millis())
             .expect("Must fit since Duration was created from u64 in creation_time()");
         let header = BlockHeader {
-            height: 1,
+            height: nonzero!(1_u64),
             prev_block_hash: None,
             transactions_hash,
             creation_time_ms,
@@ -345,7 +348,7 @@ mod candidate {
         fn validate(self) -> Result<SignedBlockV1, &'static str> {
             self.validate_signatures()?;
             self.validate_header()?;
-            if self.payload.header.height == 1 {
+            if self.payload.header.height.get() == 1 {
                 self.validate_genesis()?;
             }
 
@@ -390,7 +393,7 @@ mod candidate {
         }
 
         fn validate_signatures(&self) -> Result<(), &'static str> {
-            if self.signatures.is_empty() && self.payload.header.height != 1 {
+            if self.signatures.is_empty() && self.payload.header.height.get() != 1 {
                 return Err("Block missing signatures");
             }
 

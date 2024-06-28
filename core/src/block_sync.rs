@@ -41,7 +41,7 @@ pub struct BlockSynchronizer {
     kura: Arc<Kura>,
     peer_id: PeerId,
     gossip_period: Duration,
-    gossip_max_size: NonZeroU32,
+    gossip_size: NonZeroU32,
     network: IrohaNetwork,
     state: Arc<State>,
 }
@@ -118,7 +118,7 @@ impl BlockSynchronizer {
             sumeragi,
             kura,
             gossip_period: config.gossip_period,
-            gossip_max_size: config.gossip_max_size,
+            gossip_size: config.gossip_size,
             network,
             state,
         }
@@ -219,7 +219,7 @@ pub mod message {
                     };
 
                     let blocks = (start_height.get()..)
-                        .take(block_sync.gossip_max_size.get() as usize + 1)
+                        .take(block_sync.gossip_size.get() as usize + 1)
                         .map_while(|height| {
                             NonZeroUsize::new(height)
                                 .and_then(|height| block_sync.kura.get_block_by_height(height))

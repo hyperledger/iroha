@@ -18,58 +18,48 @@
   "AccountEvent": {
     "Enum": [
       {
-        "tag": "Asset",
-        "discriminant": 0,
-        "type": "AssetEvent"
-      },
-      {
         "tag": "Created",
-        "discriminant": 1,
+        "discriminant": 0,
         "type": "Account"
       },
       {
         "tag": "Deleted",
+        "discriminant": 1,
+        "type": "AccountId"
+      },
+      {
+        "tag": "Asset",
         "discriminant": 2,
-        "type": "AccountId"
-      },
-      {
-        "tag": "AuthenticationAdded",
-        "discriminant": 3,
-        "type": "AccountId"
-      },
-      {
-        "tag": "AuthenticationRemoved",
-        "discriminant": 4,
-        "type": "AccountId"
+        "type": "AssetEvent"
       },
       {
         "tag": "PermissionAdded",
-        "discriminant": 5,
+        "discriminant": 3,
         "type": "AccountPermissionChanged"
       },
       {
         "tag": "PermissionRemoved",
-        "discriminant": 6,
+        "discriminant": 4,
         "type": "AccountPermissionChanged"
       },
       {
-        "tag": "RoleRevoked",
-        "discriminant": 7,
+        "tag": "RoleGranted",
+        "discriminant": 5,
         "type": "AccountRoleChanged"
       },
       {
-        "tag": "RoleGranted",
-        "discriminant": 8,
+        "tag": "RoleRevoked",
+        "discriminant": 6,
         "type": "AccountRoleChanged"
       },
       {
         "tag": "MetadataInserted",
-        "discriminant": 9,
+        "discriminant": 7,
         "type": "MetadataChanged<AccountId>"
       },
       {
         "tag": "MetadataRemoved",
-        "discriminant": 10,
+        "discriminant": 8,
         "type": "MetadataChanged<AccountId>"
       }
     ]
@@ -91,48 +81,40 @@
       "repr": "u32",
       "masks": [
         {
-          "name": "AnyAsset",
+          "name": "Created",
           "mask": 1
         },
         {
-          "name": "Created",
+          "name": "Deleted",
           "mask": 2
         },
         {
-          "name": "Deleted",
+          "name": "AnyAsset",
           "mask": 4
         },
         {
-          "name": "AuthenticationAdded",
+          "name": "PermissionAdded",
           "mask": 8
         },
         {
-          "name": "AuthenticationRemoved",
+          "name": "PermissionRemoved",
           "mask": 16
         },
         {
-          "name": "PermissionAdded",
+          "name": "RoleGranted",
           "mask": 32
         },
         {
-          "name": "PermissionRemoved",
+          "name": "RoleRevoked",
           "mask": 64
         },
         {
-          "name": "RoleRevoked",
+          "name": "MetadataInserted",
           "mask": 128
         },
         {
-          "name": "RoleGranted",
-          "mask": 256
-        },
-        {
-          "name": "MetadataInserted",
-          "mask": 512
-        },
-        {
           "name": "MetadataRemoved",
-          "mask": 1024
+          "mask": 256
         }
       ]
     }
@@ -295,34 +277,34 @@
         "type": "AssetDefinition"
       },
       {
-        "tag": "MintabilityChanged",
+        "tag": "Deleted",
         "discriminant": 1,
         "type": "AssetDefinitionId"
       },
       {
-        "tag": "OwnerChanged",
-        "discriminant": 2,
-        "type": "AssetDefinitionOwnerChanged"
-      },
-      {
-        "tag": "Deleted",
-        "discriminant": 3,
-        "type": "AssetDefinitionId"
-      },
-      {
         "tag": "MetadataInserted",
-        "discriminant": 4,
+        "discriminant": 2,
         "type": "MetadataChanged<AssetDefinitionId>"
       },
       {
         "tag": "MetadataRemoved",
-        "discriminant": 5,
+        "discriminant": 3,
         "type": "MetadataChanged<AssetDefinitionId>"
       },
       {
+        "tag": "MintabilityChanged",
+        "discriminant": 4,
+        "type": "AssetDefinitionId"
+      },
+      {
         "tag": "TotalQuantityChanged",
-        "discriminant": 6,
+        "discriminant": 5,
         "type": "AssetDefinitionTotalQuantityChanged"
+      },
+      {
+        "tag": "OwnerChanged",
+        "discriminant": 6,
+        "type": "AssetDefinitionOwnerChanged"
       }
     ]
   },
@@ -347,27 +329,27 @@
           "mask": 1
         },
         {
-          "name": "MintabilityChanged",
+          "name": "Deleted",
           "mask": 2
         },
         {
-          "name": "OwnerChanged",
+          "name": "MetadataInserted",
           "mask": 4
         },
         {
-          "name": "Deleted",
+          "name": "MetadataRemoved",
           "mask": 8
         },
         {
-          "name": "MetadataInserted",
+          "name": "MintabilityChanged",
           "mask": 16
         },
         {
-          "name": "MetadataRemoved",
+          "name": "TotalQuantityChanged",
           "mask": 32
         },
         {
-          "name": "TotalQuantityChanged",
+          "name": "OwnerChanged",
           "mask": 64
         }
       ]
@@ -592,7 +574,7 @@
     "Struct": [
       {
         "name": "height",
-        "type": "Option<u64>"
+        "type": "Option<NonZero<u64>>"
       },
       {
         "name": "status",
@@ -604,7 +586,7 @@
     "Struct": [
       {
         "name": "height",
-        "type": "u64"
+        "type": "NonZero<u64>"
       },
       {
         "name": "prev_block_hash",
@@ -629,6 +611,23 @@
     ]
   },
   "BlockMessage": "SignedBlock",
+  "BlockParameter": {
+    "Enum": [
+      {
+        "tag": "MaxTransactions",
+        "discriminant": 0,
+        "type": "NonZero<u64>"
+      }
+    ]
+  },
+  "BlockParameters": {
+    "Struct": [
+      {
+        "name": "max_transactions",
+        "type": "NonZero<u64>"
+      }
+    ]
+  },
   "BlockPayload": {
     "Struct": [
       {
@@ -775,26 +774,12 @@
       {
         "tag": "Changed",
         "discriminant": 0,
-        "type": "ParameterId"
-      },
-      {
-        "tag": "Created",
-        "discriminant": 1,
-        "type": "ParameterId"
-      },
-      {
-        "tag": "Deleted",
-        "discriminant": 2,
-        "type": "ParameterId"
+        "type": "ParameterChanged"
       }
     ]
   },
   "ConfigurationEventFilter": {
     "Struct": [
-      {
-        "name": "id_matcher",
-        "type": "Option<ParameterId>"
-      },
       {
         "name": "event_set",
         "type": "ConfigurationEventSet"
@@ -808,14 +793,6 @@
         {
           "name": "Changed",
           "mask": 1
-        },
-        {
-          "name": "Created",
-          "mask": 2
-        },
-        {
-          "name": "Deleted",
-          "mask": 4
         }
       ]
     }
@@ -847,6 +824,19 @@
       }
     ]
   },
+  "CustomParameter": {
+    "Struct": [
+      {
+        "name": "id",
+        "type": "CustomParameterId"
+      },
+      {
+        "name": "payload",
+        "type": "JsonString"
+      }
+    ]
+  },
+  "CustomParameterId": "Name",
   "DataEvent": {
     "Enum": [
       {
@@ -965,24 +955,24 @@
   "DomainEvent": {
     "Enum": [
       {
-        "tag": "Account",
-        "discriminant": 0,
-        "type": "AccountEvent"
-      },
-      {
-        "tag": "AssetDefinition",
-        "discriminant": 1,
-        "type": "AssetDefinitionEvent"
-      },
-      {
         "tag": "Created",
-        "discriminant": 2,
+        "discriminant": 0,
         "type": "Domain"
       },
       {
         "tag": "Deleted",
-        "discriminant": 3,
+        "discriminant": 1,
         "type": "DomainId"
+      },
+      {
+        "tag": "AssetDefinition",
+        "discriminant": 2,
+        "type": "AssetDefinitionEvent"
+      },
+      {
+        "tag": "Account",
+        "discriminant": 3,
+        "type": "AccountEvent"
       },
       {
         "tag": "MetadataInserted",
@@ -1018,19 +1008,19 @@
       "repr": "u32",
       "masks": [
         {
-          "name": "AnyAccount",
+          "name": "Created",
           "mask": 1
         },
         {
-          "name": "AnyAssetDefinition",
+          "name": "Deleted",
           "mask": 2
         },
         {
-          "name": "Created",
+          "name": "AnyAssetDefinition",
           "mask": 4
         },
         {
-          "name": "Deleted",
+          "name": "AnyAccount",
           "mask": 8
         },
         {
@@ -1204,12 +1194,16 @@
   "ExecutorDataModel": {
     "Struct": [
       {
-        "name": "permissions",
+        "name": "parameters",
+        "type": "SortedMap<CustomParameterId, CustomParameter>"
+      },
+      {
+        "name": "instructions",
         "type": "SortedVec<String>"
       },
       {
-        "name": "custom_instruction",
-        "type": "Option<String>"
+        "name": "permissions",
+        "type": "SortedVec<String>"
       },
       {
         "name": "schema",
@@ -1487,13 +1481,8 @@
         "type": "Permission"
       },
       {
-        "tag": "Parameter",
-        "discriminant": 11,
-        "type": "ParameterId"
-      },
-      {
         "tag": "PublicKey",
-        "discriminant": 12,
+        "discriminant": 11,
         "type": "PublicKey"
       }
     ]
@@ -1721,9 +1710,9 @@
         "type": "Permission"
       },
       {
-        "tag": "ParameterId",
+        "tag": "CustomParameterId",
         "discriminant": 8,
-        "type": "ParameterId"
+        "type": "CustomParameterId"
       }
     ]
   },
@@ -1785,9 +1774,9 @@
         "type": "Role"
       },
       {
-        "tag": "Parameter",
+        "tag": "CustomParameter",
         "discriminant": 11,
-        "type": "Parameter"
+        "type": "CustomParameter"
       }
     ]
   },
@@ -1849,23 +1838,18 @@
         "type": "SetParameter"
       },
       {
-        "tag": "NewParameter",
-        "discriminant": 11,
-        "type": "NewParameter"
-      },
-      {
         "tag": "Upgrade",
-        "discriminant": 12,
+        "discriminant": 11,
         "type": "Upgrade"
       },
       {
         "tag": "Log",
-        "discriminant": 13,
+        "discriminant": 12,
         "type": "Log"
       },
       {
         "tag": "Custom",
-        "discriminant": 14,
+        "discriminant": 13,
         "type": "CustomInstruction"
       }
     ]
@@ -1927,18 +1911,13 @@
         "type": "MathError"
       },
       {
-        "tag": "Metadata",
-        "discriminant": 7,
-        "type": "MetadataError"
-      },
-      {
         "tag": "InvalidParameter",
-        "discriminant": 8,
+        "discriminant": 7,
         "type": "InvalidParameterError"
       },
       {
         "tag": "InvariantViolation",
-        "discriminant": 9,
+        "discriminant": 8,
         "type": "String"
       }
     ]
@@ -2002,20 +1981,16 @@
         "discriminant": 10
       },
       {
-        "tag": "NewParameter",
+        "tag": "Upgrade",
         "discriminant": 11
       },
       {
-        "tag": "Upgrade",
+        "tag": "Log",
         "discriminant": 12
       },
       {
-        "tag": "Log",
-        "discriminant": 13
-      },
-      {
         "tag": "Custom",
-        "discriminant": 14
+        "discriminant": 13
       }
     ]
   },
@@ -2040,18 +2015,6 @@
   "Ipv4Addr": "Array<u8, 4>",
   "Ipv6Addr": "Array<u16, 8>",
   "JsonString": "String",
-  "LengthLimits": {
-    "Struct": [
-      {
-        "name": "min",
-        "type": "u32"
-      },
-      {
-        "name": "max",
-        "type": "u32"
-      }
-    ]
-  },
   "Level": {
     "Enum": [
       {
@@ -2073,18 +2036,6 @@
       {
         "tag": "ERROR",
         "discriminant": 4
-      }
-    ]
-  },
-  "Limits": {
-    "Struct": [
-      {
-        "name": "capacity",
-        "type": "u32"
-      },
-      {
-        "name": "max_entry_len",
-        "type": "u32"
       }
     ]
   },
@@ -2214,39 +2165,6 @@
       {
         "name": "value",
         "type": "JsonString"
-      }
-    ]
-  },
-  "MetadataError": {
-    "Enum": [
-      {
-        "tag": "EmptyPath",
-        "discriminant": 0
-      },
-      {
-        "tag": "EntryTooBig",
-        "discriminant": 1,
-        "type": "SizeError"
-      },
-      {
-        "tag": "MaxCapacity",
-        "discriminant": 2,
-        "type": "SizeError"
-      },
-      {
-        "tag": "MissingSegment",
-        "discriminant": 3,
-        "type": "Name"
-      },
-      {
-        "tag": "InvalidSegment",
-        "discriminant": 4,
-        "type": "Name"
-      },
-      {
-        "tag": "InvalidJson",
-        "discriminant": 5,
-        "type": "String"
       }
     ]
   },
@@ -2381,14 +2299,6 @@
       }
     ]
   },
-  "NewParameter": {
-    "Struct": [
-      {
-        "name": "parameter",
-        "type": "Parameter"
-      }
-    ]
-  },
   "NewRole": {
     "Struct": [
       {
@@ -2456,11 +2366,8 @@
   "Option<NonZero<u64>>": {
     "Option": "NonZero<u64>"
   },
-  "Option<Option<u64>>": {
-    "Option": "Option<u64>"
-  },
-  "Option<ParameterId>": {
-    "Option": "ParameterId"
+  "Option<Option<NonZero<u64>>>": {
+    "Option": "Option<NonZero<u64>>"
   },
   "Option<PeerId>": {
     "Option": "PeerId"
@@ -2489,9 +2396,6 @@
   "Option<u32>": {
     "Option": "u32"
   },
-  "Option<u64>": {
-    "Option": "u64"
-  },
   "Pagination": {
     "Struct": [
       {
@@ -2505,46 +2409,76 @@
     ]
   },
   "Parameter": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "ParameterId"
-      },
-      {
-        "name": "val",
-        "type": "ParameterValueBox"
-      }
-    ]
-  },
-  "ParameterId": {
-    "Struct": [
-      {
-        "name": "name",
-        "type": "Name"
-      }
-    ]
-  },
-  "ParameterValueBox": {
     "Enum": [
       {
-        "tag": "TransactionLimits",
+        "tag": "Sumeragi",
         "discriminant": 0,
-        "type": "TransactionLimits"
+        "type": "SumeragiParameter"
       },
       {
-        "tag": "MetadataLimits",
+        "tag": "Block",
         "discriminant": 1,
-        "type": "Limits"
+        "type": "BlockParameter"
       },
       {
-        "tag": "LengthLimits",
+        "tag": "Transaction",
         "discriminant": 2,
-        "type": "LengthLimits"
+        "type": "TransactionParameter"
       },
       {
-        "tag": "Numeric",
+        "tag": "SmartContract",
         "discriminant": 3,
-        "type": "Numeric"
+        "type": "SmartContractParameter"
+      },
+      {
+        "tag": "Executor",
+        "discriminant": 4,
+        "type": "SmartContractParameter"
+      },
+      {
+        "tag": "Custom",
+        "discriminant": 5,
+        "type": "CustomParameter"
+      }
+    ]
+  },
+  "ParameterChanged": {
+    "Struct": [
+      {
+        "name": "old_value",
+        "type": "Parameter"
+      },
+      {
+        "name": "new_value",
+        "type": "Parameter"
+      }
+    ]
+  },
+  "Parameters": {
+    "Struct": [
+      {
+        "name": "sumeragi",
+        "type": "SumeragiParameters"
+      },
+      {
+        "name": "block",
+        "type": "BlockParameters"
+      },
+      {
+        "name": "transaction",
+        "type": "TransactionParameters"
+      },
+      {
+        "name": "executor",
+        "type": "SmartContractParameters"
+      },
+      {
+        "name": "smart_contract",
+        "type": "SmartContractParameters"
+      },
+      {
+        "name": "custom",
+        "type": "SortedMap<CustomParameterId, CustomParameter>"
       }
     ]
   },
@@ -2914,33 +2848,38 @@
         "type": "Permission"
       },
       {
-        "tag": "LimitedMetadata",
+        "tag": "Parameters",
         "discriminant": 4,
+        "type": "Parameters"
+      },
+      {
+        "tag": "Metadata",
+        "discriminant": 5,
         "type": "JsonString"
       },
       {
         "tag": "Numeric",
-        "discriminant": 5,
+        "discriminant": 6,
         "type": "Numeric"
       },
       {
         "tag": "BlockHeader",
-        "discriminant": 6,
+        "discriminant": 7,
         "type": "BlockHeader"
       },
       {
         "tag": "Block",
-        "discriminant": 7,
+        "discriminant": 8,
         "type": "SignedBlock"
       },
       {
         "tag": "ExecutorDataModel",
-        "discriminant": 8,
+        "discriminant": 9,
         "type": "ExecutorDataModel"
       },
       {
         "tag": "Vec",
-        "discriminant": 9,
+        "discriminant": 10,
         "type": "Vec<QueryOutputBox>"
       }
     ]
@@ -3288,12 +3227,12 @@
         "type": "RoleId"
       },
       {
-        "tag": "PermissionRemoved",
+        "tag": "PermissionAdded",
         "discriminant": 2,
         "type": "RolePermissionChanged"
       },
       {
-        "tag": "PermissionAdded",
+        "tag": "PermissionRemoved",
         "discriminant": 3,
         "type": "RolePermissionChanged"
       }
@@ -3324,11 +3263,11 @@
           "mask": 2
         },
         {
-          "name": "PermissionRemoved",
+          "name": "PermissionAdded",
           "mask": 4
         },
         {
-          "name": "PermissionAdded",
+          "name": "PermissionRemoved",
           "mask": 8
         }
       ]
@@ -3508,14 +3447,7 @@
       }
     ]
   },
-  "SetParameter": {
-    "Struct": [
-      {
-        "name": "parameter",
-        "type": "Parameter"
-      }
-    ]
-  },
+  "SetParameter": "Parameter",
   "Signature": {
     "Struct": [
       {
@@ -3590,15 +3522,29 @@
       }
     ]
   },
-  "SizeError": {
-    "Struct": [
+  "SmartContractParameter": {
+    "Enum": [
       {
-        "name": "limits",
-        "type": "Limits"
+        "tag": "Fuel",
+        "discriminant": 0,
+        "type": "NonZero<u64>"
       },
       {
-        "name": "actual",
-        "type": "u64"
+        "tag": "Memory",
+        "discriminant": 1,
+        "type": "NonZero<u64>"
+      }
+    ]
+  },
+  "SmartContractParameters": {
+    "Struct": [
+      {
+        "name": "fuel",
+        "type": "NonZero<u64>"
+      },
+      {
+        "name": "memory",
+        "type": "NonZero<u64>"
       }
     ]
   },
@@ -3675,6 +3621,12 @@
       "value": "Numeric"
     }
   },
+  "SortedMap<CustomParameterId, CustomParameter>": {
+    "Map": {
+      "key": "CustomParameterId",
+      "value": "CustomParameter"
+    }
+  },
   "SortedMap<Name, JsonString>": {
     "Map": {
       "key": "Name",
@@ -3720,6 +3672,32 @@
       }
     ]
   },
+  "SumeragiParameter": {
+    "Enum": [
+      {
+        "tag": "BlockTimeMs",
+        "discriminant": 0,
+        "type": "u64"
+      },
+      {
+        "tag": "CommitTimeMs",
+        "discriminant": 1,
+        "type": "u64"
+      }
+    ]
+  },
+  "SumeragiParameters": {
+    "Struct": [
+      {
+        "name": "block_time_ms",
+        "type": "u64"
+      },
+      {
+        "name": "commit_time_ms",
+        "type": "u64"
+      }
+    ]
+  },
   "TimeEvent": {
     "Struct": [
       {
@@ -3753,7 +3731,7 @@
       },
       {
         "name": "block_height",
-        "type": "Option<u64>"
+        "type": "Option<NonZero<u64>>"
       },
       {
         "name": "status",
@@ -3769,7 +3747,7 @@
       },
       {
         "name": "block_height",
-        "type": "Option<Option<u64>>"
+        "type": "Option<Option<NonZero<u64>>>"
       },
       {
         "name": "status",
@@ -3785,15 +3763,29 @@
       }
     ]
   },
-  "TransactionLimits": {
-    "Struct": [
+  "TransactionParameter": {
+    "Enum": [
       {
-        "name": "max_instruction_number",
-        "type": "u64"
+        "tag": "MaxInstructions",
+        "discriminant": 0,
+        "type": "NonZero<u64>"
       },
       {
-        "name": "max_wasm_size_bytes",
-        "type": "u64"
+        "tag": "SmartContractSize",
+        "discriminant": 1,
+        "type": "NonZero<u64>"
+      }
+    ]
+  },
+  "TransactionParameters": {
+    "Struct": [
+      {
+        "name": "max_instructions",
+        "type": "NonZero<u64>"
+      },
+      {
+        "name": "smart_contract_size",
+        "type": "NonZero<u64>"
       }
     ]
   },
@@ -3825,7 +3817,7 @@
       },
       {
         "name": "metadata",
-        "type": "SortedMap<Name, JsonString>"
+        "type": "Metadata"
       }
     ]
   },

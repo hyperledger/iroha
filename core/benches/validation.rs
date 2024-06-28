@@ -11,12 +11,11 @@ use iroha_core::{
     tx::TransactionExecutor,
 };
 use iroha_data_model::{
-    account::AccountId,
-    isi::InstructionBox,
-    prelude::*,
-    transaction::{TransactionBuilder, TransactionLimits},
+    account::AccountId, isi::InstructionBox, parameter::TransactionParameters, prelude::*,
+    transaction::TransactionBuilder,
 };
 use iroha_primitives::unique_vec::UniqueVec;
+use nonzero_ext::nonzero;
 use once_cell::sync::Lazy;
 use test_samples::gen_account_in;
 
@@ -25,10 +24,8 @@ static STARTER_KEYPAIR: Lazy<KeyPair> = Lazy::new(KeyPair::random);
 static STARTER_ID: Lazy<AccountId> =
     Lazy::new(|| AccountId::new(STARTER_DOMAIN.clone(), STARTER_KEYPAIR.public_key().clone()));
 
-const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
-    max_instruction_number: 4096,
-    max_wasm_size_bytes: 0,
-};
+const TRANSACTION_LIMITS: TransactionParameters =
+    TransactionParameters::new(nonzero!(4096_u64), nonzero!(1_u64));
 
 fn build_test_transaction(chain_id: ChainId) -> TransactionBuilder {
     let domain_id: DomainId = "domain".parse().unwrap();

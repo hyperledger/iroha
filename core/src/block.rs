@@ -107,7 +107,10 @@ pub enum InvalidGenesisError {
 pub struct BlockBuilder<B>(B);
 
 mod pending {
-    use std::time::{Duration, SystemTime};
+    use std::{
+        num::NonZeroUsize,
+        time::{Duration, SystemTime},
+    };
 
     use iroha_data_model::transaction::CommittedTransaction;
 
@@ -156,11 +159,14 @@ mod pending {
             consensus_estimation: Duration,
         ) -> BlockHeader {
             BlockHeader {
-                height: prev_height
-                    .checked_add(1)
-                    .expect("INTERNAL BUG: Blockchain height exceeds usize::MAX")
-                    .try_into()
-                    .expect("INTERNAL BUG: Number of blocks exceeds u64::MAX"),
+                height: NonZeroUsize::new(
+                    prev_height
+                        .checked_add(1)
+                        .expect("INTERNAL BUG: Blockchain height exceeds usize::MAX"),
+                )
+                .expect("INTERNAL BUG: block height must not be 0")
+                .try_into()
+                .expect("INTERNAL BUG: Number of blocks exceeds u64::MAX"),
                 prev_block_hash,
                 transactions_hash: transactions
                     .iter()
@@ -228,7 +234,7 @@ mod pending {
                     state.latest_block_hash(),
                     view_change_index,
                     &transactions,
-                    state.config.consensus_estimation(),
+                    state.world.parameters().sumeragi.consensus_estimation(),
                 ),
                 transactions,
                 commit_topology: self.0.commit_topology.into_iter().collect(),
@@ -414,10 +420,14 @@ mod valid {
             genesis_account: &AccountId,
             state_block: &mut StateBlock<'_>,
         ) -> WithEvents<Result<ValidBlock, (SignedBlock, BlockValidationError)>> {
-            let expected_block_height = state_block.height() + 1;
+            let expected_block_height = state_block
+                .height()
+                .checked_add(1)
+                .expect("INTERNAL BUG: Block height exceeds usize::MAX");
             let actual_height = block
                 .header()
                 .height
+                .get()
                 .try_into()
                 .expect("INTERNAL BUG: Block height exceeds usize::MAX");
 
@@ -516,7 +526,7 @@ mod valid {
                         AcceptedTransaction::accept(
                             value,
                             expected_chain_id,
-                            transaction_executor.transaction_limits,
+                            transaction_executor.limits,
                         )
                     }?;
 
@@ -638,9 +648,11 @@ mod valid {
             leader_private_key: &PrivateKey,
             f: impl FnOnce(&mut BlockPayload),
         ) -> Self {
+            use nonzero_ext::nonzero;
+
             let mut payload = BlockPayload {
                 header: BlockHeader {
-                    height: 2,
+                    height: nonzero!(2_u64),
                     prev_block_hash: None,
                     transactions_hash: HashOf::from_untyped_unchecked(Hash::prehashed(
                         [1; Hash::LENGTH],
@@ -997,7 +1009,7 @@ mod tests {
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
 
         // Making two transactions that have the same instruction
-        let transaction_limits = state_block.transaction_executor().transaction_limits;
+        let transaction_limits = state_block.transaction_executor().limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([create_asset_definition])
             .sign(alice_keypair.private_key());
@@ -1053,7 +1065,7 @@ mod tests {
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
 
         // Making two transactions that have the same instruction
-        let transaction_limits = state_block.transaction_executor().transaction_limits;
+        let transaction_limits = state_block.transaction_executor().limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([create_asset_definition])
             .sign(alice_keypair.private_key());
@@ -1120,7 +1132,7 @@ mod tests {
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
         let mut state_block = state.block();
-        let transaction_limits = state_block.transaction_executor().transaction_limits;
+        let transaction_limits = state_block.transaction_executor().limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");
         let create_domain = Register::domain(Domain::new(domain_id));

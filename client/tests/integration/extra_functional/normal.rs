@@ -1,18 +1,19 @@
-use std::num::NonZeroU32;
-
-use iroha::client;
-use iroha_config::parameters::actual::Root as Config;
-use iroha_data_model::{asset::AssetDefinitionId, prelude::*};
+use iroha::{
+    client,
+    data_model::{asset::AssetDefinitionId, parameter::BlockParameter, prelude::*},
+};
+use nonzero_ext::nonzero;
 use test_network::*;
 
 #[test]
 fn tranasctions_should_be_applied() {
-    let mut configuration = Config::test();
-    configuration.chain_wide.max_transactions_in_block = NonZeroU32::new(1).unwrap();
-    let (_rt, network, iroha) = NetworkBuilder::new(4, Some(11_300))
-        .with_config(configuration)
-        .create_with_runtime();
+    let (_rt, network, iroha) = NetworkBuilder::new(4, Some(11_300)).create_with_runtime();
     wait_for_genesis_committed(&network.clients(), 0);
+    iroha
+        .submit_blocking(SetParameter::new(Parameter::Block(
+            BlockParameter::MaxTransactions(nonzero!(1_u64)),
+        )))
+        .unwrap();
 
     let domain_id = "and".parse::<DomainId>().unwrap();
     let account_id = "ed01201F803CB23B1AAFB958368DF2F67CB78A2D1DFB47FFFC3133718F165F54DFF677@and"

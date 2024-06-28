@@ -332,6 +332,7 @@ impl_query_output! {
     crate::data_model::executor::ExecutorDataModel,
     crate::data_model::trigger::Trigger,
     crate::data_model::prelude::Numeric,
+    crate::data_model::parameter::Parameters,
 }
 
 /// Iroha client
@@ -453,7 +454,7 @@ impl Client {
     pub fn build_transaction(
         &self,
         instructions: impl Into<Executable>,
-        metadata: UnlimitedMetadata,
+        metadata: Metadata,
     ) -> SignedTransaction {
         let tx_builder = TransactionBuilder::new(self.chain.clone(), self.account.clone());
 
@@ -510,7 +511,7 @@ impl Client {
         &self,
         instructions: impl IntoIterator<Item = impl Instruction>,
     ) -> Result<HashOf<SignedTransaction>> {
-        self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
+        self.submit_all_with_metadata(instructions, Metadata::default())
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
@@ -522,7 +523,7 @@ impl Client {
     pub fn submit_with_metadata(
         &self,
         instruction: impl Instruction,
-        metadata: UnlimitedMetadata,
+        metadata: Metadata,
     ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_with_metadata([instruction], metadata)
     }
@@ -536,7 +537,7 @@ impl Client {
     pub fn submit_all_with_metadata(
         &self,
         instructions: impl IntoIterator<Item = impl Instruction>,
-        metadata: UnlimitedMetadata,
+        metadata: Metadata,
     ) -> Result<HashOf<SignedTransaction>> {
         self.submit_transaction(&self.build_transaction(instructions, metadata))
     }
@@ -719,7 +720,7 @@ impl Client {
         &self,
         instructions: impl IntoIterator<Item = impl Instruction>,
     ) -> Result<HashOf<SignedTransaction>> {
-        self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
+        self.submit_all_blocking_with_metadata(instructions, Metadata::default())
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
@@ -731,7 +732,7 @@ impl Client {
     pub fn submit_blocking_with_metadata(
         &self,
         instruction: impl Instruction,
-        metadata: UnlimitedMetadata,
+        metadata: Metadata,
     ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
     }
@@ -745,7 +746,7 @@ impl Client {
     pub fn submit_all_blocking_with_metadata(
         &self,
         instructions: impl IntoIterator<Item = impl Instruction>,
-        metadata: UnlimitedMetadata,
+        metadata: Metadata,
     ) -> Result<HashOf<SignedTransaction>> {
         let transaction = self.build_transaction(instructions, metadata);
         self.submit_transaction_blocking(&transaction)
@@ -1621,7 +1622,7 @@ mod tests {
         });
 
         let build_transaction =
-            || client.build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new());
+            || client.build_transaction(Vec::<InstructionBox>::new(), Metadata::default());
         let tx1 = build_transaction();
         let tx2 = build_transaction();
         assert_ne!(tx1.hash(), tx2.hash());

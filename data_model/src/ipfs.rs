@@ -4,18 +4,19 @@
 use alloc::{format, string::String, vec::Vec};
 use core::str::FromStr;
 
-use derive_more::Display;
 use iroha_data_model_derive::model;
 use iroha_primitives::conststr::ConstString;
-use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
-use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::ParseError;
 
 #[model]
 mod model {
+    use derive_more::Display;
+    use iroha_schema::IntoSchema;
+    use serde_with::{DeserializeFromStr, SerializeDisplay};
+
     use super::*;
 
     /// Represents path in IPFS. Performs checks to ensure path validity.

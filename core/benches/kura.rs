@@ -14,7 +14,8 @@ use iroha_core::{
     sumeragi::network_topology::Topology,
 };
 use iroha_crypto::KeyPair;
-use iroha_data_model::{prelude::*, transaction::TransactionLimits};
+use iroha_data_model::{parameter::TransactionParameters, prelude::*};
+use nonzero_ext::nonzero;
 use test_samples::gen_account_in;
 use tokio::{fs, runtime::Runtime};
 
@@ -29,11 +30,11 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
         .with_instructions([transfer])
         .sign(alice_keypair.private_key());
-    let transaction_limits = TransactionLimits {
-        max_instruction_number: 4096,
-        max_wasm_size_bytes: 0,
+    let txn_limits = TransactionParameters {
+        max_instructions: nonzero!(4096_u64),
+        smart_contract_size: nonzero!(1_u64),
     };
-    let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits)
+    let tx = AcceptedTransaction::accept(tx, &chain_id, txn_limits)
         .expect("Failed to accept Transaction.");
     let dir = tempfile::tempdir().expect("Could not create tempfile.");
     let cfg = Config {

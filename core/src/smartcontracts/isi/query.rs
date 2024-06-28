@@ -169,6 +169,7 @@ impl_lazy! {
     iroha_data_model::query::TransactionQueryOutput,
     iroha_data_model::executor::ExecutorDataModel,
     iroha_data_model::trigger::Trigger,
+    iroha_data_model::parameter::Parameters,
 }
 
 /// Query Request statefully validated on the Iroha node side.
@@ -256,6 +257,7 @@ impl ValidQuery for QueryBox {
                 FindAssetDefinitionKeyValueByIdAndKey,
                 FindTriggerKeyValueByIdAndKey,
                 FindExecutorDataModel,
+                FindAllParameters,
             }
 
             FindAllAccounts,
@@ -281,7 +283,6 @@ impl ValidQuery for QueryBox {
             FindAllRoles,
             FindAllRoleIds,
             FindRolesByAccountId,
-            FindAllParameters,
         }
     }
 }
@@ -291,8 +292,9 @@ mod tests {
     use std::str::FromStr as _;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{query::error::FindError, transaction::TransactionLimits};
+    use iroha_data_model::{parameter::TransactionParameters, query::error::FindError};
     use iroha_primitives::json::JsonString;
+    use nonzero_ext::nonzero;
     use test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use tokio::test;
 
@@ -330,12 +332,11 @@ mod tests {
             )
             .is_none());
 
-        let mut store = Metadata::new();
+        let mut store = Metadata::default();
         store
-            .insert_with_limits(
+            .insert(
                 Name::from_str("Bytes").expect("Valid"),
                 vec![1_u32, 2_u32, 3_u32],
-                MetadataLimits::new(10, 100),
             )
             .unwrap();
         let asset_id = AssetId::new(asset_definition_id, account.id().clone());
@@ -346,12 +347,8 @@ mod tests {
     }
 
     fn world_with_test_account_with_metadata() -> Result<World> {
-        let mut metadata = Metadata::new();
-        metadata.insert_with_limits(
-            Name::from_str("Bytes")?,
-            vec![1_u32, 2_u32, 3_u32],
-            MetadataLimits::new(10, 100),
-        )?;
+        let mut metadata = Metadata::default();
+        metadata.insert(Name::from_str("Bytes")?, vec![1_u32, 2_u32, 3_u32]);
 
         let mut domain = Domain::new(DomainId::from_str("wonderland")?).build(&ALICE_ID);
         let account = Account::new(ALICE_ID.clone())
@@ -376,16 +373,16 @@ mod tests {
         let state = State::new(world_with_test_domains(), kura.clone(), query_handle);
         {
             let mut state_block = state.block();
-            let limits = TransactionLimits {
-                max_instruction_number: 1,
-                max_wasm_size_bytes: 0,
+            let limits = TransactionParameters {
+                max_instructions: nonzero!(1000_u64),
+                smart_contract_size: nonzero!(1024_u64),
             };
-            let huge_limits = TransactionLimits {
-                max_instruction_number: 1000,
-                max_wasm_size_bytes: 0,
+            let huge_limits = TransactionParameters {
+                max_instructions: nonzero!(1000_u64),
+                smart_contract_size: nonzero!(1024_u64),
             };
 
-            state_block.config.transaction_limits = limits;
+            state_block.world.parameters.transaction = limits;
 
             let valid_tx = {
                 let instructions: [InstructionBox; 0] = [];
@@ -554,7 +551,7 @@ mod tests {
             .with_instructions(instructions)
             .sign(ALICE_KEYPAIR.private_key());
 
-        let tx_limits = state_block.transaction_executor().transaction_limits;
+        let tx_limits = state_block.transaction_executor().limits;
         let va_tx = AcceptedTransaction::accept(tx, &chain_id, tx_limits)?;
 
         let (peer_public_key, _) = KeyPair::random().into_parts();
@@ -599,12 +596,8 @@ mod tests {
     async fn domain_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = {
-            let mut metadata = Metadata::new();
-            metadata.insert_with_limits(
-                Name::from_str("Bytes")?,
-                vec![1_u32, 2_u32, 3_u32],
-                MetadataLimits::new(10, 100),
-            )?;
+            let mut metadata = Metadata::default();
+            metadata.insert(Name::from_str("Bytes")?, vec![1_u32, 2_u32, 3_u32]);
             let mut domain = Domain::new(DomainId::from_str("wonderland")?)
                 .with_metadata(metadata)
                 .build(&ALICE_ID);

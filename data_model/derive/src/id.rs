@@ -85,29 +85,29 @@ pub fn impl_id_eq_ord_hash(emitter: &mut Emitter, input: &syn::DeriveInput) -> T
     quote! {
         #identifiable_derive
 
-        impl #impl_generics ::core::cmp::PartialOrd for #name #ty_generics #where_clause where Self: Identifiable {
+        impl #impl_generics ::core::cmp::PartialOrd for #name #ty_generics #where_clause where Self: crate::Identifiable {
             #[inline]
             fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
                 Some(self.cmp(other))
             }
         }
 
-        impl #impl_generics ::core::cmp::Ord for #name #ty_generics #where_clause where Self: Identifiable {
+        impl #impl_generics ::core::cmp::Ord for #name #ty_generics #where_clause where Self: crate::Identifiable {
             fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-                self.id().cmp(other.id())
+                <Self as crate::Identifiable>::id(self).cmp(<Self as crate::Identifiable>::id(other))
             }
         }
 
-        impl #impl_generics ::core::cmp::Eq for #name #ty_generics #where_clause where Self: Identifiable  {}
-        impl #impl_generics ::core::cmp::PartialEq for #name #ty_generics #where_clause  where Self: Identifiable {
+        impl #impl_generics ::core::cmp::Eq for #name #ty_generics #where_clause where Self: crate::Identifiable  {}
+        impl #impl_generics ::core::cmp::PartialEq for #name #ty_generics #where_clause  where Self: crate::Identifiable {
             fn eq(&self, other: &Self) -> bool {
-                self.id() == other.id()
+                <Self as crate::Identifiable>::id(self) == <Self as crate::Identifiable>::id(other)
             }
         }
 
-        impl #impl_generics ::core::hash::Hash for #name #ty_generics #where_clause  where Self: Identifiable {
+        impl #impl_generics ::core::hash::Hash for #name #ty_generics #where_clause  where Self: crate::Identifiable {
             fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
-                self.id().hash(state);
+                <Self as crate::Identifiable>::id(self).hash(state)
             }
         }
     }
@@ -119,7 +119,7 @@ fn derive_identifiable(emitter: &mut Emitter, input: &IdDeriveInput) -> TokenStr
     let (id_type, id_expr) = get_id_type(emitter, input);
 
     quote! {
-        impl #impl_generics Identifiable for #name #ty_generics #where_clause {
+        impl #impl_generics crate::Identifiable for #name #ty_generics #where_clause {
             type Id = #id_type;
 
             #[inline]
@@ -142,8 +142,8 @@ fn get_id_type(emitter: &mut Emitter, input: &IdDeriveInput) -> (syn::Type, syn:
             }
             IdAttr::Transparent => {
                 return (
-                    parse_quote! {<#ty as Identifiable>::Id},
-                    parse_quote! {Identifiable::id(&self.#field_name)},
+                    parse_quote! {<#ty as crate::Identifiable>::Id},
+                    parse_quote! {crate::Identifiable::id(&self.#field_name)},
                 );
             }
             IdAttr::Missing => {

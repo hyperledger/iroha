@@ -4,14 +4,16 @@ use eyre::Result;
 use futures_util::TryStreamExt as _;
 use iroha::{
     client::{self, Client, QueryResult},
-    data_model::prelude::*,
+    data_model::{
+        parameter::{Parameter, SmartContractParameter},
+        prelude::*,
+    },
 };
-use iroha_data_model::parameter::{default::EXECUTOR_FUEL_LIMIT, ParametersBuilder};
 use iroha_logger::info;
+use nonzero_ext::nonzero;
 use serde_json::json;
 use test_network::*;
 use test_samples::{ALICE_ID, BOB_ID};
-use tokio::sync::mpsc;
 
 const ADMIN_PUBLIC_KEY_MULTIHASH: &str =
     "ed012076E5CA9698296AF9BE2CA45F525CB3BCFDEB7EE068BA56F973E9DD90564EF4FC";
@@ -240,25 +242,14 @@ fn executor_custom_instructions_complex() -> Result<()> {
     use executor_custom_data_model::complex_isi::{
         ConditionalExpr, CoreExpr, EvaluatesTo, Expression, Greater,
     };
-    use iroha_config::parameters::actual::Root as Config;
 
-    let mut config = Config::test();
-    // Note that this value will be overwritten by genesis block with NewParameter ISI
-    // But it will be needed after NewParameter removal in #4597
-    config.chain_wide.executor_runtime.fuel_limit = 1_000_000_000;
-
-    let (_rt, _peer, client) = PeerBuilder::new()
-        .with_port(11_275)
-        .with_config(config)
-        .start_with_runtime();
+    let (_rt, _peer, client) = PeerBuilder::new().with_port(11_275).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    // Remove this after #4597 - config value will be used (see above)
-    let parameters = ParametersBuilder::new()
-        .add_parameter(EXECUTOR_FUEL_LIMIT, Numeric::from(1_000_000_000_u32))?
-        .into_set_parameters();
-    client.submit_all_blocking(parameters)?;
-
+    let executor_fuel_limit = SetParameter::new(Parameter::Executor(SmartContractParameter::Fuel(
+        nonzero!(1_000_000_000_u64),
+    )));
+    client.submit_blocking(executor_fuel_limit)?;
     upgrade_executor(
         &client,
         "tests/integration/smartcontracts/executor_custom_instructions_complex",
@@ -344,10 +335,8 @@ fn migration_should_cause_upgrade_event() {
     let (rt, _peer, client) = <PeerBuilder>::new().with_port(10_996).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    let (sender, mut receiver) = mpsc::channel(1);
     let events_client = client.clone();
-
-    let _handle = rt.spawn(async move {
+    let task = rt.spawn(async move {
         let mut stream = events_client
             .listen_for_events_async([ExecutorEventFilter::new()])
             .await
@@ -357,7 +346,8 @@ fn migration_should_cause_upgrade_event() {
                 new_data_model,
             }))) = event
             {
-                let _ = sender.send(new_data_model).await;
+                assert!(!new_data_model.permissions.is_empty());
+                break;
             }
         }
     });
@@ -368,15 +358,43 @@ fn migration_should_cause_upgrade_event() {
     )
     .unwrap();
 
-    let data_model = rt
-        .block_on(async {
-            tokio::time::timeout(std::time::Duration::from_secs(60), receiver.recv()).await
-        })
-        .ok()
-        .flatten()
-        .expect("should receive upgraded event immediately after upgrade");
+    rt.block_on(async {
+        tokio::time::timeout(core::time::Duration::from_secs(60), task)
+            .await
+            .unwrap()
+    })
+    .expect("should receive upgraded event immediately after upgrade");
+}
 
-    assert!(!data_model.permissions.is_empty());
+#[test]
+fn define_custom_parameter() -> Result<()> {
+    use executor_custom_data_model::parameters::DomainLimits;
+
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_996).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    let long_domain_name = "0".repeat(2_usize.pow(5)).parse::<DomainId>()?;
+    let create_domain = Register::domain(Domain::new(long_domain_name));
+    client.submit_blocking(create_domain)?;
+
+    upgrade_executor(
+        &client,
+        "tests/integration/smartcontracts/executor_with_custom_parameter",
+    )
+    .unwrap();
+
+    let too_long_domain_name = "1".repeat(2_usize.pow(5)).parse::<DomainId>()?;
+    let create_domain = Register::domain(Domain::new(too_long_domain_name));
+    let _err = client.submit_blocking(create_domain.clone()).unwrap_err();
+
+    let parameter = DomainLimits {
+        id_len: 2_u32.pow(6),
+    }
+    .into();
+    let set_param_isi: InstructionBox = SetParameter::new(parameter).into();
+    client.submit_all_blocking([set_param_isi, create_domain.into()])?;
+
+    Ok(())
 }
 
 fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
