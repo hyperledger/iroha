@@ -1,11 +1,7 @@
 //! This module contains [`Domain`] structure and related implementations and trait implementations.
 
 use eyre::Result;
-use iroha_data_model::{
-    asset::{AssetDefinitionsMap, AssetTotalQuantityMap},
-    prelude::*,
-    query::error::FindError,
-};
+use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 use super::super::isi::prelude::*;
@@ -18,8 +14,6 @@ impl Registrable for iroha_data_model::domain::NewDomain {
     fn build(self, authority: &AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
-            asset_definitions: AssetDefinitionsMap::default(),
-            asset_total_quantities: AssetTotalQuantityMap::default(),
             metadata: self.metadata,
             logo: self.logo,
             owned_by: authority.clone(),
@@ -109,6 +103,15 @@ pub mod isi {
 
             state_transaction.world.remove_account_roles(&account_id);
 
+            let remove_assets: Vec<AssetId> = state_transaction
+                .world
+                .assets_in_account_iter(&account_id)
+                .map(|ad| ad.id().clone())
+                .collect();
+            for asset_id in remove_assets {
+                state_transaction.world.assets.remove(asset_id);
+            }
+
             if state_transaction
                 .world
                 .accounts
@@ -136,20 +139,30 @@ pub mod isi {
             let asset_definition = self.object.build(authority);
 
             let asset_definition_id = asset_definition.id().clone();
-            let domain = state_transaction
+            if state_transaction
                 .world
-                .domain_mut(&asset_definition_id.domain)?;
-            if domain.asset_definitions.contains_key(&asset_definition_id) {
+                .asset_definition(&asset_definition_id)
+                .is_ok()
+            {
                 return Err(RepetitionError {
                     instruction: InstructionType::Register,
                     id: IdBox::AssetDefinitionId(asset_definition_id),
                 }
                 .into());
             }
+            let _ = state_transaction
+                .world
+                .domain(&asset_definition_id.domain)?;
 
-            domain.add_asset_total_quantity(asset_definition_id, Numeric::ZERO);
+            state_transaction
+                .world
+                .asset_total_quantities
+                .insert(asset_definition_id.clone(), Numeric::ZERO);
 
-            domain.add_asset_definition(asset_definition.clone());
+            state_transaction
+                .world
+                .asset_definitions
+                .insert(asset_definition_id.clone(), asset_definition.clone());
 
             state_transaction
                 .world
@@ -171,50 +184,49 @@ pub mod isi {
             let asset_definition_id = self.object;
 
             let mut assets_to_remove = Vec::new();
-            for (_, account) in state_transaction.world.accounts.iter() {
-                assets_to_remove.extend(
-                    account
-                        .assets
-                        .values()
-                        .filter_map(|asset| {
-                            if asset.id().definition == asset_definition_id {
-                                return Some(asset.id());
-                            }
-
-                            None
-                        })
-                        .cloned(),
-                )
-            }
+            assets_to_remove.extend(
+                state_transaction
+                    .world
+                    .assets
+                    .iter()
+                    .filter(|(asset_id, _)| asset_id.definition == asset_definition_id)
+                    .map(|(asset_id, _)| asset_id)
+                    .cloned(),
+            );
 
             let mut events = Vec::with_capacity(assets_to_remove.len() + 1);
             for asset_id in assets_to_remove {
                 if state_transaction
                     .world
-                    .account_mut(&asset_id.account)?
-                    .remove_asset(&asset_id.definition)
+                    .assets
+                    .remove(asset_id.clone())
                     .is_none()
                 {
                     error!(%asset_id, "asset not found. This is a bug");
                 }
 
-                events.push(AccountEvent::Asset(AssetEvent::Deleted(asset_id)).into());
+                events.push(AssetEvent::Deleted(asset_id).into());
             }
 
-            let domain = state_transaction
+            if state_transaction
                 .world
-                .domain_mut(&asset_definition_id.domain)?;
-            if domain
-                .remove_asset_definition(&asset_definition_id)
+                .asset_definitions
+                .remove(asset_definition_id.clone())
                 .is_none()
             {
                 return Err(FindError::AssetDefinition(asset_definition_id).into());
             }
+            let _ = state_transaction
+                .world
+                .domain(&asset_definition_id.domain)?;
 
-            domain.remove_asset_total_quantity(&asset_definition_id);
+            state_transaction
+                .world
+                .asset_total_quantities
+                .remove(asset_definition_id.clone());
 
-            events.push(DataEvent::from(DomainEvent::AssetDefinition(
-                AssetDefinitionEvent::Deleted(asset_definition_id),
+            events.push(DataEvent::from(AssetDefinitionEvent::Deleted(
+                asset_definition_id,
             )));
 
             state_transaction.world.emit_events(events);

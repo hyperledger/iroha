@@ -997,7 +997,7 @@ mod tests {
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
-        let world = World::with([domain], [account], UniqueVec::new());
+        let world = World::with([domain], [account], [], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -1053,7 +1053,7 @@ mod tests {
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
-        let world = World::with([domain], [account], UniqueVec::new());
+        let world = World::with([domain], [account], [], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -1127,7 +1127,7 @@ mod tests {
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
-        let world = World::with([domain], [account], UniqueVec::new());
+        let world = World::with([domain], [account], [], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -1205,7 +1205,12 @@ mod tests {
             Domain::new(GENESIS_DOMAIN_ID.clone()).build(&genesis_correct_account_id);
         let genesis_wrong_account =
             Account::new(genesis_wrong_account_id.clone()).build(&genesis_wrong_account_id);
-        let world = World::with([genesis_domain], [genesis_wrong_account], UniqueVec::new());
+        let world = World::with(
+            [genesis_domain],
+            [genesis_wrong_account],
+            [],
+            UniqueVec::new(),
+        );
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);

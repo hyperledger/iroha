@@ -312,25 +312,19 @@ mod tests {
 
     fn world_with_test_domains() -> World {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build(&ALICE_ID);
+        let domain = Domain::new(domain_id).build(&ALICE_ID);
         let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
-        assert!(domain
-            .add_asset_definition(AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID))
-            .is_none());
-        World::with([domain], [account], PeersIds::new())
+        let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
+        World::with([domain], [account], [asset_definition], PeersIds::new())
     }
 
     fn world_with_test_asset_with_metadata() -> World {
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
-        let mut domain =
-            Domain::new(DomainId::from_str("wonderland").expect("Valid")).build(&ALICE_ID);
-        let mut account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
-        assert!(domain
-            .add_asset_definition(
-                AssetDefinition::numeric(asset_definition_id.clone()).build(&ALICE_ID)
-            )
-            .is_none());
+        let domain = Domain::new(DomainId::from_str("wonderland").expect("Valid")).build(&ALICE_ID);
+        let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
+        let asset_definition =
+            AssetDefinition::numeric(asset_definition_id.clone()).build(&ALICE_ID);
 
         let mut store = Metadata::default();
         store.insert(
@@ -340,23 +334,31 @@ mod tests {
         let asset_id = AssetId::new(asset_definition_id, account.id().clone());
         let asset = Asset::new(asset_id, AssetValue::Store(store));
 
-        assert!(account.add_asset(asset).is_none());
-        World::with([domain], [account], PeersIds::new())
+        World::with_assets(
+            [domain],
+            [account],
+            [asset_definition],
+            [asset],
+            PeersIds::new(),
+        )
     }
 
     fn world_with_test_account_with_metadata() -> Result<World> {
         let mut metadata = Metadata::default();
         metadata.insert(Name::from_str("Bytes")?, vec![1_u32, 2_u32, 3_u32]);
 
-        let mut domain = Domain::new(DomainId::from_str("wonderland")?).build(&ALICE_ID);
+        let domain = Domain::new(DomainId::from_str("wonderland")?).build(&ALICE_ID);
         let account = Account::new(ALICE_ID.clone())
             .with_metadata(metadata)
             .build(&ALICE_ID);
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
-        assert!(domain
-            .add_asset_definition(AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID))
-            .is_none());
-        Ok(World::with([domain], [account], PeersIds::new()))
+        let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
+        Ok(World::with(
+            [domain],
+            [account],
+            [asset_definition],
+            PeersIds::new(),
+        ))
     }
 
     fn state_with_test_blocks_and_transactions(
@@ -594,19 +596,15 @@ mod tests {
         let state = {
             let mut metadata = Metadata::default();
             metadata.insert(Name::from_str("Bytes")?, vec![1_u32, 2_u32, 3_u32]);
-            let mut domain = Domain::new(DomainId::from_str("wonderland")?)
+            let domain = Domain::new(DomainId::from_str("wonderland")?)
                 .with_metadata(metadata)
                 .build(&ALICE_ID);
             let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
-            assert!(domain
-                .add_asset_definition(
-                    AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID)
-                )
-                .is_none());
+            let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
             let query_handle = LiveQueryStore::test().start();
             State::new(
-                World::with([domain], [account], PeersIds::new()),
+                World::with([domain], [account], [asset_definition], PeersIds::new()),
                 kura,
                 query_handle,
             )
