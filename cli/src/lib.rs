@@ -260,6 +260,7 @@ impl Iroha {
         let world = World::with(
             [genesis_domain(config.genesis.public_key.clone())],
             [genesis_account(config.genesis.public_key.clone())],
+            [],
             config
                 .sumeragi
                 .trusted_peers

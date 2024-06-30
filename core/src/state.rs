@@ -25,7 +25,7 @@ use iroha_data_model::{
 use iroha_logger::prelude::*;
 use iroha_primitives::{must_use::MustUse, numeric::Numeric, small::SmallVec};
 use parking_lot::Mutex;
-use range_bounds::{AccountByDomainBounds, AsAccountIdDomainCompare, RoleIdByAccountBounds};
+use range_bounds::*;
 use serde::{
     de::{DeserializeSeed, MapAccess, Visitor},
     Deserializer, Serialize,
@@ -71,6 +71,10 @@ pub struct World {
     pub(crate) domains: Storage<DomainId, Domain>,
     /// Registered accounts.
     pub(crate) accounts: Storage<AccountId, Account>,
+    /// Registered asset definitions.
+    pub(crate) asset_definitions: Storage<AssetDefinitionId, AssetDefinition>,
+    /// Registered assets.
+    pub(crate) assets: Storage<AssetId, Asset>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: Storage<RoleId, Role>,
     /// Permission tokens of an account.
@@ -95,6 +99,10 @@ pub struct WorldBlock<'world> {
     pub(crate) domains: StorageBlock<'world, DomainId, Domain>,
     /// Registered accounts.
     pub(crate) accounts: StorageBlock<'world, AccountId, Account>,
+    /// Registered asset definitions.
+    pub(crate) asset_definitions: StorageBlock<'world, AssetDefinitionId, AssetDefinition>,
+    /// Registered assets.
+    pub(crate) assets: StorageBlock<'world, AssetId, Asset>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageBlock<'world, RoleId, Role>,
     /// Permission tokens of an account.
@@ -121,6 +129,11 @@ pub struct WorldTransaction<'block, 'world> {
     pub(crate) domains: StorageTransaction<'block, 'world, DomainId, Domain>,
     /// Registered accounts.
     pub(crate) accounts: StorageTransaction<'block, 'world, AccountId, Account>,
+    /// Registered asset definitions.
+    pub(crate) asset_definitions:
+        StorageTransaction<'block, 'world, AssetDefinitionId, AssetDefinition>,
+    /// Registered assets.
+    pub(crate) assets: StorageTransaction<'block, 'world, AssetId, Asset>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageTransaction<'block, 'world, RoleId, Role>,
     /// Permission tokens of an account.
@@ -155,6 +168,10 @@ pub struct WorldView<'world> {
     pub(crate) domains: StorageView<'world, DomainId, Domain>,
     /// Registered accounts.
     pub(crate) accounts: StorageView<'world, AccountId, Account>,
+    /// Registered asset definitions.
+    pub(crate) asset_definitions: StorageView<'world, AssetDefinitionId, AssetDefinition>,
+    /// Registered assets.
+    pub(crate) assets: StorageView<'world, AssetId, Asset>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageView<'world, RoleId, Role>,
     /// Permission tokens of an account.
@@ -262,10 +279,33 @@ impl World {
     }
 
     /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
-    pub fn with<D, A>(domains: D, accounts: A, trusted_peers_ids: PeersIds) -> Self
+    pub fn with<D, A, Ad>(
+        domains: D,
+        accounts: A,
+        asset_definitions: Ad,
+        trusted_peers_ids: PeersIds,
+    ) -> Self
     where
         D: IntoIterator<Item = Domain>,
         A: IntoIterator<Item = Account>,
+        Ad: IntoIterator<Item = AssetDefinition>,
+    {
+        Self::with_assets(domains, accounts, asset_definitions, [], trusted_peers_ids)
+    }
+
+    /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
+    pub fn with_assets<D, A, Ad, As>(
+        domains: D,
+        accounts: A,
+        asset_definitions: Ad,
+        assets: As,
+        trusted_peers_ids: PeersIds,
+    ) -> Self
+    where
+        D: IntoIterator<Item = Domain>,
+        A: IntoIterator<Item = Account>,
+        Ad: IntoIterator<Item = AssetDefinition>,
+        As: IntoIterator<Item = Asset>,
     {
         let domains = domains
             .into_iter()
@@ -275,10 +315,17 @@ impl World {
             .into_iter()
             .map(|account| (account.id().clone(), account))
             .collect();
+        let asset_definitions = asset_definitions
+            .into_iter()
+            .map(|ad| (ad.id().clone(), ad))
+            .collect();
+        let assets = assets.into_iter().map(|ad| (ad.id().clone(), ad)).collect();
         Self {
             trusted_peers_ids: Cell::new(trusted_peers_ids),
             domains,
             accounts,
+            asset_definitions,
+            assets,
             ..Self::new()
         }
     }
@@ -290,6 +337,8 @@ impl World {
             trusted_peers_ids: self.trusted_peers_ids.block(),
             domains: self.domains.block(),
             accounts: self.accounts.block(),
+            asset_definitions: self.asset_definitions.block(),
+            assets: self.assets.block(),
             roles: self.roles.block(),
             account_permissions: self.account_permissions.block(),
             account_roles: self.account_roles.block(),
@@ -307,6 +356,8 @@ impl World {
             trusted_peers_ids: self.trusted_peers_ids.block_and_revert(),
             domains: self.domains.block_and_revert(),
             accounts: self.accounts.block_and_revert(),
+            asset_definitions: self.asset_definitions.block_and_revert(),
+            assets: self.assets.block_and_revert(),
             roles: self.roles.block_and_revert(),
             account_permissions: self.account_permissions.block_and_revert(),
             account_roles: self.account_roles.block_and_revert(),
@@ -324,6 +375,8 @@ impl World {
             trusted_peers_ids: self.trusted_peers_ids.view(),
             domains: self.domains.view(),
             accounts: self.accounts.view(),
+            asset_definitions: self.asset_definitions.view(),
+            assets: self.assets.view(),
             roles: self.roles.view(),
             account_permissions: self.account_permissions.view(),
             account_roles: self.account_roles.view(),
@@ -341,6 +394,8 @@ pub trait WorldReadOnly {
     fn trusted_peers_ids(&self) -> &PeersIds;
     fn domains(&self) -> &impl StorageReadOnly<DomainId, Domain>;
     fn accounts(&self) -> &impl StorageReadOnly<AccountId, Account>;
+    fn asset_definitions(&self) -> &impl StorageReadOnly<AssetDefinitionId, AssetDefinition>;
+    fn assets(&self) -> &impl StorageReadOnly<AssetId, Asset>;
     fn roles(&self) -> &impl StorageReadOnly<RoleId, Role>;
     fn account_permissions(&self) -> &impl StorageReadOnly<AccountId, Permissions>;
     fn account_roles(&self) -> &impl StorageReadOnly<RoleIdWithOwner, ()>;
@@ -396,10 +451,50 @@ pub trait WorldReadOnly {
             .map(|(_, account)| account)
     }
 
-    /// Returns reference for domains map
+    /// Returns reference for accounts map
     #[inline]
     fn accounts_iter(&self) -> impl Iterator<Item = &Account> {
         self.accounts().iter().map(|(_, account)| account)
+    }
+
+    /// Iterate asset definitions in domain
+    #[allow(clippy::type_complexity)]
+    fn asset_definitions_in_domain_iter<'slf>(
+        &'slf self,
+        id: &DomainId,
+    ) -> core::iter::Map<
+        RangeIter<'slf, AssetDefinitionId, AssetDefinition>,
+        fn((&'slf AssetDefinitionId, &'slf AssetDefinition)) -> &'slf AssetDefinition,
+    > {
+        self.asset_definitions()
+            .range::<dyn AsAssetDefinitionIdDomainCompare>(AssetDefinitionByDomainBounds::new(id))
+            .map(|(_, ad)| ad)
+    }
+
+    /// Returns reference for asset definitions map
+    #[inline]
+    fn asset_definitions_iter(&self) -> impl Iterator<Item = &AssetDefinition> {
+        self.asset_definitions().iter().map(|(_, ad)| ad)
+    }
+
+    /// Iterate asset definitions in domain
+    #[allow(clippy::type_complexity)]
+    fn assets_in_account_iter<'slf>(
+        &'slf self,
+        id: &AccountId,
+    ) -> core::iter::Map<
+        RangeIter<'slf, AssetId, Asset>,
+        fn((&'slf AssetId, &'slf Asset)) -> &'slf Asset,
+    > {
+        self.assets()
+            .range::<dyn AsAssetIdAccountCompare>(AssetByAccountBounds::new(id))
+            .map(|(_, a)| a)
+    }
+
+    /// Returns reference for asset definitions map
+    #[inline]
+    fn assets_iter(&self) -> impl Iterator<Item = &Asset> {
+        self.assets().iter().map(|(_, a)| a)
     }
 
     // Account-related methods
@@ -428,18 +523,6 @@ pub trait WorldReadOnly {
             .get(id)
             .ok_or(FindError::Account(id.clone()))?;
         Ok(f(account))
-    }
-
-    /// Get `Account`'s `Asset`s
-    ///
-    /// # Errors
-    /// Fails if there is no domain or account
-    fn account_assets(
-        &self,
-        id: &AccountId,
-    ) -> Result<std::collections::btree_map::Values<'_, AssetDefinitionId, Asset>, QueryExecutionFail>
-    {
-        self.map_account(id, |account| account.assets.values())
     }
 
     /// Get [`Account`]'s [`RoleId`]s
@@ -516,16 +599,11 @@ pub trait WorldReadOnly {
     /// - The [`Account`] with which the [`Asset`] is associated doesn't exist.
     /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
     fn asset(&self, id: &AssetId) -> Result<Asset, QueryExecutionFail> {
-        self.map_account(
-            &id.account,
-            |account| -> Result<Asset, QueryExecutionFail> {
-                account
-                    .assets
-                    .get(&id.definition)
-                    .ok_or_else(|| QueryExecutionFail::from(FindError::Asset(id.clone())))
-                    .cloned()
-            },
-        )?
+        let _ = self.map_account(&id.account, |_| ())?;
+        self.assets()
+            .get(id)
+            .ok_or_else(|| QueryExecutionFail::from(FindError::Asset(id.clone())))
+            .cloned()
     }
 
     // AssetDefinition-related methods
@@ -535,8 +613,7 @@ pub trait WorldReadOnly {
     /// # Errors
     /// - Asset definition entry not found
     fn asset_definition(&self, asset_id: &AssetDefinitionId) -> Result<AssetDefinition, FindError> {
-        self.domain(&asset_id.domain)?
-            .asset_definitions
+        self.asset_definitions()
             .get(asset_id)
             .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
             .cloned()
@@ -581,6 +658,12 @@ macro_rules! impl_world_ro {
             fn accounts(&self) -> &impl StorageReadOnly<AccountId, Account> {
                 &self.accounts
             }
+            fn asset_definitions(&self) -> &impl StorageReadOnly<AssetDefinitionId, AssetDefinition> {
+                &self.asset_definitions
+            }
+            fn assets(&self) -> &impl StorageReadOnly<AssetId, Asset> {
+                &self.assets
+            }
             fn roles(&self) -> &impl StorageReadOnly<RoleId, Role> {
                 &self.roles
             }
@@ -615,6 +698,8 @@ impl<'world> WorldBlock<'world> {
             trusted_peers_ids: self.trusted_peers_ids.transaction(),
             domains: self.domains.transaction(),
             accounts: self.accounts.transaction(),
+            asset_definitions: self.asset_definitions.transaction(),
+            assets: self.assets.transaction(),
             roles: self.roles.transaction(),
             account_permissions: self.account_permissions.transaction(),
             account_roles: self.account_roles.transaction(),
@@ -637,6 +722,8 @@ impl<'world> WorldBlock<'world> {
         self.account_roles.commit();
         self.account_permissions.commit();
         self.roles.commit();
+        self.assets.commit();
+        self.asset_definitions.commit();
         self.accounts.commit();
         self.domains.commit();
         self.trusted_peers_ids.commit();
@@ -653,6 +740,8 @@ impl WorldTransaction<'_, '_> {
         self.account_roles.apply();
         self.account_permissions.apply();
         self.roles.apply();
+        self.assets.apply();
+        self.asset_definitions.apply();
         self.accounts.apply();
         self.domains.apply();
         self.trusted_peers_ids.apply();
@@ -729,12 +818,10 @@ impl WorldTransaction<'_, '_> {
     /// # Errors
     /// If domain, account or asset not found
     pub fn asset_mut(&mut self, id: &AssetId) -> Result<&mut Asset, FindError> {
-        self.account_mut(&id.account).and_then(move |account| {
-            account
-                .assets
-                .get_mut(&id.definition)
-                .ok_or_else(|| FindError::Asset(id.clone()))
-        })
+        let _ = self.account_mut(&id.account)?;
+        self.assets
+            .get_mut(id)
+            .ok_or_else(|| FindError::Asset(id.clone()))
     }
 
     /// Get asset or inserts new with `default_asset_value`.
@@ -749,36 +836,24 @@ impl WorldTransaction<'_, '_> {
     ) -> Result<&mut Asset, Error> {
         // Check that asset definition exists
         {
-            let asset_definition_id = &asset_id.definition;
-            let asset_definition_domain_id = &asset_id.definition.domain;
-            let asset_definition_domain = self
-                .domains
-                .get(asset_definition_domain_id)
-                .ok_or(FindError::Domain(asset_definition_domain_id.clone()))?;
-            asset_definition_domain
-                .asset_definitions
-                .get(asset_definition_id)
-                .ok_or(FindError::AssetDefinition(asset_definition_id.clone()))?;
+            let _ = self.domain(&asset_id.definition.domain)?;
+            let _ = self.asset_definition(&asset_id.definition)?;
         }
 
-        let account_id = &asset_id.account;
-        let account = self
-            .accounts
-            .get_mut(account_id)
-            .ok_or(FindError::Account(account_id.clone()))?;
-
-        Ok(account
+        let _ = self.account(&asset_id.account)?;
+        if self.assets.get(&asset_id).is_none() {
+            let asset = Asset::new(asset_id.clone(), default_asset_value.into());
+            Self::emit_events_impl(
+                &mut self.triggers,
+                &mut self.events_buffer,
+                Some(AccountEvent::Asset(AssetEvent::Created(asset.clone()))),
+            );
+            self.assets.insert(asset_id.clone(), asset);
+        }
+        Ok(self
             .assets
-            .entry(asset_id.definition.clone())
-            .or_insert_with(|| {
-                let asset = Asset::new(asset_id, default_asset_value.into());
-                Self::emit_events_impl(
-                    &mut self.triggers,
-                    &mut self.events_buffer,
-                    Some(AccountEvent::Asset(AssetEvent::Created(asset.clone()))),
-                );
-                asset
-            }))
+            .get_mut(&asset_id)
+            .expect("Just inserted, cannot fail."))
     }
 
     /// Get mutable reference to [`AssetDefinition`]
@@ -789,12 +864,9 @@ impl WorldTransaction<'_, '_> {
         &mut self,
         id: &AssetDefinitionId,
     ) -> Result<&mut AssetDefinition, FindError> {
-        self.domain_mut(&id.domain).and_then(|domain| {
-            domain
-                .asset_definitions
-                .get_mut(id)
-                .ok_or_else(|| FindError::AssetDefinition(id.clone()))
-        })
+        self.asset_definitions
+            .get_mut(id)
+            .ok_or_else(|| FindError::AssetDefinition(id.clone()))
     }
 
     /// Increase [`Asset`] total amount by given value
@@ -1536,6 +1608,116 @@ mod range_bounds {
         key: AccountIdDomainCompare<'_>,
         trait: AsAccountIdDomainCompare
     }
+
+    /// `DomainId` wrapper for fetching asset definitions beloning to a domain from the global store
+    #[derive(PartialEq, Eq, Ord, PartialOrd, Copy, Clone)]
+    pub struct AssetDefinitionIdDomainCompare<'a> {
+        domain_id: &'a DomainId,
+        name: MinMaxExt<&'a Name>,
+    }
+
+    /// Bounds for range quired over asset definitions by domain
+    pub struct AssetDefinitionByDomainBounds<'a> {
+        start: AssetDefinitionIdDomainCompare<'a>,
+        end: AssetDefinitionIdDomainCompare<'a>,
+    }
+
+    impl<'a> AssetDefinitionByDomainBounds<'a> {
+        /// Create range bounds for range quires over asset definitions by domain
+        pub fn new(domain_id: &'a DomainId) -> Self {
+            Self {
+                start: AssetDefinitionIdDomainCompare {
+                    domain_id,
+                    name: MinMaxExt::Min,
+                },
+                end: AssetDefinitionIdDomainCompare {
+                    domain_id,
+                    name: MinMaxExt::Max,
+                },
+            }
+        }
+    }
+
+    impl<'a> RangeBounds<dyn AsAssetDefinitionIdDomainCompare + 'a>
+        for AssetDefinitionByDomainBounds<'a>
+    {
+        fn start_bound(&self) -> Bound<&(dyn AsAssetDefinitionIdDomainCompare + 'a)> {
+            Bound::Excluded(&self.start)
+        }
+
+        fn end_bound(&self) -> Bound<&(dyn AsAssetDefinitionIdDomainCompare + 'a)> {
+            Bound::Excluded(&self.end)
+        }
+    }
+
+    impl AsAssetDefinitionIdDomainCompare for AssetDefinitionId {
+        fn as_key(&self) -> AssetDefinitionIdDomainCompare<'_> {
+            AssetDefinitionIdDomainCompare {
+                domain_id: &self.domain,
+                name: (&self.name).into(),
+            }
+        }
+    }
+
+    impl_as_dyn_key! {
+        target: AssetDefinitionId,
+        key: AssetDefinitionIdDomainCompare<'_>,
+        trait: AsAssetDefinitionIdDomainCompare
+    }
+
+    /// `AccountId` wrapper for fetching assets beloning to an account from the global store
+    #[derive(PartialEq, Eq, Ord, PartialOrd, Copy, Clone)]
+    pub struct AssetIdAccountCompare<'a> {
+        account_id: &'a AccountId,
+        definition: MinMaxExt<&'a AssetDefinitionId>,
+    }
+
+    /// Bounds for range quired over assets by account
+    pub struct AssetByAccountBounds<'a> {
+        start: AssetIdAccountCompare<'a>,
+        end: AssetIdAccountCompare<'a>,
+    }
+
+    impl<'a> AssetByAccountBounds<'a> {
+        /// Create range bounds for range quires over assets by account
+        pub fn new(account_id: &'a AccountId) -> Self {
+            Self {
+                start: AssetIdAccountCompare {
+                    account_id,
+                    definition: MinMaxExt::Min,
+                },
+                end: AssetIdAccountCompare {
+                    account_id,
+                    definition: MinMaxExt::Max,
+                },
+            }
+        }
+    }
+
+    impl<'a> RangeBounds<dyn AsAssetIdAccountCompare + 'a> for AssetByAccountBounds<'a> {
+        fn start_bound(&self) -> Bound<&(dyn AsAssetIdAccountCompare + 'a)> {
+            Bound::Excluded(&self.start)
+        }
+
+        fn end_bound(&self) -> Bound<&(dyn AsAssetIdAccountCompare + 'a)> {
+            Bound::Excluded(&self.end)
+        }
+    }
+
+    impl AsAssetIdAccountCompare for AssetId {
+        fn as_key(&self) -> AssetIdAccountCompare<'_> {
+            AssetIdAccountCompare {
+                account_id: &self.account,
+                definition: (&self.definition).into(),
+            }
+        }
+    }
+
+    impl_as_dyn_key! {
+        target: AssetId,
+        key: AssetIdAccountCompare<'_>,
+        trait: AsAssetIdAccountCompare
+    }
 }
 
 pub(crate) mod deserialize {
@@ -1633,6 +1815,8 @@ pub(crate) mod deserialize {
                     let mut trusted_peers_ids = None;
                     let mut domains = None;
                     let mut accounts = None;
+                    let mut asset_definitions = None;
+                    let mut assets = None;
                     let mut roles = None;
                     let mut account_permissions = None;
                     let mut account_roles = None;
@@ -1653,6 +1837,12 @@ pub(crate) mod deserialize {
                             }
                             "accounts" => {
                                 accounts = Some(map.next_value()?);
+                            }
+                            "asset_definitions" => {
+                                asset_definitions = Some(map.next_value()?);
+                            }
+                            "assets" => {
+                                assets = Some(map.next_value()?);
                             }
                             "roles" => {
                                 roles = Some(map.next_value()?);
@@ -1689,6 +1879,9 @@ pub(crate) mod deserialize {
                             .ok_or_else(|| serde::de::Error::missing_field("domains"))?,
                         accounts: accounts
                             .ok_or_else(|| serde::de::Error::missing_field("accounts"))?,
+                        asset_definitions: asset_definitions
+                            .ok_or_else(|| serde::de::Error::missing_field("asset_definitions"))?,
+                        assets: assets.ok_or_else(|| serde::de::Error::missing_field("assets"))?,
                         roles: roles.ok_or_else(|| serde::de::Error::missing_field("roles"))?,
                         account_permissions: account_permissions.ok_or_else(|| {
                             serde::de::Error::missing_field("account_permissions")

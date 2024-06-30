@@ -13,11 +13,8 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    asset::{AssetDefinition, AssetDefinitionsMap, AssetTotalQuantityMap},
-    ipfs::IpfsPath,
-    metadata::Metadata,
-    prelude::*,
-    HasMetadata, Name, Registered,
+    asset::AssetTotalQuantityMap, ipfs::IpfsPath, metadata::Metadata, prelude::*, HasMetadata,
+    Name, Registered,
 };
 
 #[model]
@@ -73,8 +70,6 @@ mod model {
     pub struct Domain {
         /// Identification of this [`Domain`].
         pub id: DomainId,
-        /// [`Asset`](AssetDefinition)s defined of the `Domain`.
-        pub asset_definitions: AssetDefinitionsMap,
         /// Total amount of [`Asset`].
         pub asset_total_quantities: AssetTotalQuantityMap,
         /// IPFS link to the [`Domain`] logo.
@@ -158,51 +153,16 @@ impl Domain {
 impl Domain {
     /// Return a reference to the asset definition corresponding to the asset definition id
     #[inline]
-    pub fn asset_definition(
-        &self,
-        asset_definition_id: &AssetDefinitionId,
-    ) -> Option<&AssetDefinition> {
-        self.asset_definitions.get(asset_definition_id)
-    }
-
-    /// Return a reference to the asset definition corresponding to the asset definition id
-    #[inline]
     pub fn asset_total_quantity(
         &self,
         asset_definition_id: &AssetDefinitionId,
     ) -> Option<&Numeric> {
         self.asset_total_quantities.get(asset_definition_id)
     }
-
-    /// Get an iterator over asset definitions of the `Domain`
-    #[inline]
-    pub fn asset_definitions(&self) -> impl ExactSizeIterator<Item = &AssetDefinition> {
-        self.asset_definitions.values()
-    }
 }
 
 #[cfg(feature = "transparent_api")]
 impl Domain {
-    /// Add asset definition into the [`Domain`] returning previous
-    /// asset definition stored under the same id
-    #[inline]
-    pub fn add_asset_definition(
-        &mut self,
-        asset_definition: AssetDefinition,
-    ) -> Option<AssetDefinition> {
-        self.asset_definitions
-            .insert(asset_definition.id().clone(), asset_definition)
-    }
-
-    /// Remove asset definition from the [`Domain`] and return it
-    #[inline]
-    pub fn remove_asset_definition(
-        &mut self,
-        asset_definition_id: &AssetDefinitionId,
-    ) -> Option<AssetDefinition> {
-        self.asset_definitions.remove(asset_definition_id)
-    }
-
     /// Add asset total amount into the [`Domain`] returning previous
     /// asset amount stored under the same id
     #[inline]

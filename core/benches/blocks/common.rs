@@ -188,6 +188,7 @@ pub fn build_state(rt: &tokio::runtime::Handle, account_id: &AccountId) -> State
         World::with(
             [domain],
             [Account::new(account_id.clone()).build(account_id)],
+            [],
             UniqueVec::new(),
         ),
         kura,

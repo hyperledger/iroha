@@ -12,10 +12,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    asset::{Asset, AssetDefinitionId, AssetsMap},
-    domain::prelude::*,
-    metadata::Metadata,
-    HasMetadata, ParseError, PublicKey, Registered,
+    domain::prelude::*, metadata::Metadata, HasMetadata, ParseError, PublicKey, Registered,
 };
 
 #[model]
@@ -75,8 +72,6 @@ mod model {
     pub struct Account {
         /// Identification of the [`Account`].
         pub id: AccountId,
-        /// Assets in this [`Account`].
-        pub assets: AssetsMap,
         /// Metadata of this account as a key-value store.
         pub metadata: Metadata,
     }
@@ -118,34 +113,6 @@ impl Account {
     pub fn signatory(&self) -> &PublicKey {
         &self.id.signatory
     }
-
-    /// Return a reference to the [`Asset`] corresponding to the asset id.
-    #[inline]
-    pub fn asset(&self, asset_id: &AssetDefinitionId) -> Option<&Asset> {
-        self.assets.get(asset_id)
-    }
-
-    /// Get an iterator over [`Asset`]s of the `Account`
-    #[inline]
-    pub fn assets(&self) -> impl ExactSizeIterator<Item = &Asset> {
-        self.assets.values()
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl Account {
-    /// Add [`Asset`] into the [`Account`] returning previous asset stored under the same id
-    #[inline]
-    pub fn add_asset(&mut self, asset: Asset) -> Option<Asset> {
-        assert_eq!(self.id, asset.id.account);
-        self.assets.insert(asset.id.definition.clone(), asset)
-    }
-
-    /// Remove asset from the [`Account`] and return it
-    #[inline]
-    pub fn remove_asset(&mut self, asset_id: &AssetDefinitionId) -> Option<Asset> {
-        self.assets.remove(asset_id)
-    }
 }
 
 impl NewAccount {
@@ -171,7 +138,6 @@ impl NewAccount {
     pub fn into_account(self) -> Account {
         Account {
             id: self.id,
-            assets: AssetsMap::default(),
             metadata: self.metadata,
         }
     }
