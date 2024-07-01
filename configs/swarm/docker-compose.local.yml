@@ -14,8 +14,8 @@ services:
       P2P_ADDRESS: 0.0.0.0:1337
       API_ADDRESS: 0.0.0.0:8080
       GENESIS_PUBLIC_KEY: ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
-      TRUSTED_PEERS: '[{"address":"irohad2:1339","public_key":"ed01204EE2FCD53E1730AF142D1E23951198678295047F9314B4006B0CB61850B1DB10"},{"address":"irohad1:1338","public_key":"ed01209897952D14BDFAEA780087C38FF3EB800CB20B882748FC95A575ADB9CD2CB21D"},{"address":"irohad3:1340","public_key":"ed0120CACF3A84B8DC8710CE9D6B968EE95EC7EE4C93C85858F026F3B4417F569592CE"}]'
       GENESIS_PRIVATE_KEY: 80264082B3BDE54AEBECA4146257DA0DE8D59D8E46D5FE34887DCD8072866792FCB3AD4164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
+      TRUSTED_PEERS: '[{"address":"irohad2:1339","public_key":"ed01204EE2FCD53E1730AF142D1E23951198678295047F9314B4006B0CB61850B1DB10"},{"address":"irohad1:1338","public_key":"ed01209897952D14BDFAEA780087C38FF3EB800CB20B882748FC95A575ADB9CD2CB21D"},{"address":"irohad3:1340","public_key":"ed0120CACF3A84B8DC8710CE9D6B968EE95EC7EE4C93C85858F026F3B4417F569592CE"}]'
       GENESIS: /tmp/genesis.signed.scale
       TOPOLOGY: '[{"address":"irohad2:1339","public_key":"ed01204EE2FCD53E1730AF142D1E23951198678295047F9314B4006B0CB61850B1DB10"},{"address":"irohad1:1338","public_key":"ed01209897952D14BDFAEA780087C38FF3EB800CB20B882748FC95A575ADB9CD2CB21D"},{"address":"irohad0:1337","public_key":"ed0120A98BAFB0663CE08D75EBD506FEC38A84E576A7C9B0897693ED4B04FD9EF2D18D"},{"address":"irohad3:1340","public_key":"ed0120CACF3A84B8DC8710CE9D6B968EE95EC7EE4C93C85858F026F3B4417F569592CE"}]'
     ports:
@@ -44,6 +44,7 @@ services:
               --private-key $$GENESIS_PRIVATE_KEY \\
               --out-file $$GENESIS \\
           && \\
+          export GENESIS_HASH=$(kagami genesis hash $$GENESIS) && \\
           irohad
       "
   irohad1:
@@ -58,7 +59,10 @@ services:
       P2P_ADDRESS: 0.0.0.0:1338
       API_ADDRESS: 0.0.0.0:8081
       GENESIS_PUBLIC_KEY: ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
+      GENESIS_PRIVATE_KEY: 80264082B3BDE54AEBECA4146257DA0DE8D59D8E46D5FE34887DCD8072866792FCB3AD4164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
       TRUSTED_PEERS: '[{"address":"irohad2:1339","public_key":"ed01204EE2FCD53E1730AF142D1E23951198678295047F9314B4006B0CB61850B1DB10"},{"address":"irohad0:1337","public_key":"ed0120A98BAFB0663CE08D75EBD506FEC38A84E576A7C9B0897693ED4B04FD9EF2D18D"},{"address":"irohad3:1340","public_key":"ed0120CACF3A84B8DC8710CE9D6B968EE95EC7EE4C93C85858F026F3B4417F569592CE"}]'
+      GENESIS: /tmp/genesis.signed.scale
+      TOPOLOGY: '[{"address":"irohad2:1339","public_key":"ed01204EE2FCD53E1730AF142D1E23951198678295047F9314B4006B0CB61850B1DB10"},{"address":"irohad1:1338","public_key":"ed01209897952D14BDFAEA780087C38FF3EB800CB20B882748FC95A575ADB9CD2CB21D"},{"address":"irohad0:1337","public_key":"ed0120A98BAFB0663CE08D75EBD506FEC38A84E576A7C9B0897693ED4B04FD9EF2D18D"},{"address":"irohad3:1340","public_key":"ed0120CACF3A84B8DC8710CE9D6B968EE95EC7EE4C93C85858F026F3B4417F569592CE"}]'
     ports:
     - 1338:1338
     - 8081:8081
@@ -71,6 +75,23 @@ services:
       timeout: 1s
       retries: 30
       start_period: 4s
+    command: |-
+      /bin/sh -c "
+          EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+          EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+          jq \\
+              --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+              --argjson topology \"$$TOPOLOGY\" \\
+              '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+              >/tmp/genesis.json && \\
+          kagami genesis sign /tmp/genesis.json \\
+              --public-key $$GENESIS_PUBLIC_KEY \\
+              --private-key $$GENESIS_PRIVATE_KEY \\
+              --out-file $$GENESIS \\
+          && \\
+          export GENESIS_HASH=$(kagami genesis hash $$GENESIS) && \\
+          irohad
+      "
   irohad2:
     depends_on:
     - irohad0
@@ -83,7 +104,10 @@ services:
       P2P_ADDRESS: 0.0.0.0:1339
       API_ADDRESS: 0.0.0.0:8082
       GENESIS_PUBLIC_KEY: ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
+      GENESIS_PRIVATE_KEY: 80264082B3BDE54AEBECA4146257DA0DE8D59D8E46D5FE34887DCD8072866792FCB3AD4164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
       TRUSTED_PEERS: '[{"address":"irohad1:1338","public_key":"ed01209897952D14BDFAEA780087C38FF3EB800CB20B882748FC95A575ADB9CD2CB21D"},{"address":"irohad0:1337","public_key":"ed0120A98BAFB0663CE08D75EBD506FEC38A84E576A7C9B0897693ED4B04FD9EF2D18D"},{"address":"irohad3:1340","public_key":"ed0120CACF3A84B8DC8710CE9D6B968EE95EC7EE4C93C85858F026F3B4417F569592CE"}]'
+      GENESIS: /tmp/genesis.signed.scale
+      TOPOLOGY: '[{"address":"irohad2:1339","public_key":"ed01204EE2FCD53E1730AF142D1E23951198678295047F9314B4006B0CB61850B1DB10"},{"address":"irohad1:1338","public_key":"ed01209897952D14BDFAEA780087C38FF3EB800CB20B882748FC95A575ADB9CD2CB21D"},{"address":"irohad0:1337","public_key":"ed0120A98BAFB0663CE08D75EBD506FEC38A84E576A7C9B0897693ED4B04FD9EF2D18D"},{"address":"irohad3:1340","public_key":"ed0120CACF3A84B8DC8710CE9D6B968EE95EC7EE4C93C85858F026F3B4417F569592CE"}]'
     ports:
     - 1339:1339
     - 8082:8082
@@ -96,6 +120,23 @@ services:
       timeout: 1s
       retries: 30
       start_period: 4s
+    command: |-
+      /bin/sh -c "
+          EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+          EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+          jq \\
+              --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+              --argjson topology \"$$TOPOLOGY\" \\
+              '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+              >/tmp/genesis.json && \\
+          kagami genesis sign /tmp/genesis.json \\
+              --public-key $$GENESIS_PUBLIC_KEY \\
+              --private-key $$GENESIS_PRIVATE_KEY \\
+              --out-file $$GENESIS \\
+          && \\
+          export GENESIS_HASH=$(kagami genesis hash $$GENESIS) && \\
+          irohad
+      "
   irohad3:
     depends_on:
     - irohad0
@@ -108,7 +149,10 @@ services:
       P2P_ADDRESS: 0.0.0.0:1340
       API_ADDRESS: 0.0.0.0:8083
       GENESIS_PUBLIC_KEY: ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
+      GENESIS_PRIVATE_KEY: 80264082B3BDE54AEBECA4146257DA0DE8D59D8E46D5FE34887DCD8072866792FCB3AD4164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
       TRUSTED_PEERS: '[{"address":"irohad2:1339","public_key":"ed01204EE2FCD53E1730AF142D1E23951198678295047F9314B4006B0CB61850B1DB10"},{"address":"irohad1:1338","public_key":"ed01209897952D14BDFAEA780087C38FF3EB800CB20B882748FC95A575ADB9CD2CB21D"},{"address":"irohad0:1337","public_key":"ed0120A98BAFB0663CE08D75EBD506FEC38A84E576A7C9B0897693ED4B04FD9EF2D18D"}]'
+      GENESIS: /tmp/genesis.signed.scale
+      TOPOLOGY: '[{"address":"irohad2:1339","public_key":"ed01204EE2FCD53E1730AF142D1E23951198678295047F9314B4006B0CB61850B1DB10"},{"address":"irohad1:1338","public_key":"ed01209897952D14BDFAEA780087C38FF3EB800CB20B882748FC95A575ADB9CD2CB21D"},{"address":"irohad0:1337","public_key":"ed0120A98BAFB0663CE08D75EBD506FEC38A84E576A7C9B0897693ED4B04FD9EF2D18D"},{"address":"irohad3:1340","public_key":"ed0120CACF3A84B8DC8710CE9D6B968EE95EC7EE4C93C85858F026F3B4417F569592CE"}]'
     ports:
     - 1340:1340
     - 8083:8083
@@ -121,3 +165,20 @@ services:
       timeout: 1s
       retries: 30
       start_period: 4s
+    command: |-
+      /bin/sh -c "
+          EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+          EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+          jq \\
+              --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+              --argjson topology \"$$TOPOLOGY\" \\
+              '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+              >/tmp/genesis.json && \\
+          kagami genesis sign /tmp/genesis.json \\
+              --public-key $$GENESIS_PUBLIC_KEY \\
+              --private-key $$GENESIS_PRIVATE_KEY \\
+              --out-file $$GENESIS \\
+          && \\
+          export GENESIS_HASH=$(kagami genesis hash $$GENESIS) && \\
+          irohad
+      "

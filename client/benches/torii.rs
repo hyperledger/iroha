@@ -22,26 +22,25 @@ fn query_requests(criterion: &mut Criterion) {
 
     let chain_id = get_chain_id();
     let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
-    let configuration = get_config(
-        unique_vec![peer.id.clone()],
-        chain_id.clone(),
-        get_key_pair(test_network::Signatory::Peer),
-        genesis_key_pair.public_key(),
-    );
-
-    let rt = Runtime::test();
     let executor = construct_executor("../default_executor").expect("Failed to construct executor");
     let topology = vec![peer.id.clone()];
     let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
         .account(get_key_pair(test_network::Signatory::Alice).into_parts().0)
         .finish_domain()
-        .build_and_sign(executor, chain_id, &genesis_key_pair, topology);
+        .build_and_sign(executor, chain_id.clone(), &genesis_key_pair, topology);
 
+    let configuration = get_config(
+        unique_vec![peer.id.clone()],
+        chain_id.clone(),
+        get_key_pair(test_network::Signatory::Peer),
+        genesis.0.hash(),
+    );
     let builder = PeerBuilder::new()
         .with_config(configuration)
         .with_genesis(genesis);
 
+    let rt = Runtime::test();
     rt.block_on(builder.start_with_peer(&mut peer));
     rt.block_on(async {
         iroha_logger::test_logger()
@@ -120,18 +119,17 @@ fn instruction_submits(criterion: &mut Criterion) {
     let chain_id = get_chain_id();
     let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
     let topology = vec![peer.id.clone()];
+    let executor = construct_executor("../default_executor").expect("Failed to construct executor");
+    let genesis = GenesisBuilder::default()
+        .domain("wonderland".parse().expect("Valid"))
+        .finish_domain()
+        .build_and_sign(executor, chain_id.clone(), &genesis_key_pair, topology);
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        genesis_key_pair.public_key(),
+        genesis.0.hash(),
     );
-    let executor = construct_executor("../default_executor").expect("Failed to construct executor");
-    let genesis = GenesisBuilder::default()
-        .domain("wonderland".parse().expect("Valid"))
-        .account(configuration.common.key_pair.public_key().clone())
-        .finish_domain()
-        .build_and_sign(executor, chain_id, &genesis_key_pair, topology);
     let builder = PeerBuilder::new()
         .with_config(configuration)
         .with_genesis(genesis);

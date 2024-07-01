@@ -43,5 +43,6 @@ services:
               --private-key $$GENESIS_PRIVATE_KEY \\
               --out-file $$GENESIS \\
           && \\
+          export GENESIS_HASH=$(kagami genesis hash $$GENESIS) && \\
           irohad
       "

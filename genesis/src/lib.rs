@@ -118,7 +118,7 @@ fn build_and_sign_genesis(
     topology: Vec<PeerId>,
 ) -> GenesisBlock {
     let transactions = build_transactions(instructions, executor, chain_id, genesis_key_pair);
-    let block = SignedBlock::genesis(transactions, genesis_key_pair.private_key(), topology);
+    let block = SignedBlock::genesis(transactions, topology);
     GenesisBlock(block)
 }
 

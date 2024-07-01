@@ -44,14 +44,14 @@ fn main_genesis() {
     let chain_id = get_chain_id();
     let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
     let topology = vec![peer.id.clone()];
+    let genesis = generate_genesis(1_000_000_u32, chain_id.clone(), &genesis_key_pair, topology);
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        genesis_key_pair.public_key(),
+        genesis.0.hash(),
     );
     let rt = Runtime::test();
-    let genesis = generate_genesis(1_000_000_u32, chain_id, &genesis_key_pair, topology);
 
     let builder = PeerBuilder::new()
         .with_genesis(genesis)

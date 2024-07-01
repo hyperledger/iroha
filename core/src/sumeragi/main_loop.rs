@@ -197,7 +197,7 @@ impl Sumeragi {
 
     fn init_listen_for_genesis(
         &mut self,
-        genesis_account: &AccountId,
+        genesis_hash: &HashOf<SignedBlock>,
         state: &State,
         shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>,
     ) -> Result<(), EarlyReturn> {
@@ -230,7 +230,7 @@ impl Sumeragi {
                         block,
                         &self.topology,
                         &self.chain_id,
-                        genesis_account,
+                        genesis_hash,
                         &mut state_block,
                     )
                     .unpack(|e| self.send_event(e))
@@ -277,7 +277,7 @@ impl Sumeragi {
     fn init_commit_genesis(
         &mut self,
         genesis: GenesisBlock,
-        genesis_account: &AccountId,
+        genesis_hash: &HashOf<SignedBlock>,
         state: &State,
     ) {
         std::thread::sleep(Duration::from_millis(250)); // TODO: Why this sleep?
@@ -293,7 +293,7 @@ impl Sumeragi {
             genesis.0,
             &self.topology,
             &self.chain_id,
-            genesis_account,
+            genesis_hash,
             &mut state_block,
         )
         .unpack(|e| self.send_event(e))
@@ -379,7 +379,7 @@ impl Sumeragi {
         &self,
         state: &'state State,
         topology: &Topology,
-        genesis_account: &AccountId,
+        genesis_hash: &HashOf<SignedBlock>,
         BlockCreated { block }: BlockCreated,
     ) -> Option<VotingBlock<'state>> {
         let mut state_block = state.block();
@@ -397,7 +397,7 @@ impl Sumeragi {
             block,
             topology,
             &self.chain_id,
-            genesis_account,
+            genesis_hash,
             &mut state_block,
         )
         .unpack(|e| self.send_event(e))
@@ -431,7 +431,7 @@ impl Sumeragi {
         state: &'state State,
         voting_block: &mut Option<VotingBlock<'state>>,
         view_change_index: usize,
-        genesis_account: &AccountId,
+        genesis_hash: &HashOf<SignedBlock>,
         voting_signatures: &mut BTreeSet<BlockSignature>,
         #[cfg_attr(not(debug_assertions), allow(unused_variables))] is_genesis_peer: bool,
     ) {
@@ -451,7 +451,7 @@ impl Sumeragi {
                 // Look at https://github.com/hyperledger/iroha/issues/4643
                 let _ = voting_block.take();
 
-                match handle_block_sync(&self.chain_id, block, state, genesis_account, &|e| {
+                match handle_block_sync(&self.chain_id, block, state, genesis_hash, &|e| {
                     self.send_event(e)
                 }) {
                     Ok(BlockSyncOk::CommitBlock(block, state_block, topology)) => {
@@ -538,7 +538,7 @@ impl Sumeragi {
                 let _ = voting_block.take();
 
                 if let Some(mut v_block) =
-                    self.validate_block(state, topology, genesis_account, block_created)
+                    self.validate_block(state, topology, genesis_hash, block_created)
                 {
                     v_block.block.sign(&self.key_pair, topology);
 
@@ -562,7 +562,7 @@ impl Sumeragi {
                 let _ = voting_block.take();
 
                 if let Some(mut v_block) =
-                    self.validate_block(state, topology, genesis_account, block_created)
+                    self.validate_block(state, topology, genesis_hash, block_created)
                 {
                     if view_change_index >= 1 {
                         v_block.block.sign(&self.key_pair, topology);
@@ -597,7 +597,7 @@ impl Sumeragi {
                 let _ = voting_block.take();
 
                 if let Some(mut valid_block) =
-                    self.validate_block(state, &self.topology, genesis_account, block_created)
+                    self.validate_block(state, &self.topology, genesis_hash, block_created)
                 {
                     // NOTE: Up until this point it was unknown which block is expected to be received,
                     // therefore all the signatures (of any hash) were collected and will now be pruned
@@ -959,7 +959,7 @@ fn should_terminate(shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>) 
 #[iroha_logger::log(name = "consensus", skip_all)]
 /// Execute the main loop of [`Sumeragi`]
 pub(crate) fn run(
-    genesis_network: GenesisWithPubKey,
+    genesis: GenesisWithHash,
     mut sumeragi: Sumeragi,
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
     state: Arc<State>,
@@ -967,30 +967,24 @@ pub(crate) fn run(
     // Connect peers with initial topology
     sumeragi.connect_peers(&sumeragi.topology);
 
-    let genesis_account = AccountId::new(
-        iroha_genesis::GENESIS_DOMAIN_ID.clone(),
-        genesis_network.public_key.clone(),
-    );
-
     let span = span!(tracing::Level::TRACE, "genesis").entered();
-    let is_genesis_peer = if state.view().height() == 0
-        || state.view().latest_block_hash().is_none()
-    {
-        if let Some(genesis) = genesis_network.genesis {
-            sumeragi.init_commit_genesis(genesis, &genesis_account, &state);
-            true
-        } else {
-            if let Err(err) =
-                sumeragi.init_listen_for_genesis(&genesis_account, &state, &mut shutdown_receiver)
-            {
-                info!(?err, "Sumeragi Thread is being shut down.");
-                return;
+    let is_genesis_peer =
+        if state.view().height() == 0 || state.view().latest_block_hash().is_none() {
+            if let Some(genesis_block) = genesis.genesis {
+                sumeragi.init_commit_genesis(genesis_block, &genesis.hash, &state);
+                true
+            } else {
+                if let Err(err) =
+                    sumeragi.init_listen_for_genesis(&genesis.hash, &state, &mut shutdown_receiver)
+                {
+                    info!(?err, "Sumeragi Thread is being shut down.");
+                    return;
+                }
+                false
             }
+        } else {
             false
-        }
-    } else {
-        false
-    };
+        };
     span.exit();
 
     info!(
@@ -1083,7 +1077,7 @@ pub(crate) fn run(
                 &state,
                 &mut voting_block,
                 view_change_index,
-                &genesis_account,
+                &genesis.hash,
                 &mut voting_signatures,
                 is_genesis_peer,
             );
@@ -1245,7 +1239,7 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
     chain_id: &ChainId,
     block: SignedBlock,
     state: &'state State,
-    genesis_account: &AccountId,
+    genesis_hash: &HashOf<SignedBlock>,
     handle_events: &F,
 ) -> Result<BlockSyncOk<'state>, (SignedBlock, BlockSyncError)> {
     let block_height: NonZeroUsize = block
@@ -1296,42 +1290,35 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
     topology.block_committed(&latest_block, state_block.world.peers().cloned());
     topology.nth_rotation(block.header().view_change_index as usize);
 
-    ValidBlock::validate(
-        block,
-        &topology,
-        chain_id,
-        genesis_account,
-        &mut state_block,
-    )
-    .unpack(handle_events)
-    .and_then(|block| {
-        block
-            .commit(&topology)
-            .unpack(handle_events)
-            .map_err(|(block, err)| (block.into(), err))
-    })
-    .map_err(|(block, error)| {
-        (
-            block,
+    ValidBlock::validate(block, &topology, chain_id, genesis_hash, &mut state_block)
+        .unpack(handle_events)
+        .and_then(|block| {
+            block
+                .commit(&topology)
+                .unpack(handle_events)
+                .map_err(|(block, err)| (block.into(), err))
+        })
+        .map_err(|(block, error)| {
+            (
+                block,
+                if soft_fork {
+                    BlockSyncError::SoftForkBlockNotValid(error)
+                } else {
+                    BlockSyncError::BlockNotValid(error)
+                },
+            )
+        })
+        .map(|block| {
             if soft_fork {
-                BlockSyncError::SoftForkBlockNotValid(error)
+                BlockSyncOk::ReplaceTopBlock(block, state_block, topology)
             } else {
-                BlockSyncError::BlockNotValid(error)
-            },
-        )
-    })
-    .map(|block| {
-        if soft_fork {
-            BlockSyncOk::ReplaceTopBlock(block, state_block, topology)
-        } else {
-            BlockSyncOk::CommitBlock(block, state_block, topology)
-        }
-    })
+                BlockSyncOk::CommitBlock(block, state_block, topology)
+            }
+        })
 }
 
 #[cfg(test)]
 mod tests {
-    use iroha_genesis::GENESIS_DOMAIN_ID;
     use nonzero_ext::nonzero;
     use test_samples::gen_account_in;
     use tokio::test;
@@ -1355,13 +1342,9 @@ mod tests {
         chain_id: &ChainId,
         topology: &Topology,
         leader_private_key: &PrivateKey,
-    ) -> (State, Arc<Kura>, SignedBlock, AccountId) {
+    ) -> (State, Arc<Kura>, SignedBlock, HashOf<SignedBlock>) {
         // Predefined world state
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
-        let genesis_account = AccountId::new(
-            GENESIS_DOMAIN_ID.clone(),
-            alice_keypair.public_key().clone(),
-        );
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = "wonderland".parse().expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
@@ -1435,7 +1418,9 @@ mod tests {
                 .unpack(|_| {})
         };
 
-        (state, kura, block.into(), genesis_account)
+        let block: SignedBlock = block.into();
+        let genesis_hash = block.hash();
+        (state, kura, block, genesis_hash)
     }
 
     #[test]
@@ -1446,7 +1431,7 @@ mod tests {
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let (state, _, block, genesis_public_key) =
+        let (state, _, block, genesis_hash) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         // Malform block to make it invalid
@@ -1454,7 +1439,7 @@ mod tests {
             payload.commit_topology.clear();
         });
 
-        let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
+        let result = handle_block_sync(&chain_id, block, &state, &genesis_hash, &|_| {});
         assert!(matches!(result, Err((_, BlockSyncError::BlockNotValid(_)))))
     }
 
@@ -1465,7 +1450,7 @@ mod tests {
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let (state, kura, block, genesis_public_key) =
+        let (state, kura, block, genesis_hash) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         let mut state_block = state.block();
@@ -1473,7 +1458,7 @@ mod tests {
             block.clone(),
             &topology,
             &chain_id,
-            &genesis_public_key,
+            &genesis_hash,
             &mut state_block,
         )
         .unpack(|_| {})
@@ -1491,7 +1476,7 @@ mod tests {
             payload.header.view_change_index = 1;
         });
 
-        let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
+        let result = handle_block_sync(&chain_id, block, &state, &genesis_hash, &|_| {});
         assert!(matches!(
             result,
             Err((_, BlockSyncError::SoftForkBlockNotValid(_)))
@@ -1506,7 +1491,7 @@ mod tests {
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let (state, _, block, genesis_public_key) =
+        let (state, _, block, genesis_hash) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         // Change block height
@@ -1514,7 +1499,7 @@ mod tests {
             payload.header.height = nonzero!(42_u64);
         });
 
-        let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
+        let result = handle_block_sync(&chain_id, block, &state, &genesis_hash, &|_| {});
 
         assert!(matches!(
             result,
@@ -1541,9 +1526,9 @@ mod tests {
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let (state, _, block, genesis_public_key) =
+        let (state, _, block, genesis_hash) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
-        let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
+        let result = handle_block_sync(&chain_id, block, &state, &genesis_hash, &|_| {});
         assert!(matches!(result, Ok(BlockSyncOk::CommitBlock(_, _, _))))
     }
 
@@ -1554,7 +1539,7 @@ mod tests {
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let (state, kura, block, genesis_public_key) =
+        let (state, kura, block, genesis_hash) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         let mut state_block = state.block();
@@ -1562,7 +1547,7 @@ mod tests {
             block.clone(),
             &topology,
             &chain_id,
-            &genesis_public_key,
+            &genesis_hash,
             &mut state_block,
         )
         .unpack(|_| {})
@@ -1586,7 +1571,7 @@ mod tests {
             payload.header.view_change_index = 42;
         });
 
-        let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
+        let result = handle_block_sync(&chain_id, block, &state, &genesis_hash, &|_| {});
         assert!(matches!(result, Ok(BlockSyncOk::ReplaceTopBlock(_, _, _))))
     }
 
@@ -1597,7 +1582,7 @@ mod tests {
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let (state, kura, block, genesis_public_key) =
+        let (state, kura, block, genesis_hash) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         // Increase block view change index
@@ -1610,7 +1595,7 @@ mod tests {
             block.clone(),
             &topology,
             &chain_id,
-            &genesis_public_key,
+            &genesis_hash,
             &mut state_block,
         )
         .unpack(|_| {})
@@ -1633,7 +1618,7 @@ mod tests {
             payload.header.view_change_index = 0;
         });
 
-        let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
+        let result = handle_block_sync(&chain_id, block, &state, &genesis_hash, &|_| {});
         assert!(matches!(
             result,
             Err((
@@ -1654,7 +1639,7 @@ mod tests {
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let (state, _, block, genesis_public_key) =
+        let (state, _, block, genesis_hash) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         // Change block height and view change index
@@ -1664,7 +1649,7 @@ mod tests {
             payload.header.height = nonzero!(1_u64);
         });
 
-        let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
+        let result = handle_block_sync(&chain_id, block, &state, &genesis_hash, &|_| {});
 
         assert!(matches!(
             result,

@@ -24,7 +24,7 @@ use iroha_config_base::{
     util::{Bytes, DurationMs, Emitter, EmitterResultExt},
     ReadConfig, WithOrigin,
 };
-use iroha_crypto::{PrivateKey, PublicKey};
+use iroha_crypto::{Hash, HashOf, PrivateKey, PublicKey};
 use iroha_data_model::{peer::PeerId, ChainId, Level};
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::Deserialize;
@@ -156,8 +156,8 @@ impl Root {
 
 #[derive(Debug, ReadConfig)]
 pub struct Genesis {
-    #[config(env = "GENESIS_PUBLIC_KEY")]
-    pub public_key: WithOrigin<PublicKey>,
+    #[config(env = "GENESIS_HASH")]
+    pub hash: WithOrigin<Hash>,
     #[config(env = "GENESIS")]
     pub file: Option<WithOrigin<PathBuf>>,
 }
@@ -165,7 +165,7 @@ pub struct Genesis {
 impl From<Genesis> for actual::Genesis {
     fn from(genesis: Genesis) -> Self {
         actual::Genesis {
-            public_key: genesis.public_key.into_value(),
+            hash: HashOf::from_untyped_unchecked(genesis.hash.into_value()),
             file: genesis.file,
         }
     }

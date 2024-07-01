@@ -143,9 +143,13 @@ struct PeerEnv<'a> {
     p2p_address: iroha_primitives::addr::SocketAddr,
     api_address: iroha_primitives::addr::SocketAddr,
     genesis_public_key: &'a iroha_crypto::PublicKey,
+    genesis_private_key: &'a iroha_crypto::ExposedPrivateKey,
     #[serde(skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     #[serde_as(as = "serde_with::json::JsonString")]
     trusted_peers: std::collections::BTreeSet<&'a iroha_data_model::peer::PeerId>,
+    genesis: ContainerPath<'a>,
+    #[serde_as(as = "serde_with::json::JsonString")]
+    topology: std::collections::BTreeSet<&'a iroha_data_model::peer::PeerId>,
 }
 
 impl<'a> PeerEnv<'a> {
@@ -153,7 +157,7 @@ impl<'a> PeerEnv<'a> {
         (public_key, private_key): &'a peer::ExposedKeyPair,
         [port_p2p, port_api]: [u16; 2],
         chain: &'a iroha_data_model::ChainId,
-        genesis_public_key: &'a iroha_crypto::PublicKey,
+        (genesis_public_key, genesis_private_key): peer::ExposedKeyRefPair<'a>,
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
     ) -> Self {
         Self {
@@ -167,32 +171,6 @@ impl<'a> PeerEnv<'a> {
                 .iter()
                 .filter(|&peer| peer.public_key() != public_key)
                 .collect(),
-        }
-    }
-}
-
-#[serde_with::serde_as]
-#[derive(serde::Serialize, Debug)]
-#[serde(rename_all = "UPPERCASE")]
-struct GenesisEnv<'a> {
-    #[serde(flatten)]
-    base: PeerEnv<'a>,
-    genesis_private_key: &'a iroha_crypto::ExposedPrivateKey,
-    genesis: ContainerPath<'a>,
-    #[serde_as(as = "serde_with::json::JsonString")]
-    topology: std::collections::BTreeSet<&'a iroha_data_model::peer::PeerId>,
-}
-
-impl<'a> GenesisEnv<'a> {
-    fn new(
-        key_pair: &'a peer::ExposedKeyPair,
-        ports: [u16; 2],
-        chain: &'a iroha_data_model::ChainId,
-        (genesis_public_key, genesis_private_key): peer::ExposedKeyRefPair<'a>,
-        topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
-    ) -> Self {
-        Self {
-            base: PeerEnv::new(key_pair, ports, chain, genesis_public_key, topology),
             genesis_private_key,
             genesis: ContainerPath(GENESIS_FILE),
             topology: topology.iter().collect(),
@@ -246,6 +224,7 @@ where
     init: Bool<true>,
     #[serde(skip_serializing_if = "Option::is_none")]
     healthcheck: Option<Healthcheck>,
+    command: SignAndSubmitGenesis,
 }
 
 impl<'a, Image, Environment> Irohad<'a, Image, Environment>
@@ -270,6 +249,7 @@ where
             volumes,
             init: Bool,
             healthcheck: healthcheck.then_some(Healthcheck { port: port_api }),
+            command: SignAndSubmitGenesis,
         }
     }
 }
@@ -291,38 +271,9 @@ const SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/sh -c "
         --private-key $$GENESIS_PRIVATE_KEY \\
         --out-file $$GENESIS \\
     && \\
+    export GENESIS_HASH=$(kagami genesis hash $$GENESIS) && \\
     irohad
 ""#;
-
-/// Configuration of the `irohad` service that submits genesis.
-#[derive(serde::Serialize, Debug)]
-struct Irohad0<'a, Image>
-where
-    Image: serde::Serialize,
-{
-    #[serde(flatten)]
-    base: Irohad<'a, Image, GenesisEnv<'a>>,
-    command: SignAndSubmitGenesis,
-}
-
-impl<'a, Image> Irohad0<'a, Image>
-where
-    Image: serde::Serialize,
-{
-    #[allow(clippy::too_many_arguments)]
-    fn new(
-        image: Image,
-        environment: GenesisEnv<'a>,
-        ports: [u16; 2],
-        volumes: [PathMapping<'a>; 1],
-        healthcheck: bool,
-    ) -> Self {
-        Self {
-            base: Irohad::new(image, environment, ports, volumes, healthcheck),
-            command: SignAndSubmitGenesis,
-        }
-    }
-}
 
 /// Reference to an `irohad` service.
 #[derive(Debug, PartialOrd, PartialEq, Ord, Eq)]
@@ -332,12 +283,12 @@ struct IrohadRef(u16);
 #[serde(untagged)]
 enum BuildOrPull<'a> {
     Build {
-        irohad0: Irohad0<'a, BuildImage<'a>>,
+        irohad0: Irohad<'a, BuildImage<'a>>,
         #[serde(flatten, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
         irohads: std::collections::BTreeMap<IrohadRef, Irohad<'a, BuiltImage<'a>>>,
     },
     Pull {
-        irohad0: Irohad0<'a, PulledImage<'a>>,
+        irohad0: Irohad<'a, PulledImage<'a>>,
         #[serde(flatten, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
         irohads: std::collections::BTreeMap<IrohadRef, Irohad<'a, PulledImage<'a>>>,
     },
@@ -368,7 +319,7 @@ impl<'a> BuildOrPull<'a> {
                 volumes,
                 healthcheck,
                 chain,
-                genesis_public_key,
+                (genesis_public_key, genesis_private_key),
                 network,
                 topology,
             ),
@@ -399,7 +350,7 @@ impl<'a> BuildOrPull<'a> {
                 volumes,
                 healthcheck,
                 chain,
-                genesis_public_key,
+                (genesis_public_key, genesis_private_key),
                 network,
                 topology,
             ),
@@ -414,11 +365,11 @@ impl<'a> BuildOrPull<'a> {
         (genesis_public_key, genesis_private_key): peer::ExposedKeyRefPair<'a>,
         network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
-    ) -> Irohad0<'a, Image> {
+    ) -> Irohad<'a, Image> {
         let (_, ports, key_pair) = network.get(&0).expect("irohad0 must be present");
-        Irohad0::new(
+        Irohad::new(
             image,
-            GenesisEnv::new(
+            PeerEnv::new(
                 key_pair,
                 *ports,
                 chain,
@@ -436,7 +387,7 @@ impl<'a> BuildOrPull<'a> {
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
-        genesis_public_key: &'a iroha_crypto::PublicKey,
+        (genesis_public_key, genesis_private_key): peer::ExposedKeyRefPair<'a>,
         network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
     ) -> std::collections::BTreeMap<IrohadRef, Irohad<'a, Image>> {
@@ -448,7 +399,13 @@ impl<'a> BuildOrPull<'a> {
                     IrohadRef(*id),
                     Irohad::new(
                         image,
-                        PeerEnv::new(key_pair, *ports, chain, genesis_public_key, topology),
+                        PeerEnv::new(
+                            key_pair,
+                            *ports,
+                            chain,
+                            (genesis_public_key, genesis_private_key),
+                            topology,
+                        ),
                         *ports,
                         volumes,
                         healthcheck,
@@ -532,21 +489,20 @@ impl<'a> DockerCompose<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use iroha_crypto::Hash;
+
     use super::*;
     use crate::{BASE_PORT_API, BASE_PORT_P2P};
 
     impl<'a> From<PeerEnv<'a>> for iroha_config::base::env::MockEnv {
         fn from(env: PeerEnv<'a>) -> Self {
             let json = serde_json::to_string(&env).expect("should be serializable");
-            let map = serde_json::from_str(&json).expect("should be deserializable into a map");
-            Self::with_map(map)
-        }
-    }
-
-    impl<'a> From<GenesisEnv<'a>> for iroha_config::base::env::MockEnv {
-        fn from(env: GenesisEnv<'a>) -> Self {
-            let json = serde_json::to_string(&env).expect("should be serializable");
-            let map = serde_json::from_str(&json).expect("should be deserializable into a map");
+            let mut map: HashMap<String, String> =
+                serde_json::from_str(&json).expect("should be deserializable into a map");
+            // GENESIS_HASH will be set via `export ...` in command
+            map.insert("GENESIS_HASH".to_owned(), Hash::new([]).to_string());
             Self::with_map(map)
         }
     }
@@ -554,27 +510,11 @@ mod tests {
     #[test]
     fn peer_env_produces_exhaustive_config() {
         let key_pair = peer::generate_key_pair(None, &[]);
-        let genesis_key_pair = peer::generate_key_pair(None, &[]);
-        let ports = [BASE_PORT_P2P, BASE_PORT_API];
-        let chain = peer::chain();
-        let topology = [peer::peer_id("dummy", BASE_PORT_API, key_pair.0.clone())].into();
-        let env = PeerEnv::new(&key_pair, ports, &chain, &genesis_key_pair.0, &topology);
-        let mock_env = iroha_config::base::env::MockEnv::from(env);
-        let _ = iroha_config::base::read::ConfigReader::new()
-            .with_env(mock_env.clone())
-            .read_and_complete::<iroha_config::parameters::user::Root>()
-            .expect("config in env should be exhaustive");
-        assert!(mock_env.unvisited().is_empty());
-    }
-
-    #[test]
-    fn genesis_env_produces_exhaustive_config_sans_genesis_private_key_and_topology() {
-        let key_pair = peer::generate_key_pair(None, &[]);
         let (genesis_public_key, genesis_private_key) = &peer::generate_key_pair(None, &[]);
         let ports = [BASE_PORT_P2P, BASE_PORT_API];
         let chain = peer::chain();
         let topology = [peer::peer_id("dummy", BASE_PORT_API, key_pair.0.clone())].into();
-        let env = GenesisEnv::new(
+        let env = PeerEnv::new(
             &key_pair,
             ports,
             &chain,
@@ -588,7 +528,7 @@ mod tests {
             .expect("config in env should be exhaustive");
         assert_eq!(
             mock_env.unvisited(),
-            ["GENESIS_PRIVATE_KEY", "TOPOLOGY"]
+            ["GENESIS_PUBLIC_KEY", "GENESIS_PRIVATE_KEY", "TOPOLOGY"]
                 .into_iter()
                 .map(ToOwned::to_owned)
                 .collect()

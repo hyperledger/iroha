@@ -3810,6 +3810,7 @@ dependencies = [
  "iroha_genesis",
  "iroha_primitives",
  "iroha_schema_gen",
+ "iroha_version",
  "parity-scale-codec",
  "serde",
  "serde_json",

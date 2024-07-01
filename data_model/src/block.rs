@@ -9,7 +9,7 @@ use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
-use iroha_crypto::{HashOf, MerkleTree, PrivateKey, SignatureOf};
+use iroha_crypto::{HashOf, MerkleTree, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -284,7 +284,6 @@ impl SignedBlock {
     /// Creates genesis block signed with genesis private key (and not signed by any peer)
     pub fn genesis(
         genesis_transactions: Vec<SignedTransaction>,
-        genesis_private_key: &PrivateKey,
         topology: Vec<PeerId>,
     ) -> SignedBlock {
         let transactions_hash = genesis_transactions
@@ -318,9 +317,8 @@ impl SignedBlock {
             event_recommendations: vec![],
         };
 
-        let signature = BlockSignature(0, SignatureOf::new(genesis_private_key, &payload));
         SignedBlockV1 {
-            signatures: vec![signature],
+            signatures: vec![],
             payload,
         }
         .into()
@@ -359,6 +357,10 @@ mod candidate {
         }
 
         fn validate_genesis(&self) -> Result<(), &'static str> {
+            if !self.signatures.is_empty() {
+                return Err("Genesis block should not be signed");
+            }
+
             let transactions = self.payload.transactions.as_slice();
             for transaction in transactions {
                 if transaction.error.is_some() {
@@ -367,6 +369,9 @@ mod candidate {
                 let Executable::Instructions(_) = transaction.value.instructions() else {
                     return Err("Genesis transaction must contain instructions");
                 };
+                if transaction.value.authority().domain.name.as_ref() != "genesis" {
+                    return Err("Genesis transaction authority must be from `genesis` domain");
+                }
             }
 
             let Some(transaction_executor) = transactions.first() else {

@@ -10,7 +10,8 @@ use std::{
 
 use eyre::Result;
 use iroha_config::parameters::actual::{Common as CommonConfig, Sumeragi as SumeragiConfig};
-use iroha_data_model::{account::AccountId, block::SignedBlock, prelude::*};
+use iroha_crypto::HashOf;
+use iroha_data_model::{block::SignedBlock, prelude::*};
 use iroha_genesis::GenesisBlock;
 use iroha_logger::prelude::*;
 use network_topology::{Role, Topology};
@@ -73,7 +74,7 @@ impl SumeragiHandle {
 
     fn replay_block(
         chain_id: &ChainId,
-        genesis_account: &AccountId,
+        genesis_hash: &HashOf<SignedBlock>,
         block: &SignedBlock,
         state_block: &mut StateBlock<'_>,
         events_sender: &EventsSender,
@@ -82,22 +83,17 @@ impl SumeragiHandle {
         // NOTE: topology need to be updated up to block's view_change_index
         topology.nth_rotation(block.header().view_change_index as usize);
 
-        let block = ValidBlock::validate(
-            block.clone(),
-            topology,
-            chain_id,
-            genesis_account,
-            state_block,
-        )
-        .unpack(|e| {
-            let _ = events_sender.send(e.into());
-        })
-        .expect("INTERNAL BUG: Invalid block stored in Kura")
-        .commit(topology)
-        .unpack(|e| {
-            let _ = events_sender.send(e.into());
-        })
-        .expect("INTERNAL BUG: Invalid block stored in Kura");
+        let block =
+            ValidBlock::validate(block.clone(), topology, chain_id, genesis_hash, state_block)
+                .unpack(|e| {
+                    let _ = events_sender.send(e.into());
+                })
+                .expect("INTERNAL BUG: Invalid block stored in Kura")
+                .commit(topology)
+                .unpack(|e| {
+                    let _ = events_sender.send(e.into());
+                })
+                .expect("INTERNAL BUG: Invalid block stored in Kura");
 
         if block.as_ref().header().is_genesis() {
             *state_block.world.trusted_peers_ids =
@@ -178,16 +174,11 @@ impl SumeragiHandle {
             };
         }
 
-        let genesis_account = AccountId::new(
-            iroha_genesis::GENESIS_DOMAIN_ID.clone(),
-            genesis_network.public_key.clone(),
-        );
-
         for block in blocks_iter {
             let mut state_block = state.block();
             Self::replay_block(
                 &common_config.chain,
-                &genesis_account,
+                &genesis_network.hash,
                 &block,
                 &mut state_block,
                 &events_sender,
@@ -299,7 +290,7 @@ pub struct SumeragiStartArgs {
     pub queue: Arc<Queue>,
     pub kura: Arc<Kura>,
     pub network: IrohaNetwork,
-    pub genesis_network: GenesisWithPubKey,
+    pub genesis_network: GenesisWithHash,
     pub block_count: BlockCount,
     pub sumeragi_metrics: SumeragiMetrics,
 }
@@ -314,7 +305,7 @@ pub struct SumeragiMetrics {
 
 /// Optional genesis paired with genesis public key for verification
 #[allow(missing_docs)]
-pub struct GenesisWithPubKey {
+pub struct GenesisWithHash {
     pub genesis: Option<GenesisBlock>,
-    pub public_key: PublicKey,
+    pub hash: HashOf<SignedBlock>,
 }

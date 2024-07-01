@@ -27,15 +27,16 @@ use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,
     queue::Queue,
-    smartcontracts::isi::Registrable as _,
     snapshot::{
         try_read_snapshot, SnapshotMaker, SnapshotMakerHandle, TryReadError as TryReadSnapshotError,
     },
     state::{State, StateReadOnly, World},
-    sumeragi::{GenesisWithPubKey, SumeragiHandle, SumeragiMetrics, SumeragiStartArgs},
+    sumeragi::{GenesisWithHash, SumeragiHandle, SumeragiMetrics, SumeragiStartArgs},
     IrohaNetwork,
 };
-use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_data_model::block::SignedBlock;
+#[cfg(debug_assertions)]
+use iroha_data_model::peer::PeerId;
 use iroha_genesis::GenesisBlock;
 use iroha_logger::{actor::LoggerHandle, InitConfig as LoggerInitConfig};
 use iroha_primitives::addr::SocketAddr;
@@ -258,8 +259,8 @@ impl Iroha {
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
-            [genesis_domain(config.genesis.public_key.clone())],
-            [genesis_account(config.genesis.public_key.clone())],
+            [],
+            [],
             config
                 .sumeragi
                 .trusted_peers
@@ -323,9 +324,9 @@ impl Iroha {
             queue: Arc::clone(&queue),
             kura: Arc::clone(&kura),
             network: network.clone(),
-            genesis_network: GenesisWithPubKey {
+            genesis_network: GenesisWithHash {
                 genesis,
-                public_key: config.genesis.public_key.clone(),
+                hash: config.genesis.hash,
             },
             block_count,
             sumeragi_metrics: SumeragiMetrics {
@@ -546,16 +547,6 @@ impl Iroha {
     }
 }
 
-fn genesis_account(public_key: PublicKey) -> Account {
-    let genesis_account_id = AccountId::new(iroha_genesis::GENESIS_DOMAIN_ID.clone(), public_key);
-    Account::new(genesis_account_id.clone()).build(&genesis_account_id)
-}
-
-fn genesis_domain(public_key: PublicKey) -> Domain {
-    let genesis_account = genesis_account(public_key);
-    Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone()).build(&genesis_account.id)
-}
-
 /// Error of [`read_config_and_genesis`]
 #[derive(Error, Debug)]
 #[allow(missing_docs)]
@@ -772,6 +763,7 @@ pub struct Args {
 
 #[cfg(test)]
 mod tests {
+    use iroha_data_model::prelude::*;
     use iroha_genesis::GenesisBuilder;
 
     use super::*;
@@ -803,14 +795,14 @@ mod tests {
 
     mod config_integration {
         use assertables::{assert_contains, assert_contains_as_result};
-        use iroha_crypto::{ExposedPrivateKey, KeyPair};
+        use iroha_crypto::{ExposedPrivateKey, Hash, HashOf, KeyPair};
         use iroha_primitives::addr::socket_addr;
         use iroha_version::Encode;
         use path_absolutize::Absolutize as _;
 
         use super::*;
 
-        fn config_factory(genesis_public_key: &PublicKey) -> toml::Table {
+        fn config_factory(genesis_hash: HashOf<SignedBlock>) -> toml::Table {
             let (pubkey, privkey) = KeyPair::random().into_parts();
 
             let mut table = toml::Table::new();
@@ -820,7 +812,7 @@ mod tests {
                 .write("private_key", ExposedPrivateKey(privkey))
                 .write(["network", "address"], socket_addr!(127.0.0.1:1337))
                 .write(["torii", "address"], socket_addr!(127.0.0.1:8080))
-                .write(["genesis", "public_key"], genesis_public_key);
+                .write(["genesis", "hash"], genesis_hash);
             table
         }
 
@@ -840,7 +832,7 @@ mod tests {
                 vec![],
             );
 
-            let mut config = config_factory(genesis_key_pair.public_key());
+            let mut config = config_factory(genesis.0.hash());
             iroha_config::base::toml::Writer::new(&mut config)
                 .write(["genesis", "file"], "./genesis/genesis.signed.scale")
                 .write(["kura", "store_dir"], "../storage")
@@ -902,8 +894,7 @@ mod tests {
         fn fails_with_no_trusted_peers_and_submit_role() -> eyre::Result<()> {
             // Given
 
-            let genesis_key_pair = KeyPair::random();
-            let mut config = config_factory(genesis_key_pair.public_key());
+            let mut config = config_factory(HashOf::from_untyped_unchecked(Hash::new([])));
             iroha_config::base::toml::Writer::new(&mut config);
 
             let dir = tempfile::tempdir()?;
