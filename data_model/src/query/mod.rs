@@ -1,6 +1,7 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
 #![allow(clippy::missing_inline_in_public_items, unused_imports)]
+#![warn(missing_docs, unused, missing_copy_implementations)] // TODO
 
 #[cfg(not(feature = "std"))]
 use alloc::{
@@ -9,12 +10,13 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::{cmp::Ordering, num::NonZeroU32, time::Duration};
+use core::num::NonZeroU32;
 
 pub use cursor::ForwardCursor;
 use derive_more::{Constructor, Display};
 use iroha_crypto::{PublicKey, SignatureOf};
 use iroha_data_model_derive::{model, EnumRef};
+use iroha_macro::FromVariant;
 use iroha_primitives::{json::JsonString, numeric::Numeric, small::SmallVec};
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
@@ -31,13 +33,19 @@ use self::{
 };
 use crate::{
     account::{Account, AccountId},
+    asset::{Asset, AssetDefinition},
     block::{BlockHeader, SignedBlock},
+    domain::Domain,
     events::EventFilterBox,
+    parameter::{Parameter, Parameters},
+    permission::Permission,
+    role::{Role, RoleId},
     seal,
-    transaction::{CommittedTransaction, SignedTransaction, TransactionPayload},
+    transaction::{CommittedTransaction, SignedTransaction},
     IdBox, Identifiable, IdentifiableBox,
 };
 
+pub mod builder;
 pub mod cursor;
 pub mod pagination;
 pub mod predicate;
@@ -107,7 +115,150 @@ pub trait SingularQuery: Query {}
 /// A [`Query`] that returns an iterable collection of values
 pub trait IterableQuery: Query {
     /// A type of single element of the output collection
-    type Item;
+    type Item: HasPredicateBox;
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Constructor,
+)]
+pub struct IterableQueryWithFilter<Q, P> {
+    query: Q,
+    predicate: CompoundPredicate<P>,
+}
+
+pub type IterableQueryWithFilterFor<Q> =
+    IterableQueryWithFilter<Q, <<Q as IterableQuery>::Item as HasPredicateBox>::PredicateBoxType>;
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
+)]
+pub enum IterableQueryBox {
+    FindAllDomains(IterableQueryWithFilterFor<FindAllDomains>),
+    FindAllAccounts(IterableQueryWithFilterFor<FindAllAccounts>),
+    FindAllAssets(IterableQueryWithFilterFor<FindAllAssets>),
+    FindAllAssetsDefinitions(IterableQueryWithFilterFor<FindAllAssetsDefinitions>),
+    FindAllRoles(IterableQueryWithFilterFor<FindAllRoles>),
+
+    FindAllRoleIds(IterableQueryWithFilterFor<FindAllRoleIds>),
+    FindPermissionsByAccountId(IterableQueryWithFilterFor<FindPermissionsByAccountId>),
+    FindRolesByAccountId(IterableQueryWithFilterFor<FindRolesByAccountId>),
+    FindTransactionsByAccountId(IterableQueryWithFilterFor<FindTransactionsByAccountId>),
+    FindAccountsWithAsset(IterableQueryWithFilterFor<FindAccountsWithAsset>),
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
+)]
+pub enum IterableQueryOutputBatchBox {
+    Domain(Vec<Domain>),
+    Account(Vec<Account>),
+    Asset(Vec<Asset>),
+    AssetDefinition(Vec<AssetDefinition>),
+    Role(Vec<Role>),
+    RoleId(Vec<RoleId>),
+    Parameter(Vec<Parameter>),
+    Permission(Vec<Permission>),
+    Transaction(Vec<TransactionQueryOutput>),
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
+)]
+pub enum SingularQueryBox {
+    FindAssetQuantityById(FindAssetQuantityById),
+    FindExecutorDataModel(FindExecutorDataModel),
+    FindAllParameters(FindAllParameters),
+    FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
+    FindTriggerById(FindTriggerById),
+
+    FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
+    FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
+)]
+pub enum SingularQueryOutputBox {
+    Numeric(Numeric),
+    ExecutorDataModel(crate::executor::ExecutorDataModel),
+    JsonString(JsonString),
+    Trigger(crate::trigger::Trigger),
+    Parameters(Parameters),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct IterableQueryOutput {
+    first_batch: IterableQueryOutputBatchBox,
+    continue_cursor: Option<ForwardCursor>,
+}
+
+impl IterableQueryOutput {
+    pub fn into_parts(self) -> (IterableQueryOutputBatchBox, Option<ForwardCursor>) {
+        (self.first_batch, self.continue_cursor)
+    }
+}
+
+/// A type-erased iterable query, along with all the
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct IterableQueryWithParams {
+    query: IterableQueryBox,
+    pagination: Pagination,
+    sorting: Sorting,
+    fetch_size: FetchSize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub enum QueryRequest2 {
+    Singular(SingularQueryBox),
+    StartIterable(IterableQueryWithParams),
+    ContinueIterable(ForwardCursor),
+}
+
+impl QueryRequest2 {
+    pub fn with_authority(self, authority: AccountId) -> QueryRequestWithAuthority {
+        QueryRequestWithAuthority {
+            authority,
+            request: self,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub enum QueryResponse2 {
+    Singular(SingularQueryOutputBox),
+    Iterable(IterableQueryOutput),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct QueryRequestWithAuthority {
+    authority: AccountId,
+    request: QueryRequest2,
+}
+
+impl QueryRequestWithAuthority {
+    #[inline]
+    #[must_use]
+    pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedQuery2 {
+        let signature = SignatureOf::new(key_pair.private_key(), &self);
+
+        SignedQuery2V1 {
+            signature: QuerySignature(signature),
+            payload: self,
+        }
+        .into()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct QuerySignature(pub SignatureOf<QueryRequestWithAuthority>);
+
+declare_versioned!(SignedQuery2 1..2, Debug, Clone, FromVariant, IntoSchema);
+
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, IntoSchema)]
+#[version_with_scale(version = 1, versioned_alias = "SignedQuery2")]
+pub struct SignedQuery2V1 {
+    pub signature: QuerySignature,
+    pub payload: QueryRequestWithAuthority,
 }
 
 #[model]
@@ -585,7 +736,7 @@ pub mod role {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{Query, QueryType};
+    use super::Query;
     use crate::prelude::*;
 
     queries! {
@@ -641,7 +792,7 @@ pub mod permission {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{Query, QueryType};
+    use super::Query;
     use crate::prelude::*;
 
     queries! {
@@ -673,7 +824,7 @@ pub mod account {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{JsonString, Query, QueryType};
+    use super::{JsonString, Query};
     use crate::prelude::*;
 
     queries! {
@@ -750,10 +901,9 @@ pub mod asset {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use iroha_primitives::numeric::Numeric;
     use parity_scale_codec::Encode;
 
-    use super::{JsonString, Query, QueryType};
+    use super::{JsonString, Query};
     use crate::prelude::*;
 
     queries! {
@@ -926,7 +1076,7 @@ pub mod domain {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{JsonString, Query, QueryType};
+    use super::{JsonString, Query};
     use crate::prelude::*;
 
     queries! {
@@ -975,7 +1125,7 @@ pub mod peer {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{Query, QueryType};
+    use super::Query;
 
     queries! {
         /// [`FindAllPeers`] Iroha Query finds all trusted [`Peer`]s presented in current Iroha [`Peer`].
@@ -1027,15 +1177,8 @@ pub mod trigger {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{JsonString, Query, QueryType};
-    use crate::{
-        account::AccountId,
-        domain::prelude::*,
-        events::EventFilterBox,
-        prelude::InstructionBox,
-        trigger::{Trigger, TriggerId},
-        Executable, Identifiable, Name,
-    };
+    use super::{JsonString, Query};
+    use crate::{account::AccountId, domain::prelude::*, trigger::TriggerId, Identifiable, Name};
 
     queries! {
         /// Find all currently active (as in not disabled and/or expired)
@@ -1111,8 +1254,8 @@ pub mod transaction {
     use iroha_crypto::HashOf;
     use parity_scale_codec::Encode;
 
-    use super::{Query, QueryType, TransactionQueryOutput};
-    use crate::{account::AccountId, prelude::Account, transaction::SignedTransaction};
+    use super::Query;
+    use crate::{account::AccountId, transaction::SignedTransaction};
 
     queries! {
         /// [`FindAllTransactions`] Iroha Query lists all transactions included in a blockchain
@@ -1203,12 +1346,19 @@ pub mod block {
 pub mod http {
     //! Structures related to sending queries over HTTP
 
-    use getset::Getters;
+    use iroha_crypto::SignatureOf;
     use iroha_data_model_derive::model;
-    use predicate::PredicateBox;
+    use iroha_schema::IntoSchema;
+    use iroha_version::{declare_versioned, version_with_scale};
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
 
     pub use self::model::*;
-    use super::*;
+    use super::{
+        predicate::PredicateBox, FetchSize, ForwardCursor, Pagination, Query, QueryBox,
+        QueryRequest, Sorting,
+    };
+    // use super::*;
     use crate::account::AccountId;
 
     declare_versioned!(SignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
@@ -1447,7 +1597,6 @@ pub mod http {
 pub mod error {
     //! Module containing errors that can occur during query execution
 
-    use derive_more::Display;
     use iroha_crypto::HashOf;
     use iroha_data_model_derive::model;
     use iroha_macro::FromVariant;
@@ -1456,7 +1605,7 @@ pub mod error {
 
     pub use self::model::*;
     use super::*;
-    use crate::{executor, permission, prelude::*};
+    use crate::prelude::*;
 
     #[model]
     mod model {

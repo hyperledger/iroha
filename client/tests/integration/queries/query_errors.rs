@@ -15,9 +15,12 @@ fn non_existent_account_is_specific_error() {
     // we cannot wait for genesis committment
 
     let err = client
-        .request(client::account::by_id(gen_account_in("regalia").0))
+        .iter_query(client::account::all())
+        .with_filter(|account| account.id.eq(gen_account_in("regalia").0))
+        .execute_single()
         .expect_err("Should error");
 
+    // TODO: the error will be different
     match err {
         ClientQueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFail::Find(
             err,

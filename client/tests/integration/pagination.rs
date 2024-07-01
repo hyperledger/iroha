@@ -1,6 +1,6 @@
 use eyre::Result;
 use iroha::{
-    client::{asset, Client, QueryResult},
+    client::{asset, Client},
     data_model::{asset::AssetDefinition, prelude::*, query::Pagination},
 };
 use nonzero_ext::nonzero;
@@ -13,14 +13,13 @@ fn limits_should_work() -> Result<()> {
 
     register_assets(&client)?;
 
-    let vec = &client
-        .build_query(asset::all_definitions())
+    let vec = client
+        .iter_query(asset::all_definitions())
         .with_pagination(Pagination {
             limit: Some(nonzero!(7_u32)),
             start: Some(nonzero!(1_u64)),
         })
-        .execute()?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .execute_all()?;
     assert_eq!(vec.len(), 7);
     Ok(())
 }
@@ -33,14 +32,14 @@ fn fetch_size_should_work() -> Result<()> {
     register_assets(&client)?;
 
     let iter = client
-        .build_query(asset::all_definitions())
+        .iter_query(asset::all_definitions())
         .with_pagination(Pagination {
             limit: Some(nonzero!(7_u32)),
             start: Some(nonzero!(1_u64)),
         })
         .with_fetch_size(FetchSize::new(Some(nonzero!(3_u32))))
         .execute()?;
-    assert_eq!(iter.batch_len(), 3);
+    assert_eq!(iter.remaining_in_current_batch(), 3);
     Ok(())
 }
 

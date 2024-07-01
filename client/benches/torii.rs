@@ -82,15 +82,16 @@ fn query_requests(criterion: &mut Criterion) {
         ])
         .expect("Failed to prepare state");
 
-    let request = asset::by_account_id(account_id);
+    let query = iroha
+        .iter_query(asset::all())
+        .with_filter(|asset| asset.id.account.eq(account_id));
     thread::sleep(std::time::Duration::from_millis(1500));
     let mut success_count = 0;
     let mut failures_count = 0;
     let _dropable = group.throughput(Throughput::Bytes(request.encode().len() as u64));
     let _dropable2 = group.bench_function("query", |b| {
         b.iter(|| {
-            let iter: Result<Vec<_>, _> =
-                iroha.request(request.clone()).and_then(Iterator::collect);
+            let iter = query.clone().execute_all();
 
             match iter {
                 Ok(assets) => {

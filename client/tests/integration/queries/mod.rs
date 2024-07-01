@@ -19,7 +19,7 @@ fn too_big_fetch_size_is_not_allowed() {
     wait_for_genesis_committed(&[client.clone()], 0);
 
     let err = client
-        .build_query(client::asset::all())
+        .iter_query(client::asset::all())
         .with_fetch_size(FetchSize::new(Some(MAX_FETCH_SIZE.checked_add(1).unwrap())))
         .execute()
         .expect_err("Should fail");

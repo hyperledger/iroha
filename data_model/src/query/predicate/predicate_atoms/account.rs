@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use super::impl_predicate_box;
 use crate::{
     account::{Account, AccountId},
-    asset::{AssetDefinitionId, AssetsMap},
     prelude::PredicateTrait,
     query::{
         predicate::{
@@ -19,24 +18,6 @@ use crate::{
         AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype,
     },
 };
-
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub enum AssetsMapPredicateBox {
-    // object-specific predicates
-    Has(AssetDefinitionId),
-}
-
-impl_predicate_box!(AssetsMap: AssetsMapPredicateBox);
-
-impl PredicateTrait<AssetsMap> for AssetsMapPredicateBox {
-    fn applies(&self, input: &AssetsMap) -> bool {
-        match self {
-            AssetsMapPredicateBox::Has(asset_definition_id) => {
-                input.contains_key(asset_definition_id)
-            }
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum AccountIdPredicateBox {
@@ -64,7 +45,6 @@ pub enum AccountPredicateBox {
     // projections
     Id(AccountIdPredicateBox),
     Metadata(MetadataPredicateBox),
-    Assets(AssetsMapPredicateBox),
 }
 
 impl_predicate_box!(Account: AccountPredicateBox);
@@ -74,7 +54,6 @@ impl PredicateTrait<Account> for AccountPredicateBox {
         match self {
             AccountPredicateBox::Id(id) => id.applies(&input.id),
             AccountPredicateBox::Metadata(metadata) => metadata.applies(&input.metadata),
-            AccountPredicateBox::Assets(asset_map) => asset_map.applies(&input.assets),
         }
     }
 }
