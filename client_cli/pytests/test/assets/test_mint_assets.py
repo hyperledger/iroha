@@ -69,9 +69,3 @@ def test_mint_asset_quantity_after_minting(GIVEN_minted_asset_quantity):
                 str(expected_quantity),
             )
         )
-
-
-@allure.label("sdk_test_id", "mint_store_asset")
-@pytest.mark.xfail(reason="https://github.com/hyperledger/iroha/issues/4035")
-def test_mint_store_asset(GIVEN_registered_account):
-    assert 0

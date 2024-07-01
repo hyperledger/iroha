@@ -257,6 +257,52 @@ class ClientCli:
         self.execute()
         return self
 
+    def _read_and_update_json(self, template_filename, key_path=None, value=None):
+        """
+        Reads a JSON file template, updates a specific key with the provided value,
+        and writes the updated data to a temporary JSON file.
+
+        :param template_filename: The name of the JSON template file.
+        :type template_filename: str
+        :param key_path: The path to the key in the JSON data to be updated.
+        :type key_path: list of str
+        :param value: The value to set for the specified key.
+        :type value: str
+        :return: The path to the temporary JSON file.
+        :rtype: str
+        """
+        json_template_path = (
+            Path(BASE_DIR)
+            / "pytests"
+            / "common"
+            / "json_isi_examples"
+            / template_filename
+        )
+        data = read_isi_from_json(str(json_template_path))
+
+        if key_path and value is not None:
+            # Update the specific key with the provided value
+            element = data[0]
+            for key in key_path[:-1]:
+                element = element[key]
+            element[key_path[-1]] = value
+
+        json_temp_file_path = Path(ROOT_DIR) / f"isi_{template_filename}"
+        write_isi_to_json(data, str(json_temp_file_path))
+
+        return str(json_temp_file_path)
+
+    def _execute_isi(self, temp_file_path):
+        """
+        Executes the Iroha CLI command using the provided temporary JSON file.
+
+        :param temp_file_path: The path to the temporary JSON file.
+        :type temp_file_path: str
+        """
+        self._execute_pipe(
+            ["cat", temp_file_path], [self.BASE_PATH] + self.BASE_FLAGS + ["json"]
+        )
+
     def register_trigger(self, account):
         """
         Creates a JSON file for the register trigger and executes it using the Iroha CLI.
@@ -264,25 +310,12 @@ class ClientCli:
         :param account: The account to be used in the register_trigger.
         :type account: str
         """
-
-        json_template_path = (
-            Path(BASE_DIR)
-            / "pytests"
-            / "common"
-            / "json_isi_examples"
-            / "register_trigger.json"
+        temp_file_path = self._read_and_update_json(
+            "register_trigger.json",
+            ["Register", "Trigger", "action", "authority"],
+            str(account),
         )
-        trigger_data = read_isi_from_json(str(json_template_path))
-        trigger_data[0]["Register"]["Trigger"]["action"]["authority"] = str(account)
-
-        json_temp_file_path = Path(ROOT_DIR) / "isi_register_trigger.json"
-        write_isi_to_json(trigger_data, str(json_temp_file_path))
-
-        self._execute_pipe(
-            ["cat", str(json_temp_file_path)],
-            [self.BASE_PATH] + self.BASE_FLAGS + ["json"],
-        )
-
+        self._execute_isi(temp_file_path)
         return self
 
     def unregister_asset(self, asset):
@@ -292,25 +325,18 @@ class ClientCli:
         :param asset: The object ID to be used in the unregister_asset.
         :type asset: str
         """
-
-        json_template_path = (
-            Path(BASE_DIR)
-            / "pytests"
-            / "common"
-            / "json_isi_examples"
-            / "unregister_asset.json"
+        temp_file_path = self._read_and_update_json(
+            "unregister_asset.json", ["Unregister", "Asset", "object"], str(asset)
         )
-        asset_data = read_isi_from_json(str(json_template_path))
-        asset_data[0]["Unregister"]["Asset"]["object"] = str(asset)
+        self._execute_isi(temp_file_path)
+        return self
 
-        json_temp_file_path = Path(ROOT_DIR) / "isi_unregister_asset.json"
-        write_isi_to_json(asset_data, str(json_temp_file_path))
-
-        self._execute_pipe(
-            ["cat", str(json_temp_file_path)],
-            [self.BASE_PATH] + self.BASE_FLAGS + ["json"],
-        )
-
+    def send_wrong_instruction(self):
+        """
+        Creates a JSON file for the send_wrong_instruction executes it using the Iroha CLI.
+        """
+        temp_file_path = self._read_and_update_json("wrong_instruction.json")
+        self._execute_isi(temp_file_path)
         return self
 
     def should(self, _expected):
