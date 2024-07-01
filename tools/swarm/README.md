@@ -74,4 +74,4 @@ iroha_swarm \
 
 ## Note on configuration structure
 
-When using the `--build` option, the generated configuration will consist of a number of peer services that depend on a dummy `builder` service that only builds the image and terminates. The builder service is needed to avoid redundant building of the same image by every peer.
+When using the `--build` option, the first peer in the generated configuration builds the image, while the rest of the peers depend on it. This is needed to avoid redundant building of the same image by every peer.

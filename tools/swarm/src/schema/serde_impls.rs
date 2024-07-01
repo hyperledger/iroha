@@ -1,14 +1,5 @@
 //! Custom `serde` impls. Keep them here to reduce clutter.
 
-impl serde::Serialize for super::EchoOk {
-    fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        ser.serialize_str(super::ECHO_OK)
-    }
-}
-
 impl<const VALUE: bool> serde::Serialize for super::Bool<VALUE> {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
@@ -18,12 +9,12 @@ impl<const VALUE: bool> serde::Serialize for super::Bool<VALUE> {
     }
 }
 
-impl serde::Serialize for super::ImageBuilderRef {
+impl serde::Serialize for super::Irohad0Ref {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        ser.serialize_str(super::IMAGE_BUILDER)
+        ser.serialize_str(super::IROHAD0)
     }
 }
 

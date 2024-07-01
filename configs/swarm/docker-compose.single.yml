@@ -3,15 +3,9 @@
 # Seed: Iroha
 
 services:
-  builder:
+  irohad0:
     image: hyperledger/iroha:local
     build: ../..
-    pull_policy: never
-    command: echo ok
-  irohad0:
-    depends_on:
-    - builder
-    image: hyperledger/iroha:local
     pull_policy: never
     environment:
       CHAIN: 00000000-0000-0000-0000-000000000000
