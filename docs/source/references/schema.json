@@ -6,10 +6,6 @@
         "type": "AccountId"
       },
       {
-        "name": "assets",
-        "type": "SortedMap<AssetDefinitionId, Asset>"
-      },
-      {
         "name": "metadata",
         "type": "Metadata"
       }
@@ -929,10 +925,6 @@
       {
         "name": "id",
         "type": "DomainId"
-      },
-      {
-        "name": "asset_definitions",
-        "type": "SortedMap<AssetDefinitionId, AssetDefinition>"
       },
       {
         "name": "asset_total_quantities",
@@ -3602,18 +3594,6 @@
         "type": "u16"
       }
     ]
-  },
-  "SortedMap<AssetDefinitionId, Asset>": {
-    "Map": {
-      "key": "AssetDefinitionId",
-      "value": "Asset"
-    }
-  },
-  "SortedMap<AssetDefinitionId, AssetDefinition>": {
-    "Map": {
-      "key": "AssetDefinitionId",
-      "value": "AssetDefinition"
-    }
   },
   "SortedMap<AssetDefinitionId, Numeric>": {
     "Map": {

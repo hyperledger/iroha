@@ -20,13 +20,6 @@ use crate::{
     ParseError, Registered,
 };
 
-/// API to work with collections of [`Id`] : [`Asset`] mappings.
-pub type AssetsMap = btree_map::BTreeMap<AssetDefinitionId, Asset>;
-
-/// [`AssetDefinitionsMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetDefinition`])
-/// pairs.
-pub type AssetDefinitionsMap = btree_map::BTreeMap<AssetDefinitionId, AssetDefinition>;
-
 /// [`AssetTotalQuantityMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetValue`])
 /// pairs.
 pub type AssetTotalQuantityMap = btree_map::BTreeMap<AssetDefinitionId, Numeric>;

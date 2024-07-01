@@ -141,19 +141,18 @@ pub mod isi {
 
             let asset = state_transaction
                 .world
-                .account_mut(&asset_id.account)
-                .and_then(|account| {
-                    account
-                        .remove_asset(&asset_id.definition)
-                        .ok_or_else(|| FindError::Asset(asset_id.clone()))
-                })?;
+                .assets
+                .get_mut(&asset_id)
+                .ok_or_else(|| FindError::Asset(asset_id.clone()))?;
 
             let destination_store = {
+                let value = asset.value.clone();
+
                 let destination_id =
                     AssetId::new(asset_id.definition.clone(), self.destination.clone());
                 let destination_store_asset = state_transaction
                     .world
-                    .asset_or_insert(destination_id.clone(), asset.value)?;
+                    .asset_or_insert(destination_id.clone(), value)?;
 
                 destination_store_asset.clone()
             };
@@ -230,10 +229,10 @@ pub mod isi {
             )?;
             assert_numeric_spec(&self.object, &asset_definition)?;
 
-            let account = state_transaction.world.account_mut(&asset_id.account)?;
-            let asset = account
+            let asset = state_transaction
+                .world
                 .assets
-                .get_mut(&asset_id.definition)
+                .get_mut(&asset_id)
                 .ok_or_else(|| FindError::Asset(asset_id.clone()))?;
             let AssetValue::Numeric(quantity) = &mut asset.value else {
                 return Err(Error::Conversion("Expected numeric asset type".to_owned()));
@@ -243,7 +242,11 @@ pub mod isi {
                 .ok_or(MathError::NotEnoughQuantity)?;
 
             if asset.value.is_zero_value() {
-                assert!(account.remove_asset(&asset_id.definition).is_some());
+                assert!(state_transaction
+                    .world
+                    .assets
+                    .remove(asset_id.clone())
+                    .is_some());
             }
 
             #[allow(clippy::float_arithmetic)]
@@ -286,10 +289,10 @@ pub mod isi {
             assert_numeric_spec(&self.object, &asset_definition)?;
 
             {
-                let account = state_transaction.world.account_mut(&source_id.account)?;
-                let asset = account
+                let asset = state_transaction
+                    .world
                     .assets
-                    .get_mut(&source_id.definition)
+                    .get_mut(&source_id)
                     .ok_or_else(|| FindError::Asset(source_id.clone()))?;
                 let AssetValue::Numeric(quantity) = &mut asset.value else {
                     return Err(Error::Conversion("Expected numeric asset type".to_owned()));
@@ -298,7 +301,11 @@ pub mod isi {
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
                 if asset.value.is_zero_value() {
-                    assert!(account.remove_asset(&source_id.definition).is_some());
+                    assert!(state_transaction
+                        .world
+                        .assets
+                        .remove(source_id.clone())
+                        .is_some());
                 }
             }
 
@@ -430,13 +437,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .accounts_iter()
-                    .flat_map(|account| account.assets.values())
-                    .cloned(),
-            ))
+            Ok(Box::new(state_ro.world().assets_iter().cloned()))
         }
     }
 
@@ -446,13 +447,7 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = AssetDefinition> + 'state>, Error> {
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .domains_iter()
-                    .flat_map(|domain| domain.asset_definitions.values())
-                    .cloned(),
-            ))
+            Ok(Box::new(state_ro.world().asset_definitions_iter().cloned()))
         }
     }
 
@@ -493,15 +488,8 @@ pub mod query {
             Ok(Box::new(
                 state_ro
                     .world()
-                    .accounts_iter()
-                    .flat_map(move |account| {
-                        let name = name.clone();
-
-                        account
-                            .assets
-                            .values()
-                            .filter(move |asset| asset.id().definition.name == name)
-                    })
+                    .assets_iter()
+                    .filter(move |asset| asset.id().definition.name == name)
                     .cloned(),
             ))
         }
@@ -513,9 +501,16 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let id = &self.account;
+            let id = self.account.clone();
             iroha_logger::trace!(%id);
-            Ok(Box::new(state_ro.world().account_assets(id)?.cloned()))
+            let _ = state_ro.world().map_account(&id, |_| ())?;
+            Ok(Box::new(
+                state_ro
+                    .world()
+                    .assets_iter()
+                    .filter(move |asset| asset.id().account == id)
+                    .cloned(),
+            ))
         }
     }
 
@@ -530,15 +525,8 @@ pub mod query {
             Ok(Box::new(
                 state_ro
                     .world()
-                    .accounts_iter()
-                    .flat_map(move |account| {
-                        let id = id.clone();
-
-                        account
-                            .assets
-                            .values()
-                            .filter(move |asset| asset.id().definition == id)
-                    })
+                    .assets_iter()
+                    .filter(move |asset| asset.id().definition == id)
                     .cloned(),
             ))
         }
@@ -550,13 +538,13 @@ pub mod query {
             &self,
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let id = &self.domain;
+            let id = self.domain.clone();
             iroha_logger::trace!(%id);
             Ok(Box::new(
                 state_ro
                     .world()
-                    .accounts_in_domain_iter(id)
-                    .flat_map(|account| account.assets.values())
+                    .assets_iter()
+                    .filter(move |asset| asset.id().account.domain() == &id)
                     .cloned(),
             ))
         }
@@ -570,24 +558,16 @@ pub mod query {
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
             let domain_id = self.domain.clone();
             let asset_definition_id = self.asset_definition.clone();
-            let domain = state_ro.world().domain(&domain_id)?;
-            let _definition = domain
-                .asset_definitions
-                .get(&asset_definition_id)
-                .ok_or_else(|| FindError::AssetDefinition(asset_definition_id.clone()))?;
+            let _ = state_ro.world().domain(&domain_id)?;
+            let _ = state_ro.world().asset_definition(&asset_definition_id)?;
             iroha_logger::trace!(%domain_id, %asset_definition_id);
             Ok(Box::new(
                 state_ro
                     .world()
-                    .accounts_in_domain_iter(&domain_id)
-                    .flat_map(move |account| {
-                        let domain_id = domain_id.clone();
-                        let asset_definition_id = asset_definition_id.clone();
-
-                        account.assets.values().filter(move |asset| {
-                            asset.id().account.domain == domain_id
-                                && asset.id().definition == asset_definition_id
-                        })
+                    .assets_iter()
+                    .filter(move |asset| {
+                        asset.id().definition == asset_definition_id
+                            && asset.id().account.domain() == &domain_id
                     })
                     .cloned(),
             ))

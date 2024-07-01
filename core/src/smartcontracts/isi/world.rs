@@ -150,6 +150,18 @@ pub mod isi {
                 state_transaction.world.accounts.remove(account);
             }
 
+            let remove_asset_definitions: Vec<AssetDefinitionId> = state_transaction
+                .world
+                .asset_definitions_in_domain_iter(&domain_id)
+                .map(|ad| ad.id().clone())
+                .collect();
+            for asset_definition_id in remove_asset_definitions {
+                state_transaction
+                    .world
+                    .asset_definitions
+                    .remove(asset_definition_id);
+            }
+
             if state_transaction
                 .world
                 .domains
