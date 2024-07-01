@@ -85,14 +85,16 @@ fn mutlisig() -> Result<()> {
 
     // Check that multisig account exist
     let account = test_client
-        .request(client::account::by_id(multisig_account_id.clone()))
+        .iter_query(client::account::all())
+        .with_filter(|account| account.id.eq(multisig_account_id.clone()))
+        .execute_single()
         .expect("multisig account should be created after the call to register multisig trigger");
 
     assert_eq!(account.id(), &multisig_account_id);
 
     // Check that multisig trigger exist
     let trigger = test_client
-        .request(client::trigger::by_id(multisig_trigger_id.clone()))
+        .query(client::trigger::by_id(multisig_trigger_id.clone()))
         .expect("multisig trigger should be created after the call to register multisig trigger");
 
     assert_eq!(trigger.id(), &multisig_trigger_id);
@@ -115,7 +117,9 @@ fn mutlisig() -> Result<()> {
 
     // Check that domain isn't created yet
     let err = test_client
-        .request(client::domain::by_id(domain_id.clone()))
+        .iter_query(client::domain::all())
+        .with_filter(|domain| domain.id.eq(domain_id.clone()))
+        .execute_single()
         .expect_err("domain shouldn't be created before enough votes are collected");
     assert!(matches!(
         err,
@@ -138,7 +142,9 @@ fn mutlisig() -> Result<()> {
 
     // Check that new domain was created and multisig account is owner
     let domain = test_client
-        .request(client::domain::by_id(domain_id.clone()))
+        .iter_query(client::domain::all())
+        .with_filter(|domain| domain.id.eq(domain_id.clone()))
+        .execute_single()
         .expect("domain should be created after enough votes are collected");
 
     assert_eq!(domain.owned_by(), &multisig_account_id);

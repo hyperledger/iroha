@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use eyre::Result;
 use iroha::{
-    client::{self, QueryResult},
+    client,
     data_model::{prelude::*, query::error::QueryExecutionFail},
 };
 use iroha_executor_data_model::permission::account::CanSetKeyValueInAccount;
@@ -38,8 +38,8 @@ fn find_roles() -> Result<()> {
 
     // Checking results
     let found_role_ids = test_client
-        .request(client::role::all())?
-        .collect::<QueryResult<Vec<_>>>()?
+        .iter_query(client::role::all())
+        .execute_all()?
         .into_iter();
 
     assert!(role_ids.is_subset(
@@ -70,8 +70,8 @@ fn find_role_ids() -> Result<()> {
 
     // Checking results
     let found_role_ids = test_client
-        .request(client::role::all_ids())?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .iter_query(client::role::all_ids())
+        .execute_all()?;
     let found_role_ids = found_role_ids.into_iter().collect::<HashSet<_>>();
 
     assert!(role_ids.is_subset(&found_role_ids));
@@ -91,7 +91,10 @@ fn find_role_by_id() -> Result<()> {
     let register_role = Register::role(new_role.clone());
     test_client.submit_blocking(register_role)?;
 
-    let found_role = test_client.request(client::role::by_id(role_id))?;
+    let found_role = test_client
+        .iter_query(client::role::all())
+        .with_filter(|role| role.id.eq(role_id))
+        .execute_single()?;
 
     assert_eq!(found_role.id(), new_role.id());
     assert!(found_role.permissions().next().is_none());
@@ -106,10 +109,14 @@ fn find_unregistered_role_by_id() {
 
     let role_id: RoleId = "root".parse().expect("Valid");
 
-    let found_role = test_client.request(client::role::by_id(role_id));
+    let found_role = test_client
+        .iter_query(client::role::all())
+        .with_filter(|role| role.id.eq(role_id))
+        .execute_single();
 
     // Checking result
     // Not found error
+    // TODO: the error will be different!
     assert!(matches!(
         found_role,
         Err(client::ClientQueryError::Validation(
@@ -150,8 +157,8 @@ fn find_roles_by_account_id() -> Result<()> {
 
     // Checking results
     let found_role_ids = test_client
-        .request(client::role::by_account_id(alice_id))?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .iter_query(client::role::by_account_id(alice_id))
+        .execute_all()?;
     let found_role_ids = found_role_ids.into_iter().collect::<HashSet<_>>();
 
     assert!(role_ids.is_subset(&found_role_ids));

@@ -45,5 +45,9 @@ fn tranasctions_should_be_applied() {
         Mint::asset_numeric(numeric!(1), AssetId::new(asset_definition_id, account_id));
     iroha.submit_blocking(mint_asset).unwrap();
 
-    iroha.request(client::asset::by_id(asset_id)).unwrap();
+    iroha
+        .iter_query(client::asset::all())
+        .with_filter(|asset| asset.id.eq(asset_id))
+        .execute_single()
+        .unwrap();
 }

@@ -10,11 +10,7 @@ use std::{
 use erased_serde::Serialize;
 use error_stack::{fmt::ColorMode, IntoReportCompat, ResultExt};
 use eyre::{eyre, Error, Result, WrapErr};
-use iroha::{
-    client::{Client, QueryResult},
-    config::Config,
-    data_model::prelude::*,
-};
+use iroha::{client::Client, config::Config, data_model::prelude::*};
 use iroha_primitives::{addr::SocketAddr, json::JsonString};
 use thiserror::Error;
 
@@ -401,17 +397,18 @@ mod domain {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let vec = match self {
-                Self::All => client
-                    .request(client::domain::all())
-                    .wrap_err("Failed to get all domains"),
-                Self::Filter(filter) => client
-                    .build_query(client::domain::all())
-                    .with_filter(filter.predicate)
-                    .execute()
-                    .wrap_err("Failed to get filtered domains"),
-            }?;
-            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            let query = client.iter_query(client::domain::all());
+
+            let query = match self {
+                List::All => query,
+                List::Filter(_filter) => {
+                    todo!("Apply the new-style filter from the CLI")
+                }
+            };
+
+            let result = query.execute_all().wrap_err("Failed to get all accounts")?;
+            context.print_data(&result)?;
+
             Ok(())
         }
     }
@@ -578,17 +575,18 @@ mod account {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let vec = match self {
-                Self::All => client
-                    .request(client::account::all())
-                    .wrap_err("Failed to get all accounts"),
-                Self::Filter(filter) => client
-                    .build_query(client::account::all())
-                    .with_filter(filter.predicate)
-                    .execute()
-                    .wrap_err("Failed to get filtered accounts"),
-            }?;
-            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            let query = client.iter_query(client::account::all());
+
+            let query = match self {
+                List::All => query,
+                List::Filter(_filter) => {
+                    todo!("Apply the new-style filter from the CLI")
+                }
+            };
+
+            let result = query.execute_all().wrap_err("Failed to get all accounts")?;
+            context.print_data(&result)?;
+
             Ok(())
         }
     }
@@ -649,9 +647,10 @@ mod account {
             let client = context.client_from_config();
             let find_all_permissions = FindPermissionsByAccountId::new(self.id);
             let permissions = client
-                .request(find_all_permissions)
+                .iter_query(find_all_permissions)
+                .execute_all()
                 .wrap_err("Failed to get all account permissions")?;
-            context.print_data(&permissions.collect::<QueryResult<Vec<_>>>()?)?;
+            context.print_data(&permissions)?;
             Ok(())
         }
     }
@@ -882,7 +881,9 @@ mod asset {
             let Self { id: asset_id } = self;
             let iroha = context.client_from_config();
             let asset = iroha
-                .request(asset::by_id(asset_id))
+                .iter_query(asset::all())
+                .with_filter(|asset| asset.id.eq(asset_id))
+                .execute_single()
                 .wrap_err("Failed to get asset.")?;
             context.print_data(&asset)?;
             Ok(())
@@ -902,17 +903,18 @@ mod asset {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let vec = match self {
-                Self::All => client
-                    .request(client::asset::all())
-                    .wrap_err("Failed to get all assets"),
-                Self::Filter(filter) => client
-                    .build_query(client::asset::all())
-                    .with_filter(filter.predicate)
-                    .execute()
-                    .wrap_err("Failed to get filtered assets"),
-            }?;
-            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            let query = client.iter_query(client::asset::all());
+
+            let query = match self {
+                List::All => query,
+                List::Filter(_filter) => {
+                    todo!("Apply the new-style filter from the CLI")
+                }
+            };
+
+            let result = query.execute_all().wrap_err("Failed to get all accounts")?;
+            context.print_data(&result)?;
+
             Ok(())
         }
     }
@@ -977,7 +979,7 @@ mod asset {
             let client = context.client_from_config();
             let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key);
             let asset = client
-                .request(find_key_value)
+                .query(find_key_value)
                 .wrap_err("Failed to get key-value")?;
             context.print_data(&asset)?;
             Ok(())
@@ -1131,14 +1133,16 @@ mod json {
                         .wrap_err("Failed to submit parsed instructions")
                 }
                 Variant::Query => {
-                    let client = Client::new(context.configuration().clone());
-                    let query: QueryBox = json5::from_str(&string_content)?;
-                    let response = client
-                        .request(query)
-                        .and_then(core::convert::identity)
-                        .wrap_err("Failed to query response")?;
-                    context.print_data(&response)?;
-                    Ok(())
+                    let _client = Client::new(context.configuration().clone());
+                    let _query: QueryBox = json5::from_str(&string_content)?;
+                    // TODO: do the new-style query here
+                    todo!()
+                    // let response = client
+                    //     .request(query)
+                    //     .and_then(core::convert::identity)
+                    //     .wrap_err("Failed to query response")?;
+                    // context.print_data(&response)?;
+                    // Ok(())
                 }
             }
         }

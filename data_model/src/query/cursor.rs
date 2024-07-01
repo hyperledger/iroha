@@ -7,7 +7,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::num::{NonZeroU64, NonZeroUsize};
+use core::num::NonZeroU64;
 
 use getset::Getters;
 use iroha_data_model_derive::model;

@@ -6,36 +6,16 @@ use crate::{
     asset::AssetDefinitionId,
     query::{
         predicate::{
-            predicate_atoms::account::{
-                AccountIdPredicateBox, AccountPredicateBox, AssetsMapPredicateBox,
-            },
+            predicate_atoms::account::{AccountIdPredicateBox, AccountPredicateBox},
             projectors::{
-                AccountAssetsProjector, AccountIdDomainIdProjector, AccountIdProjector,
-                AccountIdSignatoryProjector, AccountMetadataProjector, ObjectProjector,
+                AccountIdDomainIdProjector, AccountIdProjector, AccountIdSignatoryProjector,
+                AccountMetadataProjector, ObjectProjector,
             },
             prototypes::{domain::DomainIdPrototype, MetadataPrototype, PublicKeyPrototype},
         },
         AstPredicate, HasPrototype,
     },
 };
-
-#[derive(Default, Copy, Clone)]
-pub struct AssetsMapPrototype<Projector> {
-    phantom: PhantomData<Projector>,
-}
-impl_prototype!(AssetsMapPrototype: AssetsMapPredicateBox);
-
-impl<Projector> AssetsMapPrototype<Projector>
-where
-    Projector: ObjectProjector<Input = AssetsMapPredicateBox>,
-{
-    pub fn has(
-        &self,
-        asset_id: AssetDefinitionId,
-    ) -> Projector::ProjectedPredicate<AssetsMapPredicateBox> {
-        Projector::project_predicate(AssetsMapPredicateBox::Has(asset_id))
-    }
-}
 
 #[derive(Default, Copy, Clone)]
 pub struct AccountIdPrototype<Projector> {
@@ -58,7 +38,6 @@ where
 pub struct AccountPrototype<Projector> {
     pub id: AccountIdPrototype<AccountIdProjector<Projector>>,
     pub metadata: MetadataPrototype<AccountMetadataProjector<Projector>>,
-    pub assets: AssetsMapPrototype<AccountAssetsProjector<Projector>>,
 }
 
 impl_prototype!(AccountPrototype: AccountPredicateBox);

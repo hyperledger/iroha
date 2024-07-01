@@ -18,7 +18,6 @@ use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
-use prelude::Executable;
 use serde::{Deserialize, Serialize};
 use strum::FromRepr;
 

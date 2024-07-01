@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use super::{AstPredicate, CompoundPredicate};
 use crate::query::predicate::{
     predicate_atoms::{
-        account::{AccountIdPredicateBox, AccountPredicateBox, AssetsMapPredicateBox},
+        account::{AccountIdPredicateBox, AccountPredicateBox},
         asset::{
             AssetDefinitionIdPredicateBox, AssetDefinitionPredicateBox, AssetIdPredicateBox,
             AssetPredicateBox, AssetValuePredicateBox,
@@ -137,7 +137,6 @@ proj!(AccountIdSignatoryProjector(AccountIdSignatoryProjection): PublicKeyPredic
 // projections on Account
 proj!(AccountIdProjector(AccountIdProjection): AccountIdPredicateBox => AccountPredicateBox::Id);
 proj!(AccountMetadataProjector(AccountMetadataProjection): MetadataPredicateBox => AccountPredicateBox::Metadata);
-proj!(AccountAssetsProjector(AccountAssetsProjection): AssetsMapPredicateBox => AccountPredicateBox::Assets);
 
 // projections on AssetDefinitionId
 proj!(AssetDefinitionIdDomainIdProjector(AssetDefinitionIdDomainIdProjection): DomainIdPredicateBox => AssetDefinitionIdPredicateBox::DomainId);
