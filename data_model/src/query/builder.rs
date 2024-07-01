@@ -8,8 +8,8 @@ use crate::{
     query::{
         predicate::{projectors, AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype},
         IterableQuery, IterableQueryBox, IterableQueryOutputBatchBox, IterableQueryWithFilter,
-        IterableQueryWithFilterFor, IterableQueryWithParams, Pagination, SingularQuery,
-        SingularQueryBox, SingularQueryOutputBox, Sorting,
+        IterableQueryWithFilterFor, IterableQueryWithParams, Pagination, SingularQueryBox,
+        SingularQueryOutputBox, Sorting,
     },
 };
 

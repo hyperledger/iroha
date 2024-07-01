@@ -38,10 +38,12 @@ use crate::{
     domain::Domain,
     events::EventFilterBox,
     parameter::{Parameter, Parameters},
+    peer::Peer,
     permission::Permission,
     role::{Role, RoleId},
     seal,
     transaction::{CommittedTransaction, SignedTransaction},
+    trigger::TriggerId,
     IdBox, Identifiable, IdentifiableBox,
 };
 
@@ -144,6 +146,12 @@ pub enum IterableQueryBox {
     FindRolesByAccountId(IterableQueryWithFilterFor<FindRolesByAccountId>),
     FindTransactionsByAccountId(IterableQueryWithFilterFor<FindTransactionsByAccountId>),
     FindAccountsWithAsset(IterableQueryWithFilterFor<FindAccountsWithAsset>),
+
+    FindAllPeers(IterableQueryWithFilterFor<FindAllPeers>),
+    FindAllActiveTriggerIds(IterableQueryWithFilterFor<FindAllActiveTriggerIds>),
+    FindAllTransactions(IterableQueryWithFilterFor<FindAllTransactions>),
+    FindAllBlocks(IterableQueryWithFilterFor<FindAllBlocks>),
+    FindAllBlockHeaders(IterableQueryWithFilterFor<FindAllBlockHeaders>),
 }
 
 #[derive(
@@ -155,10 +163,14 @@ pub enum IterableQueryOutputBatchBox {
     Asset(Vec<Asset>),
     AssetDefinition(Vec<AssetDefinition>),
     Role(Vec<Role>),
-    RoleId(Vec<RoleId>),
     Parameter(Vec<Parameter>),
     Permission(Vec<Permission>),
     Transaction(Vec<TransactionQueryOutput>),
+    Peer(Vec<Peer>),
+    RoleId(Vec<RoleId>),
+    TriggerId(Vec<TriggerId>),
+    Block(Vec<SignedBlock>),
+    BlockHeader(Vec<BlockHeader>),
 }
 
 #[derive(
@@ -171,8 +183,14 @@ pub enum SingularQueryBox {
     FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
     FindTriggerById(FindTriggerById),
 
-    FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
+    FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
     FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
+    FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
+    FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
+    FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
+
+    FindTransactionByHash(FindTransactionByHash),
+    FindBlockHeaderByHash(FindBlockHeaderByHash),
 }
 
 #[derive(
@@ -184,6 +202,8 @@ pub enum SingularQueryOutputBox {
     JsonString(JsonString),
     Trigger(crate::trigger::Trigger),
     Parameters(Parameters),
+    Transaction(TransactionQueryOutput),
+    BlockHeader(BlockHeader),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
