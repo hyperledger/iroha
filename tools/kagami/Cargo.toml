@@ -13,17 +13,18 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-iroha_crypto = { workspace = true }
-iroha_config = { workspace = true }
-iroha_data_model = { workspace = true }
-iroha_schema_gen = { workspace = true }
-iroha_primitives = { workspace = true }
-iroha_genesis = { workspace = true }
-test_samples = { workspace = true }
+iroha_executor_data_model.workspace = true
+iroha_data_model.workspace = true
+iroha_crypto.workspace = true
+iroha_config.workspace = true
+iroha_schema_gen.workspace = true
+iroha_primitives.workspace = true
+iroha_genesis.workspace = true
+test_samples.workspace = true
 
-color-eyre = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-derive_more = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-parity-scale-codec = { workspace = true }
+color-eyre.workspace = true
+serde_json.workspace = true
+derive_more.workspace = true
+parity-scale-codec.workspace = true

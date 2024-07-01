@@ -722,6 +722,242 @@
       }
     ]
   },
+  "CanBurnAssetWithDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "CanBurnUserAsset": {
+    "Struct": [
+      {
+        "name": "asset",
+        "type": "AssetId"
+      }
+    ]
+  },
+  "CanBurnUserTrigger": {
+    "Struct": [
+      {
+        "name": "trigger",
+        "type": "TriggerId"
+      }
+    ]
+  },
+  "CanExecuteUserTrigger": {
+    "Struct": [
+      {
+        "name": "trigger",
+        "type": "TriggerId"
+      }
+    ]
+  },
+  "CanMintAssetWithDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "CanMintUserAsset": {
+    "Struct": [
+      {
+        "name": "asset",
+        "type": "AssetId"
+      }
+    ]
+  },
+  "CanMintUserTrigger": {
+    "Struct": [
+      {
+        "name": "trigger",
+        "type": "TriggerId"
+      }
+    ]
+  },
+  "CanRegisterAccountInDomain": {
+    "Struct": [
+      {
+        "name": "domain",
+        "type": "DomainId"
+      }
+    ]
+  },
+  "CanRegisterAssetDefinitionInDomain": {
+    "Struct": [
+      {
+        "name": "domain",
+        "type": "DomainId"
+      }
+    ]
+  },
+  "CanRegisterAssetWithDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "CanRegisterUserTrigger": {
+    "Struct": [
+      {
+        "name": "account",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "CanRemoveKeyValueInAccount": {
+    "Struct": [
+      {
+        "name": "account",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "CanRemoveKeyValueInAssetDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "CanRemoveKeyValueInDomain": {
+    "Struct": [
+      {
+        "name": "domain",
+        "type": "DomainId"
+      }
+    ]
+  },
+  "CanRemoveKeyValueInTrigger": {
+    "Struct": [
+      {
+        "name": "trigger",
+        "type": "TriggerId"
+      }
+    ]
+  },
+  "CanRemoveKeyValueInUserAsset": {
+    "Struct": [
+      {
+        "name": "asset",
+        "type": "AssetId"
+      }
+    ]
+  },
+  "CanSetKeyValueInAccount": {
+    "Struct": [
+      {
+        "name": "account",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "CanSetKeyValueInAssetDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "CanSetKeyValueInDomain": {
+    "Struct": [
+      {
+        "name": "domain",
+        "type": "DomainId"
+      }
+    ]
+  },
+  "CanSetKeyValueInTrigger": {
+    "Struct": [
+      {
+        "name": "trigger",
+        "type": "TriggerId"
+      }
+    ]
+  },
+  "CanSetKeyValueInUserAsset": {
+    "Struct": [
+      {
+        "name": "asset",
+        "type": "AssetId"
+      }
+    ]
+  },
+  "CanSetParameters": null,
+  "CanTransferAssetWithDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "CanTransferUserAsset": {
+    "Struct": [
+      {
+        "name": "asset",
+        "type": "AssetId"
+      }
+    ]
+  },
+  "CanUnregisterAccount": {
+    "Struct": [
+      {
+        "name": "account",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "CanUnregisterAnyPeer": null,
+  "CanUnregisterAnyRole": null,
+  "CanUnregisterAssetDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "CanUnregisterAssetWithDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "CanUnregisterDomain": {
+    "Struct": [
+      {
+        "name": "domain",
+        "type": "DomainId"
+      }
+    ]
+  },
+  "CanUnregisterUserAsset": {
+    "Struct": [
+      {
+        "name": "asset",
+        "type": "AssetId"
+      }
+    ]
+  },
+  "CanUnregisterUserTrigger": {
+    "Struct": [
+      {
+        "name": "account",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "CanUpgradeExecutor": null,
   "ChainId": "String",
   "ClientQueryPayload": {
     "Struct": [

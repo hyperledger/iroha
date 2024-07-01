@@ -1599,7 +1599,7 @@ name = "executor_custom_data_model"
 version = "2.0.0-pre-rc.21"
 dependencies = [
  "iroha_data_model",
- "iroha_executor",
+ "iroha_executor_data_model",
  "iroha_schema",
  "serde",
  "serde_json",
@@ -2794,6 +2794,7 @@ dependencies = [
  "iroha_config_base",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_genesis",
  "iroha_logger",
  "iroha_primitives",
@@ -2926,6 +2927,7 @@ dependencies = [
  "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_futures",
  "iroha_genesis",
  "iroha_logger",
@@ -3070,12 +3072,36 @@ dependencies = [
 name = "iroha_executor"
 version = "2.0.0-pre-rc.21"
 dependencies = [
+ "iroha_executor_data_model",
  "iroha_executor_derive",
  "iroha_schema",
  "iroha_smart_contract",
  "iroha_smart_contract_utils",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "iroha_executor_data_model"
+version = "2.0.0-pre-rc.21"
+dependencies = [
+ "iroha_data_model",
+ "iroha_executor_data_model_derive",
+ "iroha_schema",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "iroha_executor_data_model_derive"
+version = "2.0.0-pre-rc.21"
+dependencies = [
+ "darling",
+ "iroha_executor_data_model",
+ "manyhow",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.68",
 ]
 
 [[package]]
@@ -3227,7 +3253,6 @@ dependencies = [
  "iroha_config_base",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_data_model_derive",
  "iroha_logger",
  "iroha_primitives",
  "parity-scale-codec",
@@ -3301,6 +3326,7 @@ version = "2.0.0-pre-rc.21"
 dependencies = [
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_genesis",
  "iroha_primitives",
  "iroha_schema",
@@ -3701,6 +3727,7 @@ dependencies = [
  "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_genesis",
  "iroha_primitives",
  "iroha_schema_gen",
@@ -4243,6 +4270,7 @@ dependencies = [
  "eyre",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_genesis",
  "iroha_primitives",
  "iroha_schema",
@@ -5647,6 +5675,7 @@ dependencies = [
  "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_genesis",
  "iroha_logger",
  "iroha_primitives",

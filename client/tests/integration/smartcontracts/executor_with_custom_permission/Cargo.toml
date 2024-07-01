@@ -11,6 +11,8 @@ license.workspace = true
 crate-type = ['cdylib']
 
 [dependencies]
+iroha_executor_data_model.workspace = true
+executor_custom_data_model.workspace = true
 iroha_executor.workspace = true
 iroha_schema.workspace = true
 

@@ -2,30 +2,153 @@
 
 use alloc::borrow::ToOwned as _;
 
-use iroha_schema::{Ident, IntoSchema};
-use iroha_smart_contract::QueryOutputCursor;
+use iroha_executor_data_model::permission::Permission;
+use iroha_smart_contract::{
+    data_model::{executor::Result, permission::Permission as PermissionObject, prelude::*},
+    ExecuteQueryOnHost as _, QueryOutputCursor,
+};
 use iroha_smart_contract_utils::debug::DebugExpectExt as _;
-use serde::{de::DeserializeOwned, Serialize};
 
-use crate::prelude::{Permission as PermissionObject, *};
+/// Declare token types of current module. Use it with a full path to the token.
+/// Used to iterate over tokens to validate `Grant` and `Revoke` instructions.
+///
+///
+/// Example:
+///
+/// ```ignore
+/// mod tokens {
+///     use std::borrow::ToOwned;
+///
+///     use iroha_schema::IntoSchema;
+///     use iroha_executor_derive::Token;
+///     use serde::{Deserialize, Serialize};
+///
+///     #[derive(Clone, PartialEq, Deserialize, Serialize, IntoSchema, Token)]
+///     #[validate(iroha_executor::permission::OnlyGenesis)]
+///     pub struct MyToken;
+/// }
+/// ```
+macro_rules! declare_permissions {
+    ($($($token_path:ident ::)+ { $token_ty:ident }),+ $(,)?) => {
+        /// Enum with every default token
+        #[allow(clippy::enum_variant_names)]
+        #[derive(Clone)]
+        pub(crate) enum AnyPermission { $(
+            $token_ty($($token_path::)+$token_ty), )*
+        }
 
-/// Used to check if the permission token is owned by the account.
-pub trait Permission:
-    Serialize + DeserializeOwned + IntoSchema + PartialEq<Self> + ValidateGrantRevoke
-{
+        impl TryFrom<&PermissionObject> for AnyPermission {
+            type Error = iroha_executor_data_model::TryFromDataModelObjectError;
+
+            fn try_from(token: &PermissionObject) -> Result<Self, Self::Error> {
+                match token.name().as_ref() { $(
+                    stringify!($token_ty) => {
+                        let token = <$($token_path::)+$token_ty>::try_from(token)?;
+                        Ok(Self::$token_ty(token))
+                    } )+
+                    _ => Err(Self::Error::UnknownIdent(token.name().to_owned()))
+                }
+            }
+        }
+
+        impl From<AnyPermission> for PermissionObject {
+            fn from(token: AnyPermission) -> Self {
+                match token { $(
+                    AnyPermission::$token_ty(token) => token.into(), )*
+                }
+            }
+        }
+
+        impl ValidateGrantRevoke for AnyPermission {
+            fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+                match self { $(
+                    AnyPermission::$token_ty(token) => token.validate_grant(authority, block_height), )*
+                }
+            }
+
+            fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+                match self { $(
+                    AnyPermission::$token_ty(token) => token.validate_revoke(authority, block_height), )*
+                }
+            }
+        }
+
+        macro_rules! map_default_permissions {
+            ($callback:ident) => { $(
+                $callback!($($token_path::)+$token_ty); )+
+            };
+        }
+
+        pub(crate) use map_default_permissions;
+    };
+}
+
+declare_permissions! {
+    iroha_executor_data_model::permission::peer::{CanUnregisterAnyPeer},
+
+    iroha_executor_data_model::permission::domain::{CanUnregisterDomain},
+    iroha_executor_data_model::permission::domain::{CanSetKeyValueInDomain},
+    iroha_executor_data_model::permission::domain::{CanRemoveKeyValueInDomain},
+    iroha_executor_data_model::permission::domain::{CanRegisterAccountInDomain},
+    iroha_executor_data_model::permission::domain::{CanRegisterAssetDefinitionInDomain},
+
+    iroha_executor_data_model::permission::account::{CanUnregisterAccount},
+    iroha_executor_data_model::permission::account::{CanSetKeyValueInAccount},
+    iroha_executor_data_model::permission::account::{CanRemoveKeyValueInAccount},
+
+    iroha_executor_data_model::permission::asset_definition::{CanUnregisterAssetDefinition},
+    iroha_executor_data_model::permission::asset_definition::{CanSetKeyValueInAssetDefinition},
+    iroha_executor_data_model::permission::asset_definition::{CanRemoveKeyValueInAssetDefinition},
+
+    iroha_executor_data_model::permission::asset::{CanRegisterAssetWithDefinition},
+    iroha_executor_data_model::permission::asset::{CanUnregisterAssetWithDefinition},
+    iroha_executor_data_model::permission::asset::{CanUnregisterUserAsset},
+    iroha_executor_data_model::permission::asset::{CanBurnAssetWithDefinition},
+    iroha_executor_data_model::permission::asset::{CanMintAssetWithDefinition},
+    iroha_executor_data_model::permission::asset::{CanMintUserAsset},
+    iroha_executor_data_model::permission::asset::{CanBurnUserAsset},
+    iroha_executor_data_model::permission::asset::{CanTransferAssetWithDefinition},
+    iroha_executor_data_model::permission::asset::{CanTransferUserAsset},
+    iroha_executor_data_model::permission::asset::{CanSetKeyValueInUserAsset},
+    iroha_executor_data_model::permission::asset::{CanRemoveKeyValueInUserAsset},
+
+    iroha_executor_data_model::permission::parameter::{CanSetParameters},
+    iroha_executor_data_model::permission::role::{CanUnregisterAnyRole},
+
+    iroha_executor_data_model::permission::trigger::{CanRegisterUserTrigger},
+    iroha_executor_data_model::permission::trigger::{CanExecuteUserTrigger},
+    iroha_executor_data_model::permission::trigger::{CanUnregisterUserTrigger},
+    iroha_executor_data_model::permission::trigger::{CanMintUserTrigger},
+    iroha_executor_data_model::permission::trigger::{CanBurnUserTrigger},
+    iroha_executor_data_model::permission::trigger::{CanSetKeyValueInTrigger},
+    iroha_executor_data_model::permission::trigger::{CanRemoveKeyValueInTrigger},
+
+    iroha_executor_data_model::permission::executor::{CanUpgradeExecutor},
+}
+
+/// Trait that enables using permissions on the blockchain
+pub trait ExecutorPermision: Permission + PartialEq {
     /// Check if the account owns this token
-    fn is_owned_by(&self, account_id: &AccountId) -> bool;
-
-    /// Permission id, according to [`IntoSchema`].
-    fn name() -> Ident {
-        <Self as iroha_schema::IntoSchema>::type_name()
+    fn is_owned_by(&self, account_id: &AccountId) -> bool
+    where
+        for<'a> Self: TryFrom<&'a crate::data_model::permission::Permission>,
+    {
+        FindPermissionsByAccountId::new(account_id.clone())
+            .execute()
+            .expect("INTERNAL BUG: `FindPermissionsByAccountId` must never fail")
+            .into_iter()
+            .map(|res| res.dbg_expect("Failed to get permission from cursor"))
+            .filter_map(|permission| Self::try_from(&permission).ok())
+            .any(|permission| *self == permission)
     }
 }
+
+impl<T: Permission + PartialEq> ExecutorPermision for T {}
 
 /// Trait that should be implemented for all permission tokens.
 /// Provides a function to check validity of [`Grant`] and [`Revoke`]
 /// instructions containing implementing token.
-pub trait ValidateGrantRevoke {
+pub(super) trait ValidateGrantRevoke {
     #[allow(missing_docs, clippy::missing_errors_doc)]
     fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result;
 
@@ -34,42 +157,96 @@ pub trait ValidateGrantRevoke {
 }
 
 /// Predicate-like trait used for pass conditions to identify if [`Grant`] or [`Revoke`] should be allowed.
-pub trait PassCondition {
+pub(crate) trait PassCondition {
     #[allow(missing_docs, clippy::missing_errors_doc)]
     fn validate(&self, authority: &AccountId, block_height: u64) -> Result;
 }
 
-pub mod derive_conversions {
-    //! Module with derive macros to generate conversion from custom strongly-typed token
-    //! to some pass condition to successfully derive [`ValidateGrantRevoke`](iroha_executor_derive::ValidateGrantRevoke)
+mod executor {
+    use iroha_executor_data_model::permission::executor::CanUpgradeExecutor;
 
-    pub mod asset {
-        //! Module with derives related to asset tokens
+    use super::*;
 
-        pub use iroha_executor_derive::RefIntoAssetOwner as Owner;
+    impl ValidateGrantRevoke for CanUpgradeExecutor {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            OnlyGenesis::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            OnlyGenesis::from(self).validate(authority, block_height)
+        }
     }
+}
 
-    pub mod asset_definition {
-        //! Module with derives related to asset definition tokens
+mod peer {
+    use iroha_executor_data_model::permission::peer::CanUnregisterAnyPeer;
 
-        pub use iroha_executor_derive::RefIntoAssetDefinitionOwner as Owner;
+    use super::*;
+
+    impl ValidateGrantRevoke for CanUnregisterAnyPeer {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            OnlyGenesis::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            OnlyGenesis::from(self).validate(authority, block_height)
+        }
     }
+}
 
-    pub mod account {
-        //! Module with derives related to account tokens
+mod role {
+    use iroha_executor_data_model::permission::role::CanUnregisterAnyRole;
 
-        pub use iroha_executor_derive::RefIntoAccountOwner as Owner;
+    use super::*;
+
+    impl ValidateGrantRevoke for CanUnregisterAnyRole {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            OnlyGenesis::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            OnlyGenesis::from(self).validate(authority, block_height)
+        }
     }
+}
 
-    pub mod domain {
-        //! Module with derives related to domain tokens
+mod parameter {
+    //! Module with pass conditions for parameter related tokens
+    use iroha_executor_data_model::permission::parameter::CanSetParameters;
 
-        pub use iroha_executor_derive::RefIntoDomainOwner as Owner;
+    use super::*;
+
+    impl ValidateGrantRevoke for CanSetParameters {
+        fn validate_grant(&self, authority: &AccountId, _block_height: u64) -> Result {
+            if CanSetParameters.is_owned_by(authority) {
+                return Ok(());
+            }
+
+            Err(ValidationFail::NotPermitted(
+                "Current authority doesn't have the permission to set parameters, therefore it can't grant it to another account"
+                    .to_owned()
+            ))
+        }
+
+        fn validate_revoke(&self, authority: &AccountId, _block_height: u64) -> Result {
+            if CanSetParameters.is_owned_by(authority) {
+                return Ok(());
+            }
+
+            Err(ValidationFail::NotPermitted(
+                "Current authority doesn't have the permission to set parameters, therefore it can't revoke it from another account"
+                    .to_owned()
+            ))
+        }
     }
 }
 
 pub mod asset {
     //! Module with pass conditions for asset related tokens
+
+    use iroha_executor_data_model::permission::asset::{
+        CanBurnAssetWithDefinition, CanBurnUserAsset, CanMintAssetWithDefinition, CanMintUserAsset,
+        CanRegisterAssetWithDefinition, CanRemoveKeyValueInUserAsset, CanSetKeyValueInUserAsset,
+        CanTransferAssetWithDefinition, CanTransferUserAsset, CanUnregisterAssetWithDefinition,
+        CanUnregisterUserAsset,
+    };
 
     use super::*;
 
@@ -104,10 +281,132 @@ pub mod asset {
             ))
         }
     }
+
+    impl ValidateGrantRevoke for CanRegisterAssetWithDefinition {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanUnregisterAssetWithDefinition {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanBurnAssetWithDefinition {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanMintAssetWithDefinition {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanTransferAssetWithDefinition {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanUnregisterUserAsset {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanMintUserAsset {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanBurnUserAsset {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanTransferUserAsset {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanSetKeyValueInUserAsset {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+    impl ValidateGrantRevoke for CanRemoveKeyValueInUserAsset {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    macro_rules! impl_froms {
+        ($($name:ty),+ $(,)?) => {$(
+            impl<'t> From<&'t $name> for Owner<'t> {
+                fn from(value: &'t $name) -> Self {
+                    Self { asset: &value.asset}
+                }
+            })+
+        };
+    }
+
+    impl_froms!(
+        CanUnregisterUserAsset,
+        CanMintUserAsset,
+        CanBurnUserAsset,
+        CanTransferUserAsset,
+        CanSetKeyValueInUserAsset,
+        CanRemoveKeyValueInUserAsset,
+    );
 }
 
 pub mod asset_definition {
     //! Module with pass conditions for asset definition related tokens
+
+    use iroha_executor_data_model::permission::asset_definition::{
+        CanRemoveKeyValueInAssetDefinition, CanSetKeyValueInAssetDefinition,
+        CanUnregisterAssetDefinition,
+    };
 
     use super::*;
 
@@ -152,10 +451,62 @@ pub mod asset_definition {
             ))
         }
     }
+
+    impl ValidateGrantRevoke for CanUnregisterAssetDefinition {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanSetKeyValueInAssetDefinition {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanRemoveKeyValueInAssetDefinition {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    macro_rules! impl_froms {
+        ($($name:ty),+ $(,)?) => {$(
+            impl<'t> From<&'t $name> for Owner<'t> {
+                fn from(value: &'t $name) -> Self {
+                    Self { asset_definition: &value.asset_definition }
+                }
+            })+
+        };
+    }
+
+    impl_froms!(
+        CanUnregisterAssetDefinition,
+        CanSetKeyValueInAssetDefinition,
+        CanRemoveKeyValueInAssetDefinition,
+        iroha_executor_data_model::permission::asset::CanRegisterAssetWithDefinition,
+        iroha_executor_data_model::permission::asset::CanUnregisterAssetWithDefinition,
+        iroha_executor_data_model::permission::asset::CanBurnAssetWithDefinition,
+        iroha_executor_data_model::permission::asset::CanMintAssetWithDefinition,
+        iroha_executor_data_model::permission::asset::CanTransferAssetWithDefinition,
+    );
 }
 
 pub mod account {
     //! Module with pass conditions for asset related tokens
+
+    use iroha_executor_data_model::permission::account::{
+        CanRemoveKeyValueInAccount, CanSetKeyValueInAccount, CanUnregisterAccount,
+    };
 
     use super::*;
 
@@ -194,10 +545,60 @@ pub mod account {
             ))
         }
     }
+
+    impl ValidateGrantRevoke for CanUnregisterAccount {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanSetKeyValueInAccount {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanRemoveKeyValueInAccount {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    macro_rules! impl_froms {
+        ($($name:ty),+ $(,)?) => {$(
+            impl<'t> From<&'t $name> for Owner<'t> {
+                fn from(value: &'t $name) -> Self {
+                    Self { account: &value.account }
+                }
+            })+
+        };
+    }
+
+    impl_froms!(
+        CanUnregisterAccount,
+        CanSetKeyValueInAccount,
+        CanRemoveKeyValueInAccount,
+        iroha_executor_data_model::permission::trigger::CanRegisterUserTrigger,
+        iroha_executor_data_model::permission::trigger::CanUnregisterUserTrigger,
+    );
 }
 
 pub mod trigger {
     //! Module with pass conditions for trigger related tokens
+    use iroha_executor_data_model::permission::trigger::{
+        CanBurnUserTrigger, CanExecuteUserTrigger, CanMintUserTrigger, CanRegisterUserTrigger,
+        CanRemoveKeyValueInTrigger, CanSetKeyValueInTrigger, CanUnregisterUserTrigger,
+    };
+
     use super::*;
     use crate::permission::domain::is_domain_owner;
 
@@ -241,10 +642,95 @@ pub mod trigger {
             ))
         }
     }
+
+    impl ValidateGrantRevoke for CanRegisterUserTrigger {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::account::Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::account::Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanExecuteUserTrigger {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanUnregisterUserTrigger {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::account::Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            super::account::Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanMintUserTrigger {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanBurnUserTrigger {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+    impl ValidateGrantRevoke for CanSetKeyValueInTrigger {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanRemoveKeyValueInTrigger {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    macro_rules! impl_froms {
+        ($($name:ty),+ $(,)?) => {$(
+            impl<'t> From<&'t $name> for Owner<'t> {
+                fn from(value: &'t $name) -> Self {
+                    Self { trigger: &value.trigger }
+                }
+            })+
+        };
+    }
+
+    impl_froms!(
+        CanMintUserTrigger,
+        CanBurnUserTrigger,
+        CanExecuteUserTrigger,
+        CanSetKeyValueInTrigger,
+        CanRemoveKeyValueInTrigger,
+    );
 }
 
 pub mod domain {
     //! Module with pass conditions for domain related tokens
+    use iroha_executor_data_model::permission::domain::{
+        CanRegisterAccountInDomain, CanRegisterAssetDefinitionInDomain, CanRemoveKeyValueInDomain,
+        CanSetKeyValueInDomain, CanUnregisterDomain,
+    };
+
     use super::*;
 
     /// Check if `authority` is owner of domain
@@ -276,29 +762,76 @@ pub mod domain {
             ))
         }
     }
-}
 
-/// Pass condition that always passes.
-#[derive(Debug, Default, Copy, Clone)]
-pub struct AlwaysPass;
-
-impl PassCondition for AlwaysPass {
-    fn validate(&self, _authority: &AccountId, _block_height: u64) -> Result {
-        Ok(())
+    impl ValidateGrantRevoke for CanUnregisterDomain {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
     }
-}
 
-impl<T: Permission> From<&T> for AlwaysPass {
-    fn from(_: &T) -> Self {
-        Self
+    impl ValidateGrantRevoke for CanSetKeyValueInDomain {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
     }
+
+    impl ValidateGrantRevoke for CanRemoveKeyValueInDomain {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanRegisterAccountInDomain {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanRegisterAssetDefinitionInDomain {
+        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            Owner::from(self).validate(authority, block_height)
+        }
+    }
+
+    macro_rules! impl_froms {
+        ($($name:ty),+ $(,)?) => {$(
+            impl<'t> From<&'t $name> for Owner<'t> {
+                fn from(value: &'t $name) -> Self {
+                    Self { domain: &value.domain }
+                }
+            })+
+        };
+    }
+
+    impl_froms!(
+        CanUnregisterDomain,
+        CanSetKeyValueInDomain,
+        CanRemoveKeyValueInDomain,
+        CanRegisterAccountInDomain,
+        CanRegisterAssetDefinitionInDomain,
+    );
 }
 
 /// Pass condition that allows operation only in genesis.
 ///
 /// In other words it always operation only if block height is 0.
 #[derive(Debug, Default, Copy, Clone)]
-pub struct OnlyGenesis;
+pub(crate) struct OnlyGenesis;
 
 impl PassCondition for OnlyGenesis {
     fn validate(&self, _: &AccountId, block_height: u64) -> Result {
@@ -322,15 +855,15 @@ impl<T: Permission> From<&T> for OnlyGenesis {
 pub(crate) fn accounts_permissions() -> impl Iterator<Item = (AccountId, PermissionObject)> {
     FindAllAccounts
         .execute()
-        .dbg_expect("failed to query all accounts")
+        .dbg_expect("INTERNAL BUG: `FindAllAccounts` must never fail")
         .into_iter()
-        .map(|account| account.dbg_expect("failed to retrieve account"))
+        .map(|account| account.dbg_expect("Failed to get account from cursor"))
         .flat_map(|account| {
             FindPermissionsByAccountId::new(account.id().clone())
                 .execute()
-                .dbg_expect("failed to query permssion token for account")
+                .dbg_expect("INTERNAL BUG: `FindPermissionsByAccountId` must never fail")
                 .into_iter()
-                .map(|token| token.dbg_expect("failed to retrieve permission token"))
+                .map(|token| token.dbg_expect("Failed to get permission from cursor"))
                 .map(move |token| (account.id().clone(), token))
         })
 }
@@ -339,43 +872,14 @@ pub(crate) fn accounts_permissions() -> impl Iterator<Item = (AccountId, Permiss
 pub(crate) fn roles_permissions() -> impl Iterator<Item = (RoleId, PermissionObject)> {
     FindAllRoles
         .execute()
-        .dbg_expect("failed to query all accounts")
+        .dbg_expect("INTERNAL BUG: `FindAllRoles` must never fail")
         .into_iter()
-        .map(|role| role.dbg_expect("failed to retrieve account"))
+        .map(|role| role.dbg_expect("Failed to get role from cursor"))
         .flat_map(|role| {
             role.permissions()
                 .cloned()
-                .collect::<Vec<_>>()
+                .collect::<alloc::vec::Vec<_>>()
                 .into_iter()
                 .map(move |token| (role.id().clone(), token))
         })
-}
-
-#[cfg(test)]
-mod tests {
-    use alloc::{format, string::String};
-
-    use serde::Deserialize;
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn convert_token() {
-        #[derive(
-            Serialize, Deserialize, IntoSchema, PartialEq, ValidateGrantRevoke, Permission,
-        )]
-        #[validate(AlwaysPass)]
-        struct SampleToken {
-            can_do_whatever: bool,
-        }
-
-        let object = PermissionObject::new(
-            "SampleToken".parse().unwrap(),
-            json!({ "can_do_whatever": false }),
-        );
-        let parsed = SampleToken::try_from(&object).expect("valid");
-
-        assert!(!parsed.can_do_whatever);
-    }
 }

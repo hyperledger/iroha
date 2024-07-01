@@ -17,8 +17,11 @@ use iroha_data_model::{
     prelude::*,
     ChainId,
 };
-use iroha_primitives::{json::JsonString, unique_vec::UniqueVec};
-use serde_json::json;
+use iroha_executor_data_model::permission::{
+    account::CanUnregisterAccount, asset_definition::CanUnregisterAssetDefinition,
+    domain::CanUnregisterDomain,
+};
+use iroha_primitives::unique_vec::UniqueVec;
 
 /// Create block
 pub fn create_block(
@@ -67,11 +70,10 @@ pub fn populate_state(
     for domain_id in domains {
         let domain = Domain::new(domain_id.clone());
         instructions.push(Register::domain(domain).into());
-        let can_unregister_domain = Grant::permission(
-            Permission::new(
-                "CanUnregisterDomain".parse().unwrap(),
-                JsonString::from(&json!({ "domain": domain_id.clone() })),
-            ),
+        let can_unregister_domain = Grant::account_permission(
+            CanUnregisterDomain {
+                domain: domain_id.clone(),
+            },
             owner_id.clone(),
         );
         instructions.push(can_unregister_domain.into());
@@ -80,11 +82,10 @@ pub fn populate_state(
     for account_id in accounts {
         let account = Account::new(account_id.clone());
         instructions.push(Register::account(account).into());
-        let can_unregister_account = Grant::permission(
-            Permission::new(
-                "CanUnregisterAccount".parse().unwrap(),
-                JsonString::from(&json!({ "account": account_id.clone() })),
-            ),
+        let can_unregister_account = Grant::account_permission(
+            CanUnregisterAccount {
+                account: account_id.clone(),
+            },
             owner_id.clone(),
         );
         instructions.push(can_unregister_account.into());
@@ -93,11 +94,10 @@ pub fn populate_state(
     for asset_definition_id in asset_definitions {
         let asset_definition = AssetDefinition::numeric(asset_definition_id.clone());
         instructions.push(Register::asset_definition(asset_definition).into());
-        let can_unregister_asset_definition = Grant::permission(
-            Permission::new(
-                "CanUnregisterAssetDefinition".parse().unwrap(),
-                JsonString::from(&json!({ "asset_definition": asset_definition_id })),
-            ),
+        let can_unregister_asset_definition = Grant::account_permission(
+            CanUnregisterAssetDefinition {
+                asset_definition: asset_definition_id.clone(),
+            },
             owner_id.clone(),
         );
         instructions.push(can_unregister_asset_definition.into());

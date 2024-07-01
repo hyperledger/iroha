@@ -1,7 +1,11 @@
+use executor_custom_data_model::permissions::CanControlDomainLives;
 use eyre::Result;
 use iroha::{
     client::{self, QueryResult},
     data_model::{prelude::*, transaction::error::TransactionRejectionReason},
+};
+use iroha_executor_data_model::permission::account::{
+    CanRemoveKeyValueInAccount, CanSetKeyValueInAccount,
 };
 use serde_json::json;
 use test_network::*;
@@ -16,19 +20,6 @@ fn register_empty_role() -> Result<()> {
     let register_role = Register::role(Role::new(role_id));
 
     test_client.submit(register_role)?;
-    Ok(())
-}
-
-#[test]
-fn register_role_with_empty_token_params() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_550).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
-
-    let role_id = "root".parse().expect("Valid");
-    let token = Permission::new("token".parse()?, json!(null));
-    let role = Role::new(role_id).add_permission(token);
-
-    test_client.submit(Register::role(role))?;
     Ok(())
 }
 
@@ -59,14 +50,12 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     // Registering role
     let role_id = "ACCESS_TO_MOUSE_METADATA".parse::<RoleId>()?;
     let role = Role::new(role_id.clone())
-        .add_permission(Permission::new(
-            "CanSetKeyValueInAccount".parse()?,
-            json!({ "account": mouse_id }),
-        ))
-        .add_permission(Permission::new(
-            "CanRemoveKeyValueInAccount".parse()?,
-            json!({ "account": mouse_id }),
-        ));
+        .add_permission(CanSetKeyValueInAccount {
+            account: mouse_id.clone(),
+        })
+        .add_permission(CanRemoveKeyValueInAccount {
+            account: mouse_id.clone(),
+        });
     let register_role = Register::role(role);
     test_client.submit_blocking(register_role)?;
 
@@ -108,10 +97,9 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(register_mouse)?;
 
     // Register root role
-    let register_role = Register::role(Role::new(role_id.clone()).add_permission(Permission::new(
-        "CanSetKeyValueInAccount".parse()?,
-        json!({ "account": alice_id }),
-    )));
+    let register_role = Register::role(
+        Role::new(role_id.clone()).add_permission(CanSetKeyValueInAccount { account: alice_id }),
+    );
     test_client.submit_blocking(register_role)?;
 
     // Grant root role to Mouse
@@ -143,17 +131,11 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "ACCESS_TO_ACCOUNT_METADATA".parse()?;
-    let rose_asset_id: AssetId = format!("rose##{}", ALICE_ID.clone())
-        .parse()
-        .expect("should be valid");
-    let role = Role::new(role_id).add_permission(Permission::new(
-        "CanSetKeyValueInAccount".parse()?,
-        json!({ "account": rose_asset_id }),
-    ));
+    let role = Role::new(role_id).add_permission(CanControlDomainLives);
 
     let err = test_client
         .submit_blocking(Register::role(role))
-        .expect_err("Submitting role with invalid permission token should fail");
+        .expect_err("Submitting role with non-existing permission should fail");
 
     let rejection_reason = err
         .downcast_ref::<TransactionRejectionReason>()
@@ -169,6 +151,9 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
 
 #[test]
 #[allow(deprecated)]
+// NOTE: Permissions in this test are created explicitly as json strings
+// so that they don't get deduplicated eagerly but rather in the executor
+// This way, if the executor compares permissions just as JSON strings, the test will fail
 fn role_permissions_are_deduplicated() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_235).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
@@ -189,6 +174,7 @@ fn role_permissions_are_deduplicated() {
         .add_permission(allow_alice_to_transfer_rose_1)
         .add_permission(allow_alice_to_transfer_rose_2);
 
+    println!("KITA: {role:?}");
     test_client
         .submit_blocking(Register::role(role))
         .expect("failed to register role");
@@ -197,11 +183,11 @@ fn role_permissions_are_deduplicated() {
         .request(FindRoleByRoleId::new(role_id))
         .expect("failed to find role");
 
-    // Permission tokens are unified so only one token left
+    // Permissions are unified so only one is left
     assert_eq!(
         role.permissions().len(),
         1,
-        "permission tokens for role aren't deduplicated"
+        "permissions for role aren't deduplicated"
     );
 }
 
@@ -242,42 +228,56 @@ fn grant_revoke_role_permissions() -> Result<()> {
         "key".parse()?,
         "value".parse::<JsonString>()?,
     );
-    let permission = Permission::new(
-        "CanSetKeyValueInAccount".parse()?,
-        json!({ "account": mouse_id }),
-    );
-    let grant_role_permission = Grant::role_permission(permission.clone(), role_id.clone());
-    let revoke_role_permission = Revoke::role_permission(permission.clone(), role_id.clone());
+    let can_set_key_value_in_mouse = CanSetKeyValueInAccount {
+        account: mouse_id.clone(),
+    };
+    let grant_role_permission =
+        Grant::role_permission(can_set_key_value_in_mouse.clone(), role_id.clone());
+    let revoke_role_permission =
+        Revoke::role_permission(can_set_key_value_in_mouse.clone(), role_id.clone());
 
-    // Alice can't modify Mouse's metadata without proper permission token
-    let found_permissions = test_client
+    // Alice can't modify Mouse's metadata without proper permission
+    assert!(!test_client
         .request(FindPermissionsByAccountId::new(alice_id.clone()))?
-        .collect::<QueryResult<Vec<_>>>()?;
-    assert!(!found_permissions.contains(&permission));
+        .collect::<QueryResult<Vec<_>>>()?
+        .iter()
+        .any(|permission| {
+            CanSetKeyValueInAccount::try_from(permission)
+                .is_ok_and(|permission| permission == can_set_key_value_in_mouse)
+        }));
+
     let _ = test_client
         .submit_blocking(set_key_value.clone())
         .expect_err("shouldn't be able to modify metadata");
 
-    // Alice can modify Mouse's metadata after permission token is granted to role
+    // Alice can modify Mouse's metadata after permission is granted to role
     let grant_role_permission_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
         .with_instructions([grant_role_permission])
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&grant_role_permission_tx)?;
-    let found_permissions = test_client
+    assert!(test_client
         .request(FindPermissionsByAccountId::new(alice_id.clone()))?
-        .collect::<QueryResult<Vec<_>>>()?;
-    assert!(found_permissions.contains(&permission));
+        .collect::<QueryResult<Vec<_>>>()?
+        .iter()
+        .any(|permission| {
+            CanSetKeyValueInAccount::try_from(permission)
+                .is_ok_and(|permission| permission == can_set_key_value_in_mouse)
+        }));
     test_client.submit_blocking(set_key_value.clone())?;
 
-    // Alice can't modify Mouse's metadata after permission token is removed from role
-    let revoke_role_permission_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
+    // Alice can't modify Mouse's metadata after permission is removed from role
+    let revoke_role_permission_tx = TransactionBuilder::new(chain_id.clone(), mouse_id)
         .with_instructions([revoke_role_permission])
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&revoke_role_permission_tx)?;
-    let found_permissions = test_client
+    assert!(!test_client
         .request(FindPermissionsByAccountId::new(alice_id.clone()))?
-        .collect::<QueryResult<Vec<_>>>()?;
-    assert!(!found_permissions.contains(&permission));
+        .collect::<QueryResult<Vec<_>>>()?
+        .iter()
+        .any(|permission| {
+            CanSetKeyValueInAccount::try_from(permission)
+                .is_ok_and(|permission| permission == can_set_key_value_in_mouse)
+        }));
     let _ = test_client
         .submit_blocking(set_key_value.clone())
         .expect_err("shouldn't be able to modify metadata");

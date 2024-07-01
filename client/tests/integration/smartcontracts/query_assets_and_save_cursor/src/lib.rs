@@ -7,7 +7,7 @@ extern crate panic_halt;
 
 extern crate alloc;
 
-use iroha_smart_contract::{data_model::query::cursor::ForwardCursor, parse, prelude::*};
+use iroha_smart_contract::{data_model::query::cursor::ForwardCursor, prelude::*};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 use nonzero_ext::nonzero;
 use parity_scale_codec::{Decode, DecodeAll, Encode};
@@ -40,7 +40,7 @@ fn main(owner: AccountId) {
 
     SetKeyValue::account(
         owner,
-        parse!(Name, "cursor"),
+        "cursor".parse().unwrap(),
         JsonString::new(asset_cursor.cursor),
     )
     .execute()

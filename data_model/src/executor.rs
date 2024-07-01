@@ -113,12 +113,6 @@ impl ExecutorDataModel {
 /// Result type that every executor should return.
 pub type Result<T = (), E = crate::ValidationFail> = core::result::Result<T, E>;
 
-/// Migration error type.
-pub type MigrationError = String;
-
-/// Result type for a executor's `migrate()` entrypoint.
-pub type MigrationResult = Result<(), MigrationError>;
-
 pub mod prelude {
     //! The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub use super::{Executor, ExecutorDataModel};

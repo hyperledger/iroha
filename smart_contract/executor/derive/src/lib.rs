@@ -1,15 +1,11 @@
-//! Crate with executor-related derive macros.
+//! Crate with macros that facilitate writing a custom executor
 
 use iroha_macro_utils::Emitter;
-use manyhow::{emit, manyhow, Result};
+use manyhow::{emit, manyhow};
 use proc_macro2::TokenStream;
 
-mod conversion;
 mod default;
 mod entrypoint;
-mod parameter;
-mod permission;
-mod validate;
 
 /// Annotate the user-defined function that starts the execution of a executor.
 ///
@@ -21,7 +17,7 @@ mod validate;
 /// use iroha_executor::prelude::*;
 ///
 /// #[entrypoint]
-/// pub fn migrate(block_height: u64) -> MigrationResult {
+/// pub fn migrate(block_height: u64) {
 ///     todo!()
 /// }
 ///
@@ -63,185 +59,6 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     let result = entrypoint::impl_entrypoint(&mut emitter, item);
 
     emitter.finish_token_stream_with(result)
-}
-
-/// Derive macro for `Permission` trait.
-///
-/// # Example
-///
-/// ```ignore
-/// use iroha_executor::{permission, prelude::*};
-///
-/// #[derive(Permission, ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
-/// #[validate(permission::asset::Owner)]
-/// struct CanDoSomethingWithAsset {
-///     some_data: String,
-///     asset: AssetId,
-/// }
-///
-/// #[entrypoint(params = "[authority, operation]")]
-/// fn validate(authority: AccountId, operation: NeedsValidationBox) -> Result {
-///     let NeedsValidationBox::Instruction(instruction) = operation else {
-///         pass!();
-///     };
-///
-///     validate_grant_revoke!(<CanDoSomethingWithAsset>, (authority, instruction));
-///
-///     CanDoSomethingWithAsset {
-///        some_data: "some data".to_owned(),
-///        asset: parse!(AssetId, "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"),
-///     }.is_owned_by(&authority)
-/// }
-/// ```
-#[manyhow]
-#[proc_macro_derive(Permission)]
-pub fn derive_permission(input: TokenStream) -> Result<TokenStream> {
-    let input = syn::parse2(input)?;
-
-    Ok(permission::impl_derive_permission(&input))
-}
-
-/// Derive macro for `Parameter` trait.
-/// ```
-#[manyhow]
-#[proc_macro_derive(Parameter)]
-pub fn derive_parameter(input: TokenStream) -> Result<TokenStream> {
-    let input = syn::parse2(input)?;
-
-    Ok(parameter::impl_derive_parameter(&input))
-}
-
-/// Derive macro for `ValidateGrantRevoke` trait.
-///
-/// # Attributes
-///
-/// This macro requires `validate` or a group of `validate_grant` and `validate_revoke` attributes.
-///
-/// ## `validate` attribute
-///
-/// Use `validate` to specify [*Pass Condition*](#permission) for both `Grant` and `Revoke`
-/// instructions validation.
-///
-/// ## `validate_grant` and `validate_revoke` attributes
-///
-/// Use `validate_grant` together with `validate_revoke` to specify *pass condition* for
-/// `Grant` and `Revoke` instructions validation separately.
-///
-/// # Pass conditions
-///
-/// You can pass any type implementing `iroha_executor::permission::PassCondition`
-/// and `From<&YourToken>` traits.
-///
-/// ## Builtin
-///
-/// There are some builtin pass conditions:
-///
-/// - `asset_definition::Owner` - checks if the authority is the asset definition owner;
-/// - `asset::Owner` - checks if the authority is the asset owner;
-/// - `account::Owner` - checks if the authority is the account owner.
-/// - `domain::Owner` - checks if the authority is the domain owner.
-/// - `AlwaysPass` - checks nothing and always passes.
-/// - `OnlyGenesis` - checks that block height is 0.
-///
-///
-/// Also check out `iroha_executor::permission::derive_conversion` module
-/// for conversion derive macros from your token to this *Pass Conditions*.
-///
-/// ## Why *Pass Conditions*?
-///
-/// With that you can easily derive one of most popular implementations to remove boilerplate code.
-///
-/// ## Manual `ValidateGrantRevoke` implementation VS Custom *Pass Condition*
-///
-/// General advice is to use custom *Pass Condition* if you need this custom validation
-/// multiple times in different tokens. Otherwise, you can implement `ValidateGrantRevoke` trait manually.
-///
-/// In future there will be combinators like `&&` and `||` to combine multiple *Pass Conditions*.
-///
-/// # Example
-///
-/// See [`Token`] derive macro example.
-//
-// TODO: Add combinators (#3255).
-// Example:
-//
-// ```
-// #[derive(Token, ValidateGrantRevoke)]
-// #[validate(Creator || Admin)]
-// pub struct CanDoSomethingWithAsset {
-//     ...
-// }
-// ```
-#[manyhow]
-#[proc_macro_derive(
-    ValidateGrantRevoke,
-    attributes(validate, validate_grant, validate_revoke)
-)]
-pub fn derive_validate_grant_revoke(input: TokenStream) -> Result<TokenStream> {
-    let input = syn::parse2(input)?;
-    validate::impl_derive_validate_grant_revoke(&input)
-}
-
-/// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
-/// from your token to a `permission::asset_definition::Owner` type.
-///
-/// Requires `asset_definition` field in the token.
-///
-/// Implements [`From`] for `permission::asset_definition::Owner`
-/// and not [`Into`] for your type. [`Into`] will be implemented automatically.
-#[manyhow]
-#[proc_macro_derive(RefIntoAssetDefinitionOwner)]
-pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> Result<TokenStream> {
-    let input = syn::parse2(input)?;
-
-    Ok(conversion::impl_derive_ref_into_asset_definition_owner(
-        &input,
-    ))
-}
-
-/// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
-/// from your token to a `permission::asset::Owner` type.
-///
-/// Requires `asset` field in the token.
-///
-/// Implements [`From`] for `permission::asset::Owner`
-/// and not [`Into`] for your type. [`Into`] will be implemented automatically.
-#[manyhow]
-#[proc_macro_derive(RefIntoAssetOwner)]
-pub fn derive_ref_into_asset_owner(input: TokenStream) -> Result<TokenStream> {
-    let input = syn::parse2(input)?;
-
-    Ok(conversion::impl_derive_ref_into_asset_owner(&input))
-}
-
-/// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
-/// from your token to a `permission::account::Owner` type.
-///
-/// Requires `account` field in the token.
-///
-/// Implements [`From`] for `permission::asset::Owner`
-/// and not [`Into`] for your type. [`Into`] will be implemented automatically.
-#[manyhow]
-#[proc_macro_derive(RefIntoAccountOwner)]
-pub fn derive_ref_into_account_owner(input: TokenStream) -> Result<TokenStream> {
-    let input = syn::parse2(input)?;
-
-    Ok(conversion::impl_derive_ref_into_account_owner(&input))
-}
-
-/// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
-/// from your token to a `permission::domain::Owner` type.
-///
-/// Requires `domain` field in the token.
-///
-/// Implements [`From`] for `permission::domain::Owner`
-/// and not [`Into`] for your type. [`Into`] will be implemented automatically.
-#[manyhow]
-#[proc_macro_derive(RefIntoDomainOwner)]
-pub fn derive_ref_into_domain_owner(input: TokenStream) -> Result<TokenStream> {
-    let input = syn::parse2(input)?;
-
-    Ok(conversion::impl_derive_ref_into_domain_owner(&input))
 }
 
 /// Implements the `iroha_executor::Validate` trait for the given `Executor` struct. As

@@ -6,15 +6,9 @@ version.workspace = true
 authors.workspace = true
 
 license.workspace = true
-categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
 [lints]
 workspace = true
-
-[badges]
-is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
-is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
-maintenance = { status = "actively-developed" }
 
 [features]
 default = ["std"]
@@ -33,8 +27,9 @@ ffi_export = ["std", "iroha_ffi", "iroha_primitives/ffi_export", "iroha_crypto/f
 transparent_api = []
 
 [dependencies]
+iroha_data_model_derive = { path = "derive" }
+
 iroha_primitives = { workspace = true }
-iroha_data_model_derive = { workspace = true }
 iroha_crypto = { workspace = true }
 iroha_macro = { workspace = true }
 iroha_version = { workspace = true, features = ["derive", "json", "scale"] }

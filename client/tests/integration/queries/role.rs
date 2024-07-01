@@ -5,7 +5,7 @@ use iroha::{
     client::{self, QueryResult},
     data_model::{prelude::*, query::error::QueryExecutionFail},
 };
-use serde_json::json;
+use iroha_executor_data_model::permission::account::CanSetKeyValueInAccount;
 use test_network::*;
 use test_samples::ALICE_ID;
 
@@ -131,10 +131,9 @@ fn find_roles_by_account_id() -> Result<()> {
         .iter()
         .cloned()
         .map(|role_id| {
-            Register::role(Role::new(role_id).add_permission(Permission::new(
-                "CanSetKeyValueInAccount".parse().unwrap(),
-                json!({ "account": alice_id }),
-            )))
+            Register::role(Role::new(role_id).add_permission(CanSetKeyValueInAccount {
+                account: alice_id.clone(),
+            }))
         })
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;

@@ -112,7 +112,7 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
 
 We provide a sample configuration for Docker in [`docker-compose.yml`](../configs/swarm/docker-compose.yml). We highly recommend that you adjust the `config.json` to include a set of new key pairs.
 
-[Generate the keys](#generating-keys) and put them into `services.*.environment` in `docker-compose.yml`. Don't forget to update the public keys of `SUMERAGI_TRUSTED_PEERS`.
+[Generate the keys](#generating-keys) and put them into `services.*.environment` in `docker-compose.yml`. Don't forget to update the public keys of `TRUSTED_PEERS`.
 
 - Build images:
 

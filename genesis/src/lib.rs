@@ -10,7 +10,7 @@ use std::{
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_data_model::{block::SignedBlock, isi::Instruction, prelude::*};
 use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
 use parity_scale_codec::{Decode, Encode};
@@ -82,8 +82,8 @@ impl RawGenesisTransaction {
     }
 
     /// Add new instruction to the genesis block.
-    pub fn append_instruction(&mut self, instruction: InstructionBox) {
-        self.instructions.push(instruction);
+    pub fn append_instruction(&mut self, instruction: impl Instruction) {
+        self.instructions.push(instruction.into());
     }
 
     /// Change topology

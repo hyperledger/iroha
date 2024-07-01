@@ -1,5 +1,5 @@
 //! Module for starting peers and networks. Used only for tests
-use core::{fmt::Debug, str::FromStr as _, time::Duration};
+use core::{fmt::Debug, time::Duration};
 use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc, thread};
 
 use eyre::Result;
@@ -12,7 +12,16 @@ use iroha::{
 use iroha_config::parameters::actual::{Root as Config, Sumeragi, TrustedPeers};
 pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair};
-use iroha_data_model::{query::QueryOutputBox, ChainId};
+use iroha_data_model::{
+    asset::AssetDefinitionId, isi::InstructionBox, query::QueryOutputBox, ChainId,
+};
+use iroha_executor_data_model::permission::{
+    asset::{CanBurnAssetWithDefinition, CanMintAssetWithDefinition},
+    domain::CanUnregisterDomain,
+    executor::CanUpgradeExecutor,
+    peer::CanUnregisterAnyPeer,
+    role::CanUnregisterAnyRole,
+};
 use iroha_genesis::{GenesisBlock, RawGenesisTransaction};
 use iroha_logger::{warn, InstrumentFutures};
 use iroha_primitives::{
@@ -21,7 +30,6 @@ use iroha_primitives::{
 };
 use irohad::Iroha;
 use rand::{prelude::SliceRandom, seq::IteratorRandom, thread_rng};
-use serde_json::json;
 use tempfile::TempDir;
 use test_samples::{ALICE_ID, ALICE_KEYPAIR, PEER_KEYPAIR, SAMPLE_GENESIS_ACCOUNT_KEYPAIR};
 use tokio::{
@@ -67,19 +75,20 @@ pub enum Signatory {
 pub trait TestGenesis: Sized {
     /// Construct Iroha genesis
     fn test(topology: Vec<PeerId>) -> Self {
-        Self::test_with_instructions([], topology)
+        let instructions: [InstructionBox; 0] = [];
+        Self::test_with_instructions(instructions, topology)
     }
 
     /// Construct genesis with additional instructions
     fn test_with_instructions(
-        extra_isi: impl IntoIterator<Item = InstructionBox>,
+        extra_isi: impl IntoIterator<Item = impl Instruction>,
         topology: Vec<PeerId>,
     ) -> Self;
 }
 
 impl TestGenesis for GenesisBlock {
     fn test_with_instructions(
-        extra_isi: impl IntoIterator<Item = InstructionBox>,
+        extra_isi: impl IntoIterator<Item = impl Instruction>,
         topology: Vec<PeerId>,
     ) -> Self {
         let cfg = Config::test();
@@ -90,37 +99,41 @@ impl TestGenesis for GenesisBlock {
             RawGenesisTransaction::from_path(manifest_dir.join("../../configs/swarm/genesis.json"))
                 .expect("Failed to deserialize genesis block from file");
 
-        let rose_definition_id =
-            AssetDefinitionId::from_str("rose#wonderland").expect("valid names");
+        let rose_definition_id = "rose#wonderland".parse::<AssetDefinitionId>().unwrap();
 
-        let mint_rose_permission = Permission::new(
-            "CanMintAssetWithDefinition".parse().unwrap(),
-            json!({ "asset_definition": rose_definition_id }),
+        let grant_mint_rose_permission = Grant::account_permission(
+            CanMintAssetWithDefinition {
+                asset_definition: rose_definition_id.clone(),
+            },
+            ALICE_ID.clone(),
         );
-        let burn_rose_permission = Permission::new(
-            "CanBurnAssetWithDefinition".parse().unwrap(),
-            json!({ "asset_definition": rose_definition_id }),
+        let grant_burn_rose_permission = Grant::account_permission(
+            CanBurnAssetWithDefinition {
+                asset_definition: rose_definition_id,
+            },
+            ALICE_ID.clone(),
         );
-        let unregister_any_peer_permission =
-            Permission::new("CanUnregisterAnyPeer".parse().unwrap(), json!(null));
-        let unregister_any_role_permission =
-            Permission::new("CanUnregisterAnyRole".parse().unwrap(), json!(null));
-        let unregister_wonderland_domain = Permission::new(
-            "CanUnregisterDomain".parse().unwrap(),
-            json!({ "domain": DomainId::from_str("wonderland").unwrap() }),
+        let grant_unregister_any_peer_permission =
+            Grant::account_permission(CanUnregisterAnyPeer, ALICE_ID.clone());
+        let grant_unregister_any_role_permission =
+            Grant::account_permission(CanUnregisterAnyRole, ALICE_ID.clone());
+        let grant_unregister_wonderland_domain = Grant::account_permission(
+            CanUnregisterDomain {
+                domain: "wonderland".parse().unwrap(),
+            },
+            ALICE_ID.clone(),
         );
-        let upgrade_executor_permission =
-            Permission::new("CanUpgradeExecutor".parse().unwrap(), json!(null));
-
-        for permission in [
-            mint_rose_permission,
-            burn_rose_permission,
-            unregister_any_peer_permission,
-            unregister_any_role_permission,
-            unregister_wonderland_domain,
-            upgrade_executor_permission,
+        let grant_upgrade_executor_permission =
+            Grant::account_permission(CanUpgradeExecutor, ALICE_ID.clone());
+        for isi in [
+            grant_mint_rose_permission,
+            grant_burn_rose_permission,
+            grant_unregister_any_peer_permission,
+            grant_unregister_any_role_permission,
+            grant_unregister_wonderland_domain,
+            grant_upgrade_executor_permission,
         ] {
-            genesis.append_instruction(Grant::permission(permission, ALICE_ID.clone()).into());
+            genesis.append_instruction(isi);
         }
 
         for isi in extra_isi.into_iter() {

@@ -813,9 +813,9 @@ mod transparent {
 
     impl Grant<Permission, Account> {
         /// Constructs a new [`Grant`] for a [`Permission`].
-        pub fn permission(permission: Permission, to: AccountId) -> Self {
+        pub fn account_permission(permission: impl Into<Permission>, to: AccountId) -> Self {
             Self {
-                object: permission,
+                object: permission.into(),
                 destination: to,
             }
         }
@@ -833,9 +833,9 @@ mod transparent {
 
     impl Grant<Permission, Role> {
         /// Constructs a new [`Grant`] for giving a [`Permission`] to [`Role`].
-        pub fn role_permission(permission: Permission, to: RoleId) -> Self {
+        pub fn role_permission(permission: impl Into<Permission>, to: RoleId) -> Self {
             Self {
-                object: permission,
+                object: permission.into(),
                 destination: to,
             }
         }
@@ -874,9 +874,9 @@ mod transparent {
 
     impl Revoke<Permission, Account> {
         /// Constructs a new [`Revoke`] for a [`Permission`].
-        pub fn permission(permission: Permission, from: AccountId) -> Self {
+        pub fn account_permission(permission: impl Into<Permission>, from: AccountId) -> Self {
             Self {
-                object: permission,
+                object: permission.into(),
                 destination: from,
             }
         }
@@ -894,9 +894,9 @@ mod transparent {
 
     impl Revoke<Permission, Role> {
         /// Constructs a new [`Revoke`] for removing a [`Permission`] from [`Role`].
-        pub fn role_permission(permission: Permission, from: RoleId) -> Self {
+        pub fn role_permission(permission: impl Into<Permission>, from: RoleId) -> Self {
             Self {
-                object: permission,
+                object: permission.into(),
                 destination: from,
             }
         }
