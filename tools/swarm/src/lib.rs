@@ -178,15 +178,9 @@ mod tests {
             # Single-line banner
 
             services:
-              builder:
+              irohad0:
                 image: hyperledger/iroha:dev
                 build: ../..
-                pull_policy: never
-                command: echo ok
-              irohad0:
-                depends_on:
-                - builder
-                image: hyperledger/iroha:dev
                 pull_policy: never
                 environment:
                   CHAIN: 00000000-0000-0000-0000-000000000000
@@ -216,7 +210,7 @@ mod tests {
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
                           --private-key $$GENESIS_PRIVATE_KEY \\
-                          --out-file $$GENESIS\\
+                          --out-file $$GENESIS \\
                       && \\
                       irohad
                   "
@@ -236,16 +230,10 @@ mod tests {
             # Multi-line banner 2
 
             services:
-              builder:
+              irohad0:
                 image: hyperledger/iroha:dev
                 build: ../..
                 pull_policy: build
-                command: echo ok
-              irohad0:
-                depends_on:
-                - builder
-                image: hyperledger/iroha:dev
-                pull_policy: never
                 environment:
                   CHAIN: 00000000-0000-0000-0000-000000000000
                   PUBLIC_KEY: ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA
@@ -274,7 +262,7 @@ mod tests {
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
                           --private-key $$GENESIS_PRIVATE_KEY \\
-                          --out-file $$GENESIS\\
+                          --out-file $$GENESIS \\
                       && \\
                       irohad
                   "
@@ -284,6 +272,115 @@ mod tests {
             Some("."),
             true,
             Some(&["Multi-line banner 1", "Multi-line banner 2"]),
+        ));
+    }
+
+    #[test]
+    fn multiple_build_banner_nocache() {
+        expect_test::expect!([r##"
+            # Single-line banner
+
+            services:
+              irohad0:
+                image: hyperledger/iroha:dev
+                build: ../..
+                pull_policy: build
+                environment:
+                  CHAIN: 00000000-0000-0000-0000-000000000000
+                  PUBLIC_KEY: ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA
+                  PRIVATE_KEY: 802640F173D8C4913E2244715B9BF810AC0A4DBE1C9E08F595C8D9510E3E335EF964BB87FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA
+                  P2P_ADDRESS: 0.0.0.0:1337
+                  API_ADDRESS: 0.0.0.0:8080
+                  GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
+                  TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
+                  GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
+                  GENESIS: /tmp/genesis.signed.scale
+                  TOPOLOGY: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
+                ports:
+                - 1337:1337
+                - 8080:8080
+                volumes:
+                - ./:/config
+                init: true
+                command: |-
+                  /bin/sh -c "
+                      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      jq \\
+                          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --argjson topology \"$$TOPOLOGY\" \\
+                          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                          >/tmp/genesis.json && \\
+                      kagami genesis sign /tmp/genesis.json \\
+                          --public-key $$GENESIS_PUBLIC_KEY \\
+                          --private-key $$GENESIS_PRIVATE_KEY \\
+                          --out-file $$GENESIS \\
+                      && \\
+                      irohad
+                  "
+              irohad1:
+                depends_on:
+                - irohad0
+                image: hyperledger/iroha:dev
+                pull_policy: never
+                environment:
+                  CHAIN: 00000000-0000-0000-0000-000000000000
+                  PUBLIC_KEY: ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2
+                  PRIVATE_KEY: 802640FD8E2F03755AA130464ABF57A75E207BE870636B57F614D7A7B94E42318F9CA964BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2
+                  P2P_ADDRESS: 0.0.0.0:1338
+                  API_ADDRESS: 0.0.0.0:8081
+                  GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
+                  TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
+                ports:
+                - 1338:1338
+                - 8081:8081
+                volumes:
+                - ./:/config
+                init: true
+              irohad2:
+                depends_on:
+                - irohad0
+                image: hyperledger/iroha:dev
+                pull_policy: never
+                environment:
+                  CHAIN: 00000000-0000-0000-0000-000000000000
+                  PUBLIC_KEY: ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300
+                  PRIVATE_KEY: 8026403A18FAC2654F1C8A331A84F4B142396EEC900022B38842D88D55E0DE144C8DF28EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300
+                  P2P_ADDRESS: 0.0.0.0:1339
+                  API_ADDRESS: 0.0.0.0:8082
+                  GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
+                  TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"}]'
+                ports:
+                - 1339:1339
+                - 8082:8082
+                volumes:
+                - ./:/config
+                init: true
+              irohad3:
+                depends_on:
+                - irohad0
+                image: hyperledger/iroha:dev
+                pull_policy: never
+                environment:
+                  CHAIN: 00000000-0000-0000-0000-000000000000
+                  PUBLIC_KEY: ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26
+                  PRIVATE_KEY: 8026409464445DBA9030D6AC4F83161D3219144F886068027F6708AF9686F85DF6C4F063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26
+                  P2P_ADDRESS: 0.0.0.0:1340
+                  API_ADDRESS: 0.0.0.0:8083
+                  GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
+                  TRUSTED_PEERS: '[{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
+                ports:
+                - 1340:1340
+                - 8083:8083
+                volumes:
+                - ./:/config
+                init: true
+        "##]).assert_eq(&build_as_string(
+            nonzero_ext::nonzero!(4u16),
+            false,
+            Some("."),
+            true,
+            Some(&["Single-line banner"]),
         ));
     }
 
@@ -327,7 +424,7 @@ mod tests {
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
                           --private-key $$GENESIS_PRIVATE_KEY \\
-                          --out-file $$GENESIS\\
+                          --out-file $$GENESIS \\
                       && \\
                       irohad
                   "
@@ -354,7 +451,7 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1337
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
-                  SUMERAGI_TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
+                  TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
                   GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS: /tmp/genesis.signed.scale
                   TOPOLOGY: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
@@ -382,7 +479,7 @@ mod tests {
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
                           --private-key $$GENESIS_PRIVATE_KEY \\
-                          --out-file $$GENESIS\\
+                          --out-file $$GENESIS \\
                       && \\
                       irohad
                   "
@@ -396,7 +493,7 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1338
                   API_ADDRESS: 0.0.0.0:8081
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
-                  SUMERAGI_TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
+                  TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
                 ports:
                 - 1338:1338
                 - 8081:8081
@@ -419,7 +516,7 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1339
                   API_ADDRESS: 0.0.0.0:8082
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
-                  SUMERAGI_TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"}]'
+                  TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"}]'
                 ports:
                 - 1339:1339
                 - 8082:8082
@@ -442,7 +539,7 @@ mod tests {
                   P2P_ADDRESS: 0.0.0.0:1340
                   API_ADDRESS: 0.0.0.0:8083
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
-                  SUMERAGI_TRUSTED_PEERS: '[{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
+                  TRUSTED_PEERS: '[{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
                 ports:
                 - 1340:1340
                 - 8083:8083

@@ -61,22 +61,15 @@ impl Pull {
 #[serde(transparent)]
 struct HostPath<'a>(&'a path::RelativePath);
 
-/// Dummy command used to terminate a service instead of running the image.
-#[derive(Copy, Clone, Debug)]
-struct EchoOk;
-
-const ECHO_OK: &str = "echo ok";
-
-/// Dummy service that builds the image and terminates.
+/// Image build settings.
 #[derive(serde::Serialize, Copy, Clone, Debug)]
-struct ImageBuilder<'a> {
+struct BuildImage<'a> {
     image: ImageId<'a>,
     build: HostPath<'a>,
     pull_policy: Build,
-    command: EchoOk,
 }
 
-impl<'a> ImageBuilder<'a> {
+impl<'a> BuildImage<'a> {
     fn new(image: ImageId<'a>, build: HostPath<'a>, ignore_cache: bool) -> Self {
         Self {
             image,
@@ -86,21 +79,20 @@ impl<'a> ImageBuilder<'a> {
             } else {
                 Build::OnCacheMiss
             },
-            command: EchoOk,
         }
     }
 }
 
-/// Reference to the image builder.
+/// Reference to the first peer.
 #[derive(Copy, Clone, Debug)]
-struct ImageBuilderRef;
+struct Irohad0Ref;
 
-const IMAGE_BUILDER: &str = "builder";
+const IROHAD0: &str = "irohad0";
 
 /// Image that has been built.
 #[derive(serde::Serialize, Copy, Clone, Debug)]
 struct BuiltImage<'a> {
-    depends_on: [ImageBuilderRef; 1],
+    depends_on: [Irohad0Ref; 1],
     image: ImageId<'a>,
     pull_policy: UseBuilt,
 }
@@ -116,7 +108,7 @@ struct PulledImage<'a> {
 impl<'a> BuiltImage<'a> {
     fn new(image: ImageId<'a>) -> Self {
         Self {
-            depends_on: [ImageBuilderRef],
+            depends_on: [Irohad0Ref],
             image,
             pull_policy: UseBuilt::UseCached,
         }
@@ -336,23 +328,24 @@ where
 #[derive(Debug, PartialOrd, PartialEq, Ord, Eq)]
 struct IrohadRef(u16);
 
-/// Peer services.
 #[derive(serde::Serialize, Debug)]
-struct Services<'a, Image>
-where
-    Image: serde::Serialize,
-{
-    irohad0: Irohad0<'a, Image>,
-    #[serde(flatten, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    irohads: std::collections::BTreeMap<IrohadRef, Irohad<'a, Image>>,
+#[serde(untagged)]
+enum BuildOrPull<'a> {
+    Build {
+        irohad0: Irohad0<'a, BuildImage<'a>>,
+        #[serde(flatten, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        irohads: std::collections::BTreeMap<IrohadRef, Irohad<'a, BuiltImage<'a>>>,
+    },
+    Pull {
+        irohad0: Irohad0<'a, PulledImage<'a>>,
+        #[serde(flatten, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        irohads: std::collections::BTreeMap<IrohadRef, Irohad<'a, PulledImage<'a>>>,
+    },
 }
 
-impl<'a, Image> Services<'a, Image>
-where
-    Image: serde::Serialize + Copy,
-{
-    fn new(
-        image: Image,
+impl<'a> BuildOrPull<'a> {
+    fn pull(
+        image: PulledImage<'a>,
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
@@ -360,52 +353,110 @@ where
         network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
     ) -> Self {
-        Self {
-            irohad0: {
-                let (_, ports, key_pair) = network.get(&0).expect("irohad0 must be present");
-                Irohad0::new(
-                    image,
-                    GenesisEnv::new(
-                        key_pair,
-                        *ports,
-                        chain,
-                        (genesis_public_key, genesis_private_key),
-                        topology,
-                    ),
-                    *ports,
-                    volumes,
-                    healthcheck,
-                )
-            },
-            irohads: network
-                .iter()
-                .skip(1)
-                .map(|(id, (_, ports, key_pair))| {
-                    (
-                        IrohadRef(*id),
-                        Irohad::new(
-                            image,
-                            PeerEnv::new(key_pair, *ports, chain, genesis_public_key, topology),
-                            *ports,
-                            volumes,
-                            healthcheck,
-                        ),
-                    )
-                })
-                .collect(),
+        Self::Pull {
+            irohad0: Self::irohad0(
+                image,
+                volumes,
+                healthcheck,
+                chain,
+                (genesis_public_key, genesis_private_key),
+                network,
+                topology,
+            ),
+            irohads: Self::irohads(
+                image,
+                volumes,
+                healthcheck,
+                chain,
+                genesis_public_key,
+                network,
+                topology,
+            ),
         }
     }
-}
 
-#[derive(serde::Serialize, Debug)]
-#[serde(untagged)]
-enum BuildOrPull<'a> {
-    Build {
-        builder: ImageBuilder<'a>,
-        #[serde(flatten)]
-        services: Services<'a, BuiltImage<'a>>,
-    },
-    Pull(Services<'a, PulledImage<'a>>),
+    fn build(
+        image: BuildImage<'a>,
+        volumes: [PathMapping<'a>; 1],
+        healthcheck: bool,
+        chain: &'a iroha_data_model::ChainId,
+        (genesis_public_key, genesis_private_key): &'a peer::ExposedKeyPair,
+        network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
+        topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
+    ) -> Self {
+        Self::Build {
+            irohad0: Self::irohad0(
+                image,
+                volumes,
+                healthcheck,
+                chain,
+                (genesis_public_key, genesis_private_key),
+                network,
+                topology,
+            ),
+            irohads: Self::irohads(
+                BuiltImage::new(image.image),
+                volumes,
+                healthcheck,
+                chain,
+                genesis_public_key,
+                network,
+                topology,
+            ),
+        }
+    }
+
+    fn irohad0<Image: serde::Serialize>(
+        image: Image,
+        volumes: [PathMapping<'a>; 1],
+        healthcheck: bool,
+        chain: &'a iroha_data_model::ChainId,
+        (genesis_public_key, genesis_private_key): peer::ExposedKeyRefPair<'a>,
+        network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
+        topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
+    ) -> Irohad0<'a, Image> {
+        let (_, ports, key_pair) = network.get(&0).expect("irohad0 must be present");
+        Irohad0::new(
+            image,
+            GenesisEnv::new(
+                key_pair,
+                *ports,
+                chain,
+                (genesis_public_key, genesis_private_key),
+                topology,
+            ),
+            *ports,
+            volumes,
+            healthcheck,
+        )
+    }
+
+    fn irohads<Image: serde::Serialize + Copy>(
+        image: Image,
+        volumes: [PathMapping<'a>; 1],
+        healthcheck: bool,
+        chain: &'a iroha_data_model::ChainId,
+        genesis_public_key: &'a iroha_crypto::PublicKey,
+        network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
+        topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
+    ) -> std::collections::BTreeMap<IrohadRef, Irohad<'a, Image>> {
+        network
+            .iter()
+            .skip(1)
+            .map(|(id, (_, ports, key_pair))| {
+                (
+                    IrohadRef(*id),
+                    Irohad::new(
+                        image,
+                        PeerEnv::new(key_pair, *ports, chain, genesis_public_key, topology),
+                        *ports,
+                        volumes,
+                        healthcheck,
+                    ),
+                )
+            })
+            .collect()
+    }
 }
 
 /// Docker Compose configuration.
@@ -439,7 +490,7 @@ impl<'a> DockerCompose<'a> {
         Self {
             services: build_dir.as_ref().map_or_else(
                 || {
-                    BuildOrPull::Pull(Services::new(
+                    BuildOrPull::pull(
                         PulledImage::new(image, *ignore_cache),
                         volumes,
                         *healthcheck,
@@ -447,19 +498,18 @@ impl<'a> DockerCompose<'a> {
                         genesis_key_pair,
                         network,
                         topology,
-                    ))
+                    )
                 },
-                |build| BuildOrPull::Build {
-                    builder: ImageBuilder::new(image, HostPath(build), *ignore_cache),
-                    services: Services::new(
-                        BuiltImage::new(image),
+                |build| {
+                    BuildOrPull::build(
+                        BuildImage::new(image, HostPath(build), *ignore_cache),
                         volumes,
                         *healthcheck,
                         chain,
                         genesis_key_pair,
                         network,
                         topology,
-                    ),
+                    )
                 },
             ),
         }
