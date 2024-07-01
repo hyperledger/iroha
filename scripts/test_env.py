@@ -130,7 +130,7 @@ class _Peer:
             # }
         }
         config["genesis"] = {
-            "signed_file": "../../genesis.signed.scale"
+            "file": "../../genesis.signed.scale"
         }
         with open(self.config_path, "wb") as f:
             tomli_w.dump(config, f)

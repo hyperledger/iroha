@@ -153,7 +153,7 @@ struct PeerEnv<'a> {
     genesis_public_key: &'a iroha_crypto::PublicKey,
     #[serde(skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     #[serde_as(as = "serde_with::json::JsonString")]
-    sumeragi_trusted_peers: std::collections::BTreeSet<&'a iroha_data_model::peer::PeerId>,
+    trusted_peers: std::collections::BTreeSet<&'a iroha_data_model::peer::PeerId>,
 }
 
 impl<'a> PeerEnv<'a> {
@@ -171,7 +171,7 @@ impl<'a> PeerEnv<'a> {
             p2p_address: iroha_primitives::addr::socket_addr!(0.0.0.0:port_p2p),
             api_address: iroha_primitives::addr::socket_addr!(0.0.0.0:port_api),
             genesis_public_key,
-            sumeragi_trusted_peers: topology
+            trusted_peers: topology
                 .iter()
                 .filter(|&peer| peer.public_key() != public_key)
                 .collect(),
@@ -186,7 +186,7 @@ struct GenesisEnv<'a> {
     #[serde(flatten)]
     base: PeerEnv<'a>,
     genesis_private_key: &'a iroha_crypto::ExposedPrivateKey,
-    genesis_signed_file: ContainerPath<'a>,
+    genesis: ContainerPath<'a>,
     #[serde_as(as = "serde_with::json::JsonString")]
     topology: std::collections::BTreeSet<&'a iroha_data_model::peer::PeerId>,
 }
@@ -202,7 +202,7 @@ impl<'a> GenesisEnv<'a> {
         Self {
             base: PeerEnv::new(key_pair, ports, chain, genesis_public_key, topology),
             genesis_private_key,
-            genesis_signed_file: ContainerPath(GENESIS),
+            genesis: ContainerPath(GENESIS_FILE),
             topology: topology.iter().collect(),
         }
     }
@@ -218,7 +218,7 @@ struct PortMapping(u16, u16);
 struct ContainerPath<'a>(&'a str);
 
 const CONTAINER_CONFIG_DIR: &str = "/config";
-const GENESIS: &str = "/tmp/genesis.signed.scale";
+const GENESIS_FILE: &str = "/tmp/genesis.signed.scale";
 
 /// Mapping between `host:container` paths.
 #[derive(Copy, Clone, Debug)]
@@ -297,7 +297,7 @@ const SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/sh -c "
     kagami genesis sign /tmp/genesis.json \\
         --public-key $$GENESIS_PUBLIC_KEY \\
         --private-key $$GENESIS_PRIVATE_KEY \\
-        --out-file $$GENESIS_SIGNED_FILE \\
+        --out-file $$GENESIS \\
     && \\
     irohad
 ""#;

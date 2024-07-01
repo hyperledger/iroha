@@ -605,7 +605,7 @@ pub fn read_config_and_genesis(
         .parse()
         .change_context(ConfigError::ParseConfig)?;
 
-    let genesis = if let Some(signed_file) = &config.genesis.signed_file {
+    let genesis = if let Some(signed_file) = &config.genesis.file {
         let genesis = read_genesis(&signed_file.resolve_relative_path())
             .attach_printable(signed_file.clone().into_attachment().display_path())?;
         Some(genesis)
@@ -642,11 +642,11 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     // maybe validate only if snapshot mode is enabled
     validate_directory_path(&mut emitter, &config.snapshot.store_dir);
 
-    if config.genesis.signed_file.is_none() && !config.sumeragi.contains_other_trusted_peers() {
+    if config.genesis.file.is_none() && !config.sumeragi.contains_other_trusted_peers() {
         emitter.emit(Report::new(ConfigError::LonePeer).attach_printable("\
             Reason: the network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
-            Since `genesis.signed_file` is not set, there is no way to receive the genesis block.\n\
-            Either provide the genesis by setting `genesis.signed_file` configuration parameter,\n\
+            Since `genesis.file` is not set, there is no way to receive the genesis block.\n\
+            Either provide the genesis by setting `genesis.file` configuration parameter,\n\
             or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter.\
         ").attach_printable(config.sumeragi.trusted_peers.clone().into_attachment().display_as_debug()));
     }
@@ -843,7 +843,7 @@ mod tests {
 
             let mut config = config_factory(genesis_key_pair.public_key());
             iroha_config::base::toml::Writer::new(&mut config)
-                .write(["genesis", "signed_file"], "./genesis/genesis.signed.scale")
+                .write(["genesis", "file"], "./genesis/genesis.signed.scale")
                 .write(["kura", "store_dir"], "../storage")
                 .write(["snapshot", "store_dir"], "../snapshots")
                 .write(["dev_telemetry", "out_file"], "../logs/telemetry");

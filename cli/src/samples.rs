@@ -70,10 +70,7 @@ pub fn get_config_toml(
         .write(["network", "block_gossip_size"], 1)
         .write(["torii", "address"], DEFAULT_TORII_ADDR)
         .write(["genesis", "public_key"], genesis_public_key)
-        .write(
-            ["genesis", "signed_file"],
-            "NEVER READ ME; YOU FOUND A BUG!",
-        )
+        .write(["genesis", "file"], "NEVER READ ME; YOU FOUND A BUG!")
         // There is no need in persistence in tests.
         // If required to should be set explicitly not to overlap with other existing tests
         .write(["snapshot", "mode"], "disabled");

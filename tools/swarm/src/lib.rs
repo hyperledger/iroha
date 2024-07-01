@@ -196,7 +196,7 @@ mod tests {
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
-                  GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
+                  GENESIS: /tmp/genesis.signed.scale
                   TOPOLOGY: '[{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"}]'
                 ports:
                 - 1337:1337
@@ -216,7 +216,7 @@ mod tests {
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
                           --private-key $$GENESIS_PRIVATE_KEY \\
-                          --out-file $$GENESIS_SIGNED_FILE \\
+                          --out-file $$GENESIS\\
                       && \\
                       irohad
                   "
@@ -254,7 +254,7 @@ mod tests {
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
-                  GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
+                  GENESIS: /tmp/genesis.signed.scale
                   TOPOLOGY: '[{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"}]'
                 ports:
                 - 1337:1337
@@ -274,7 +274,7 @@ mod tests {
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
                           --private-key $$GENESIS_PRIVATE_KEY \\
-                          --out-file $$GENESIS_SIGNED_FILE \\
+                          --out-file $$GENESIS\\
                       && \\
                       irohad
                   "
@@ -301,7 +301,7 @@ mod tests {
                   API_ADDRESS: 0.0.0.0:8080
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
-                  GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
+                  GENESIS: /tmp/genesis.signed.scale
                   TOPOLOGY: '[{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"}]'
                 ports:
                 - 1337:1337
@@ -327,7 +327,7 @@ mod tests {
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
                           --private-key $$GENESIS_PRIVATE_KEY \\
-                          --out-file $$GENESIS_SIGNED_FILE \\
+                          --out-file $$GENESIS\\
                       && \\
                       irohad
                   "
@@ -356,7 +356,7 @@ mod tests {
                   GENESIS_PUBLIC_KEY: ed0120F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
                   GENESIS_PRIVATE_KEY: 802640FB8B867188E4952F1E83534B9B2E0A12D5122BD6F417CBC79D50D8A8C9C917B0F9F92758E815121F637C9704DFDA54842BA937AA721C0603018E208D6E25787E
-                  GENESIS_SIGNED_FILE: /tmp/genesis.signed.scale
+                  GENESIS: /tmp/genesis.signed.scale
                   TOPOLOGY: '[{"address":"irohad3:1340","public_key":"ed012063ED3DFEDEBD8A86B4941CC4379D2EF0B74BDFE61F033FC0C89867D57C882A26"},{"address":"irohad1:1338","public_key":"ed012064BD9B25BF8477144D03B26FC8CF5D8A354B2F780DA310EE69933DC1E86FBCE2"},{"address":"irohad0:1337","public_key":"ed012087FDCACF58B891947600B0C37795CADB5A2AE6DE612338FDA9489AB21CE427BA"},{"address":"irohad2:1339","public_key":"ed01208EA177921AF051CD12FC07E3416419320908883A1104B31401B650EEB820A300"}]'
                 ports:
                 - 1337:1337
@@ -382,7 +382,7 @@ mod tests {
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
                           --private-key $$GENESIS_PRIVATE_KEY \\
-                          --out-file $$GENESIS_SIGNED_FILE \\
+                          --out-file $$GENESIS\\
                       && \\
                       irohad
                   "
