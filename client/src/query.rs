@@ -21,10 +21,7 @@ use url::Url;
 
 use crate::{
     client::{join_torii_url, Client, QueryResult, ResponseReport},
-    data_model::query::{
-        predicate::PredicateBox, sorting::Sorting, FetchSize, IterableQuery, Pagination, Query,
-        QueryOutputBox,
-    },
+    data_model::query::IterableQuery,
     http::{Method as HttpMethod, RequestBuilder},
     http_default::DefaultRequestBuilder,
 };
