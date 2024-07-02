@@ -25,7 +25,6 @@ fn main() {
         let config = InitConfig::new(config, true);
         let _ = iroha_logger::init_global(config).expect("Failed to initialize logger");
     }
-    iroha_logger::test_logger();
     iroha_logger::info!("Starting...");
     let bench = StateValidateBlocks::setup(rt.handle());
     StateValidateBlocks::measure(bench);
