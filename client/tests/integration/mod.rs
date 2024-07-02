@@ -3,6 +3,7 @@ mod asset_propagation;
 mod domain_owner_permissions;
 mod events;
 mod extra_functional;
+mod multisig;
 mod non_mintable;
 mod pagination;
 mod permissions;
