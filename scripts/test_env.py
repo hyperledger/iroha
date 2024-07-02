@@ -129,7 +129,7 @@ class _Peer:
             # }
         }
         config["genesis"] = {
-            "file": "../../genesis.signed.scale"
+            "file": "../../genesis.scale"
         }
         with open(self.config_path, "wb") as f:
             tomli_w.dump(config, f)
@@ -221,7 +221,7 @@ def sign_genesis_with_kagami(args: argparse.Namespace):
         genesis_path,
         "--public-key", genesis_public_key,
         "--private-key", genesis_private_key,
-        "--out-file", args.out_dir / "genesis.signed.scale"
+        "--out-file", args.out_dir / "genesis.scale"
     ]
     kagami = subprocess.run(command)
     if kagami.returncode:
@@ -229,7 +229,7 @@ def sign_genesis_with_kagami(args: argparse.Namespace):
         sys.exit(5)
 
 def get_genesis_hash(args: argparse.Namespace) -> str:
-    genesis_path = args.out_dir / "genesis.signed.scale"
+    genesis_path = args.out_dir / "genesis.scale"
     command = [args.out_dir / "kagami", "genesis", "hash", genesis_path]
     kagami = subprocess.run(command, capture_output=True, text=True)
     return kagami.stdout.strip()

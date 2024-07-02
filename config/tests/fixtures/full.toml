@@ -6,7 +6,7 @@ private_key = "8026408F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB89
 
 [genesis]
 hash = "b66bcd327cd7f29fe3b6e677de734326a7bf89e3d2775c927c8a60496ff000a9"
-file = "genesis.signed.scale"
+file = "genesis.scale"
 
 [network]
 address = "localhost:3840"

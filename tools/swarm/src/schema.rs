@@ -188,7 +188,7 @@ struct PortMapping(u16, u16);
 struct ContainerPath<'a>(&'a str);
 
 const CONTAINER_CONFIG_DIR: &str = "/config";
-const GENESIS_FILE: &str = "/tmp/genesis.signed.scale";
+const GENESIS_FILE: &str = "/tmp/genesis.scale";
 
 /// Mapping between `host:container` paths.
 #[derive(Copy, Clone, Debug)]

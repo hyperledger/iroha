@@ -1,4 +1,4 @@
 extends = "base.toml"
 
 [genesis]
-file = "./genesis.signed.scale"
+file = "./genesis.scale"

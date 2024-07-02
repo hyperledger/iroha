@@ -834,13 +834,13 @@ mod tests {
 
             let mut config = config_factory(genesis.0.hash());
             iroha_config::base::toml::Writer::new(&mut config)
-                .write(["genesis", "file"], "./genesis/genesis.signed.scale")
+                .write(["genesis", "file"], "./genesis/genesis.scale")
                 .write(["kura", "store_dir"], "../storage")
                 .write(["snapshot", "store_dir"], "../snapshots")
                 .write(["dev_telemetry", "out_file"], "../logs/telemetry");
 
             let dir = tempfile::tempdir()?;
-            let genesis_path = dir.path().join("config/genesis/genesis.signed.scale");
+            let genesis_path = dir.path().join("config/genesis/genesis.scale");
             let executor_path = dir.path().join("config/genesis/executor.wasm");
             let config_path = dir.path().join("config/config.toml");
             std::fs::create_dir(dir.path().join("config"))?;
