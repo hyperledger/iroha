@@ -24,7 +24,7 @@ def test_post_configuration_logger_level(log_level):
     ):
         response = requests.post(
             f"{BASE_URL}/configuration",
-            data=json.dumps({"logger": {"level": log_level}}),
+            json={"logger": {"level": log_level}},
         )
 
     with allure.step("THEN the response should be accepted"):

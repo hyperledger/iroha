@@ -23,29 +23,30 @@ telemetry = ["iroha_telemetry", "iroha_core/telemetry", "serde_json"]
 # Enables profiling endpoint
 profiling = ["pprof"]
 # Enables Data Model Schema endpoint
-schema = ["iroha_schema_gen"]
+schema = ["iroha_schema", "iroha_schema_gen"]
 
 [dependencies]
-iroha_torii_derive = { path = "derive" }
-
 iroha_core = { workspace = true }
 iroha_config = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_data_model = { workspace = true, features = ["http"] }
-iroha_version = { workspace = true, features = ["http"] }
+iroha_version = { workspace = true }
 iroha_torii_const = { workspace = true }
 iroha_futures = { workspace = true }
 iroha_macro = { workspace = true }
+iroha_schema = { workspace = true, optional = true }
 iroha_schema_gen = { workspace = true, optional = true }
 iroha_telemetry = { workspace = true, optional = true }
 
 thiserror = { workspace = true }
 displaydoc = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
-warp = { workspace = true, features = ["multipart", "websocket"] }
+axum = { workspace = true, features = ["multipart", "ws", "query", "json", "tokio", "http1"] }
+tower-http = { version = "0.5.0", features = ["trace", "timeout"] }
 tokio = { workspace = true, features = ["sync", "time", "macros"] }
 eyre = { workspace = true }
+error-stack = { workspace = true, features = ["eyre"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 async-trait = { workspace = true }

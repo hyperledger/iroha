@@ -1,12 +1,12 @@
 //! Iroha is a quite dynamic system so many events can happen.
 //! This module contains descriptions of such an events and
 //! utility Iroha Special Instructions to work with them.
+use axum::extract::ws::WebSocket;
 use futures::TryStreamExt;
 use iroha_data_model::events::prelude::*;
 use iroha_macro::error::ErrorTryFromEnum;
-use warp::ws::WebSocket;
 
-use crate::stream::{self, Sink, Stream};
+use crate::stream::{self, Sink, Stream, StreamMessage as _};
 
 /// Type of Stream error
 pub type StreamError = stream::Error<<WebSocket as Stream<EventSubscriptionRequest>>::Err>;
@@ -24,7 +24,7 @@ pub enum Error {
     ),
     /// Error from provided websocket
     #[error("WebSocket error: {0}")]
-    WebSocket(#[from] warp::Error),
+    WebSocket(#[from] axum::Error),
     /// Error that occurs than `WebSocket::next()` call returns `None`
     #[error("Can't receive message from stream")]
     CantReceiveMessage,
@@ -54,7 +54,8 @@ impl Consumer {
     /// Can fail due to timeout or without message at websocket or during decoding request
     #[iroha_futures::telemetry_future]
     pub async fn new(mut stream: WebSocket) -> Result<Self> {
-        let EventSubscriptionRequest(filters) = stream.recv().await?;
+        let EventSubscriptionRequest(filters) =
+            Stream::<EventSubscriptionRequest>::recv(&mut stream).await?;
         Ok(Consumer { stream, filters })
     }
 
@@ -68,8 +69,7 @@ impl Consumer {
             return Ok(());
         }
 
-        self.stream
-            .send(EventMessage(event))
+        Sink::<_>::send(&mut self.stream, EventMessage(event))
             .await
             .map_err(Into::into)
     }

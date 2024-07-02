@@ -17,12 +17,47 @@ def setup_configuration():
 
 
 @allure.id("1552")
-@allure.label("status_code", "400")
+@allure.label("status_code", "422")
 def test_post_configuration_invalid_data():
-    with allure.step("WHEN I send POST request with invalid data to /configuration"):
+    with allure.step(
+        "WHEN I send POST request with valid json with invalid data to /configuration"
+    ):
+        response = requests.post(
+            f"{BASE_URL}/configuration",
+            json={"logger": {"level": "invalid"}},
+        )
+
+    with allure.step("THEN the response status code should be a client error"):
+        assert (
+            422 == response.status_code
+        ), "Response status code is not a client or server error for invalid data"
+
+
+@allure.id("1553")
+@allure.label("status_code", "415")
+def test_post_configuration_no_header():
+    with allure.step(
+        "WHEN I send POST request without content type json header to /configuration"
+    ):
         response = requests.post(
             f"{BASE_URL}/configuration",
             data=json.dumps({"logger": {"level": "invalid"}}),
+        )
+
+    with allure.step("THEN the response status code should be a client error"):
+        assert (
+            415 == response.status_code
+        ), "Response status code is not a client or server error for invalid data"
+
+
+@allure.id("1554")
+@allure.label("status_code", "400")
+def test_post_configuration_invalid_json():
+    with allure.step("WHEN I send POST request with invalid json to /configuration"):
+        response = requests.post(
+            f"{BASE_URL}/configuration",
+            data="i'm not json",
+            headers={"Content-type": "application/json"},
         )
 
     with allure.step("THEN the response status code should be a client error"):
@@ -39,7 +74,7 @@ def test_post_configuration_valid_logger_level(log_level):
     ):
         requests.post(
             f"{BASE_URL}/configuration",
-            data=json.dumps({"logger": {"level": log_level}}),
+            json={"logger": {"level": log_level}},
         )
 
     with allure.step(f"THEN the log level should be {log_level}"):
