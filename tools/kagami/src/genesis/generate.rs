@@ -154,7 +154,7 @@ pub fn generate_default(
     // Will be replaced with actual topology either in scripts/test_env.py or in iroha_swarm
     let topology = vec![];
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-    let genesis = builder.build_raw(chain_id, executor_path, topology);
+    let genesis = builder.build_raw(chain_id, executor_path, topology, genesis_account_id);
     Ok(genesis)
 }
 

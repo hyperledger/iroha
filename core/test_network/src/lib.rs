@@ -141,10 +141,9 @@ impl TestGenesis for GenesisBlock {
             genesis.append_instruction(isi);
         }
 
-        let genesis_key_pair = SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone();
         genesis
             .with_topology(topology)
-            .build_and_sign(&genesis_key_pair)
+            .build()
             .expect("genesis should load fine")
     }
 }

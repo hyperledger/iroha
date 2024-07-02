@@ -345,6 +345,7 @@ mod candidate {
     impl SignedBlockCandidate {
         fn validate(self) -> Result<SignedBlockV1, &'static str> {
             self.validate_signatures()?;
+            self.validate_transaction_signatures()?;
             self.validate_header()?;
             if self.payload.header.height.get() == 1 {
                 self.validate_genesis()?;
@@ -413,6 +414,18 @@ mod candidate {
                     Ok(acc)
                 })?;
 
+            Ok(())
+        }
+
+        fn validate_transaction_signatures(&self) -> Result<(), &'static str> {
+            if self.payload.header.height.get() == 1 {
+                return Ok(());
+            }
+
+            for transaction in &self.payload.transactions {
+                let SignedTransaction::V1(transaction) = &transaction.value;
+                transaction.validate_signature()?;
+            }
             Ok(())
         }
 

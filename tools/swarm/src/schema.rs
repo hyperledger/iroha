@@ -142,12 +142,10 @@ struct PeerEnv<'a> {
     private_key: &'a iroha_crypto::ExposedPrivateKey,
     p2p_address: iroha_primitives::addr::SocketAddr,
     api_address: iroha_primitives::addr::SocketAddr,
-    genesis_public_key: &'a iroha_crypto::PublicKey,
-    genesis_private_key: &'a iroha_crypto::ExposedPrivateKey,
+    genesis: ContainerPath<'a>,
     #[serde(skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     #[serde_as(as = "serde_with::json::JsonString")]
     trusted_peers: std::collections::BTreeSet<&'a iroha_data_model::peer::PeerId>,
-    genesis: ContainerPath<'a>,
     #[serde_as(as = "serde_with::json::JsonString")]
     topology: std::collections::BTreeSet<&'a iroha_data_model::peer::PeerId>,
 }
@@ -157,7 +155,6 @@ impl<'a> PeerEnv<'a> {
         (public_key, private_key): &'a peer::ExposedKeyPair,
         [port_p2p, port_api]: [u16; 2],
         chain: &'a iroha_data_model::ChainId,
-        (genesis_public_key, genesis_private_key): peer::ExposedKeyRefPair<'a>,
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
     ) -> Self {
         Self {
@@ -166,13 +163,11 @@ impl<'a> PeerEnv<'a> {
             private_key,
             p2p_address: iroha_primitives::addr::socket_addr!(0.0.0.0:port_p2p),
             api_address: iroha_primitives::addr::socket_addr!(0.0.0.0:port_api),
-            genesis_public_key,
+            genesis: ContainerPath(GENESIS_FILE),
             trusted_peers: topology
                 .iter()
                 .filter(|&peer| peer.public_key() != public_key)
                 .collect(),
-            genesis_private_key,
-            genesis: ContainerPath(GENESIS_FILE),
             topology: topology.iter().collect(),
         }
     }
@@ -224,7 +219,7 @@ where
     init: Bool<true>,
     #[serde(skip_serializing_if = "Option::is_none")]
     healthcheck: Option<Healthcheck>,
-    command: SignAndSubmitGenesis,
+    command: PrepareGenesisAndStartIroha,
 }
 
 impl<'a, Image, Environment> Irohad<'a, Image, Environment>
@@ -249,16 +244,16 @@ where
             volumes,
             init: Bool,
             healthcheck: healthcheck.then_some(Healthcheck { port: port_api }),
-            command: SignAndSubmitGenesis,
+            command: PrepareGenesisAndStartIroha,
         }
     }
 }
 
 /// Command used by the genesis service to sign and submit genesis.
 #[derive(Debug)]
-struct SignAndSubmitGenesis;
+struct PrepareGenesisAndStartIroha;
 
-const SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/sh -c "
+const PREPARE_GENESIS_AND_START_IROHA: &str = r#"/bin/sh -c "
     EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
     EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
     jq \\
@@ -266,12 +261,7 @@ const SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/sh -c "
         --argjson topology \"$$TOPOLOGY\" \\
         '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
         >/tmp/genesis.json && \\
-    kagami genesis sign /tmp/genesis.json \\
-        --public-key $$GENESIS_PUBLIC_KEY \\
-        --private-key $$GENESIS_PRIVATE_KEY \\
-        --out-file $$GENESIS \\
-    && \\
-    export GENESIS_HASH=$(kagami genesis hash $$GENESIS) && \\
+    export GENESIS_HASH=$(kagami genesis prepare /tmp/genesis.json --out-file $$GENESIS) && \\
     irohad
 ""#;
 
@@ -300,29 +290,12 @@ impl<'a> BuildOrPull<'a> {
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
-        (genesis_public_key, genesis_private_key): &'a peer::ExposedKeyPair,
         network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
     ) -> Self {
         Self::Pull {
-            irohad0: Self::irohad0(
-                image,
-                volumes,
-                healthcheck,
-                chain,
-                (genesis_public_key, genesis_private_key),
-                network,
-                topology,
-            ),
-            irohads: Self::irohads(
-                image,
-                volumes,
-                healthcheck,
-                chain,
-                (genesis_public_key, genesis_private_key),
-                network,
-                topology,
-            ),
+            irohad0: Self::irohad0(image, volumes, healthcheck, chain, network, topology),
+            irohads: Self::irohads(image, volumes, healthcheck, chain, network, topology),
         }
     }
 
@@ -331,26 +304,16 @@ impl<'a> BuildOrPull<'a> {
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
-        (genesis_public_key, genesis_private_key): &'a peer::ExposedKeyPair,
         network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
     ) -> Self {
         Self::Build {
-            irohad0: Self::irohad0(
-                image,
-                volumes,
-                healthcheck,
-                chain,
-                (genesis_public_key, genesis_private_key),
-                network,
-                topology,
-            ),
+            irohad0: Self::irohad0(image, volumes, healthcheck, chain, network, topology),
             irohads: Self::irohads(
                 BuiltImage::new(image.image),
                 volumes,
                 healthcheck,
                 chain,
-                (genesis_public_key, genesis_private_key),
                 network,
                 topology,
             ),
@@ -362,20 +325,13 @@ impl<'a> BuildOrPull<'a> {
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
-        (genesis_public_key, genesis_private_key): peer::ExposedKeyRefPair<'a>,
         network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
     ) -> Irohad<'a, Image> {
         let (_, ports, key_pair) = network.get(&0).expect("irohad0 must be present");
         Irohad::new(
             image,
-            PeerEnv::new(
-                key_pair,
-                *ports,
-                chain,
-                (genesis_public_key, genesis_private_key),
-                topology,
-            ),
+            PeerEnv::new(key_pair, *ports, chain, topology),
             *ports,
             volumes,
             healthcheck,
@@ -387,7 +343,6 @@ impl<'a> BuildOrPull<'a> {
         volumes: [PathMapping<'a>; 1],
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
-        (genesis_public_key, genesis_private_key): peer::ExposedKeyRefPair<'a>,
         network: &'a std::collections::BTreeMap<u16, peer::PeerInfo>,
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::PeerId>,
     ) -> std::collections::BTreeMap<IrohadRef, Irohad<'a, Image>> {
@@ -399,13 +354,7 @@ impl<'a> BuildOrPull<'a> {
                     IrohadRef(*id),
                     Irohad::new(
                         image,
-                        PeerEnv::new(
-                            key_pair,
-                            *ports,
-                            chain,
-                            (genesis_public_key, genesis_private_key),
-                            topology,
-                        ),
+                        PeerEnv::new(key_pair, *ports, chain, topology),
                         *ports,
                         volumes,
                         healthcheck,
@@ -434,7 +383,6 @@ impl<'a> DockerCompose<'a> {
             healthcheck,
             config_dir,
             chain,
-            genesis_key_pair,
             network,
             topology,
         }: &'a PeerSettings,
@@ -452,7 +400,6 @@ impl<'a> DockerCompose<'a> {
                         volumes,
                         *healthcheck,
                         chain,
-                        genesis_key_pair,
                         network,
                         topology,
                     )
@@ -463,7 +410,6 @@ impl<'a> DockerCompose<'a> {
                         volumes,
                         *healthcheck,
                         chain,
-                        genesis_key_pair,
                         network,
                         topology,
                     )
@@ -510,17 +456,10 @@ mod tests {
     #[test]
     fn peer_env_produces_exhaustive_config() {
         let key_pair = peer::generate_key_pair(None, &[]);
-        let (genesis_public_key, genesis_private_key) = &peer::generate_key_pair(None, &[]);
         let ports = [BASE_PORT_P2P, BASE_PORT_API];
         let chain = peer::chain();
         let topology = [peer::peer_id("dummy", BASE_PORT_API, key_pair.0.clone())].into();
-        let env = PeerEnv::new(
-            &key_pair,
-            ports,
-            &chain,
-            (genesis_public_key, genesis_private_key),
-            &topology,
-        );
+        let env = PeerEnv::new(&key_pair, ports, &chain, &topology);
         let mock_env = iroha_config::base::env::MockEnv::from(env);
         let _ = iroha_config::base::read::ConfigReader::new()
             .with_env(mock_env.clone())
@@ -528,10 +467,7 @@ mod tests {
             .expect("config in env should be exhaustive");
         assert_eq!(
             mock_env.unvisited(),
-            ["GENESIS_PUBLIC_KEY", "GENESIS_PRIVATE_KEY", "TOPOLOGY"]
-                .into_iter()
-                .map(ToOwned::to_owned)
-                .collect()
+            ["TOPOLOGY"].into_iter().map(ToOwned::to_owned).collect()
         );
     }
 }

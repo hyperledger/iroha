@@ -825,10 +825,10 @@ mod tests {
             // Given
 
             let genesis_key_pair = KeyPair::random();
-            let genesis = GenesisBuilder::default().build_and_sign(
+            let genesis = GenesisBuilder::default().build(
                 dummy_executor(),
                 ChainId::from("00000000-0000-0000-0000-000000000000"),
-                &genesis_key_pair,
+                genesis_key_pair.public_key(),
                 vec![],
             );
 

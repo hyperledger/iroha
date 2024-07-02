@@ -13,8 +13,6 @@ services:
       PRIVATE_KEY: 802640A4DFC16789FBF9A588525E4AC7F791AC51B12AEE8919EACC03EB2FC31D32C692A98BAFB0663CE08D75EBD506FEC38A84E576A7C9B0897693ED4B04FD9EF2D18D
       P2P_ADDRESS: 0.0.0.0:1337
       API_ADDRESS: 0.0.0.0:8080
-      GENESIS_PUBLIC_KEY: ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
-      GENESIS_PRIVATE_KEY: 80264082B3BDE54AEBECA4146257DA0DE8D59D8E46D5FE34887DCD8072866792FCB3AD4164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4
       GENESIS: /tmp/genesis.scale
       TOPOLOGY: '[{"address":"irohad0:1337","public_key":"ed0120A98BAFB0663CE08D75EBD506FEC38A84E576A7C9B0897693ED4B04FD9EF2D18D"}]'
     ports:
@@ -38,11 +36,6 @@ services:
               --argjson topology \"$$TOPOLOGY\" \\
               '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
               >/tmp/genesis.json && \\
-          kagami genesis sign /tmp/genesis.json \\
-              --public-key $$GENESIS_PUBLIC_KEY \\
-              --private-key $$GENESIS_PRIVATE_KEY \\
-              --out-file $$GENESIS \\
-          && \\
-          export GENESIS_HASH=$(kagami genesis hash $$GENESIS) && \\
+          export GENESIS_HASH=$(kagami genesis prepare /tmp/genesis.json --out-file $$GENESIS) && \\
           irohad
       "

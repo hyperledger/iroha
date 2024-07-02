@@ -28,7 +28,12 @@ fn query_requests(criterion: &mut Criterion) {
         .domain("wonderland".parse().expect("Valid"))
         .account(get_key_pair(test_network::Signatory::Alice).into_parts().0)
         .finish_domain()
-        .build_and_sign(executor, chain_id.clone(), &genesis_key_pair, topology);
+        .build(
+            executor,
+            chain_id.clone(),
+            genesis_key_pair.public_key(),
+            topology,
+        );
 
     let configuration = get_config(
         unique_vec![peer.id.clone()],
@@ -123,7 +128,12 @@ fn instruction_submits(criterion: &mut Criterion) {
     let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
         .finish_domain()
-        .build_and_sign(executor, chain_id.clone(), &genesis_key_pair, topology);
+        .build(
+            executor,
+            chain_id.clone(),
+            genesis_key_pair.public_key(),
+            topology,
+        );
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),

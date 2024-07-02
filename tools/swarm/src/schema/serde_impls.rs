@@ -18,12 +18,12 @@ impl serde::Serialize for super::Irohad0Ref {
     }
 }
 
-impl serde::Serialize for super::SignAndSubmitGenesis {
+impl serde::Serialize for super::PrepareGenesisAndStartIroha {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        ser.serialize_str(super::SIGN_AND_SUBMIT_GENESIS)
+        ser.serialize_str(super::PREPARE_GENESIS_AND_START_IROHA)
     }
 }
 

@@ -66,7 +66,7 @@ fn generate_genesis(
         .fold(builder, GenesisBuilder::append_instruction);
 
     let executor = construct_executor("default_executor").expect("Failed to construct executor");
-    Ok(builder.build_and_sign(executor, chain_id, genesis_key_pair, topology))
+    Ok(builder.build(executor, chain_id, genesis_key_pair.public_key(), topology))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

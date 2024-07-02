@@ -4,10 +4,6 @@ pub type PeerInfo = (PeerName, P2pApiPorts, ExposedKeyPair);
 pub type PeerName = String;
 pub type P2pApiPorts = [u16; 2];
 pub type ExposedKeyPair = (iroha_crypto::PublicKey, iroha_crypto::ExposedPrivateKey);
-pub type ExposedKeyRefPair<'a> = (
-    &'a iroha_crypto::PublicKey,
-    &'a iroha_crypto::ExposedPrivateKey,
-);
 
 pub const SERVICE_NAME: &str = "irohad";
 

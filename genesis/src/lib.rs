@@ -45,9 +45,9 @@ impl GenesisBlock {
 }
 
 /// Format of genesis.json user file.
-/// It should be signed, converted to [`GenesisBlock`],
+/// It should be converted to [`GenesisBlock`],
 /// and serialized in SCALE format before supplying to Iroha peer.
-/// See `kagami genesis sign`.
+/// See `kagami genesis prepare`.
 #[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, Encode, Decode)]
 pub struct RawGenesisTransaction {
     /// Unique id of blockchain
@@ -57,6 +57,8 @@ pub struct RawGenesisTransaction {
     instructions: Vec<InstructionBox>,
     /// Initial topology
     topology: Vec<PeerId>,
+    /// Genesis account
+    genesis: AccountId,
 }
 
 /// Path to [`Executor`] file
@@ -110,31 +112,31 @@ impl RawGenesisTransaction {
         self
     }
 
-    /// Build and sign genesis block.
+    /// Prepare genesis block.
     ///
     /// # Errors
     /// If executor couldn't be read from provided path
-    pub fn build_and_sign(self, genesis_key_pair: &KeyPair) -> Result<GenesisBlock> {
+    pub fn build(self) -> Result<GenesisBlock> {
         let executor = get_executor(&self.executor.0)?;
-        let genesis = build_and_sign_genesis(
+        let genesis = build_genesis(
             self.instructions,
             executor,
             self.chain,
-            genesis_key_pair,
+            &self.genesis.signatory(),
             self.topology,
         );
         Ok(genesis)
     }
 }
 
-fn build_and_sign_genesis(
+fn build_genesis(
     instructions: Vec<InstructionBox>,
     executor: Executor,
     chain_id: ChainId,
-    genesis_key_pair: &KeyPair,
+    genesis_public_key: &PublicKey,
     topology: Vec<PeerId>,
 ) -> GenesisBlock {
-    let transactions = build_transactions(instructions, executor, chain_id, genesis_key_pair);
+    let transactions = build_transactions(instructions, executor, chain_id, genesis_public_key);
     let block = SignedBlock::genesis(transactions, topology);
     GenesisBlock(block)
 }
@@ -143,15 +145,16 @@ fn build_transactions(
     instructions: Vec<InstructionBox>,
     executor: Executor,
     chain_id: ChainId,
-    genesis_key_pair: &KeyPair,
+    genesis_public_key: &PublicKey,
 ) -> Vec<SignedTransaction> {
     let upgrade_isi = Upgrade::new(executor).into();
     let transaction_executor =
-        build_transaction(vec![upgrade_isi], chain_id.clone(), genesis_key_pair);
+        build_transaction(vec![upgrade_isi], chain_id.clone(), genesis_public_key);
     if instructions.is_empty() {
         vec![transaction_executor]
     } else {
-        let transaction_instructions = build_transaction(instructions, chain_id, genesis_key_pair);
+        let transaction_instructions =
+            build_transaction(instructions, chain_id, genesis_public_key);
         vec![transaction_executor, transaction_instructions]
     }
 }
@@ -159,15 +162,15 @@ fn build_transactions(
 fn build_transaction(
     instructions: Vec<InstructionBox>,
     chain_id: ChainId,
-    genesis_key_pair: &KeyPair,
+    genesis_public_key: &PublicKey,
 ) -> SignedTransaction {
-    let genesis_account_id = AccountId::new(
-        GENESIS_DOMAIN_ID.clone(),
-        genesis_key_pair.public_key().clone(),
-    );
-    TransactionBuilder::new(chain_id, genesis_account_id)
+    let genesis_account = AccountId::new(GENESIS_DOMAIN_ID.clone(), genesis_public_key.clone());
+    TransactionBuilder::new(chain_id, genesis_account)
         .with_instructions(instructions)
-        .sign(genesis_key_pair.private_key())
+        // There is no need to sign genesis transactions since we check it by hash,
+        // but our data model requires SignedTransaction to be signed,
+        // so we sign it with random key pair
+        .sign(KeyPair::random().private_key())
 }
 
 fn get_executor(file: &Path) -> Result<Executor> {
@@ -223,19 +226,19 @@ impl GenesisBuilder {
         self
     }
 
-    /// Finish building, sign, and produce a [`GenesisBlock`].
-    pub fn build_and_sign(
+    /// Finish building and produce a [`GenesisBlock`].
+    pub fn build(
         self,
         executor_blob: Executor,
         chain_id: ChainId,
-        genesis_key_pair: &KeyPair,
+        genesis_public_key: &PublicKey,
         topology: Vec<PeerId>,
     ) -> GenesisBlock {
-        build_and_sign_genesis(
+        build_genesis(
             self.instructions,
             executor_blob,
             chain_id,
-            genesis_key_pair,
+            &genesis_public_key,
             topology,
         )
     }
@@ -246,12 +249,14 @@ impl GenesisBuilder {
         chain_id: ChainId,
         executor_file: PathBuf,
         topology: Vec<PeerId>,
+        genesis: AccountId,
     ) -> RawGenesisTransaction {
         RawGenesisTransaction {
             instructions: self.instructions,
             executor: ExecutorPath(executor_file),
             chain: chain_id,
             topology,
+            genesis,
         }
     }
 }
@@ -325,7 +330,12 @@ mod tests {
             .domain("wonderland".parse()?)
             .account(alice_public_key)
             .finish_domain()
-            .build_and_sign(dummy_executor(), chain_id, &genesis_key_pair, vec![]);
+            .build(
+                dummy_executor(),
+                chain_id,
+                genesis_key_pair.public_key(),
+                vec![],
+            );
         Ok(())
     }
 
@@ -359,10 +369,10 @@ mod tests {
             .finish_domain();
 
         // In real cases executor should be constructed from a wasm blob
-        let finished_genesis = genesis_builder.build_and_sign(
+        let finished_genesis = genesis_builder.build(
             dummy_executor(),
             ChainId::from("00000000-0000-0000-0000-000000000000"),
-            &KeyPair::random(),
+            &KeyPair::random().public_key(),
             vec![],
         );
 

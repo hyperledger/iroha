@@ -38,8 +38,7 @@ class Network:
         logging.info("Generating shared configuration...")
         trusted_peers = [{"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key} for peer in self.peers]
         copy_genesis_json_and_change_topology(args, trusted_peers)
-        sign_genesis_with_kagami(args)
-        genesis_hash = get_genesis_hash(args)
+        genesis_hash = prepare_genesis_with_kagami(args)
 
         shared_config = {
             "chain": "00000000-0000-0000-0000-000000000000",
@@ -207,31 +206,20 @@ def copy_genesis_json_and_change_topology(args: argparse.Namespace, topology):
     with open(args.out_dir / "genesis.json", 'w') as f:
         json.dump(genesis, f, indent=4)
 
-def sign_genesis_with_kagami(args: argparse.Namespace):
-    genesis_key_pair = kagami_generate_key_pair(args.out_dir, seed="Irohagenesis")
-    genesis_public_key = genesis_key_pair["public_key"]
-    genesis_private_key = genesis_key_pair["private_key"]
-
+def prepare_genesis_with_kagami(args: argparse.Namespace):
     genesis_path = args.out_dir / "genesis.json"
 
     command = [
         args.out_dir / "kagami",
         "genesis",
-        "sign",
+        "prepare",
         genesis_path,
-        "--public-key", genesis_public_key,
-        "--private-key", genesis_private_key,
         "--out-file", args.out_dir / "genesis.scale"
     ]
-    kagami = subprocess.run(command)
-    if kagami.returncode:
-        logging.error("Kagami failed to sign genesis.json")
-        sys.exit(5)
-
-def get_genesis_hash(args: argparse.Namespace) -> str:
-    genesis_path = args.out_dir / "genesis.scale"
-    command = [args.out_dir / "kagami", "genesis", "hash", genesis_path]
     kagami = subprocess.run(command, capture_output=True, text=True)
+    if kagami.returncode:
+        logging.error("Kagami failed to prepare genesis block")
+        sys.exit(5)
     return kagami.stdout.strip()
 
 def main(args: argparse.Namespace):
