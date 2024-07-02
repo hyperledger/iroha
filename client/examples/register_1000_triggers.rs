@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        genesis.0.hash(),
+        genesis.hash(),
     );
 
     let builder = PeerBuilder::new()

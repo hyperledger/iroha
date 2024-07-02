@@ -34,7 +34,7 @@ fn query_requests(criterion: &mut Criterion) {
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        genesis.0.hash(),
+        genesis.hash(),
     );
     let builder = PeerBuilder::new()
         .with_config(configuration)
@@ -128,7 +128,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        genesis.0.hash(),
+        genesis.hash(),
     );
     let builder = PeerBuilder::new()
         .with_config(configuration)

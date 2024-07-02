@@ -200,7 +200,7 @@ impl NetworkBuilder {
         let peer_infos = self.generate_peer_infos();
         let topology = peers.iter().map(|peer| peer.id.clone()).collect::<Vec<_>>();
         let genesis_block = GenesisBlock::test(topology.clone());
-        let genesis_hash = genesis_block.0.hash();
+        let genesis_hash = genesis_block.hash();
 
         let mut config = Config::test(genesis_hash);
         config.sumeragi.trusted_peers.value_mut().others = UniqueVec::from_iter(topology);
@@ -670,7 +670,7 @@ impl PeerBuilder {
             let genesis = genesis
                 .as_ref()
                 .expect("Config should be provided if config is None");
-            Config::test(genesis.0.hash())
+            Config::test(genesis.hash())
         });
         let temp_dir = self
             .temp_dir

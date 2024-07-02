@@ -9,7 +9,7 @@ use std::{
 };
 
 use eyre::{eyre, Result, WrapErr};
-use iroha_crypto::{KeyPair, PublicKey};
+use iroha_crypto::{HashOf, KeyPair, PublicKey};
 use iroha_data_model::{block::SignedBlock, isi::Instruction, prelude::*};
 use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
@@ -23,9 +23,26 @@ pub static GENESIS_DOMAIN_ID: Lazy<DomainId> = Lazy::new(|| "genesis".parse().un
 /// First transaction should contain single [`Upgrade`] instruction to set executor.
 /// Second transaction should contain all other instructions.
 /// If there are no other instructions, second transaction will be omitted.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode)]
 #[repr(transparent)]
-pub struct GenesisBlock(pub SignedBlock);
+pub struct GenesisBlock(SignedBlock);
+
+impl GenesisBlock {
+    /// Constructor
+    pub fn new(block: SignedBlock) -> GenesisBlock {
+        Self(block)
+    }
+
+    /// Extracts inner `SignedBlock`
+    pub fn into_inner(self) -> SignedBlock {
+        self.0
+    }
+
+    /// Calculate block hash
+    pub fn hash(&self) -> HashOf<SignedBlock> {
+        self.0.hash()
+    }
+}
 
 /// Format of genesis.json user file.
 /// It should be signed, converted to [`GenesisBlock`],

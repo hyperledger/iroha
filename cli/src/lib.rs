@@ -614,7 +614,7 @@ fn read_genesis(path: &Path) -> Result<GenesisBlock, ConfigError> {
     let bytes = std::fs::read(path).change_context(ConfigError::ReadGenesis)?;
     let genesis =
         SignedBlock::decode_all_versioned(&bytes).change_context(ConfigError::ReadGenesis)?;
-    Ok(GenesisBlock(genesis))
+    Ok(GenesisBlock::new(genesis))
 }
 
 fn validate_config(config: &Config) -> Result<(), ConfigError> {
@@ -832,7 +832,7 @@ mod tests {
                 vec![],
             );
 
-            let mut config = config_factory(genesis.0.hash());
+            let mut config = config_factory(genesis.hash());
             iroha_config::base::toml::Writer::new(&mut config)
                 .write(["genesis", "file"], "./genesis/genesis.scale")
                 .write(["kura", "store_dir"], "../storage")
@@ -846,7 +846,7 @@ mod tests {
             std::fs::create_dir(dir.path().join("config"))?;
             std::fs::create_dir(dir.path().join("config/genesis"))?;
             std::fs::write(config_path, toml::to_string(&config)?)?;
-            std::fs::write(genesis_path, genesis.0.encode())?;
+            std::fs::write(genesis_path, genesis.encode())?;
             std::fs::write(executor_path, "")?;
 
             let config_path = dir.path().join("config/config.toml");

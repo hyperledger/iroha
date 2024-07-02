@@ -58,7 +58,7 @@ impl<T: Write> RunArgs<T> for Args {
             None => Box::new(writer),
             Some(path) => Box::new(BufWriter::new(File::create(path)?)),
         };
-        let bytes = genesis_transaction.0.encode();
+        let bytes = genesis_transaction.encode();
         writer.write_all(&bytes)?;
 
         Ok(())

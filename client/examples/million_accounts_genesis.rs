@@ -49,7 +49,7 @@ fn main_genesis() {
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        genesis.0.hash(),
+        genesis.hash(),
     );
     let rt = Runtime::test();
 

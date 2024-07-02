@@ -290,7 +290,7 @@ impl Sumeragi {
 
         let mut state_block = state.block();
         let genesis = ValidBlock::validate(
-            genesis.0,
+            genesis.into_inner(),
             &self.topology,
             &self.chain_id,
             genesis_hash,
