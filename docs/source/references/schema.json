@@ -3171,6 +3171,10 @@
       {
         "name": "topology",
         "type": "Vec<PeerId>"
+      },
+      {
+        "name": "genesis",
+        "type": "AccountId"
       }
     ]
   },

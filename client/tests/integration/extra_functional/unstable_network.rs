@@ -52,13 +52,8 @@ fn unstable_network(
     }
 
     // Given
-    let mut configuration = Config::test();
-    #[cfg(debug_assertions)]
-    {
-        configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
-    }
     let (_rt, network, iroha) = NetworkBuilder::new(n_peers + n_offline_peers, Some(port))
-        .with_config(configuration)
+        .with_debug_force_soft_fork(force_soft_fork)
         // Note: it is strange that we have `n_offline_peers` but don't set it as offline
         .with_offline_peers(0)
         .create_with_runtime();

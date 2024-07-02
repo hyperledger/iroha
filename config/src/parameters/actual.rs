@@ -9,8 +9,8 @@ use std::{
 
 use error_stack::{Result, ResultExt};
 use iroha_config_base::{read::ConfigReader, toml::TomlSource, util::Bytes, WithOrigin};
-use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{peer::PeerId, ChainId};
+use iroha_crypto::{HashOf, KeyPair};
+use iroha_data_model::{block::SignedBlock, peer::PeerId, ChainId};
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use url::Url;
 pub use user::{DevTelemetry, Logger, Snapshot};
@@ -80,8 +80,8 @@ pub struct Network {
 /// Parsed genesis configuration
 #[derive(Debug, Clone)]
 pub struct Genesis {
-    /// Genesis account public key
-    pub public_key: PublicKey,
+    /// Hash of genesis block
+    pub hash: HashOf<SignedBlock>,
     /// Path to `GenesisBlock`.
     /// If it is none, the peer can only observe the genesis block.
     /// If it is some, the peer is responsible for submitting the genesis block.

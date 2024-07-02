@@ -100,11 +100,7 @@ fn minimal_config_snapshot() {
                 idle_timeout: 60s,
             },
             genesis: Genesis {
-                public_key: PublicKey(
-                    ed25519(
-                        "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
-                    ),
-                ),
+                hash: { iroha_crypto::hash::HashOf<iroha_data_model::block::SignedBlock> b66bcd327cd7f29fe3b6e677de734326a7bf89e3d2775c927c8a60496ff000a9 },
                 file: None,
             },
             torii: Torii {

@@ -17,7 +17,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
     let quantity = numeric!(200);
 
-    let mut removed_peer = {
+    let (mut removed_peer, genesis_hash) = {
         let n_peers = 4;
 
         let (_rt, network, _) = Network::start_test_with_runtime(n_peers, Some(11_205));
@@ -61,16 +61,19 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         let removed_peer_idx = rand::thread_rng().gen_range(0..all_peers.len());
         let mut removed_peer = all_peers.swap_remove(removed_peer_idx);
         removed_peer.stop();
-        removed_peer
+        (removed_peer, network.genesis_hash)
     };
     // All peers have been stopped here
 
     // Restart just one peer and check if it updates itself from the blockstore
     {
         let rt = Runtime::test();
+        let config = Config::test(genesis_hash);
         rt.block_on(
             PeerBuilder::new()
                 .with_dir(removed_peer.temp_dir.as_ref().unwrap().clone())
+                .with_config(config)
+                .with_into_genesis(None)
                 .start_with_peer(&mut removed_peer),
         );
         let removed_peer_client = Client::test(&removed_peer.api_address);

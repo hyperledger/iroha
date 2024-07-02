@@ -2,8 +2,8 @@
 use std::{collections::HashSet, path::Path, str::FromStr};
 
 use iroha_config::{base::toml::TomlSource, parameters::actual::Root as Config};
-use iroha_crypto::{ExposedPrivateKey, KeyPair, PublicKey};
-use iroha_data_model::{peer::PeerId, prelude::*, ChainId};
+use iroha_crypto::{ExposedPrivateKey, HashOf, KeyPair, PublicKey};
+use iroha_data_model::{block::SignedBlock, peer::PeerId, prelude::*, ChainId};
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
     unique_vec::UniqueVec,
@@ -55,7 +55,7 @@ pub fn get_config_toml(
     peers: UniqueVec<PeerId>,
     chain_id: ChainId,
     peer_key_pair: KeyPair,
-    genesis_public_key: &PublicKey,
+    genesis_hash: HashOf<SignedBlock>,
 ) -> toml::Table {
     let (public_key, private_key) = peer_key_pair.into_parts();
 
@@ -69,7 +69,7 @@ pub fn get_config_toml(
         .write(["network", "block_gossip_period_ms"], 500)
         .write(["network", "block_gossip_size"], 1)
         .write(["torii", "address"], DEFAULT_TORII_ADDR)
-        .write(["genesis", "public_key"], genesis_public_key)
+        .write(["genesis", "hash"], genesis_hash)
         .write(["genesis", "file"], "NEVER READ ME; YOU FOUND A BUG!")
         // There is no need in persistence in tests.
         // If required to should be set explicitly not to overlap with other existing tests
@@ -86,13 +86,13 @@ pub fn get_config(
     trusted_peers: UniqueVec<PeerId>,
     chain_id: ChainId,
     peer_key_pair: KeyPair,
-    genesis_public_key: &PublicKey,
+    genesis_hash: HashOf<SignedBlock>,
 ) -> Config {
     Config::from_toml_source(TomlSource::inline(get_config_toml(
         trusted_peers,
         chain_id,
         peer_key_pair,
-        genesis_public_key,
+        genesis_hash,
     )))
     .expect("should be a valid config")
 }

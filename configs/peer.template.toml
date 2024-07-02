@@ -14,7 +14,7 @@
 # private_key =
 
 [genesis]
-# public_key =
+# hash =
 # file =
 
 [network]

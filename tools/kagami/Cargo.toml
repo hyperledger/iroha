@@ -20,6 +20,7 @@ iroha_config.workspace = true
 iroha_schema_gen.workspace = true
 iroha_primitives.workspace = true
 iroha_genesis.workspace = true
+iroha_version.workspace = true
 test_samples.workspace = true
 
 clap = { workspace = true, features = ["derive"] }

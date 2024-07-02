@@ -38,7 +38,7 @@ fn register_new_peer() -> Result<()> {
     check_status(&peer_clients, 1);
 
     // Start new peer
-    let mut configuration = Config::test();
+    let mut configuration = Config::test(network.genesis_hash);
     configuration.sumeragi.trusted_peers.value_mut().others =
         unique_vec![peer_clients.choose(&mut thread_rng()).unwrap().0.id.clone()];
     let rt = Runtime::test();

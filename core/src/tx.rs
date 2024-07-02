@@ -69,7 +69,6 @@ impl AcceptedTransaction {
     pub fn accept_genesis(
         tx: SignedTransaction,
         expected_chain_id: &ChainId,
-        genesis_account: &AccountId,
     ) -> Result<Self, AcceptTransactionFail> {
         let actual_chain_id = tx.chain();
 
@@ -78,10 +77,6 @@ impl AcceptedTransaction {
                 expected: expected_chain_id.clone(),
                 actual: actual_chain_id.clone(),
             }));
-        }
-
-        if genesis_account != tx.authority() {
-            return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
         }
 
         Ok(Self(tx))

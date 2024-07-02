@@ -307,6 +307,16 @@ impl SignedTransactionV1 {
     fn hash(&self) -> iroha_crypto::HashOf<SignedTransaction> {
         iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::HashOf::new(self).into())
     }
+
+    pub(crate) fn validate_signature(&self) -> Result<(), &'static str> {
+        let TransactionSignature(signature) = &self.signature;
+
+        signature
+            .verify(&self.payload.authority.signatory, &self.payload)
+            .map_err(|_| "Transaction signature is invalid")?;
+
+        Ok(())
+    }
 }
 
 impl AsRef<SignedTransaction> for CommittedTransaction {
@@ -329,7 +339,6 @@ mod candidate {
     impl SignedTransactionCandidate {
         fn validate(self) -> Result<SignedTransactionV1, &'static str> {
             self.validate_instructions()?;
-            self.validate_signature()?;
 
             Ok(SignedTransactionV1 {
                 signature: self.signature,
@@ -343,16 +352,6 @@ mod candidate {
                     return Err("Transaction is empty");
                 }
             }
-
-            Ok(())
-        }
-
-        fn validate_signature(&self) -> Result<(), &'static str> {
-            let TransactionSignature(signature) = &self.signature;
-
-            signature
-                .verify(&self.payload.authority.signatory, &self.payload)
-                .map_err(|_| "Transaction signature is invalid")?;
 
             Ok(())
         }

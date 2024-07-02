@@ -66,7 +66,7 @@ fn generate_genesis(
         .fold(builder, GenesisBuilder::append_instruction);
 
     let executor = construct_executor("default_executor").expect("Failed to construct executor");
-    Ok(builder.build_and_sign(executor, chain_id, genesis_key_pair, topology))
+    Ok(builder.build(executor, chain_id, genesis_key_pair.public_key(), topology))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -75,14 +75,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let chain_id = get_chain_id();
     let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
     let topology = vec![peer.id.clone()];
+    let genesis = generate_genesis(1_000_u32, chain_id.clone(), &genesis_key_pair, topology)?;
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
         get_key_pair(test_network::Signatory::Peer),
-        genesis_key_pair.public_key(),
+        genesis.hash(),
     );
-
-    let genesis = generate_genesis(1_000_u32, chain_id, &genesis_key_pair, topology)?;
 
     let builder = PeerBuilder::new()
         .with_genesis(genesis)
