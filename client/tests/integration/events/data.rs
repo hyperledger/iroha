@@ -1,7 +1,7 @@
 use std::{fmt::Write as _, sync::mpsc, thread};
 
 use eyre::Result;
-use iroha::data_model::{prelude::*, transaction::WasmSmartContract};
+use iroha::data_model::{prelude::*, transaction::SmartContract};
 use iroha_executor_data_model::permission::account::{
     CanRemoveKeyValueInAccount, CanSetKeyValueInAccount,
 };
@@ -125,7 +125,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
     );
 
     transaction_execution_should_produce_events(
-        WasmSmartContract::from_compiled(wat.into_bytes()),
+        SmartContract::from_compiled(wat.into_bytes()),
         10_615,
     )
 }

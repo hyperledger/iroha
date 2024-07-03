@@ -98,7 +98,7 @@ pub mod isi {
                         .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                 ),
             }
-            .map_err(|e| InvalidParameterError::Wasm(e.to_string()))?;
+            .map_err(|e| InvalidParameterError::SmartContract(e.to_string()))?;
 
             if !success {
                 return Err(RepetitionError {

@@ -10,7 +10,7 @@ use iroha_primitives::json::JsonString;
 use iroha_schema::{Ident, IntoSchema};
 
 pub use self::model::*;
-use crate::transaction::WasmSmartContract;
+use crate::transaction::SmartContract;
 
 #[model]
 mod model {
@@ -48,8 +48,8 @@ mod model {
     // TODO: Derive with getset once FFI impl is fixed
     //#[getset(get = "pub")]
     pub struct Executor {
-        /// WASM code of the executor
-        pub wasm: WasmSmartContract,
+        /// Smart contract code of the executor
+        pub smart_contract: SmartContract,
     }
 
     /// Executor data model.

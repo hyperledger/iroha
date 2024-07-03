@@ -40,7 +40,7 @@ fn generate_genesis(
     .build()?
     .optimize()?
     .into_bytes()?;
-    let wasm = WasmSmartContract::from_compiled(wasm);
+    let wasm = SmartContract::from_compiled(wasm);
     let (account_id, _account_keypair) = gen_account_in("wonderland");
 
     let build_trigger = |trigger_id: TriggerId| {

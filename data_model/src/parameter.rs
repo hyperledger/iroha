@@ -20,6 +20,7 @@ mod model {
     use derive_more::{Constructor, Display, FromStr};
     use getset::{CopyGetters, Getters};
     use iroha_data_model_derive::IdEqOrdHash;
+    use iroha_macro::FromVariant;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -155,7 +156,7 @@ mod model {
     pub struct TransactionParameters {
         /// Maximum number of instructions per transaction
         pub max_instructions: NonZeroU64,
-        /// Maximum size of wasm binary in bytes
+        /// Maximum size of smart contract binary in bytes
         pub smart_contract_size: NonZeroU64,
     }
 
@@ -269,6 +270,7 @@ mod model {
         Eq,
         PartialOrd,
         Ord,
+        FromVariant,
         EnumDiscriminants,
         Decode,
         Encode,
@@ -281,8 +283,16 @@ mod model {
         Sumeragi(SumeragiParameter),
         Block(BlockParameter),
         Transaction(TransactionParameter),
-        SmartContract(SmartContractParameter),
-        Executor(SmartContractParameter),
+        SmartContract(
+            #[skip_from]
+            #[skip_try_from]
+            SmartContractParameter,
+        ),
+        Executor(
+            #[skip_from]
+            #[skip_try_from]
+            SmartContractParameter,
+        ),
         Custom(CustomParameter),
     }
 }

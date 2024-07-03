@@ -61,11 +61,11 @@ fn build_test_and_transient_state() -> State {
         let mut state_transaction = state_block.transaction();
         let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../configs/swarm/executor.wasm");
-        let wasm = std::fs::read(&path_to_executor)
+        let smart_contract = std::fs::read(&path_to_executor)
             .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_executor.display()));
-        let executor = Executor::new(WasmSmartContract::from_compiled(wasm));
+        let executor = Executor::new(SmartContract::from_compiled(smart_contract));
         let (authority, _authority_keypair) = gen_account_in("genesis");
-        Upgrade::new(executor)
+        Upgrade::executor(executor)
             .execute(&authority, &mut state_transaction)
             .expect("Failed to load executor");
         state_transaction.apply();

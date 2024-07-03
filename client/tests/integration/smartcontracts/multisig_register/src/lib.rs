@@ -18,8 +18,9 @@ static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeList
 
 getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 
-// Trigger wasm code for handling multisig logic
-const WASM: &[u8] = core::include_bytes!(concat!(core::env!("OUT_DIR"), "/multisig.wasm"));
+// Trigger for handling multisig logic
+const SMART_CONTRACT: &[u8] =
+    core::include_bytes!(concat!(core::env!("OUT_DIR"), "/multisig.wasm"));
 
 #[iroha_trigger::main]
 fn main(_id: TriggerId, _owner: AccountId, event: EventBox) {
@@ -46,7 +47,7 @@ fn main(_id: TriggerId, _owner: AccountId, event: EventBox) {
     .parse()
     .dbg_expect("failed to parse trigger id");
 
-    let payload = WasmSmartContract::from_compiled(WASM.to_vec());
+    let payload = SmartContract::from_compiled(SMART_CONTRACT.to_vec());
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(

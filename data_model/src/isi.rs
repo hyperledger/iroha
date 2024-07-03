@@ -252,7 +252,7 @@ mod transparent {
 
     iroha_data_model_derive::model_single! {
         /// Generic instruction for setting a chain-wide config parameter.
-        #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Constructor)]
+        #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord)]
         #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
         #[derive(serde::Deserialize, serde::Serialize)]
         #[derive(iroha_schema::IntoSchema)]
@@ -260,6 +260,13 @@ mod transparent {
         #[serde(transparent)]
         #[repr(transparent)]
         pub struct SetParameter(pub Parameter);
+    }
+
+    impl SetParameter {
+        /// Construct a new [`SetParameter`]
+        pub fn new(parameter: impl Into<Parameter>) -> Self {
+            Self(parameter.into())
+        }
     }
 
     isi! {
@@ -953,13 +960,20 @@ mod transparent {
 
     isi! {
         /// Generic instruction for upgrading runtime objects.
-        #[derive(Constructor, Display)]
+        #[derive(Display)]
         #[display(fmt = "UPGRADE")]
         #[serde(transparent)]
         #[repr(transparent)]
         pub struct Upgrade {
             /// Object to upgrade.
-            pub executor: Executor,
+            pub object: Executor,
+        }
+    }
+
+    impl Upgrade {
+        /// Constructs a new [`Upgrade`]
+        pub fn executor(object: Executor) -> Self {
+            Self { object }
         }
     }
 
@@ -1465,8 +1479,8 @@ pub mod error {
         #[ffi_type(opaque)]
         #[repr(u8)]
         pub enum InvalidParameterError {
-            /// Invalid WASM binary: {0}
-            Wasm(String),
+            /// Invalid smart contract binary: {0}
+            SmartContract(String),
             /// Name length violation
             ///
             /// i.e. too long [`AccountId`]

@@ -12,7 +12,7 @@ pub use iroha_trigger_derive::main;
 pub use smart_contract::{data_model, stub_getrandom};
 
 pub mod log {
-    //! WASM logging utilities
+    //! Smart contract logging utilities
     pub use iroha_smart_contract_utils::{debug, error, event, info, log::*, trace, warn};
 }
 

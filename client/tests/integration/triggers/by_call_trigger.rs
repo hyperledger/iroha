@@ -8,7 +8,7 @@ use iroha::{
     data_model::{
         prelude::*,
         query::error::{FindError, QueryExecutionFail},
-        transaction::{Executable, WasmSmartContract},
+        transaction::{Executable, SmartContract},
     },
 };
 use iroha_executor_data_model::permission::trigger::CanRegisterUserTrigger;
@@ -430,7 +430,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(
-            serde_json::from_str::<WasmSmartContract>(&wasm_base64)
+            serde_json::from_str::<SmartContract>(&wasm_base64)
                 .wrap_err("Can't deserialize wasm using base64")?,
             Repeats::Indefinitely,
             account_id.clone(),
@@ -585,7 +585,7 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
             .build()?
             .optimize()?
             .into_bytes()?;
-    let wasm = WasmSmartContract::from_compiled(wasm);
+    let wasm = SmartContract::from_compiled(wasm);
 
     let build_trigger = |trigger_id: TriggerId| {
         Trigger::new(
@@ -667,7 +667,7 @@ fn call_execute_trigger_with_args() -> Result<()> {
             .build()?
             .optimize()?
             .into_bytes()?;
-    let wasm = WasmSmartContract::from_compiled(wasm);
+    let wasm = SmartContract::from_compiled(wasm);
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(

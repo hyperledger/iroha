@@ -116,9 +116,7 @@ fn init() -> Result<(
     let pipeline_time = Config::pipeline_time();
     iroha_logger::info!("Started");
 
-    let set_max_txns_in_block = SetParameter::new(Parameter::Block(
-        BlockParameter::MaxTransactions(nonzero!(1_u64)),
-    ));
+    let set_max_txns_in_block = SetParameter::new(BlockParameter::MaxTransactions(nonzero!(1_u64)));
 
     let create_domain = Register::domain(Domain::new("domain".parse()?));
     let (account_id, _account_keypair) = gen_account_in("domain");

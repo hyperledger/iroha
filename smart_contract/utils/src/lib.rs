@@ -1,6 +1,7 @@
 //! Crate with utilities for implementing smart contract FFI
-// do not use `no_std` when not running in wasm
-// this is useful to implement `dbg` and `log` functions for host-side tests
+
+// not using `no_std` when not running outside of wasm so that
+// `dbg` and `log` functions work for host-side tests
 #![cfg_attr(target_family = "wasm", no_std)]
 #![allow(unsafe_code)]
 

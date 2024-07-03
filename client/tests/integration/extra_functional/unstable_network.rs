@@ -2,10 +2,7 @@ use std::thread;
 
 use iroha::{
     client::{self, QueryResult},
-    data_model::{
-        parameter::{BlockParameter, Parameter},
-        prelude::*,
-    },
+    data_model::{parameter::BlockParameter, prelude::*},
 };
 use iroha_config::parameters::actual::Root as Config;
 use nonzero_ext::nonzero;
@@ -64,8 +61,8 @@ fn unstable_network(
         .create_with_runtime();
     wait_for_genesis_committed(&network.clients(), n_offline_peers);
     iroha
-        .submit_blocking(SetParameter::new(Parameter::Block(
-            BlockParameter::MaxTransactions(nonzero!(5_u64)),
+        .submit_blocking(SetParameter::new(BlockParameter::MaxTransactions(
+            nonzero!(5_u64),
         )))
         .unwrap();
 

@@ -16,7 +16,6 @@ use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
 pub use iroha_config::client_api::ConfigDTO;
 use iroha_logger::prelude::*;
-use iroha_primitives::json;
 use iroha_telemetry::metrics::Status;
 use iroha_torii_const::uri as torii_uri;
 use iroha_version::prelude::*;
@@ -327,7 +326,7 @@ impl_query_output! {
     crate::data_model::account::Account,
     crate::data_model::domain::Domain,
     crate::data_model::block::BlockHeader,
-    json::JsonString,
+    crate::data_model::prelude::JsonString,
     crate::data_model::query::TransactionQueryOutput,
     crate::data_model::executor::ExecutorDataModel,
     crate::data_model::trigger::Trigger,
@@ -447,7 +446,7 @@ impl Client {
         }
     }
 
-    /// Builds transaction out of supplied instructions or wasm.
+    /// Builds transaction out of supplied instructions or smart contract.
     ///
     /// # Errors
     /// Fails if signing transaction fails
@@ -460,7 +459,9 @@ impl Client {
 
         let mut tx_builder = match instructions.into() {
             Executable::Instructions(instructions) => tx_builder.with_instructions(instructions),
-            Executable::Wasm(wasm) => tx_builder.with_wasm(wasm),
+            Executable::SmartContract(smart_contract) => {
+                tx_builder.with_smart_contract(smart_contract)
+            }
         };
 
         if let Some(transaction_ttl) = self.transaction_ttl {

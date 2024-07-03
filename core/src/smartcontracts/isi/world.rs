@@ -402,7 +402,7 @@ pub mod isi {
             authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let raw_executor = self.executor;
+            let raw_executor = self.object;
 
             // Cloning executor to avoid multiple mutable borrows of `state_transaction`.
             // Also it's a cheap operation.
@@ -410,7 +410,7 @@ pub mod isi {
             upgraded_executor
                 .migrate(raw_executor, state_transaction, authority)
                 .map_err(|migration_error| {
-                    InvalidParameterError::Wasm(format!(
+                    InvalidParameterError::SmartContract(format!(
                         "{:?}",
                         eyre::eyre!(migration_error).wrap_err("Migration failed"),
                     ))

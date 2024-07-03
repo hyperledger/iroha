@@ -1,4 +1,4 @@
-//! WASM debugging utilities
+//! Smart contract debugging utilities
 
 #[cfg(feature = "debug")]
 use alloc::format;
@@ -25,10 +25,10 @@ mod host {
 
 /// Print `obj` in debug representation.
 ///
-/// When running as a wasm smart contract, prints to host's stdout.
-/// Does nothing unless `debug` feature is enabled.
+/// When running on a smart contract VM, prints to the host logging system.
+/// Otherwise, prints the output along with its level to stderr
 ///
-/// When running outside of wasm, always prints the output to stderr
+/// Does nothing unless `debug` feature is enabled.
 #[allow(unused_variables)]
 pub fn dbg<T: Debug + ?Sized>(obj: &T) {
     cfg_if! {
@@ -85,7 +85,7 @@ impl<T, E: Debug> DebugUnwrapExt for Result<T, E> {
                 Ok(out) => out,
                 Err(err) => {
                     dbg(&format!(
-                    "WASM execution panicked at `called Result::dbg_unwrap()` on an `Err` value: {err:?}",
+                    "Smart contract panicked at `called Result::dbg_unwrap()` on an `Err` value: {err:?}",
                 ));
                     panic!("");
                 }
@@ -107,7 +107,7 @@ impl<T> DebugUnwrapExt for Option<T> {
             match self {
                 Some(out) => out,
                 None => {
-                    dbg("WASM execution panicked at 'called `Option::dbg_unwrap()` on a `None` value'");
+                    dbg("Smart contract panicked at 'called `Option::dbg_unwrap()` on a `None` value'");
                     panic!("");
                 }
             }
@@ -140,7 +140,7 @@ impl<T, E: Debug> DebugExpectExt for Result<T, E> {
             match self {
                 Ok(out) => out,
                 Err(err) => {
-                    dbg(&format!("WASM execution panicked at `{msg}: {err:?}`",));
+                    dbg(&format!("Smart contract panicked at `{msg}: {err:?}`",));
                     panic!("");
                 }
             }
@@ -161,7 +161,7 @@ impl<T> DebugExpectExt for Option<T> {
             match self {
                 Some(out) => out,
                 None => {
-                    dbg(&format!("WASM execution panicked at `{msg}`",));
+                    dbg(&format!("Smart contract panicked at `{msg}`",));
                     panic!("");
                 }
             }

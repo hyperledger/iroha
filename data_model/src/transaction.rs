@@ -34,7 +34,7 @@ mod model {
     use super::*;
     use crate::account::AccountId;
 
-    /// Either ISI or Wasm binary
+    /// Either ISI or smart contract binary
     #[derive(
         DebugCustom,
         Clone,
@@ -55,10 +55,10 @@ mod model {
         #[debug(fmt = "{_0:?}")]
         Instructions(Vec<InstructionBox>),
         /// WebAssembly smartcontract
-        Wasm(WasmSmartContract),
+        SmartContract(SmartContract),
     }
 
-    /// Wrapper for byte representation of [`Executable::Wasm`].
+    /// Wrapper for byte representation of [`Executable::SmartContract`].
     ///
     /// Uses **base64** (de-)serialization format.
     #[derive(
@@ -74,13 +74,13 @@ mod model {
         Serialize,
         IntoSchema,
     )]
-    #[debug(fmt = "WASM binary(len = {})", "self.0.len()")]
+    #[debug(fmt = "Smart contract binary(len = {})", "self.0.len()")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `WasmSmartContract` has no trap representation in `Vec<u8>`
+    // SAFETY: `SmartContract` has no trap representation in `Vec<u8>`
     #[ffi_type(unsafe {robust})]
-    pub struct WasmSmartContract(
-        /// Raw wasm blob.
+    pub struct SmartContract(
+        /// Raw smart contract blob.
         #[serde(with = "base64")]
         pub(super) Vec<u8>,
     );
@@ -191,20 +191,20 @@ impl<T: IntoIterator<Item = impl Instruction>> From<T> for Executable {
     }
 }
 
-impl From<WasmSmartContract> for Executable {
-    fn from(source: WasmSmartContract) -> Self {
-        Self::Wasm(source)
+impl From<SmartContract> for Executable {
+    fn from(source: SmartContract) -> Self {
+        Self::SmartContract(source)
     }
 }
 
-impl AsRef<[u8]> for WasmSmartContract {
+impl AsRef<[u8]> for SmartContract {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
     }
 }
 
-impl WasmSmartContract {
-    /// Create [`Self`] from raw wasm bytes
+impl SmartContract {
+    /// Create [`Self`] from raw bytes
     #[inline]
     pub const fn from_compiled(blob: Vec<u8>) -> Self {
         Self(blob)
@@ -381,7 +381,7 @@ mod candidate {
 
 mod base64 {
     //! Module with (de-)serialization functions for
-    //! [`WasmSmartContract`](super::WasmSmartContract)'s bytes using `base64`.
+    //! [`SmartContract`](super::SmartContract)'s bytes using `base64`.
     //!
     //! No extra heap allocation is performed nor for serialization nor for deserialization.
 
@@ -490,12 +490,12 @@ pub mod error {
             Serialize,
             IntoSchema,
         )]
-        #[display(fmt = "Failed to execute wasm binary: {reason}")]
+        #[display(fmt = "Failed to execute smart contract: {reason}")]
         #[serde(transparent)]
         #[repr(transparent)]
-        // SAFETY: `WasmExecutionFail` has no trap representation in `String`
+        // SAFETY: `SmartContractExecutionFail` has no trap representation in `String`
         #[ffi_type(unsafe {robust})]
-        pub struct WasmExecutionFail {
+        pub struct SmartContractExecutionFail {
             /// Error which happened during execution
             pub reason: String,
         }
@@ -540,7 +540,7 @@ pub mod error {
             /// and will be removed soon.
             InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
             /// Failure in WebAssembly execution
-            WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
+            SmartContractExecution(#[cfg_attr(feature = "std", source)] SmartContractExecutionFail),
         }
     }
 
@@ -578,12 +578,14 @@ pub mod error {
     impl std::error::Error for InstructionExecutionFail {}
 
     #[cfg(feature = "std")]
-    impl std::error::Error for WasmExecutionFail {}
+    impl std::error::Error for SmartContractExecutionFail {}
 
     pub mod prelude {
         //! The prelude re-exports most commonly used traits, structs and macros from this module.
 
-        pub use super::{InstructionExecutionFail, TransactionRejectionReason, WasmExecutionFail};
+        pub use super::{
+            InstructionExecutionFail, SmartContractExecutionFail, TransactionRejectionReason,
+        };
     }
 }
 
@@ -671,9 +673,9 @@ mod http {
             self
         }
 
-        /// Add wasm to this transaction
-        pub fn with_wasm(mut self, wasm: WasmSmartContract) -> Self {
-            self.payload.instructions = wasm.into();
+        /// Add smart contract to this transaction
+        pub fn with_smart_contract(mut self, smart_contract: SmartContract) -> Self {
+            self.payload.instructions = smart_contract.into();
             self
         }
 
@@ -738,7 +740,7 @@ pub mod prelude {
     #[cfg(feature = "http")]
     pub use super::http::TransactionBuilder;
     pub use super::{
-        error::prelude::*, CommittedTransaction, Executable, SignedTransaction, WasmSmartContract,
+        error::prelude::*, CommittedTransaction, Executable, SignedTransaction, SmartContract,
     };
 }
 
@@ -751,7 +753,7 @@ mod tests {
 
     #[test]
     fn wasm_smart_contract_debug_repr_should_contain_just_len() {
-        let contract = WasmSmartContract::from_compiled(vec![0, 1, 2, 3, 4]);
-        assert_eq!(format!("{contract:?}"), "WASM binary(len = 5)");
+        let contract = SmartContract::from_compiled(vec![0, 1, 2, 3, 4]);
+        assert_eq!(format!("{contract:?}"), "Smart contract binary(len = 5)");
     }
 }

@@ -1,4 +1,4 @@
-//! WASM logging utilities
+//! Smart contract logging utilities
 
 use cfg_if::cfg_if;
 pub use iroha_data_model::Level;
@@ -21,10 +21,8 @@ mod host {
 
 /// Log `obj` with desired log level
 ///
-/// When running as a wasm smart contract,
-///   prints to the host logging system with the corresponding level.
-///
-/// When running outside of wasm, prints the output along with its level to stderr
+/// When running on a smart contract VM, prints to the host logging system.
+/// Otherwise, prints the output along with its level to stderr
 pub fn log<T: alloc::string::ToString + ?Sized>(log_level: Level, obj: &T) {
     cfg_if! {
         if #[cfg(not(target_family = "wasm"))] {

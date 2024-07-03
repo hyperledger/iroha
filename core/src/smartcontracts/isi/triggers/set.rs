@@ -17,7 +17,7 @@ use iroha_data_model::{
     isi::error::{InstructionExecutionError, MathError},
     prelude::*,
     query::error::FindError,
-    transaction::WasmSmartContract,
+    transaction::SmartContract,
 };
 use serde::{
     de::{DeserializeSeed, MapAccess, Visitor},
@@ -45,22 +45,20 @@ use crate::{
 /// Error type for [`Set`] operations.
 #[derive(Debug, Error, displaydoc::Display)]
 pub enum Error {
-    /// Failed to preload wasm trigger
+    /// Failed to preload smart contract trigger
     Preload(#[from] wasm::error::Error),
 }
 
 /// Result type for [`Set`] operations.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
-/// [`WasmSmartContract`]s by [`TriggerId`].
-/// Stored together with number to count triggers with identical [`WasmSmartContract`].
-type WasmSmartContractMap = Storage<HashOf<WasmSmartContract>, WasmSmartContractEntry>;
-type WasmSmartContractMapBlock<'set> =
-    StorageBlock<'set, HashOf<WasmSmartContract>, WasmSmartContractEntry>;
-type WasmSmartContractMapTransaction<'block, 'set> =
-    StorageTransaction<'block, 'set, HashOf<WasmSmartContract>, WasmSmartContractEntry>;
-type WasmSmartContractMapView<'set> =
-    StorageView<'set, HashOf<WasmSmartContract>, WasmSmartContractEntry>;
+/// [`SmartContract`]s by [`TriggerId`].
+/// Stored together with number to count triggers with identical [`SmartContract`].
+type SmartContractMap = Storage<HashOf<SmartContract>, SmartContractEntry>;
+type SmartContractMapBlock<'set> = StorageBlock<'set, HashOf<SmartContract>, SmartContractEntry>;
+type SmartContractMapTransaction<'block, 'set> =
+    StorageTransaction<'block, 'set, HashOf<SmartContract>, SmartContractEntry>;
+type SmartContractMapView<'set> = StorageView<'set, HashOf<SmartContract>, SmartContractEntry>;
 
 /// Specialized structure that maps event filters to Triggers.
 // NB: `Set` has custom `Serialize` and `DeserializeSeed` implementations
@@ -77,12 +75,12 @@ pub struct Set {
     by_call_triggers: Storage<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
     ids: Storage<TriggerId, TriggeringEventType>,
-    /// [`WasmSmartContract`]s map by wasm blob hash.
+    /// [`SmartContract`]s map by smart contract blob hash.
     /// This map serves multiple purposes:
-    /// 1. Querying original wasm blob of trigger
+    /// 1. Querying original smart contract blob of trigger
     /// 2. Getting compiled by wasmtime module for execution
-    /// 3. Deduplicating triggers with the same wasm blob
-    contracts: WasmSmartContractMap,
+    /// 3. Deduplicating triggers with the same smart contract blob
+    contracts: SmartContractMap,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     // NOTE: Cell is used because matched_ids changed as whole (not granularly)
@@ -101,8 +99,8 @@ pub struct SetBlock<'set> {
     by_call_triggers: StorageBlock<'set, TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
     ids: StorageBlock<'set, TriggerId, TriggeringEventType>,
-    /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
-    contracts: WasmSmartContractMapBlock<'set>,
+    /// Original [`SmartContract`]s by [`TriggerId`] for querying purposes.
+    contracts: SmartContractMapBlock<'set>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: CellBlock<'set, Vec<(EventBox, TriggerId)>>,
@@ -122,8 +120,8 @@ pub struct SetTransaction<'block, 'set> {
         StorageTransaction<'block, 'set, TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
     ids: StorageTransaction<'block, 'set, TriggerId, TriggeringEventType>,
-    /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
-    contracts: WasmSmartContractMapTransaction<'block, 'set>,
+    /// Original [`SmartContract`]s by [`TriggerId`] for querying purposes.
+    contracts: SmartContractMapTransaction<'block, 'set>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: CellTransaction<'block, 'set, Vec<(EventBox, TriggerId)>>,
@@ -141,18 +139,18 @@ pub struct SetView<'set> {
     by_call_triggers: StorageView<'set, TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
     ids: StorageView<'set, TriggerId, TriggeringEventType>,
-    /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
-    contracts: WasmSmartContractMapView<'set>,
+    /// Original [`SmartContract`]s by [`TriggerId`] for querying purposes.
+    contracts: SmartContractMapView<'set>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: CellView<'set, Vec<(EventBox, TriggerId)>>,
 }
 
-/// Entry in wasm smart-contracts map
+/// Entry in smart-contracts map
 #[derive(Debug, Clone, Serialize)]
-pub struct WasmSmartContractEntry {
-    /// Original wasm binary blob
-    original_contract: WasmSmartContract,
+pub struct SmartContractEntry {
+    /// Original smart contract binary blob
+    original_contract: SmartContract,
     /// Compiled with [`wasmtime`] smart-contract
     #[serde(skip)]
     compiled_contract: wasmtime::Module,
@@ -210,7 +208,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                             contracts =
                                 Some(map.next_value_seed(storage::serde::StorageSeeded {
                                     kseed: PhantomData,
-                                    vseed: self.loader.cast::<WasmSmartContractEntry>(),
+                                    vseed: self.loader.cast::<SmartContractEntry>(),
                                 })?);
                         }
                         "matched_ids" => {
@@ -242,22 +240,22 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
     }
 }
 
-impl<'de> DeserializeSeed<'de> for WasmSeed<'_, WasmSmartContractEntry> {
-    type Value = WasmSmartContractEntry;
+impl<'de> DeserializeSeed<'de> for WasmSeed<'_, SmartContractEntry> {
+    type Value = SmartContractEntry;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        struct WasmSmartContractEntryVisitor<'e> {
-            loader: WasmSeed<'e, WasmSmartContractEntry>,
+        struct SmartContractEntryVisitor<'e> {
+            loader: WasmSeed<'e, SmartContractEntry>,
         }
 
-        impl<'de> Visitor<'de> for WasmSmartContractEntryVisitor<'_> {
-            type Value = WasmSmartContractEntry;
+        impl<'de> Visitor<'de> for SmartContractEntryVisitor<'_> {
+            type Value = SmartContractEntry;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("struct WasmSmartContractEntry")
+                formatter.write_str("struct SmartContractEntry")
             }
 
             fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
@@ -285,7 +283,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, WasmSmartContractEntry> {
                 let compiled_contract = wasm::load_module(self.loader.engine, &original_contract)
                     .map_err(serde::de::Error::custom)?;
 
-                Ok(WasmSmartContractEntry {
+                Ok(SmartContractEntry {
                     original_contract,
                     compiled_contract,
                     count,
@@ -293,7 +291,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, WasmSmartContractEntry> {
             }
         }
 
-        deserializer.deserialize_map(WasmSmartContractEntryVisitor { loader: self })
+        deserializer.deserialize_map(SmartContractEntryVisitor { loader: self })
     }
 }
 /// Trait to perform read-only operations on [`WorldBlock`], [`WorldTransaction`] and [`WorldView`]
@@ -308,18 +306,14 @@ pub trait SetReadOnly {
         &self,
     ) -> &impl StorageReadOnly<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>;
     fn ids(&self) -> &impl StorageReadOnly<TriggerId, TriggeringEventType>;
-    fn contracts(&self)
-        -> &impl StorageReadOnly<HashOf<WasmSmartContract>, WasmSmartContractEntry>;
+    fn contracts(&self) -> &impl StorageReadOnly<HashOf<SmartContract>, SmartContractEntry>;
     fn matched_ids(&self) -> &[(EventBox, TriggerId)];
 
-    /// Get original [`WasmSmartContract`] for [`TriggerId`].
+    /// Get original [`SmartContract`] for [`TriggerId`].
     /// Returns `None` if there's no [`Trigger`]
-    /// with specified `id` that has WASM executable
+    /// with specified `id` that has smart contract executable
     #[inline]
-    fn get_original_contract(
-        &self,
-        hash: &HashOf<WasmSmartContract>,
-    ) -> Option<&WasmSmartContract> {
+    fn get_original_contract(&self, hash: &HashOf<SmartContract>) -> Option<&SmartContract> {
         self.contracts()
             .get(hash)
             .map(|entry| &entry.original_contract)
@@ -327,16 +321,16 @@ pub trait SetReadOnly {
 
     /// Get compiled [`wasmtime::Module`] for [`TriggerId`].
     /// Returns `None` if there's no [`Trigger`]
-    /// with specified `id` that has WASM executable
+    /// with specified `id` that has smart contract executable
     #[inline]
-    fn get_compiled_contract(&self, hash: &HashOf<WasmSmartContract>) -> Option<&wasmtime::Module> {
+    fn get_compiled_contract(&self, hash: &HashOf<SmartContract>) -> Option<&wasmtime::Module> {
         self.contracts()
             .get(hash)
             .map(|entry| &entry.compiled_contract)
     }
 
     /// Convert [`LoadedAction`] to original [`Action`] by retrieving original
-    /// [`WasmSmartContract`] if applicable
+    /// [`SmartContract`] if applicable
     fn get_original_action<F: Clone>(&self, action: LoadedAction<F>) -> SpecializedAction<F> {
         let LoadedAction {
             executable,
@@ -347,12 +341,12 @@ pub trait SetReadOnly {
         } = action;
 
         let original_executable = match executable {
-            ExecutableRef::Wasm(ref blob_hash) => {
-                let original_wasm = self
+            ExecutableRef::SmartContract(ref blob_hash) => {
+                let original_smart_contract = self
                     .get_original_contract(blob_hash)
                     .cloned()
                     .expect("No original smartcontract saved for trigger. This is a bug.");
-                Executable::Wasm(original_wasm)
+                Executable::SmartContract(original_smart_contract)
             }
             ExecutableRef::Instructions(isi) => Executable::Instructions(isi),
         };
@@ -502,7 +496,7 @@ macro_rules! impl_set_ro {
             fn ids(&self) -> &impl StorageReadOnly<TriggerId, TriggeringEventType> {
                 &self.ids
             }
-            fn contracts(&self) -> &impl StorageReadOnly<HashOf<WasmSmartContract>, WasmSmartContractEntry> {
+            fn contracts(&self) -> &impl StorageReadOnly<HashOf<SmartContract>, SmartContractEntry> {
                 &self.contracts
             }
             fn matched_ids(&self) -> &[(EventBox, TriggerId)] {
@@ -631,7 +625,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     ///
     /// # Errors
     ///
-    /// Return [`Err`] if failed to preload wasm trigger
+    /// Return [`Err`] if failed to preload trigger
     #[inline]
     pub fn add_data_trigger(
         &mut self,
@@ -649,7 +643,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     ///
     /// # Errors
     ///
-    /// Return [`Err`] if failed to preload wasm trigger
+    /// Return [`Err`] if failed to preload trigger
     #[inline]
     pub fn add_pipeline_trigger(
         &mut self,
@@ -667,7 +661,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     ///
     /// # Errors
     ///
-    /// Return [`Err`] if failed to preload wasm trigger
+    /// Return [`Err`] if failed to preload trigger
     #[inline]
     pub fn add_time_trigger(
         &mut self,
@@ -685,7 +679,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     ///
     /// # Errors
     ///
-    /// Return [`Err`] if failed to preload wasm trigger
+    /// Return [`Err`] if failed to preload trigger
     #[inline]
     pub fn add_by_call_trigger(
         &mut self,
@@ -703,7 +697,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     ///
     /// # Errors
     ///
-    /// Return [`Err`] if failed to preload wasm trigger
+    /// Return [`Err`] if failed to preload trigger
     fn add_to<F: storage::Value + EventFilter>(
         &mut self,
         engine: &wasmtime::Engine,
@@ -728,10 +722,10 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
         }
 
         let loaded_executable = match executable {
-            Executable::Wasm(bytes) => {
+            Executable::SmartContract(bytes) => {
                 let hash = HashOf::new(&bytes);
                 // Store original executable representation to respond to queries with.
-                if let Some(WasmSmartContractEntry { count, .. }) = self.contracts.get_mut(&hash) {
+                if let Some(SmartContractEntry { count, .. }) = self.contracts.get_mut(&hash) {
                     // Considering 1 trigger registration takes 1 second,
                     // it would take 584 942 417 355 years to overflow.
                     *count = count.checked_add(1).expect(
@@ -742,14 +736,14 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
                     let module = wasm::load_module(engine, &bytes)?;
                     self.contracts.insert(
                         hash,
-                        WasmSmartContractEntry {
+                        SmartContractEntry {
                             original_contract: bytes,
                             compiled_contract: module,
                             count: NonZeroU64::MIN,
                         },
                     );
                 };
-                ExecutableRef::Wasm(hash)
+                ExecutableRef::SmartContract(hash)
             }
             Executable::Instructions(instructions) => ExecutableRef::Instructions(instructions),
         };
@@ -861,13 +855,13 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
         .and_then(std::convert::identity)
     }
 
-    /// Remove trigger from `triggers` and decrease the counter of the original [`WasmSmartContract`].
+    /// Remove trigger from `triggers` and decrease the counter of the original [`SmartContract`].
     ///
     /// Note that this function doesn't remove the trigger from [`Set::ids`].
     ///
     /// Returns `true` if trigger was removed and `false` otherwise.
     fn remove_from<F: storage::Value + EventFilter>(
-        contracts: &mut WasmSmartContractMapTransaction<'block, 'set>,
+        contracts: &mut SmartContractMapTransaction<'block, 'set>,
         triggers: &mut StorageTransaction<'block, 'set, TriggerId, LoadedAction<F>>,
         trigger_id: TriggerId,
     ) -> bool {
@@ -881,15 +875,15 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
             .is_some()
     }
 
-    /// Decrease the counter of the original [`WasmSmartContract`] by `blob_hash`
+    /// Decrease the counter of the original [`SmartContract`] by `blob_hash`
     /// or remove it if the counter reaches zero.
     ///
     /// # Panics
     ///
     /// Panics if `blob_hash` is not in the [`Set::contracts`].
     fn remove_original_trigger(
-        contracts: &mut WasmSmartContractMapTransaction,
-        blob_hash: HashOf<WasmSmartContract>,
+        contracts: &mut SmartContractMapTransaction,
+        blob_hash: HashOf<SmartContract>,
     ) {
         #[allow(clippy::option_if_let_else)] // More readable this way
         match contracts.get_mut(&blob_hash) {
@@ -932,7 +926,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     /// Remove actions with zero execution count from `triggers`
     fn remove_zeros<F: storage::Value + EventFilter>(
         ids: &mut StorageTransaction<'block, 'set, TriggerId, TriggeringEventType>,
-        contracts: &mut WasmSmartContractMapTransaction<'block, 'set>,
+        contracts: &mut SmartContractMapTransaction<'block, 'set>,
         triggers: &mut StorageTransaction<'block, 'set, TriggerId, LoadedAction<F>>,
     ) {
         let to_remove: Vec<TriggerId> = triggers
@@ -1000,12 +994,12 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
 }
 
 /// Same as [`Executable`](iroha_data_model::transaction::Executable), but instead of
-/// [`Wasm`](iroha_data_model::transaction::Executable::Wasm) contains hash of the WASM blob
+/// [`SmartContract`](iroha_data_model::transaction::Executable::SmartContract) contains hash of the smart contract blob
 /// Which can be used to obtain compiled by `wasmtime` module
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ExecutableRef {
-    /// Loaded WASM
-    Wasm(HashOf<WasmSmartContract>),
+    /// Loaded smart contract
+    SmartContract(HashOf<SmartContract>),
     /// Vector of ISI
     Instructions(Vec<InstructionBox>),
 }
@@ -1013,7 +1007,7 @@ pub enum ExecutableRef {
 impl core::fmt::Debug for ExecutableRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Wasm(hash) => f.debug_tuple("Wasm").field(hash).finish(),
+            Self::SmartContract(hash) => f.debug_tuple("smart contract").field(hash).finish(),
             Self::Instructions(instructions) => {
                 f.debug_tuple("Instructions").field(instructions).finish()
             }

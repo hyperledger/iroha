@@ -1350,9 +1350,9 @@
         "type": "Vec<InstructionBox>"
       },
       {
-        "tag": "Wasm",
+        "tag": "SmartContract",
         "discriminant": 1,
-        "type": "WasmSmartContract"
+        "type": "SmartContract"
       }
     ]
   },
@@ -1412,8 +1412,8 @@
   "Executor": {
     "Struct": [
       {
-        "name": "wasm",
-        "type": "WasmSmartContract"
+        "name": "smart_contract",
+        "type": "SmartContract"
       }
     ]
   },
@@ -2223,7 +2223,7 @@
   "InvalidParameterError": {
     "Enum": [
       {
-        "tag": "Wasm",
+        "tag": "SmartContract",
         "discriminant": 0,
         "type": "String"
       },
@@ -3755,6 +3755,15 @@
       }
     ]
   },
+  "SmartContract": "Vec<u8>",
+  "SmartContractExecutionFail": {
+    "Struct": [
+      {
+        "name": "reason",
+        "type": "String"
+      }
+    ]
+  },
   "SmartContractParameter": {
     "Enum": [
       {
@@ -4071,9 +4080,9 @@
         "type": "InstructionExecutionFail"
       },
       {
-        "tag": "WasmExecution",
+        "tag": "SmartContractExecution",
         "discriminant": 4,
-        "type": "WasmExecutionFail"
+        "type": "SmartContractExecutionFail"
       }
     ]
   },
@@ -4476,7 +4485,7 @@
   "Upgrade": {
     "Struct": [
       {
-        "name": "executor",
+        "name": "object",
         "type": "Executor"
       }
     ]
@@ -4538,15 +4547,6 @@
   "Vec<u8>": {
     "Vec": "u8"
   },
-  "WasmExecutionFail": {
-    "Struct": [
-      {
-        "name": "reason",
-        "type": "String"
-      }
-    ]
-  },
-  "WasmSmartContract": "Vec<u8>",
   "u128": {
     "Int": "FixedWidth"
   },

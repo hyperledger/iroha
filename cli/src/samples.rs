@@ -115,5 +115,5 @@ where
         .optimize()?
         .into_bytes()?;
 
-    Ok(Executor::new(WasmSmartContract::from_compiled(wasm_blob)))
+    Ok(Executor::new(SmartContract::from_compiled(wasm_blob)))
 }

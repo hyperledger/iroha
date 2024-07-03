@@ -826,7 +826,7 @@ mod tests {
         }
 
         fn dummy_executor() -> Executor {
-            Executor::new(WasmSmartContract::from_compiled(vec![1, 2, 3]))
+            Executor::new(SmartContract::from_compiled(vec![1, 2, 3]))
         }
 
         #[test]

@@ -18,7 +18,6 @@ use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
-use prelude::Executable;
 use serde::{Deserialize, Serialize};
 use strum::FromRepr;
 
@@ -371,9 +370,9 @@ mod model {
         ),
         /// Query execution failed
         QueryFailed(#[cfg_attr(feature = "std", source)] query::error::QueryExecutionFail),
-        /// Operation is too complex, perhaps `WASM_RUNTIME_CONFIG` blockchain parameters should be increased
+        /// Operation is too complex, perhaps `SmartContractParameter` limits should be increased
         ///
-        /// For example it's a very big WASM binary.
+        /// For example it's a very big smart contract binary.
         ///
         /// It's different from [`TransactionRejectionReason::LimitCheck`] because it depends on
         /// executor.

@@ -134,7 +134,7 @@ impl AcceptedTransaction {
             // when executing wasm where we deny wasm if number of instructions exceeds the limit.
             //
             // Should we allow infinite instructions in wasm? And deny only based on fuel and size
-            Executable::Wasm(smart_contract) => {
+            Executable::SmartContract(smart_contract) => {
                 let smart_contract_size_limit = limits
                     .smart_contract_size
                     .get()
@@ -145,7 +145,7 @@ impl AcceptedTransaction {
                     return Err(AcceptTransactionFail::TransactionLimit(
                         TransactionLimitError {
                             reason: format!(
-                                "WASM binary size is too large: max {}, got {} \
+                                "Smart contract binary size is too large: max {}, got {} \
                                 (configured by \"Parameter::SmartContractLimits\")",
                                 limits.smart_contract_size,
                                 smart_contract.size_bytes()
@@ -232,21 +232,21 @@ impl TransactionExecutor {
         debug!("Validating transaction: {:?}", tx);
         Self::validate_with_runtime_executor(tx.clone(), state_transaction)?;
 
-        if let (authority, Executable::Wasm(bytes)) = tx.into() {
-            self.validate_wasm(authority, state_transaction, bytes)?
+        if let (authority, Executable::SmartContract(bytes)) = tx.into() {
+            self.validate_smart_contract(authority, state_transaction, bytes)?
         }
 
         debug!("Validation successful");
         Ok(())
     }
 
-    fn validate_wasm(
+    fn validate_smart_contract(
         &self,
         authority: AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
-        wasm: WasmSmartContract,
+        smart_contract: SmartContract,
     ) -> Result<(), TransactionRejectionReason> {
-        debug!("Validating wasm");
+        debug!("Validating smart contract");
 
         wasm::RuntimeBuilder::<wasm::state::SmartContract>::new()
             .build()
@@ -254,14 +254,14 @@ impl TransactionExecutor {
                 wasm_runtime.validate(
                     state_transaction,
                     authority,
-                    wasm,
+                    smart_contract,
                     self.limits.max_instructions,
                 )
             })
-            .map_err(|error| WasmExecutionFail {
+            .map_err(|error| SmartContractExecutionFail {
                 reason: format!("{:?}", eyre::Report::from(error)),
             })
-            .map_err(TransactionRejectionReason::WasmExecution)
+            .map_err(TransactionRejectionReason::SmartContractExecution)
     }
 
     /// Validate transaction with runtime executors.

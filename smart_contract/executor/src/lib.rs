@@ -26,7 +26,7 @@ pub mod utils {
 }
 
 pub mod log {
-    //! WASM logging utilities
+    //! Smart contract logging utilities
     pub use iroha_smart_contract_utils::{debug, error, event, info, log::*, trace, warn};
 }
 

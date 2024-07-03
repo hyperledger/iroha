@@ -1,10 +1,10 @@
-# Iroha WASM
+# Iroha Smart Contract
 
 The library crate that is used for writing Iroha-compliant smart contracts in Rust using the WebAssembly format.
 
 ## Usage
 
-Check the [WASM section of our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/wasm.html) for a detailed guide.
+Check the [Smart Contract section of our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/smart_contract.html) for a detailed guide.
 
 ## Running tests
 
@@ -20,7 +20,7 @@ Then run tests:
 cargo test
 ```
 
-## Reducing the size of WASM
+## Reducing the size of smart contracts
 
 Since smart contracts are stored directly on the blockchain, you would want to reduce their size.
 By following this list of optimization steps you can reduce the size of your binary by an order of magnitude
@@ -67,5 +67,5 @@ By following this list of optimization steps you can reduce the size of your bin
   $ wasm-opt -Os -o output.wasm input.wasm
   ```
 
-Following these steps is the bare minimum that can be done to all WASM smart contracts.
+Following these steps is the bare minimum that can be done to all smart contracts.
 We encourage you to profile the binaries [using twiggy](https://rustwasm.github.io/twiggy/) to further reduce their size.

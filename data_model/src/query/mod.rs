@@ -251,9 +251,9 @@ mod model {
         pub transaction: CommittedTransaction,
     }
 
-    /// Request type clients (like http clients or wasm) can send to a query endpoint.
+    /// Request type clients (like http clients or smart contract) can send to a query endpoint.
     ///
-    /// `Q` should be either [`http::SignedQuery`] for client or [`SmartContractQuery`] for wasm smart contract.
+    /// `Q` should be either [`http::SignedQuery`] for client or [`SmartContractQuery`] for smart contract.
     // NOTE: if updating, also update the `iroha_smart_contract::QueryRequest` and its encoding
     #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
     pub enum QueryRequest<Q> {
@@ -1034,7 +1034,7 @@ pub mod trigger {
         events::TriggeringEventFilterBox,
         prelude::InstructionBox,
         trigger::{Trigger, TriggerId},
-        Executable, Identifiable, Name,
+        Identifiable, Name,
     };
 
     queries! {

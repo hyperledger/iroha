@@ -20,8 +20,8 @@ fn long_multiple_blocks_created() -> Result<()> {
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Config::pipeline_time();
 
-    client.submit_blocking(SetParameter::new(Parameter::Block(
-        BlockParameter::MaxTransactions(nonzero!(1_u64)),
+    client.submit_blocking(SetParameter::new(BlockParameter::MaxTransactions(
+        nonzero!(1_u64),
     )))?;
 
     let create_domain = Register::domain(Domain::new("domain".parse()?));

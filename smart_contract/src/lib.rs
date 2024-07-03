@@ -37,7 +37,7 @@ extern "C" fn _iroha_smart_contract_alloc(len: usize) -> *const u8 {
 }
 
 /// # Safety
-/// - `offset` is a pointer to a `[u8; len]` which is allocated in the WASM memory.
+/// - `offset` is a pointer to a `[u8; len]` which is allocated in the smart contract memory.
 /// - This function can't call destructor of the encoded object.
 #[no_mangle]
 unsafe extern "C" fn _iroha_smart_contract_dealloc(offset: *mut u8, len: usize) {

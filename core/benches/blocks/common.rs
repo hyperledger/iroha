@@ -208,8 +208,8 @@ pub fn build_state(rt: &tokio::runtime::Handle, account_id: &AccountId) -> State
             .join("../configs/swarm/executor.wasm");
         let wasm = std::fs::read(&path_to_executor)
             .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_executor.display()));
-        let executor = Executor::new(WasmSmartContract::from_compiled(wasm));
-        Upgrade::new(executor)
+        let executor = Executor::new(SmartContract::from_compiled(wasm));
+        Upgrade::executor(executor)
             .execute(account_id, &mut state_transaction)
             .expect("Failed to load executor");
 

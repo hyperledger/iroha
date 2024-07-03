@@ -54,14 +54,16 @@ use crate::{
 /// # Warning
 ///
 /// Each instruction is executed in sequence following successful validation.
-/// [`Executable::Wasm`] is not executed because it is validated on the host side.
+/// [`Executable::SmartContract`] is not executed because it is validated on the host side.
 pub fn visit_transaction<V: Validate + Visit + ?Sized>(
     executor: &mut V,
     authority: &AccountId,
     transaction: &SignedTransaction,
 ) {
     match transaction.instructions() {
-        Executable::Wasm(wasm) => executor.visit_wasm(authority, wasm),
+        Executable::SmartContract(smart_contract) => {
+            executor.visit_smart_contract(authority, smart_contract)
+        }
         Executable::Instructions(instructions) => {
             for isi in instructions {
                 if executor.verdict().is_ok() {

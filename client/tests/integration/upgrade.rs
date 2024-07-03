@@ -406,8 +406,7 @@ fn define_custom_parameter() -> Result<()> {
 
     let parameter = DomainLimits {
         id_len: 2_u32.pow(6),
-    }
-    .into();
+    };
     let set_param_isi = SetParameter::new(parameter);
     client.submit_all_blocking::<InstructionBox>([set_param_isi.into(), create_domain.into()])?;
 
@@ -423,9 +422,9 @@ fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
         .optimize()?
         .into_bytes()?;
 
-    info!("WASM size is {} bytes", wasm.len());
+    info!("Smart contract size is {} bytes", wasm.len());
 
-    let upgrade_executor = Upgrade::new(Executor::new(WasmSmartContract::from_compiled(wasm)));
+    let upgrade_executor = Upgrade::executor(Executor::new(SmartContract::from_compiled(wasm)));
     client.submit_blocking(upgrade_executor)?;
 
     Ok(())

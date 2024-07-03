@@ -140,7 +140,7 @@ fn build_transactions(
     chain_id: ChainId,
     genesis_key_pair: &KeyPair,
 ) -> Vec<SignedTransaction> {
-    let upgrade_isi = Upgrade::new(executor).into();
+    let upgrade_isi = Upgrade::executor(executor).into();
     let transaction_executor =
         build_transaction(vec![upgrade_isi], chain_id.clone(), genesis_key_pair);
     let mut transactions = vec![transaction_executor];
@@ -180,7 +180,7 @@ fn build_transaction(
 fn get_executor(file: &Path) -> Result<Executor> {
     let wasm = fs::read(file)
         .wrap_err_with(|| eyre!("failed to read the executor from {}", file.display()))?;
-    Ok(Executor::new(WasmSmartContract::from_compiled(wasm)))
+    Ok(Executor::new(SmartContract::from_compiled(wasm)))
 }
 
 /// Builder type for [`GenesisBlock`]/[`RawGenesisTransaction`]
@@ -331,7 +331,7 @@ mod tests {
     use super::*;
 
     fn dummy_executor() -> Executor {
-        Executor::new(WasmSmartContract::from_compiled(vec![1, 2, 3]))
+        Executor::new(SmartContract::from_compiled(vec![1, 2, 3]))
     }
 
     #[test]
@@ -395,7 +395,7 @@ mod tests {
                 panic!("Expected instructions");
             };
 
-            assert_eq!(instructions[0], Upgrade::new(dummy_executor()).into());
+            assert_eq!(instructions[0], Upgrade::executor(dummy_executor()).into());
             assert_eq!(instructions.len(), 1);
         }
 

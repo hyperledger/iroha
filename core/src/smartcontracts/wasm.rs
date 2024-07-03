@@ -713,7 +713,7 @@ impl<W, S> Runtime<state::CommonState<W, S>> {
         (log_level, msg): (u8, String),
         state: &state::CommonState<W, S>,
     ) -> Result<(), WasmtimeError> {
-        const TARGET: &str = "WASM";
+        const TARGET: &str = "Smart contract";
 
         let _span = state.log_span.enter();
         match LogLevel::from_repr(log_level)
@@ -745,7 +745,7 @@ impl<W, S> Runtime<state::CommonState<W, S>> {
         store.limiter(|s| &mut s.store_limits);
         store
             .set_fuel(self.config.fuel.get())
-            .expect("Wasm Runtime config is malformed, this is a bug");
+            .expect("INTERNAL BUG: Smart contract config is malformed");
 
         store
     }

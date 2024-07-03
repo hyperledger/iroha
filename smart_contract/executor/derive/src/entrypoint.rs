@@ -119,7 +119,7 @@ fn impl_validate_entrypoint(
             bytes_box.as_ptr()
         }
 
-        // NOTE: Host objects are always passed by value to wasm
+        // NOTE: Host objects are always passed by value to the smart contract
         #[allow(clippy::needless_pass_by_value)]
         #(#attrs)*
         #[inline]

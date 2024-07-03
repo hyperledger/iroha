@@ -23,7 +23,7 @@ pub trait Visit {
         // Visit SignedTransaction
         visit_transaction(&SignedTransaction),
         visit_instruction(&InstructionBox),
-        visit_wasm(&WasmSmartContract),
+        visit_smart_contract(&SmartContract),
         visit_query(&QueryBox),
 
         // Visit InstructionBox
@@ -150,7 +150,9 @@ pub fn visit_transaction<V: Visit + ?Sized>(
     transaction: &SignedTransaction,
 ) {
     match transaction.instructions() {
-        Executable::Wasm(wasm) => visitor.visit_wasm(authority, wasm),
+        Executable::SmartContract(smart_contract) => {
+            visitor.visit_smart_contract(authority, smart_contract)
+        }
         Executable::Instructions(instructions) => {
             for isi in instructions {
                 visitor.visit_instruction(authority, isi);
@@ -213,10 +215,10 @@ pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, qu
     }
 }
 
-pub fn visit_wasm<V: Visit + ?Sized>(
+pub fn visit_smart_contract<V: Visit + ?Sized>(
     _visitor: &mut V,
     _authority: &AccountId,
-    _wasm: &WasmSmartContract,
+    _smart_contract: &SmartContract,
 ) {
 }
 

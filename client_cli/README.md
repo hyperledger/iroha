@@ -38,17 +38,17 @@ iroha [OPTIONS] <SUBCOMMAND>
 
 ### Subcommands
 
-|  Command  |                                                                 Description                                                                 |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account` | Execute commands related to accounts: register a new one, list all accounts, grant a permission to an account, list all account permissions |
-| `asset`   | Execute commands related to assets: register a new one, mint or transfer assets, get info about an asset, list all assets                   |
-| `blocks`  | Get block stream from Iroha peer                                                                                                            |
-| `domain`  | Execute commands related to domains: register a new one, list all domains                                                                   |
-| `events`  | Get event stream from Iroha peer                                                                                                            |
-| `json`    | Submit multi-instructions or request query as JSON                                                                                                           |
-| `peer`    | Execute commands related to peer administration and networking                                                                              |
-| `wasm`    | Execute commands related to WASM                                                                                                            |
-| `help`    | Print the help message for `iroha` and/or the current subcommand other than `help` subcommand                                    |
+|  Command         |                                                                 Description                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `account`        | Execute commands related to accounts: register a new one, list all accounts, grant a permission to an account, list all account permissions |
+| `asset`          | Execute commands related to assets: register a new one, mint or transfer assets, get info about an asset, list all assets                   |
+| `blocks`         | Get block stream from Iroha peer                                                                                                            |
+| `domain`         | Execute commands related to domains: register a new one, list all domains                                                                   |
+| `events`         | Get event stream from Iroha peer                                                                                                            |
+| `json`           | Submit multi-instructions or request query as JSON                                                                                          |
+| `peer`           | Execute commands related to peer administration and networking                                                                              |
+| `smart-contract` | Execute commands related to smart contracts                                                                                                 |
+| `help`           | Print the help message for `iroha` and/or the current subcommand other than `help` subcommand                                               |
 
 Refer to [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions.html) for more information about Iroha instructions such as register, mint, grant, and so on.
 
@@ -79,7 +79,7 @@ In this section we will show you how to use Iroha CLI Client to do the following
     - [Create new Account](#create-new-account)
     - [Mint Asset to Account](#mint-asset-to-account)
     - [Query Account Assets Quantity](#query-account-assets-quantity)
-    - [Execute WASM transaction](#execute-wasm-transaction)
+    - [Execute smart contract](#execute-smart-contract)
     - [Execute Multi-instruction Transactions](#execute-multi-instruction-transactions)
 
 ### Create new Domain
@@ -160,21 +160,21 @@ Examples:
 ./iroha asset list filter '{"Or": [{"Identifiable": {"Contains": "#wonderland#"}}, {"And": [{"Identifiable": {"Contains": "##"}}, {"Identifiable": {"EndsWith": "@wonderland"}}]}]}'
 ```
 
-### Execute WASM transaction
+### Execute smart contract
 
-Use `--file` to specify a path to the WASM file:
-
-```bash
-./iroha wasm --file=/path/to/file.wasm
-```
-
-Or skip `--file` to read WASM from standard input:
+Use `--file` to specify a path to the smart contract file:
 
 ```bash
-cat /path/to/file.wasm | ./iroha wasm
+./iroha smart-contract --file=/path/to/file.wasm
 ```
 
-These subcommands submit the provided wasm binary as an `Executable` to be executed outside a trigger context.
+Or skip `--file` to read smart contract from standard input:
+
+```bash
+cat /path/to/file.wasm | ./iroha smart-contract
+```
+
+These subcommands submit the provided smart contract binary as an `Executable` to be executed outside a trigger context.
 
 ### Execute Multi-instruction Transactions
 

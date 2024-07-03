@@ -278,7 +278,7 @@ impl LoadedExecutor {
         raw_executor: data_model_executor::Executor,
     ) -> Result<Self, wasm::error::Error> {
         Ok(Self {
-            module: wasm::load_module(engine, &raw_executor.wasm)?,
+            module: wasm::load_module(engine, &raw_executor.smart_contract)?,
             raw_executor,
         })
     }

@@ -8,7 +8,7 @@ use iroha::{
         events::pipeline::{BlockEventFilter, BlockStatus},
         parameter::SumeragiParameters,
         prelude::*,
-        transaction::WasmSmartContract,
+        transaction::SmartContract,
         Level,
     },
 };
@@ -228,7 +228,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     .optimize()?
     .into_bytes()?;
 
-    info!("WASM size is {} bytes", wasm.len());
+    info!("Smart contract size is {} bytes", wasm.len());
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
@@ -265,7 +265,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let register_trigger = Register::trigger(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(
-            WasmSmartContract::from_compiled(wasm),
+            SmartContract::from_compiled(wasm),
             Repeats::Indefinitely,
             alice_id.clone(),
             filter,

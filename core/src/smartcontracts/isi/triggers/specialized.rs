@@ -127,9 +127,9 @@ pub struct LoadedAction<F> {
 }
 
 impl<F> LoadedAction<F> {
-    pub(super) fn extract_blob_hash(&self) -> Option<HashOf<WasmSmartContract>> {
+    pub(super) fn extract_blob_hash(&self) -> Option<HashOf<SmartContract>> {
         match self.executable {
-            ExecutableRef::Wasm(blob_hash) => Some(blob_hash),
+            ExecutableRef::SmartContract(blob_hash) => Some(blob_hash),
             ExecutableRef::Instructions(_) => None,
         }
     }

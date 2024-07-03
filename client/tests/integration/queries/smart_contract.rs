@@ -12,7 +12,7 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_140).start_with_runtime();
     wait_for_genesis_committed(&[client.clone()], 0);
 
-    let wasm = iroha_wasm_builder::Builder::new(
+    let smart_contract = iroha_wasm_builder::Builder::new(
         "tests/integration/smartcontracts/query_assets_and_save_cursor",
     )
     .show_output()
@@ -20,8 +20,10 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
     .optimize()?
     .into_bytes()?;
 
-    let transaction =
-        client.build_transaction(WasmSmartContract::from_compiled(wasm), Metadata::default());
+    let transaction = client.build_transaction(
+        SmartContract::from_compiled(smart_contract),
+        Metadata::default(),
+    );
     client.submit_transaction_blocking(&transaction)?;
 
     let metadata_value: JsonString = client.request(FindAccountKeyValueByIdAndKey::new(
@@ -49,7 +51,7 @@ fn smart_contract_can_filter_queries() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_260).start_with_runtime();
     wait_for_genesis_committed(&[client.clone()], 0);
 
-    let wasm = iroha_wasm_builder::Builder::new(
+    let smart_contract = iroha_wasm_builder::Builder::new(
         "tests/integration/smartcontracts/smart_contract_can_filter_queries",
     )
     .show_output()
@@ -57,8 +59,10 @@ fn smart_contract_can_filter_queries() -> Result<()> {
     .optimize()?
     .into_bytes()?;
 
-    let transaction =
-        client.build_transaction(WasmSmartContract::from_compiled(wasm), Metadata::default());
+    let transaction = client.build_transaction(
+        SmartContract::from_compiled(smart_contract),
+        Metadata::default(),
+    );
     client.submit_transaction_blocking(&transaction)?;
 
     Ok(())

@@ -1464,7 +1464,7 @@ impl StateTransaction<'_, '_> {
             Executable::Instructions(instructions) => {
                 self.process_instructions(instructions.iter().cloned(), &authority)
             }
-            Executable::Wasm(bytes) => {
+            Executable::SmartContract(bytes) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::<wasm::state::SmartContract>::new()
                     .with_config(self.world().parameters().smart_contract)
                     .with_engine(self.engine.clone()) // Cloning engine is cheap
@@ -1500,7 +1500,7 @@ impl StateTransaction<'_, '_> {
             Instructions(instructions) => {
                 self.process_instructions(instructions.iter().cloned(), authority)
             }
-            Wasm(blob_hash) => {
+            SmartContract(blob_hash) => {
                 let module = self
                     .world
                     .triggers

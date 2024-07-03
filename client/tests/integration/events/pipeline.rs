@@ -57,8 +57,8 @@ fn test_with_instruction_and_status_and_port(
     wait_for_genesis_committed(&clients, 0);
     let pipeline_time = Config::pipeline_time();
 
-    client.submit_blocking(SetParameter::new(Parameter::Block(
-        BlockParameter::MaxTransactions(nonzero!(1_u64)),
+    client.submit_blocking(SetParameter::new(BlockParameter::MaxTransactions(
+        nonzero!(1_u64),
     )))?;
 
     // Given

@@ -12,10 +12,10 @@ pub fn impl_derive_parameter(input: &syn::DeriveInput) -> TokenStream {
     quote! {
         impl #impl_generics ::iroha_executor_data_model::parameter::Parameter for #ident #ty_generics #where_clause {}
 
-        impl #impl_generics TryFrom<&::iroha_executor_data_model::parameter::CustomParameter> for #ident #ty_generics #where_clause {
+        impl #impl_generics TryFrom<&::iroha_data_model::parameter::CustomParameter> for #ident #ty_generics #where_clause {
             type Error = ::iroha_executor_data_model::TryFromDataModelObjectError;
 
-            fn try_from(value: &::iroha_executor_data_model::parameter::CustomParameter) -> core::result::Result<Self, Self::Error> {
+            fn try_from(value: &::iroha_data_model::parameter::CustomParameter) -> core::result::Result<Self, Self::Error> {
                 let value_id = iroha_data_model::Identifiable::id(value);
 
                 if *value_id != <Self as ::iroha_executor_data_model::parameter::Parameter>::id() {
@@ -26,9 +26,9 @@ pub fn impl_derive_parameter(input: &syn::DeriveInput) -> TokenStream {
             }
         }
 
-        impl #impl_generics From<#ident #ty_generics> for ::iroha_executor_data_model::parameter::CustomParameter #where_clause {
+        impl #impl_generics From<#ident #ty_generics> for ::iroha_data_model::parameter::CustomParameter #where_clause {
             fn from(value: #ident #ty_generics) -> Self {
-                ::iroha_executor_data_model::parameter::CustomParameter::new(
+                ::iroha_data_model::parameter::CustomParameter::new(
                     <#ident as ::iroha_executor_data_model::parameter::Parameter>::id(),
                     ::serde_json::to_value::<#ident #ty_generics>(value)
                         .expect("INTERNAL BUG: Failed to serialize Executor data model entity"),

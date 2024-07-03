@@ -7,7 +7,7 @@ use iroha::{
     crypto::KeyPair,
     data_model::{
         prelude::*,
-        transaction::{TransactionBuilder, WasmSmartContract},
+        transaction::{SmartContract, TransactionBuilder},
     },
 };
 use iroha_data_model::parameter::SmartContractParameter;
@@ -38,7 +38,7 @@ fn mutlisig() -> Result<()> {
             .build()?
             .optimize()?
             .into_bytes()?;
-    let wasm = WasmSmartContract::from_compiled(wasm);
+    let wasm = SmartContract::from_compiled(wasm);
 
     let trigger = Trigger::new(
         multisig_register_trigger_id.clone(),

@@ -108,8 +108,8 @@ enum Subcommand {
     /// The subcommand related to event streaming
     #[clap(subcommand)]
     Events(events::Args),
-    /// The subcommand related to Wasm
-    Wasm(wasm::Args),
+    /// The subcommand related to smart contracts
+    SmartContract(smart_contract::Args),
     /// The subcommand related to block streaming
     Blocks(blocks::Args),
     /// The subcommand related to multi-instructions as Json or Json5
@@ -169,7 +169,7 @@ macro_rules! match_all {
 impl RunArgs for Subcommand {
     fn run(self, context: &mut dyn RunContext) -> Result<()> {
         use Subcommand::*;
-        match_all!((self, context), { Domain, Account, Asset, Peer, Events, Wasm, Blocks, Json })
+        match_all!((self, context), { Domain, Account, Asset, Peer, Events, SmartContract, Blocks, Json })
     }
 }
 
@@ -1060,15 +1060,15 @@ mod peer {
     }
 }
 
-mod wasm {
+mod smart_contract {
     use std::{io::Read, path::PathBuf};
 
     use super::*;
 
-    /// Subcommand for dealing with Wasm
+    /// Subcommand for dealing with smart contracts
     #[derive(Debug, clap::Args)]
     pub struct Args {
-        /// Specify a path to the Wasm file or skip this flag to read from stdin
+        /// Specify a path to the smart contract file or skip this flag to read from stdin
         #[arg(short, long)]
         path: Option<PathBuf>,
     }
@@ -1076,21 +1076,22 @@ mod wasm {
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let raw_data = if let Some(path) = self.path {
-                read_file(path).wrap_err("Failed to read a Wasm from the file into the buffer")?
+                read_file(path)
+                    .wrap_err("Failed to read a smart contract from the file into the buffer")?
             } else {
                 let mut buf = Vec::<u8>::new();
                 stdin()
                     .read_to_end(&mut buf)
-                    .wrap_err("Failed to read a Wasm from stdin into the buffer")?;
+                    .wrap_err("Failed to read a smart contract from stdin into the buffer")?;
                 buf
             };
 
             submit(
-                WasmSmartContract::from_compiled(raw_data),
+                SmartContract::from_compiled(raw_data),
                 Metadata::default(),
                 context,
             )
-            .wrap_err("Failed to submit a Wasm smart contract")
+            .wrap_err("Failed to submit a smart contract")
         }
     }
 }

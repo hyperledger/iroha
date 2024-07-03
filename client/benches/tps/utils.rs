@@ -51,7 +51,7 @@ impl Config {
         let clients = network.clients();
         wait_for_genesis_committed_with_max_retries(&clients, 0, self.genesis_max_retries);
 
-        client.submit_blocking(SetParameter::new(Parameter::Block(self.block_limits)))?;
+        client.submit_blocking(SetParameter::new(self.block_limits))?;
 
         let unit_names = (UnitName::MIN..).take(self.peers as usize);
         let units = clients

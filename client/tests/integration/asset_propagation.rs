@@ -20,8 +20,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Config::pipeline_time();
 
-    client.submit_blocking(SetParameter::new(Parameter::Block(
-        BlockParameter::MaxTransactions(nonzero!(1_u64)),
+    client.submit_blocking(SetParameter::new(BlockParameter::MaxTransactions(
+        nonzero!(1_u64),
     )))?;
 
     let create_domain = Register::domain(Domain::new(DomainId::from_str("domain")?));
