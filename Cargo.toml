@@ -116,7 +116,7 @@ dashmap = "5.5.3"
 rustc-hash = "1.1.0"
 
 serde = { version = "1.0.203", default-features = false }
-serde_json = { version = "1.0.118", default-features = false }
+serde_json = { version = "1.0.120", default-features = false }
 serde_yaml = "0.9.34"
 serde_with = { version = "3.8.2", default-features = false }
 parity-scale-codec = { version = "3.6.12", default-features = false }
