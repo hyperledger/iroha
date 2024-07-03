@@ -6,20 +6,173 @@ use eyre::Result;
 use iroha_data_model::{
     prelude::*,
     query::{
-        error::QueryExecutionFail as Error, predicate::PredicateBox, Pagination, QueryOutputBox,
-        Sorting,
+        error::QueryExecutionFail as Error, IterableQueryBox, IterableQueryOutputBatchBox,
+        IterableQueryParams, QueryOutputBox, QueryRequest2, QueryRequestWithAuthority,
+        QueryResponse2,
     },
 };
-use parity_scale_codec::{Decode, Encode};
 
 use crate::{
     prelude::ValidQuery,
     query::{
-        cursor::{Batch as _, Batched},
-        pagination::Paginate as _,
+        cursor::QueryBatchedErasedIterator, pagination::Paginate as _, store::LiveQueryStoreHandle,
     },
-    state::{StateReadOnly, WorldReadOnly},
+    smartcontracts::ValidIterableQuery,
+    state::StateReadOnly,
 };
+
+/// Allows to generalize retrieving the metadata key for all the query output types
+pub trait SortableQueryOutput {
+    /// Get the sorting key for the output, from metadata
+    ///
+    /// If the type doesn't have metadata or metadata key doesn't exist - return None
+    fn get_metadata_sorting_key(&self, key: &Name) -> Option<JsonString>;
+}
+
+impl SortableQueryOutput for Account {
+    fn get_metadata_sorting_key(&self, key: &Name) -> Option<JsonString> {
+        self.metadata.get(key).cloned()
+    }
+}
+
+impl SortableQueryOutput for Domain {
+    fn get_metadata_sorting_key(&self, key: &Name) -> Option<JsonString> {
+        self.metadata.get(key).cloned()
+    }
+}
+
+impl SortableQueryOutput for AssetDefinition {
+    fn get_metadata_sorting_key(&self, key: &Name) -> Option<JsonString> {
+        self.metadata.get(key).cloned()
+    }
+}
+
+impl SortableQueryOutput for Asset {
+    fn get_metadata_sorting_key(&self, key: &Name) -> Option<JsonString> {
+        match &self.value {
+            AssetValue::Numeric(_) => None,
+            AssetValue::Store(metadata) => metadata.get(key).cloned(),
+        }
+    }
+}
+
+impl SortableQueryOutput for Role {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonString> {
+        None
+    }
+}
+
+impl SortableQueryOutput for RoleId {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonString> {
+        None
+    }
+}
+
+impl SortableQueryOutput for TransactionQueryOutput {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonString> {
+        None
+    }
+}
+
+impl SortableQueryOutput for Peer {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonString> {
+        None
+    }
+}
+
+impl SortableQueryOutput for Permission {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonString> {
+        None
+    }
+}
+
+impl SortableQueryOutput for Trigger {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonString> {
+        None
+    }
+}
+
+impl SortableQueryOutput for TriggerId {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonString> {
+        None
+    }
+}
+
+impl SortableQueryOutput for iroha_data_model::block::SignedBlock {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonString> {
+        None
+    }
+}
+
+impl SortableQueryOutput for iroha_data_model::block::BlockHeader {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonString> {
+        None
+    }
+}
+
+/// Applies sorting and pagination to the query output and wraps it into a type-erasing batching iterator.
+pub fn apply_query_postprocessing<I>(
+    iter: I,
+    &IterableQueryParams {
+        pagination,
+        ref sorting,
+        fetch_size,
+    }: &IterableQueryParams,
+) -> Result<QueryBatchedErasedIterator, Error>
+where
+    I: Iterator,
+    I::Item: SortableQueryOutput + Send + Sync + 'static,
+    IterableQueryOutputBatchBox: From<Vec<I::Item>>,
+{
+    // validate the fetch (aka batch) size
+    let fetch_size = fetch_size
+        .fetch_size
+        .unwrap_or(iroha_data_model::query::DEFAULT_FETCH_SIZE);
+    if fetch_size > iroha_data_model::query::MAX_FETCH_SIZE {
+        return Err(Error::FetchSizeTooBig);
+    }
+
+    // sort & paginate, erase the iterator with QueryBatchedErasedIterator
+    let output = match &sorting.sort_by_metadata_key {
+        Some(key) => {
+            // if sorting was requested, we need to retrieve all the results first
+            let mut pairs: Vec<(Option<JsonString>, I::Item)> = iter
+                .map(|value| {
+                    let key = value.get_metadata_sorting_key(key);
+                    (key, value)
+                })
+                .collect();
+            pairs.sort_by(
+                |(left_key, _), (right_key, _)| match (left_key, right_key) {
+                    (Some(l), Some(r)) => l.cmp(r),
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
+                    (None, None) => Ordering::Equal,
+                },
+            );
+
+            QueryBatchedErasedIterator::new(
+                pairs.into_iter().map(|(_, val)| val).paginate(pagination),
+                fetch_size,
+            )
+        }
+        // no sorting required, can just paginate the results without constructing the full output vec
+        None => {
+            let output = iter
+                .paginate(pagination)
+                // it should theoretically be possible to not collect the results into a vec and build the response lazily
+                // but:
+                // - the iterator is bound to the 'state lifetime and this lifetime should somehow be erased
+                // - for small queries this might not be efficient
+                // TODO: investigate this
+                .collect::<Vec<_>>();
+
+            QueryBatchedErasedIterator::new(output.into_iter(), fetch_size)
+        }
+    };
+
+    Ok(output)
+}
 
 /// Represents lazy evaluated query output
 pub trait Lazy {
@@ -33,112 +186,6 @@ pub enum LazyQueryOutput<'a> {
     QueryOutput(QueryOutputBox),
     /// Iterator over a set of [`Query::Output`]s
     Iter(Box<dyn Iterator<Item = QueryOutputBox> + 'a>),
-}
-
-impl LazyQueryOutput<'_> {
-    /// If the underlying output is an iterator, apply all the query postprocessing:
-    /// - filtering
-    /// - sorting
-    /// - pagination
-    /// - batching
-    ///
-    /// # Errors
-    ///
-    /// - if fetch size is too big
-    /// - defined pagination parameter for a query that returns singular result
-    pub(crate) fn apply_postprocessing(
-        self,
-        filter: &PredicateBox,
-        sorting: &Sorting,
-        pagination: Pagination,
-        fetch_size: FetchSize,
-    ) -> Result<ProcessedQueryOutput, Error> {
-        match self {
-            // nothing applies to the singular results
-            LazyQueryOutput::QueryOutput(output) => {
-                if filter != &PredicateBox::default()
-                    || sorting != &Sorting::default()
-                    || pagination != Pagination::default()
-                    || fetch_size != FetchSize::default()
-                {
-                    return Err(Error::InvalidSingularParameters);
-                }
-
-                Ok(ProcessedQueryOutput::Single(output))
-            }
-            LazyQueryOutput::Iter(iter) => {
-                // filter the results
-                let iter = iter.filter(move |v| filter.applies(v));
-
-                // sort & paginate
-                let output = match &sorting.sort_by_metadata_key {
-                    Some(key) => {
-                        // if sorting was requested, we need to retrieve all the results first
-                        let mut pairs: Vec<(Option<QueryOutputBox>, QueryOutputBox)> = iter
-                            .map(|value| {
-                                let key = match &value {
-                                    QueryOutputBox::Identifiable(IdentifiableBox::Asset(asset)) => {
-                                        match asset.value() {
-                                            AssetValue::Store(store) => {
-                                                store.get(key).cloned().map(Into::into)
-                                            }
-                                            _ => None,
-                                        }
-                                    }
-                                    QueryOutputBox::Identifiable(v) => {
-                                        TryInto::<&dyn HasMetadata>::try_into(v)
-                                            .ok()
-                                            .and_then(|has_metadata| {
-                                                has_metadata.metadata().get(key)
-                                            })
-                                            .cloned()
-                                            .map(Into::into)
-                                    }
-                                    _ => None,
-                                };
-                                (key, value)
-                            })
-                            .collect();
-                        pairs.sort_by(|(left_key, _), (right_key, _)| {
-                            match (left_key, right_key) {
-                                (Some(l), Some(r)) => l.cmp(r),
-                                (Some(_), None) => Ordering::Less,
-                                (None, Some(_)) => Ordering::Greater,
-                                (None, None) => Ordering::Equal,
-                            }
-                        });
-                        pairs
-                            .into_iter()
-                            .map(|(_, val)| val)
-                            .paginate(pagination)
-                            .collect::<Vec<_>>()
-                    }
-                    // no sorting, can just paginate the results without constructing the full output vec
-                    None => iter.paginate(pagination).collect::<Vec<_>>(),
-                };
-
-                let fetch_size = fetch_size
-                    .fetch_size
-                    .unwrap_or(iroha_data_model::query::DEFAULT_FETCH_SIZE);
-                if fetch_size > iroha_data_model::query::MAX_FETCH_SIZE {
-                    return Err(Error::FetchSizeTooBig);
-                }
-
-                // split the results into batches of fetch_size
-                Ok(ProcessedQueryOutput::Iter(output.batched(fetch_size)))
-            }
-        }
-    }
-}
-
-/// An evaluated & post-processed query output that is ready to be sent to the live query store
-///
-/// It has all the parameters (filtering, sorting, pagination and batching) applied already
-pub enum ProcessedQueryOutput {
-    /// A single query output
-    Single(QueryOutputBox),
-    /// An iterable query result, batched into fetch_size-sized chunks
-    Iter(Batched<Vec<QueryOutputBox>>),
 }
 
 impl Lazy for QueryOutputBox {
@@ -173,58 +220,111 @@ impl_lazy! {
 }
 
 /// Query Request statefully validated on the Iroha node side.
-#[derive(Debug, Clone, Decode, Encode)]
-#[repr(transparent)]
-pub struct ValidQueryRequest(SignedQuery);
+#[derive(Debug, Clone)]
+pub struct ValidQueryRequest(QueryRequest2);
 
 impl ValidQueryRequest {
-    /// Validate query.
-    ///
-    /// # Errors
-    /// - Account doesn't exist
-    /// - Account doesn't have the correct public key
-    /// - Account has incorrect permissions
+    #[warn(missing_docs)] // TODO
+                          // Validate query.
+                          //
+                          // # Errors
+                          // - Account doesn't exist
+                          // - Account doesn't have the correct public key
+                          // - Account has incorrect permissions
     pub fn validate(
-        query: SignedQuery,
-        state_ro: &impl StateReadOnly,
+        query: QueryRequestWithAuthority,
+        _state_ro: &impl StateReadOnly,
     ) -> Result<Self, ValidationFail> {
-        state_ro.world().executor().validate_query(
-            state_ro,
-            query.authority(),
-            query.query().clone(),
-        )?;
-        Ok(Self(query))
+        // TODO: actually do some validation
+        Ok(Self(query.request))
+        // state_ro.world().executor().validate_query(
+        //     state_ro,
+        //     query.authority(),
+        //     query.query().clone(),
+        // )?;
+        // Ok(Self(query))
     }
 
-    /// Execute contained query on the [`StateSnapshot`].
-    ///
-    /// # Errors
-    /// Forwards `self.query.execute` error.
-    pub fn execute_and_process<'state>(
-        &'state self,
-        state_ro: &'state impl StateReadOnly,
-    ) -> Result<ProcessedQueryOutput, Error> {
-        let query = &self.0;
+    #[warn(missing_docs)] // TODO
+    pub fn execute(
+        self,
+        live_query_store: LiveQueryStoreHandle,
+        state: &impl StateReadOnly,
+        authority: &AccountId,
+    ) -> Result<QueryResponse2, Error> {
+        match self.0 {
+            QueryRequest2::Singular(_singular_query) => {
+                todo!()
+            }
+            QueryRequest2::StartIterable(iter_query) => {
+                let output = match iter_query.query {
+                    // dispatch on a concrete query type, erasing the type with `QueryBatchedErasedIterator` in the end
+                    IterableQueryBox::FindAllDomains(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindAllAccounts(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindAllAssets(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindAllAssetsDefinitions(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindAllRoles(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindAllRoleIds(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindPermissionsByAccountId(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindRolesByAccountId(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindTransactionsByAccountId(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindAllPeers(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindAllActiveTriggerIds(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindAllTransactions(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindAllBlocks(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    IterableQueryBox::FindAllBlockHeaders(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                };
 
-        query.query().execute(state_ro)?.apply_postprocessing(
-            query.filter(),
-            query.sorting(),
-            query.pagination(),
-            query.fetch_size(),
-        )
-
-        // We're not handling the LimitedMetadata case, because
-        // the predicate when applied to it is ambiguous. We could
-        // pattern match on that case, but we should assume that
-        // metadata (since it's limited) isn't going to be too
-        // difficult to filter client-side. I actually think that
-        // Metadata should be restricted in what types it can
-        // contain.
-    }
-
-    /// Return query authority
-    pub fn authority(&self) -> &AccountId {
-        self.0.authority()
+                Ok(QueryResponse2::Iterable(
+                    live_query_store.handle_iter_start(output, authority)?,
+                ))
+            }
+            QueryRequest2::ContinueIterable(cursor) => Ok(QueryResponse2::Iterable(
+                live_query_store.handle_iter_continue(cursor)?,
+            )),
+        }
     }
 }
 
@@ -457,7 +557,7 @@ mod tests {
         let num_blocks = 100;
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let blocks = FindAllBlocks.execute(&state.view())?.collect::<Vec<_>>();
+        let blocks = ValidQuery::execute(&FindAllBlocks, &state.view())?.collect::<Vec<_>>();
 
         assert_eq!(blocks.len() as u64, num_blocks);
         assert!(blocks
@@ -472,9 +572,8 @@ mod tests {
         let num_blocks = 100;
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let block_headers = FindAllBlockHeaders
-            .execute(&state.view())?
-            .collect::<Vec<_>>();
+        let block_headers =
+            ValidQuery::execute(&FindAllBlockHeaders, &state.view())?.collect::<Vec<_>>();
 
         assert_eq!(block_headers.len() as u64, num_blocks);
         assert!(block_headers.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -507,10 +606,7 @@ mod tests {
         let num_blocks = 100;
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let state_view = state.view();
-        let txs = FindAllTransactions
-            .execute(&state_view)?
-            .collect::<Vec<_>>();
+        let txs = ValidQuery::execute(&FindAllTransactions, &state.view())?.collect::<Vec<_>>();
 
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(

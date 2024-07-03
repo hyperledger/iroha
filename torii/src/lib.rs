@@ -40,7 +40,7 @@ use tower_http::{
     trace::{DefaultMakeSpan, TraceLayer},
 };
 use utils::{
-    extractors::{ClientQueryRequestExtractor, ExtractAccept, ScaleVersioned},
+    extractors::{ExtractAccept, ScaleVersioned},
     Scale,
 };
 
@@ -189,7 +189,7 @@ impl Torii {
                 post({
                     let query_service = self.query_service.clone();
                     let state = self.state.clone();
-                    move |ClientQueryRequestExtractor(query_request): ClientQueryRequestExtractor| {
+                    move |ScaleVersioned(query_request): ScaleVersioned<_>| {
                         routing::handle_queries(query_service, state, query_request)
                     }
                 }),

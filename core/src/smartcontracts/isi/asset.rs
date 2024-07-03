@@ -424,12 +424,19 @@ pub mod query {
     use eyre::Result;
     use iroha_data_model::{
         asset::{Asset, AssetDefinition, AssetValue},
-        query::{asset::FindAssetDefinitionById, error::QueryExecutionFail as Error},
+        query::{
+            asset::FindAssetDefinitionById,
+            error::QueryExecutionFail as Error,
+            predicate::{
+                predicate_atoms::asset::{AssetDefinitionPredicateBox, AssetPredicateBox},
+                CompoundPredicate,
+            },
+        },
     };
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::state::StateReadOnly;
+    use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
     impl ValidQuery for FindAllAssets {
         #[metrics(+"find_all_assets")]
@@ -441,6 +448,22 @@ pub mod query {
         }
     }
 
+    impl ValidIterableQuery for FindAllAssets {
+        #[metrics(+"find_all_assets")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<AssetPredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Asset> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .accounts_iter()
+                .flat_map(|account| account.assets.values())
+                .filter(move |&asset| filter.applies(asset))
+                .cloned())
+        }
+    }
+
     impl ValidQuery for FindAllAssetsDefinitions {
         #[metrics(+"find_all_asset_definitions")]
         fn execute<'state>(
@@ -448,6 +471,22 @@ pub mod query {
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = AssetDefinition> + 'state>, Error> {
             Ok(Box::new(state_ro.world().asset_definitions_iter().cloned()))
+        }
+    }
+
+    impl ValidIterableQuery for FindAllAssetsDefinitions {
+        #[metrics(+"find_all_asset_definitions")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<AssetDefinitionPredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = AssetDefinition> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .domains_iter()
+                .flat_map(|domain| domain.asset_definitions.values())
+                .filter(move |&asset_definition| filter.applies(asset_definition))
+                .cloned())
         }
     }
 

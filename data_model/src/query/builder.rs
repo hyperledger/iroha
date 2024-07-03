@@ -7,9 +7,9 @@ use crate::{
     prelude::FetchSize,
     query::{
         predicate::{projectors, AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype},
-        IterableQuery, IterableQueryBox, IterableQueryOutputBatchBox, IterableQueryWithFilter,
-        IterableQueryWithFilterFor, IterableQueryWithParams, Pagination, SingularQueryBox,
-        SingularQueryOutputBox, Sorting,
+        IterableQuery, IterableQueryBox, IterableQueryOutputBatchBox, IterableQueryParams,
+        IterableQueryWithFilter, IterableQueryWithFilterFor, IterableQueryWithParams, Pagination,
+        SingularQueryBox, SingularQueryOutputBox, Sorting,
     },
 };
 
@@ -176,9 +176,11 @@ where
 
         let query = IterableQueryWithParams {
             query: boxed,
-            pagination: self.pagination,
-            sorting: self.sorting,
-            fetch_size: self.fetch_size,
+            params: IterableQueryParams {
+                pagination: self.pagination,
+                sorting: self.sorting,
+                fetch_size: self.fetch_size,
+            },
         };
 
         let (first_batch, continue_cursor) = self.query_executor.start_iterable_query(query)?;

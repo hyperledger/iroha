@@ -30,7 +30,6 @@ use crate::{
     query::store::LiveQueryStoreHandle,
     smartcontracts::{wasm::state::ValidateQueryOperation, Execute},
     state::{StateReadOnly, StateTransaction, WorldReadOnly},
-    ValidQuery as _,
 };
 
 /// Name of the exported memory
@@ -790,6 +789,7 @@ where
     W: state::chain_state::ConstState,
     state::CommonState<W, S>: state::ValidateQueryOperation,
 {
+    #[warn(unused)] // TODO
     fn default_execute_query(
         query_request: SmartContractQueryRequest,
         state: &mut state::CommonState<W, S>,
@@ -804,23 +804,22 @@ where
                 pagination,
                 fetch_size,
             }) => {
-                let batched = {
+                let batched: BatchedResponse<QueryOutputBox> = {
                     let state_ro = state.state.state();
                     let state_ro = state_ro.borrow();
                     state.validate_query(&state.authority, query.clone())?;
-                    let output = query
-                        .execute(state_ro)?
-                        .apply_postprocessing(&filter, &sorting, pagination, fetch_size)?;
+                    // let _output = query
+                    //     .execute(state_ro)?
+                    //     .apply_postprocessing(&filter, &sorting, pagination, fetch_size)?;
 
-                    state_ro
-                        .query_handle()
-                        .handle_query_output(output, &state.authority)
+                    Ok::<_, ValidationFail>(todo!("Update to the new live query store API"))
+
+                    // state_ro.query_handle().handle_query_output(output)
                 }?;
+
                 match &batched {
                     BatchedResponse::V1(batched) => {
-                        if let Some(query_id) = &batched.cursor.query {
-                            state.executed_queries.insert(query_id.clone());
-                        }
+                        state.executed_queries.insert(batched.cursor.query.clone());
                     }
                 }
                 Ok(batched)
@@ -828,18 +827,17 @@ where
             QueryRequest::Cursor(cursor) => {
                 // In a normal situation we already have this `query_id` stored,
                 // so that's a protection from malicious smart contract
-                if let Some(query_id) = &cursor.query {
-                    state.executed_queries.insert(query_id.clone());
-                }
-                state
-                    .state
-                    .state()
-                    .borrow()
-                    .query_handle()
-                    .handle_query_cursor(cursor)
+                state.executed_queries.insert(cursor.query.clone());
+                todo!("Update to the new live query store API")
+
+                // state
+                //     .state
+                //     .state()
+                //     .borrow()
+                //     .query_handle()
+                //     .handle_query_cursor(cursor)
             }
         }
-        .map_err(Into::into)
     }
 }
 

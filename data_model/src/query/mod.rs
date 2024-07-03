@@ -124,8 +124,8 @@ pub trait IterableQuery: Query {
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Constructor,
 )]
 pub struct IterableQueryWithFilter<Q, P> {
-    query: Q,
-    predicate: CompoundPredicate<P>,
+    pub query: Q,
+    pub predicate: CompoundPredicate<P>,
 }
 
 pub type IterableQueryWithFilterFor<Q> =
@@ -173,6 +173,26 @@ pub enum IterableQueryOutputBatchBox {
     BlockHeader(Vec<BlockHeader>),
 }
 
+impl IterableQueryOutputBatchBox {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Domain(v) => v.len(),
+            Self::Account(v) => v.len(),
+            Self::Asset(v) => v.len(),
+            Self::AssetDefinition(v) => v.len(),
+            Self::Role(v) => v.len(),
+            Self::Parameter(v) => v.len(),
+            Self::Permission(v) => v.len(),
+            Self::Transaction(v) => v.len(),
+            Self::Peer(v) => v.len(),
+            Self::RoleId(v) => v.len(),
+            Self::TriggerId(v) => v.len(),
+            Self::Block(v) => v.len(),
+            Self::BlockHeader(v) => v.len(),
+        }
+    }
+}
+
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
 )]
@@ -208,23 +228,35 @@ pub enum SingularQueryOutputBox {
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct IterableQueryOutput {
-    first_batch: IterableQueryOutputBatchBox,
+    batch: IterableQueryOutputBatchBox,
     continue_cursor: Option<ForwardCursor>,
 }
 
 impl IterableQueryOutput {
-    pub fn into_parts(self) -> (IterableQueryOutputBatchBox, Option<ForwardCursor>) {
-        (self.first_batch, self.continue_cursor)
+    pub fn new(batch: IterableQueryOutputBatchBox, continue_cursor: Option<ForwardCursor>) -> Self {
+        Self {
+            batch,
+            continue_cursor,
+        }
     }
+
+    pub fn into_parts(self) -> (IterableQueryOutputBatchBox, Option<ForwardCursor>) {
+        (self.batch, self.continue_cursor)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct IterableQueryParams {
+    pub pagination: Pagination,
+    pub sorting: Sorting,
+    pub fetch_size: FetchSize,
 }
 
 /// A type-erased iterable query, along with all the
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct IterableQueryWithParams {
-    query: IterableQueryBox,
-    pagination: Pagination,
-    sorting: Sorting,
-    fetch_size: FetchSize,
+    pub query: IterableQueryBox,
+    pub params: IterableQueryParams,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -251,8 +283,8 @@ pub enum QueryResponse2 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct QueryRequestWithAuthority {
-    authority: AccountId,
-    request: QueryRequest2,
+    pub authority: AccountId,
+    pub request: QueryRequest2,
 }
 
 impl QueryRequestWithAuthority {
@@ -274,11 +306,40 @@ pub struct QuerySignature(pub SignatureOf<QueryRequestWithAuthority>);
 
 declare_versioned!(SignedQuery2 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, IntoSchema)]
+impl SignedQuery2 {
+    pub fn authority(&self) -> &AccountId {
+        let SignedQuery2::V1(query) = self;
+        &query.payload.authority
+    }
+
+    pub fn request(&self) -> &QueryRequest2 {
+        let SignedQuery2::V1(query) = self;
+        &query.payload.request
+    }
+}
+
+#[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
 #[version_with_scale(version = 1, versioned_alias = "SignedQuery2")]
 pub struct SignedQuery2V1 {
     pub signature: QuerySignature,
     pub payload: QueryRequestWithAuthority,
+}
+
+impl Decode for SignedQuery2V1 {
+    fn decode<I: parity_scale_codec::Input>(
+        _input: &mut I,
+    ) -> Result<Self, parity_scale_codec::Error> {
+        todo!("verify the signature")
+    }
+}
+
+impl<'de> Deserialize<'de> for SignedQuery2V1 {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        todo!("verify the signature")
+    }
 }
 
 #[model]

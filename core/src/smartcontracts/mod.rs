@@ -8,7 +8,12 @@ pub mod isi;
 pub mod wasm;
 
 use iroha_data_model::{
-    isi::error::InstructionExecutionError as Error, prelude::*, query::error::QueryExecutionFail,
+    isi::error::InstructionExecutionError as Error,
+    prelude::*,
+    query::{
+        error::QueryExecutionFail,
+        predicate::{CompoundPredicate, HasPredicateBox},
+    },
 };
 pub use isi::*;
 
@@ -26,6 +31,25 @@ pub trait Execute {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error>;
+}
+
+/// This trait should be implemented for all iterable Iroha Queries.
+pub trait ValidIterableQuery: iroha_data_model::query::IterableQuery
+where
+    Self::Item: HasPredicateBox,
+{
+    /// Execute a query on a read-only state.
+    ///
+    /// The filter is deliberately passed to the query implementation,
+    ///  so it can be smart about it and use indexes if possible.
+    ///
+    /// # Errors
+    /// Concrete to each implementer
+    fn execute<'state>(
+        self,
+        filter: CompoundPredicate<<Self::Item as HasPredicateBox>::PredicateBoxType>,
+        state_ro: &'state impl StateReadOnly,
+    ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail>;
 }
 
 /// This trait should be implemented for all Iroha Queries.

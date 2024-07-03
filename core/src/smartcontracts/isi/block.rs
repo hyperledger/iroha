@@ -5,12 +5,16 @@ use iroha_data_model::{
     query::{
         block::FindBlockHeaderByHash,
         error::{FindError, QueryExecutionFail},
+        predicate::{
+            predicate_atoms::block::{BlockHeaderPredicateBox, SignedBlockPredicateBox},
+            CompoundPredicate,
+        },
     },
 };
 use iroha_telemetry::metrics;
 
 use super::*;
-use crate::state::StateReadOnly;
+use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
 impl ValidQuery for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
@@ -21,6 +25,21 @@ impl ValidQuery for FindAllBlocks {
         Ok(Box::new(
             state_ro.all_blocks().rev().map(|block| (*block).clone()),
         ))
+    }
+}
+
+impl ValidIterableQuery for FindAllBlocks {
+    #[metrics(+"find_all_blocks")]
+    fn execute<'state>(
+        self,
+        filter: CompoundPredicate<SignedBlockPredicateBox>,
+        state_ro: &'state impl StateReadOnly,
+    ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail> {
+        Ok(state_ro
+            .all_blocks()
+            .rev()
+            .filter(move |block| filter.applies(block))
+            .map(|block| (*block).clone()))
     }
 }
 
@@ -36,6 +55,21 @@ impl ValidQuery for FindAllBlockHeaders {
                 .rev()
                 .map(|block| block.header().clone()),
         ))
+    }
+}
+
+impl ValidIterableQuery for FindAllBlockHeaders {
+    #[metrics(+"find_all_block_headers")]
+    fn execute<'state>(
+        self,
+        filter: CompoundPredicate<BlockHeaderPredicateBox>,
+        state_ro: &'state impl StateReadOnly,
+    ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail> {
+        Ok(state_ro
+            .all_blocks()
+            .rev()
+            .filter(move |block| filter.applies(block.header()))
+            .map(|block| block.header().clone()))
     }
 }
 
