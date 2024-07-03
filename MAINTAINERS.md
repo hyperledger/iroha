@@ -1,13 +1,11 @@
 ## Maintainers
 
-Maintainers of the Hyperledger Iroha project
-are supposed to help contributors by explaining them project details,
-such as architecture, process, and existing issues.
+Maintainers of the Hyperledger Iroha project are supposed to help contributors by explaining them project details, such as architecture, process, and existing issues.
 
 This is the list of maintainers, including their email addresses for direct communication:
 
-|         Name          |                      GitHub Id                       |              email              |                               Area of expertise                               |
-| --------------------- | ---------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------- |
+| Name                  | GitHub Id                                            | email                           | Area of expertise                                                             |
+|-----------------------|------------------------------------------------------|---------------------------------|-------------------------------------------------------------------------------|
 | Makoto Takemiya       | [@takemiyamakoto](https://github.com/takemiyamakoto) | takemiya@soramitsu.co.jp        | Product vision                                                                |
 | Dmitri Venger         | [@dmitrivenger](https://github.com/dmitrivenger)     | venger@soramitsu.co.jp          | Project manager                                                               |
 | Bogdan Mingela        | [@Mingela](https://github.com/Mingela)               | mingela@soramitsu.co.jp         | Iroha Team Lead                                                               |
@@ -25,6 +23,7 @@ This is the list of maintainers, including their email addresses for direct comm
 | Vasily Zyabkin        | [@BAStos525](https://github.com/BAStos525)           | zyabkin@soramitsu.co.jp         | DevOps                                                                        |
 | Insaf Safin           | [@safinsaf](https://github.com/safinsaf)             | safin@soramitsu.co.jp           | DevOps                                                                        |
 | Ekaterina Mekhnetsova | [@outoftardis](https://github.com/outoftardis)       | mekhnetsova@soramitsu.co.jp     | Documentation                                                                 |
+| Alexandra Zorina      | [@a-zorina](https://github.com/a-zorina)             | zorina@soramitsu.co.jp          | Documentation                                                                 |
 | William Richter       | [@WRRicht3r](https://github.com/WRRicht3r)           | richter@soramitsu.co.jp         | Documentation                                                                 |
 | Nurzhan Sakén         | [@nxsaken](https://github.com/nxsaken)               | sakenov@soramitsu.co.jp         | Community manager, documentation, development: Rust, Kotlin                   |
 | Victor Gridnevsky     | [@6r1d](https://github.com/6r1d)                     | gridnevsky@soramitsu.co.jp      | Community manager, documentation, development: JavaScript, TypeScript, Python |
