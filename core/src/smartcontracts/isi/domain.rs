@@ -391,11 +391,17 @@ pub mod isi {
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
     use eyre::Result;
-    use iroha_data_model::{domain::Domain, query::error::QueryExecutionFail as Error};
+    use iroha_data_model::{
+        domain::Domain,
+        query::{
+            error::QueryExecutionFail as Error,
+            predicate::{predicate_atoms::domain::DomainPredicateBox, CompoundPredicate},
+        },
+    };
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::state::StateReadOnly;
+    use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
     impl ValidQuery for FindAllDomains {
         #[metrics(+"find_all_domains")]
@@ -404,6 +410,21 @@ pub mod query {
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Domain> + 'state>, Error> {
             Ok(Box::new(state_ro.world().domains_iter().cloned()))
+        }
+    }
+
+    impl ValidIterableQuery for FindAllDomains {
+        #[metrics(+"find_all_domains")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<DomainPredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> std::result::Result<impl Iterator<Item = Domain> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .domains_iter()
+                .filter(move |&v| filter.applies(v))
+                .cloned())
         }
     }
 

@@ -322,13 +322,20 @@ pub mod isi {
 pub mod query {
     //! Queries associated to triggers.
     use iroha_data_model::{
-        query::error::QueryExecutionFail as Error,
+        query::{
+            error::QueryExecutionFail as Error,
+            predicate::{predicate_atoms::trigger::TriggerIdPredicateBox, CompoundPredicate},
+        },
         trigger::{Trigger, TriggerId},
     };
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::{prelude::*, smartcontracts::triggers::set::SetReadOnly, state::StateReadOnly};
+    use crate::{
+        prelude::*,
+        smartcontracts::{triggers::set::SetReadOnly, ValidIterableQuery},
+        state::StateReadOnly,
+    };
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
@@ -337,6 +344,22 @@ pub mod query {
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = TriggerId> + 'state>, Error> {
             Ok(Box::new(state_ro.world().triggers().ids_iter().cloned()))
+        }
+    }
+
+    impl ValidIterableQuery for FindAllActiveTriggerIds {
+        #[metrics(+"find_all_active_triggers")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<TriggerIdPredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = TriggerId> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .triggers()
+                .ids_iter()
+                .filter(move |&id| filter.applies(id))
+                .cloned())
         }
     }
 

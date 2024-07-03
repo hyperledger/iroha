@@ -9,6 +9,9 @@ use iroha_data_model::{
     prelude::*,
     query::{
         error::{FindError, QueryExecutionFail},
+        predicate::{
+            predicate_atoms::block::TransactionQueryOutputPredicateBox, CompoundPredicate,
+        },
         TransactionQueryOutput,
     },
     transaction::CommittedTransaction,
@@ -16,6 +19,7 @@ use iroha_data_model::{
 use iroha_telemetry::metrics;
 
 use super::*;
+use crate::smartcontracts::ValidIterableQuery;
 
 pub(crate) struct BlockTransactionIter(Arc<SignedBlock>, usize);
 pub(crate) struct BlockTransactionRef(Arc<SignedBlock>, usize);
@@ -81,6 +85,24 @@ impl ValidQuery for FindAllTransactions {
     }
 }
 
+impl ValidIterableQuery for FindAllTransactions {
+    #[metrics(+"find_all_transactions")]
+    fn execute<'state>(
+        self,
+        filter: CompoundPredicate<TransactionQueryOutputPredicateBox>,
+        state_ro: &'state impl StateReadOnly,
+    ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail> {
+        Ok(state_ro
+            .all_blocks()
+            .flat_map(BlockTransactionIter::new)
+            .map(|tx| TransactionQueryOutput {
+                block_hash: tx.block_hash(),
+                transaction: tx.value(),
+            })
+            .filter(move |tx| filter.applies(tx)))
+    }
+}
+
 impl ValidQuery for FindTransactionsByAccountId {
     #[metrics(+"find_transactions_by_account_id")]
     fn execute<'state>(
@@ -99,6 +121,27 @@ impl ValidQuery for FindTransactionsByAccountId {
                     transaction: tx.value(),
                 }),
         ))
+    }
+}
+
+impl ValidIterableQuery for FindTransactionsByAccountId {
+    #[metrics(+"find_transactions_by_account_id")]
+    fn execute<'state>(
+        self,
+        filter: CompoundPredicate<TransactionQueryOutputPredicateBox>,
+        state_ro: &'state impl StateReadOnly,
+    ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail> {
+        let account_id = self.account.clone();
+
+        Ok(state_ro
+            .all_blocks()
+            .flat_map(BlockTransactionIter::new)
+            .filter(move |tx| *tx.authority() == account_id)
+            .map(|tx| TransactionQueryOutput {
+                block_hash: tx.block_hash(),
+                transaction: tx.value(),
+            })
+            .filter(move |tx| filter.applies(tx)))
     }
 }
 

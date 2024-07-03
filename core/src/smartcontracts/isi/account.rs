@@ -478,12 +478,23 @@ pub mod query {
 
     use eyre::Result;
     use iroha_data_model::{
-        account::Account, permission::Permission, query::error::QueryExecutionFail as Error,
+        account::Account,
+        permission::Permission,
+        query::{
+            error::QueryExecutionFail as Error,
+            predicate::{
+                predicate_atoms::{
+                    account::AccountPredicateBox, permission::PermissionPredicateBox,
+                    role::RoleIdPredicateBox,
+                },
+                CompoundPredicate,
+            },
+        },
     };
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::state::StateReadOnly;
+    use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
     impl ValidQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]
@@ -496,6 +507,23 @@ pub mod query {
             Ok(Box::new(
                 state_ro.world().account_roles_iter(account_id).cloned(),
             ))
+        }
+    }
+
+    impl ValidIterableQuery for FindRolesByAccountId {
+        #[metrics(+"find_roles_by_account_id")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<RoleIdPredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = RoleId> + 'state, Error> {
+            let account_id = &self.id;
+            state_ro.world().account(account_id)?;
+            Ok(state_ro
+                .world()
+                .account_roles_iter(account_id)
+                .filter(move |&role_id| filter.applies(role_id))
+                .cloned())
         }
     }
 
@@ -515,6 +543,22 @@ pub mod query {
         }
     }
 
+    impl ValidIterableQuery for FindPermissionsByAccountId {
+        #[metrics(+"find_permissions_by_account_id")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<PermissionPredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Permission> + 'state, Error> {
+            let account_id = &self.id;
+            Ok(state_ro
+                .world()
+                .account_permissions_iter(account_id)?
+                .filter(move |&permission| filter.applies(permission))
+                .cloned())
+        }
+    }
+
     impl ValidQuery for FindAllAccounts {
         #[metrics(+"find_all_accounts")]
         fn execute<'state>(
@@ -522,6 +566,21 @@ pub mod query {
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
             Ok(Box::new(state_ro.world().accounts_iter().cloned()))
+        }
+    }
+
+    impl ValidIterableQuery for FindAllAccounts {
+        #[metrics(+"find_all_accounts")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<AccountPredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Account> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .accounts_iter()
+                .filter(move |&account| filter.applies(account))
+                .cloned())
         }
     }
 

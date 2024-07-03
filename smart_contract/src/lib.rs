@@ -274,7 +274,7 @@ where
         let typed_value = Q::Output::try_from(value).expect("Query output has incorrect type");
         Ok(QueryOutputCursor {
             batch: typed_value,
-            cursor,
+            cursor: Some(cursor),
         })
     }
 }
@@ -321,7 +321,7 @@ where
 #[derive(Debug, Encode, PartialEq, Eq)]
 pub struct QueryOutputCursor<T> {
     batch: T,
-    cursor: ForwardCursor,
+    cursor: Option<ForwardCursor>,
 }
 
 impl<T> QueryOutputCursor<T> {
@@ -362,7 +362,7 @@ impl<U: TryFrom<QueryOutputBox>> IntoIterator for QueryOutputCursor<Vec<U>> {
     fn into_iter(self) -> Self::IntoIter {
         QueryOutputCursorIterator {
             iter: self.batch.into_iter(),
-            cursor: self.cursor,
+            cursor: self.cursor.expect("TODO"), // TODO
         }
     }
 }
@@ -530,7 +530,7 @@ mod tests {
     const QUERY_RESULT: Result<QueryOutputCursor<QueryOutputBox>, ValidationFail> =
         Ok(QueryOutputCursor {
             batch: QueryOutputBox::Numeric(numeric!(1234)),
-            cursor: ForwardCursor::new(None, None),
+            cursor: None,
         });
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());
 
@@ -556,6 +556,7 @@ mod tests {
         ManuallyDrop::new(encode_with_length_prefix(&ISI_RESULT)).as_ptr()
     }
 
+    #[warn(unused)] // TODO
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_smart_contract_execute_query_mock(
         ptr: *const u8,
@@ -569,7 +570,7 @@ mod tests {
         let response: Result<BatchedResponse<QueryOutputBox>, ValidationFail> =
             Ok(BatchedResponseV1::new(
                 QUERY_RESULT.unwrap().collect().unwrap(),
-                ForwardCursor::new(None, None),
+                todo!(), // ForwardCursor::new(None, None),
             )
             .into());
         ManuallyDrop::new(encode_with_length_prefix(&response)).as_ptr()

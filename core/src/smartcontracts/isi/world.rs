@@ -456,12 +456,21 @@ pub mod query {
         parameter::Parameters,
         peer::Peer,
         prelude::*,
-        query::error::{FindError, QueryExecutionFail as Error},
+        query::{
+            error::{FindError, QueryExecutionFail as Error},
+            predicate::{
+                predicate_atoms::{
+                    peer::PeerPredicateBox,
+                    role::{RoleIdPredicateBox, RolePredicateBox},
+                },
+                CompoundPredicate,
+            },
+        },
         role::{Role, RoleId},
     };
 
     use super::*;
-    use crate::state::StateReadOnly;
+    use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
     impl ValidQuery for FindAllRoles {
         #[metrics(+"find_all_roles")]
@@ -477,6 +486,23 @@ pub mod query {
                     .map(|(_, role)| role)
                     .cloned(),
             ))
+        }
+    }
+
+    impl ValidIterableQuery for FindAllRoles {
+        #[metrics(+"find_all_roles")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<RolePredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Self::Item> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .roles()
+                .iter()
+                .map(|(_, role)| role)
+                .filter(move |&role| filter.applies(role))
+                .cloned())
         }
     }
 
@@ -496,6 +522,24 @@ pub mod query {
                     .map(Role::id)
                     .cloned(),
             ))
+        }
+    }
+
+    impl ValidIterableQuery for FindAllRoleIds {
+        #[metrics(+"find_all_role_ids")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<RoleIdPredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Self::Item> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .roles()
+                .iter()
+                .map(|(_, role)| role)
+                .map(Role::id)
+                .filter(move |&role| filter.applies(role))
+                .cloned())
         }
     }
 
@@ -519,6 +563,22 @@ pub mod query {
             state_ro: &'state impl StateReadOnly,
         ) -> Result<Box<dyn Iterator<Item = Peer> + 'state>, Error> {
             Ok(Box::new(state_ro.world().peers().cloned().map(Peer::new)))
+        }
+    }
+
+    impl ValidIterableQuery for FindAllPeers {
+        #[metrics("find_all_peers")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<PeerPredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Self::Item> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .peers()
+                .cloned()
+                .map(Peer::new)
+                .filter(move |peer| filter.applies(&peer)))
         }
     }
 

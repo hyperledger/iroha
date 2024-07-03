@@ -2,7 +2,6 @@ use axum::{
     http::{header::CONTENT_TYPE, HeaderValue},
     response::{IntoResponse, Response},
 };
-use iroha_data_model::query::http::{ClientQueryRequest, SignedQuery};
 use iroha_version::prelude::*;
 
 /// MIME used in Torii for SCALE encoding
@@ -28,10 +27,9 @@ pub mod extractors {
     use axum::{
         async_trait,
         body::Bytes,
-        extract::{FromRequest, FromRequestParts, Query, Request},
+        extract::{FromRequest, FromRequestParts, Request},
         http::StatusCode,
     };
-    use iroha_data_model::query::cursor::ForwardCursor;
 
     use super::*;
 
@@ -62,36 +60,6 @@ pub mod extractors {
                     )
                         .into_response()
                 })
-        }
-    }
-
-    /// Extractor for [`ClientQueryRequest`]
-    ///
-    /// First try to deserialize body as [`SignedQuery`] if fail try to parse query parameters for [`ForwardCursor`] values
-    #[derive(Clone, Debug)]
-    pub struct ClientQueryRequestExtractor(pub ClientQueryRequest);
-
-    #[async_trait]
-    impl<S> FromRequest<S> for ClientQueryRequestExtractor
-    where
-        Bytes: FromRequest<S>,
-        S: Send + Sync,
-    {
-        type Rejection = Response;
-
-        async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-            let (mut parts, body) = req.into_parts();
-            let cursor = Query::<ForwardCursor>::from_request_parts(&mut parts, &state)
-                .await
-                .map(|Query(cursor)| ClientQueryRequest::cursor(cursor));
-            let req = Request::from_parts(parts, body);
-            ScaleVersioned::<SignedQuery>::from_request(req, state)
-                .await
-                .map(|ScaleVersioned(query)| ClientQueryRequest::query(query))
-                .or(cursor)
-                // TODO: custom error to show that neither SignedQuery nor ForwardCursor
-                .map_err(IntoResponse::into_response)
-                .map(ClientQueryRequestExtractor)
         }
     }
 

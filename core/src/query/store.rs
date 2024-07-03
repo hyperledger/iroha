@@ -13,17 +13,15 @@ use iroha_data_model::{
     query::{
         cursor::{ForwardCursor, QueryId},
         error::QueryExecutionFail,
-        QueryOutputBox,
+        IterableQueryOutput, IterableQueryOutputBatchBox,
     },
-    BatchedResponse, BatchedResponseV1, ValidationFail,
 };
 use iroha_logger::{trace, warn};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
-use super::cursor::{Batched, UnknownCursor};
-use crate::smartcontracts::query::ProcessedQueryOutput;
+use super::cursor::{QueryBatchedErasedIterator, UnknownCursor};
 
 /// Query service error.
 #[derive(
@@ -48,16 +46,12 @@ pub enum Error {
 }
 
 #[allow(clippy::fallible_impl_from)]
-impl From<Error> for ValidationFail {
+impl From<Error> for QueryExecutionFail {
     fn from(error: Error) -> Self {
         match error {
-            Error::UnknownCursor(_) => {
-                ValidationFail::QueryFailed(QueryExecutionFail::UnknownCursor)
-            }
-            Error::FetchSizeTooBig => {
-                ValidationFail::QueryFailed(QueryExecutionFail::FetchSizeTooBig)
-            }
-            Error::CapacityLimit => ValidationFail::QueryFailed(QueryExecutionFail::CapacityLimit),
+            Error::UnknownCursor(_) => QueryExecutionFail::UnknownCursor,
+            Error::FetchSizeTooBig => QueryExecutionFail::FetchSizeTooBig,
+            Error::CapacityLimit => QueryExecutionFail::CapacityLimit,
         }
     }
 }
@@ -65,7 +59,7 @@ impl From<Error> for ValidationFail {
 /// Result type for [`LiveQueryStore`] methods.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-type LiveQuery = Batched<Vec<QueryOutputBox>>;
+type LiveQuery = QueryBatchedErasedIterator;
 
 /// Service which stores queries which might be non fully consumed by a client.
 ///
@@ -150,7 +144,7 @@ impl LiveQueryStore {
     fn insert(
         &self,
         query_id: QueryId,
-        live_query: Batched<Vec<QueryOutputBox>>,
+        live_query: QueryBatchedErasedIterator,
         authority: AccountId,
     ) {
         *self.queries_per_user.entry(authority.clone()).or_insert(0) += 1;
@@ -180,7 +174,7 @@ impl LiveQueryStore {
     fn insert_new_query(
         &self,
         query_id: QueryId,
-        live_query: Batched<Vec<QueryOutputBox>>,
+        live_query: QueryBatchedErasedIterator,
         authority: AccountId,
     ) -> Result<()> {
         trace!(%query_id, "Inserting new query");
@@ -194,19 +188,19 @@ impl LiveQueryStore {
     fn get_query_next_batch(
         &self,
         query_id: QueryId,
-        cursor: Option<u64>,
-    ) -> Result<(Vec<QueryOutputBox>, Option<NonZeroU64>)> {
+        cursor: NonZeroU64,
+    ) -> Result<(IterableQueryOutputBatchBox, Option<NonZeroU64>)> {
         trace!(%query_id, "Advancing existing query");
         let QueryInfo {
             mut live_query,
             authority,
             ..
         } = self.remove(&query_id).ok_or(UnknownCursor)?;
-        let next_batch = live_query.next_batch(cursor)?;
-        if !live_query.is_depleted() {
+        let (next_batch, next_cursor) = live_query.next_batch(cursor.get())?;
+        if next_cursor.is_some() {
             self.insert(query_id, live_query, authority);
         }
-        Ok(next_batch)
+        Ok((next_batch, next_cursor))
     }
 
     fn check_capacity(&self, authority: &AccountId) -> Result<()> {
@@ -244,29 +238,22 @@ impl LiveQueryStoreHandle {
     ///
     /// - Returns [`Error::CapacityLimit`] if [`LiveQueryStore`] capacity is reached,
     /// - Otherwise throws up query output handling errors.
-    pub fn handle_query_output(
+    pub fn handle_iter_start(
         &self,
-        query_output: ProcessedQueryOutput,
+        mut live_query: QueryBatchedErasedIterator,
         authority: &AccountId,
-    ) -> Result<BatchedResponse<QueryOutputBox>> {
-        match query_output {
-            ProcessedQueryOutput::Single(batch) => {
-                let cursor = ForwardCursor::default();
-                let result = BatchedResponseV1 { batch, cursor };
-                Ok(result.into())
-            }
-            ProcessedQueryOutput::Iter(mut live_query) => {
-                let query_id = uuid::Uuid::new_v4().to_string();
+    ) -> Result<IterableQueryOutput> {
+        let query_id = uuid::Uuid::new_v4().to_string();
 
-                let curr_cursor = Some(0);
-                let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
-                if !live_query.is_depleted() {
-                    self.store
-                        .insert_new_query(query_id.clone(), live_query, authority.clone())?;
-                }
-                Ok(Self::construct_query_response(batch, query_id, next_cursor))
-            }
+        let curr_cursor = 0;
+        let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
+
+        // if the cursor is `None` - the query has ended, we can remove it from the store
+        if next_cursor.is_some() {
+            self.store
+                .insert_new_query(query_id.clone(), live_query, authority.clone())?;
         }
+        Ok(Self::construct_query_response(batch, query_id, next_cursor))
     }
 
     /// Retrieve next batch of query output using `cursor`.
@@ -274,15 +261,13 @@ impl LiveQueryStoreHandle {
     /// # Errors
     ///
     /// - Returns [`Error::UnknownCursor`] if query id not found or cursor position doesn't match.
-    pub fn handle_query_cursor(
+    pub fn handle_iter_continue(
         &self,
-        cursor: ForwardCursor,
-    ) -> Result<BatchedResponse<QueryOutputBox>> {
-        let query_id = cursor.query.ok_or(UnknownCursor)?;
-        let cursor = cursor.cursor.map(NonZeroU64::get);
-        let (batch, next_cursor) = self.store.get_query_next_batch(query_id.clone(), cursor)?;
+        ForwardCursor { query, cursor }: ForwardCursor,
+    ) -> Result<IterableQueryOutput> {
+        let (batch, next_cursor) = self.store.get_query_next_batch(query.clone(), cursor)?;
 
-        Ok(Self::construct_query_response(batch, query_id, next_cursor))
+        Ok(Self::construct_query_response(batch, query, next_cursor))
     }
 
     /// Remove query from the storage if there is any.
@@ -291,30 +276,31 @@ impl LiveQueryStoreHandle {
     }
 
     fn construct_query_response(
-        batch: Vec<QueryOutputBox>,
+        batch: IterableQueryOutputBatchBox,
         query_id: QueryId,
         cursor: Option<NonZeroU64>,
-    ) -> BatchedResponse<QueryOutputBox> {
-        BatchedResponseV1 {
-            batch: QueryOutputBox::Vec(batch),
-            cursor: ForwardCursor {
-                query: Some(query_id),
+    ) -> IterableQueryOutput {
+        IterableQueryOutput::new(
+            batch,
+            cursor.map(|cursor| ForwardCursor {
+                query: query_id,
                 cursor,
-            },
-        }
-        .into()
+            }),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use iroha_data_model::query::{predicate::PredicateBox, FetchSize, Pagination, Sorting};
+    use iroha_data_model::{
+        permission::Permission,
+        query::{FetchSize, IterableQueryParams, Pagination, Sorting},
+    };
     use iroha_primitives::json::JsonString;
     use nonzero_ext::nonzero;
     use test_samples::ALICE_ID;
 
     use super::*;
-    use crate::smartcontracts::query::LazyQueryOutput;
 
     #[test]
     fn query_message_order_preserved() {
@@ -323,42 +309,43 @@ mod tests {
         let query_store_handle = threaded_rt.block_on(async { query_store.start() });
 
         for i in 0..10_000 {
-            let filter = PredicateBox::default();
             let pagination = Pagination::default();
             let fetch_size = FetchSize {
                 fetch_size: Some(nonzero!(1_u32)),
             };
             let sorting = Sorting::default();
 
+            let query_params = IterableQueryParams {
+                pagination,
+                sorting,
+                fetch_size,
+            };
+
+            // it's not important which type we use here, just to test the flow
             let query_output =
-                LazyQueryOutput::Iter(Box::new((0..100).map(|_| JsonString::from(false).into())));
+                (0..100).map(|_| Permission::new(Default::default(), JsonString::from(false)));
+            let query_output = crate::smartcontracts::query::apply_query_postprocessing(
+                query_output,
+                &query_params,
+            )
+            .unwrap();
+
+            let (batch, mut current_cursor) = query_store_handle
+                .handle_iter_start(query_output, &ALICE_ID)
+                .unwrap()
+                .into_parts();
 
             let mut counter = 0;
+            counter += batch.len();
 
-            let query_output = query_output
-                .apply_postprocessing(&filter, &sorting, pagination, fetch_size)
-                .unwrap();
-
-            let (batch, mut cursor) = query_store_handle
-                .handle_query_output(query_output, &ALICE_ID)
-                .unwrap()
-                .into();
-            let QueryOutputBox::Vec(v) = batch else {
-                panic!("not expected result")
-            };
-            counter += v.len();
-
-            while cursor.cursor.is_some() {
-                let Ok(batched) = query_store_handle.handle_query_cursor(cursor) else {
+            while let Some(cursor) = current_cursor {
+                let Ok(batched) = query_store_handle.handle_iter_continue(cursor) else {
                     break;
                 };
-                let (batch, new_cursor) = batched.into();
-                let QueryOutputBox::Vec(v) = batch else {
-                    panic!("not expected result")
-                };
-                counter += v.len();
+                let (batch, cursor) = batched.into_parts();
+                counter += batch.len();
 
-                cursor = new_cursor;
+                current_cursor = cursor;
             }
 
             assert_eq!(counter, 100, "failed on {i} iteration");
