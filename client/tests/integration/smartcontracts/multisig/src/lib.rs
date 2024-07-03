@@ -8,26 +8,18 @@ extern crate panic_halt;
 
 use alloc::{collections::btree_set::BTreeSet, format, vec::Vec};
 
+use executor_custom_data_model::multisig::MultisigArgs;
 use iroha_trigger::{debug::dbg_panic, prelude::*};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
-use serde::{Deserialize, Serialize};
 
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
 getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 
-#[derive(Serialize, Deserialize)]
-enum Args {
-    /// Accept instruction proposal and initialize votes with the proposer's one
-    Instruction(Vec<InstructionBox>),
-    /// Accept vote for certain instruction
-    Vote(HashOf<Vec<InstructionBox>>),
-}
-
 #[iroha_trigger::main]
 fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
-    let (args, signatory): (Args, AccountId) = match event {
+    let (args, signatory): (MultisigArgs, AccountId) = match event {
         EventBox::ExecuteTrigger(event) => (
             event
                 .args()
@@ -40,15 +32,15 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
     };
 
     let instructions_hash = match &args {
-        Args::Instruction(instructions) => HashOf::new(instructions),
-        Args::Vote(instructions_hash) => *instructions_hash,
+        MultisigArgs::Instructions(instructions) => HashOf::new(instructions),
+        MultisigArgs::Vote(instructions_hash) => *instructions_hash,
     };
     let votes_metadata_key: Name = format!("{instructions_hash}/votes").parse().unwrap();
     let instructions_metadata_key: Name =
         format!("{instructions_hash}/instructions").parse().unwrap();
 
     let (votes, instructions) = match args {
-        Args::Instruction(instructions) => {
+        MultisigArgs::Instructions(instructions) => {
             FindTriggerKeyValueByIdAndKey::new(id.clone(), votes_metadata_key.clone())
                 .execute()
                 .expect_err("instructions are already submitted");
@@ -73,7 +65,7 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
 
             (votes, instructions)
         }
-        Args::Vote(_instructions_hash) => {
+        MultisigArgs::Vote(_instructions_hash) => {
             let mut votes: BTreeSet<AccountId> =
                 FindTriggerKeyValueByIdAndKey::new(id.clone(), votes_metadata_key.clone())
                     .execute()

@@ -1,41 +1,19 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    str::FromStr,
-};
+use std::{collections::BTreeMap, str::FromStr};
 
+use executor_custom_data_model::multisig::{MultisigArgs, MultisigRegisterArgs};
 use eyre::Result;
 use iroha::{
     client::{self, ClientQueryError},
     crypto::KeyPair,
     data_model::{
-        account::NewAccount,
         prelude::*,
         transaction::{TransactionBuilder, WasmSmartContract},
     },
 };
 use iroha_data_model::parameter::SmartContractParameter;
 use nonzero_ext::nonzero;
-use serde::{Deserialize, Serialize};
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
-
-/// Mirror trigger args for `multisig_register`
-#[derive(Serialize, Deserialize)]
-struct MultisigRegisterArgs {
-    // Account id of multisig account should be manually checked to not have corresponding private key (or having master key is ok)
-    account: NewAccount,
-    // List of accounts responsible for handling multisig account
-    signatories: BTreeSet<AccountId>,
-}
-
-/// Mirror trigger args for `multisig`
-#[derive(Serialize, Deserialize)]
-enum MultisigArgs {
-    /// Accept instruction proposal and initialize votes with the proposer's one
-    Instruction(Vec<InstructionBox>),
-    /// Accept vote for certain instruction
-    Vote(HashOf<Vec<InstructionBox>>),
-}
 
 #[test]
 fn mutlisig() -> Result<()> {
@@ -129,7 +107,7 @@ fn mutlisig() -> Result<()> {
     let mut signatories_iter = signatories.into_iter();
 
     if let Some((signatory, key_pair)) = signatories_iter.next() {
-        let args = MultisigArgs::Instruction(isi);
+        let args = MultisigArgs::Instructions(isi);
         let call_trigger = ExecuteTrigger::new(multisig_trigger_id.clone()).with_args(&args);
         test_client.submit_transaction_blocking(
             &TransactionBuilder::new(test_client.chain.clone(), signatory)

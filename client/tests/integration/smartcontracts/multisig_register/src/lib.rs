@@ -6,14 +6,12 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use alloc::{collections::btree_set::BTreeSet, format};
+use alloc::format;
 
+use executor_custom_data_model::multisig::MultisigRegisterArgs;
 use iroha_executor_data_model::permission::trigger::CanExecuteUserTrigger;
-use iroha_trigger::{
-    debug::dbg_panic, prelude::*, smart_contract::data_model::account::NewAccount,
-};
+use iroha_trigger::{debug::dbg_panic, prelude::*};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
-use serde::{Deserialize, Serialize};
 
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
@@ -23,17 +21,9 @@ getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 // Trigger wasm code for handling multisig logic
 const WASM: &[u8] = core::include_bytes!(concat!(core::env!("OUT_DIR"), "/multisig.wasm"));
 
-#[derive(Serialize, Deserialize)]
-struct Args {
-    // Account id of multisig account should be manually checked to not have corresponding private key (or having master key is ok)
-    account: NewAccount,
-    // List of accounts responsible for handling multisig account
-    signatories: BTreeSet<AccountId>,
-}
-
 #[iroha_trigger::main]
 fn main(_id: TriggerId, _owner: AccountId, event: EventBox) {
-    let args: Args = match event {
+    let args: MultisigRegisterArgs = match event {
         EventBox::ExecuteTrigger(event) => event
             .args()
             .dbg_expect("trigger expect args")
