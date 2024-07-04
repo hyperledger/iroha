@@ -671,7 +671,7 @@ fn call_execute_trigger_with_args() -> Result<()> {
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(
-            wasm.clone(),
+            wasm,
             Repeats::Indefinitely,
             account_id.clone(),
             ExecuteTriggerEventFilter::new()
