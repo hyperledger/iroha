@@ -1,5 +1,6 @@
 use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
+use executor_custom_data_model::mint_rose_args::MintRoseArgs;
 use eyre::{eyre, Result, WrapErr};
 use iroha::{
     client::{self, Client},
@@ -13,7 +14,6 @@ use iroha::{
 use iroha_executor_data_model::permission::trigger::CanRegisterUserTrigger;
 use iroha_genesis::GenesisBlock;
 use iroha_logger::info;
-use serde::{Deserialize, Serialize};
 use test_network::{Peer as TestPeer, *};
 use test_samples::ALICE_ID;
 use tokio::runtime::Runtime;
@@ -682,7 +682,7 @@ fn call_execute_trigger_with_args() -> Result<()> {
 
     test_client.submit_blocking(Register::trigger(trigger))?;
 
-    let args: Args = Args { val: 42 };
+    let args: MintRoseArgs = MintRoseArgs { val: 42 };
     let call_trigger = ExecuteTrigger::new(trigger_id).with_args(&args);
     test_client.submit_blocking(call_trigger)?;
 
@@ -690,10 +690,4 @@ fn call_execute_trigger_with_args() -> Result<()> {
     assert_eq!(new_value, prev_value.checked_add(numeric!(42)).unwrap());
 
     Ok(())
-}
-
-/// Mirror trigger args for `mint_rose_trigger_args`
-#[derive(Serialize, Deserialize)]
-struct Args {
-    val: u32,
 }

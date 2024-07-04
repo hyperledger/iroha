@@ -7,6 +7,7 @@ extern crate panic_halt;
 
 use core::str::FromStr as _;
 
+use executor_custom_data_model::mint_rose_args::MintRoseArgs;
 use iroha_trigger::{debug::dbg_panic, prelude::*};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 use serde::{Deserialize, Serialize};
@@ -16,11 +17,6 @@ static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeList
 
 getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 
-#[derive(Serialize, Deserialize)]
-struct Args {
-    val: u32,
-}
-
 /// Mint 1 rose for owner
 #[iroha_trigger::main]
 fn main(_id: TriggerId, owner: AccountId, event: EventBox) {
@@ -28,7 +24,7 @@ fn main(_id: TriggerId, owner: AccountId, event: EventBox) {
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
     let rose_id = AssetId::new(rose_definition_id, owner);
 
-    let args: Args = match event {
+    let args: MintRoseArgs = match event {
         EventBox::ExecuteTrigger(event) => event
             .args()
             .dbg_expect("Trigger expect parameters")
