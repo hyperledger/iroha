@@ -106,12 +106,17 @@ impl Queue {
         }
     }
 
-    fn is_pending(&self, tx: &AcceptedTransaction, state_view: &StateView) -> bool {
-        !self.is_expired(tx) && !tx.is_in_blockchain(state_view)
+    fn is_pending(
+        &self,
+        tx: &AcceptedTransaction,
+        state_view: &StateView,
+        time_padding: Duration,
+    ) -> bool {
+        !self.is_expired(tx, time_padding) && !tx.is_in_blockchain(state_view)
     }
 
     /// Checks if the transaction is waiting longer than its TTL or than the TTL from [`Config`].
-    pub fn is_expired(&self, tx: &AcceptedTransaction) -> bool {
+    pub fn is_expired(&self, tx: &AcceptedTransaction, time_padding: Duration) -> bool {
         let tx_creation_time = tx.as_ref().creation_time();
 
         let time_limit = tx.as_ref().time_to_live().map_or_else(
@@ -120,7 +125,7 @@ impl Queue {
         );
 
         let curr_time = self.time_source.get_unix_time();
-        curr_time.saturating_sub(tx_creation_time) > time_limit
+        curr_time.saturating_sub(tx_creation_time) + time_padding > time_limit
     }
 
     /// If `true`, this transaction is regarded to have been tampered to have a future timestamp.
@@ -136,7 +141,7 @@ impl Queue {
         state_view: &'state StateView,
     ) -> impl Iterator<Item = AcceptedTransaction> + 'state {
         self.accepted_txs.iter().filter_map(|tx| {
-            if self.is_pending(tx.value(), state_view) {
+            if self.is_pending(tx.value(), state_view, Duration::from_secs(0)) {
                 return Some(tx.value().clone());
             }
 
@@ -152,7 +157,7 @@ impl Queue {
     ) -> Vec<AcceptedTransaction> {
         self.accepted_txs
             .iter()
-            .filter(|e| self.is_pending(e.value(), state_view))
+            .filter(|e| self.is_pending(e.value(), state_view, Duration::from_secs(0)))
             .map(|e| e.value().clone())
             .choose_multiple(
                 &mut rand::thread_rng(),
@@ -160,10 +165,15 @@ impl Queue {
             )
     }
 
-    fn check_tx(&self, tx: &AcceptedTransaction, state_view: &StateView) -> Result<(), Error> {
+    fn check_tx(
+        &self,
+        tx: &AcceptedTransaction,
+        state_view: &StateView,
+        time_padding: Duration,
+    ) -> Result<(), Error> {
         if self.is_in_future(tx) {
             Err(Error::InFuture)
-        } else if self.is_expired(tx) {
+        } else if self.is_expired(tx, time_padding) {
             Err(Error::Expired)
         } else if tx.is_in_blockchain(state_view) {
             Err(Error::InBlockchain)
@@ -178,7 +188,7 @@ impl Queue {
     /// See [`enum@Error`]
     pub fn push(&self, tx: AcceptedTransaction, state_view: &StateView) -> Result<(), Failure> {
         trace!(?tx, "Pushing to the queue");
-        if let Err(err) = self.check_tx(&tx, state_view) {
+        if let Err(err) = self.check_tx(&tx, state_view, Duration::from_secs(0)) {
             return Err(Failure { tx, err });
         }
 
@@ -242,6 +252,7 @@ impl Queue {
         seen: &mut Vec<HashOf<SignedTransaction>>,
         state_view: &StateView,
         expired_transactions: &mut Vec<AcceptedTransaction>,
+        time_padding: Duration,
     ) -> Option<AcceptedTransaction> {
         loop {
             let hash = self.tx_hashes.pop()?;
@@ -258,7 +269,7 @@ impl Queue {
             };
 
             let tx = entry.get();
-            if let Err(e) = self.check_tx(tx, state_view) {
+            if let Err(e) = self.check_tx(tx, state_view, time_padding) {
                 let (_, tx) = entry.remove_entry();
                 self.decrease_per_user_tx_count(tx.as_ref().authority());
                 if let Error::Expired = e {
@@ -299,6 +310,7 @@ impl Queue {
         state_view: &StateView,
         max_txs_in_block: NonZeroUsize,
         transactions: &mut Vec<AcceptedTransaction>,
+        time_padding: Duration,
     ) {
         if transactions.len() >= max_txs_in_block.get() {
             return;
@@ -308,7 +320,12 @@ impl Queue {
         let mut expired_transactions = Vec::new();
 
         let txs_from_queue = core::iter::from_fn(|| {
-            self.pop_from_queue(&mut seen_queue, state_view, &mut expired_transactions)
+            self.pop_from_queue(
+                &mut seen_queue,
+                state_view,
+                &mut expired_transactions,
+                time_padding,
+            )
         });
 
         let transactions_hashes: IndexSet<HashOf<SignedTransaction>> =

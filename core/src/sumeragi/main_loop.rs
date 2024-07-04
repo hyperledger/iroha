@@ -371,7 +371,12 @@ impl Sumeragi {
 
     fn cache_transaction(&mut self, state_block: &StateBlock<'_>) {
         self.transaction_cache.retain(|tx| {
-            !state_block.has_transaction(tx.as_ref().hash()) && !self.queue.is_expired(tx)
+            !state_block.has_transaction(tx.as_ref().hash())
+                && !self.queue.is_expired(
+                    tx,
+                    state_block.world.parameters.sumeragi.block_time()
+                        + state_block.world.parameters.sumeragi.commit_time(),
+                )
         });
     }
 
@@ -1026,7 +1031,11 @@ pub(crate) fn run(
             .transaction_cache
             // Checking if transactions are in the blockchain is costly
             .retain(|tx| {
-                let expired = sumeragi.queue.is_expired(tx);
+                let expired = sumeragi.queue.is_expired(
+                    tx,
+                    state_view.world.parameters.sumeragi.block_time()
+                        + state_view.world.parameters.sumeragi.commit_time(),
+                );
                 if expired {
                     debug!(?tx, "Transaction expired")
                 }
@@ -1044,6 +1053,8 @@ pub(crate) fn run(
                 .try_into()
                 .expect("INTERNAL BUG: transactions in block exceed usize::MAX"),
             &mut sumeragi.transaction_cache,
+            state_view.world.parameters.sumeragi.block_time()
+                + state_view.world.parameters.sumeragi.commit_time(),
         );
 
         let view_change_index = sumeragi.prune_view_change_proofs_and_calculate_current_index(
