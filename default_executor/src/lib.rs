@@ -6,8 +6,6 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use alloc::borrow::ToOwned as _;
-
 use iroha_executor::{debug::dbg_panic, prelude::*, DataModelBuilder};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 

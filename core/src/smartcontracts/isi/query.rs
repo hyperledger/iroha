@@ -333,12 +333,10 @@ mod tests {
             .is_none());
 
         let mut store = Metadata::default();
-        store
-            .insert(
-                Name::from_str("Bytes").expect("Valid"),
-                vec![1_u32, 2_u32, 3_u32],
-            )
-            .unwrap();
+        store.insert(
+            Name::from_str("Bytes").expect("Valid"),
+            vec![1_u32, 2_u32, 3_u32],
+        );
         let asset_id = AssetId::new(asset_definition_id, account.id().clone());
         let asset = Asset::new(asset_id, AssetValue::Store(store));
 

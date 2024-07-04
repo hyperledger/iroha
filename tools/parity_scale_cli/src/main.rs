@@ -314,12 +314,10 @@ mod tests {
     #[test]
     fn decode_account_sample() {
         let mut metadata = Metadata::default();
-        metadata
-            .insert(
-                "hat".parse().expect("Valid"),
-                "white".parse::<JsonString>().expect("Valid"),
-            )
-            .expect("Valid");
+        metadata.insert(
+            "hat".parse().expect("Valid"),
+            "white".parse::<JsonString>().expect("Valid"),
+        );
         let account = Account::new(ALICE_ID.clone()).with_metadata(metadata);
 
         decode_sample("account.bin", String::from("NewAccount"), &account);
@@ -328,9 +326,7 @@ mod tests {
     #[test]
     fn decode_domain_sample() {
         let mut metadata = Metadata::default();
-        metadata
-            .insert("Is_Jabberwocky_alive".parse().expect("Valid"), true)
-            .expect("Valid");
+        metadata.insert("Is_Jabberwocky_alive".parse().expect("Valid"), true);
         let domain = Domain::new("wonderland".parse().expect("Valid"))
             .with_logo(
                 IpfsPath::from_str("/ipfs/Qme7ss3ARVgxv6rXqVPiikMJ8u2NLgmgszg13pYrDKEoiu")

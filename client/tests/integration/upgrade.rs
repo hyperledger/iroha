@@ -386,7 +386,7 @@ fn migration_should_cause_upgrade_event() {
 fn define_custom_parameter() -> Result<()> {
     use executor_custom_data_model::parameters::DomainLimits;
 
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_996).start_with_runtime();
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_325).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     let long_domain_name = "0".repeat(2_usize.pow(5)).parse::<DomainId>()?;
