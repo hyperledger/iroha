@@ -419,7 +419,9 @@ pub mod tests {
         time_source: &TimeSource,
     ) -> AcceptedTransaction {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-        let fail_isi = Unregister::domain("dummy".parse().unwrap());
+        // Random name needed so all transactions will be different
+        let domain_name = format!("dummy{}", rand::random::<u64>());
+        let fail_isi = Unregister::domain(domain_name.parse().unwrap());
         let instructions = [fail_isi];
         let tx =
             TransactionBuilder::new_with_time_source(chain_id.clone(), account_id, time_source)
