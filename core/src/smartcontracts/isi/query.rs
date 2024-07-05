@@ -8,7 +8,7 @@ use iroha_data_model::{
     query::{
         error::QueryExecutionFail as Error, IterableQueryBox, IterableQueryOutputBatchBox,
         IterableQueryParams, QueryOutputBox, QueryRequest2, QueryRequestWithAuthority,
-        QueryResponse2,
+        QueryResponse2, SingularQueryBox, SingularQueryOutputBox,
     },
 };
 
@@ -17,8 +17,8 @@ use crate::{
     query::{
         cursor::QueryBatchedErasedIterator, pagination::Paginate as _, store::LiveQueryStoreHandle,
     },
-    smartcontracts::ValidIterableQuery,
-    state::StateReadOnly,
+    smartcontracts::{wasm, ValidIterableQuery},
+    state::{StateReadOnly, WorldReadOnly},
 };
 
 /// Allows to generalize retrieving the metadata key for all the query output types
@@ -224,37 +224,84 @@ impl_lazy! {
 pub struct ValidQueryRequest(QueryRequest2);
 
 impl ValidQueryRequest {
-    #[warn(missing_docs)] // TODO
-                          // Validate query.
-                          //
-                          // # Errors
-                          // - Account doesn't exist
-                          // - Account doesn't have the correct public key
-                          // - Account has incorrect permissions
-    pub fn validate(
+    /// Validate a query for an API client by calling the executor.
+    pub fn validate_for_client(
         query: QueryRequestWithAuthority,
-        _state_ro: &impl StateReadOnly,
+        state_ro: &impl StateReadOnly,
     ) -> Result<Self, ValidationFail> {
-        // TODO: actually do some validation
+        state_ro
+            .world()
+            .executor()
+            .validate_query(state_ro, &query.authority, &query.request)?;
         Ok(Self(query.request))
-        // state_ro.world().executor().validate_query(
-        //     state_ro,
-        //     query.authority(),
-        //     query.query().clone(),
-        // )?;
-        // Ok(Self(query))
     }
 
-    #[warn(missing_docs)] // TODO
+    /// Validate a query for a wasm program.
+    ///
+    /// The validation logic is defined by the implementation of the [`ValidateQueryOperation`] trait.
+    pub fn validate_for_wasm<W, S>(
+        query: QueryRequest2,
+        state: &mut wasm::state::CommonState<W, S>,
+    ) -> Result<Self, ValidationFail>
+    where
+        wasm::state::CommonState<W, S>: wasm::state::ValidateQueryOperation,
+    {
+        use wasm::state::ValidateQueryOperation as _;
+
+        state.validate_query(state.authority(), &query)?;
+
+        Ok(Self(query))
+    }
+
+    /// Execute a validated query request
     pub fn execute(
         self,
-        live_query_store: LiveQueryStoreHandle,
+        live_query_store: &LiveQueryStoreHandle,
         state: &impl StateReadOnly,
         authority: &AccountId,
     ) -> Result<QueryResponse2, Error> {
         match self.0 {
-            QueryRequest2::Singular(_singular_query) => {
-                todo!()
+            QueryRequest2::Singular(singular_query) => {
+                let output = match singular_query {
+                    SingularQueryBox::FindAssetQuantityById(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindExecutorDataModel(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindAllParameters(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindTotalAssetQuantityByAssetDefinitionId(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindTriggerById(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindDomainKeyValueByIdAndKey(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindAccountKeyValueByIdAndKey(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindAssetKeyValueByIdAndKey(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindAssetDefinitionKeyValueByIdAndKey(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindTriggerKeyValueByIdAndKey(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindTransactionByHash(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                    SingularQueryBox::FindBlockHeaderByHash(q) => {
+                        SingularQueryOutputBox::from(q.execute(state)?)
+                    }
+                };
+
+                Ok(QueryResponse2::Singular(output))
             }
             QueryRequest2::StartIterable(iter_query) => {
                 let output = match iter_query.query {

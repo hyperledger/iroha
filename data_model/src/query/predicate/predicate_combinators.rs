@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+
 use super::{AstPredicate, CompoundPredicate};
 
 /// Overrides the `Not`, `BitAnd`, and `BitOr` operators for easier predicate composition.

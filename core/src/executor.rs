@@ -5,7 +5,7 @@ use iroha_data_model::{
     account::AccountId,
     executor as data_model_executor,
     isi::InstructionBox,
-    query::QueryBox,
+    query::QueryRequest2,
     transaction::{Executable, SignedTransaction},
     ValidationFail,
 };
@@ -199,29 +199,33 @@ impl Executor {
     /// - Executor denied the operation.
     pub fn validate_query<S: StateReadOnly>(
         &self,
-        state_ro: &S,
-        authority: &AccountId,
-        query: QueryBox,
+        _state_ro: &S,
+        _authority: &AccountId,
+        _query: &QueryRequest2,
     ) -> Result<(), ValidationFail> {
         trace!("Running query validation");
 
-        match self {
-            Self::Initial => Ok(()),
-            Self::UserProvided(loaded_executor) => {
-                let runtime =
-                    wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery<S>>::new()
-                        .with_engine(state_ro.engine().clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                        .with_config(state_ro.world().parameters().executor)
-                        .build()?;
+        // TODO: actually validate the query request
 
-                runtime.execute_executor_validate_query(
-                    state_ro,
-                    authority,
-                    &loaded_executor.module,
-                    query,
-                )?
-            }
-        }
+        Ok(())
+
+        // match self {
+        //     Self::Initial => Ok(()),
+        //     Self::UserProvided(loaded_executor) => {
+        //         let runtime =
+        //             wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery<S>>::new()
+        //                 .with_engine(state_ro.engine().clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+        //                 .with_config(state_ro.world().parameters().executor)
+        //                 .build()?;
+        //
+        //         runtime.execute_executor_validate_query(
+        //             state_ro,
+        //             authority,
+        //             &loaded_executor.module,
+        //             query,
+        //         )?
+        //     }
+        // }
     }
 
     /// Migrate executor to a new user-provided one.

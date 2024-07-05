@@ -5,7 +5,7 @@ use alloc::borrow::ToOwned as _;
 use iroha_executor_data_model::permission::Permission;
 use iroha_smart_contract::{
     data_model::{executor::Result, permission::Permission as PermissionObject, prelude::*},
-    ExecuteQueryOnHost as _, QueryOutputCursor,
+    iter_query,
 };
 use iroha_smart_contract_utils::debug::DebugExpectExt as _;
 
@@ -133,7 +133,7 @@ pub trait ExecutorPermision: Permission + PartialEq {
     where
         for<'a> Self: TryFrom<&'a crate::data_model::permission::Permission>,
     {
-        FindPermissionsByAccountId::new(account_id.clone())
+        iter_query(FindPermissionsByAccountId::new(account_id.clone()))
             .execute()
             .expect("INTERNAL BUG: `FindPermissionsByAccountId` must never fail")
             .into_iter()
@@ -407,6 +407,7 @@ pub mod asset_definition {
         CanRemoveKeyValueInAssetDefinition, CanSetKeyValueInAssetDefinition,
         CanUnregisterAssetDefinition,
     };
+    use iroha_smart_contract::SmartContractSingularQueryError;
 
     use super::*;
 
@@ -423,9 +424,19 @@ pub mod asset_definition {
         asset_definition_id: &AssetDefinitionId,
         authority: &AccountId,
     ) -> Result<bool> {
-        let asset_definition = FindAssetDefinitionById::new(asset_definition_id.clone())
-            .execute()
-            .map(QueryOutputCursor::into_inner)?;
+        let asset_definition = iter_query(FindAllAssetsDefinitions)
+            .with_filter(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
+            .execute_single()
+            .map_err(|e| match e {
+                SmartContractSingularQueryError::Validation(e) => e,
+                SmartContractSingularQueryError::Single(_) => {
+                    // assuming this can only happen due to such a domain not existing
+                    ValidationFail::NotPermitted(alloc::format!(
+                        "Asset definition {} not found",
+                        asset_definition_id
+                    ))
+                }
+            })?;
         if asset_definition.owned_by() == authority {
             Ok(true)
         } else {
@@ -598,6 +609,7 @@ pub mod trigger {
         CanBurnUserTrigger, CanExecuteUserTrigger, CanMintUserTrigger, CanRegisterUserTrigger,
         CanRemoveKeyValueInTrigger, CanSetKeyValueInTrigger, CanUnregisterUserTrigger,
     };
+    use iroha_smart_contract::query;
 
     use super::*;
     use crate::permission::domain::is_domain_owner;
@@ -619,9 +631,7 @@ pub mod trigger {
     }
     /// Returns the trigger.
     pub(crate) fn find_trigger(trigger_id: &TriggerId) -> Result<Trigger> {
-        FindTriggerById::new(trigger_id.clone())
-            .execute()
-            .map(QueryOutputCursor::into_inner)
+        query(FindTriggerById::new(trigger_id.clone()))
     }
 
     /// Pass condition that checks if `authority` is the owner of trigger.
@@ -730,6 +740,7 @@ pub mod domain {
         CanRegisterAccountInDomain, CanRegisterAssetDefinitionInDomain, CanRemoveKeyValueInDomain,
         CanSetKeyValueInDomain, CanUnregisterDomain,
     };
+    use iroha_smart_contract::SmartContractSingularQueryError;
 
     use super::*;
 
@@ -738,10 +749,17 @@ pub mod domain {
     /// # Errors
     /// Fails if query fails
     pub fn is_domain_owner(domain_id: &DomainId, authority: &AccountId) -> Result<bool> {
-        FindDomainById::new(domain_id.clone())
-            .execute()
-            .map(QueryOutputCursor::into_inner)
+        iter_query(FindAllDomains)
+            .with_filter(|domain| domain.id.eq(domain_id.clone()))
+            .execute_single()
             .map(|domain| domain.owned_by() == authority)
+            .map_err(|e| match e {
+                SmartContractSingularQueryError::Validation(e) => e,
+                SmartContractSingularQueryError::Single(_) => {
+                    // assuming this can only happen due to such a domain not existing
+                    ValidationFail::NotPermitted(alloc::format!("Domain {} not found", domain_id))
+                }
+            })
     }
 
     /// Pass condition that checks if `authority` is the owner of domain.
@@ -853,16 +871,14 @@ impl<T: Permission> From<&T> for OnlyGenesis {
 
 /// Iterator over all accounts and theirs permission tokens
 pub(crate) fn accounts_permissions() -> impl Iterator<Item = (AccountId, PermissionObject)> {
-    FindAllAccounts
+    iter_query(FindAllAccounts)
         .execute()
         .dbg_expect("INTERNAL BUG: `FindAllAccounts` must never fail")
-        .into_iter()
         .map(|account| account.dbg_expect("Failed to get account from cursor"))
         .flat_map(|account| {
-            FindPermissionsByAccountId::new(account.id().clone())
+            iter_query(FindPermissionsByAccountId::new(account.id().clone()))
                 .execute()
                 .dbg_expect("INTERNAL BUG: `FindPermissionsByAccountId` must never fail")
-                .into_iter()
                 .map(|token| token.dbg_expect("Failed to get permission from cursor"))
                 .map(move |token| (account.id().clone(), token))
         })
@@ -870,10 +886,9 @@ pub(crate) fn accounts_permissions() -> impl Iterator<Item = (AccountId, Permiss
 
 /// Iterator over all roles and theirs permission tokens
 pub(crate) fn roles_permissions() -> impl Iterator<Item = (RoleId, PermissionObject)> {
-    FindAllRoles
+    iter_query(FindAllRoles)
         .execute()
         .dbg_expect("INTERNAL BUG: `FindAllRoles` must never fail")
-        .into_iter()
         .map(|role| role.dbg_expect("Failed to get role from cursor"))
         .flat_map(|role| {
             role.permissions()

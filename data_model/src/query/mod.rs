@@ -5,6 +5,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    boxed::Box,
     format,
     string::{String, ToString},
     vec,
@@ -228,8 +229,8 @@ pub enum SingularQueryOutputBox {
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct IterableQueryOutput {
-    batch: IterableQueryOutputBatchBox,
-    continue_cursor: Option<ForwardCursor>,
+    pub batch: IterableQueryOutputBatchBox,
+    pub continue_cursor: Option<ForwardCursor>,
 }
 
 impl IterableQueryOutput {
@@ -325,20 +326,51 @@ pub struct SignedQuery2V1 {
     pub payload: QueryRequestWithAuthority,
 }
 
-impl Decode for SignedQuery2V1 {
-    fn decode<I: parity_scale_codec::Input>(
-        _input: &mut I,
-    ) -> Result<Self, parity_scale_codec::Error> {
-        todo!("verify the signature")
-    }
-}
+mod candidate {
+    use parity_scale_codec::Input;
 
-impl<'de> Deserialize<'de> for SignedQuery2V1 {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        todo!("verify the signature")
+    use super::*;
+
+    #[derive(Decode, Deserialize)]
+    struct SignedQuery2Candidate {
+        signature: QuerySignature,
+        payload: QueryRequestWithAuthority,
+    }
+
+    impl SignedQuery2Candidate {
+        fn validate(self) -> Result<SignedQuery2V1, &'static str> {
+            let QuerySignature(signature) = &self.signature;
+
+            signature
+                .verify(&self.payload.authority.signatory, &self.payload)
+                .map_err(|_| "Query signature is not valid")?;
+
+            Ok(SignedQuery2V1 {
+                payload: self.payload,
+                signature: self.signature,
+            })
+        }
+    }
+
+    impl Decode for SignedQuery2V1 {
+        fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+            SignedQuery2Candidate::decode(input)?
+                .validate()
+                .map_err(Into::into)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for SignedQuery2V1 {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            use serde::de::Error as _;
+
+            SignedQuery2Candidate::deserialize(deserializer)?
+                .validate()
+                .map_err(D::Error::custom)
+        }
     }
 }
 
