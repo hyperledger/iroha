@@ -1,5 +1,6 @@
 use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
+use executor_custom_data_model::mint_rose_args::MintRoseArgs;
 use eyre::{eyre, Result, WrapErr};
 use iroha::{
     client::{self, Client},
@@ -647,4 +648,46 @@ fn build_register_trigger_isi(
                 .under_authority(account_id.clone()),
         ),
     ))
+}
+
+#[test]
+fn call_execute_trigger_with_args() -> Result<()> {
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(11_265).start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let asset_definition_id = "rose#wonderland".parse()?;
+    let account_id = ALICE_ID.clone();
+    let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
+
+    let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
+    let wasm =
+        iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose_trigger_args")
+            .show_output()
+            .build()?
+            .optimize()?
+            .into_bytes()?;
+    let wasm = WasmSmartContract::from_compiled(wasm);
+    let trigger = Trigger::new(
+        trigger_id.clone(),
+        Action::new(
+            wasm,
+            Repeats::Indefinitely,
+            account_id.clone(),
+            ExecuteTriggerEventFilter::new()
+                .for_trigger(trigger_id.clone())
+                .under_authority(account_id.clone()),
+        ),
+    );
+
+    test_client.submit_blocking(Register::trigger(trigger))?;
+
+    let args: MintRoseArgs = MintRoseArgs { val: 42 };
+    let call_trigger = ExecuteTrigger::new(trigger_id).with_args(&args);
+    test_client.submit_blocking(call_trigger)?;
+
+    let new_value = get_asset_value(&mut test_client, asset_id);
+    assert_eq!(new_value, prev_value.checked_add(numeric!(42)).unwrap());
+
+    Ok(())
 }

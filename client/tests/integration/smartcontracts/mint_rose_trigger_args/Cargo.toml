@@ -1,0 +1,22 @@
+[package]
+name = "mint_rose_args"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_trigger.workspace = true
+executor_custom_data_model.workspace = true
+
+panic-halt.workspace = true
+lol_alloc.workspace = true
+getrandom.workspace = true
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, default-features = false }

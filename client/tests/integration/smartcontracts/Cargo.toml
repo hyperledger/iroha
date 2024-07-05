@@ -11,6 +11,7 @@ resolver = "2"
 members = [
     "create_nft_for_every_user_trigger",
     "mint_rose_trigger",
+    "mint_rose_trigger_args",
     "executor_with_admin",
     "executor_with_custom_permission",
     "executor_with_custom_parameter",
@@ -21,6 +22,8 @@ members = [
     "executor_custom_data_model",
     "query_assets_and_save_cursor",
     "smart_contract_can_filter_queries",
+    "multisig_register",
+    "multisig",
 ]
 
 [profile.dev]

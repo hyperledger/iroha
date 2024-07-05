@@ -5,6 +5,8 @@
 extern crate alloc;
 
 pub mod complex_isi;
+pub mod mint_rose_args;
+pub mod multisig;
 pub mod parameters;
 pub mod permissions;
 pub mod simple_isi;
