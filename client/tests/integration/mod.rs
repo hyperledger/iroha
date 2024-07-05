@@ -1,6 +1,5 @@
 mod asset;
 mod asset_propagation;
-mod domain_owner_permissions;
 mod events;
 mod extra_functional;
 mod multisig;
@@ -13,6 +12,7 @@ mod set_parameter;
 mod sorting;
 mod status_response;
 mod transfer_asset;
+mod transfer_domain;
 mod triggers;
 mod tx_chain_id;
 mod tx_history;

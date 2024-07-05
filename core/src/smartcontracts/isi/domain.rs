@@ -358,7 +358,9 @@ pub mod isi {
             let domain = state_transaction.world.domain_mut(&object)?;
 
             if domain.owned_by != source {
-                return Err(Error::Find(FindError::Account(source)));
+                return Err(Error::InvariantViolation(format!(
+                    "Can't transfer domain {domain} since {source} doesn't own it",
+                )));
             }
 
             domain.owned_by = destination.clone();
