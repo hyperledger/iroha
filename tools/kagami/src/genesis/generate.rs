@@ -5,7 +5,7 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::WrapErr as _;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{isi::InstructionBox, parameter::Parameters, prelude::*};
 use iroha_executor_data_model::permission::{
     account::{CanRemoveKeyValueInAccount, CanSetKeyValueInAccount},
     parameter::CanSetParameters,
@@ -138,6 +138,12 @@ pub fn generate_default(
     )
     .into();
 
+    let parameters = Parameters::default();
+    let set_parameters = parameters
+        .parameters()
+        .map(SetParameter)
+        .map(InstructionBox::from);
+
     for isi in [
         mint.into(),
         mint_cabbage.into(),
@@ -147,6 +153,7 @@ pub fn generate_default(
     ]
     .into_iter()
     .chain(std::iter::once(register_user_metadata_access))
+    .chain(set_parameters)
     {
         builder = builder.append_instruction(isi);
     }
