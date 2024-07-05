@@ -8,7 +8,9 @@ pub mod permission;
 pub mod role;
 pub mod trigger;
 
-use std::marker::PhantomData;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+use core::marker::PhantomData;
 
 use iroha_crypto::PublicKey;
 

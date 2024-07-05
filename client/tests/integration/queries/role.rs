@@ -1,10 +1,8 @@
 use std::collections::HashSet;
 
 use eyre::Result;
-use iroha::{
-    client,
-    data_model::{prelude::*, query::error::QueryExecutionFail},
-};
+use iroha::{client, data_model::prelude::*};
+use iroha_data_model::query::builder::SingleQueryError;
 use iroha_executor_data_model::permission::account::CanSetKeyValueInAccount;
 use test_network::*;
 use test_samples::ALICE_ID;
@@ -116,11 +114,10 @@ fn find_unregistered_role_by_id() {
 
     // Checking result
     // Not found error
-    // TODO: the error will be different!
     assert!(matches!(
         found_role,
-        Err(client::ClientQueryError::Validation(
-            ValidationFail::QueryFailed(QueryExecutionFail::Find(_))
+        Err(client::ClientQueryError::Single(
+            SingleQueryError::ExpectedOneGotNone
         ))
     ));
 }

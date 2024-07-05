@@ -8,6 +8,9 @@ pub mod permission;
 pub mod role;
 pub mod trigger;
 
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec::Vec};
+
 use iroha_crypto::PublicKey;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};

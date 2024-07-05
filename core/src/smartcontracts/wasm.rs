@@ -12,9 +12,12 @@ use iroha_data_model::{
     isi::InstructionBox,
     parameter::SmartContractParameters as Config,
     prelude::*,
-    query::{cursor::QueryId, QueryBox, QueryOutputBox, QueryRequest, SmartContractQuery},
+    query::{
+        cursor::QueryId, IterableQueryOutput, QueryBox, QueryRequest, QueryRequest2,
+        QueryResponse2, SmartContractQuery,
+    },
     smart_contract::payloads::{self, Validate},
-    BatchedResponse, Level as LogLevel, ValidationFail,
+    Level as LogLevel, ValidationFail,
 };
 use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
@@ -26,6 +29,8 @@ use wasmtime::{
     StoreLimitsBuilder, TypedFunc,
 };
 
+use crate::smartcontracts::query::ValidQueryRequest;
+#[warn(unused_imports)] // TODO
 use crate::{
     query::store::LiveQueryStoreHandle,
     smartcontracts::{wasm::state::ValidateQueryOperation, Execute},
@@ -66,7 +71,10 @@ mod import {
     pub mod traits {
         //! Traits which some [Runtime]s should implement to import functions from Iroha to WASM
 
-        use iroha_data_model::{query::QueryBox, smart_contract::payloads::Validate};
+        use iroha_data_model::{
+            query::{QueryBox, QueryRequest2, QueryResponse2},
+            smart_contract::payloads::Validate,
+        };
 
         use super::super::*;
 
@@ -74,9 +82,9 @@ mod import {
             /// Execute `query` on host
             #[codec::wrap_trait_fn]
             fn execute_query(
-                query_request: SmartContractQueryRequest,
+                query_request: QueryRequest2,
                 state: &mut S,
-            ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail>;
+            ) -> Result<QueryResponse2, ValidationFail>;
 
             /// Execute `instruction` on host
             #[codec::wrap_trait_fn]
@@ -387,6 +395,11 @@ pub mod state {
             }
         }
 
+        /// Get authority
+        pub fn authority(&self) -> &AccountId {
+            &self.authority
+        }
+
         /// Take executed queries leaving an empty set
         pub fn take_executed_queries(&mut self) -> IndexSet<QueryId> {
             std::mem::take(&mut self.executed_queries)
@@ -403,7 +416,7 @@ pub mod state {
         fn validate_query(
             &self,
             authority: &AccountId,
-            query: QueryBox,
+            query: &QueryRequest2,
         ) -> Result<(), ValidationFail>;
     }
 
@@ -506,7 +519,7 @@ pub mod state {
         fn validate_query(
             &self,
             authority: &AccountId,
-            query: QueryBox,
+            query: &QueryRequest2,
         ) -> Result<(), ValidationFail> {
             let state_ro = self.state.state();
             state_ro
@@ -520,7 +533,7 @@ pub mod state {
         fn validate_query(
             &self,
             authority: &AccountId,
-            query: QueryBox,
+            query: &QueryRequest2,
         ) -> Result<(), ValidationFail> {
             let state_ro = self.state.state();
             state_ro
@@ -561,7 +574,7 @@ pub mod state {
                     fn validate_query(
                         &self,
                         _authority: &AccountId,
-                        _query: QueryBox,
+                        _query: &QueryRequest2,
                     ) -> Result<(), ValidationFail> {
                         Ok(())
                     }
@@ -579,7 +592,7 @@ pub mod state {
             fn validate_query(
                 &self,
                 _authority: &AccountId,
-                _query: QueryBox,
+                _query: &QueryRequest2,
             ) -> Result<(), ValidationFail> {
                 Ok(())
             }
@@ -791,53 +804,45 @@ where
 {
     #[warn(unused)] // TODO
     fn default_execute_query(
-        query_request: SmartContractQueryRequest,
+        query_request: QueryRequest2,
         state: &mut state::CommonState<W, S>,
-    ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
-        iroha_logger::debug!(%query_request, "Executing");
+    ) -> Result<QueryResponse2, ValidationFail> {
+        iroha_logger::debug!(?query_request, "Executing");
 
-        match query_request.0 {
-            QueryRequest::Query(SmartContractQuery {
-                query,
-                filter,
-                sorting,
-                pagination,
-                fetch_size,
-            }) => {
-                let batched: BatchedResponse<QueryOutputBox> = {
-                    let state_ro = state.state.state();
-                    let state_ro = state_ro.borrow();
-                    state.validate_query(&state.authority, query.clone())?;
-                    // let _output = query
-                    //     .execute(state_ro)?
-                    //     .apply_postprocessing(&filter, &sorting, pagination, fetch_size)?;
+        // if the query is continuing a cursor, preserve it (but only if validation succeeds)
+        let continue_query_id = if let QueryRequest2::ContinueIterable(cursor) = &query_request {
+            Some(cursor.query.clone())
+        } else {
+            None
+        };
 
-                    Ok::<_, ValidationFail>(todo!("Update to the new live query store API"))
+        let query = ValidQueryRequest::validate_for_wasm(query_request, state)?;
 
-                    // state_ro.query_handle().handle_query_output(output)
-                }?;
-
-                match &batched {
-                    BatchedResponse::V1(batched) => {
-                        state.executed_queries.insert(batched.cursor.query.clone());
-                    }
-                }
-                Ok(batched)
-            }
-            QueryRequest::Cursor(cursor) => {
-                // In a normal situation we already have this `query_id` stored,
-                // so that's a protection from malicious smart contract
-                state.executed_queries.insert(cursor.query.clone());
-                todo!("Update to the new live query store API")
-
-                // state
-                //     .state
-                //     .state()
-                //     .borrow()
-                //     .query_handle()
-                //     .handle_query_cursor(cursor)
-            }
+        // the query is valid, store it.
+        // it's probably already there, but a malicious smart contract could construct a cursor from outside
+        if let Some(continue_query_id) = continue_query_id {
+            state.executed_queries.insert(continue_query_id);
         }
+
+        let authority = state.authority();
+
+        let state_ro = state.state.state();
+        let state_ro = state_ro.borrow();
+
+        let live_query_store = state_ro.query_handle();
+
+        let response = query.execute(live_query_store, state_ro, authority)?;
+
+        // store the output cursor if there is one
+        if let QueryResponse2::Iterable(IterableQueryOutput {
+            continue_cursor: Some(cursor),
+            ..
+        }) = &response
+        {
+            state.executed_queries.insert(cursor.query.clone());
+        }
+
+        Ok(response)
     }
 }
 
@@ -953,9 +958,9 @@ impl<'wrld, 'block, 'state>
 {
     #[codec::wrap]
     fn execute_query(
-        query_request: SmartContractQueryRequest,
+        query_request: QueryRequest2,
         state: &mut state::SmartContract<'wrld, 'block, 'state>,
-    ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
+    ) -> Result<QueryResponse2, ValidationFail> {
         Self::default_execute_query(query_request, state)
     }
 
@@ -1028,9 +1033,9 @@ impl<'wrld, 'block, 'state> import::traits::ExecuteOperations<state::Trigger<'wr
 {
     #[codec::wrap]
     fn execute_query(
-        query_request: SmartContractQueryRequest,
+        query_request: QueryRequest2,
         state: &mut state::Trigger<'wrld, 'block, 'state>,
-    ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
+    ) -> Result<QueryResponse2, ValidationFail> {
         Self::default_execute_query(query_request, state)
     }
 
@@ -1062,10 +1067,10 @@ where
 {
     #[codec::wrap]
     fn execute_query(
-        query_request: SmartContractQueryRequest,
+        query_request: QueryRequest2,
         state: &mut state::CommonState<state::chain_state::WithMut<'wrld, 'block, 'state>, S>,
-    ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
-        debug!(%query_request, "Executing as executor");
+    ) -> Result<QueryResponse2, ValidationFail> {
+        debug!(?query_request, "Executing as executor");
 
         Runtime::default_execute_query(query_request, state)
     }
@@ -1303,10 +1308,10 @@ impl<'wrld, S: StateReadOnly>
 {
     #[codec::wrap]
     fn execute_query(
-        query_request: SmartContractQueryRequest,
+        query_request: QueryRequest2,
         state: &mut state::executor::ValidateQuery<'wrld, S>,
-    ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
-        debug!(%query_request, "Executing as executor");
+    ) -> Result<QueryResponse2, ValidationFail> {
+        debug!(?query_request, "Executing as executor");
 
         Runtime::default_execute_query(query_request, state)
     }

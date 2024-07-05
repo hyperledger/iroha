@@ -1,11 +1,16 @@
 #[cfg(not(feature = "std"))]
-use alloc::vec;
+use alloc::vec::{self, Vec};
 #[cfg(feature = "std")]
 use std::vec;
+
+use iroha_schema::IntoSchema;
+use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     prelude::FetchSize,
     query::{
+        error::QueryExecutionFail,
         predicate::{projectors, AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype},
         IterableQuery, IterableQueryBox, IterableQueryOutputBatchBox, IterableQueryParams,
         IterableQueryWithFilter, IterableQueryWithFilterFor, IterableQueryWithParams, Pagination,
@@ -16,6 +21,8 @@ use crate::{
 pub trait QueryExecutor {
     type Cursor;
     type Error;
+    // bound introduced to inject `SingularQueryError` in builder's `execute_single` and `execute_single_opt` methods
+    type SingularError: From<SingleQueryError> + From<Self::Error>;
 
     fn execute_singular_query(
         &self,
@@ -101,6 +108,29 @@ where
 
         return self.next();
     }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    displaydoc::Display,
+    Deserialize,
+    Serialize,
+    Decode,
+    Encode,
+)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
+pub enum SingleQueryError {
+    /// Expected exactly one query result, got none
+    ExpectedOneGotNone,
+    /// Expected exactly one query result, got more than one
+    ExpectedOneGotMany,
+    /// Expected one or zero query results, got more than one
+    ExpectedOneOrZeroGotMany,
 }
 
 pub struct IterableQueryBuilder<'e, E, Q, P> {
@@ -197,7 +227,7 @@ where
         self.execute()?.collect::<Result<Vec<_>, _>>()
     }
 
-    pub fn execute_single_opt(self) -> Result<Option<Q::Item>, E::Error> {
+    pub fn execute_single_opt(self) -> Result<Option<Q::Item>, E::SingularError> {
         let mut iter = self.execute()?;
         let first = iter.next().transpose()?;
         let second = iter.next().transpose()?;
@@ -205,29 +235,22 @@ where
         match (first, second) {
             (None, None) => Ok(None),
             (Some(result), None) => Ok(Some(result)),
-            (Some(_), Some(_)) => {
-                todo!()
-            }
+            (Some(_), Some(_)) => Err(SingleQueryError::ExpectedOneOrZeroGotMany.into()),
             (None, Some(_)) => {
                 unreachable!()
             }
         }
     }
 
-    pub fn execute_single(self) -> Result<Q::Item, E::Error> {
+    pub fn execute_single(self) -> Result<Q::Item, E::SingularError> {
         let mut iter = self.execute()?;
         let first = iter.next().transpose()?;
         let second = iter.next().transpose()?;
 
         match (first, second) {
-            (None, None) => {
-                // TODO: add a From<SingleQueryError> or smth
-                todo!()
-            }
+            (None, None) => Err(SingleQueryError::ExpectedOneGotNone.into()),
             (Some(result), None) => Ok(result),
-            (Some(_), Some(_)) => {
-                todo!()
-            }
+            (Some(_), Some(_)) => Err(SingleQueryError::ExpectedOneGotMany.into()),
             (None, Some(_)) => {
                 unreachable!()
             }

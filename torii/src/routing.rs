@@ -61,8 +61,8 @@ pub async fn handle_queries(
         let query: QueryRequestWithAuthority = query.payload;
         let authority = query.authority.clone();
 
-        let valid_query = ValidQueryRequest::validate(query, &state_view)?;
-        let response = valid_query.execute(live_query_store, &state_view, &authority)?;
+        let valid_query = ValidQueryRequest::validate_for_client(query, &state_view)?;
+        let response = valid_query.execute(&live_query_store, &state_view, &authority)?;
 
         Ok::<_, ValidationFail>(response)
     });

@@ -10,7 +10,12 @@ extern crate panic_halt;
 
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::simple_isi::{CustomInstructionBox, MintAssetForAllAccounts};
-use iroha_executor::{data_model::isi::CustomInstruction, debug::DebugExpectExt, prelude::*};
+use iroha_executor::{
+    data_model::isi::CustomInstruction,
+    debug::DebugExpectExt,
+    prelude::*,
+    smart_contract::{iter_query, SmartContractSingularQueryError},
+};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -45,7 +50,9 @@ fn execute_custom_instruction(isi: CustomInstructionBox) -> Result<(), Validatio
 }
 
 fn execute_mint_asset_for_all_accounts(isi: MintAssetForAllAccounts) -> Result<(), ValidationFail> {
-    let accounts = FindAccountsWithAsset::new(isi.asset_definition.clone()).execute()?;
+    let accounts =
+        iter_query(FindAccountsWithAsset::new(isi.asset_definition.clone())).execute()?;
+
     for account in accounts {
         let account = account.dbg_expect("Failed to get accounts with asset");
         let asset_id = AssetId::new(isi.asset_definition.clone(), account.id().clone());

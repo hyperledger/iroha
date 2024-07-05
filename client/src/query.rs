@@ -8,7 +8,8 @@ use iroha_crypto::KeyPair;
 use iroha_data_model::{
     account::AccountId,
     query::{
-        builder::{IterableQueryBuilder, QueryExecutor},
+        builder::{IterableQueryBuilder, QueryExecutor, SingleQueryError},
+        error::QueryExecutionFail,
         predicate::HasPredicateBox,
         ForwardCursor, IterableQueryOutput, IterableQueryOutputBatchBox, IterableQueryWithParams,
         QueryRequest2, QueryResponse2, SingularQuery, SingularQueryBox, SingularQueryOutputBox,
@@ -127,6 +128,8 @@ pub struct ClientQueryCursor {
 pub enum ClientQueryError {
     /// Query validation error
     Validation(#[from] ValidationFail),
+    /// Failed to constrain the query to a single result
+    Single(#[from] SingleQueryError),
     /// Other error
     Other(#[from] eyre::Error),
 }
@@ -140,7 +143,9 @@ impl From<ResponseReport> for ClientQueryError {
 
 impl QueryExecutor for Client {
     type Cursor = ClientQueryCursor;
+    // TODO: split these two errors maybe? (it's more useful for smart contracts though..)
     type Error = ClientQueryError;
+    type SingularError = ClientQueryError;
 
     fn execute_singular_query(
         &self,

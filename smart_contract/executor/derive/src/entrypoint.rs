@@ -89,7 +89,7 @@ fn impl_validate_entrypoint(
     block.stmts.insert(
         0,
         parse_quote!(
-            use ::iroha_executor::smart_contract::{ExecuteOnHost as _, ExecuteQueryOnHost as _};
+            use ::iroha_executor::smart_contract::{ExecuteOnHost as _};
         ),
     );
 

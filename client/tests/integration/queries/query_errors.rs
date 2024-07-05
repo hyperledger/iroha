@@ -1,10 +1,5 @@
-use iroha::{
-    client::{self, ClientQueryError},
-    data_model::{
-        prelude::*,
-        query::error::{FindError, QueryExecutionFail},
-    },
-};
+use iroha::client::{self, ClientQueryError};
+use iroha_data_model::query::builder::SingleQueryError;
 use test_samples::gen_account_in;
 
 #[test]
@@ -20,14 +15,10 @@ fn non_existent_account_is_specific_error() {
         .execute_single()
         .expect_err("Should error");
 
-    // TODO: the error will be different
+    // NOTE: with the current implementation, the error returned is less specific than it was before
+    // (we no longer get the context that it is the entire domain that doesn't exist, not just the account)
     match err {
-        ClientQueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFail::Find(
-            err,
-        ))) => match err {
-            FindError::Domain(id) => assert_eq!(id.name.as_ref(), "regalia"),
-            x => panic!("FindError::Domain expected, got {x:?}"),
-        },
+        ClientQueryError::Single(SingleQueryError::ExpectedOneGotNone) => {}
         x => panic!("Unexpected error: {x:?}"),
-    };
+    }
 }

@@ -1121,7 +1121,7 @@ pub mod parameter {
 
 pub mod role {
     use iroha_executor_data_model::permission::role::CanUnregisterAnyRole;
-    use iroha_smart_contract::{data_model::role::Role, ExecuteQueryOnHost as _};
+    use iroha_smart_contract::data_model::role::Role;
 
     use super::*;
 
@@ -1129,10 +1129,17 @@ pub mod role {
         ($executor:ident, $isi:ident, $authority:ident, $method:ident) => {
             let role_id = $isi.object();
 
-            let find_role_query_res = match FindRoleByRoleId::new(role_id.clone()).execute() {
-                Ok(res) => res.into_inner(),
-                Err(error) => {
+            let find_role_query_res = match iroha_smart_contract::iter_query(FindAllRoles)
+                .with_filter(|role| role.id.eq(role_id.clone()))
+                .execute_single()
+            {
+                Ok(res) => res,
+                Err(iroha_smart_contract::SmartContractSingularQueryError::Validation(error)) => {
                     deny!($executor, error);
+                }
+                Err(iroha_smart_contract::SmartContractSingularQueryError::Single(_error)) => {
+                    // assuming that only a "not found" case is possible here
+                    deny!($executor, "Role not found")
                 }
             };
             let role = Role::try_from(find_role_query_res).unwrap();

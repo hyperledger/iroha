@@ -10,7 +10,7 @@ use iroha::{
         transaction::{TransactionBuilder, WasmSmartContract},
     },
 };
-use iroha_data_model::parameter::SmartContractParameter;
+use iroha_data_model::{parameter::SmartContractParameter, query::builder::SingleQueryError};
 use nonzero_ext::nonzero;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
@@ -123,11 +123,7 @@ fn mutlisig() -> Result<()> {
         .expect_err("domain shouldn't be created before enough votes are collected");
     assert!(matches!(
         err,
-        ClientQueryError::Validation(iroha_data_model::ValidationFail::QueryFailed(
-            iroha_data_model::query::error::QueryExecutionFail::Find(
-                iroha_data_model::query::error::FindError::Domain(err_domain_id)
-            )
-        )) if domain_id == err_domain_id
+        ClientQueryError::Single(SingleQueryError::ExpectedOneGotNone)
     ));
 
     for (signatory, key_pair) in signatories_iter {
