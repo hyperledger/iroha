@@ -19,7 +19,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id.clone(),
         Action::new(
-            vec![InstructionBox::from(instruction)],
+            vec![instruction],
             Repeats::Indefinitely,
             asset_id.account().clone(),
             ExecuteTriggerEventFilter::new()
@@ -63,7 +63,7 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id.clone(),
         Action::new(
-            vec![InstructionBox::from(fail_isi)],
+            vec![fail_isi],
             Repeats::Indefinitely,
             account_id.clone(),
             ExecuteTriggerEventFilter::new()

@@ -43,26 +43,23 @@ fn simulate_transfer_store_asset() {
         true,
     );
 
-    let instructions: [InstructionBox; 3] = [
-        // create_alice.into(), We don't need to register Alice, because she is created in genesis
-        create_mouse.into(),
-        create_asset.into(),
-        set_key_value.into(),
-    ];
-
     iroha
-        .submit_all_blocking(instructions)
+        .submit_all_blocking::<InstructionBox>([
+            // create_alice.into(), We don't need to register Alice, because she is created in genesis
+            create_mouse.into(),
+            create_asset.into(),
+            set_key_value.into(),
+        ])
         .expect("Failed to prepare state.");
 
     let transfer_asset = Transfer::asset_store(
         AssetId::new(asset_definition_id.clone(), alice_id.clone()),
         mouse_id.clone(),
     );
-    let transfer_box: InstructionBox = transfer_asset.into();
 
     iroha
         .submit_till(
-            transfer_box,
+            transfer_asset,
             client::asset::by_account_id(mouse_id.clone()),
             |result| {
                 let assets = result.collect::<QueryResult<Vec<_>>>().unwrap();

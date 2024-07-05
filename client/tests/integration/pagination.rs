@@ -46,11 +46,11 @@ fn fetch_size_should_work() -> Result<()> {
 
 fn register_assets(client: &Client) -> Result<()> {
     // FIXME transaction is rejected for more than a certain number of instructions
-    let register: Vec<InstructionBox> = ('a'..='j')
+    let register: Vec<_> = ('a'..='j')
         .map(|c| c.to_string())
         .map(|name| (name + "#wonderland").parse().expect("Valid"))
         .map(|asset_definition_id| {
-            Register::asset_definition(AssetDefinition::numeric(asset_definition_id)).into()
+            Register::asset_definition(AssetDefinition::numeric(asset_definition_id))
         })
         .collect();
     let _ = client.submit_all_blocking(register)?;

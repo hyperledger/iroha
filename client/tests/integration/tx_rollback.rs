@@ -22,8 +22,7 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
         200u32,
         AssetId::new(wrong_asset_definition_id.clone(), account_id.clone()),
     );
-    let instructions: [InstructionBox; 2] = [create_asset.into(), mint_asset.into()];
-    let _ = client.submit_all_blocking(instructions);
+    let _ = client.submit_all_blocking::<InstructionBox>([create_asset.into(), mint_asset.into()]);
 
     //Then
     let request = client::asset::by_account_id(account_id);

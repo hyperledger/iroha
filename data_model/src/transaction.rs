@@ -659,9 +659,9 @@ mod http {
 
     impl TransactionBuilder {
         /// Set instructions for this transaction
-        pub fn with_instructions(
+        pub fn with_instructions<T: Instruction>(
             mut self,
-            instructions: impl IntoIterator<Item = impl Instruction>,
+            instructions: impl IntoIterator<Item = T>,
         ) -> Self {
             self.payload.instructions = instructions
                 .into_iter()

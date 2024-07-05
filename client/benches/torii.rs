@@ -70,14 +70,13 @@ fn query_requests(criterion: &mut Criterion) {
     let iroha = Client::new(client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
 
-    let instructions: [InstructionBox; 4] = [
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-        mint_asset.into(),
-    ];
     let _ = iroha
-        .submit_all(instructions)
+        .submit_all::<InstructionBox>([
+            create_domain.into(),
+            create_account.into(),
+            create_asset.into(),
+            mint_asset.into(),
+        ])
         .expect("Failed to prepare state");
 
     let request = asset::by_account_id(account_id);
@@ -138,9 +137,9 @@ fn instruction_submits(criterion: &mut Criterion) {
     rt.block_on(builder.start_with_peer(&mut peer));
     let mut group = criterion.benchmark_group("instruction-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");
-    let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
+    let create_domain = Register::domain(Domain::new(domain_id));
     let (account_id, _account_keypair) = gen_account_in("domain");
-    let create_account = Register::account(Account::new(account_id.clone())).into();
+    let create_account = Register::account(Account::new(account_id.clone()));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
     let client_config = iroha::samples::get_client_config(
         get_chain_id(),
@@ -150,7 +149,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let iroha = Client::new(client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
     let _ = iroha
-        .submit_all([create_domain, create_account])
+        .submit_all::<InstructionBox>([create_domain.into(), create_account.into()])
         .expect("Failed to create role.");
     thread::sleep(std::time::Duration::from_millis(500));
     let mut success_count = 0;

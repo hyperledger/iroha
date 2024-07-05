@@ -64,17 +64,16 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
     // Given
     let account_id = ALICE_ID.clone();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset: InstructionBox = Register::asset_definition(
+    let create_asset = Register::asset_definition(
         AssetDefinition::numeric(asset_definition_id.clone()).mintable_once(),
-    )
-    .into();
+    );
 
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
-    let register_asset: InstructionBox =
-        Register::asset(Asset::new(asset_id.clone(), 1_u32)).into();
+    let register_asset = Register::asset(Asset::new(asset_id.clone(), 1_u32));
 
     // We can register the non-mintable token
-    test_client.submit_all([create_asset, register_asset.clone()])?;
+    test_client
+        .submit_all::<InstructionBox>([create_asset.into(), register_asset.clone().into()])?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
         assets.iter().any(|asset| {
@@ -110,9 +109,11 @@ fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()
     let mint = Mint::asset_numeric(1u32, asset_id);
 
     // We can register the non-mintable token wih zero value and then mint it
-    let instructions: [InstructionBox; 3] =
-        [create_asset.into(), register_asset.into(), mint.into()];
-    test_client.submit_all(instructions)?;
+    test_client.submit_all::<InstructionBox>([
+        create_asset.into(),
+        register_asset.into(),
+        mint.into(),
+    ])?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
         assets.iter().any(|asset| {

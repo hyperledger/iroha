@@ -24,14 +24,18 @@ fn long_multiple_blocks_created() -> Result<()> {
         BlockParameter::MaxTransactions(nonzero!(1_u64)),
     )))?;
 
-    let create_domain: InstructionBox = Register::domain(Domain::new("domain".parse()?)).into();
+    let create_domain = Register::domain(Domain::new("domain".parse()?));
     let (account_id, _account_keypair) = gen_account_in("domain");
-    let create_account = Register::account(Account::new(account_id.clone())).into();
+    let create_account = Register::account(Account::new(account_id.clone()));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
 
-    client.submit_all([create_domain, create_account, create_asset])?;
+    client.submit_all::<InstructionBox>([
+        create_domain.into(),
+        create_account.into(),
+        create_asset.into(),
+    ])?;
 
     thread::sleep(pipeline_time);
 

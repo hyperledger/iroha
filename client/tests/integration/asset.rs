@@ -27,15 +27,15 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
     let account_id = ALICE_ID.clone();
 
     let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").expect("Valid");
-    let create_asset: InstructionBox =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();
-    let register_asset: InstructionBox = Register::asset(Asset::new(
+    let create_asset =
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+    let register_asset = Register::asset(Asset::new(
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
         0_u32,
-    ))
-    .into();
+    ));
 
-    test_client.submit_all([create_asset, register_asset.clone()])?;
+    test_client
+        .submit_all::<InstructionBox>([create_asset.into(), register_asset.clone().into()])?;
 
     // Registering an asset to an account which doesn't have one
     // should result in asset being created
@@ -275,22 +275,21 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let buyer_eth: AssetId = format!("eth#crypto#{}", &buyer_id)
         .parse()
         .expect("should be valid");
-    let instructions: [InstructionBox; 12] = [
-        register::domain("exchange").into(),
-        register::domain("company").into(),
-        register::domain("crypto").into(),
-        register::account(dex_id.clone()).into(),
-        register::account(seller_id.clone()).into(),
-        register::account(buyer_id.clone()).into(),
-        register::asset_definition_numeric("btc/eth#exchange").into(),
-        register::asset_definition_numeric("btc#crypto").into(),
-        register::asset_definition_numeric("eth#crypto").into(),
-        Mint::asset_numeric(20_u32, rate.clone()).into(),
-        Mint::asset_numeric(10_u32, seller_btc.clone()).into(),
-        Mint::asset_numeric(200_u32, buyer_eth.clone()).into(),
-    ];
     test_client
-        .submit_all_blocking(instructions)
+        .submit_all_blocking::<InstructionBox>([
+            register::domain("exchange").into(),
+            register::domain("company").into(),
+            register::domain("crypto").into(),
+            register::account(dex_id.clone()).into(),
+            register::account(seller_id.clone()).into(),
+            register::account(buyer_id.clone()).into(),
+            register::asset_definition_numeric("btc/eth#exchange").into(),
+            register::asset_definition_numeric("btc#crypto").into(),
+            register::asset_definition_numeric("eth#crypto").into(),
+            Mint::asset_numeric(20_u32, rate.clone()).into(),
+            Mint::asset_numeric(10_u32, seller_btc.clone()).into(),
+            Mint::asset_numeric(200_u32, buyer_eth.clone()).into(),
+        ])
         .expect("transaction should be committed");
 
     let alice_id = ALICE_ID.clone();
@@ -408,7 +407,7 @@ fn fail_if_dont_satisfy_spec() {
 
     let isi = |value: Numeric| {
         [
-            InstructionBox::from(Register::asset(Asset::new(asset_id.clone(), value))),
+            Register::asset(Asset::new(asset_id.clone(), value)).into(),
             Mint::asset_numeric(value, asset_id.clone()).into(),
             Burn::asset_numeric(value, asset_id.clone()).into(),
             Transfer::asset_numeric(asset_id.clone(), value, bob_id.clone()).into(),
@@ -420,7 +419,7 @@ fn fail_if_dont_satisfy_spec() {
 
     for isi in isi(fractional_value) {
         let err = test_client
-            .submit_blocking(isi)
+            .submit_blocking::<InstructionBox>(isi)
             .expect_err("Should be rejected due to non integer value");
 
         let rejection_reason = err

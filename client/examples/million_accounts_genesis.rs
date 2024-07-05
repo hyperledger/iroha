@@ -71,10 +71,10 @@ fn create_million_accounts_directly() {
     for i in 0_u32..1_000_000_u32 {
         let domain_id: DomainId = format!("wonderland-{i}").parse().expect("Valid");
         let normal_account_id = AccountId::new(domain_id.clone(), KeyPair::random().into_parts().0);
-        let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
-        let create_account = Register::account(Account::new(normal_account_id.clone())).into();
+        let create_domain = Register::domain(Domain::new(domain_id));
+        let create_account = Register::account(Account::new(normal_account_id.clone()));
         if test_client
-            .submit_all([create_domain, create_account])
+            .submit_all::<InstructionBox>([create_domain.into(), create_account.into()])
             .is_err()
         {
             thread::sleep(Duration::from_millis(100));
