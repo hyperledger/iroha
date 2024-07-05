@@ -285,6 +285,7 @@ types!(
     Option<HashOf<SignedBlock>>,
     Option<HashOf<SignedTransaction>>,
     Option<IpfsPath>,
+    Option<JsonString>,
     Option<Name>,
     Option<NonZeroU32>,
     Option<NonZeroU64>,
