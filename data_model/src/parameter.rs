@@ -369,6 +369,24 @@ impl Default for SmartContractParameters {
     }
 }
 
+impl Parameters {
+    /// Convert [`Self`] into iterator of individual parameters
+    pub fn parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
+        self.sumeragi
+            .parameters()
+            .map(Parameter::Sumeragi)
+            .chain(self.block.parameters().map(Parameter::Block))
+            .chain(self.transaction.parameters().map(Parameter::Transaction))
+            .chain(self.executor.parameters().map(Parameter::SmartContract))
+            .chain(
+                self.smart_contract
+                    .parameters()
+                    .map(Parameter::SmartContract),
+            )
+            .chain(self.custom.values().cloned().map(Parameter::Custom))
+    }
+}
+
 impl SumeragiParameters {
     /// Construct [`Self`]
     pub fn new(block_time: Duration, commit_time: Duration) -> Self {
@@ -383,12 +401,26 @@ impl SumeragiParameters {
                 .expect("INTERNAL BUG: Time should fit into u64"),
         }
     }
+
+    /// Convert [`Self`] into iterator of individual parameters
+    pub fn parameters(&self) -> impl Iterator<Item = SumeragiParameter> {
+        [
+            SumeragiParameter::BlockTimeMs(self.block_time_ms),
+            SumeragiParameter::CommitTimeMs(self.commit_time_ms),
+        ]
+        .into_iter()
+    }
 }
 
 impl BlockParameters {
     /// Construct [`Self`]
     pub const fn new(max_transactions: NonZeroU64) -> Self {
         Self { max_transactions }
+    }
+
+    /// Convert [`Self`] into iterator of individual parameters
+    pub fn parameters(&self) -> impl Iterator<Item = BlockParameter> {
+        [BlockParameter::MaxTransactions(self.max_transactions)].into_iter()
     }
 }
 
@@ -399,6 +431,26 @@ impl TransactionParameters {
             max_instructions,
             smart_contract_size,
         }
+    }
+
+    /// Convert [`Self`] into iterator of individual parameters
+    pub fn parameters(&self) -> impl Iterator<Item = TransactionParameter> {
+        [
+            TransactionParameter::MaxInstructions(self.max_instructions),
+            TransactionParameter::SmartContractSize(self.smart_contract_size),
+        ]
+        .into_iter()
+    }
+}
+
+impl SmartContractParameters {
+    /// Convert [`Self`] into iterator of individual parameters
+    pub fn parameters(&self) -> impl Iterator<Item = SmartContractParameter> {
+        [
+            SmartContractParameter::Fuel(self.fuel),
+            SmartContractParameter::Memory(self.memory),
+        ]
+        .into_iter()
     }
 }
 
