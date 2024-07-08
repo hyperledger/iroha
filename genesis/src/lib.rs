@@ -143,7 +143,7 @@ fn build_transactions(
     let upgrade_isi = Upgrade::new(executor).into();
     let transaction_executor =
         build_transaction(vec![upgrade_isi], chain_id.clone(), genesis_key_pair);
-    let mut transactions = Vec::new();
+    let mut transactions = vec![transaction_executor];
     if !parameters.is_empty() {
         let parameters = build_transaction(
             parameters
@@ -156,7 +156,6 @@ fn build_transactions(
         );
         transactions.push(parameters);
     }
-    transactions.push(transaction_executor);
     if !instructions.is_empty() {
         let transaction_instructions = build_transaction(instructions, chain_id, genesis_key_pair);
         transactions.push(transaction_instructions);
