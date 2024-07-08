@@ -213,7 +213,6 @@ types!(
     FindAssetsByAssetDefinitionId,
     FindAssetsByDomainId,
     FindAssetsByDomainIdAndAssetDefinitionId,
-    FindAssetsByName,
     FindBlockHeaderByHash,
     FindDomainById,
     FindDomainKeyValueByIdAndKey,

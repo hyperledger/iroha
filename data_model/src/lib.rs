@@ -125,7 +125,6 @@ mod seal {
         FindAllAssetsDefinitions,
         FindAssetById,
         FindAssetDefinitionById,
-        FindAssetsByName,
         FindAssetsByAccountId,
         FindAssetsByAssetDefinitionId,
         FindAssetsByDomainId,

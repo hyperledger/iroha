@@ -265,7 +265,6 @@ impl ValidQuery for QueryBox {
             FindAccountsWithAsset,
             FindAllAssets,
             FindAllAssetsDefinitions,
-            FindAssetsByName,
             FindAssetsByAccountId,
             FindAssetsByAssetDefinitionId,
             FindAssetsByDomainId,

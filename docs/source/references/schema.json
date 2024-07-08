@@ -1619,14 +1619,6 @@
       }
     ]
   },
-  "FindAssetsByName": {
-    "Struct": [
-      {
-        "name": "name",
-        "type": "Name"
-      }
-    ]
-  },
   "FindBlockHeaderByHash": {
     "Struct": [
       {
@@ -2878,158 +2870,153 @@
         "type": "FindAssetDefinitionById"
       },
       {
-        "tag": "FindAssetsByName",
-        "discriminant": 9,
-        "type": "FindAssetsByName"
-      },
-      {
         "tag": "FindAssetsByAccountId",
-        "discriminant": 10,
+        "discriminant": 9,
         "type": "FindAssetsByAccountId"
       },
       {
         "tag": "FindAssetsByAssetDefinitionId",
-        "discriminant": 11,
+        "discriminant": 10,
         "type": "FindAssetsByAssetDefinitionId"
       },
       {
         "tag": "FindAssetsByDomainId",
-        "discriminant": 12,
+        "discriminant": 11,
         "type": "FindAssetsByDomainId"
       },
       {
         "tag": "FindAssetsByDomainIdAndAssetDefinitionId",
-        "discriminant": 13,
+        "discriminant": 12,
         "type": "FindAssetsByDomainIdAndAssetDefinitionId"
       },
       {
         "tag": "FindAssetQuantityById",
-        "discriminant": 14,
+        "discriminant": 13,
         "type": "FindAssetQuantityById"
       },
       {
         "tag": "FindTotalAssetQuantityByAssetDefinitionId",
-        "discriminant": 15,
+        "discriminant": 14,
         "type": "FindTotalAssetQuantityByAssetDefinitionId"
       },
       {
         "tag": "FindAssetKeyValueByIdAndKey",
-        "discriminant": 16,
+        "discriminant": 15,
         "type": "FindAssetKeyValueByIdAndKey"
       },
       {
         "tag": "FindAssetDefinitionKeyValueByIdAndKey",
-        "discriminant": 17,
+        "discriminant": 16,
         "type": "FindAssetDefinitionKeyValueByIdAndKey"
       },
       {
         "tag": "FindAllDomains",
-        "discriminant": 18,
+        "discriminant": 17,
         "type": "FindAllDomains"
       },
       {
         "tag": "FindDomainById",
-        "discriminant": 19,
+        "discriminant": 18,
         "type": "FindDomainById"
       },
       {
         "tag": "FindDomainKeyValueByIdAndKey",
-        "discriminant": 20,
+        "discriminant": 19,
         "type": "FindDomainKeyValueByIdAndKey"
       },
       {
         "tag": "FindAllPeers",
-        "discriminant": 21,
+        "discriminant": 20,
         "type": "FindAllPeers"
       },
       {
         "tag": "FindAllBlocks",
-        "discriminant": 22,
+        "discriminant": 21,
         "type": "FindAllBlocks"
       },
       {
         "tag": "FindAllBlockHeaders",
-        "discriminant": 23,
+        "discriminant": 22,
         "type": "FindAllBlockHeaders"
       },
       {
         "tag": "FindBlockHeaderByHash",
-        "discriminant": 24,
+        "discriminant": 23,
         "type": "FindBlockHeaderByHash"
       },
       {
         "tag": "FindAllTransactions",
-        "discriminant": 25,
+        "discriminant": 24,
         "type": "FindAllTransactions"
       },
       {
         "tag": "FindTransactionsByAccountId",
-        "discriminant": 26,
+        "discriminant": 25,
         "type": "FindTransactionsByAccountId"
       },
       {
         "tag": "FindTransactionByHash",
-        "discriminant": 27,
+        "discriminant": 26,
         "type": "FindTransactionByHash"
       },
       {
         "tag": "FindPermissionsByAccountId",
-        "discriminant": 28,
+        "discriminant": 27,
         "type": "FindPermissionsByAccountId"
       },
       {
         "tag": "FindExecutorDataModel",
-        "discriminant": 29,
+        "discriminant": 28,
         "type": "FindExecutorDataModel"
       },
       {
         "tag": "FindAllActiveTriggerIds",
-        "discriminant": 30,
+        "discriminant": 29,
         "type": "FindAllActiveTriggerIds"
       },
       {
         "tag": "FindTriggerById",
-        "discriminant": 31,
+        "discriminant": 30,
         "type": "FindTriggerById"
       },
       {
         "tag": "FindTriggerKeyValueByIdAndKey",
-        "discriminant": 32,
+        "discriminant": 31,
         "type": "FindTriggerKeyValueByIdAndKey"
       },
       {
         "tag": "FindTriggersByAuthorityId",
-        "discriminant": 33,
+        "discriminant": 32,
         "type": "FindTriggersByAuthorityId"
       },
       {
         "tag": "FindTriggersByAuthorityDomainId",
-        "discriminant": 34,
+        "discriminant": 33,
         "type": "FindTriggersByAuthorityDomainId"
       },
       {
         "tag": "FindAllRoles",
-        "discriminant": 35,
+        "discriminant": 34,
         "type": "FindAllRoles"
       },
       {
         "tag": "FindAllRoleIds",
-        "discriminant": 36,
+        "discriminant": 35,
         "type": "FindAllRoleIds"
       },
       {
         "tag": "FindRoleByRoleId",
-        "discriminant": 37,
+        "discriminant": 36,
         "type": "FindRoleByRoleId"
       },
       {
         "tag": "FindRolesByAccountId",
-        "discriminant": 38,
+        "discriminant": 37,
         "type": "FindRolesByAccountId"
       },
       {
         "tag": "FindAllParameters",
-        "discriminant": 39,
+        "discriminant": 38,
         "type": "FindAllParameters"
       }
     ]

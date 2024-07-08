@@ -477,24 +477,6 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindAssetsByName {
-        #[metrics(+"find_assets_by_name")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let name = self.name.clone();
-            iroha_logger::trace!(%name);
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .assets_iter()
-                    .filter(move |asset| asset.id().definition.name == name)
-                    .cloned(),
-            ))
-        }
-    }
-
     impl ValidQuery for FindAssetsByAccountId {
         #[metrics(+"find_assets_by_account_id")]
         fn execute<'state>(

@@ -158,7 +158,6 @@ mod model {
         FindAllAssetsDefinitions(FindAllAssetsDefinitions),
         FindAssetById(FindAssetById),
         FindAssetDefinitionById(FindAssetDefinitionById),
-        FindAssetsByName(FindAssetsByName),
         FindAssetsByAccountId(FindAssetsByAccountId),
         FindAssetsByAssetDefinitionId(FindAssetsByAssetDefinitionId),
         FindAssetsByDomainId(FindAssetsByDomainId),
@@ -390,7 +389,6 @@ impl_queries! {
     FindAllAssetsDefinitions => Vec<crate::asset::AssetDefinition>,
     FindAssetById => crate::asset::Asset,
     FindAssetDefinitionById => crate::asset::AssetDefinition,
-    FindAssetsByName => Vec<crate::asset::Asset>,
     FindAssetsByAccountId => Vec<crate::asset::Asset>,
     FindAssetsByAssetDefinitionId => Vec<crate::asset::Asset>,
     FindAssetsByDomainId => Vec<crate::asset::Asset>,
@@ -792,18 +790,6 @@ pub mod asset {
             pub id: AssetDefinitionId,
         }
 
-        /// [`FindAssetsByName`] Iroha Query gets [`Asset`]s name as input and
-        /// finds all [`Asset`]s with it in Iroha [`Peer`].
-        #[derive(Display)]
-        #[display(fmt = "Find asset with `{name}` name")]
-        #[repr(transparent)]
-        // SAFETY: `FindAssetsByName` has no trap representation in `EvaluatesTo<Name>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindAssetsByName {
-            /// [`Name`] of [`Asset`]s to find.
-            pub name: Name,
-        }
-
         /// [`FindAssetsByAccountId`] Iroha Query gets [`AccountId`] as input and find all [`Asset`]s
         /// owned by the [`Account`] in Iroha Peer.
         #[derive(Display)]
@@ -909,7 +895,7 @@ pub mod asset {
             FindAllAssets, FindAllAssetsDefinitions, FindAssetById, FindAssetDefinitionById,
             FindAssetDefinitionKeyValueByIdAndKey, FindAssetKeyValueByIdAndKey,
             FindAssetQuantityById, FindAssetsByAccountId, FindAssetsByAssetDefinitionId,
-            FindAssetsByDomainId, FindAssetsByDomainIdAndAssetDefinitionId, FindAssetsByName,
+            FindAssetsByDomainId, FindAssetsByDomainIdAndAssetDefinitionId,
             FindTotalAssetQuantityByAssetDefinitionId,
         };
     }
