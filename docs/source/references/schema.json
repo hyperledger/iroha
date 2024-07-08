@@ -3176,16 +3176,16 @@
         "type": "String"
       },
       {
+        "name": "parameters",
+        "type": "Vec<Parameter>"
+      },
+      {
         "name": "instructions",
         "type": "Vec<InstructionBox>"
       },
       {
         "name": "topology",
         "type": "Vec<PeerId>"
-      },
-      {
-        "name": "parameters",
-        "type": "Vec<Parameter>"
       }
     ]
   },

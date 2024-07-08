@@ -37,12 +37,12 @@ pub struct RawGenesisTransaction {
     chain: ChainId,
     /// Path to the [`Executor`] file
     executor: ExecutorPath,
-    instructions: Vec<InstructionBox>,
-    /// Initial topology
-    topology: Vec<PeerId>,
     /// Parameters
     #[serde(default)]
     parameters: Vec<Parameter>,
+    instructions: Vec<InstructionBox>,
+    /// Initial topology
+    topology: Vec<PeerId>,
 }
 
 /// Path to [`Executor`] file
