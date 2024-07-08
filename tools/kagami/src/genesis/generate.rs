@@ -139,10 +139,11 @@ pub fn generate_default(
     .into();
 
     let parameters = Parameters::default();
-    let set_parameters = parameters
-        .parameters()
-        .map(SetParameter)
-        .map(InstructionBox::from);
+    let parameters = parameters.parameters();
+
+    for parameter in parameters {
+        builder = builder.append_parameter(parameter);
+    }
 
     for isi in [
         mint.into(),
@@ -153,7 +154,6 @@ pub fn generate_default(
     ]
     .into_iter()
     .chain(std::iter::once(register_user_metadata_access))
-    .chain(set_parameters)
     {
         builder = builder.append_instruction(isi);
     }

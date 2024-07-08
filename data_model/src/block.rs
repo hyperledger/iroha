@@ -369,23 +369,37 @@ mod candidate {
                 };
             }
 
-            let Some(transaction_executor) = transactions.first() else {
+            let Some(transaction) = transactions.first() else {
                 return Err("Genesis block must contain at least one transaction");
             };
-            let Executable::Instructions(instructions_executor) =
-                transaction_executor.value.instructions()
-            else {
+            let Executable::Instructions(instructions) = transaction.value.instructions() else {
                 return Err("Genesis transaction must contain instructions");
             };
-            let [InstructionBox::Upgrade(_)] = instructions_executor.as_slice() else {
-                return Err(
-                    "First transaction must contain single `Upgrade` instruction to set executor",
-                );
+
+            if instructions
+                .as_slice()
+                .iter()
+                .all(|isi| matches!(isi, InstructionBox::SetParameter(_)))
+            {
+                let Some(transaction) = transactions.get(1) else {
+                    return Err("Genesis block must contain at least two transactions if first transaction is set parameters");
+                };
+                let Executable::Instructions(instructions) = transaction.value.instructions()
+                else {
+                    return Err("Genesis transaction must contain instructions");
+                };
+                if !matches!(instructions.as_slice(), [InstructionBox::Upgrade(_)]) {
+                    return Err("Second transaction must be executor upgrade if first one is set parameters");
+                }
+            } else if matches!(instructions.as_slice(), [InstructionBox::Upgrade(_)]) {
+                // Nothing to do, case when there is no set parameter instructions
+            } else {
+                return Err("First transaction nor executor upgrade nor set parameters");
             };
 
-            if transactions.len() > 2 {
+            if transactions.len() > 3 {
                 return Err(
-                    "Genesis block must have one or two transactions (first with executor upgrade)",
+                    "Genesis block must have 1 to 3 transactions (parameters, executor upgrade, other isi)",
                 );
             }
 

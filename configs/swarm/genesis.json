@@ -137,70 +137,54 @@
           ]
         }
       }
-    },
-    {
-      "SetParameter": {
-        "Sumeragi": {
-          "BlockTimeMs": 2000
-        }
-      }
-    },
-    {
-      "SetParameter": {
-        "Sumeragi": {
-          "CommitTimeMs": 4000
-        }
-      }
-    },
-    {
-      "SetParameter": {
-        "Block": {
-          "MaxTransactions": 512
-        }
-      }
-    },
-    {
-      "SetParameter": {
-        "Transaction": {
-          "MaxInstructions": 4096
-        }
-      }
-    },
-    {
-      "SetParameter": {
-        "Transaction": {
-          "SmartContractSize": 4194304
-        }
-      }
-    },
-    {
-      "SetParameter": {
-        "SmartContract": {
-          "Fuel": 55000000
-        }
-      }
-    },
-    {
-      "SetParameter": {
-        "SmartContract": {
-          "Memory": 55000000
-        }
-      }
-    },
-    {
-      "SetParameter": {
-        "SmartContract": {
-          "Fuel": 55000000
-        }
-      }
-    },
-    {
-      "SetParameter": {
-        "SmartContract": {
-          "Memory": 55000000
-        }
-      }
     }
   ],
-  "topology": []
+  "topology": [],
+  "parameters": [
+    {
+      "Sumeragi": {
+        "BlockTimeMs": 2000
+      }
+    },
+    {
+      "Sumeragi": {
+        "CommitTimeMs": 4000
+      }
+    },
+    {
+      "Block": {
+        "MaxTransactions": 512
+      }
+    },
+    {
+      "Transaction": {
+        "MaxInstructions": 4096
+      }
+    },
+    {
+      "Transaction": {
+        "SmartContractSize": 4194304
+      }
+    },
+    {
+      "Executor": {
+        "Fuel": 55000000
+      }
+    },
+    {
+      "Executor": {
+        "Memory": 55000000
+      }
+    },
+    {
+      "SmartContract": {
+        "Fuel": 55000000
+      }
+    },
+    {
+      "SmartContract": {
+        "Memory": 55000000
+      }
+    }
+  ]
 }

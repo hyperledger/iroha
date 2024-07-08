@@ -377,7 +377,7 @@ impl Parameters {
             .map(Parameter::Sumeragi)
             .chain(self.block.parameters().map(Parameter::Block))
             .chain(self.transaction.parameters().map(Parameter::Transaction))
-            .chain(self.executor.parameters().map(Parameter::SmartContract))
+            .chain(self.executor.parameters().map(Parameter::Executor))
             .chain(
                 self.smart_contract
                     .parameters()

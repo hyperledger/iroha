@@ -3182,6 +3182,10 @@
       {
         "name": "topology",
         "type": "Vec<PeerId>"
+      },
+      {
+        "name": "parameters",
+        "type": "Vec<Parameter>"
       }
     ]
   },
@@ -4557,6 +4561,9 @@
   },
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
+  },
+  "Vec<Parameter>": {
+    "Vec": "Parameter"
   },
   "Vec<PeerId>": {
     "Vec": "PeerId"
