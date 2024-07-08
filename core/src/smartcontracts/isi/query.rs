@@ -342,6 +342,10 @@ impl ValidQueryRequest {
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
+                    IterableQueryBox::FindAccountsWithAsset(q) => apply_query_postprocessing(
+                        ValidIterableQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
                     IterableQueryBox::FindAllPeers(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,

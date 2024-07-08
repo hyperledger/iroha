@@ -457,8 +457,7 @@ pub mod query {
         ) -> Result<impl Iterator<Item = Asset> + 'state, Error> {
             Ok(state_ro
                 .world()
-                .accounts_iter()
-                .flat_map(|account| account.assets.values())
+                .assets_iter()
                 .filter(move |&asset| filter.applies(asset))
                 .cloned())
         }
@@ -483,8 +482,7 @@ pub mod query {
         ) -> Result<impl Iterator<Item = AssetDefinition> + 'state, Error> {
             Ok(state_ro
                 .world()
-                .domains_iter()
-                .flat_map(|domain| domain.asset_definitions.values())
+                .asset_definitions_iter()
                 .filter(move |&asset_definition| filter.applies(asset_definition))
                 .cloned())
         }

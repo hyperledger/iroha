@@ -267,6 +267,12 @@ pub enum QueryRequest2 {
     ContinueIterable(ForwardCursor),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub enum QueryBox2 {
+    Singular(SingularQueryBox),
+    Iterable(IterableQueryWithParams),
+}
+
 impl QueryRequest2 {
     pub fn with_authority(self, authority: AccountId) -> QueryRequestWithAuthority {
         QueryRequestWithAuthority {
@@ -1816,7 +1822,7 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
         executor::prelude::*, peer::prelude::*, permission::prelude::*, predicate::PredicateTrait,
-        role::prelude::*, transaction::prelude::*, trigger::prelude::*, FetchSize, QueryBox,
-        TransactionQueryOutput,
+        role::prelude::*, transaction::prelude::*, trigger::prelude::*, FetchSize,
+        IterableQueryBox, QueryBox, QueryRequest2, SingularQueryBox, TransactionQueryOutput,
     };
 }
