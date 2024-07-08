@@ -248,19 +248,44 @@ fn submit(
 }
 
 mod filter {
-    use iroha::data_model::query::predicate::PredicateBox;
+    use iroha::data_model::query::predicate::{
+        predicate_atoms::{
+            account::AccountPredicateBox, asset::AssetPredicateBox, domain::DomainPredicateBox,
+        },
+        CompoundPredicate,
+    };
+    use serde::Deserialize;
 
     use super::*;
 
-    /// Filter for queries
+    /// Filter for domain queries
     #[derive(Clone, Debug, clap::Parser)]
-    pub struct Filter {
+    pub struct DomainFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_filter)]
-        pub predicate: PredicateBox,
+        #[clap(value_parser = parse_json5::<CompoundPredicate<DomainPredicateBox>>)]
+        pub predicate: CompoundPredicate<DomainPredicateBox>,
     }
 
-    fn parse_filter(s: &str) -> Result<PredicateBox, String> {
+    /// Filter for account queries
+    #[derive(Clone, Debug, clap::Parser)]
+    pub struct AccountFilter {
+        /// Predicate for filtering given as JSON5 string
+        #[clap(value_parser = parse_json5::<CompoundPredicate<AccountPredicateBox>>)]
+        pub predicate: CompoundPredicate<AccountPredicateBox>,
+    }
+
+    /// Filter for asset queries
+    #[derive(Clone, Debug, clap::Parser)]
+    pub struct AssetFilter {
+        /// Predicate for filtering given as JSON5 string
+        #[clap(value_parser = parse_json5::<CompoundPredicate<AssetPredicateBox>>)]
+        pub predicate: CompoundPredicate<AssetPredicateBox>,
+    }
+
+    fn parse_json5<T>(s: &str) -> Result<T, String>
+    where
+        T: for<'a> Deserialize<'a>,
+    {
         json5::from_str(s).map_err(|err| format!("Failed to deserialize filter from JSON5: {err}"))
     }
 }
@@ -390,7 +415,7 @@ mod domain {
         /// All domains
         All,
         /// Filter domains by given predicate
-        Filter(filter::Filter),
+        Filter(filter::DomainFilter),
     }
 
     impl RunArgs for List {
@@ -401,9 +426,7 @@ mod domain {
 
             let query = match self {
                 List::All => query,
-                List::Filter(_filter) => {
-                    todo!("Apply the new-style filter from the CLI")
-                }
+                List::Filter(filter) => query.with_raw_filter(filter.predicate),
             };
 
             let result = query.execute_all().wrap_err("Failed to get all accounts")?;
@@ -568,7 +591,7 @@ mod account {
         /// All accounts
         All,
         /// Filter accounts by given predicate
-        Filter(filter::Filter),
+        Filter(filter::AccountFilter),
     }
 
     impl RunArgs for List {
@@ -579,9 +602,7 @@ mod account {
 
             let query = match self {
                 List::All => query,
-                List::Filter(_filter) => {
-                    todo!("Apply the new-style filter from the CLI")
-                }
+                List::Filter(filter) => query.with_raw_filter(filter.predicate),
             };
 
             let result = query.execute_all().wrap_err("Failed to get all accounts")?;
@@ -896,7 +917,7 @@ mod asset {
         /// All assets
         All,
         /// Filter assets by given predicate
-        Filter(filter::Filter),
+        Filter(filter::AssetFilter),
     }
 
     impl RunArgs for List {
@@ -907,9 +928,7 @@ mod asset {
 
             let query = match self {
                 List::All => query,
-                List::Filter(_filter) => {
-                    todo!("Apply the new-style filter from the CLI")
-                }
+                List::Filter(filter) => query.with_raw_filter(filter.predicate),
             };
 
             let result = query.execute_all().wrap_err("Failed to get all accounts")?;
@@ -1101,7 +1120,7 @@ mod json {
     use std::io::{BufReader, Read as _};
 
     use clap::Subcommand;
-    use iroha::data_model::query::QueryBox;
+    use iroha::data_model::query::QueryBox2;
 
     use super::*;
 
@@ -1133,16 +1152,36 @@ mod json {
                         .wrap_err("Failed to submit parsed instructions")
                 }
                 Variant::Query => {
-                    let _client = Client::new(context.configuration().clone());
-                    let _query: QueryBox = json5::from_str(&string_content)?;
-                    // TODO: do the new-style query here
-                    todo!()
-                    // let response = client
-                    //     .request(query)
-                    //     .and_then(core::convert::identity)
-                    //     .wrap_err("Failed to query response")?;
-                    // context.print_data(&response)?;
-                    // Ok(())
+                    let client = Client::new(context.configuration().clone());
+                    let query: QueryBox2 = json5::from_str(&string_content)?;
+
+                    match query {
+                        QueryBox2::Singular(query) => {
+                            let result =
+                                client.query(query).wrap_err("Failed to query response")?;
+
+                            context.print_data(&result)?;
+                        }
+                        QueryBox2::Iterable(query) => {
+                            // we can't really do type-erased iterable queries in a nice way right now...
+                            use iroha::data_model::query::builder::QueryExecutor;
+
+                            let (mut first_batch, mut continue_cursor) =
+                                client.start_iterable_query(query)?;
+
+                            while let Some(cursor) = continue_cursor {
+                                let (next_batch, next_continue_cursor) =
+                                    <Client as QueryExecutor>::continue_iterable_query(cursor)?;
+
+                                first_batch.extend(next_batch);
+                                continue_cursor = next_continue_cursor;
+                            }
+
+                            context.print_data(&first_batch)?;
+                        }
+                    }
+
+                    Ok(())
                 }
             }
         }
