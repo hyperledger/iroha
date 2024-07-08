@@ -451,9 +451,9 @@ impl Client {
     ///
     /// # Errors
     /// Fails if signing transaction fails
-    pub fn build_transaction(
+    pub fn build_transaction<Exec: Into<Executable>>(
         &self,
-        instructions: impl Into<Executable>,
+        instructions: Exec,
         metadata: Metadata,
     ) -> SignedTransaction {
         let tx_builder = TransactionBuilder::new(self.chain.clone(), self.account.clone());
@@ -497,7 +497,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit(&self, instruction: impl Instruction) -> Result<HashOf<SignedTransaction>> {
+    pub fn submit<I: Instruction>(&self, instruction: I) -> Result<HashOf<SignedTransaction>> {
         let isi = instruction.into();
         self.submit_all([isi])
     }
@@ -507,9 +507,9 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_all(
+    pub fn submit_all<I: Instruction>(
         &self,
-        instructions: impl IntoIterator<Item = impl Instruction>,
+        instructions: impl IntoIterator<Item = I>,
     ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_with_metadata(instructions, Metadata::default())
     }
@@ -520,9 +520,9 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_with_metadata(
+    pub fn submit_with_metadata<I: Instruction>(
         &self,
-        instruction: impl Instruction,
+        instruction: I,
         metadata: Metadata,
     ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_with_metadata([instruction], metadata)
@@ -534,9 +534,9 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_all_with_metadata(
+    pub fn submit_all_with_metadata<I: Instruction>(
         &self,
-        instructions: impl IntoIterator<Item = impl Instruction>,
+        instructions: impl IntoIterator<Item = I>,
         metadata: Metadata,
     ) -> Result<HashOf<SignedTransaction>> {
         self.submit_transaction(&self.build_transaction(instructions, metadata))
@@ -704,9 +704,9 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_blocking(
+    pub fn submit_blocking<I: Instruction>(
         &self,
-        instruction: impl Instruction,
+        instruction: I,
     ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_blocking(vec![instruction.into()])
     }
@@ -716,9 +716,9 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_all_blocking(
+    pub fn submit_all_blocking<I: Instruction>(
         &self,
-        instructions: impl IntoIterator<Item = impl Instruction>,
+        instructions: impl IntoIterator<Item = I>,
     ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_blocking_with_metadata(instructions, Metadata::default())
     }
@@ -729,9 +729,9 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_blocking_with_metadata(
+    pub fn submit_blocking_with_metadata<I: Instruction>(
         &self,
-        instruction: impl Instruction,
+        instruction: I,
         metadata: Metadata,
     ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
@@ -743,9 +743,9 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_all_blocking_with_metadata(
+    pub fn submit_all_blocking_with_metadata<I: Instruction>(
         &self,
-        instructions: impl IntoIterator<Item = impl Instruction>,
+        instructions: impl IntoIterator<Item = I>,
         metadata: Metadata,
     ) -> Result<HashOf<SignedTransaction>> {
         let transaction = self.build_transaction(instructions, metadata);

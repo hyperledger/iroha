@@ -407,8 +407,8 @@ fn define_custom_parameter() -> Result<()> {
         id_len: 2_u32.pow(6),
     }
     .into();
-    let set_param_isi: InstructionBox = SetParameter::new(parameter).into();
-    client.submit_all_blocking([set_param_isi, create_domain.into()])?;
+    let set_param_isi = SetParameter::new(parameter);
+    client.submit_all_blocking::<InstructionBox>([set_param_isi.into(), create_domain.into()])?;
 
     Ok(())
 }

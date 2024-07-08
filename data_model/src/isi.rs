@@ -18,12 +18,13 @@ use crate::{seal, Level, Registered};
 
 /// Marker trait designating instruction.
 ///
-/// Instructions allows to change the state of `Iroha`.
-/// All possible instructions are implementors of this trait, excluding
-/// [`InstructionBox`] which is just a wrapper.
+/// Instructions allow to change the state of `Iroha`.
+///
+/// If you need to use different instructions together,
+/// consider wrapping them into [`InstructionBox`]es.
 pub trait Instruction: Into<InstructionBox> {}
 
-/// Marker trait for built-in queries
+/// Marker trait for built-in instructions.
 pub trait BuiltInInstruction: Instruction + seal::Sealed {
     /// [`Encode`] [`Self`] as [`InstructionBox`].
     ///
@@ -38,11 +39,10 @@ mod model {
 
     use super::*;
 
-    /// Sized structure for all possible Instructions.
+    /// A sized wrapper for all possible [`Instruction`]s.
     ///
-    /// Note that [`InstructionBox`] is not a self-sufficient instruction,
-    /// but just a wrapper to pass instructions back and forth.
-    /// If you are a client SDK user then you likely don't need to use this type directly.
+    /// You can use this type to combine instructions of different types.
+    /// An [`InstructionBox`] is also an [`Instruction`].
     #[derive(
         DebugCustom,
         Display,

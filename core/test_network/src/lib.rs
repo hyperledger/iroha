@@ -75,20 +75,19 @@ pub enum Signatory {
 pub trait TestGenesis: Sized {
     /// Construct Iroha genesis
     fn test(topology: Vec<PeerId>) -> Self {
-        let instructions: [InstructionBox; 0] = [];
-        Self::test_with_instructions(instructions, topology)
+        Self::test_with_instructions::<InstructionBox>([], topology)
     }
 
     /// Construct genesis with additional instructions
-    fn test_with_instructions(
-        extra_isi: impl IntoIterator<Item = impl Instruction>,
+    fn test_with_instructions<T: Instruction>(
+        extra_isi: impl IntoIterator<Item = T>,
         topology: Vec<PeerId>,
     ) -> Self;
 }
 
 impl TestGenesis for GenesisBlock {
-    fn test_with_instructions(
-        extra_isi: impl IntoIterator<Item = impl Instruction>,
+    fn test_with_instructions<T: Instruction>(
+        extra_isi: impl IntoIterator<Item = T>,
         topology: Vec<PeerId>,
     ) -> Self {
         let cfg = Config::test();

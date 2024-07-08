@@ -209,27 +209,28 @@ fn permissions_differ_not_only_by_names() {
     // Registering mouse
     let outfit_domain: DomainId = "outfit".parse().unwrap();
     let create_outfit_domain = Register::domain(Domain::new(outfit_domain.clone()));
-    let new_mouse_account = Account::new(mouse_id.clone());
+    let register_mouse_account = Register::account(Account::new(mouse_id.clone()));
     client
-        .submit_all_blocking([
-            InstructionBox::from(create_outfit_domain),
-            Register::account(new_mouse_account).into(),
+        .submit_all_blocking::<InstructionBox>([
+            create_outfit_domain.into(),
+            register_mouse_account.into(),
         ])
         .expect("Failed to register mouse");
 
     // Registering `Store` asset definitions
     let hat_definition_id: AssetDefinitionId = "hat#outfit".parse().expect("Valid");
-    let new_hat_definition = AssetDefinition::store(hat_definition_id.clone());
+    let register_hat_definition =
+        Register::asset_definition(AssetDefinition::store(hat_definition_id.clone()));
     let transfer_shoes_domain = Transfer::domain(alice_id.clone(), outfit_domain, mouse_id.clone());
     let shoes_definition_id: AssetDefinitionId = "shoes#outfit".parse().expect("Valid");
-    let new_shoes_definition = AssetDefinition::store(shoes_definition_id.clone());
-    let instructions: [InstructionBox; 3] = [
-        Register::asset_definition(new_hat_definition).into(),
-        Register::asset_definition(new_shoes_definition).into(),
-        transfer_shoes_domain.into(),
-    ];
+    let register_shoes_definition =
+        Register::asset_definition(AssetDefinition::store(shoes_definition_id.clone()));
     client
-        .submit_all_blocking(instructions)
+        .submit_all_blocking::<InstructionBox>([
+            register_hat_definition.into(),
+            register_shoes_definition.into(),
+            transfer_shoes_domain.into(),
+        ])
         .expect("Failed to register new asset definitions");
 
     // Granting permission to Alice to modify metadata in Mouse's hats
@@ -303,13 +304,9 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
     let create_asset =
         Register::asset_definition(AssetDefinition::store(asset_definition_id.clone()));
     let (mouse_id, mouse_keypair) = gen_account_in("wonderland");
-    let new_mouse_account = Account::new(mouse_id.clone());
-    let instructions: [InstructionBox; 2] = [
-        Register::account(new_mouse_account).into(),
-        create_asset.into(),
-    ];
+    let register_mouse_account = Register::account(Account::new(mouse_id.clone()));
     iroha
-        .submit_all_blocking(instructions)
+        .submit_all_blocking::<InstructionBox>([register_mouse_account.into(), create_asset.into()])
         .expect("Failed to register mouse");
 
     // Allow alice to mint mouse asset and mint initial value
@@ -391,8 +388,8 @@ fn associated_permissions_removed_on_unregister() {
         Grant::account_permission(bob_to_set_kv_in_domain.clone(), bob_id.clone());
 
     iroha
-        .submit_all_blocking([
-            InstructionBox::from(register_domain),
+        .submit_all_blocking::<InstructionBox>([
+            register_domain.into(),
             allow_bob_to_set_kv_in_domain.into(),
         ])
         .expect("failed to register domain and grant permission");
@@ -443,7 +440,7 @@ fn associated_permissions_removed_from_role_on_unregister() {
     let register_role = Register::role(role);
 
     iroha
-        .submit_all_blocking([InstructionBox::from(register_domain), register_role.into()])
+        .submit_all_blocking::<InstructionBox>([register_domain.into(), register_role.into()])
         .expect("failed to register domain and grant permission");
 
     // check that role indeed have permission

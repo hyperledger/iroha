@@ -21,15 +21,14 @@ fn set_up_trigger(
     wait_for_genesis_committed(&[iroha.clone()], 0);
 
     let failand: DomainId = "failand".parse()?;
-    let create_failand: InstructionBox = Register::domain(Domain::new(failand.clone())).into();
+    let create_failand = Register::domain(Domain::new(failand.clone()));
 
     let (the_one_who_fails, _account_keypair) = gen_account_in(failand.name());
-    let create_the_one_who_fails: InstructionBox =
-        Register::account(Account::new(the_one_who_fails.clone())).into();
+    let create_the_one_who_fails = Register::account(Account::new(the_one_who_fails.clone()));
 
     let fail_on_account_events = "fail".parse::<TriggerId>()?;
     let fail_isi = Unregister::domain("dummy".parse().unwrap());
-    let register_fail_on_account_events: InstructionBox = Register::trigger(Trigger::new(
+    let register_fail_on_account_events = Register::trigger(Trigger::new(
         fail_on_account_events.clone(),
         Action::new(
             [fail_isi],
@@ -37,12 +36,11 @@ fn set_up_trigger(
             the_one_who_fails.clone(),
             AccountEventFilter::new(),
         ),
-    ))
-    .into();
-    iroha.submit_all_blocking([
-        create_failand,
-        create_the_one_who_fails,
-        register_fail_on_account_events,
+    ));
+    iroha.submit_all_blocking::<InstructionBox>([
+        create_failand.into(),
+        create_the_one_who_fails.into(),
+        register_fail_on_account_events.into(),
     ])?;
     Ok((
         rt,

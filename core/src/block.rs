@@ -1140,16 +1140,13 @@ mod tests {
         let create_asset =
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
         let fail_isi = Unregister::domain("dummy".parse().unwrap());
-        let instructions_fail: [InstructionBox; 2] =
-            [create_domain.clone().into(), fail_isi.into()];
-        let instructions_accept: [InstructionBox; 2] = [create_domain.into(), create_asset.into()];
         let tx_fail = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
-            .with_instructions(instructions_fail)
+            .with_instructions::<InstructionBox>([create_domain.clone().into(), fail_isi.into()])
             .sign(alice_keypair.private_key());
         let tx_fail =
             AcceptedTransaction::accept(tx_fail, &chain_id, transaction_limits).expect("Valid");
         let tx_accept = TransactionBuilder::new(chain_id.clone(), alice_id)
-            .with_instructions(instructions_accept)
+            .with_instructions::<InstructionBox>([create_domain.into(), create_asset.into()])
             .sign(alice_keypair.private_key());
         let tx_accept =
             AcceptedTransaction::accept(tx_accept, &chain_id, transaction_limits).expect("Valid");

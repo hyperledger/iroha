@@ -383,9 +383,8 @@ mod tests {
             state_block.world.parameters.transaction = limits;
 
             let valid_tx = {
-                let instructions: [InstructionBox; 0] = [];
                 let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
-                    .with_instructions(instructions)
+                    .with_instructions::<InstructionBox>([])
                     .sign(ALICE_KEYPAIR.private_key());
                 AcceptedTransaction::accept(tx, &chain_id, limits)?
             };
@@ -544,9 +543,8 @@ mod tests {
         let state = State::new(world_with_test_domains(), kura.clone(), query_handle);
 
         let mut state_block = state.block();
-        let instructions: [InstructionBox; 0] = [];
         let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
-            .with_instructions(instructions)
+            .with_instructions::<InstructionBox>([])
             .sign(ALICE_KEYPAIR.private_key());
 
         let tx_limits = state_block.transaction_executor().limits;

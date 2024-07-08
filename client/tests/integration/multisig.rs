@@ -99,9 +99,7 @@ fn mutlisig() -> Result<()> {
     assert_eq!(trigger.id(), &multisig_trigger_id);
 
     let domain_id: DomainId = "domain_controlled_by_multisig".parse().unwrap();
-    let isi = vec![InstructionBox::from(Register::domain(Domain::new(
-        domain_id.clone(),
-    )))];
+    let isi = vec![Register::domain(Domain::new(domain_id.clone())).into()];
     let isi_hash = HashOf::new(&isi);
 
     let mut signatories_iter = signatories.into_iter();

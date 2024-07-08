@@ -126,13 +126,12 @@ fn init() -> Result<(
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let instructions: [InstructionBox; 4] = [
+    client.submit_all_blocking::<InstructionBox>([
         set_max_txns_in_block.into(),
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
-    ];
-    client.submit_all_blocking(instructions)?;
+    ])?;
     iroha_logger::info!("Init");
     Ok((
         rt,
