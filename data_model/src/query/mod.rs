@@ -43,6 +43,7 @@ use crate::{
     permission::Permission,
     role::{Role, RoleId},
     seal,
+    seal::Sealed,
     transaction::{CommittedTransaction, SignedTransaction},
     trigger::TriggerId,
     IdBox, Identifiable, IdentifiableBox,
@@ -113,7 +114,9 @@ pub trait Query: Into<QueryBox> + seal::Sealed {
 }
 
 /// A [`Query`] that either returns a single value or errors out
-pub trait SingularQuery: Query {}
+pub trait SingularQuery: Sealed {
+    type Output;
+}
 
 /// A [`Query`] that returns an iterable collection of values
 pub trait IterableQuery: Query {
@@ -126,7 +129,12 @@ pub trait IterableQuery: Query {
 )]
 pub struct IterableQueryWithFilter<Q, P> {
     pub query: Q,
+    #[serde(default = "predicate_default")]
     pub predicate: CompoundPredicate<P>,
+}
+
+fn predicate_default<P>() -> CompoundPredicate<P> {
+    CompoundPredicate::PASS
 }
 
 pub type IterableQueryWithFilterFor<Q> =
@@ -175,6 +183,26 @@ pub enum IterableQueryOutputBatchBox {
 }
 
 impl IterableQueryOutputBatchBox {
+    // this is used in client cli to do type-erased iterable queries
+    pub fn extend(&mut self, other: IterableQueryOutputBatchBox) {
+        match (self, other) {
+            (Self::Domain(v1), Self::Domain(v2)) => v1.extend(v2),
+            (Self::Account(v1), Self::Account(v2)) => v1.extend(v2),
+            (Self::Asset(v1), Self::Asset(v2)) => v1.extend(v2),
+            (Self::AssetDefinition(v1), Self::AssetDefinition(v2)) => v1.extend(v2),
+            (Self::Role(v1), Self::Role(v2)) => v1.extend(v2),
+            (Self::Parameter(v1), Self::Parameter(v2)) => v1.extend(v2),
+            (Self::Permission(v1), Self::Permission(v2)) => v1.extend(v2),
+            (Self::Transaction(v1), Self::Transaction(v2)) => v1.extend(v2),
+            (Self::Peer(v1), Self::Peer(v2)) => v1.extend(v2),
+            (Self::RoleId(v1), Self::RoleId(v2)) => v1.extend(v2),
+            (Self::TriggerId(v1), Self::TriggerId(v2)) => v1.extend(v2),
+            (Self::Block(v1), Self::Block(v2)) => v1.extend(v2),
+            (Self::BlockHeader(v1), Self::BlockHeader(v2)) => v1.extend(v2),
+            _ => panic!("Cannot extend different types of IterableQueryOutputBatchBox"),
+        }
+    }
+
     pub fn len(&self) -> usize {
         match self {
             Self::Domain(v) => v.len(),
@@ -227,6 +255,12 @@ pub enum SingularQueryOutputBox {
     BlockHeader(BlockHeader),
 }
 
+impl Sealed for SingularQueryBox {}
+
+impl SingularQuery for SingularQueryBox {
+    type Output = SingularQueryOutputBox;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct IterableQueryOutput {
     pub batch: IterableQueryOutputBatchBox,
@@ -246,7 +280,9 @@ impl IterableQueryOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Default, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
 pub struct IterableQueryParams {
     pub pagination: Pagination,
     pub sorting: Sorting,
@@ -257,6 +293,7 @@ pub struct IterableQueryParams {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct IterableQueryWithParams {
     pub query: IterableQueryBox,
+    #[serde(default)]
     pub params: IterableQueryParams,
 }
 
@@ -628,6 +665,7 @@ macro_rules! impl_queries {
         impl_queries!(@impl_query $ty => $output);
 
         impl SingularQuery for $ty {
+            type Output = $output;
         }
 
         $(
