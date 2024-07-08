@@ -5,7 +5,7 @@ use iroha_data_model::{
     account::AccountId,
     executor as data_model_executor,
     isi::InstructionBox,
-    query::QueryRequest2,
+    query::{QueryBox2, QueryRequest2},
     transaction::{Executable, SignedTransaction},
     ValidationFail,
 };
@@ -199,33 +199,42 @@ impl Executor {
     /// - Executor denied the operation.
     pub fn validate_query<S: StateReadOnly>(
         &self,
-        _state_ro: &S,
-        _authority: &AccountId,
-        _query: &QueryRequest2,
+        state_ro: &S,
+        authority: &AccountId,
+        query: &QueryRequest2,
     ) -> Result<(), ValidationFail> {
         trace!("Running query validation");
 
         // TODO: actually validate the query request
 
-        Ok(())
+        // Ok(())
 
-        // match self {
-        //     Self::Initial => Ok(()),
-        //     Self::UserProvided(loaded_executor) => {
-        //         let runtime =
-        //             wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery<S>>::new()
-        //                 .with_engine(state_ro.engine().clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-        //                 .with_config(state_ro.world().parameters().executor)
-        //                 .build()?;
-        //
-        //         runtime.execute_executor_validate_query(
-        //             state_ro,
-        //             authority,
-        //             &loaded_executor.module,
-        //             query,
-        //         )?
-        //     }
-        // }
+        let query = match query {
+            QueryRequest2::Singular(singular) => QueryBox2::Singular(singular.clone()),
+            QueryRequest2::StartIterable(iterable) => QueryBox2::Iterable(iterable.clone()),
+            QueryRequest2::ContinueIterable(_) => {
+                // The iterable query was already validated when it started
+                return Ok(());
+            }
+        };
+
+        match self {
+            Self::Initial => Ok(()),
+            Self::UserProvided(loaded_executor) => {
+                let runtime =
+                    wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery<S>>::new()
+                        .with_engine(state_ro.engine().clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+                        .with_config(state_ro.world().parameters().executor)
+                        .build()?;
+
+                runtime.execute_executor_validate_query(
+                    state_ro,
+                    authority,
+                    &loaded_executor.module,
+                    query,
+                )?
+            }
+        }
     }
 
     /// Migrate executor to a new user-provided one.

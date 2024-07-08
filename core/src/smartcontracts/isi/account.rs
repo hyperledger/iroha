@@ -656,4 +656,32 @@ pub mod query {
             ))
         }
     }
+
+    impl ValidIterableQuery for FindAccountsWithAsset {
+        #[metrics(+"find_accounts_with_asset")]
+        fn execute<'state>(
+            self,
+            filter: CompoundPredicate<AccountPredicateBox>,
+            state_ro: &'state impl StateReadOnly,
+        ) -> std::result::Result<impl Iterator<Item = Account> + 'state, Error> {
+            let asset_definition_id = self.asset_definition.clone();
+            iroha_logger::trace!(%asset_definition_id);
+
+            Ok(state_ro
+                .world()
+                .accounts_iter()
+                .filter(move |account| {
+                    state_ro
+                        .world()
+                        .assets()
+                        .get(&AssetId::new(
+                            asset_definition_id.clone(),
+                            account.id().clone(),
+                        ))
+                        .is_some()
+                })
+                .filter(move |&account| filter.applies(account))
+                .cloned())
+        }
+    }
 }
