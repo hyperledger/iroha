@@ -383,9 +383,9 @@ mod candidate {
                 );
             };
 
-            if transactions.len() > 2 {
+            if transactions.len() > 3 {
                 return Err(
-                    "Genesis block must have one or two transactions (first with executor upgrade)",
+                    "Genesis block must have 1 to 3 transactions (executor upgrade, parameters, other isi)",
                 );
             }
 

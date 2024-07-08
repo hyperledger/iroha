@@ -10,7 +10,7 @@ use std::{
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{block::SignedBlock, isi::Instruction, prelude::*};
+use iroha_data_model::{block::SignedBlock, isi::Instruction, parameter::Parameter, prelude::*};
 use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
 use parity_scale_codec::{Decode, Encode};
@@ -37,6 +37,9 @@ pub struct RawGenesisTransaction {
     chain: ChainId,
     /// Path to the [`Executor`] file
     executor: ExecutorPath,
+    /// Parameters
+    #[serde(default)]
+    parameters: Vec<Parameter>,
     instructions: Vec<InstructionBox>,
     /// Initial topology
     topology: Vec<PeerId>,
@@ -105,6 +108,7 @@ impl RawGenesisTransaction {
             self.chain,
             genesis_key_pair,
             self.topology,
+            self.parameters,
         );
         Ok(genesis)
     }
@@ -116,8 +120,15 @@ fn build_and_sign_genesis(
     chain_id: ChainId,
     genesis_key_pair: &KeyPair,
     topology: Vec<PeerId>,
+    parameters: Vec<Parameter>,
 ) -> GenesisBlock {
-    let transactions = build_transactions(instructions, executor, chain_id, genesis_key_pair);
+    let transactions = build_transactions(
+        instructions,
+        executor,
+        parameters,
+        chain_id,
+        genesis_key_pair,
+    );
     let block = SignedBlock::genesis(transactions, genesis_key_pair.private_key(), topology);
     GenesisBlock(block)
 }
@@ -125,18 +136,31 @@ fn build_and_sign_genesis(
 fn build_transactions(
     instructions: Vec<InstructionBox>,
     executor: Executor,
+    parameters: Vec<Parameter>,
     chain_id: ChainId,
     genesis_key_pair: &KeyPair,
 ) -> Vec<SignedTransaction> {
     let upgrade_isi = Upgrade::new(executor).into();
     let transaction_executor =
         build_transaction(vec![upgrade_isi], chain_id.clone(), genesis_key_pair);
-    if instructions.is_empty() {
-        vec![transaction_executor]
-    } else {
-        let transaction_instructions = build_transaction(instructions, chain_id, genesis_key_pair);
-        vec![transaction_executor, transaction_instructions]
+    let mut transactions = vec![transaction_executor];
+    if !parameters.is_empty() {
+        let parameters = build_transaction(
+            parameters
+                .into_iter()
+                .map(SetParameter)
+                .map(InstructionBox::from)
+                .collect(),
+            chain_id.clone(),
+            genesis_key_pair,
+        );
+        transactions.push(parameters);
     }
+    if !instructions.is_empty() {
+        let transaction_instructions = build_transaction(instructions, chain_id, genesis_key_pair);
+        transactions.push(transaction_instructions);
+    }
+    transactions
 }
 
 fn build_transaction(
@@ -166,6 +190,7 @@ fn get_executor(file: &Path) -> Result<Executor> {
 #[derive(Default)]
 pub struct GenesisBuilder {
     instructions: Vec<InstructionBox>,
+    parameters: Vec<Parameter>,
 }
 
 /// `Domain` subsection of the [`GenesisBuilder`]. Makes
@@ -174,6 +199,7 @@ pub struct GenesisBuilder {
 #[must_use]
 pub struct GenesisDomainBuilder {
     instructions: Vec<InstructionBox>,
+    parameters: Vec<Parameter>,
     domain_id: DomainId,
 }
 
@@ -196,6 +222,7 @@ impl GenesisBuilder {
         self.instructions.push(Register::domain(new_domain).into());
         GenesisDomainBuilder {
             instructions: self.instructions,
+            parameters: self.parameters,
             domain_id,
         }
     }
@@ -203,6 +230,12 @@ impl GenesisBuilder {
     /// Add instruction to the end of genesis transaction
     pub fn append_instruction(mut self, instruction: impl Into<InstructionBox>) -> Self {
         self.instructions.push(instruction.into());
+        self
+    }
+
+    /// Add parameter to the end of parameter list
+    pub fn append_parameter(mut self, parameter: Parameter) -> Self {
+        self.parameters.push(parameter);
         self
     }
 
@@ -220,6 +253,7 @@ impl GenesisBuilder {
             chain_id,
             genesis_key_pair,
             topology,
+            self.parameters,
         )
     }
 
@@ -233,6 +267,7 @@ impl GenesisBuilder {
         RawGenesisTransaction {
             instructions: self.instructions,
             executor: ExecutorPath(executor_file),
+            parameters: self.parameters,
             chain: chain_id,
             topology,
         }
@@ -245,6 +280,7 @@ impl GenesisDomainBuilder {
     pub fn finish_domain(self) -> GenesisBuilder {
         GenesisBuilder {
             instructions: self.instructions,
+            parameters: self.parameters,
         }
     }
 

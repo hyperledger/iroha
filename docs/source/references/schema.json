@@ -3176,6 +3176,10 @@
         "type": "String"
       },
       {
+        "name": "parameters",
+        "type": "Vec<Parameter>"
+      },
+      {
         "name": "instructions",
         "type": "Vec<InstructionBox>"
       },
@@ -4557,6 +4561,9 @@
   },
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
+  },
+  "Vec<Parameter>": {
+    "Vec": "Parameter"
   },
   "Vec<PeerId>": {
     "Vec": "PeerId"
