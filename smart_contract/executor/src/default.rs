@@ -235,7 +235,7 @@ pub mod domain {
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        match is_domain_owner(domain_id, source_id) {
+        match is_domain_owner(domain_id, authority) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}

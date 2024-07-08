@@ -1,5 +1,9 @@
 use eyre::Result;
-use iroha::data_model::{prelude::*, transaction::error::TransactionRejectionReason};
+use iroha::{
+    client::Client,
+    data_model::{prelude::*, transaction::error::TransactionRejectionReason},
+};
+use iroha_crypto::KeyPair;
 use iroha_executor_data_model::permission::{
     account::CanUnregisterAccount,
     asset::CanUnregisterUserAsset,
@@ -7,9 +11,11 @@ use iroha_executor_data_model::permission::{
     domain::{CanRegisterAssetDefinitionInDomain, CanUnregisterDomain},
     trigger::CanUnregisterUserTrigger,
 };
+use iroha_genesis::GenesisBlock;
 use iroha_primitives::json::JsonString;
-use test_network::*;
-use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
+use test_network::{Peer as TestPeer, *};
+use test_samples::{gen_account_in, ALICE_ID, BOB_ID, SAMPLE_GENESIS_ACCOUNT_ID};
+use tokio::runtime::Runtime;
 
 #[test]
 fn domain_owner_domain_permissions() -> Result<()> {
@@ -345,6 +351,48 @@ fn domain_owner_transfer() -> Result<()> {
 
     let domain = test_client.request(FindDomainById::new(kingdom_id))?;
     assert_eq!(domain.owned_by(), &bob_id);
+
+    Ok(())
+}
+
+#[test]
+fn not_allowed_to_transfer_other_user_domain() -> Result<()> {
+    let mut peer = TestPeer::new().expect("Failed to create peer");
+    let topology = vec![peer.id.clone()];
+
+    let users_domain: DomainId = "users".parse()?;
+    let foo_domain: DomainId = "foo".parse()?;
+
+    let user1 = AccountId::new(users_domain.clone(), KeyPair::random().into_parts().0);
+    let user2 = AccountId::new(users_domain.clone(), KeyPair::random().into_parts().0);
+    let genesis_account = SAMPLE_GENESIS_ACCOUNT_ID.clone();
+
+    let instructions: [InstructionBox; 6] = [
+        Register::domain(Domain::new(users_domain.clone())).into(),
+        Register::account(Account::new(user1.clone())).into(),
+        Register::account(Account::new(user2.clone())).into(),
+        Register::domain(Domain::new(foo_domain.clone())).into(),
+        Transfer::domain(genesis_account.clone(), foo_domain.clone(), user1.clone()).into(),
+        Transfer::domain(genesis_account.clone(), users_domain.clone(), user1.clone()).into(),
+    ];
+    let genesis = GenesisBlock::test_with_instructions(instructions, topology);
+
+    let rt = Runtime::test();
+    let builder = PeerBuilder::new().with_genesis(genesis).with_port(11_110);
+    rt.block_on(builder.start_with_peer(&mut peer));
+    let client = Client::test(&peer.api_address);
+    wait_for_genesis_committed(&[client.clone()], 0);
+
+    let domain = client.request(FindDomainById::new(foo_domain.clone()))?;
+    assert_eq!(domain.owned_by(), &user1);
+
+    // Client authority is "alice@wonderlang".
+    // `foo_domain` is owned by `user1@users`.
+    // Alice has no rights to `user1` or `foo_domain`.
+    // Therefore transaction should be rejected.
+    let transfer_domain = Transfer::domain(user1, foo_domain, user2);
+    let result = client.submit_blocking(transfer_domain);
+    assert!(result.is_err());
 
     Ok(())
 }
