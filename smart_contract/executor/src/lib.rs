@@ -8,7 +8,7 @@ use alloc::collections::BTreeSet;
 
 use data_model::{executor::Result, ValidationFail};
 #[cfg(not(test))]
-use data_model::{prelude::*, query::QueryBox2, smart_contract::payloads};
+use data_model::{prelude::*, query::QueryBox, smart_contract::payloads};
 use iroha_executor_data_model::{parameter::Parameter, permission::Permission};
 use iroha_schema::{Ident, MetaMap};
 pub use iroha_smart_contract as smart_contract;
@@ -61,7 +61,7 @@ pub fn get_validate_instruction_payload() -> payloads::Validate<InstructionBox> 
 /// Host side will generate a trap if this function was called not from a
 /// executor `validate_query()` entrypoint.
 #[cfg(not(test))]
-pub fn get_validate_query_payload() -> payloads::Validate<QueryBox2> {
+pub fn get_validate_query_payload() -> payloads::Validate<QueryBox> {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
     unsafe { decode_with_length_prefix_from_raw(host::get_validate_query_payload()) }
 }

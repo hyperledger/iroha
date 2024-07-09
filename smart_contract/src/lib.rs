@@ -1,11 +1,11 @@
 //! API which simplifies writing of smartcontracts
 #![no_std]
 #![allow(unsafe_code)]
-#![warn(unused, missing_docs)] // TODO
+#![warn(missing_docs)] // TODO
 
 extern crate alloc;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::boxed::Box;
 use core::fmt::Debug;
 
 #[cfg(not(test))]
@@ -13,17 +13,13 @@ use data_model::smart_contract::payloads;
 use data_model::{
     isi::BuiltInInstruction,
     prelude::*,
-    query::{
-        cursor::ForwardCursor, predicate::PredicateBox, sorting::Sorting, IterableQuery,
-        Pagination, Query, QueryOutputBox,
-    },
-    BatchedResponse,
+    query::{parameters::ForwardCursor, IterableQuery},
 };
 pub use iroha_data_model as data_model;
 use iroha_data_model::query::{
     builder::{IterableQueryBuilder, QueryExecutor, SingleQueryError},
     predicate::HasPredicateBox,
-    IterableQueryOutputBatchBox, IterableQueryWithParams, QueryRequest2, QueryResponse2,
+    IterableQueryOutputBatchBox, IterableQueryWithParams, QueryRequest, QueryResponse,
     SingularQuery, SingularQueryBox, SingularQueryOutputBox,
 };
 use iroha_macro::FromVariant;
@@ -33,7 +29,7 @@ use iroha_smart_contract_utils::{
     debug::{dbg_panic, DebugExpectExt as _},
     decode_with_length_prefix_from_raw, encode_and_execute,
 };
-use parity_scale_codec::{Decode, DecodeAll, Encode};
+use parity_scale_codec::{Decode, Encode};
 
 #[no_mangle]
 extern "C" fn _iroha_smart_contract_alloc(len: usize) -> *const u8 {
@@ -121,7 +117,7 @@ pub struct SmartContractQueryCursor {
     cursor: ForwardCursor,
 }
 
-fn execute_query(query: QueryRequest2) -> Result<QueryResponse2, ValidationFail> {
+fn execute_query(query: QueryRequest) -> Result<QueryResponse, ValidationFail> {
     #[cfg(not(test))]
     use host::execute_query as host_execute_query;
     #[cfg(test)]
@@ -152,8 +148,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
         &self,
         query: SingularQueryBox,
     ) -> Result<SingularQueryOutputBox, Self::Error> {
-        let QueryResponse2::Singular(output) = execute_query(QueryRequest2::Singular(query))?
-        else {
+        let QueryResponse::Singular(output) = execute_query(QueryRequest::Singular(query))? else {
             dbg_panic("BUG: iroha returned unexpected type in singular query");
         };
 
@@ -164,7 +159,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
         &self,
         query: IterableQueryWithParams,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
-        let QueryResponse2::Iterable(output) = execute_query(QueryRequest2::StartIterable(query))?
+        let QueryResponse::Iterable(output) = execute_query(QueryRequest::StartIterable(query))?
         else {
             dbg_panic("BUG: iroha returned unexpected type in iterable query");
         };
@@ -180,8 +175,8 @@ impl QueryExecutor for SmartContractQueryExecutor {
     fn continue_iterable_query(
         cursor: Self::Cursor,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
-        let QueryResponse2::Iterable(output) =
-            execute_query(QueryRequest2::ContinueIterable(cursor.cursor))?
+        let QueryResponse::Iterable(output) =
+            execute_query(QueryRequest::ContinueIterable(cursor.cursor))?
         else {
             dbg_panic("BUG: iroha returned unexpected type in iterable query");
         };
@@ -275,15 +270,16 @@ pub mod prelude {
 mod tests {
     use core::{mem::ManuallyDrop, slice};
 
-    use data_model::{prelude::numeric, query::asset::FindAssetQuantityById, BatchedResponseV1};
+    // use data_model::{prelude::numeric, query::asset::FindAssetQuantityById};
     use iroha_smart_contract_utils::encode_with_length_prefix;
-    use parity_scale_codec::Decode;
+    use parity_scale_codec::DecodeAll;
     use webassembly_test::webassembly_test;
 
     use super::*;
 
     getrandom::register_custom_getrandom!(super::stub_getrandom);
 
+    const QUERY_RESULT: Result<Numeric, ValidationFail> = Ok(numeric!(1234));
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());
 
     fn get_test_instruction() -> InstructionBox {
@@ -291,11 +287,10 @@ mod tests {
         Register::asset(Asset::new(new_asset_id, 1_u32)).into()
     }
 
-    // TODO
-    // fn get_test_query() -> QueryBox {
-    //     let asset_id: AssetId = "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse().unwrap();
-    //     FindAssetQuantityById::new(asset_id).into()
-    // }
+    fn get_test_query() -> FindAssetQuantityById {
+        let asset_id: AssetId = "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse().unwrap();
+        FindAssetQuantityById::new(asset_id)
+    }
 
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_smart_contract_execute_instruction_mock(
@@ -309,25 +304,22 @@ mod tests {
         ManuallyDrop::new(encode_with_length_prefix(&ISI_RESULT)).as_ptr()
     }
 
-    #[warn(unused)] // TODO
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_smart_contract_execute_query_mock(
         ptr: *const u8,
         len: usize,
     ) -> *const u8 {
-        todo!()
-        // let bytes = slice::from_raw_parts(ptr, len);
-        // let query_request = SmartContractQueryRequest::decode_all(&mut &*bytes).unwrap();
-        // let query = query_request.unwrap_query().0;
-        // assert_eq!(query, get_test_query());
-        //
-        // let response: Result<BatchedResponse<QueryOutputBox>, ValidationFail> =
-        //     Ok(BatchedResponseV1::new(
-        //         QUERY_RESULT.unwrap().collect().unwrap(),
-        //         todo!(), // ForwardCursor::new(None, None),
-        //     )
-        //     .into());
-        // ManuallyDrop::new(encode_with_length_prefix(&response)).as_ptr()
+        let bytes = slice::from_raw_parts(ptr, len);
+        let query_request = QueryRequest::decode_all(&mut &*bytes).unwrap();
+        let QueryRequest::Singular(query) = query_request else {
+            panic!("Expected a singular query")
+        };
+        let query: FindAssetQuantityById = query.try_into().expect("Unexpected query type");
+        assert_eq!(query, get_test_query());
+
+        let response: Result<QueryResponse, ValidationFail> =
+            Ok(QueryResponse::Singular(QUERY_RESULT.unwrap().into()));
+        ManuallyDrop::new(encode_with_length_prefix(&response)).as_ptr()
     }
 
     #[webassembly_test]
@@ -335,8 +327,8 @@ mod tests {
         get_test_instruction().execute().unwrap();
     }
 
-    // #[webassembly_test]
-    // fn execute_query() {
-    //     assert_eq!(get_test_query().execute(), QUERY_RESULT);
-    // }
+    #[webassembly_test]
+    fn execute_query() {
+        assert_eq!(query(get_test_query()), QUERY_RESULT);
+    }
 }

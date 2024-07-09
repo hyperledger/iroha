@@ -82,7 +82,7 @@ pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn::DeriveInput) 
             #[::iroha_executor::prelude::entrypoint]
             pub fn validate_query(
                 authority: ::iroha_executor::prelude::AccountId,
-                query: ::iroha_executor::data_model::query::QueryBox2,
+                query: ::iroha_executor::data_model::query::QueryBox,
                 block_height: u64,
                 #(#custom_args),*
             ) -> ::iroha_executor::prelude::Result {

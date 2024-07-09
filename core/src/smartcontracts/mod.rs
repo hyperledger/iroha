@@ -17,7 +17,6 @@ use iroha_data_model::{
 };
 pub use isi::*;
 
-use self::query::Lazy;
 use crate::state::{StateReadOnly, StateTransaction};
 
 /// Trait implementations should provide actions to apply changes on [`StateTransaction`].
@@ -53,18 +52,12 @@ where
 }
 
 /// This trait should be implemented for all Iroha Queries.
-pub trait ValidQuery: iroha_data_model::query::Query
-where
-    Self::Output: Lazy,
-{
+pub trait ValidSingularQuery: iroha_data_model::query::SingularQuery {
     /// Execute query on the [`WorldSnapshot`].
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute<'state>(
-        &self,
-        state_ro: &'state impl StateReadOnly,
-    ) -> Result<<Self::Output as Lazy>::Lazy<'state>, QueryExecutionFail>;
+    fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Self::Output, QueryExecutionFail>;
 }

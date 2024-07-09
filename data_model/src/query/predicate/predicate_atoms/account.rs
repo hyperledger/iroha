@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use super::impl_predicate_box;
 use crate::{
     account::{Account, AccountId},
-    prelude::PredicateTrait,
     query::{
         predicate::{
             predicate_ast_extensions::AstPredicateExt as _,
@@ -17,6 +16,7 @@ use crate::{
             },
             predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
             projectors::BaseProjector,
+            PredicateTrait,
         },
         AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype,
     },
@@ -59,4 +59,9 @@ impl PredicateTrait<Account> for AccountPredicateBox {
             AccountPredicateBox::Metadata(metadata) => metadata.applies(&input.metadata),
         }
     }
+}
+
+pub mod prelude {
+    //! Re-export all predicate boxes for a glob import `(::*)`
+    pub use super::{AccountIdPredicateBox, AccountPredicateBox};
 }

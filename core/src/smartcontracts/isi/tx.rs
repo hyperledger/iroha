@@ -67,24 +67,6 @@ impl BlockTransactionRef {
     }
 }
 
-impl ValidQuery for FindAllTransactions {
-    #[metrics(+"find_all_transactions")]
-    fn execute<'state>(
-        &self,
-        state_ro: &'state impl StateReadOnly,
-    ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'state>, QueryExecutionFail> {
-        Ok(Box::new(
-            state_ro
-                .all_blocks()
-                .flat_map(BlockTransactionIter::new)
-                .map(|tx| TransactionQueryOutput {
-                    block_hash: tx.block_hash(),
-                    transaction: tx.value(),
-                }),
-        ))
-    }
-}
-
 impl ValidIterableQuery for FindAllTransactions {
     #[metrics(+"find_all_transactions")]
     fn execute<'state>(
@@ -100,27 +82,6 @@ impl ValidIterableQuery for FindAllTransactions {
                 transaction: tx.value(),
             })
             .filter(move |tx| filter.applies(tx)))
-    }
-}
-
-impl ValidQuery for FindTransactionsByAccountId {
-    #[metrics(+"find_transactions_by_account_id")]
-    fn execute<'state>(
-        &self,
-        state_ro: &'state impl StateReadOnly,
-    ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'state>, QueryExecutionFail> {
-        let account_id = self.account.clone();
-
-        Ok(Box::new(
-            state_ro
-                .all_blocks()
-                .flat_map(BlockTransactionIter::new)
-                .filter(move |tx| *tx.authority() == account_id)
-                .map(|tx| TransactionQueryOutput {
-                    block_hash: tx.block_hash(),
-                    transaction: tx.value(),
-                }),
-        ))
     }
 }
 
@@ -145,7 +106,7 @@ impl ValidIterableQuery for FindTransactionsByAccountId {
     }
 }
 
-impl ValidQuery for FindTransactionByHash {
+impl ValidSingularQuery for FindTransactionByHash {
     #[metrics(+"find_transaction_by_hash")]
     fn execute(
         &self,

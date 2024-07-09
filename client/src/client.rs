@@ -225,14 +225,6 @@ impl Client {
         transaction.sign(self.key_pair.private_key())
     }
 
-    /// Signs query
-    ///
-    /// # Errors
-    /// Fails if signature generation fails
-    pub fn sign_query(&self, query: ClientQueryBuilder) -> SignedQuery {
-        query.sign(&self.key_pair)
-    }
-
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
     /// Returns submitted transaction's hash or error string.
     ///
@@ -983,11 +975,6 @@ pub mod account {
         FindAllAccounts
     }
 
-    /// Construct a query to get account by id
-    pub fn by_id(account_id: AccountId) -> FindAccountById {
-        FindAccountById::new(account_id)
-    }
-
     /// Construct a query to get all accounts containing specified asset
     pub fn all_with_asset(asset_definition_id: AssetDefinitionId) -> FindAccountsWithAsset {
         FindAccountsWithAsset::new(asset_definition_id)
@@ -1006,21 +993,6 @@ pub mod asset {
     /// Construct a query to get all asset definitions
     pub const fn all_definitions() -> FindAllAssetsDefinitions {
         FindAllAssetsDefinitions
-    }
-
-    /// Construct a query to get asset definition by its id
-    pub fn definition_by_id(asset_definition_id: AssetDefinitionId) -> FindAssetDefinitionById {
-        FindAssetDefinitionById::new(asset_definition_id)
-    }
-
-    /// Construct a query to get all assets by account id
-    pub fn by_account_id(account_id: AccountId) -> FindAssetsByAccountId {
-        FindAssetsByAccountId::new(account_id)
-    }
-
-    /// Construct a query to get an asset by its id
-    pub fn by_id(asset_id: AssetId) -> FindAssetById {
-        FindAssetById::new(asset_id)
     }
 }
 
@@ -1053,11 +1025,6 @@ pub mod domain {
     pub const fn all() -> FindAllDomains {
         FindAllDomains
     }
-
-    /// Construct a query to get all domain by id
-    pub fn by_id(domain_id: DomainId) -> FindDomainById {
-        FindDomainById::new(domain_id)
-    }
 }
 
 pub mod transaction {
@@ -1085,21 +1052,14 @@ pub mod trigger {
     //! Module with queries for triggers
     use super::*;
 
+    /// Construct a query to get all active trigger ids
+    pub fn all_ids() -> FindAllActiveTriggerIds {
+        FindAllActiveTriggerIds
+    }
+
     /// Construct a query to get a trigger by its id
     pub fn by_id(trigger_id: TriggerId) -> FindTriggerById {
         FindTriggerById::new(trigger_id)
-    }
-
-    /// Construct a query to find all triggers executable
-    /// on behalf of the given account.
-    pub fn by_authority(account_id: AccountId) -> FindTriggersByAuthorityId {
-        FindTriggersByAuthorityId::new(account_id)
-    }
-
-    /// Construct a query to find all triggers executable
-    /// on behalf of any account belonging to the given domain.
-    pub fn by_domain_of_authority(domain_id: DomainId) -> FindTriggersByAuthorityDomainId {
-        FindTriggersByAuthorityDomainId::new(domain_id)
     }
 }
 
@@ -1126,11 +1086,6 @@ pub mod role {
     /// Construct a query to retrieve all role ids
     pub const fn all_ids() -> FindAllRoleIds {
         FindAllRoleIds
-    }
-
-    /// Construct a query to retrieve a role by its id
-    pub fn by_id(role_id: RoleId) -> FindRoleByRoleId {
-        FindRoleByRoleId::new(role_id)
     }
 
     /// Construct a query to retrieve all roles for an account

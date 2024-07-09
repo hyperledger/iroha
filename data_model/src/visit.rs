@@ -6,7 +6,7 @@ use iroha_primitives::numeric::Numeric;
 use crate::{
     isi::Log,
     prelude::*,
-    query::{IterableQueryWithFilterFor, IterableQueryWithParams, QueryBox2, SingularQueryBox},
+    query::{IterableQueryWithFilterFor, IterableQueryWithParams, QueryBox, SingularQueryBox},
 };
 
 macro_rules! delegate {
@@ -28,7 +28,7 @@ pub trait Visit {
         visit_transaction(&SignedTransaction),
         visit_instruction(&InstructionBox),
         visit_wasm(&WasmSmartContract),
-        visit_query(&QueryBox2),
+        visit_query(&QueryBox),
         visit_singular_query(&SingularQueryBox),
         visit_iter_query(&IterableQueryWithParams),
 
@@ -215,10 +215,10 @@ pub fn visit_iter_query<V: Visit + ?Sized>(
     }
 }
 
-pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, query: &QueryBox2) {
+pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, query: &QueryBox) {
     match query {
-        QueryBox2::Singular(query) => visitor.visit_singular_query(authority, query),
-        QueryBox2::Iterable(query) => visitor.visit_iter_query(authority, query),
+        QueryBox::Singular(query) => visitor.visit_singular_query(authority, query),
+        QueryBox::Iterable(query) => visitor.visit_iter_query(authority, query),
     }
 }
 

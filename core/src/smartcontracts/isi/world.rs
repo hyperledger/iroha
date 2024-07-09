@@ -457,7 +457,7 @@ pub mod query {
         peer::Peer,
         prelude::*,
         query::{
-            error::{FindError, QueryExecutionFail as Error},
+            error::QueryExecutionFail as Error,
             predicate::{
                 predicate_atoms::{
                     peer::PeerPredicateBox,
@@ -466,28 +466,11 @@ pub mod query {
                 CompoundPredicate,
             },
         },
-        role::{Role, RoleId},
+        role::Role,
     };
 
     use super::*;
     use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
-
-    impl ValidQuery for FindAllRoles {
-        #[metrics(+"find_all_roles")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Role> + 'state>, Error> {
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .roles()
-                    .iter()
-                    .map(|(_, role)| role)
-                    .cloned(),
-            ))
-        }
-    }
 
     impl ValidIterableQuery for FindAllRoles {
         #[metrics(+"find_all_roles")]
@@ -503,25 +486,6 @@ pub mod query {
                 .map(|(_, role)| role)
                 .filter(move |&role| filter.applies(role))
                 .cloned())
-        }
-    }
-
-    impl ValidQuery for FindAllRoleIds {
-        #[metrics(+"find_all_role_ids")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = RoleId> + 'state>, Error> {
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .roles()
-                    .iter()
-                    .map(|(_, role)| role)
-                    // To me, this should probably be a method, not a field.
-                    .map(Role::id)
-                    .cloned(),
-            ))
         }
     }
 
@@ -543,29 +507,6 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindRoleByRoleId {
-        #[metrics(+"find_role_by_role_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Role, Error> {
-            let role_id = &self.id;
-            iroha_logger::trace!(%role_id);
-
-            state_ro.world().roles().get(role_id).map_or_else(
-                || Err(Error::Find(FindError::Role(role_id.clone()))),
-                |role_ref| Ok(role_ref.clone()),
-            )
-        }
-    }
-
-    impl ValidQuery for FindAllPeers {
-        #[metrics("find_all_peers")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Peer> + 'state>, Error> {
-            Ok(Box::new(state_ro.world().peers().cloned().map(Peer::new)))
-        }
-    }
-
     impl ValidIterableQuery for FindAllPeers {
         #[metrics("find_all_peers")]
         fn execute<'state>(
@@ -582,14 +523,14 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindExecutorDataModel {
+    impl ValidSingularQuery for FindExecutorDataModel {
         #[metrics("find_executor_data_model")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<ExecutorDataModel, Error> {
             Ok(state_ro.world().executor_data_model().clone())
         }
     }
 
-    impl ValidQuery for FindAllParameters {
+    impl ValidSingularQuery for FindAllParameters {
         #[metrics("find_all_parameters")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Parameters, Error> {
             Ok(state_ro.world().parameters().clone())

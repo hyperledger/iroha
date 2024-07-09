@@ -403,16 +403,6 @@ pub mod query {
     use super::*;
     use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
-    impl ValidQuery for FindAllDomains {
-        #[metrics(+"find_all_domains")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Domain> + 'state>, Error> {
-            Ok(Box::new(state_ro.world().domains_iter().cloned()))
-        }
-    }
-
     impl ValidIterableQuery for FindAllDomains {
         #[metrics(+"find_all_domains")]
         fn execute<'state>(
@@ -428,16 +418,7 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindDomainById {
-        #[metrics(+"find_domain_by_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Domain, Error> {
-            let id = &self.id;
-            iroha_logger::trace!(%id);
-            Ok(state_ro.world().domain(id)?.clone())
-        }
-    }
-
-    impl ValidQuery for FindDomainKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindDomainKeyValueByIdAndKey {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
@@ -451,7 +432,7 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;

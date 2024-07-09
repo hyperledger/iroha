@@ -1,9 +1,6 @@
-use core::marker::PhantomData;
-
 use super::impl_prototype;
 use crate::{
     account::AccountId,
-    asset::AssetDefinitionId,
     query::{
         predicate::{
             predicate_atoms::account::{AccountIdPredicateBox, AccountPredicateBox},

@@ -1,6 +1,6 @@
 //! Module with [`Paginate`] iterator adaptor which provides [`paginate`] function.
 
-use iroha_data_model::query::Pagination;
+use iroha_data_model::query::parameters::Pagination;
 
 /// Describes a collection to which pagination can be applied.
 /// Implemented for the [`Iterator`] implementors.
@@ -45,7 +45,7 @@ impl<I: Iterator> Iterator for Paginated<I> {
 
 #[cfg(test)]
 mod tests {
-    use iroha_data_model::query::pagination::Pagination;
+    use iroha_data_model::query::parameters::Pagination;
     use nonzero_ext::nonzero;
 
     use super::*;

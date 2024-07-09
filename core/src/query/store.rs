@@ -11,7 +11,7 @@ use iroha_config::parameters::actual::LiveQueryStore as Config;
 use iroha_data_model::{
     account::AccountId,
     query::{
-        cursor::{ForwardCursor, QueryId},
+        parameters::{ForwardCursor, QueryId},
         error::QueryExecutionFail,
         IterableQueryOutput, IterableQueryOutputBatchBox,
     },
@@ -294,7 +294,7 @@ impl LiveQueryStoreHandle {
 mod tests {
     use iroha_data_model::{
         permission::Permission,
-        query::{FetchSize, IterableQueryParams, Pagination, Sorting},
+        query::parameters::{FetchSize, IterableQueryParams, Pagination, Sorting},
     };
     use iroha_primitives::json::JsonString;
     use nonzero_ext::nonzero;

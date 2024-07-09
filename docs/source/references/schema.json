@@ -127,6 +127,25 @@
       }
     ]
   },
+  "AccountIdPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Equals",
+        "discriminant": 0,
+        "type": "AccountId"
+      },
+      {
+        "tag": "DomainId",
+        "discriminant": 1,
+        "type": "DomainIdPredicateBox"
+      },
+      {
+        "tag": "Signatory",
+        "discriminant": 2,
+        "type": "PublicKeyPredicateBox"
+      }
+    ]
+  },
   "AccountPermissionChanged": {
     "Struct": [
       {
@@ -136,6 +155,20 @@
       {
         "name": "permission",
         "type": "Permission"
+      }
+    ]
+  },
+  "AccountPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Id",
+        "discriminant": 0,
+        "type": "AccountIdPredicateBox"
+      },
+      {
+        "tag": "Metadata",
+        "discriminant": 1,
+        "type": "MetadataPredicateBox"
       }
     ]
   },
@@ -363,6 +396,25 @@
       }
     ]
   },
+  "AssetDefinitionIdPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Equals",
+        "discriminant": 0,
+        "type": "AssetDefinitionId"
+      },
+      {
+        "tag": "DomainId",
+        "discriminant": 1,
+        "type": "DomainIdPredicateBox"
+      },
+      {
+        "tag": "Name",
+        "discriminant": 2,
+        "type": "StringPredicateBox"
+      }
+    ]
+  },
   "AssetDefinitionOwnerChanged": {
     "Struct": [
       {
@@ -372,6 +424,25 @@
       {
         "name": "new_owner",
         "type": "AccountId"
+      }
+    ]
+  },
+  "AssetDefinitionPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Id",
+        "discriminant": 0,
+        "type": "AssetDefinitionIdPredicateBox"
+      },
+      {
+        "tag": "Metadata",
+        "discriminant": 1,
+        "type": "MetadataPredicateBox"
+      },
+      {
+        "tag": "OwnedBy",
+        "discriminant": 2,
+        "type": "AccountIdPredicateBox"
       }
     ]
   },
@@ -476,6 +547,39 @@
       }
     ]
   },
+  "AssetIdPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Equals",
+        "discriminant": 0,
+        "type": "AssetId"
+      },
+      {
+        "tag": "DefinitionId",
+        "discriminant": 1,
+        "type": "AssetDefinitionIdPredicateBox"
+      },
+      {
+        "tag": "AccountId",
+        "discriminant": 2,
+        "type": "AccountIdPredicateBox"
+      }
+    ]
+  },
+  "AssetPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Id",
+        "discriminant": 0,
+        "type": "AssetIdPredicateBox"
+      },
+      {
+        "tag": "Value",
+        "discriminant": 1,
+        "type": "AssetValuePredicateBox"
+      }
+    ]
+  },
   "AssetTransferBox": {
     "Enum": [
       {
@@ -517,38 +621,8 @@
       }
     ]
   },
-  "AtIndex": {
-    "Struct": [
-      {
-        "name": "index",
-        "type": "u32"
-      },
-      {
-        "name": "predicate",
-        "type": "QueryOutputPredicate"
-      }
-    ]
-  },
-  "BatchedResponse<QueryOutputBox>": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "BatchedResponseV1<QueryOutputBox>"
-      }
-    ]
-  },
-  "BatchedResponseV1<QueryOutputBox>": {
-    "Struct": [
-      {
-        "name": "batch",
-        "type": "QueryOutputBox"
-      },
-      {
-        "name": "cursor",
-        "type": "ForwardCursor"
-      }
-    ]
+  "AssetValuePredicateBox": {
+    "Enum": []
   },
   "BlockEvent": {
     "Struct": [
@@ -605,6 +679,9 @@
         "type": "u64"
       }
     ]
+  },
+  "BlockHeaderPredicateBox": {
+    "Enum": []
   },
   "BlockMessage": "SignedBlock",
   "BlockParameter": {
@@ -947,34 +1024,6 @@
   },
   "CanUpgradeExecutor": null,
   "ChainId": "String",
-  "ClientQueryPayload": {
-    "Struct": [
-      {
-        "name": "authority",
-        "type": "AccountId"
-      },
-      {
-        "name": "query",
-        "type": "QueryBox"
-      },
-      {
-        "name": "filter",
-        "type": "GenericPredicateBox<QueryOutputPredicate>"
-      },
-      {
-        "name": "sorting",
-        "type": "Sorting"
-      },
-      {
-        "name": "pagination",
-        "type": "Pagination"
-      },
-      {
-        "name": "fetch_size",
-        "type": "FetchSize"
-      }
-    ]
-  },
   "CommittedTransaction": {
     "Struct": [
       {
@@ -992,6 +1041,294 @@
   },
   "Compact<u32>": {
     "Int": "Compact"
+  },
+  "CompoundPredicate<AccountPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "AccountPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<AccountPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<AccountPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<AccountPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<AssetDefinitionPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "AssetDefinitionPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<AssetDefinitionPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<AssetDefinitionPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<AssetDefinitionPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<AssetPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "AssetPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<AssetPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<AssetPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<AssetPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<BlockHeaderPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "BlockHeaderPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<BlockHeaderPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<BlockHeaderPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<BlockHeaderPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<DomainPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "DomainPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<DomainPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<DomainPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<DomainPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<PeerPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "PeerPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<PeerPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<PeerPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<PeerPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<PermissionPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "PermissionPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<PermissionPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<PermissionPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<PermissionPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<RoleIdPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "RoleIdPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<RoleIdPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<RoleIdPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<RoleIdPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<RolePredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "RolePredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<RolePredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<RolePredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<RolePredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<SignedBlockPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "SignedBlockPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<SignedBlockPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<SignedBlockPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<SignedBlockPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<TransactionQueryOutputPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "TransactionQueryOutputPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<TransactionQueryOutputPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<TransactionQueryOutputPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<TriggerIdPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "TriggerIdPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<TriggerIdPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<TriggerIdPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<TriggerIdPredicateBox>>"
+      }
+    ]
   },
   "ConfigurationEvent": {
     "Enum": [
@@ -1020,25 +1357,6 @@
         }
       ]
     }
-  },
-  "Container": {
-    "Enum": [
-      {
-        "tag": "Any",
-        "discriminant": 0,
-        "type": "QueryOutputPredicate"
-      },
-      {
-        "tag": "All",
-        "discriminant": 1,
-        "type": "QueryOutputPredicate"
-      },
-      {
-        "tag": "AtIndex",
-        "discriminant": 2,
-        "type": "AtIndex"
-      }
-    ]
   },
   "CustomInstruction": {
     "Struct": [
@@ -1262,6 +1580,20 @@
       }
     ]
   },
+  "DomainIdPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Equals",
+        "discriminant": 0,
+        "type": "DomainId"
+      },
+      {
+        "tag": "Name",
+        "discriminant": 1,
+        "type": "StringPredicateBox"
+      }
+    ]
+  },
   "DomainOwnerChanged": {
     "Struct": [
       {
@@ -1271,6 +1603,20 @@
       {
         "name": "new_owner",
         "type": "AccountId"
+      }
+    ]
+  },
+  "DomainPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Id",
+        "discriminant": 0,
+        "type": "DomainIdPredicateBox"
+      },
+      {
+        "tag": "Metadata",
+        "discriminant": 1,
+        "type": "MetadataPredicateBox"
       }
     ]
   },
@@ -1473,14 +1819,6 @@
       }
     ]
   },
-  "FindAccountById": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "AccountId"
-      }
-    ]
-  },
   "FindAccountKeyValueByIdAndKey": {
     "Struct": [
       {
@@ -1490,14 +1828,6 @@
       {
         "name": "key",
         "type": "Name"
-      }
-    ]
-  },
-  "FindAccountsByDomainId": {
-    "Struct": [
-      {
-        "name": "domain",
-        "type": "DomainId"
       }
     ]
   },
@@ -1521,22 +1851,6 @@
   "FindAllRoleIds": null,
   "FindAllRoles": null,
   "FindAllTransactions": null,
-  "FindAssetById": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "AssetId"
-      }
-    ]
-  },
-  "FindAssetDefinitionById": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "AssetDefinitionId"
-      }
-    ]
-  },
   "FindAssetDefinitionKeyValueByIdAndKey": {
     "Struct": [
       {
@@ -1569,63 +1883,11 @@
       }
     ]
   },
-  "FindAssetsByAccountId": {
-    "Struct": [
-      {
-        "name": "account",
-        "type": "AccountId"
-      }
-    ]
-  },
-  "FindAssetsByAssetDefinitionId": {
-    "Struct": [
-      {
-        "name": "asset_definition",
-        "type": "AssetDefinitionId"
-      }
-    ]
-  },
-  "FindAssetsByDomainId": {
-    "Struct": [
-      {
-        "name": "domain",
-        "type": "DomainId"
-      }
-    ]
-  },
-  "FindAssetsByDomainIdAndAssetDefinitionId": {
-    "Struct": [
-      {
-        "name": "domain",
-        "type": "DomainId"
-      },
-      {
-        "name": "asset_definition",
-        "type": "AssetDefinitionId"
-      }
-    ]
-  },
-  "FindAssetsByName": {
-    "Struct": [
-      {
-        "name": "name",
-        "type": "Name"
-      }
-    ]
-  },
   "FindBlockHeaderByHash": {
     "Struct": [
       {
         "name": "hash",
         "type": "HashOf<SignedBlock>"
-      }
-    ]
-  },
-  "FindDomainById": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "DomainId"
       }
     ]
   },
@@ -1714,14 +1976,6 @@
       }
     ]
   },
-  "FindRoleByRoleId": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "RoleId"
-      }
-    ]
-  },
   "FindRolesByAccountId": {
     "Struct": [
       {
@@ -1774,55 +2028,15 @@
       }
     ]
   },
-  "FindTriggersByAuthorityDomainId": {
-    "Struct": [
-      {
-        "name": "domain",
-        "type": "DomainId"
-      }
-    ]
-  },
-  "FindTriggersByAuthorityId": {
-    "Struct": [
-      {
-        "name": "account",
-        "type": "AccountId"
-      }
-    ]
-  },
   "ForwardCursor": {
     "Struct": [
       {
         "name": "query",
-        "type": "Option<String>"
+        "type": "String"
       },
       {
         "name": "cursor",
-        "type": "Option<NonZero<u64>>"
-      }
-    ]
-  },
-  "GenericPredicateBox<QueryOutputPredicate>": {
-    "Enum": [
-      {
-        "tag": "And",
-        "discriminant": 0,
-        "type": "NonTrivial<GenericPredicateBox<QueryOutputPredicate>>"
-      },
-      {
-        "tag": "Or",
-        "discriminant": 1,
-        "type": "NonTrivial<GenericPredicateBox<QueryOutputPredicate>>"
-      },
-      {
-        "tag": "Not",
-        "discriminant": 2,
-        "type": "GenericPredicateBox<QueryOutputPredicate>"
-      },
-      {
-        "tag": "Raw",
-        "discriminant": 3,
-        "type": "QueryOutputPredicate"
+        "type": "NonZero<u64>"
       }
     ]
   },
@@ -1931,70 +2145,6 @@
         "tag": "CustomParameterId",
         "discriminant": 8,
         "type": "CustomParameterId"
-      }
-    ]
-  },
-  "IdentifiableBox": {
-    "Enum": [
-      {
-        "tag": "NewDomain",
-        "discriminant": 0,
-        "type": "NewDomain"
-      },
-      {
-        "tag": "NewAccount",
-        "discriminant": 1,
-        "type": "NewAccount"
-      },
-      {
-        "tag": "NewAssetDefinition",
-        "discriminant": 2,
-        "type": "NewAssetDefinition"
-      },
-      {
-        "tag": "NewRole",
-        "discriminant": 3,
-        "type": "Role"
-      },
-      {
-        "tag": "Peer",
-        "discriminant": 4,
-        "type": "Peer"
-      },
-      {
-        "tag": "Domain",
-        "discriminant": 5,
-        "type": "Domain"
-      },
-      {
-        "tag": "Account",
-        "discriminant": 6,
-        "type": "Account"
-      },
-      {
-        "tag": "AssetDefinition",
-        "discriminant": 7,
-        "type": "AssetDefinition"
-      },
-      {
-        "tag": "Asset",
-        "discriminant": 8,
-        "type": "Asset"
-      },
-      {
-        "tag": "Trigger",
-        "discriminant": 9,
-        "type": "Trigger"
-      },
-      {
-        "tag": "Role",
-        "discriminant": 10,
-        "type": "Role"
-      },
-      {
-        "tag": "CustomParameter",
-        "discriminant": 11,
-        "type": "CustomParameter"
       }
     ]
   },
@@ -2228,6 +2378,374 @@
   "IpfsPath": "String",
   "Ipv4Addr": "Array<u8, 4>",
   "Ipv6Addr": "Array<u16, 8>",
+  "IterableQueryBox": {
+    "Enum": [
+      {
+        "tag": "FindAllDomains",
+        "discriminant": 0,
+        "type": "IterableQueryWithFilter<FindAllDomains, DomainPredicateBox>"
+      },
+      {
+        "tag": "FindAllAccounts",
+        "discriminant": 1,
+        "type": "IterableQueryWithFilter<FindAllAccounts, AccountPredicateBox>"
+      },
+      {
+        "tag": "FindAllAssets",
+        "discriminant": 2,
+        "type": "IterableQueryWithFilter<FindAllAssets, AssetPredicateBox>"
+      },
+      {
+        "tag": "FindAllAssetsDefinitions",
+        "discriminant": 3,
+        "type": "IterableQueryWithFilter<FindAllAssetsDefinitions, AssetDefinitionPredicateBox>"
+      },
+      {
+        "tag": "FindAllRoles",
+        "discriminant": 4,
+        "type": "IterableQueryWithFilter<FindAllRoles, RolePredicateBox>"
+      },
+      {
+        "tag": "FindAllRoleIds",
+        "discriminant": 5,
+        "type": "IterableQueryWithFilter<FindAllRoleIds, RoleIdPredicateBox>"
+      },
+      {
+        "tag": "FindPermissionsByAccountId",
+        "discriminant": 6,
+        "type": "IterableQueryWithFilter<FindPermissionsByAccountId, PermissionPredicateBox>"
+      },
+      {
+        "tag": "FindRolesByAccountId",
+        "discriminant": 7,
+        "type": "IterableQueryWithFilter<FindRolesByAccountId, RoleIdPredicateBox>"
+      },
+      {
+        "tag": "FindTransactionsByAccountId",
+        "discriminant": 8,
+        "type": "IterableQueryWithFilter<FindTransactionsByAccountId, TransactionQueryOutputPredicateBox>"
+      },
+      {
+        "tag": "FindAccountsWithAsset",
+        "discriminant": 9,
+        "type": "IterableQueryWithFilter<FindAccountsWithAsset, AccountPredicateBox>"
+      },
+      {
+        "tag": "FindAllPeers",
+        "discriminant": 10,
+        "type": "IterableQueryWithFilter<FindAllPeers, PeerPredicateBox>"
+      },
+      {
+        "tag": "FindAllActiveTriggerIds",
+        "discriminant": 11,
+        "type": "IterableQueryWithFilter<FindAllActiveTriggerIds, TriggerIdPredicateBox>"
+      },
+      {
+        "tag": "FindAllTransactions",
+        "discriminant": 12,
+        "type": "IterableQueryWithFilter<FindAllTransactions, TransactionQueryOutputPredicateBox>"
+      },
+      {
+        "tag": "FindAllBlocks",
+        "discriminant": 13,
+        "type": "IterableQueryWithFilter<FindAllBlocks, SignedBlockPredicateBox>"
+      },
+      {
+        "tag": "FindAllBlockHeaders",
+        "discriminant": 14,
+        "type": "IterableQueryWithFilter<FindAllBlockHeaders, BlockHeaderPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryOutput": {
+    "Struct": [
+      {
+        "name": "batch",
+        "type": "IterableQueryOutputBatchBox"
+      },
+      {
+        "name": "continue_cursor",
+        "type": "Option<ForwardCursor>"
+      }
+    ]
+  },
+  "IterableQueryOutputBatchBox": {
+    "Enum": [
+      {
+        "tag": "Domain",
+        "discriminant": 0,
+        "type": "Vec<Domain>"
+      },
+      {
+        "tag": "Account",
+        "discriminant": 1,
+        "type": "Vec<Account>"
+      },
+      {
+        "tag": "Asset",
+        "discriminant": 2,
+        "type": "Vec<Asset>"
+      },
+      {
+        "tag": "AssetDefinition",
+        "discriminant": 3,
+        "type": "Vec<AssetDefinition>"
+      },
+      {
+        "tag": "Role",
+        "discriminant": 4,
+        "type": "Vec<Role>"
+      },
+      {
+        "tag": "Parameter",
+        "discriminant": 5,
+        "type": "Vec<Parameter>"
+      },
+      {
+        "tag": "Permission",
+        "discriminant": 6,
+        "type": "Vec<Permission>"
+      },
+      {
+        "tag": "Transaction",
+        "discriminant": 7,
+        "type": "Vec<TransactionQueryOutput>"
+      },
+      {
+        "tag": "Peer",
+        "discriminant": 8,
+        "type": "Vec<Peer>"
+      },
+      {
+        "tag": "RoleId",
+        "discriminant": 9,
+        "type": "Vec<RoleId>"
+      },
+      {
+        "tag": "TriggerId",
+        "discriminant": 10,
+        "type": "Vec<TriggerId>"
+      },
+      {
+        "tag": "Block",
+        "discriminant": 11,
+        "type": "Vec<SignedBlock>"
+      },
+      {
+        "tag": "BlockHeader",
+        "discriminant": 12,
+        "type": "Vec<BlockHeader>"
+      }
+    ]
+  },
+  "IterableQueryParams": {
+    "Struct": [
+      {
+        "name": "pagination",
+        "type": "Pagination"
+      },
+      {
+        "name": "sorting",
+        "type": "Sorting"
+      },
+      {
+        "name": "fetch_size",
+        "type": "FetchSize"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAccountsWithAsset, AccountPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAccountsWithAsset"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<AccountPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllAccounts, AccountPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllAccounts"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<AccountPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllActiveTriggerIds, TriggerIdPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllActiveTriggerIds"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<TriggerIdPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllAssets, AssetPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllAssets"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<AssetPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllAssetsDefinitions, AssetDefinitionPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllAssetsDefinitions"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<AssetDefinitionPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllBlockHeaders, BlockHeaderPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllBlockHeaders"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<BlockHeaderPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllBlocks, SignedBlockPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllBlocks"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<SignedBlockPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllDomains, DomainPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllDomains"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<DomainPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllPeers, PeerPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllPeers"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<PeerPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllRoleIds, RoleIdPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllRoleIds"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<RoleIdPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllRoles, RolePredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllRoles"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<RolePredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindAllTransactions, TransactionQueryOutputPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAllTransactions"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindPermissionsByAccountId, PermissionPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindPermissionsByAccountId"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<PermissionPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindRolesByAccountId, RoleIdPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindRolesByAccountId"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<RoleIdPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindTransactionsByAccountId, TransactionQueryOutputPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindTransactionsByAccountId"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithParams": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "IterableQueryBox"
+      },
+      {
+        "name": "params",
+        "type": "IterableQueryParams"
+      }
+    ]
+  },
   "JsonString": "String",
   "Level": {
     "Enum": [
@@ -2382,6 +2900,9 @@
       }
     ]
   },
+  "MetadataPredicateBox": {
+    "Enum": []
+  },
   "Mint<Numeric, Asset>": {
     "Struct": [
       {
@@ -2513,7 +3034,6 @@
       }
     ]
   },
-  "NonTrivial<GenericPredicateBox<QueryOutputPredicate>>": "Vec<GenericPredicateBox<QueryOutputPredicate>>",
   "NonZero<u32>": "u32",
   "NonZero<u64>": "u64",
   "Numeric": {
@@ -2551,6 +3071,9 @@
   "Option<DomainId>": {
     "Option": "DomainId"
   },
+  "Option<ForwardCursor>": {
+    "Option": "ForwardCursor"
+  },
   "Option<HashOf<SignedBlock>>": {
     "Option": "HashOf<SignedBlock>"
   },
@@ -2580,9 +3103,6 @@
   },
   "Option<RoleId>": {
     "Option": "RoleId"
-  },
-  "Option<String>": {
-    "Option": "String"
   },
   "Option<TimeInterval>": {
     "Option": "TimeInterval"
@@ -2752,6 +3272,9 @@
       }
     ]
   },
+  "PeerPredicateBox": {
+    "Enum": []
+  },
   "Permission": {
     "Struct": [
       {
@@ -2763,6 +3286,9 @@
         "type": "JsonString"
       }
     ]
+  },
+  "PermissionPredicateBox": {
+    "Enum": []
   },
   "PipelineEventBox": {
     "Enum": [
@@ -2804,207 +3330,12 @@
       }
     ]
   },
-  "QueryBox": {
+  "PublicKeyPredicateBox": {
     "Enum": [
       {
-        "tag": "FindAllAccounts",
+        "tag": "Equals",
         "discriminant": 0,
-        "type": "FindAllAccounts"
-      },
-      {
-        "tag": "FindAccountById",
-        "discriminant": 1,
-        "type": "FindAccountById"
-      },
-      {
-        "tag": "FindAccountKeyValueByIdAndKey",
-        "discriminant": 2,
-        "type": "FindAccountKeyValueByIdAndKey"
-      },
-      {
-        "tag": "FindAccountsByDomainId",
-        "discriminant": 3,
-        "type": "FindAccountsByDomainId"
-      },
-      {
-        "tag": "FindAccountsWithAsset",
-        "discriminant": 4,
-        "type": "FindAccountsWithAsset"
-      },
-      {
-        "tag": "FindAllAssets",
-        "discriminant": 5,
-        "type": "FindAllAssets"
-      },
-      {
-        "tag": "FindAllAssetsDefinitions",
-        "discriminant": 6,
-        "type": "FindAllAssetsDefinitions"
-      },
-      {
-        "tag": "FindAssetById",
-        "discriminant": 7,
-        "type": "FindAssetById"
-      },
-      {
-        "tag": "FindAssetDefinitionById",
-        "discriminant": 8,
-        "type": "FindAssetDefinitionById"
-      },
-      {
-        "tag": "FindAssetsByName",
-        "discriminant": 9,
-        "type": "FindAssetsByName"
-      },
-      {
-        "tag": "FindAssetsByAccountId",
-        "discriminant": 10,
-        "type": "FindAssetsByAccountId"
-      },
-      {
-        "tag": "FindAssetsByAssetDefinitionId",
-        "discriminant": 11,
-        "type": "FindAssetsByAssetDefinitionId"
-      },
-      {
-        "tag": "FindAssetsByDomainId",
-        "discriminant": 12,
-        "type": "FindAssetsByDomainId"
-      },
-      {
-        "tag": "FindAssetsByDomainIdAndAssetDefinitionId",
-        "discriminant": 13,
-        "type": "FindAssetsByDomainIdAndAssetDefinitionId"
-      },
-      {
-        "tag": "FindAssetQuantityById",
-        "discriminant": 14,
-        "type": "FindAssetQuantityById"
-      },
-      {
-        "tag": "FindTotalAssetQuantityByAssetDefinitionId",
-        "discriminant": 15,
-        "type": "FindTotalAssetQuantityByAssetDefinitionId"
-      },
-      {
-        "tag": "FindAssetKeyValueByIdAndKey",
-        "discriminant": 16,
-        "type": "FindAssetKeyValueByIdAndKey"
-      },
-      {
-        "tag": "FindAssetDefinitionKeyValueByIdAndKey",
-        "discriminant": 17,
-        "type": "FindAssetDefinitionKeyValueByIdAndKey"
-      },
-      {
-        "tag": "FindAllDomains",
-        "discriminant": 18,
-        "type": "FindAllDomains"
-      },
-      {
-        "tag": "FindDomainById",
-        "discriminant": 19,
-        "type": "FindDomainById"
-      },
-      {
-        "tag": "FindDomainKeyValueByIdAndKey",
-        "discriminant": 20,
-        "type": "FindDomainKeyValueByIdAndKey"
-      },
-      {
-        "tag": "FindAllPeers",
-        "discriminant": 21,
-        "type": "FindAllPeers"
-      },
-      {
-        "tag": "FindAllBlocks",
-        "discriminant": 22,
-        "type": "FindAllBlocks"
-      },
-      {
-        "tag": "FindAllBlockHeaders",
-        "discriminant": 23,
-        "type": "FindAllBlockHeaders"
-      },
-      {
-        "tag": "FindBlockHeaderByHash",
-        "discriminant": 24,
-        "type": "FindBlockHeaderByHash"
-      },
-      {
-        "tag": "FindAllTransactions",
-        "discriminant": 25,
-        "type": "FindAllTransactions"
-      },
-      {
-        "tag": "FindTransactionsByAccountId",
-        "discriminant": 26,
-        "type": "FindTransactionsByAccountId"
-      },
-      {
-        "tag": "FindTransactionByHash",
-        "discriminant": 27,
-        "type": "FindTransactionByHash"
-      },
-      {
-        "tag": "FindPermissionsByAccountId",
-        "discriminant": 28,
-        "type": "FindPermissionsByAccountId"
-      },
-      {
-        "tag": "FindExecutorDataModel",
-        "discriminant": 29,
-        "type": "FindExecutorDataModel"
-      },
-      {
-        "tag": "FindAllActiveTriggerIds",
-        "discriminant": 30,
-        "type": "FindAllActiveTriggerIds"
-      },
-      {
-        "tag": "FindTriggerById",
-        "discriminant": 31,
-        "type": "FindTriggerById"
-      },
-      {
-        "tag": "FindTriggerKeyValueByIdAndKey",
-        "discriminant": 32,
-        "type": "FindTriggerKeyValueByIdAndKey"
-      },
-      {
-        "tag": "FindTriggersByAuthorityId",
-        "discriminant": 33,
-        "type": "FindTriggersByAuthorityId"
-      },
-      {
-        "tag": "FindTriggersByAuthorityDomainId",
-        "discriminant": 34,
-        "type": "FindTriggersByAuthorityDomainId"
-      },
-      {
-        "tag": "FindAllRoles",
-        "discriminant": 35,
-        "type": "FindAllRoles"
-      },
-      {
-        "tag": "FindAllRoleIds",
-        "discriminant": 36,
-        "type": "FindAllRoleIds"
-      },
-      {
-        "tag": "FindRoleByRoleId",
-        "discriminant": 37,
-        "type": "FindRoleByRoleId"
-      },
-      {
-        "tag": "FindRolesByAccountId",
-        "discriminant": 38,
-        "type": "FindRolesByAccountId"
-      },
-      {
-        "tag": "FindAllParameters",
-        "discriminant": 39,
-        "type": "FindAllParameters"
+        "type": "PublicKey"
       }
     ]
   },
@@ -3038,99 +3369,52 @@
       }
     ]
   },
-  "QueryOutputBox": {
+  "QueryRequest": {
     "Enum": [
       {
-        "tag": "Id",
+        "tag": "Singular",
         "discriminant": 0,
-        "type": "IdBox"
+        "type": "SingularQueryBox"
       },
       {
-        "tag": "Identifiable",
+        "tag": "StartIterable",
         "discriminant": 1,
-        "type": "IdentifiableBox"
+        "type": "IterableQueryWithParams"
       },
       {
-        "tag": "Transaction",
+        "tag": "ContinueIterable",
         "discriminant": 2,
-        "type": "TransactionQueryOutput"
-      },
-      {
-        "tag": "Permission",
-        "discriminant": 3,
-        "type": "Permission"
-      },
-      {
-        "tag": "Parameters",
-        "discriminant": 4,
-        "type": "Parameters"
-      },
-      {
-        "tag": "Metadata",
-        "discriminant": 5,
-        "type": "JsonString"
-      },
-      {
-        "tag": "Numeric",
-        "discriminant": 6,
-        "type": "Numeric"
-      },
-      {
-        "tag": "BlockHeader",
-        "discriminant": 7,
-        "type": "BlockHeader"
-      },
-      {
-        "tag": "Block",
-        "discriminant": 8,
-        "type": "SignedBlock"
-      },
-      {
-        "tag": "ExecutorDataModel",
-        "discriminant": 9,
-        "type": "ExecutorDataModel"
-      },
-      {
-        "tag": "Vec",
-        "discriminant": 10,
-        "type": "Vec<QueryOutputBox>"
+        "type": "ForwardCursor"
       }
     ]
   },
-  "QueryOutputPredicate": {
-    "Enum": [
+  "QueryRequestWithAuthority": {
+    "Struct": [
       {
-        "tag": "Identifiable",
-        "discriminant": 0,
-        "type": "StringPredicate"
+        "name": "authority",
+        "type": "AccountId"
       },
       {
-        "tag": "Container",
-        "discriminant": 1,
-        "type": "Container"
-      },
-      {
-        "tag": "Display",
-        "discriminant": 2,
-        "type": "StringPredicate"
-      },
-      {
-        "tag": "Numerical",
-        "discriminant": 3,
-        "type": "SemiRange"
-      },
-      {
-        "tag": "TimeStamp",
-        "discriminant": 4,
-        "type": "SemiInterval<u128>"
-      },
-      {
-        "tag": "Pass",
-        "discriminant": 5
+        "name": "request",
+        "type": "QueryRequest"
       }
     ]
   },
-  "QuerySignature": "SignatureOf<ClientQueryPayload>",
+  "QueryResponse": {
+    "Enum": [
+      {
+        "tag": "Singular",
+        "discriminant": 0,
+        "type": "SingularQueryOutputBox"
+      },
+      {
+        "tag": "Iterable",
+        "discriminant": 1,
+        "type": "IterableQueryOutput"
+      }
+    ]
+  },
+  "QuerySignature": "SignatureOf<QueryRequestWithAuthority>",
   "RawGenesisTransaction": {
     "Struct": [
       {
@@ -3498,6 +3782,20 @@
       }
     ]
   },
+  "RoleIdPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Equals",
+        "discriminant": 0,
+        "type": "RoleId"
+      },
+      {
+        "tag": "Name",
+        "discriminant": 1,
+        "type": "StringPredicateBox"
+      }
+    ]
+  },
   "RolePermissionChanged": {
     "Struct": [
       {
@@ -3510,6 +3808,15 @@
       }
     ]
   },
+  "RolePredicateBox": {
+    "Enum": [
+      {
+        "tag": "Id",
+        "discriminant": 0,
+        "type": "RoleIdPredicateBox"
+      }
+    ]
+  },
   "Schedule": {
     "Struct": [
       {
@@ -3519,39 +3826,6 @@
       {
         "name": "period_ms",
         "type": "Option<u64>"
-      }
-    ]
-  },
-  "SemiInterval<Numeric>": {
-    "Struct": [
-      {
-        "name": "start",
-        "type": "Numeric"
-      },
-      {
-        "name": "limit",
-        "type": "Numeric"
-      }
-    ]
-  },
-  "SemiInterval<u128>": {
-    "Struct": [
-      {
-        "name": "start",
-        "type": "u128"
-      },
-      {
-        "name": "limit",
-        "type": "u128"
-      }
-    ]
-  },
-  "SemiRange": {
-    "Enum": [
-      {
-        "tag": "Numeric",
-        "discriminant": 0,
-        "type": "SemiInterval<Numeric>"
       }
     ]
   },
@@ -3674,7 +3948,7 @@
     ]
   },
   "SignatureOf<BlockPayload>": "Signature",
-  "SignatureOf<ClientQueryPayload>": "Signature",
+  "SignatureOf<QueryRequestWithAuthority>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
   "SignedBlock": {
     "Enum": [
@@ -3684,6 +3958,9 @@
         "type": "SignedBlockV1"
       }
     ]
+  },
+  "SignedBlockPredicateBox": {
+    "Enum": []
   },
   "SignedBlockV1": {
     "Struct": [
@@ -3714,7 +3991,7 @@
       },
       {
         "name": "payload",
-        "type": "ClientQueryPayload"
+        "type": "QueryRequestWithAuthority"
       }
     ]
   },
@@ -3736,6 +4013,109 @@
       {
         "name": "payload",
         "type": "TransactionPayload"
+      }
+    ]
+  },
+  "SingularQueryBox": {
+    "Enum": [
+      {
+        "tag": "FindAssetQuantityById",
+        "discriminant": 0,
+        "type": "FindAssetQuantityById"
+      },
+      {
+        "tag": "FindExecutorDataModel",
+        "discriminant": 1,
+        "type": "FindExecutorDataModel"
+      },
+      {
+        "tag": "FindAllParameters",
+        "discriminant": 2,
+        "type": "FindAllParameters"
+      },
+      {
+        "tag": "FindTotalAssetQuantityByAssetDefinitionId",
+        "discriminant": 3,
+        "type": "FindTotalAssetQuantityByAssetDefinitionId"
+      },
+      {
+        "tag": "FindTriggerById",
+        "discriminant": 4,
+        "type": "FindTriggerById"
+      },
+      {
+        "tag": "FindDomainKeyValueByIdAndKey",
+        "discriminant": 5,
+        "type": "FindDomainKeyValueByIdAndKey"
+      },
+      {
+        "tag": "FindAccountKeyValueByIdAndKey",
+        "discriminant": 6,
+        "type": "FindAccountKeyValueByIdAndKey"
+      },
+      {
+        "tag": "FindAssetKeyValueByIdAndKey",
+        "discriminant": 7,
+        "type": "FindAssetKeyValueByIdAndKey"
+      },
+      {
+        "tag": "FindAssetDefinitionKeyValueByIdAndKey",
+        "discriminant": 8,
+        "type": "FindAssetDefinitionKeyValueByIdAndKey"
+      },
+      {
+        "tag": "FindTriggerKeyValueByIdAndKey",
+        "discriminant": 9,
+        "type": "FindTriggerKeyValueByIdAndKey"
+      },
+      {
+        "tag": "FindTransactionByHash",
+        "discriminant": 10,
+        "type": "FindTransactionByHash"
+      },
+      {
+        "tag": "FindBlockHeaderByHash",
+        "discriminant": 11,
+        "type": "FindBlockHeaderByHash"
+      }
+    ]
+  },
+  "SingularQueryOutputBox": {
+    "Enum": [
+      {
+        "tag": "Numeric",
+        "discriminant": 0,
+        "type": "Numeric"
+      },
+      {
+        "tag": "ExecutorDataModel",
+        "discriminant": 1,
+        "type": "ExecutorDataModel"
+      },
+      {
+        "tag": "JsonString",
+        "discriminant": 2,
+        "type": "JsonString"
+      },
+      {
+        "tag": "Trigger",
+        "discriminant": 3,
+        "type": "Trigger"
+      },
+      {
+        "tag": "Parameters",
+        "discriminant": 4,
+        "type": "Parameters"
+      },
+      {
+        "tag": "Transaction",
+        "discriminant": 5,
+        "type": "TransactionQueryOutput"
+      },
+      {
+        "tag": "BlockHeader",
+        "discriminant": 6,
+        "type": "BlockHeader"
       }
     ]
   },
@@ -3847,25 +4227,25 @@
     ]
   },
   "String": "String",
-  "StringPredicate": {
+  "StringPredicateBox": {
     "Enum": [
       {
-        "tag": "Contains",
+        "tag": "Equals",
         "discriminant": 0,
         "type": "String"
       },
       {
-        "tag": "StartsWith",
+        "tag": "Contains",
         "discriminant": 1,
         "type": "String"
       },
       {
-        "tag": "EndsWith",
+        "tag": "StartsWith",
         "discriminant": 2,
         "type": "String"
       },
       {
-        "tag": "Is",
+        "tag": "EndsWith",
         "discriminant": 3,
         "type": "String"
       }
@@ -4031,6 +4411,9 @@
         "type": "CommittedTransaction"
       }
     ]
+  },
+  "TransactionQueryOutputPredicateBox": {
+    "Enum": []
   },
   "TransactionRejectionReason": {
     "Enum": [
@@ -4312,6 +4695,20 @@
       }
     ]
   },
+  "TriggerIdPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Equals",
+        "discriminant": 0,
+        "type": "TriggerId"
+      },
+      {
+        "tag": "Name",
+        "discriminant": 1,
+        "type": "StringPredicateBox"
+      }
+    ]
+  },
   "TriggerNumberOfExecutionsChanged": {
     "Struct": [
       {
@@ -4468,17 +4865,65 @@
       }
     ]
   },
+  "Vec<Account>": {
+    "Vec": "Account"
+  },
+  "Vec<Asset>": {
+    "Vec": "Asset"
+  },
+  "Vec<AssetDefinition>": {
+    "Vec": "AssetDefinition"
+  },
+  "Vec<BlockHeader>": {
+    "Vec": "BlockHeader"
+  },
   "Vec<BlockSignature>": {
     "Vec": "BlockSignature"
   },
   "Vec<CommittedTransaction>": {
     "Vec": "CommittedTransaction"
   },
+  "Vec<CompoundPredicate<AccountPredicateBox>>": {
+    "Vec": "CompoundPredicate<AccountPredicateBox>"
+  },
+  "Vec<CompoundPredicate<AssetDefinitionPredicateBox>>": {
+    "Vec": "CompoundPredicate<AssetDefinitionPredicateBox>"
+  },
+  "Vec<CompoundPredicate<AssetPredicateBox>>": {
+    "Vec": "CompoundPredicate<AssetPredicateBox>"
+  },
+  "Vec<CompoundPredicate<BlockHeaderPredicateBox>>": {
+    "Vec": "CompoundPredicate<BlockHeaderPredicateBox>"
+  },
+  "Vec<CompoundPredicate<DomainPredicateBox>>": {
+    "Vec": "CompoundPredicate<DomainPredicateBox>"
+  },
+  "Vec<CompoundPredicate<PeerPredicateBox>>": {
+    "Vec": "CompoundPredicate<PeerPredicateBox>"
+  },
+  "Vec<CompoundPredicate<PermissionPredicateBox>>": {
+    "Vec": "CompoundPredicate<PermissionPredicateBox>"
+  },
+  "Vec<CompoundPredicate<RoleIdPredicateBox>>": {
+    "Vec": "CompoundPredicate<RoleIdPredicateBox>"
+  },
+  "Vec<CompoundPredicate<RolePredicateBox>>": {
+    "Vec": "CompoundPredicate<RolePredicateBox>"
+  },
+  "Vec<CompoundPredicate<SignedBlockPredicateBox>>": {
+    "Vec": "CompoundPredicate<SignedBlockPredicateBox>"
+  },
+  "Vec<CompoundPredicate<TransactionQueryOutputPredicateBox>>": {
+    "Vec": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
+  },
+  "Vec<CompoundPredicate<TriggerIdPredicateBox>>": {
+    "Vec": "CompoundPredicate<TriggerIdPredicateBox>"
+  },
+  "Vec<Domain>": {
+    "Vec": "Domain"
+  },
   "Vec<EventFilterBox>": {
     "Vec": "EventFilterBox"
-  },
-  "Vec<GenericPredicateBox<QueryOutputPredicate>>": {
-    "Vec": "GenericPredicateBox<QueryOutputPredicate>"
   },
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
@@ -4486,11 +4931,29 @@
   "Vec<Parameter>": {
     "Vec": "Parameter"
   },
+  "Vec<Peer>": {
+    "Vec": "Peer"
+  },
   "Vec<PeerId>": {
     "Vec": "PeerId"
   },
-  "Vec<QueryOutputBox>": {
-    "Vec": "QueryOutputBox"
+  "Vec<Permission>": {
+    "Vec": "Permission"
+  },
+  "Vec<Role>": {
+    "Vec": "Role"
+  },
+  "Vec<RoleId>": {
+    "Vec": "RoleId"
+  },
+  "Vec<SignedBlock>": {
+    "Vec": "SignedBlock"
+  },
+  "Vec<TransactionQueryOutput>": {
+    "Vec": "TransactionQueryOutput"
+  },
+  "Vec<TriggerId>": {
+    "Vec": "TriggerId"
   },
   "Vec<u8>": {
     "Vec": "u8"
@@ -4504,9 +4967,6 @@
     ]
   },
   "WasmSmartContract": "Vec<u8>",
-  "u128": {
-    "Int": "FixedWidth"
-  },
   "u16": {
     "Int": "FixedWidth"
   },

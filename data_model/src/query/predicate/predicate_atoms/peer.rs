@@ -8,12 +8,11 @@ use serde::{Deserialize, Serialize};
 use super::impl_predicate_box;
 use crate::{
     peer::Peer,
-    prelude::PredicateTrait,
     query::predicate::{
         predicate_ast_extensions::AstPredicateExt as _,
         predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
         projectors::BaseProjector,
-        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype,
+        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
     },
 };
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -29,4 +28,9 @@ impl PredicateTrait<Peer> for PeerPredicateBox {
             _ => todo!(),
         }
     }
+}
+
+pub mod prelude {
+    //! Re-export all predicate boxes for a glob import `(::*)`
+    pub use super::PeerPredicateBox;
 }

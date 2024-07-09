@@ -8,13 +8,12 @@ use serde::{Deserialize, Serialize};
 use super::{impl_predicate_box, MetadataPredicateBox};
 use crate::{
     domain::{Domain, DomainId},
-    prelude::PredicateTrait,
     query::predicate::{
         predicate_ast_extensions::AstPredicateExt as _,
         predicate_atoms::StringPredicateBox,
         predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
         projectors::BaseProjector,
-        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype,
+        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
     },
 };
 
@@ -53,4 +52,9 @@ impl PredicateTrait<DomainId> for DomainIdPredicateBox {
             DomainIdPredicateBox::Name(name) => name.applies(&input.name),
         }
     }
+}
+
+pub mod prelude {
+    //! Re-export all predicate boxes for a glob import `(::*)`
+    pub use super::{DomainIdPredicateBox, DomainPredicateBox};
 }

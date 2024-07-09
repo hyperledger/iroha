@@ -8,12 +8,11 @@ use serde::{Deserialize, Serialize};
 use super::impl_predicate_box;
 use crate::{
     permission::Permission,
-    prelude::PredicateTrait,
     query::predicate::{
         predicate_ast_extensions::AstPredicateExt as _,
         predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
         projectors::BaseProjector,
-        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype,
+        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
     },
 };
 
@@ -30,4 +29,9 @@ impl PredicateTrait<Permission> for PermissionPredicateBox {
             _ => todo!(),
         }
     }
+}
+
+pub mod prelude {
+    //! Re-export all predicate boxes for a glob import `(::*)`
+    pub use super::PermissionPredicateBox;
 }

@@ -1,7 +1,7 @@
 use eyre::Result;
 use iroha::{
     client::{asset, Client},
-    data_model::{asset::AssetDefinition, prelude::*, query::Pagination},
+    data_model::{asset::AssetDefinition, prelude::*},
 };
 use nonzero_ext::nonzero;
 use test_network::*;

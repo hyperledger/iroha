@@ -3,19 +3,14 @@ use alloc::vec::{self, Vec};
 #[cfg(feature = "std")]
 use std::vec;
 
-use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    prelude::FetchSize,
-    query::{
-        error::QueryExecutionFail,
-        predicate::{projectors, AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype},
-        IterableQuery, IterableQueryBox, IterableQueryOutputBatchBox, IterableQueryParams,
-        IterableQueryWithFilter, IterableQueryWithFilterFor, IterableQueryWithParams, Pagination,
-        SingularQueryBox, SingularQueryOutputBox, Sorting,
-    },
+use crate::query::{
+    parameters::{FetchSize, IterableQueryParams, Pagination, Sorting},
+    predicate::{projectors, AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype},
+    IterableQuery, IterableQueryBox, IterableQueryOutputBatchBox, IterableQueryWithFilter,
+    IterableQueryWithFilterFor, IterableQueryWithParams, SingularQueryBox, SingularQueryOutputBox,
 };
 
 pub trait QueryExecutor {
@@ -112,6 +107,7 @@ where
 
 #[derive(
     Debug,
+    Copy,
     Clone,
     PartialEq,
     Eq,

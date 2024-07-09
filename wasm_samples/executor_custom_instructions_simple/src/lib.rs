@@ -11,10 +11,8 @@ extern crate panic_halt;
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::simple_isi::{CustomInstructionBox, MintAssetForAllAccounts};
 use iroha_executor::{
-    data_model::isi::CustomInstruction,
-    debug::DebugExpectExt,
-    prelude::*,
-    smart_contract::{iter_query, SmartContractSingularQueryError},
+    data_model::isi::CustomInstruction, debug::DebugExpectExt, prelude::*,
+    smart_contract::iter_query,
 };
 
 #[global_allocator]

@@ -14,7 +14,7 @@ use iroha_data_model::{
         SignedBlock,
     },
     prelude::*,
-    query::{QueryRequestWithAuthority, QueryResponse2, SignedQuery2},
+    query::{QueryRequestWithAuthority, QueryResponse, SignedQuery},
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
@@ -52,12 +52,12 @@ pub async fn handle_transaction(
 pub async fn handle_queries(
     live_query_store: LiveQueryStoreHandle,
     state: Arc<State>,
-    query: SignedQuery2,
-) -> Result<Scale<QueryResponse2>> {
+    query: SignedQuery,
+) -> Result<Scale<QueryResponse>> {
     let handle = task::spawn_blocking(move || {
         let state_view = state.view();
 
-        let SignedQuery2::V1(query) = query;
+        let SignedQuery::V1(query) = query;
         let query: QueryRequestWithAuthority = query.payload;
         let authority = query.authority.clone();
 
