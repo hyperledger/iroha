@@ -20,13 +20,6 @@ use crate::{
     ParseError, Registered,
 };
 
-/// API to work with collections of [`Id`] : [`Asset`] mappings.
-pub type AssetsMap = btree_map::BTreeMap<AssetDefinitionId, Asset>;
-
-/// [`AssetDefinitionsMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetDefinition`])
-/// pairs.
-pub type AssetDefinitionsMap = btree_map::BTreeMap<AssetDefinitionId, AssetDefinition>;
-
 /// [`AssetTotalQuantityMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetValue`])
 /// pairs.
 pub type AssetTotalQuantityMap = btree_map::BTreeMap<AssetDefinitionId, Numeric>;
@@ -83,7 +76,6 @@ mod model {
         PartialOrd,
         Ord,
         Hash,
-        Constructor,
         Getters,
         Decode,
         Encode,
@@ -94,10 +86,10 @@ mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct AssetId {
-        /// Entity Identification.
-        pub definition: AssetDefinitionId,
         /// Account Identification.
         pub account: AccountId,
+        /// Entity Identification.
+        pub definition: AssetDefinitionId,
     }
 
     /// Asset definition defines the type of that asset.
@@ -299,6 +291,16 @@ impl AssetDefinition {
     #[inline]
     pub fn store(id: AssetDefinitionId) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id, AssetType::Store)
+    }
+}
+
+impl AssetId {
+    /// Create a new AssetId
+    pub fn new(definition: AssetDefinitionId, account: AccountId) -> Self {
+        Self {
+            account,
+            definition,
+        }
     }
 }
 

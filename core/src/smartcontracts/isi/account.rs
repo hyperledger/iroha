@@ -97,12 +97,9 @@ pub mod isi {
 
             let asset = state_transaction
                 .world
-                .account_mut(&asset_id.account)
-                .and_then(|account| {
-                    account
-                        .remove_asset(&asset_id.definition)
-                        .ok_or_else(|| FindError::Asset(asset_id))
-                })?;
+                .assets
+                .remove(asset_id.clone())
+                .ok_or_else(|| FindError::Asset(asset_id))?;
 
             match asset.value {
                 AssetValue::Numeric(increment) => {
@@ -586,7 +583,16 @@ pub mod query {
                 state_ro
                     .world()
                     .accounts_iter()
-                    .filter(move |account| account.assets.contains_key(&asset_definition_id))
+                    .filter(move |account| {
+                        state_ro
+                            .world()
+                            .assets()
+                            .get(&AssetId::new(
+                                asset_definition_id.clone(),
+                                account.id().clone(),
+                            ))
+                            .is_some()
+                    })
                     .cloned(),
             ))
         }
