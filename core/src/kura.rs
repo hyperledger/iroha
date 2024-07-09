@@ -113,7 +113,7 @@ impl Kura {
         let block_index_count: usize = block_store
             .read_index_count()?
             .try_into()
-            .expect("We don't have 4 billion blocks.");
+            .expect("INTERNAL BUG: block index count exceeds usize::MAX");
 
         let block_hashes = match self.mode {
             InitMode::Fast => {
@@ -128,8 +128,7 @@ impl Kura {
         let block_count = block_hashes.len();
         info!(mode=?self.mode, block_count, "Kura init complete");
 
-        // The none value is set in order to indicate that the blocks exist on disk but
-        // are not yet loaded.
+        // The none value is set in order to indicate that the blocks exist on disk but are not yet loaded.
         *self.block_data.lock() = block_hashes.into_iter().map(|hash| (hash, None)).collect();
         Ok(BlockCount(block_count))
     }
@@ -141,7 +140,7 @@ impl Kura {
         let block_hashes_count = block_store
             .read_hashes_count()?
             .try_into()
-            .expect("We don't have 4 billion blocks.");
+            .expect("INTERNAL BUG: block hashes count exceeds usize::MAX");
         if block_hashes_count == block_index_count {
             block_store.read_block_hashes(0, block_hashes_count)
         } else {
@@ -200,6 +199,7 @@ impl Kura {
             let block_data_guard = kura.block_data.lock();
             (block_data_guard.len(), block_data_guard.last().map(|d| d.0))
         };
+
         let mut should_exit = false;
         loop {
             // If kura receive shutdown then close block channel and write remaining blocks to the storage
@@ -234,10 +234,9 @@ impl Kura {
             let start_height = written_block_count;
             let mut blocks_to_be_written = Vec::new();
             while written_block_count < block_data_guard.len() {
-                let block_ref = block_data_guard[written_block_count]
-                    .1
-                    .as_ref()
-                    .expect("The block to be written cannot be None, see store_block function.");
+                let block_ref = block_data_guard[written_block_count].1.as_ref().expect(
+                    "INTERNAL BUG: The block to be written is None. Check store_block function.",
+                );
                 blocks_to_be_written.push(Arc::clone(block_ref));
                 written_block_count += 1;
             }
@@ -250,11 +249,11 @@ impl Kura {
                     .create(true)
                     .append(true)
                     .open(path)
-                    .expect("Couldn't create file for plain text blocks.");
+                    .expect("INTERNAL BUG: Couldn't create file for plain text blocks.");
 
                 for new_block in &blocks_to_be_written {
                     serde_json::to_writer_pretty(&mut plain_text_file, new_block.as_ref())
-                        .expect("Failed to write to plain text file for blocks.");
+                        .expect("INTERNAL BUG: Failed to write to plain text file for blocks.");
                 }
             }
 
@@ -312,14 +311,18 @@ impl Kura {
         let block_store = self.block_store.lock();
         let BlockIndex { start, length } = block_store
             .read_block_index(block_index as u64)
-            .expect("Failed to read block index from disk.");
+            .expect("INTERNAL BUG: Failed to read block index from disk.");
 
-        let mut block_buf =
-            vec![0_u8; usize::try_from(length).expect("index_len didn't fit in 32-bits")];
+        let mut block_buf = vec![
+            0_u8;
+            usize::try_from(length)
+                .expect("INTERNAL BUG: index_len didn't fit in 32-bits")
+        ];
         block_store
             .read_block_data(start, &mut block_buf)
-            .expect("Failed to read block data.");
-        let block = SignedBlock::decode_all_versioned(&block_buf).expect("Failed to decode block");
+            .expect("INTERNAL BUG: Failed to read block data.");
+        let block = SignedBlock::decode_all_versioned(&block_buf)
+            .expect("INTERNAL BUG: Failed to decode block");
 
         let block_arc = Arc::new(block);
         data_array_guard[block_index].1 = Some(Arc::clone(&block_arc));
@@ -355,7 +358,10 @@ pub struct BlockStore {
 impl Drop for BlockStore {
     fn drop(&mut self) {
         let path = self.path_to_blockchain.join(LOCK_FILE_NAME);
-        let _ = fs::remove_file(path); // we don't care if this succeeds or not
+
+        if let Err(err) = fs::remove_file(path) {
+            error!(?err, "Failed to remove lock file");
+        }
     }
 }
 
@@ -382,8 +388,8 @@ impl BlockStore {
     ///
     /// # Panics
     /// * if you pass in `LockStatus::Unlocked` and it is unable to lock the block store.
-    pub fn new(store_path: impl AsRef<Path>, already_locked: LockStatus) -> Self {
-        if matches!(already_locked, LockStatus::Unlocked) {
+    pub fn new(store_path: impl AsRef<Path>, lock_status: LockStatus) -> Self {
+        if matches!(lock_status, LockStatus::Unlocked) {
             let lock_path = store_path.as_ref().join(LOCK_FILE_NAME);
             if let Err(e) = fs::File::options()
                 .read(true)
@@ -414,10 +420,11 @@ impl BlockStore {
                     }
                     _ => Err(Error::IO(e, lock_path)),
                 }
-                .expect("Kura must be able to lock the blockstore");
+                .expect("INTERNAL BUG: Kura must be able to lock the blockstore");
             }
         }
-        BlockStore {
+
+        Self {
             path_to_blockchain: store_path.as_ref().to_path_buf(),
         }
     }
@@ -1005,15 +1012,18 @@ mod tests {
     #[test]
     fn lock_and_unlock() {
         let dir = tempfile::tempdir().unwrap();
+
         {
             let _store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+
             assert!(
-                dir.path().join(LOCK_FILE_NAME).try_exists().expect("IO"),
+                dir.path().join(LOCK_FILE_NAME).exists(),
                 "Lockfile should have been created"
             );
         }
+
         assert!(
-            !dir.path().join(LOCK_FILE_NAME).try_exists().expect("IO"),
+            !dir.path().join(LOCK_FILE_NAME).exists(),
             "Lockfile should have been deleted"
         );
     }

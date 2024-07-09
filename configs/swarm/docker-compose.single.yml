@@ -43,5 +43,5 @@ services:
               --private-key $$GENESIS_PRIVATE_KEY \\
               --out-file $$GENESIS \\
           && \\
-          irohad
+          exec irohad
       "

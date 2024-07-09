@@ -212,7 +212,7 @@ mod tests {
                           --private-key $$GENESIS_PRIVATE_KEY \\
                           --out-file $$GENESIS \\
                       && \\
-                      irohad
+                      exec irohad
                   "
         "##]).assert_eq(&build_as_string(
             nonzero_ext::nonzero!(1u16),
@@ -264,7 +264,7 @@ mod tests {
                           --private-key $$GENESIS_PRIVATE_KEY \\
                           --out-file $$GENESIS \\
                       && \\
-                      irohad
+                      exec irohad
                   "
         "##]).assert_eq(&build_as_string(
             nonzero_ext::nonzero!(1u16),
@@ -316,7 +316,7 @@ mod tests {
                           --private-key $$GENESIS_PRIVATE_KEY \\
                           --out-file $$GENESIS \\
                       && \\
-                      irohad
+                      exec irohad
                   "
               irohad1:
                 depends_on:
@@ -426,7 +426,7 @@ mod tests {
                           --private-key $$GENESIS_PRIVATE_KEY \\
                           --out-file $$GENESIS \\
                       && \\
-                      irohad
+                      exec irohad
                   "
         "#]).assert_eq(&build_as_string(
             nonzero_ext::nonzero!(1u16),
@@ -481,7 +481,7 @@ mod tests {
                           --private-key $$GENESIS_PRIVATE_KEY \\
                           --out-file $$GENESIS \\
                       && \\
-                      irohad
+                      exec irohad
                   "
               irohad1:
                 image: hyperledger/iroha:dev
