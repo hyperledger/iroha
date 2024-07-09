@@ -1,4 +1,4 @@
-#![warn(unused, missing_docs)]
+#![warn(missing_docs)]
 
 use std::{collections::HashMap, fmt::Debug};
 
@@ -9,10 +9,10 @@ use iroha_data_model::{
     account::AccountId,
     query::{
         builder::{IterableQueryBuilder, QueryExecutor, SingleQueryError},
-        error::QueryExecutionFail,
+        parameters::ForwardCursor,
         predicate::HasPredicateBox,
-        ForwardCursor, IterableQueryOutput, IterableQueryOutputBatchBox, IterableQueryWithParams,
-        QueryRequest2, QueryResponse2, SingularQuery, SingularQueryBox, SingularQueryOutputBox,
+        IterableQueryOutput, IterableQueryOutputBatchBox, IterableQueryWithParams, QueryRequest,
+        QueryResponse, SingularQuery, SingularQueryBox, SingularQueryOutputBox,
     },
     ValidationFail,
 };
@@ -36,7 +36,7 @@ struct ClientQueryRequestHead {
 }
 
 impl ClientQueryRequestHead {
-    pub fn assemble(&self, query: QueryRequest2) -> DefaultRequestBuilder {
+    pub fn assemble(&self, query: QueryRequest) -> DefaultRequestBuilder {
         // authorize and sign the query
         let query = query
             .with_authority(self.account_id.clone())
@@ -52,10 +52,10 @@ impl ClientQueryRequestHead {
 }
 
 /// Decode a raw response from the node's query endpoint
-fn decode_query_response(resp: &http::Response<Vec<u8>>) -> QueryResult<QueryResponse2> {
+fn decode_query_response(resp: &http::Response<Vec<u8>>) -> QueryResult<QueryResponse> {
     match resp.status() {
         StatusCode::OK => {
-            let res = QueryResponse2::decode_all(&mut resp.body().as_slice());
+            let res = QueryResponse::decode_all(&mut resp.body().as_slice());
             res.wrap_err(
                 "Failed to decode response from Iroha. \
                          You are likely using a version of the client library \
@@ -93,7 +93,7 @@ fn decode_query_response(resp: &http::Response<Vec<u8>>) -> QueryResult<QueryRes
 fn decode_singular_query_response(
     resp: &http::Response<Vec<u8>>,
 ) -> QueryResult<SingularQueryOutputBox> {
-    let QueryResponse2::Singular(resp) = decode_query_response(resp)? else {
+    let QueryResponse::Singular(resp) = decode_query_response(resp)? else {
         return Err(eyre!(
             "Got unexpected type of query response from the node (expected singular)"
         )
@@ -105,7 +105,7 @@ fn decode_singular_query_response(
 fn decode_iterable_query_response(
     resp: &http::Response<Vec<u8>>,
 ) -> QueryResult<IterableQueryOutput> {
-    let QueryResponse2::Iterable(resp) = decode_query_response(resp)? else {
+    let QueryResponse::Iterable(resp) = decode_query_response(resp)? else {
         return Err(eyre!(
             "Got unexpected type of query response from the node (expected iterable)"
         )
@@ -153,7 +153,7 @@ impl QueryExecutor for Client {
     ) -> Result<SingularQueryOutputBox, Self::Error> {
         let request_head = self.get_query_request_head();
 
-        let request = QueryRequest2::Singular(query);
+        let request = QueryRequest::Singular(query);
 
         let response = request_head.assemble(request).build()?.send()?;
         let response = decode_singular_query_response(&response)?;
@@ -167,7 +167,7 @@ impl QueryExecutor for Client {
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
         let request_head = self.get_query_request_head();
 
-        let request = QueryRequest2::StartIterable(query);
+        let request = QueryRequest::StartIterable(query);
 
         let response = request_head.assemble(request).build()?.send()?;
         let response = decode_iterable_query_response(&response)?;
@@ -190,7 +190,7 @@ impl QueryExecutor for Client {
             cursor,
         } = cursor;
 
-        let request = QueryRequest2::ContinueIterable(cursor);
+        let request = QueryRequest::ContinueIterable(cursor);
 
         let response = request_head.assemble(request).build()?.send()?;
         let response = decode_iterable_query_response(&response)?;
@@ -249,10 +249,10 @@ impl Client {
     pub fn raw_continue_iterable_query(
         &self,
         cursor: ForwardCursor,
-    ) -> Result<QueryResponse2, ClientQueryError> {
+    ) -> Result<QueryResponse, ClientQueryError> {
         let request_head = self.get_query_request_head();
 
-        let request = QueryRequest2::ContinueIterable(cursor);
+        let request = QueryRequest::ContinueIterable(cursor);
 
         let response = request_head.assemble(request).build()?.send()?;
         let response = decode_query_response(&response)?;

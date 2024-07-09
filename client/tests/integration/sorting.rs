@@ -4,11 +4,7 @@ use eyre::{Result, WrapErr as _};
 use iroha::{
     client::{self, QueryResult},
     crypto::KeyPair,
-    data_model::{
-        account::Account,
-        prelude::*,
-        query::{Pagination, Sorting},
-    },
+    data_model::{account::Account, prelude::*},
 };
 use iroha_data_model::query::predicate::predicate_atoms::asset::AssetPredicateBox;
 use nonzero_ext::nonzero;

@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use super::impl_predicate_box;
 use crate::{
     asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId, AssetValue},
-    prelude::PredicateTrait,
     query::{
         predicate::{
             predicate_ast_extensions::AstPredicateExt as _,
@@ -18,6 +17,7 @@ use crate::{
             },
             predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
             projectors::BaseProjector,
+            PredicateTrait,
         },
         AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype,
     },
@@ -118,4 +118,12 @@ impl PredicateTrait<AssetDefinitionId> for AssetDefinitionIdPredicateBox {
             AssetDefinitionIdPredicateBox::Name(name) => name.applies(&input.name),
         }
     }
+}
+
+pub mod prelude {
+    //! Re-export all predicate boxes for a glob import `(::*)`
+    pub use super::{
+        AssetDefinitionIdPredicateBox, AssetDefinitionPredicateBox, AssetIdPredicateBox,
+        AssetPredicateBox, AssetValuePredicateBox,
+    };
 }

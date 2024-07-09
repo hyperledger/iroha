@@ -1,7 +1,7 @@
 //! This module contains trait implementations related to block queries
 use eyre::Result;
 use iroha_data_model::{
-    block::{BlockHeader, SignedBlock},
+    block::BlockHeader,
     query::{
         block::FindBlockHeaderByHash,
         error::{FindError, QueryExecutionFail},
@@ -16,18 +16,6 @@ use iroha_telemetry::metrics;
 use super::*;
 use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
-impl ValidQuery for FindAllBlocks {
-    #[metrics(+"find_all_blocks")]
-    fn execute<'state>(
-        &self,
-        state_ro: &'state impl StateReadOnly,
-    ) -> Result<Box<dyn Iterator<Item = SignedBlock> + 'state>, QueryExecutionFail> {
-        Ok(Box::new(
-            state_ro.all_blocks().rev().map(|block| (*block).clone()),
-        ))
-    }
-}
-
 impl ValidIterableQuery for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
     fn execute<'state>(
@@ -40,21 +28,6 @@ impl ValidIterableQuery for FindAllBlocks {
             .rev()
             .filter(move |block| filter.applies(block))
             .map(|block| (*block).clone()))
-    }
-}
-
-impl ValidQuery for FindAllBlockHeaders {
-    #[metrics(+"find_all_block_headers")]
-    fn execute<'state>(
-        &self,
-        staete_snapshot: &'state impl StateReadOnly,
-    ) -> Result<Box<dyn Iterator<Item = BlockHeader> + 'state>, QueryExecutionFail> {
-        Ok(Box::new(
-            staete_snapshot
-                .all_blocks()
-                .rev()
-                .map(|block| block.header().clone()),
-        ))
     }
 }
 
@@ -73,7 +46,7 @@ impl ValidIterableQuery for FindAllBlockHeaders {
     }
 }
 
-impl ValidQuery for FindBlockHeaderByHash {
+impl ValidSingularQuery for FindBlockHeaderByHash {
     #[metrics(+"find_block_header")]
     fn execute(&self, state_ro: &impl StateReadOnly) -> Result<BlockHeader, QueryExecutionFail> {
         let hash = self.hash;

@@ -20,9 +20,9 @@ use super::{
     predicate_ast_extensions::AstPredicateExt as _,
     predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
     projectors::BaseProjector,
-    AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype,
+    AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
 };
-use crate::{metadata::Metadata, name::Name, prelude::PredicateTrait};
+use crate::{metadata::Metadata, name::Name};
 
 /// Adds common methods to a predicate box.
 ///
@@ -161,4 +161,13 @@ impl PredicateTrait<PublicKey> for PublicKeyPredicateBox {
             PublicKeyPredicateBox::Equals(expected) => expected == input,
         }
     }
+}
+
+pub mod prelude {
+    //! Re-export all predicate boxes for a glob import `(::*)`
+    pub use super::{
+        account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
+        parameter::prelude::*, peer::prelude::*, permission::prelude::*, role::prelude::*,
+        trigger::prelude::*, MetadataPredicateBox, PublicKeyPredicateBox, StringPredicateBox,
+    };
 }

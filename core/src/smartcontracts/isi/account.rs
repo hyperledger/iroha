@@ -5,7 +5,7 @@ use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;
-use crate::ValidQuery;
+use crate::ValidSingularQuery;
 
 impl Registrable for iroha_data_model::account::NewAccount {
     type Target = Account;
@@ -496,20 +496,6 @@ pub mod query {
     use super::*;
     use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
-    impl ValidQuery for FindRolesByAccountId {
-        #[metrics(+"find_roles_by_account_id")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = RoleId> + 'state>, Error> {
-            let account_id = &self.id;
-            state_ro.world().account(account_id)?;
-            Ok(Box::new(
-                state_ro.world().account_roles_iter(account_id).cloned(),
-            ))
-        }
-    }
-
     impl ValidIterableQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]
         fn execute<'state>(
@@ -524,22 +510,6 @@ pub mod query {
                 .account_roles_iter(account_id)
                 .filter(move |&role_id| filter.applies(role_id))
                 .cloned())
-        }
-    }
-
-    impl ValidQuery for FindPermissionsByAccountId {
-        #[metrics(+"find_permissions_by_account_id")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Permission> + 'state>, Error> {
-            let account_id = &self.id;
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .account_permissions_iter(account_id)?
-                    .cloned(),
-            ))
         }
     }
 
@@ -559,16 +529,6 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindAllAccounts {
-        #[metrics(+"find_all_accounts")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
-            Ok(Box::new(state_ro.world().accounts_iter().cloned()))
-        }
-    }
-
     impl ValidIterableQuery for FindAllAccounts {
         #[metrics(+"find_all_accounts")]
         fn execute<'state>(
@@ -584,38 +544,7 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindAccountById {
-        #[metrics(+"find_account_by_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Account, Error> {
-            let id = &self.id;
-            iroha_logger::trace!(%id);
-            state_ro
-                .world()
-                .domain(id.domain())
-                .map_err(|_| FindError::Domain(id.domain().clone()))?;
-            state_ro
-                .world()
-                .map_account(id, Clone::clone)
-                .map_err(Into::into)
-        }
-    }
-
-    impl ValidQuery for FindAccountsByDomainId {
-        #[metrics(+"find_accounts_by_domain_id")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
-            let id = &self.domain;
-
-            iroha_logger::trace!(%id);
-            Ok(Box::new(
-                state_ro.world().accounts_in_domain_iter(id).cloned(),
-            ))
-        }
-    }
-
-    impl ValidQuery for FindAccountKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindAccountKeyValueByIdAndKey {
         #[metrics(+"find_account_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
@@ -626,34 +555,6 @@ pub mod query {
                 .map_account(id, |account| account.metadata.get(key).cloned())?
                 .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 .map(Into::into)
-        }
-    }
-
-    impl ValidQuery for FindAccountsWithAsset {
-        #[metrics(+"find_accounts_with_asset")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
-            let asset_definition_id = self.asset_definition.clone();
-            iroha_logger::trace!(%asset_definition_id);
-
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .accounts_iter()
-                    .filter(move |account| {
-                        state_ro
-                            .world()
-                            .assets()
-                            .get(&AssetId::new(
-                                asset_definition_id.clone(),
-                                account.id().clone(),
-                            ))
-                            .is_some()
-                    })
-                    .cloned(),
-            ))
         }
     }
 

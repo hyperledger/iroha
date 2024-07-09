@@ -125,9 +125,7 @@ mod expression {
 
     use iroha_data_model::{
         isi::InstructionBox,
-        prelude::{
-            FindAssetQuantityById, FindTotalAssetQuantityByAssetDefinitionId, Numeric, QueryBox,
-        },
+        prelude::{FindAssetQuantityById, FindTotalAssetQuantityByAssetDefinitionId, Numeric},
     };
     use iroha_schema::{IntoSchema, TypeId};
     use serde::{Deserialize, Serialize};
@@ -295,12 +293,7 @@ mod expression {
 mod evaluate {
     use alloc::string::ToString;
 
-    use iroha_data_model::{
-        isi::error::InstructionExecutionError,
-        prelude::Numeric,
-        query::{QueryBox, SingularQuery, SingularQueryBox},
-        ValidationFail,
-    };
+    use iroha_data_model::{isi::error::InstructionExecutionError, ValidationFail};
 
     use crate::complex_isi::{
         expression::{EvaluatesTo, Expression, Greater, Value},

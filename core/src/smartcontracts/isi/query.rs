@@ -6,14 +6,14 @@ use eyre::Result;
 use iroha_data_model::{
     prelude::*,
     query::{
-        error::QueryExecutionFail as Error, IterableQueryBox, IterableQueryOutputBatchBox,
-        IterableQueryParams, QueryOutputBox, QueryRequest2, QueryRequestWithAuthority,
-        QueryResponse2, SingularQueryBox, SingularQueryOutputBox,
+        error::QueryExecutionFail as Error, parameters::IterableQueryParams, IterableQueryBox,
+        IterableQueryOutputBatchBox, QueryRequest, QueryRequestWithAuthority, QueryResponse,
+        SingularQueryBox, SingularQueryOutputBox,
     },
 };
 
 use crate::{
-    prelude::ValidQuery,
+    prelude::ValidSingularQuery,
     query::{
         cursor::QueryBatchedErasedIterator, pagination::Paginate as _, store::LiveQueryStoreHandle,
     },
@@ -127,8 +127,8 @@ where
     // validate the fetch (aka batch) size
     let fetch_size = fetch_size
         .fetch_size
-        .unwrap_or(iroha_data_model::query::DEFAULT_FETCH_SIZE);
-    if fetch_size > iroha_data_model::query::MAX_FETCH_SIZE {
+        .unwrap_or(iroha_data_model::query::parameters::DEFAULT_FETCH_SIZE);
+    if fetch_size > iroha_data_model::query::parameters::MAX_FETCH_SIZE {
         return Err(Error::FetchSizeTooBig);
     }
 
@@ -174,54 +174,9 @@ where
     Ok(output)
 }
 
-/// Represents lazy evaluated query output
-pub trait Lazy {
-    /// Type of the lazy evaluated query output
-    type Lazy<'a>;
-}
-
-/// Lazily evaluated equivalent of [`Query::Output`]
-pub enum LazyQueryOutput<'a> {
-    /// Concrete computed [`Query::Output`]
-    QueryOutput(QueryOutputBox),
-    /// Iterator over a set of [`Query::Output`]s
-    Iter(Box<dyn Iterator<Item = QueryOutputBox> + 'a>),
-}
-
-impl Lazy for QueryOutputBox {
-    type Lazy<'a> = LazyQueryOutput<'a>;
-}
-
-impl<T> Lazy for Vec<T> {
-    type Lazy<'a> = Box<dyn Iterator<Item = T> + 'a>;
-}
-
-macro_rules! impl_lazy {
-    ( $($ident:ty),+ $(,)? ) => { $(
-        impl Lazy for $ident {
-            type Lazy<'a> = Self;
-        } )+
-    };
-}
-impl_lazy! {
-    bool,
-    iroha_data_model::prelude::Numeric,
-    iroha_data_model::role::Role,
-    iroha_data_model::asset::Asset,
-    iroha_data_model::asset::AssetDefinition,
-    iroha_data_model::account::Account,
-    iroha_data_model::domain::Domain,
-    iroha_data_model::block::BlockHeader,
-    iroha_primitives::json::JsonString,
-    iroha_data_model::query::TransactionQueryOutput,
-    iroha_data_model::executor::ExecutorDataModel,
-    iroha_data_model::trigger::Trigger,
-    iroha_data_model::parameter::Parameters,
-}
-
 /// Query Request statefully validated on the Iroha node side.
 #[derive(Debug, Clone)]
-pub struct ValidQueryRequest(QueryRequest2);
+pub struct ValidQueryRequest(QueryRequest);
 
 impl ValidQueryRequest {
     /// Validate a query for an API client by calling the executor.
@@ -240,7 +195,7 @@ impl ValidQueryRequest {
     ///
     /// The validation logic is defined by the implementation of the [`ValidateQueryOperation`] trait.
     pub fn validate_for_wasm<W, S>(
-        query: QueryRequest2,
+        query: QueryRequest,
         state: &mut wasm::state::CommonState<W, S>,
     ) -> Result<Self, ValidationFail>
     where
@@ -259,9 +214,9 @@ impl ValidQueryRequest {
         live_query_store: &LiveQueryStoreHandle,
         state: &impl StateReadOnly,
         authority: &AccountId,
-    ) -> Result<QueryResponse2, Error> {
+    ) -> Result<QueryResponse, Error> {
         match self.0 {
-            QueryRequest2::Singular(singular_query) => {
+            QueryRequest::Singular(singular_query) => {
                 let output = match singular_query {
                     SingularQueryBox::FindAssetQuantityById(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
@@ -301,9 +256,9 @@ impl ValidQueryRequest {
                     }
                 };
 
-                Ok(QueryResponse2::Singular(output))
+                Ok(QueryResponse::Singular(output))
             }
-            QueryRequest2::StartIterable(iter_query) => {
+            QueryRequest::StartIterable(iter_query) => {
                 let output = match iter_query.query {
                     // dispatch on a concrete query type, erasing the type with `QueryBatchedErasedIterator` in the end
                     IterableQueryBox::FindAllDomains(q) => apply_query_postprocessing(
@@ -368,77 +323,13 @@ impl ValidQueryRequest {
                     )?,
                 };
 
-                Ok(QueryResponse2::Iterable(
+                Ok(QueryResponse::Iterable(
                     live_query_store.handle_iter_start(output, authority)?,
                 ))
             }
-            QueryRequest2::ContinueIterable(cursor) => Ok(QueryResponse2::Iterable(
+            QueryRequest::ContinueIterable(cursor) => Ok(QueryResponse::Iterable(
                 live_query_store.handle_iter_continue(cursor)?,
             )),
-        }
-    }
-}
-
-impl ValidQuery for QueryBox {
-    fn execute<'state>(
-        &self,
-        state_ro: &'state impl StateReadOnly,
-    ) -> Result<LazyQueryOutput<'state>, Error> {
-        iroha_logger::debug!(query=%self, "Executing");
-
-        macro_rules! match_all {
-            ( non_iter: {$( $non_iter_query:ident ),+ $(,)?} $( $query:ident, )+ ) => {
-                match self { $(
-                    QueryBox::$non_iter_query(query) => query.execute(state_ro).map(QueryOutputBox::from).map(LazyQueryOutput::QueryOutput), )+ $(
-                    QueryBox::$query(query) => query.execute(state_ro).map(|i| i.map(QueryOutputBox::from)).map(|iter| LazyQueryOutput::Iter(Box::new(iter))), )+
-                }
-            };
-        }
-
-        match_all! {
-            non_iter: {
-                FindAccountById,
-                FindAssetById,
-                FindAssetDefinitionById,
-                FindAssetQuantityById,
-                FindTotalAssetQuantityByAssetDefinitionId,
-                FindDomainById,
-                FindBlockHeaderByHash,
-                FindTransactionByHash,
-                FindTriggerById,
-                FindRoleByRoleId,
-                FindDomainKeyValueByIdAndKey,
-                FindAssetKeyValueByIdAndKey,
-                FindAccountKeyValueByIdAndKey,
-                FindAssetDefinitionKeyValueByIdAndKey,
-                FindTriggerKeyValueByIdAndKey,
-                FindExecutorDataModel,
-                FindAllParameters,
-            }
-
-            FindAllAccounts,
-            FindAccountsByDomainId,
-            FindAccountsWithAsset,
-            FindAllAssets,
-            FindAllAssetsDefinitions,
-            FindAssetsByName,
-            FindAssetsByAccountId,
-            FindAssetsByAssetDefinitionId,
-            FindAssetsByDomainId,
-            FindAssetsByDomainIdAndAssetDefinitionId,
-            FindAllDomains,
-            FindAllPeers,
-            FindAllBlocks,
-            FindAllBlockHeaders,
-            FindAllTransactions,
-            FindTransactionsByAccountId,
-            FindPermissionsByAccountId,
-            FindAllActiveTriggerIds,
-            FindTriggersByAuthorityId,
-            FindTriggersByAuthorityDomainId,
-            FindAllRoles,
-            FindAllRoleIds,
-            FindRolesByAccountId,
         }
     }
 }
@@ -448,7 +339,10 @@ mod tests {
     use std::str::FromStr as _;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{parameter::TransactionParameters, query::error::FindError};
+    use iroha_data_model::{
+        parameter::TransactionParameters,
+        query::{error::FindError, predicate::CompoundPredicate},
+    };
     use iroha_primitives::json::JsonString;
     use nonzero_ext::nonzero;
     use test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
@@ -608,7 +502,9 @@ mod tests {
         let num_blocks = 100;
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let blocks = ValidQuery::execute(&FindAllBlocks, &state.view())?.collect::<Vec<_>>();
+        let blocks =
+            ValidIterableQuery::execute(FindAllBlocks, CompoundPredicate::PASS, &state.view())?
+                .collect::<Vec<_>>();
 
         assert_eq!(blocks.len() as u64, num_blocks);
         assert!(blocks
@@ -623,8 +519,12 @@ mod tests {
         let num_blocks = 100;
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let block_headers =
-            ValidQuery::execute(&FindAllBlockHeaders, &state.view())?.collect::<Vec<_>>();
+        let block_headers = ValidIterableQuery::execute(
+            FindAllBlockHeaders,
+            CompoundPredicate::PASS,
+            &state.view(),
+        )?
+        .collect::<Vec<_>>();
 
         assert_eq!(block_headers.len() as u64, num_blocks);
         assert!(block_headers.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -657,7 +557,12 @@ mod tests {
         let num_blocks = 100;
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let txs = ValidQuery::execute(&FindAllTransactions, &state.view())?.collect::<Vec<_>>();
+        let txs = ValidIterableQuery::execute(
+            FindAllTransactions,
+            CompoundPredicate::PASS,
+            &state.view(),
+        )?
+        .collect::<Vec<_>>();
 
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(

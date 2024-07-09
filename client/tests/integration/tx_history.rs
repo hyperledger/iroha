@@ -3,7 +3,7 @@ use std::{str::FromStr as _, thread};
 use eyre::Result;
 use iroha::{
     client::transaction,
-    data_model::{prelude::*, query::Pagination},
+    data_model::{prelude::*, query::parameters::Pagination},
 };
 use iroha_config::parameters::actual::Root as Config;
 use nonzero_ext::nonzero;

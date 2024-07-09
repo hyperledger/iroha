@@ -10,8 +10,10 @@ extern crate alloc;
 use dlmalloc::GlobalDlmalloc;
 use iroha_smart_contract::{
     data_model::query::{
-        builder::QueryExecutor, cursor::ForwardCursor, predicate::CompoundPredicate,
-        IterableQueryParams, IterableQueryWithFilter, IterableQueryWithParams,
+        builder::QueryExecutor,
+        parameters::{ForwardCursor, IterableQueryParams},
+        predicate::CompoundPredicate,
+        IterableQueryWithFilter, IterableQueryWithParams,
     },
     prelude::*,
     SmartContractQueryExecutor,
@@ -34,14 +36,14 @@ fn main(owner: AccountId) {
     }
 
     let (_batch, cursor) = SmartContractQueryExecutor
-        .start_iterable_query(IterableQueryWithParams {
-            query: IterableQueryWithFilter::new(FindAllAssets, CompoundPredicate::PASS).into(),
-            params: IterableQueryParams {
-                pagination: Default::default(),
-                sorting: Default::default(),
-                fetch_size: FetchSize::new(Some(nonzero!(1_u32))),
-            },
-        })
+        .start_iterable_query(IterableQueryWithParams::new(
+            IterableQueryWithFilter::new(FindAllAssets, CompoundPredicate::PASS).into(),
+            IterableQueryParams::new(
+                Default::default(),
+                Default::default(),
+                FetchSize::new(Some(nonzero!(1_u32))),
+            ),
+        ))
         .dbg_unwrap();
 
     // break encapsulation by serializing and deserializing into a compatible type

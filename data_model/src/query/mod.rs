@@ -1,31 +1,21 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
-#![allow(clippy::missing_inline_in_public_items, unused_imports)]
-#![warn(missing_docs, unused, missing_copy_implementations)] // TODO
+#![allow(clippy::missing_inline_in_public_items)]
+#![warn(missing_docs, missing_copy_implementations)] // TODO
 
 #[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec,
-    vec::Vec,
-};
-use core::num::NonZeroU32;
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
-pub use cursor::ForwardCursor;
-use derive_more::{Constructor, Display};
+use derive_more::Constructor;
 use iroha_crypto::{PublicKey, SignatureOf};
-use iroha_data_model_derive::{model, EnumRef};
+use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
-use iroha_primitives::{json::JsonString, numeric::Numeric, small::SmallVec};
+use iroha_primitives::{json::JsonString, numeric::Numeric};
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
-use nonzero_ext::nonzero;
-pub use pagination::Pagination;
+use parameters::{ForwardCursor, IterableQueryParams, MAX_FETCH_SIZE};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-pub use sorting::Sorting;
 
 pub use self::model::*;
 use self::{
@@ -37,81 +27,18 @@ use crate::{
     asset::{Asset, AssetDefinition},
     block::{BlockHeader, SignedBlock},
     domain::Domain,
-    events::EventFilterBox,
     parameter::{Parameter, Parameters},
     peer::Peer,
     permission::Permission,
     role::{Role, RoleId},
-    seal,
     seal::Sealed,
     transaction::{CommittedTransaction, SignedTransaction},
     trigger::TriggerId,
-    IdBox, Identifiable, IdentifiableBox,
 };
 
 pub mod builder;
-pub mod cursor;
-pub mod pagination;
+pub mod parameters;
 pub mod predicate;
-pub mod sorting;
-
-/// Default value for `fetch_size` parameter in queries.
-pub const DEFAULT_FETCH_SIZE: NonZeroU32 = nonzero!(100_u32);
-
-/// Max value for `fetch_size` parameter in queries.
-pub const MAX_FETCH_SIZE: NonZeroU32 = nonzero!(10_000_u32);
-
-/// Structure for query fetch size parameter encoding/decoding
-#[derive(
-    Debug,
-    Default,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Constructor,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-pub struct FetchSize {
-    /// Inner value of a fetch size.
-    ///
-    /// If not specified then [`DEFAULT_FETCH_SIZE`] is used.
-    pub fetch_size: Option<NonZeroU32>,
-}
-
-macro_rules! queries {
-    ($($($meta:meta)* $item:item)+) => {
-        pub use self::model::*;
-
-        #[iroha_data_model_derive::model]
-        mod model{
-            use super::*; $(
-
-            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-            #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
-            #[derive(serde::Deserialize, serde::Serialize)]
-            #[derive(derive_more::Constructor)]
-            #[derive(iroha_schema::IntoSchema)]
-            $($meta)*
-            $item )+
-        }
-    };
-}
-
-/// Trait for typesafe query output
-pub trait Query: Into<QueryBox> + seal::Sealed {
-    /// Output type of query
-    type Output: Into<QueryOutputBox> + TryFrom<QueryOutputBox>;
-
-    /// [`Encode`] [`Self`] as [`QueryBox`].
-    ///
-    /// Used to avoid an unnecessary clone
-    fn encode_as_query_box(&self) -> Vec<u8>;
-}
 
 /// A [`Query`] that either returns a single value or errors out
 pub trait SingularQuery: Sealed {
@@ -119,68 +46,187 @@ pub trait SingularQuery: Sealed {
 }
 
 /// A [`Query`] that returns an iterable collection of values
-pub trait IterableQuery: Query {
+pub trait IterableQuery: Sealed {
     /// A type of single element of the output collection
     type Item: HasPredicateBox;
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Constructor,
-)]
-pub struct IterableQueryWithFilter<Q, P> {
-    pub query: Q,
-    #[serde(default = "predicate_default")]
-    pub predicate: CompoundPredicate<P>,
-}
+#[model]
+mod model {
+    use getset::Getters;
+    use iroha_crypto::HashOf;
 
-fn predicate_default<P>() -> CompoundPredicate<P> {
-    CompoundPredicate::PASS
+    use super::*;
+    use crate::block::SignedBlock;
+
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Constructor,
+    )]
+    pub struct IterableQueryWithFilter<Q, P> {
+        pub query: Q,
+        #[serde(default = "predicate_default")]
+        pub predicate: CompoundPredicate<P>,
+    }
+
+    fn predicate_default<P>() -> CompoundPredicate<P> {
+        CompoundPredicate::PASS
+    }
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
+    )]
+    pub enum IterableQueryBox {
+        FindAllDomains(IterableQueryWithFilterFor<FindAllDomains>),
+        FindAllAccounts(IterableQueryWithFilterFor<FindAllAccounts>),
+        FindAllAssets(IterableQueryWithFilterFor<FindAllAssets>),
+        FindAllAssetsDefinitions(IterableQueryWithFilterFor<FindAllAssetsDefinitions>),
+        FindAllRoles(IterableQueryWithFilterFor<FindAllRoles>),
+
+        FindAllRoleIds(IterableQueryWithFilterFor<FindAllRoleIds>),
+        FindPermissionsByAccountId(IterableQueryWithFilterFor<FindPermissionsByAccountId>),
+        FindRolesByAccountId(IterableQueryWithFilterFor<FindRolesByAccountId>),
+        FindTransactionsByAccountId(IterableQueryWithFilterFor<FindTransactionsByAccountId>),
+        FindAccountsWithAsset(IterableQueryWithFilterFor<FindAccountsWithAsset>),
+
+        FindAllPeers(IterableQueryWithFilterFor<FindAllPeers>),
+        FindAllActiveTriggerIds(IterableQueryWithFilterFor<FindAllActiveTriggerIds>),
+        FindAllTransactions(IterableQueryWithFilterFor<FindAllTransactions>),
+        FindAllBlocks(IterableQueryWithFilterFor<FindAllBlocks>),
+        FindAllBlockHeaders(IterableQueryWithFilterFor<FindAllBlockHeaders>),
+    }
+
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
+    )]
+    pub enum IterableQueryOutputBatchBox {
+        Domain(Vec<Domain>),
+        Account(Vec<Account>),
+        Asset(Vec<Asset>),
+        AssetDefinition(Vec<AssetDefinition>),
+        Role(Vec<Role>),
+        Parameter(Vec<Parameter>),
+        Permission(Vec<Permission>),
+        Transaction(Vec<TransactionQueryOutput>),
+        Peer(Vec<Peer>),
+        RoleId(Vec<RoleId>),
+        TriggerId(Vec<TriggerId>),
+        Block(Vec<SignedBlock>),
+        BlockHeader(Vec<BlockHeader>),
+    }
+
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
+    )]
+    pub enum SingularQueryBox {
+        FindAssetQuantityById(FindAssetQuantityById),
+        FindExecutorDataModel(FindExecutorDataModel),
+        FindAllParameters(FindAllParameters),
+        FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
+        FindTriggerById(FindTriggerById),
+
+        FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
+        FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
+        FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
+        FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
+        FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
+
+        FindTransactionByHash(FindTransactionByHash),
+        FindBlockHeaderByHash(FindBlockHeaderByHash),
+    }
+
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
+    )]
+    pub enum SingularQueryOutputBox {
+        Numeric(Numeric),
+        ExecutorDataModel(crate::executor::ExecutorDataModel),
+        JsonString(JsonString),
+        Trigger(crate::trigger::Trigger),
+        Parameters(Parameters),
+        Transaction(TransactionQueryOutput),
+        BlockHeader(BlockHeader),
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct IterableQueryOutput {
+        pub batch: IterableQueryOutputBatchBox,
+        pub continue_cursor: Option<ForwardCursor>,
+    }
+
+    /// A type-erased iterable query, along with all the
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
+    pub struct IterableQueryWithParams {
+        pub query: IterableQueryBox,
+        #[serde(default)]
+        pub params: IterableQueryParams,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub enum QueryRequest {
+        Singular(SingularQueryBox),
+        StartIterable(IterableQueryWithParams),
+        ContinueIterable(ForwardCursor),
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub enum QueryBox {
+        Singular(SingularQueryBox),
+        Iterable(IterableQueryWithParams),
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub enum QueryResponse {
+        Singular(SingularQueryOutputBox),
+        Iterable(IterableQueryOutput),
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct QueryRequestWithAuthority {
+        pub authority: AccountId,
+        pub request: QueryRequest,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct QuerySignature(pub SignatureOf<QueryRequestWithAuthority>);
+
+    declare_versioned!(SignedQuery 1..2, Debug, Clone, FromVariant, IntoSchema);
+
+    #[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
+    #[version_with_scale(version = 1, versioned_alias = "SignedQuery")]
+    pub struct SignedQueryV1 {
+        pub signature: QuerySignature,
+        pub payload: QueryRequestWithAuthority,
+    }
+
+    /// Output of [`FindAllTransactions`] query
+    #[derive(
+        Debug,
+        Clone,
+        PartialOrd,
+        Ord,
+        PartialEq,
+        Eq,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct TransactionQueryOutput {
+        /// The hash of the block to which `tx` belongs to
+        pub block_hash: HashOf<SignedBlock>,
+        /// Transaction
+        #[getset(skip)]
+        pub transaction: CommittedTransaction,
+    }
 }
 
 pub type IterableQueryWithFilterFor<Q> =
     IterableQueryWithFilter<Q, <<Q as IterableQuery>::Item as HasPredicateBox>::PredicateBoxType>;
-
-#[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
-)]
-pub enum IterableQueryBox {
-    FindAllDomains(IterableQueryWithFilterFor<FindAllDomains>),
-    FindAllAccounts(IterableQueryWithFilterFor<FindAllAccounts>),
-    FindAllAssets(IterableQueryWithFilterFor<FindAllAssets>),
-    FindAllAssetsDefinitions(IterableQueryWithFilterFor<FindAllAssetsDefinitions>),
-    FindAllRoles(IterableQueryWithFilterFor<FindAllRoles>),
-
-    FindAllRoleIds(IterableQueryWithFilterFor<FindAllRoleIds>),
-    FindPermissionsByAccountId(IterableQueryWithFilterFor<FindPermissionsByAccountId>),
-    FindRolesByAccountId(IterableQueryWithFilterFor<FindRolesByAccountId>),
-    FindTransactionsByAccountId(IterableQueryWithFilterFor<FindTransactionsByAccountId>),
-    FindAccountsWithAsset(IterableQueryWithFilterFor<FindAccountsWithAsset>),
-
-    FindAllPeers(IterableQueryWithFilterFor<FindAllPeers>),
-    FindAllActiveTriggerIds(IterableQueryWithFilterFor<FindAllActiveTriggerIds>),
-    FindAllTransactions(IterableQueryWithFilterFor<FindAllTransactions>),
-    FindAllBlocks(IterableQueryWithFilterFor<FindAllBlocks>),
-    FindAllBlockHeaders(IterableQueryWithFilterFor<FindAllBlockHeaders>),
-}
-
-#[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
-)]
-pub enum IterableQueryOutputBatchBox {
-    Domain(Vec<Domain>),
-    Account(Vec<Account>),
-    Asset(Vec<Asset>),
-    AssetDefinition(Vec<AssetDefinition>),
-    Role(Vec<Role>),
-    Parameter(Vec<Parameter>),
-    Permission(Vec<Permission>),
-    Transaction(Vec<TransactionQueryOutput>),
-    Peer(Vec<Peer>),
-    RoleId(Vec<RoleId>),
-    TriggerId(Vec<TriggerId>),
-    Block(Vec<SignedBlock>),
-    BlockHeader(Vec<BlockHeader>),
-}
 
 impl IterableQueryOutputBatchBox {
     // this is used in client cli to do type-erased iterable queries
@@ -222,49 +268,8 @@ impl IterableQueryOutputBatchBox {
     }
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
-)]
-pub enum SingularQueryBox {
-    FindAssetQuantityById(FindAssetQuantityById),
-    FindExecutorDataModel(FindExecutorDataModel),
-    FindAllParameters(FindAllParameters),
-    FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
-    FindTriggerById(FindTriggerById),
-
-    FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
-    FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
-    FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
-    FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
-    FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
-
-    FindTransactionByHash(FindTransactionByHash),
-    FindBlockHeaderByHash(FindBlockHeaderByHash),
-}
-
-#[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
-)]
-pub enum SingularQueryOutputBox {
-    Numeric(Numeric),
-    ExecutorDataModel(crate::executor::ExecutorDataModel),
-    JsonString(JsonString),
-    Trigger(crate::trigger::Trigger),
-    Parameters(Parameters),
-    Transaction(TransactionQueryOutput),
-    BlockHeader(BlockHeader),
-}
-
-impl Sealed for SingularQueryBox {}
-
 impl SingularQuery for SingularQueryBox {
     type Output = SingularQueryOutputBox;
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct IterableQueryOutput {
-    pub batch: IterableQueryOutputBatchBox,
-    pub continue_cursor: Option<ForwardCursor>,
 }
 
 impl IterableQueryOutput {
@@ -280,37 +285,7 @@ impl IterableQueryOutput {
     }
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, Default, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
-pub struct IterableQueryParams {
-    pub pagination: Pagination,
-    pub sorting: Sorting,
-    pub fetch_size: FetchSize,
-}
-
-/// A type-erased iterable query, along with all the
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct IterableQueryWithParams {
-    pub query: IterableQueryBox,
-    #[serde(default)]
-    pub params: IterableQueryParams,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub enum QueryRequest2 {
-    Singular(SingularQueryBox),
-    StartIterable(IterableQueryWithParams),
-    ContinueIterable(ForwardCursor),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub enum QueryBox2 {
-    Singular(SingularQueryBox),
-    Iterable(IterableQueryWithParams),
-}
-
-impl QueryRequest2 {
+impl QueryRequest {
     pub fn with_authority(self, authority: AccountId) -> QueryRequestWithAuthority {
         QueryRequestWithAuthority {
             authority,
@@ -319,25 +294,13 @@ impl QueryRequest2 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub enum QueryResponse2 {
-    Singular(SingularQueryOutputBox),
-    Iterable(IterableQueryOutput),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct QueryRequestWithAuthority {
-    pub authority: AccountId,
-    pub request: QueryRequest2,
-}
-
 impl QueryRequestWithAuthority {
     #[inline]
     #[must_use]
-    pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedQuery2 {
+    pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedQuery {
         let signature = SignatureOf::new(key_pair.private_key(), &self);
 
-        SignedQuery2V1 {
+        SignedQueryV1 {
             signature: QuerySignature(signature),
             payload: self,
         }
@@ -345,28 +308,16 @@ impl QueryRequestWithAuthority {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct QuerySignature(pub SignatureOf<QueryRequestWithAuthority>);
-
-declare_versioned!(SignedQuery2 1..2, Debug, Clone, FromVariant, IntoSchema);
-
-impl SignedQuery2 {
+impl SignedQuery {
     pub fn authority(&self) -> &AccountId {
-        let SignedQuery2::V1(query) = self;
+        let SignedQuery::V1(query) = self;
         &query.payload.authority
     }
 
-    pub fn request(&self) -> &QueryRequest2 {
-        let SignedQuery2::V1(query) = self;
+    pub fn request(&self) -> &QueryRequest {
+        let SignedQuery::V1(query) = self;
         &query.payload.request
     }
-}
-
-#[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
-#[version_with_scale(version = 1, versioned_alias = "SignedQuery2")]
-pub struct SignedQuery2V1 {
-    pub signature: QuerySignature,
-    pub payload: QueryRequestWithAuthority,
 }
 
 mod candidate {
@@ -375,486 +326,109 @@ mod candidate {
     use super::*;
 
     #[derive(Decode, Deserialize)]
-    struct SignedQuery2Candidate {
+    struct SignedQueryCandidate {
         signature: QuerySignature,
         payload: QueryRequestWithAuthority,
     }
 
-    impl SignedQuery2Candidate {
-        fn validate(self) -> Result<SignedQuery2V1, &'static str> {
+    impl SignedQueryCandidate {
+        fn validate(self) -> Result<SignedQueryV1, &'static str> {
             let QuerySignature(signature) = &self.signature;
 
             signature
                 .verify(&self.payload.authority.signatory, &self.payload)
                 .map_err(|_| "Query signature is not valid")?;
 
-            Ok(SignedQuery2V1 {
+            Ok(SignedQueryV1 {
                 payload: self.payload,
                 signature: self.signature,
             })
         }
     }
 
-    impl Decode for SignedQuery2V1 {
+    impl Decode for SignedQueryV1 {
         fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
-            SignedQuery2Candidate::decode(input)?
+            SignedQueryCandidate::decode(input)?
                 .validate()
                 .map_err(Into::into)
         }
     }
 
-    impl<'de> Deserialize<'de> for SignedQuery2V1 {
+    impl<'de> Deserialize<'de> for SignedQueryV1 {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
         {
             use serde::de::Error as _;
 
-            SignedQuery2Candidate::deserialize(deserializer)?
+            SignedQueryCandidate::deserialize(deserializer)?
                 .validate()
                 .map_err(D::Error::custom)
         }
     }
 }
 
-#[model]
-mod model {
-    use getset::Getters;
-    use iroha_crypto::HashOf;
-    use iroha_macro::FromVariant;
-    use strum::EnumDiscriminants;
-
-    use super::*;
-    use crate::block::SignedBlock;
-
-    /// Sized container for all possible Queries.
-    #[allow(clippy::enum_variant_names)]
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        EnumRef,
-        EnumDiscriminants,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[enum_ref(derive(Encode, FromVariant))]
-    #[strum_discriminants(
-        vis(pub(super)),
-        name(QueryType),
-        derive(Encode),
-        allow(clippy::enum_variant_names)
-    )]
-    #[ffi_type]
-    #[allow(missing_docs)]
-    pub enum QueryBox {
-        FindAllAccounts(FindAllAccounts),
-        FindAccountById(FindAccountById),
-        FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
-        FindAccountsByDomainId(FindAccountsByDomainId),
-        FindAccountsWithAsset(FindAccountsWithAsset),
-        FindAllAssets(FindAllAssets),
-        FindAllAssetsDefinitions(FindAllAssetsDefinitions),
-        FindAssetById(FindAssetById),
-        FindAssetDefinitionById(FindAssetDefinitionById),
-        FindAssetsByName(FindAssetsByName),
-        FindAssetsByAccountId(FindAssetsByAccountId),
-        FindAssetsByAssetDefinitionId(FindAssetsByAssetDefinitionId),
-        FindAssetsByDomainId(FindAssetsByDomainId),
-        FindAssetsByDomainIdAndAssetDefinitionId(FindAssetsByDomainIdAndAssetDefinitionId),
-        FindAssetQuantityById(FindAssetQuantityById),
-        FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
-        FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
-        FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
-        FindAllDomains(FindAllDomains),
-        FindDomainById(FindDomainById),
-        FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
-        FindAllPeers(FindAllPeers),
-        FindAllBlocks(FindAllBlocks),
-        FindAllBlockHeaders(FindAllBlockHeaders),
-        FindBlockHeaderByHash(FindBlockHeaderByHash),
-        FindAllTransactions(FindAllTransactions),
-        FindTransactionsByAccountId(FindTransactionsByAccountId),
-        FindTransactionByHash(FindTransactionByHash),
-        FindPermissionsByAccountId(FindPermissionsByAccountId),
-        FindExecutorDataModel(FindExecutorDataModel),
-        FindAllActiveTriggerIds(FindAllActiveTriggerIds),
-        FindTriggerById(FindTriggerById),
-        FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
-        FindTriggersByAuthorityId(FindTriggersByAuthorityId),
-        FindTriggersByAuthorityDomainId(FindTriggersByAuthorityDomainId),
-        FindAllRoles(FindAllRoles),
-        FindAllRoleIds(FindAllRoleIds),
-        FindRoleByRoleId(FindRoleByRoleId),
-        FindRolesByAccountId(FindRolesByAccountId),
-        FindAllParameters(FindAllParameters),
-    }
-
-    /// Sized container for all possible [`Query::Output`]s
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[allow(missing_docs)]
-    pub enum QueryOutputBox {
-        Id(IdBox),
-        Identifiable(IdentifiableBox),
-        Transaction(TransactionQueryOutput),
-        Permission(crate::permission::Permission),
-        Parameters(crate::parameter::Parameters),
-        Metadata(JsonString),
-        Numeric(Numeric),
-        BlockHeader(BlockHeader),
-        Block(crate::block::SignedBlock),
-        ExecutorDataModel(crate::executor::ExecutorDataModel),
-
-        Vec(
-            #[skip_from]
-            #[skip_try_from]
-            Vec<Self>,
-        ),
-    }
-
-    /// Output of [`FindAllTransactions`] query
-    #[derive(
-        Debug,
-        Clone,
-        PartialOrd,
-        Ord,
-        PartialEq,
-        Eq,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[getset(get = "pub")]
-    #[ffi_type]
-    pub struct TransactionQueryOutput {
-        /// The hash of the block to which `tx` belongs to
-        pub block_hash: HashOf<SignedBlock>,
-        /// Transaction
-        #[getset(skip)]
-        pub transaction: CommittedTransaction,
-    }
-
-    /// Request type clients (like http clients or wasm) can send to a query endpoint.
-    ///
-    /// `Q` should be either [`http::SignedQuery`] for client or [`SmartContractQuery`] for wasm smart contract.
-    // NOTE: if updating, also update the `iroha_smart_contract::QueryRequest` and its encoding
-    #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
-    pub enum QueryRequest<Q> {
-        /// Query it-self.
-        /// Basically used for one-time queries or to get a cursor for big queries.
-        Query(Q),
-        /// Cursor over previously sent [`Query`](QueryRequest::Query).
-        Cursor(ForwardCursor),
-    }
-
-    /// A query with parameters, as coming from a smart contract.
-    // NOTE: if updating, also update the `iroha_smart_contract::SmartContractQuery` and its encoding
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        Constructor,
-        Getters,
-    )]
-    #[getset(get = "pub")]
-    pub struct SmartContractQuery {
-        /// Query definition.
-        pub query: QueryBox,
-        /// The filter applied to the result on the server-side.
-        pub filter: PredicateBox,
-        /// Sorting of the query results.
-        pub sorting: Sorting,
-        /// Pagination of the query results.
-        pub pagination: Pagination,
-        /// Amount of results to fetch.
-        pub fetch_size: FetchSize,
-    }
-}
-
-impl From<u32> for QueryOutputBox {
-    fn from(value: u32) -> Self {
-        Self::Numeric(value.into())
-    }
-}
-
-impl From<u64> for QueryOutputBox {
-    fn from(value: u64) -> Self {
-        Self::Numeric(value.into())
-    }
-}
-
-impl TryFrom<QueryOutputBox> for u32 {
-    type Error = iroha_macro::error::ErrorTryFromEnum<QueryOutputBox, Self>;
-
-    fn try_from(value: QueryOutputBox) -> Result<Self, Self::Error> {
-        use iroha_macro::error::ErrorTryFromEnum;
-
-        let QueryOutputBox::Numeric(numeric) = value else {
-            return Err(ErrorTryFromEnum::default());
-        };
-
-        numeric.try_into().map_err(|_| ErrorTryFromEnum::default())
-    }
-}
-
-impl TryFrom<QueryOutputBox> for u64 {
-    type Error = iroha_macro::error::ErrorTryFromEnum<QueryOutputBox, Self>;
-
-    fn try_from(value: QueryOutputBox) -> Result<Self, Self::Error> {
-        use iroha_macro::error::ErrorTryFromEnum;
-
-        let QueryOutputBox::Numeric(numeric) = value else {
-            return Err(ErrorTryFromEnum::default());
-        };
-
-        numeric.try_into().map_err(|_| ErrorTryFromEnum::default())
-    }
-}
-
-/// Uses custom syntax to implement query-related traits on query types
-///
-/// Implements [`Query`] and, additionally, either [`SingularQuery`] or [`IterableQuery`],
-///     depending on whether the output type is wrapped into a Vec (purely syntactically)
-macro_rules! impl_queries {
-    // we can't delegate matching over `Vec<$item:ty>` to an inner macro,
-    //   as the moment a fragment is matched as `$output:ty` it becomes opaque and unmatchable to any literal
-    //   https://doc.rust-lang.org/nightly/reference/macros-by-example.html#forwarding-a-matched-fragment
-    // hence we match at the top level with a tt-muncher and a use `@impl_query` inner macro to avoid duplication of the `impl Query`
-    ($ty:ty => Vec<$item:ty> $(, $($rest:tt)*)?) => {
-        impl_queries!(@impl_query $ty => Vec<$item>);
-
+/// Use a custom syntax to implement [`IterableQuery`] for applicable types
+macro_rules! impl_iter_queries {
+    ($ty:ty => $item:ty $(, $($rest:tt)*)?) => {
         impl IterableQuery for $ty {
             type Item = $item;
         }
 
         $(
-            impl_queries!($($rest)*);
+            impl_iter_queries!($($rest)*);
         )?
     };
-    ($ty:ty => $output:ty $(, $($rest:tt)*)?) => {
-        impl_queries!(@impl_query $ty => $output);
+    // allow for a trailing comma
+    () => {}
+}
 
+/// Use a custom syntax to implement [`SingularQueries`] for applicable types
+macro_rules! impl_singular_queries {
+    ($ty:ty => $output:ty $(, $($rest:tt)*)?) => {
         impl SingularQuery for $ty {
             type Output = $output;
         }
 
         $(
-            impl_queries!($($rest)*);
+            impl_singular_queries!($($rest)*);
         )?
     };
-    (@impl_query $ty:ty => $output:ty) =>{
-        impl Query for $ty {
-            type Output = $output;
-
-            fn encode_as_query_box(&self) -> Vec<u8> {
-                QueryBoxRef::from(self).encode()
-            }
-        }
-    };
+    // allow for a trailing comma
+    () => {}
 }
 
-impl_queries! {
-    FindAllRoles => Vec<crate::role::Role>,
-    FindAllRoleIds => Vec<crate::role::RoleId>,
-    FindRolesByAccountId => Vec<crate::role::RoleId>,
-    FindRoleByRoleId => crate::role::Role,
-    FindPermissionsByAccountId => Vec<crate::permission::Permission>,
-    FindAllAccounts => Vec<crate::account::Account>,
-    FindAccountById => crate::account::Account,
+impl_iter_queries! {
+    FindAllRoles => crate::role::Role,
+    FindAllRoleIds => crate::role::RoleId,
+    FindRolesByAccountId => crate::role::RoleId,
+    FindPermissionsByAccountId => crate::permission::Permission,
+    FindAllAccounts => crate::account::Account,
+    FindAllAssets => crate::asset::Asset,
+    FindAllAssetsDefinitions => crate::asset::AssetDefinition,
+    FindAllDomains => crate::domain::Domain,
+    FindAllPeers => crate::peer::Peer,
+    FindAllActiveTriggerIds => crate::trigger::TriggerId,
+    FindAllTransactions => TransactionQueryOutput,
+    FindTransactionsByAccountId => TransactionQueryOutput,
+    FindAccountsWithAsset => crate::account::Account,
+    FindAllBlockHeaders => crate::block::BlockHeader,
+    FindAllBlocks => SignedBlock,
+}
+
+impl_singular_queries! {
     FindAccountKeyValueByIdAndKey => JsonString,
-    FindAccountsByDomainId => Vec<crate::account::Account>,
-    FindAccountsWithAsset => Vec<crate::account::Account>,
-    FindAllAssets => Vec<crate::asset::Asset>,
-    FindAllAssetsDefinitions => Vec<crate::asset::AssetDefinition>,
-    FindAssetById => crate::asset::Asset,
-    FindAssetDefinitionById => crate::asset::AssetDefinition,
-    FindAssetsByName => Vec<crate::asset::Asset>,
-    FindAssetsByAccountId => Vec<crate::asset::Asset>,
-    FindAssetsByAssetDefinitionId => Vec<crate::asset::Asset>,
-    FindAssetsByDomainId => Vec<crate::asset::Asset>,
-    FindAssetsByDomainIdAndAssetDefinitionId => Vec<crate::asset::Asset>,
     FindAssetQuantityById => Numeric,
     FindTotalAssetQuantityByAssetDefinitionId => Numeric,
     FindAssetKeyValueByIdAndKey => JsonString,
     FindAssetDefinitionKeyValueByIdAndKey => JsonString,
-    FindAllDomains => Vec<crate::domain::Domain>,
-    FindDomainById => crate::domain::Domain,
     FindDomainKeyValueByIdAndKey => JsonString,
-    FindAllPeers => Vec<crate::peer::Peer>,
     FindAllParameters => crate::parameter::Parameters,
-    FindAllActiveTriggerIds => Vec<crate::trigger::TriggerId>,
     FindTriggerById => crate::trigger::Trigger,
     FindTriggerKeyValueByIdAndKey => JsonString,
-    FindTriggersByAuthorityId => Vec<crate::trigger::Trigger>,
-    FindTriggersByAuthorityDomainId => Vec<crate::trigger::Trigger>,
-    FindAllTransactions => Vec<TransactionQueryOutput>,
-    FindTransactionsByAccountId => Vec<TransactionQueryOutput>,
     FindTransactionByHash => TransactionQueryOutput,
-    FindAllBlocks => Vec<SignedBlock>,
-    FindAllBlockHeaders => Vec<crate::block::BlockHeader>,
     FindBlockHeaderByHash => crate::block::BlockHeader,
-    FindExecutorDataModel => crate::executor::ExecutorDataModel
-}
-
-impl Query for QueryBox {
-    type Output = QueryOutputBox;
-
-    fn encode_as_query_box(&self) -> Vec<u8> {
-        self.encode()
-    }
-}
-
-impl core::fmt::Display for QueryOutputBox {
-    // TODO: Maybe derive
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Id(v) => core::fmt::Display::fmt(&v, f),
-            Self::Identifiable(v) => core::fmt::Display::fmt(&v, f),
-            Self::Transaction(_) => write!(f, "TransactionQueryOutput"),
-            Self::Permission(v) => core::fmt::Display::fmt(&v, f),
-            Self::Parameters(v) => core::fmt::Debug::fmt(&v, f),
-            Self::Block(v) => core::fmt::Display::fmt(&v, f),
-            Self::BlockHeader(v) => core::fmt::Display::fmt(&v, f),
-            Self::Numeric(v) => core::fmt::Display::fmt(&v, f),
-            Self::Metadata(v) => core::fmt::Display::fmt(&v, f),
-            Self::ExecutorDataModel(v) => core::fmt::Display::fmt(&v, f),
-
-            Self::Vec(v) => {
-                // TODO: Remove so we can derive.
-                let list_of_display: Vec<_> = v.iter().map(ToString::to_string).collect();
-                // this prints with quotation marks, which is fine 90%
-                // of the time, and helps delineate where a display of
-                // one value stops and another one begins.
-                write!(f, "{list_of_display:?}")
-            }
-        }
-    }
-}
-
-// TODO: The following macros looks very similar. Try to generalize them under one macro
-macro_rules! from_and_try_from_value_idbox {
-    ( $($variant:ident( $ty:ty ),)+ $(,)? ) => { $(
-        impl TryFrom<QueryOutputBox> for $ty {
-            type Error = iroha_macro::error::ErrorTryFromEnum<QueryOutputBox, Self>;
-
-            fn try_from(value: QueryOutputBox) -> Result<Self, Self::Error> {
-                if let QueryOutputBox::Id(IdBox::$variant(id)) = value {
-                    Ok(id)
-                } else {
-                    Err(Self::Error::default())
-                }
-            }
-        }
-
-        impl From<$ty> for QueryOutputBox {
-            fn from(id: $ty) -> Self {
-                Self::Id(IdBox::$variant(id))
-            }
-        })+
-    };
-}
-
-macro_rules! from_and_try_from_value_identifiable {
-    ( $( $variant:ident( $ty:ty ), )+ $(,)? ) => { $(
-        impl TryFrom<QueryOutputBox> for $ty {
-            type Error = iroha_macro::error::ErrorTryFromEnum<QueryOutputBox, Self>;
-
-            fn try_from(value: QueryOutputBox) -> Result<Self, Self::Error> {
-                if let QueryOutputBox::Identifiable(IdentifiableBox::$variant(id)) = value {
-                    Ok(id)
-                } else {
-                    Err(Self::Error::default())
-                }
-            }
-        }
-
-        impl From<$ty> for QueryOutputBox {
-            fn from(id: $ty) -> Self {
-                Self::Identifiable(IdentifiableBox::$variant(id))
-            }
-        } )+
-    };
-}
-
-from_and_try_from_value_idbox!(
-    PeerId(crate::peer::PeerId),
-    DomainId(crate::domain::DomainId),
-    AccountId(crate::account::AccountId),
-    AssetId(crate::asset::AssetId),
-    AssetDefinitionId(crate::asset::AssetDefinitionId),
-    TriggerId(crate::trigger::TriggerId),
-    RoleId(crate::role::RoleId),
-    // TODO: Should we wrap String with new type in order to convert like here?
-    //from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
-);
-
-from_and_try_from_value_identifiable!(
-    NewDomain(crate::domain::NewDomain),
-    NewAccount(crate::account::NewAccount),
-    NewAssetDefinition(crate::asset::NewAssetDefinition),
-    NewRole(crate::role::NewRole),
-    Peer(crate::peer::Peer),
-    Domain(crate::domain::Domain),
-    Account(crate::account::Account),
-    AssetDefinition(crate::asset::AssetDefinition),
-    Asset(crate::asset::Asset),
-    Trigger(crate::trigger::Trigger),
-    Role(crate::role::Role),
-);
-
-impl<V: Into<QueryOutputBox>> From<Vec<V>> for QueryOutputBox {
-    fn from(values: Vec<V>) -> Self {
-        Self::Vec(values.into_iter().map(Into::into).collect())
-    }
-}
-
-impl<V> TryFrom<QueryOutputBox> for Vec<V>
-where
-    QueryOutputBox: TryInto<V>,
-{
-    type Error = iroha_macro::error::ErrorTryFromEnum<QueryOutputBox, Self>;
-
-    fn try_from(value: QueryOutputBox) -> Result<Self, Self::Error> {
-        if let QueryOutputBox::Vec(vec) = value {
-            return vec
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|_e| Self::Error::default());
-        }
-
-        Err(Self::Error::default())
-    }
+    FindExecutorDataModel => crate::executor::ExecutorDataModel,
 }
 
 impl AsRef<CommittedTransaction> for TransactionQueryOutput {
@@ -863,25 +437,23 @@ impl AsRef<CommittedTransaction> for TransactionQueryOutput {
     }
 }
 
-impl<Q: core::fmt::Display> core::fmt::Display for QueryRequest<Q> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Query(query) => write!(f, "{query}"),
-            Self::Cursor(cursor) => write!(f, "{cursor:?}"),
-        }
-    }
-}
+macro_rules! queries {
+    ($($($meta:meta)* $item:item)+) => {
+        pub use self::model::*;
 
-impl core::fmt::Display for SmartContractQuery {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("QueryWithParameters")
-            .field("query", &self.query.to_string())
-            .field("filter", &self.filter)
-            .field("sorting", &self.sorting)
-            .field("pagination", &self.pagination)
-            .field("fetch_size", &self.fetch_size)
-            .finish()
-    }
+        #[iroha_data_model_derive::model]
+        mod model{
+            use super::*; $(
+
+            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+            #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
+            #[derive(serde::Deserialize, serde::Serialize)]
+            #[derive(derive_more::Constructor)]
+            #[derive(iroha_schema::IntoSchema)]
+            $($meta)*
+            $item )+
+        }
+    };
 }
 
 pub mod role {
@@ -891,9 +463,7 @@ pub mod role {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use parity_scale_codec::Encode;
 
-    use super::Query;
     use crate::prelude::*;
 
     queries! {
@@ -910,18 +480,6 @@ pub mod role {
         #[ffi_type]
         pub struct FindAllRoleIds;
 
-
-        /// [`FindRoleByRoleId`] Iroha Query finds the [`Role`] which has the given [`Id`](crate::RoleId)
-        #[derive(Display)]
-        #[display(fmt = "Find `{id}` role")]
-        #[repr(transparent)]
-        // SAFETY: `FindRoleByRoleId` has no trap representation in `EvaluatesTo<RoleId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindRoleByRoleId {
-            /// `Id` of the [`Role`] to find
-            pub id: RoleId,
-        }
-
         /// [`FindRolesByAccountId`] Iroha Query finds all [`Role`]s for a specified account.
         #[derive(Display)]
         #[display(fmt = "Find all roles for `{id}` account")]
@@ -936,7 +494,7 @@ pub mod role {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
-        pub use super::{FindAllRoleIds, FindAllRoles, FindRoleByRoleId, FindRolesByAccountId};
+        pub use super::{FindAllRoleIds, FindAllRoles, FindRolesByAccountId};
     }
 }
 
@@ -947,9 +505,7 @@ pub mod permission {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use parity_scale_codec::Encode;
 
-    use super::Query;
     use crate::prelude::*;
 
     queries! {
@@ -979,9 +535,7 @@ pub mod account {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use parity_scale_codec::Encode;
 
-    use super::{JsonString, Query};
     use crate::prelude::*;
 
     queries! {
@@ -991,17 +545,6 @@ pub mod account {
         #[display(fmt = "Find all accounts")]
         #[ffi_type]
         pub struct FindAllAccounts;
-
-        /// [`FindAccountById`] Iroha Query finds an [`Account`] by it's identification.
-        #[derive(Display)]
-        #[display(fmt = "Find `{id}` account")]
-        #[repr(transparent)]
-        // SAFETY: `FindAccountById` has no trap representation in `EvaluatesTo<AccountId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindAccountById {
-            /// `Id` of an account to find.
-            pub id: AccountId,
-        }
 
         /// [`FindAccountKeyValueByIdAndKey`] Iroha Query finds an [`MetadataValue`]
         /// of the key-value metadata pair in the specified account.
@@ -1013,18 +556,6 @@ pub mod account {
             pub id: AccountId,
             /// Key of the specific key-value in the Account's metadata.
             pub key: Name,
-        }
-
-        /// [`FindAccountsByDomainId`] Iroha Query gets [`Domain`]s id as input and
-        /// finds all [`Account`]s under this [`Domain`].
-        #[derive(Display)]
-        #[display(fmt = "Find accounts under `{domain}` domain")]
-        #[repr(transparent)]
-        // SAFETY: `FindAccountsByDomainId` has no trap representation in `EvaluatesTo<DomainId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindAccountsByDomainId {
-            /// `Id` of the domain under which accounts should be found.
-            pub domain: DomainId,
         }
 
         /// [`FindAccountsWithAsset`] Iroha Query gets [`AssetDefinition`]s id as input and
@@ -1042,10 +573,7 @@ pub mod account {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{
-            FindAccountById, FindAccountKeyValueByIdAndKey, FindAccountsByDomainId,
-            FindAccountsWithAsset, FindAllAccounts,
-        };
+        pub use super::{FindAccountKeyValueByIdAndKey, FindAccountsWithAsset, FindAllAccounts};
     }
 }
 
@@ -1058,9 +586,7 @@ pub mod asset {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use parity_scale_codec::Encode;
 
-    use super::{JsonString, Query};
     use crate::prelude::*;
 
     queries! {
@@ -1076,89 +602,6 @@ pub mod asset {
         #[display(fmt = "Find all asset definitions")]
         #[ffi_type]
         pub struct FindAllAssetsDefinitions; // TODO: Should it be renamed to [`FindAllAssetDefinitions`?
-
-        /// [`FindAssetById`] Iroha Query finds an [`Asset`] by it's identification in Iroha [`Peer`].
-        #[derive(Display)]
-        #[display(fmt = "Find `{id}` asset")]
-        #[repr(transparent)]
-        // SAFETY: `FindAssetById` has no trap representation in `EvaluatesTo<AssetId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindAssetById {
-            /// `Id` of an [`Asset`] to find.
-            pub id: AssetId,
-        }
-
-        /// [`FindAssetDefinitionById`] Iroha Query finds an [`AssetDefinition`] by it's identification in Iroha [`Peer`].
-        #[derive(Display)]
-        #[display(fmt = "Find `{id}` asset definition")]
-        #[repr(transparent)]
-        // SAFETY: `FindAssetDefinitionById` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindAssetDefinitionById {
-            /// `Id` of an [`AssetDefinition`] to find.
-            pub id: AssetDefinitionId,
-        }
-
-        /// [`FindAssetsByName`] Iroha Query gets [`Asset`]s name as input and
-        /// finds all [`Asset`]s with it in Iroha [`Peer`].
-        #[derive(Display)]
-        #[display(fmt = "Find asset with `{name}` name")]
-        #[repr(transparent)]
-        // SAFETY: `FindAssetsByName` has no trap representation in `EvaluatesTo<Name>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindAssetsByName {
-            /// [`Name`] of [`Asset`]s to find.
-            pub name: Name,
-        }
-
-        /// [`FindAssetsByAccountId`] Iroha Query gets [`AccountId`] as input and find all [`Asset`]s
-        /// owned by the [`Account`] in Iroha Peer.
-        #[derive(Display)]
-        #[display(fmt = "Find assets owned by the `{account}` account")]
-        #[repr(transparent)]
-        // SAFETY: `FindAssetsByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindAssetsByAccountId {
-            /// [`AccountId`] under which assets should be found.
-            pub account: AccountId,
-        }
-
-        /// [`FindAssetsByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and
-        /// finds all [`Asset`]s with this [`AssetDefinition`] in Iroha Peer.
-        #[derive(Display)]
-        #[display(fmt = "Find assets with `{asset_definition}` asset definition")]
-        #[repr(transparent)]
-        // SAFETY: `FindAssetsByAssetDefinitionId` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindAssetsByAssetDefinitionId {
-            /// [`AssetDefinitionId`] with type of [`Asset`]s should be found.
-            pub asset_definition: AssetDefinitionId,
-        }
-
-        /// [`FindAssetsByDomainId`] Iroha Query gets [`Domain`]s id as input and
-        /// finds all [`Asset`]s under this [`Domain`] in Iroha [`Peer`].
-        #[derive(Display)]
-        #[display(fmt = "Find assets under the `{domain}` domain")]
-        #[repr(transparent)]
-        // SAFETY: `FindAssetsByDomainId` has no trap representation in `EvaluatesTo<DomainId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindAssetsByDomainId {
-            /// `Id` of the domain under which assets should be found.
-            pub domain: DomainId,
-        }
-
-        /// [`FindAssetsByDomainIdAndAssetDefinitionId`] Iroha Query gets [`DomainId`] and
-        /// [`AssetDefinitionId`] as inputs and finds [`Asset`]s under the [`Domain`]
-        /// with this [`AssetDefinition`] in Iroha [`Peer`].
-        #[derive(Display)]
-        #[display(fmt = "Find assets under the `{domain}` domain with `{asset_definition}` asset definition")]
-        #[ffi_type]
-        pub struct FindAssetsByDomainIdAndAssetDefinitionId {
-            /// `Id` of the domain under which assets should be found.
-            pub domain: DomainId,
-            /// [`AssetDefinitionId`] assets of which type should be found.
-            pub asset_definition: AssetDefinitionId,
-        }
 
         /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`]
         /// value if [`Asset`] is presented in Iroha Peer.
@@ -1213,10 +656,8 @@ pub mod asset {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAllAssets, FindAllAssetsDefinitions, FindAssetById, FindAssetDefinitionById,
-            FindAssetDefinitionKeyValueByIdAndKey, FindAssetKeyValueByIdAndKey,
-            FindAssetQuantityById, FindAssetsByAccountId, FindAssetsByAssetDefinitionId,
-            FindAssetsByDomainId, FindAssetsByDomainIdAndAssetDefinitionId, FindAssetsByName,
+            FindAllAssets, FindAllAssetsDefinitions, FindAssetDefinitionKeyValueByIdAndKey,
+            FindAssetKeyValueByIdAndKey, FindAssetQuantityById,
             FindTotalAssetQuantityByAssetDefinitionId,
         };
     }
@@ -1231,9 +672,7 @@ pub mod domain {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use parity_scale_codec::Encode;
 
-    use super::{JsonString, Query};
     use crate::prelude::*;
 
     queries! {
@@ -1242,17 +681,6 @@ pub mod domain {
         #[display(fmt = "Find all domains")]
         #[ffi_type]
         pub struct FindAllDomains;
-
-        /// [`FindDomainById`] Iroha Query finds a [`Domain`] by it's identification in Iroha [`Peer`].
-        #[derive(Display)]
-        #[display(fmt = "Find `{id}` domain")]
-        #[repr(transparent)]
-        // SAFETY: `FindTotalAssetQuantityByAssetDefinitionId` has no trap representation in `EvaluatesTo<DomainId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindDomainById {
-            /// `Id` of the domain to find.
-            pub id: DomainId,
-        }
 
         /// [`FindDomainKeyValueByIdAndKey`] Iroha Query finds a [`MetadataValue`] of the key-value metadata pair
         /// in the specified domain.
@@ -1269,7 +697,7 @@ pub mod domain {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAllDomains, FindDomainById, FindDomainKeyValueByIdAndKey};
+        pub use super::{FindAllDomains, FindDomainKeyValueByIdAndKey};
     }
 }
 
@@ -1280,9 +708,6 @@ pub mod peer {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use parity_scale_codec::Encode;
-
-    use super::Query;
 
     queries! {
         /// [`FindAllPeers`] Iroha Query finds all trusted [`Peer`]s presented in current Iroha [`Peer`].
@@ -1332,10 +757,8 @@ pub mod trigger {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use parity_scale_codec::Encode;
 
-    use super::{JsonString, Query};
-    use crate::{account::AccountId, domain::prelude::*, trigger::TriggerId, Identifiable, Name};
+    use crate::{trigger::TriggerId, Name};
 
     queries! {
         /// Find all currently active (as in not disabled and/or expired)
@@ -1366,36 +789,11 @@ pub mod trigger {
             /// The key inside the metadata dictionary to be returned.
             pub key: Name,
         }
-
-        /// Find all triggers executable on behalf of the given account.
-        #[derive(Display)]
-        #[display(fmt = "Find triggers executable on behalf of the `{account}` account")]
-        #[repr(transparent)]
-        // SAFETY: `FindTriggersByAuthorityId` has no trap representation in `EvaluatesTo<DomainId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindTriggersByAuthorityId {
-            /// [`AccountId`] specifies the authority behind the trigger execution.
-            pub account: AccountId,
-        }
-
-        /// Find all triggers whose authority belongs to the given domain.
-        #[derive(Display)]
-        #[display(fmt = "Find triggers with authority under `{domain}` domain")]
-        #[repr(transparent)]
-        // SAFETY: `FindTriggersByAuthorityDomainId` has no trap representation in `EvaluatesTo<DomainId>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindTriggersByAuthorityDomainId {
-            /// [`DomainId`] specifies the domain in which to search for triggers.
-            pub domain: DomainId,
-        }
     }
 
     pub mod prelude {
         //! Prelude Re-exports most commonly used traits, structs and macros from this crate.
-        pub use super::{
-            FindAllActiveTriggerIds, FindTriggerById, FindTriggerKeyValueByIdAndKey,
-            FindTriggersByAuthorityDomainId, FindTriggersByAuthorityId,
-        };
+        pub use super::{FindAllActiveTriggerIds, FindTriggerById, FindTriggerKeyValueByIdAndKey};
     }
 }
 
@@ -1409,9 +807,7 @@ pub mod transaction {
 
     use derive_more::Display;
     use iroha_crypto::HashOf;
-    use parity_scale_codec::Encode;
 
-    use super::Query;
     use crate::{account::AccountId, transaction::SignedTransaction};
 
     queries! {
@@ -1462,9 +858,8 @@ pub mod block {
 
     use derive_more::Display;
     use iroha_crypto::HashOf;
-    use parity_scale_codec::{Decode, Encode};
 
-    use super::{Query, SignedBlock};
+    use super::SignedBlock;
 
     queries! {
         /// [`FindAllBlocks`] Iroha Query lists all blocks sorted by
@@ -1496,258 +891,6 @@ pub mod block {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{FindAllBlockHeaders, FindAllBlocks, FindBlockHeaderByHash};
-    }
-}
-
-#[cfg(feature = "http")]
-pub mod http {
-    //! Structures related to sending queries over HTTP
-
-    use iroha_crypto::SignatureOf;
-    use iroha_data_model_derive::model;
-    use iroha_schema::IntoSchema;
-    use iroha_version::{declare_versioned, version_with_scale};
-    use parity_scale_codec::{Decode, Encode};
-    use serde::{Deserialize, Serialize};
-
-    pub use self::model::*;
-    use super::{
-        predicate::PredicateBox, FetchSize, ForwardCursor, Pagination, Query, QueryBox,
-        QueryRequest, Sorting,
-    };
-    // use super::*;
-    use crate::account::AccountId;
-
-    declare_versioned!(SignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
-
-    #[model]
-    mod model {
-        use core::num::NonZeroU64;
-
-        use super::*;
-
-        /// I/O ready structure to send queries.
-        #[derive(Debug, Clone)]
-        #[repr(transparent)]
-        #[must_use]
-        pub struct ClientQueryBuilder {
-            /// Payload
-            pub(super) payload: ClientQueryPayload,
-        }
-
-        /// Payload of a query.
-        #[derive(
-            Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
-        )]
-        pub(crate) struct ClientQueryPayload {
-            /// Account id of the user who will sign this query.
-            pub authority: AccountId,
-            /// Query definition.
-            pub query: QueryBox,
-            /// The filter applied to the result on the server-side.
-            pub filter: PredicateBox,
-            /// Sorting applied to the result on the server-side.
-            pub sorting: Sorting,
-            /// Selects the page of the result set to return.
-            pub pagination: Pagination,
-            /// Specifies the size of a single batch of results.
-            pub fetch_size: FetchSize,
-        }
-
-        /// Signature of query
-        #[derive(
-            Debug,
-            Clone,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-        )]
-        pub struct QuerySignature(pub SignatureOf<ClientQueryPayload>);
-
-        /// I/O ready structure to send queries.
-        #[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
-        #[version_with_scale(version = 1, versioned_alias = "SignedQuery")]
-        pub struct SignedQueryV1 {
-            /// Signature of the client who sends this query.
-            pub signature: QuerySignature,
-            /// Payload
-            pub payload: ClientQueryPayload,
-        }
-
-        /// End type of a query http clients can send to an endpoint.
-        #[derive(Debug, Clone, Decode, Encode)]
-        pub struct ClientQueryRequest(pub QueryRequest<SignedQuery>);
-    }
-
-    impl ClientQueryRequest {
-        /// Construct a new request containing query.
-        pub fn query(query: SignedQuery) -> Self {
-            Self(QueryRequest::Query(query))
-        }
-
-        /// Construct a new request containing cursor.
-        pub fn cursor(cursor: ForwardCursor) -> Self {
-            Self(QueryRequest::Cursor(cursor))
-        }
-    }
-
-    mod candidate {
-        use parity_scale_codec::Input;
-
-        use super::*;
-
-        #[derive(Decode, Deserialize)]
-        struct SignedQueryCandidate {
-            signature: QuerySignature,
-            payload: ClientQueryPayload,
-        }
-
-        impl SignedQueryCandidate {
-            fn validate(self) -> Result<SignedQueryV1, &'static str> {
-                let QuerySignature(signature) = &self.signature;
-
-                signature
-                    .verify(&self.payload.authority.signatory, &self.payload)
-                    .map_err(|_| "Query signature is not valid")?;
-
-                Ok(SignedQueryV1 {
-                    payload: self.payload,
-                    signature: self.signature,
-                })
-            }
-        }
-
-        impl Decode for SignedQueryV1 {
-            fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
-                SignedQueryCandidate::decode(input)?
-                    .validate()
-                    .map_err(Into::into)
-            }
-        }
-
-        impl<'de> Deserialize<'de> for SignedQueryV1 {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                use serde::de::Error as _;
-
-                SignedQueryCandidate::deserialize(deserializer)?
-                    .validate()
-                    .map_err(D::Error::custom)
-            }
-        }
-    }
-
-    #[cfg(feature = "transparent_api")]
-    impl SignedQuery {
-        /// Return query signature
-        pub fn signature(&self) -> &QuerySignature {
-            let SignedQuery::V1(query) = self;
-            &query.signature
-        }
-        /// Return query payload
-        pub fn query(&self) -> &QueryBox {
-            let SignedQuery::V1(query) = self;
-            &query.payload.query
-        }
-        /// Return query authority
-        pub fn authority(&self) -> &AccountId {
-            let SignedQuery::V1(query) = self;
-            &query.payload.authority
-        }
-        /// Return query filter
-        pub fn filter(&self) -> &PredicateBox {
-            let SignedQuery::V1(query) = self;
-            &query.payload.filter
-        }
-        /// Return query sorting
-        pub fn sorting(&self) -> &Sorting {
-            let SignedQuery::V1(query) = self;
-            &query.payload.sorting
-        }
-        /// Return query pagination
-        pub fn pagination(&self) -> Pagination {
-            let SignedQuery::V1(query) = self;
-            query.payload.pagination
-        }
-        /// Return query fetch size
-        pub fn fetch_size(&self) -> FetchSize {
-            let SignedQuery::V1(query) = self;
-            query.payload.fetch_size
-        }
-    }
-
-    impl ClientQueryBuilder {
-        /// Construct a new request with the `query`.
-        pub fn new(query: impl Query, authority: AccountId) -> Self {
-            Self {
-                payload: ClientQueryPayload {
-                    query: query.into(),
-                    authority,
-                    filter: PredicateBox::default(),
-                    sorting: Sorting::default(),
-                    pagination: Pagination::default(),
-                    fetch_size: FetchSize::default(),
-                },
-            }
-        }
-
-        /// Set the filter for the query
-        #[inline]
-        pub fn with_filter(mut self, filter: PredicateBox) -> Self {
-            self.payload.filter = filter;
-            self
-        }
-
-        /// Set the sorting for the query
-        #[inline]
-        pub fn with_sorting(mut self, sorting: Sorting) -> Self {
-            self.payload.sorting = sorting;
-            self
-        }
-
-        /// Set the pagination for the query
-        #[inline]
-        pub fn with_pagination(mut self, pagination: Pagination) -> Self {
-            self.payload.pagination = pagination;
-            self
-        }
-
-        /// Set the fetch size for the query
-        #[inline]
-        pub fn with_fetch_size(mut self, fetch_size: FetchSize) -> Self {
-            self.payload.fetch_size = fetch_size;
-            self
-        }
-
-        /// Consumes self and returns a signed [`ClientQueryBuilder`].
-        ///
-        /// # Errors
-        /// Fails if signature creation fails.
-        #[inline]
-        #[must_use]
-        pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedQuery {
-            let signature = SignatureOf::new(key_pair.private_key(), &self.payload);
-
-            SignedQueryV1 {
-                signature: QuerySignature(signature),
-                payload: self.payload,
-            }
-            .into()
-        }
-    }
-
-    pub mod prelude {
-        //! The prelude re-exports most commonly used traits, structs and macros from this crate.
-
-        pub use super::{ClientQueryBuilder, QuerySignature, SignedQuery, SignedQueryV1};
     }
 }
 
@@ -1855,12 +998,10 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 #[allow(ambiguous_glob_reexports)]
 pub mod prelude {
-    #[cfg(feature = "http")]
-    pub use super::http::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
-        executor::prelude::*, peer::prelude::*, permission::prelude::*, predicate::PredicateTrait,
-        role::prelude::*, transaction::prelude::*, trigger::prelude::*, FetchSize,
-        IterableQueryBox, QueryBox, QueryRequest2, SingularQueryBox, TransactionQueryOutput,
+        executor::prelude::*, parameters::prelude::*, peer::prelude::*, permission::prelude::*,
+        predicate::prelude::*, role::prelude::*, transaction::prelude::*, trigger::prelude::*,
+        IterableQueryBox, QueryBox, QueryRequest, SingularQueryBox, TransactionQueryOutput,
     };
 }

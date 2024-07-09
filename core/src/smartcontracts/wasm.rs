@@ -12,10 +12,7 @@ use iroha_data_model::{
     isi::InstructionBox,
     parameter::SmartContractParameters as Config,
     prelude::*,
-    query::{
-        cursor::QueryId, IterableQueryOutput, QueryBox2, QueryRequest, QueryRequest2,
-        QueryResponse2, SmartContractQuery,
-    },
+    query::{parameters::QueryId, IterableQueryOutput, QueryBox, QueryRequest, QueryResponse},
     smart_contract::payloads::{self, Validate},
     Level as LogLevel, ValidationFail,
 };
@@ -23,17 +20,14 @@ use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span};
 use iroha_wasm_codec::{self as codec, WasmUsize};
-use parity_scale_codec::Decode;
 use wasmtime::{
     Caller, Config as WasmtimeConfig, Engine, Linker, Module, Store, StoreLimits,
     StoreLimitsBuilder, TypedFunc,
 };
 
-use crate::smartcontracts::query::ValidQueryRequest;
-#[warn(unused_imports)] // TODO
 use crate::{
     query::store::LiveQueryStoreHandle,
-    smartcontracts::{wasm::state::ValidateQueryOperation, Execute},
+    smartcontracts::{query::ValidQueryRequest, Execute},
     state::{StateReadOnly, StateTransaction, WorldReadOnly},
 };
 
@@ -72,7 +66,7 @@ mod import {
         //! Traits which some [Runtime]s should implement to import functions from Iroha to WASM
 
         use iroha_data_model::{
-            query::{QueryRequest2, QueryResponse2},
+            query::{QueryRequest, QueryResponse},
             smart_contract::payloads::Validate,
         };
 
@@ -82,9 +76,9 @@ mod import {
             /// Execute `query` on host
             #[codec::wrap_trait_fn]
             fn execute_query(
-                query_request: QueryRequest2,
+                query_request: QueryRequest,
                 state: &mut S,
-            ) -> Result<QueryResponse2, ValidationFail>;
+            ) -> Result<QueryResponse, ValidationFail>;
 
             /// Execute `instruction` on host
             #[codec::wrap_trait_fn]
@@ -105,7 +99,7 @@ mod import {
             fn get_validate_instruction_payload(state: &S) -> Validate<InstructionBox>;
 
             #[codec::wrap_trait_fn]
-            fn get_validate_query_payload(state: &S) -> Validate<QueryBox2>;
+            fn get_validate_query_payload(state: &S) -> Validate<QueryBox>;
         }
 
         pub trait SetDataModel<S> {
@@ -246,11 +240,6 @@ pub mod error {
 
 /// [`Result`] type for this module
 pub type Result<T, E = Error> = core::result::Result<T, E>;
-
-#[cfg_attr(test, derive(parity_scale_codec::Encode))]
-#[derive(Debug, derive_more::Display, Decode)]
-#[repr(transparent)]
-pub(crate) struct SmartContractQueryRequest(pub QueryRequest<SmartContractQuery>);
 
 /// Create [`Module`] from bytes.
 ///
@@ -416,7 +405,7 @@ pub mod state {
         fn validate_query(
             &self,
             authority: &AccountId,
-            query: &QueryRequest2,
+            query: &QueryRequest,
         ) -> Result<(), ValidationFail>;
     }
 
@@ -484,7 +473,7 @@ pub mod state {
         pub mod executor {
             //! States related to *Executor* execution.
 
-            use iroha_data_model::query::QueryBox2;
+            use iroha_data_model::query::QueryBox;
 
             use super::*;
 
@@ -498,7 +487,7 @@ pub mod state {
             pub type ValidateTransaction = Validate<SignedTransaction>;
 
             /// State kind for executing `validate_query()` entrypoint of executor
-            pub type ValidateQuery = Validate<QueryBox2>;
+            pub type ValidateQuery = Validate<QueryBox>;
 
             /// State kind for executing `validate_instruction()` entrypoint of executor
             pub type ValidateInstruction = Validate<InstructionBox>;
@@ -521,7 +510,7 @@ pub mod state {
         fn validate_query(
             &self,
             authority: &AccountId,
-            query: &QueryRequest2,
+            query: &QueryRequest,
         ) -> Result<(), ValidationFail> {
             let state_ro = self.state.state();
             state_ro
@@ -535,7 +524,7 @@ pub mod state {
         fn validate_query(
             &self,
             authority: &AccountId,
-            query: &QueryRequest2,
+            query: &QueryRequest,
         ) -> Result<(), ValidationFail> {
             let state_ro = self.state.state();
             state_ro
@@ -576,7 +565,7 @@ pub mod state {
                     fn validate_query(
                         &self,
                         _authority: &AccountId,
-                        _query: &QueryRequest2,
+                        _query: &QueryRequest,
                     ) -> Result<(), ValidationFail> {
                         Ok(())
                     }
@@ -594,7 +583,7 @@ pub mod state {
             fn validate_query(
                 &self,
                 _authority: &AccountId,
-                _query: &QueryRequest2,
+                _query: &QueryRequest,
             ) -> Result<(), ValidationFail> {
                 Ok(())
             }
@@ -804,15 +793,14 @@ where
     W: state::chain_state::ConstState,
     state::CommonState<W, S>: state::ValidateQueryOperation,
 {
-    #[warn(unused)] // TODO
     fn default_execute_query(
-        query_request: QueryRequest2,
+        query_request: QueryRequest,
         state: &mut state::CommonState<W, S>,
-    ) -> Result<QueryResponse2, ValidationFail> {
+    ) -> Result<QueryResponse, ValidationFail> {
         iroha_logger::debug!(?query_request, "Executing");
 
         // if the query is continuing a cursor, preserve it (but only if validation succeeds)
-        let continue_query_id = if let QueryRequest2::ContinueIterable(cursor) = &query_request {
+        let continue_query_id = if let QueryRequest::ContinueIterable(cursor) = &query_request {
             Some(cursor.query.clone())
         } else {
             None
@@ -836,7 +824,7 @@ where
         let response = query.execute(live_query_store, state_ro, authority)?;
 
         // store the output cursor if there is one
-        if let QueryResponse2::Iterable(IterableQueryOutput {
+        if let QueryResponse::Iterable(IterableQueryOutput {
             continue_cursor: Some(cursor),
             ..
         }) = &response
@@ -960,9 +948,9 @@ impl<'wrld, 'block, 'state>
 {
     #[codec::wrap]
     fn execute_query(
-        query_request: QueryRequest2,
+        query_request: QueryRequest,
         state: &mut state::SmartContract<'wrld, 'block, 'state>,
-    ) -> Result<QueryResponse2, ValidationFail> {
+    ) -> Result<QueryResponse, ValidationFail> {
         Self::default_execute_query(query_request, state)
     }
 
@@ -1035,9 +1023,9 @@ impl<'wrld, 'block, 'state> import::traits::ExecuteOperations<state::Trigger<'wr
 {
     #[codec::wrap]
     fn execute_query(
-        query_request: QueryRequest2,
+        query_request: QueryRequest,
         state: &mut state::Trigger<'wrld, 'block, 'state>,
-    ) -> Result<QueryResponse2, ValidationFail> {
+    ) -> Result<QueryResponse, ValidationFail> {
         Self::default_execute_query(query_request, state)
     }
 
@@ -1069,9 +1057,9 @@ where
 {
     #[codec::wrap]
     fn execute_query(
-        query_request: QueryRequest2,
+        query_request: QueryRequest,
         state: &mut state::CommonState<state::chain_state::WithMut<'wrld, 'block, 'state>, S>,
-    ) -> Result<QueryResponse2, ValidationFail> {
+    ) -> Result<QueryResponse, ValidationFail> {
         debug!(?query_request, "Executing as executor");
 
         Runtime::default_execute_query(query_request, state)
@@ -1181,7 +1169,7 @@ impl<'wrld, 'block, 'state>
     #[codec::wrap]
     fn get_validate_query_payload(
         _state: &state::executor::ValidateTransaction<'wrld, 'block, 'state>,
-    ) -> Validate<QueryBox2> {
+    ) -> Validate<QueryBox> {
         panic!("Executor `validate_transaction()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
@@ -1261,7 +1249,7 @@ impl<'wrld, 'block, 'state>
     #[codec::wrap]
     fn get_validate_query_payload(
         _state: &state::executor::ValidateInstruction<'wrld, 'block, 'state>,
-    ) -> Validate<QueryBox2> {
+    ) -> Validate<QueryBox> {
         panic!("Executor `validate_instruction()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
@@ -1286,7 +1274,7 @@ impl<'wrld, S: StateReadOnly> Runtime<state::executor::ValidateQuery<'wrld, S>> 
         state_ro: &'wrld S,
         authority: &AccountId,
         module: &wasmtime::Module,
-        query: QueryBox2,
+        query: QueryBox,
     ) -> Result<executor::Result> {
         let span = wasm_log_span!("Running `validate_query()`");
 
@@ -1310,9 +1298,9 @@ impl<'wrld, S: StateReadOnly>
 {
     #[codec::wrap]
     fn execute_query(
-        query_request: QueryRequest2,
+        query_request: QueryRequest,
         state: &mut state::executor::ValidateQuery<'wrld, S>,
-    ) -> Result<QueryResponse2, ValidationFail> {
+    ) -> Result<QueryResponse, ValidationFail> {
         debug!(?query_request, "Executing as executor");
 
         Runtime::default_execute_query(query_request, state)
@@ -1353,7 +1341,7 @@ impl<'wrld, S: StateReadOnly>
     #[codec::wrap]
     fn get_validate_query_payload(
         state: &state::executor::ValidateQuery<'wrld, S>,
-    ) -> Validate<QueryBox2> {
+    ) -> Validate<QueryBox> {
         Validate {
             authority: state.authority.clone(),
             block_height: state.state.0.height() as u64,
@@ -1448,7 +1436,7 @@ impl<'wrld, 'block, 'state>
     #[codec::wrap]
     fn get_validate_query_payload(
         _state: &state::executor::Migrate<'wrld, 'block, 'state>,
-    ) -> Validate<QueryBox2> {
+    ) -> Validate<QueryBox> {
         panic!("Executor `migrate()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
@@ -1713,7 +1701,6 @@ impl<C: wasmtime::AsContextMut> GetExport for (&wasmtime::Instance, C) {
 
 #[cfg(test)]
 mod tests {
-    use iroha_data_model::query::{predicate::PredicateBox, sorting::Sorting, Pagination};
     use nonzero_ext::nonzero;
     use parity_scale_codec::Encode;
     use test_samples::gen_account_in;
@@ -1825,15 +1812,9 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
-        let query_hex = encode_hex(SmartContractQueryRequest(QueryRequest::Query(
-            SmartContractQuery::new(
-                FindAccountById::new(authority.clone()).into(),
-                PredicateBox::default(),
-                Sorting::default(),
-                Pagination::default(),
-                FetchSize::default(),
-            ),
-        )));
+        let query_hex = encode_hex(QueryRequest::Singular(
+            SingularQueryBox::FindExecutorDataModel(FindExecutorDataModel),
+        ));
 
         let wat = format!(
             r#"
@@ -1980,7 +1961,9 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
-        let query_hex = encode_hex(QueryBox::from(FindAccountById::new(authority.clone())));
+        let query_hex = encode_hex(QueryRequest::Singular(
+            SingularQueryBox::FindExecutorDataModel(FindExecutorDataModel),
+        ));
 
         let wat = format!(
             r#"
@@ -2027,7 +2010,6 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_account(&authority), kura, query_handle);
-        let query_hex = encode_hex(QueryBox::from(FindAccountById::new(authority.clone())));
 
         let wat = format!(
             r#"
@@ -2047,7 +2029,8 @@ mod tests {
             "#,
             main_fn_name = import::SMART_CONTRACT_MAIN,
             get_trigger_payload_fn_name = export::GET_TRIGGER_PAYLOAD,
-            memory_and_alloc = memory_and_alloc(&query_hex),
+            // this test doesn't use the memory
+            memory_and_alloc = memory_and_alloc(""),
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;

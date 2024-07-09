@@ -1,10 +1,8 @@
 use iroha::{
     client::{self, ClientQueryError},
-    data_model::{
-        prelude::*,
-        query::{error::QueryExecutionFail, MAX_FETCH_SIZE},
-    },
+    data_model::{prelude::*, query::error::QueryExecutionFail},
 };
+use iroha_data_model::query::parameters::MAX_FETCH_SIZE;
 use test_network::*;
 
 mod account;
