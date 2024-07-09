@@ -10,6 +10,8 @@ env:
 jobs:
   registry:
     runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx

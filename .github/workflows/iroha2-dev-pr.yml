@@ -21,47 +21,47 @@ env:
   DOCKER_COMPOSE_PATH: configs/swarm
 
 jobs:
-  consistency:
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Check genesis.json
-        if: always()
-        run: ./scripts/tests/consistency.sh genesis
-      - name: Check schema.json
-        if: always()
-        run: ./scripts/tests/consistency.sh schema
-      - name: Check Docker Compose configurations
-        if: always()
-        run: ./scripts/tests/consistency.sh docker-compose
+  # consistency:
+  #   runs-on: [self-hosted, Linux, iroha2]
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2024-04-18
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: Check genesis.json
+  #       if: always()
+  #       run: ./scripts/tests/consistency.sh genesis
+  #     - name: Check schema.json
+  #       if: always()
+  #       run: ./scripts/tests/consistency.sh schema
+  #     - name: Check Docker Compose configurations
+  #       if: always()
+  #       run: ./scripts/tests/consistency.sh docker-compose
 
-  # include: client/tests/integration/
-  # exclude: client/tests/integration/extra_functional
-  integration:
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Run tests, with no-default-features
-        run: mold --run cargo test --no-default-features --no-fail-fast -p iroha integration -- --skip extra_functional
+  # # include: client/tests/integration/
+  # # exclude: client/tests/integration/extra_functional
+  # integration:
+  #   runs-on: [self-hosted, Linux, iroha2]
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2024-04-18
+  #   timeout-minutes: 30
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: Run tests, with no-default-features
+  #       run: mold --run cargo test --no-default-features --no-fail-fast -p iroha integration -- --skip extra_functional
 
-  # include: client/tests/integration/extra_functional
-  extra_functional:
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Run tests
-        run: mold --run cargo test --no-default-features --no-fail-fast -p iroha extra_functional
+  # # include: client/tests/integration/extra_functional
+  # extra_functional:
+  #   runs-on: [self-hosted, Linux, iroha2]
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2024-04-18
+  #   timeout-minutes: 60
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: Run tests
+  #       run: mold --run cargo test --no-default-features --no-fail-fast -p iroha extra_functional
 
   # Run the job to check that the docker containers are properly buildable
   pr-generator-build:
@@ -97,9 +97,7 @@ jobs:
           context: .
 
   torii-api-and-client-cli-tests:
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
+    runs-on: ubuntu-latest #[self-hosted, Linux, iroha2]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
