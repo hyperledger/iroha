@@ -1721,7 +1721,7 @@ mod tests {
         let account = Account::new(authority.clone()).build(authority);
         let domain = Domain::new(domain_id).build(authority);
 
-        World::with([domain], [account], PeersIds::new())
+        World::with([domain], [account], [], PeersIds::new())
     }
 
     fn memory_and_alloc(isi_hex: &str) -> String {

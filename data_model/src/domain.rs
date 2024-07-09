@@ -5,20 +5,13 @@ use alloc::{format, string::String, vec::Vec};
 
 use derive_more::{Constructor, Display, FromStr};
 use iroha_data_model_derive::{model, IdEqOrdHash};
-use iroha_primitives::numeric::Numeric;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
-use crate::{
-    asset::{AssetDefinition, AssetDefinitionsMap, AssetTotalQuantityMap},
-    ipfs::IpfsPath,
-    metadata::Metadata,
-    prelude::*,
-    HasMetadata, Name, Registered,
-};
+use crate::{ipfs::IpfsPath, metadata::Metadata, prelude::*, HasMetadata, Name, Registered};
 
 #[model]
 mod model {
@@ -73,10 +66,6 @@ mod model {
     pub struct Domain {
         /// Identification of this [`Domain`].
         pub id: DomainId,
-        /// [`Asset`](AssetDefinition)s defined of the `Domain`.
-        pub asset_definitions: AssetDefinitionsMap,
-        /// Total amount of [`Asset`].
-        pub asset_total_quantities: AssetTotalQuantityMap,
         /// IPFS link to the [`Domain`] logo.
         #[getset(get = "pub")]
         pub logo: Option<IpfsPath>,
@@ -152,76 +141,6 @@ impl Domain {
     #[inline]
     pub fn new(id: DomainId) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id)
-    }
-}
-
-impl Domain {
-    /// Return a reference to the asset definition corresponding to the asset definition id
-    #[inline]
-    pub fn asset_definition(
-        &self,
-        asset_definition_id: &AssetDefinitionId,
-    ) -> Option<&AssetDefinition> {
-        self.asset_definitions.get(asset_definition_id)
-    }
-
-    /// Return a reference to the asset definition corresponding to the asset definition id
-    #[inline]
-    pub fn asset_total_quantity(
-        &self,
-        asset_definition_id: &AssetDefinitionId,
-    ) -> Option<&Numeric> {
-        self.asset_total_quantities.get(asset_definition_id)
-    }
-
-    /// Get an iterator over asset definitions of the `Domain`
-    #[inline]
-    pub fn asset_definitions(&self) -> impl ExactSizeIterator<Item = &AssetDefinition> {
-        self.asset_definitions.values()
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl Domain {
-    /// Add asset definition into the [`Domain`] returning previous
-    /// asset definition stored under the same id
-    #[inline]
-    pub fn add_asset_definition(
-        &mut self,
-        asset_definition: AssetDefinition,
-    ) -> Option<AssetDefinition> {
-        self.asset_definitions
-            .insert(asset_definition.id().clone(), asset_definition)
-    }
-
-    /// Remove asset definition from the [`Domain`] and return it
-    #[inline]
-    pub fn remove_asset_definition(
-        &mut self,
-        asset_definition_id: &AssetDefinitionId,
-    ) -> Option<AssetDefinition> {
-        self.asset_definitions.remove(asset_definition_id)
-    }
-
-    /// Add asset total amount into the [`Domain`] returning previous
-    /// asset amount stored under the same id
-    #[inline]
-    pub fn add_asset_total_quantity(
-        &mut self,
-        asset_definition_id: AssetDefinitionId,
-        initial_amount: Numeric,
-    ) -> Option<Numeric> {
-        self.asset_total_quantities
-            .insert(asset_definition_id, initial_amount)
-    }
-
-    /// Remove asset total amount from the [`Domain`] and return it
-    #[inline]
-    pub fn remove_asset_total_quantity(
-        &mut self,
-        asset_definition_id: &AssetDefinitionId,
-    ) -> Option<Numeric> {
-        self.asset_total_quantities.remove(asset_definition_id)
     }
 }
 

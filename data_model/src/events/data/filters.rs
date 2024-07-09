@@ -724,7 +724,6 @@ mod tests {
     use iroha_crypto::KeyPair;
 
     use super::*;
-    use crate::asset::{AssetDefinitionsMap, AssetTotalQuantityMap};
 
     #[test]
     #[cfg(feature = "transparent_api")]
@@ -736,8 +735,6 @@ mod tests {
 
         let domain = Domain {
             id: domain_id.clone(),
-            asset_definitions: AssetDefinitionsMap::default(),
-            asset_total_quantities: AssetTotalQuantityMap::default(),
             logo: None,
             metadata: Metadata::default(),
             owned_by: domain_owner_id,
