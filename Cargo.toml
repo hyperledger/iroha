@@ -54,7 +54,7 @@ proc-macro2 = "1.0.86"
 syn = { version = "2.0.69", default-features = false }
 quote = "1.0.36"
 manyhow = { version = "0.8.1", features = ["darling"] }
-darling = "0.20.9"
+darling = "0.20.10"
 drop_bomb = "0.1.5"
 
 futures = { version = "0.3.30", default-features = false }
