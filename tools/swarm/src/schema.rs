@@ -291,7 +291,7 @@ const SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/sh -c "
         --private-key $$GENESIS_PRIVATE_KEY \\
         --out-file $$GENESIS \\
     && \\
-    irohad
+    exec irohad
 ""#;
 
 /// Configuration of the `irohad` service that submits genesis.
