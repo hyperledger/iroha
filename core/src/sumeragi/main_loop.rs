@@ -381,10 +381,9 @@ impl Sumeragi {
         topology: &Topology,
         genesis_account: &AccountId,
         BlockCreated { block }: BlockCreated,
+        existing_voting_block: &mut Option<VotingBlock>,
     ) -> Option<VotingBlock<'state>> {
-        let mut state_block = state.block();
-
-        if state_block.height() == 1 && block.header().height.get() == 1 {
+        if state.view().height() == 1 && block.header().height.get() == 1 {
             // Consider our peer has genesis,
             // and some other peer has genesis and broadcast it to our peer,
             // then we can ignore such genesis block because we already has genesis.
@@ -393,15 +392,16 @@ impl Sumeragi {
             return None;
         }
 
-        ValidBlock::validate(
+        ValidBlock::validate_keep_voting_block(
             block,
             topology,
             &self.chain_id,
             genesis_account,
-            &mut state_block,
+            state,
+            existing_voting_block,
         )
         .unpack(|e| self.send_event(e))
-        .map(|block| VotingBlock::new(block, state_block))
+        .map(|(block, state_block)| VotingBlock::new(block, state_block))
         .map_err(|(block, error)| {
             warn!(
                 peer_id=%self.peer_id,
@@ -445,11 +445,10 @@ impl Sumeragi {
                     "Block sync update received"
                 );
 
-                // Release block writer before creating new one
-                // FIX: Restore `voting_block` if `handle_block_sync` returns Err
-                // Currently it's not possible because block writer needs to be released
-                // Look at https://github.com/hyperledger/iroha/issues/4643
-                let _ = voting_block.take();
+                if categorize_block_sync(&block, &state.view()).is_ok() {
+                    // Release block writer before creating new one
+                    let _ = voting_block.take();
+                }
 
                 match handle_block_sync(&self.chain_id, block, state, genesis_account, &|e| {
                     self.send_event(e)
@@ -534,22 +533,19 @@ impl Sumeragi {
                     .is_consensus_required()
                     .expect("INTERNAL BUG: Consensus required for validating peer");
 
-                // Release block writer before creating new one
-                let _ = voting_block.take();
-
-                if let Some(mut v_block) =
-                    self.validate_block(state, topology, genesis_account, block_created)
-                {
+                if let Some(mut v_block) = self.validate_block(
+                    state,
+                    topology,
+                    genesis_account,
+                    block_created,
+                    voting_block,
+                ) {
                     v_block.block.sign(&self.key_pair, topology);
 
                     let msg = BlockSigned::from(&v_block.block);
                     self.broadcast_packet_to(msg, [topology.proxy_tail()]);
 
                     *voting_block = Some(v_block);
-                } else {
-                    // FIX: Restore `voting_block`
-                    // Currently it's not possible because block writer needs to be released
-                    // Look at https://github.com/hyperledger/iroha/issues/4643
                 }
             }
             (BlockMessage::BlockCreated(block_created), Role::ObservingPeer) => {
@@ -558,12 +554,13 @@ impl Sumeragi {
                     .is_consensus_required()
                     .expect("INTERNAL BUG: Consensus required for observing peer");
 
-                // Release block writer before creating new one
-                let _ = voting_block.take();
-
-                if let Some(mut v_block) =
-                    self.validate_block(state, topology, genesis_account, block_created)
-                {
+                if let Some(mut v_block) = self.validate_block(
+                    state,
+                    topology,
+                    genesis_account,
+                    block_created,
+                    voting_block,
+                ) {
                     if view_change_index >= 1 {
                         v_block.block.sign(&self.key_pair, topology);
 
@@ -579,10 +576,6 @@ impl Sumeragi {
                     }
 
                     *voting_block = Some(v_block);
-                } else {
-                    // FIX: Restore `voting_block`
-                    // Currently it's not possible because block writer needs to be released
-                    // Look at https://github.com/hyperledger/iroha/issues/4643
                 }
             }
             (BlockMessage::BlockCreated(block_created), Role::ProxyTail) => {
@@ -593,12 +586,13 @@ impl Sumeragi {
                     "Block received"
                 );
 
-                // Release block writer before creating new one
-                let _ = voting_block.take();
-
-                if let Some(mut valid_block) =
-                    self.validate_block(state, &self.topology, genesis_account, block_created)
-                {
+                if let Some(mut valid_block) = self.validate_block(
+                    state,
+                    &self.topology,
+                    genesis_account,
+                    block_created,
+                    voting_block,
+                ) {
                     // NOTE: Up until this point it was unknown which block is expected to be received,
                     // therefore all the signatures (of any hash) were collected and will now be pruned
 
@@ -611,10 +605,6 @@ impl Sumeragi {
                     }
 
                     *voting_block = self.try_commit_block(valid_block, is_genesis_peer);
-                } else {
-                    // FIX: Restore `voting_block`
-                    // Currently it's not possible because block writer needs to be released
-                    // Look at https://github.com/hyperledger/iroha/issues/4643
                 }
             }
             (BlockMessage::BlockSigned(BlockSigned { hash, signature }), Role::ProxyTail) => {
@@ -1248,46 +1238,10 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
     genesis_account: &AccountId,
     handle_events: &F,
 ) -> Result<BlockSyncOk<'state>, (SignedBlock, BlockSyncError)> {
-    let block_height: NonZeroUsize = block
-        .header()
-        .height
-        .try_into()
-        .expect("INTERNAL BUG: Block height exceeds usize::MAX");
-
-    let state_height = state.view().height();
-    let (mut state_block, soft_fork) = if state_height + 1 == block_height.get() {
-        // NOTE: Normal branch for adding new block on top of current
-
-        (state.block(), false)
-    } else if state_height == block_height.get() && block_height.get() > 1 {
-        // NOTE: Soft fork branch for replacing current block with valid one
-
-        let latest_block = state
-            .view()
-            .latest_block()
-            .expect("INTERNAL BUG: No latest block");
-        let peer_view_change_index = latest_block.header().view_change_index as usize;
-        let block_view_change_index = block.header().view_change_index as usize;
-        if peer_view_change_index >= block_view_change_index {
-            return Err((
-                block,
-                BlockSyncError::SoftForkBlockSmallViewChangeIndex {
-                    peer_view_change_index,
-                    block_view_change_index,
-                },
-            ));
-        }
-
-        (state.block_and_revert(), true)
-    } else {
-        // Error branch other peer send irrelevant block
-        return Err((
-            block,
-            BlockSyncError::BlockNotProperHeight {
-                peer_height: state_height,
-                block_height,
-            },
-        ));
+    let (mut state_block, soft_fork) = match categorize_block_sync(&block, &state.view()) {
+        Ok(BlockSyncType::CommitBlock) => (state.block(), false),
+        Ok(BlockSyncType::ReplaceTopBlock) => (state.block_and_revert(), true),
+        Err(e) => return Err((block, e)),
     };
     let latest_block = state_block
         .latest_block()
@@ -1327,6 +1281,51 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
             BlockSyncOk::CommitBlock(block, state_block, topology)
         }
     })
+}
+
+enum BlockSyncType {
+    CommitBlock,
+    ReplaceTopBlock,
+}
+
+fn categorize_block_sync(
+    block: &SignedBlock,
+    state_view: &StateView,
+) -> Result<BlockSyncType, BlockSyncError> {
+    let block_height: NonZeroUsize = block
+        .header()
+        .height
+        .try_into()
+        .expect("INTERNAL BUG: Block height exceeds usize::MAX");
+
+    let state_height = state_view.height();
+    if state_height + 1 == block_height.get() {
+        // NOTE: Normal branch for adding new block on top of current
+
+        Ok(BlockSyncType::CommitBlock)
+    } else if state_height == block_height.get() && block_height.get() > 1 {
+        // NOTE: Soft fork branch for replacing current block with valid one
+
+        let latest_block = state_view
+            .latest_block()
+            .expect("INTERNAL BUG: No latest block");
+        let peer_view_change_index = latest_block.header().view_change_index as usize;
+        let block_view_change_index = block.header().view_change_index as usize;
+        if peer_view_change_index >= block_view_change_index {
+            return Err(BlockSyncError::SoftForkBlockSmallViewChangeIndex {
+                peer_view_change_index,
+                block_view_change_index,
+            });
+        }
+
+        Ok(BlockSyncType::ReplaceTopBlock)
+    } else {
+        // Error branch other peer send irrelevant block
+        Err(BlockSyncError::BlockNotProperHeight {
+            peer_height: state_height,
+            block_height,
+        })
+    }
 }
 
 #[cfg(test)]

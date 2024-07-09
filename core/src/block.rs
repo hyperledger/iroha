@@ -17,7 +17,12 @@ use thiserror::Error;
 
 pub(crate) use self::event::WithEvents;
 pub use self::{chained::Chained, commit::CommittedBlock, valid::ValidBlock};
-use crate::{prelude::*, sumeragi::network_topology::Topology, tx::AcceptTransactionFail};
+use crate::{
+    prelude::*,
+    state::State,
+    sumeragi::{network_topology::Topology, VotingBlock},
+    tx::AcceptTransactionFail,
+};
 
 /// Error during transaction validation
 #[derive(Debug, displaydoc::Display, PartialEq, Eq, Error)]
@@ -420,7 +425,63 @@ mod valid {
             genesis_account: &AccountId,
             state_block: &mut StateBlock<'_>,
         ) -> WithEvents<Result<ValidBlock, (SignedBlock, BlockValidationError)>> {
-            let expected_block_height = state_block
+            if let Err(error) =
+                Self::validate_header(&block, topology, genesis_account, state_block)
+            {
+                return WithEvents::new(Err((block, error.into())));
+            }
+
+            if let Err(error) =
+                Self::validate_transactions(&block, expected_chain_id, genesis_account, state_block)
+            {
+                return WithEvents::new(Err((block, error.into())));
+            }
+
+            WithEvents::new(Ok(ValidBlock(block)))
+        }
+
+        /// Same as `validate` but:
+        /// * Block header will be validated with read-only state
+        /// * If block header is valid, `voting_block` will be released,
+        ///   and transactions will be validated with write state
+        pub fn validate_keep_voting_block<'state>(
+            block: SignedBlock,
+            topology: &Topology,
+            expected_chain_id: &ChainId,
+            genesis_account: &AccountId,
+            state: &'state State,
+            voting_block: &mut Option<VotingBlock>,
+        ) -> WithEvents<Result<(ValidBlock, StateBlock<'state>), (SignedBlock, BlockValidationError)>>
+        {
+            if let Err(error) =
+                Self::validate_header(&block, topology, genesis_account, &state.view())
+            {
+                return WithEvents::new(Err((block, error)));
+            }
+
+            // Release block writer before creating new one
+            let _ = voting_block.take();
+            let mut state_block = state.block();
+
+            if let Err(error) = Self::validate_transactions(
+                &block,
+                expected_chain_id,
+                genesis_account,
+                &mut state_block,
+            ) {
+                return WithEvents::new(Err((block, error.into())));
+            }
+
+            WithEvents::new(Ok((ValidBlock(block), state_block)))
+        }
+
+        fn validate_header(
+            block: &SignedBlock,
+            topology: &Topology,
+            genesis_account: &AccountId,
+            state: &impl StateReadOnly,
+        ) -> Result<(), BlockValidationError> {
+            let expected_block_height = state
                 .height()
                 .checked_add(1)
                 .expect("INTERNAL BUG: Block height exceeds usize::MAX");
@@ -432,38 +493,32 @@ mod valid {
                 .expect("INTERNAL BUG: Block height exceeds usize::MAX");
 
             if expected_block_height != actual_height {
-                return WithEvents::new(Err((
-                    block,
-                    BlockValidationError::PrevBlockHeightMismatch {
-                        expected: expected_block_height,
-                        actual: actual_height,
-                    },
-                )));
+                return Err(BlockValidationError::PrevBlockHeightMismatch {
+                    expected: expected_block_height,
+                    actual: actual_height,
+                });
             }
 
-            let expected_prev_block_hash = state_block.latest_block_hash();
+            let expected_prev_block_hash = state.latest_block_hash();
             let actual_prev_block_hash = block.header().prev_block_hash;
 
             if expected_prev_block_hash != actual_prev_block_hash {
-                return WithEvents::new(Err((
-                    block,
-                    BlockValidationError::PrevBlockHashMismatch {
-                        expected: expected_prev_block_hash,
-                        actual: actual_prev_block_hash,
-                    },
-                )));
+                return Err(BlockValidationError::PrevBlockHashMismatch {
+                    expected: expected_prev_block_hash,
+                    actual: actual_prev_block_hash,
+                });
             }
 
             if block.header().is_genesis() {
-                if let Err(e) = check_genesis_block(&block, genesis_account) {
-                    return WithEvents::new(Err((block, e.into())));
+                if let Err(e) = check_genesis_block(block, genesis_account) {
+                    return Err(e.into());
                 }
             } else {
-                if let Err(err) = Self::verify_leader_signature(&block, topology)
-                    .and_then(|()| Self::verify_validator_signatures(&block, topology))
-                    .and_then(|()| Self::verify_no_undefined_signatures(&block, topology))
+                if let Err(err) = Self::verify_leader_signature(block, topology)
+                    .and_then(|()| Self::verify_validator_signatures(block, topology))
+                    .and_then(|()| Self::verify_no_undefined_signatures(block, topology))
                 {
-                    return WithEvents::new(Err((block, err.into())));
+                    return Err(err.into());
                 }
 
                 let actual_commit_topology = block.commit_topology().cloned().collect();
@@ -472,33 +527,21 @@ mod valid {
                 // NOTE: checked AFTER height and hash because
                 // both of them can lead to a topology mismatch
                 if actual_commit_topology != expected_commit_topology {
-                    return WithEvents::new(Err((
-                        block,
-                        BlockValidationError::TopologyMismatch {
-                            expected: expected_commit_topology.to_owned(),
-                            actual: actual_commit_topology,
-                        },
-                    )));
+                    return Err(BlockValidationError::TopologyMismatch {
+                        expected: expected_commit_topology.to_owned(),
+                        actual: actual_commit_topology,
+                    });
                 }
             }
 
             if block
                 .transactions()
-                .any(|tx| state_block.has_transaction(tx.as_ref().hash()))
+                .any(|tx| state.has_transaction(tx.as_ref().hash()))
             {
-                return WithEvents::new(Err((
-                    block,
-                    BlockValidationError::HasCommittedTransactions,
-                )));
+                return Err(BlockValidationError::HasCommittedTransactions);
             }
 
-            if let Err(error) =
-                Self::validate_transactions(&block, expected_chain_id, genesis_account, state_block)
-            {
-                return WithEvents::new(Err((block, error.into())));
-            }
-
-            WithEvents::new(Ok(ValidBlock(block)))
+            Ok(())
         }
 
         fn validate_transactions(
@@ -851,6 +894,7 @@ mod commit {
 
 mod event {
     use super::*;
+    use crate::state::StateBlock;
 
     pub trait EventProducer {
         fn produce_events(&self) -> impl Iterator<Item = PipelineEventBox>;
@@ -870,6 +914,19 @@ mod event {
         pub fn unpack<F: Fn(PipelineEventBox)>(self, f: F) -> Result<B, (U, BlockValidationError)> {
             match self.0 {
                 Ok(ok) => Ok(WithEvents(ok).unpack(f)),
+                Err(err) => Err(WithEvents(err).unpack(f)),
+            }
+        }
+    }
+    impl<'state, B: EventProducer, U>
+        WithEvents<Result<(B, StateBlock<'state>), (U, BlockValidationError)>>
+    {
+        pub fn unpack<F: Fn(PipelineEventBox)>(
+            self,
+            f: F,
+        ) -> Result<(B, StateBlock<'state>), (U, BlockValidationError)> {
+            match self.0 {
+                Ok((ok, state)) => Ok((WithEvents(ok).unpack(f), state)),
                 Err(err) => Err(WithEvents(err).unpack(f)),
             }
         }
