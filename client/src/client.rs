@@ -1030,7 +1030,7 @@ impl Client {
     ///
     /// # Errors
     /// If sending request or decoding fails
-    pub fn set_config(&self, dto: ConfigDTO) -> Result<()> {
+    pub fn set_config(&self, dto: &ConfigDTO) -> Result<()> {
         let body = serde_json::to_vec(&dto).wrap_err(format!("Failed to serialize {dto:?}"))?;
         let url = self
             .torii_url

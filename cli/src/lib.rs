@@ -520,7 +520,7 @@ impl Iroha {
             loop {
                 tokio::select! {
                     Ok(()) = log_level_update.changed() => {
-                        let value = *log_level_update.borrow_and_update();
+                        let value = log_level_update.borrow_and_update().clone();
                         if let Err(error) = logger.reload_level(value).await {
                             iroha_logger::error!("Failed to reload log level: {error}");
                         };
@@ -615,7 +615,7 @@ pub fn read_config_and_genesis(
 
     validate_config(&config)?;
 
-    let logger_config = LoggerInitConfig::new(config.logger, args.terminal_colors);
+    let logger_config = LoggerInitConfig::new(config.logger.clone(), args.terminal_colors);
 
     Ok((config, logger_config, genesis))
 }

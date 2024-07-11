@@ -1,6 +1,6 @@
 //! Actor encapsulating interaction with logger & telemetry subsystems.
 
-use iroha_data_model::Level;
+use iroha_config::logger::Directives;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing_core::Subscriber;
 use tracing_subscriber::{
@@ -41,7 +41,7 @@ impl LoggerHandle {
     /// # Errors
     /// - If reloading on the side of [`reload::Handle`] fails
     /// - If actor communication fails
-    pub async fn reload_level(&self, new_value: Level) -> color_eyre::Result<(), Error> {
+    pub async fn reload_level(&self, new_value: Directives) -> color_eyre::Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         let _ = self
             .sender
@@ -75,7 +75,7 @@ impl LoggerHandle {
 
 enum Message {
     ReloadLevel {
-        value: Level,
+        value: Directives,
         respond_to: oneshot::Sender<color_eyre::Result<(), Error>>,
     },
     SubscribeOnTelemetry {

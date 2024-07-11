@@ -41,7 +41,7 @@ fn try_set_logger() -> Result<()> {
 }
 
 /// Configuration needed for [`init_global`]. It is a little extension of [`Config`].
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct InitConfig {
     base: Config,
     terminal_colors: bool,
@@ -99,7 +99,7 @@ pub fn test_logger() -> LoggerHandle {
             // `test_logger` simple and also will emphasise isolation which is necessary anyway in
             // case of singleton mocking (where the logger is the singleton).
             let config = Config {
-                level: Level::DEBUG,
+                level: Level::DEBUG.into(),
                 format: Format::Pretty,
             };
 

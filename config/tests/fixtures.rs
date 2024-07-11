@@ -172,7 +172,7 @@ fn minimal_config_snapshot() {
                 idle_time: 30s,
             },
             logger: Logger {
-                level: INFO,
+                level: info,
                 format: Full,
             },
             queue: Queue {
