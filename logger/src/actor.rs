@@ -1,10 +1,12 @@
 //! Actor encapsulating interaction with logger & telemetry subsystems.
 
-use iroha_config::logger::into_tracing_level;
 use iroha_data_model::Level;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing_core::Subscriber;
-use tracing_subscriber::{reload, reload::Error as ReloadError};
+use tracing_subscriber::{
+    filter::ParseError,
+    reload::{self, Error as ReloadError},
+};
 
 use crate::telemetry;
 
@@ -16,7 +18,7 @@ pub struct LoggerHandle {
 
 impl LoggerHandle {
     pub(crate) fn new<S: Subscriber>(
-        handle: reload::Handle<tracing_subscriber::filter::LevelFilter, S>,
+        handle: reload::Handle<tracing_subscriber::filter::EnvFilter, S>,
         telemetry_receiver: mpsc::Receiver<telemetry::ChannelEvent>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(32);
@@ -74,7 +76,7 @@ impl LoggerHandle {
 enum Message {
     ReloadLevel {
         value: Level,
-        respond_to: oneshot::Sender<color_eyre::Result<(), ReloadError>>,
+        respond_to: oneshot::Sender<color_eyre::Result<(), Error>>,
     },
     SubscribeOnTelemetry {
         channel: telemetry::Channel,
@@ -85,6 +87,9 @@ enum Message {
 /// Possible errors that might occur while interacting with the actor.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("cannot parse new log level")]
+    /// If parsing new log level failed
+    ParseError(#[from] ParseError),
     /// If dynamic log level reloading failed
     #[error("cannot dynamically reload the log level")]
     LevelReload(#[from] ReloadError),
@@ -98,7 +103,7 @@ struct LoggerActor<S: Subscriber> {
     telemetry_receiver: mpsc::Receiver<telemetry::ChannelEvent>,
     telemetry_forwarder_regular: broadcast::Sender<telemetry::Event>,
     telemetry_forwarder_future: broadcast::Sender<telemetry::Event>,
-    level_handle: reload::Handle<tracing_subscriber::filter::LevelFilter, S>,
+    level_handle: reload::Handle<tracing_subscriber::filter::EnvFilter, S>,
 }
 
 impl<S: Subscriber> LoggerActor<S> {
@@ -125,9 +130,9 @@ impl<S: Subscriber> LoggerActor<S> {
     fn handle_message(&mut self, msg: Message) {
         match msg {
             Message::ReloadLevel { value, respond_to } => {
-                let level = into_tracing_level(value);
-                let filter = tracing_subscriber::filter::LevelFilter::from_level(level);
-                let result = self.level_handle.reload(filter);
+                let result = tracing_subscriber::filter::EnvFilter::try_new(value.to_string())
+                    .map_err(Error::from)
+                    .and_then(|filter| self.level_handle.reload(filter).map_err(Error::from));
                 let _ = respond_to.send(result);
             }
             Message::SubscribeOnTelemetry {

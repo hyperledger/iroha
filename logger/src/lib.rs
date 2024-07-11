@@ -13,7 +13,6 @@ use std::{
 
 use actor::LoggerHandle;
 use color_eyre::{eyre::eyre, Report, Result};
-use iroha_config::logger::into_tracing_level;
 pub use iroha_config::{
     logger::{Format, Level},
     parameters::actual::{DevTelemetry as DevTelemetryConfig, Logger as Config},
@@ -125,8 +124,8 @@ fn step2<L>(config: InitConfig, layer: L) -> Result<LoggerHandle>
 where
     L: tracing_subscriber::Layer<Registry> + Debug + Send + Sync + 'static,
 {
-    let level: tracing::Level = into_tracing_level(config.base.level);
-    let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
+    let level_filter =
+        tracing_subscriber::filter::EnvFilter::try_new(config.base.level.to_string())?;
     let (level_filter, level_filter_handle) = reload::Layer::new(level_filter);
     let subscriber = Registry::default()
         .with(layer)

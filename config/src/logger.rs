@@ -3,17 +3,6 @@
 pub use iroha_data_model::Level;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
-/// Convert [`Level`] into [`tracing::Level`]
-pub fn into_tracing_level(level: Level) -> tracing::Level {
-    match level {
-        Level::TRACE => tracing::Level::TRACE,
-        Level::DEBUG => tracing::Level::DEBUG,
-        Level::INFO => tracing::Level::INFO,
-        Level::WARN => tracing::Level::WARN,
-        Level::ERROR => tracing::Level::ERROR,
-    }
-}
-
 /// Reflects formatters in [`tracing_subscriber::fmt::format`]
 #[derive(
     Debug,
