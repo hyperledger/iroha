@@ -3,68 +3,13 @@ name: I2::Dev::CodeQuality
 on:
   workflow_run:
     workflows: ["I2::Dev::Tests"]
-    types: [in_progress]
+    types: [completed]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.actor }}
   cancel-in-progress: true
 
 jobs:
-  workspace_analysis_clippy:
-    runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.workflow_run.head_repository.full_name }}
-          ref: ${{ github.event.workflow_run.head_branch }}
-      - uses: Swatinem/rust-cache@v2
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Lints without features
-        if: always()
-        run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
-      - name: Lints with all features enabled
-        if: always()
-        run: cargo clippy --workspace --benches --tests --examples --all-features --quiet --message-format=json | tee clippy.json
-      - name: Documentation
-        if: always()
-        run: cargo doc --no-deps --quiet
-      - name: Upload clippy report artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: clippy.json
-          path: clippy.json
-
-  # exclude: client/tests/integration/
-  with_coverage:
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.workflow_run.head_repository.full_name }}
-          ref: ${{ github.event.workflow_run.head_branch }}
-      - uses: Swatinem/rust-cache@v2
-      - name: Run tests, with coverage
-        run: |
-          mold --run cargo test --all-features --no-fail-fast --workspace --exclude iroha
-          mold --run cargo test --all-features --no-fail-fast -p iroha -- --skip integration
-        env:
-          RUSTFLAGS: "-C instrument-coverage"
-          LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
-      - name: Generate lcov report
-        if: always()
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/client_cli" --ignore "**/main.rs" -o lcov.info
-      - name: Upload lcov report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lcov.info
-          path: lcov.info
-
   sonarqube-defectdojo:
     if: ${{ always() }}
     needs: [workspace_analysis_clippy, with_coverage]
@@ -78,6 +23,8 @@ jobs:
         with:
           path: lints
           merge-multiple: true
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: SonarQube
         uses: sonarsource/sonarqube-scan-action@master
         env:
