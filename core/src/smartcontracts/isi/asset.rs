@@ -503,7 +503,8 @@ pub mod query {
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
             let id = self.account.clone();
             iroha_logger::trace!(%id);
-            let _ = state_ro.world().map_account(&id, |_| ())?;
+            state_ro.world().map_account(&id, |_| ())?;
+
             Ok(Box::new(
                 state_ro
                     .world()

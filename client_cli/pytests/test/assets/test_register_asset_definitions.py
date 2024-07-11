@@ -20,7 +20,7 @@ def test_register_asset_definition_with_numeric_type(
         f'with "{GIVEN_numeric_type}" value type'
         f'in the "{GIVEN_registered_domain.name}" domain'
     ):
-        client_cli.register().asset().definition(
+        client_cli.register().asset_definition(
             asset=GIVEN_fake_asset_name,
             domain=GIVEN_registered_domain.name,
             type_=GIVEN_numeric_type,
@@ -42,7 +42,7 @@ def test_register_asset_definition_with_store_type(
         f'with "{GIVEN_store_type}" value type'
         f'in the "{GIVEN_registered_domain.name}" domain'
     ):
-        client_cli.register().asset().definition(
+        client_cli.register().asset_definition(
             asset=GIVEN_fake_asset_name,
             domain=GIVEN_registered_domain.name,
             type_=GIVEN_store_type,
@@ -64,7 +64,7 @@ def test_register_asset_with_existing_name(
         f'with the same name "{GIVEN_registered_asset_definition_with_numeric_type.name}"'
         f'in the "{GIVEN_registered_asset_definition_with_numeric_type.domain}" domain'
     ):
-        client_cli.register().asset().definition(
+        client_cli.register().asset_definition(
             asset=GIVEN_registered_asset_definition_with_numeric_type.name,
             domain=GIVEN_registered_asset_definition_with_numeric_type.domain,
             type_=GIVEN_registered_asset_definition_with_numeric_type.type_,
@@ -82,7 +82,7 @@ def test_register_asset_with_empty_name(GIVEN_registered_domain):
         "WHEN client_cli tries to register an asset definition with an empty name"
         f'in the "{GIVEN_registered_domain.name}" domain'
     ):
-        client_cli.register().asset().definition(
+        client_cli.register().asset_definition(
             asset="", domain=GIVEN_registered_domain.name, type_="Numeric"
         )
     with allure.step(f'THEN сlient_cli should have the asset error: "{Stderr.EMPTY}"'):
@@ -96,7 +96,7 @@ def test_register_asset_with_not_existing_domain(
     with allure.step(
         "WHEN client_cli tries to register an asset definition with not existing domain"
     ):
-        client_cli.register().asset().definition(
+        client_cli.register().asset_definition(
             asset=GIVEN_fake_asset_name,
             domain=GIVEN_not_existing_name,
             type_=GIVEN_numeric_type,
@@ -112,7 +112,7 @@ def test_register_asset_with_too_long_type(
     with allure.step(
         "WHEN client_cli tries to register an asset definition with too long value type"
     ):
-        client_cli.register().asset().definition(
+        client_cli.register().asset_definition(
             asset=GIVEN_fake_asset_name,
             domain=GIVEN_registered_domain.name,
             type_="coin",

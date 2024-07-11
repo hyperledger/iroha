@@ -166,7 +166,7 @@ class ClientCli:
         self.command.insert(2, "asset")
         if asset_definition and account and value_of_type:
             self.command.append(
-                "--asset-id="
+                "--id="
                 + asset_definition.name
                 + "#"
                 + asset_definition.domain
@@ -198,7 +198,7 @@ class ClientCli:
         self.command.append("transfer")
         self.command.append("--to=" + repr(target_account))
         self.command.append(
-            "--asset-id="
+            "--id="
             + asset.name
             + "#"
             + asset.domain
@@ -226,7 +226,7 @@ class ClientCli:
         self.command.append("asset")
         self.command.append("burn")
         self.command.append(
-            "--asset-id="
+            "--id="
             + asset.name
             + "#"
             + asset.domain
@@ -239,7 +239,7 @@ class ClientCli:
         self.execute()
         return self
 
-    def definition(self, asset: str, domain: str, type_: str):
+    def asset_definition(self, asset: str, domain: str, type_: str):
         """
         Executes the 'definition' command for the given asset, domain, and value type.
 
@@ -252,7 +252,9 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.append("--definition-id=" + asset + "#" + domain)
+        self.command.insert(2, "definition")
+        self.command.insert(2, "asset")
+        self.command.append("--id=" + asset + "#" + domain)
         self.command.append("--type=" + type_)
         self.execute()
         return self

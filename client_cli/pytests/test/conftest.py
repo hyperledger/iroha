@@ -109,7 +109,7 @@ def GIVEN_currently_account_quantity_with_two_quantity_of_asset(
         f'GIVEN the asset_definition "{name}" '
         f'in the "{GIVEN_currently_authorized_account.domain}" domain'
     ):
-        client_cli.register().asset().definition(
+        client_cli.register().asset_definition(
             asset=asset.definition.name,
             domain=asset.definition.domain,
             type_=asset.definition.type_,
@@ -140,7 +140,7 @@ def GIVEN_numeric_asset_for_account(
     with allure.step(
         f'GIVEN the asset_definition "{asset_def.name}" ' f'in the "{domain}" domain'
     ):
-        client_cli.register().asset().definition(
+        client_cli.register().asset_definition(
             asset=asset.definition.name,
             domain=asset.definition.domain,
             type_=asset.definition.type_,
@@ -168,7 +168,7 @@ def GIVEN_registered_asset_definition_with_numeric_type(
         f'GIVEN the asset_definition "{GIVEN_fake_asset_name}" '
         f'in the "{GIVEN_registered_domain.name}" domain'
     ):
-        client_cli.register().asset().definition(
+        client_cli.register().asset_definition(
             asset=asset_def.name,
             domain=asset_def.domain,
             type_=asset_def.type_,
@@ -212,7 +212,7 @@ def GIVEN_registered_asset_definition_with_store_type(
         f'GIVEN the asset_definition "{GIVEN_fake_asset_name}" '
         f'in the "{GIVEN_registered_domain.name}" domain'
     ):
-        client_cli.register().asset().definition(
+        client_cli.register().asset_definition(
             asset=asset_def.name,
             domain=asset_def.domain,
             type=asset_def.type,

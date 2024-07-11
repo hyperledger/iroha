@@ -295,7 +295,7 @@ impl AssetDefinition {
 }
 
 impl AssetId {
-    /// Create a new AssetId
+    /// Create a new [`AssetId`]
     pub fn new(definition: AssetDefinitionId, account: AccountId) -> Self {
         Self {
             account,

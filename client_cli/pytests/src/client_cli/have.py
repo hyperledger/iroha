@@ -79,11 +79,10 @@ def asset_definition(expected):
     :param expected: The expected asset definition object.
     :return: True if the asset definition is present, False otherwise.
     """
-    expected_domain = expected.split("#")[1]
 
     def asset_definition_in_asset_definitions() -> bool:
         asset_definitions = iroha.list_filter(
-            f'{{"Identifiable": {{"Is": "{expected_domain}"}}}}'
+            f'{{"Identifiable": {{"Is": "{expected}"}}}}'
         ).asset_definitions()
         return expected_in_actual(expected, asset_definitions)
 
