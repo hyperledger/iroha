@@ -7,7 +7,7 @@
             "properties": {
                 "level": {
                     "type": "string",
-                    "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
+                    "enum": ["trace", "debug", "info", "warn", "error"]
                 }
             },
             "required": ["level"]

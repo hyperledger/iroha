@@ -7,7 +7,7 @@ from jsonschema.exceptions import ValidationError
 
 from common.settings import BASE_URL
 
-valid_log_levels = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
+valid_log_levels = ["trace", "debug", "info", "warn", "error"]
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -24,7 +24,7 @@ def test_post_configuration_invalid_data():
     ):
         response = requests.post(
             f"{BASE_URL}/configuration",
-            json={"logger": {"level": "invalid"}},
+            json={"logger": {"level": "iroha_core=invalid"}},
         )
 
     with allure.step("THEN the response status code should be a client error"):
