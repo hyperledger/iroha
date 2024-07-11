@@ -3,10 +3,7 @@
 use iroha_config::logger::Directives;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing_core::Subscriber;
-use tracing_subscriber::{
-    filter::ParseError,
-    reload::{self, Error as ReloadError},
-};
+use tracing_subscriber::reload::{self, Error as ReloadError};
 
 use crate::telemetry;
 
@@ -76,7 +73,7 @@ impl LoggerHandle {
 enum Message {
     ReloadLevel {
         value: Directives,
-        respond_to: oneshot::Sender<color_eyre::Result<(), Error>>,
+        respond_to: oneshot::Sender<color_eyre::Result<(), ReloadError>>,
     },
     SubscribeOnTelemetry {
         channel: telemetry::Channel,
@@ -87,9 +84,6 @@ enum Message {
 /// Possible errors that might occur while interacting with the actor.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("cannot parse new log level")]
-    /// If parsing new log level failed
-    ParseError(#[from] ParseError),
     /// If dynamic log level reloading failed
     #[error("cannot dynamically reload the log level")]
     LevelReload(#[from] ReloadError),
@@ -130,9 +124,9 @@ impl<S: Subscriber> LoggerActor<S> {
     fn handle_message(&mut self, msg: Message) {
         match msg {
             Message::ReloadLevel { value, respond_to } => {
-                let result = tracing_subscriber::filter::EnvFilter::try_new(value.to_string())
-                    .map_err(Error::from)
-                    .and_then(|filter| self.level_handle.reload(filter).map_err(Error::from));
+                let filter = tracing_subscriber::filter::EnvFilter::try_new(value.to_string())
+                    .expect("INTERNAL BUG: Directives is not valid");
+                let result = self.level_handle.reload(filter);
                 let _ = respond_to.send(result);
             }
             Message::SubscribeOnTelemetry {

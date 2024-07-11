@@ -120,12 +120,15 @@ pub fn disable_global() -> Result<()> {
     try_set_logger()
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn step2<L>(config: InitConfig, layer: L) -> Result<LoggerHandle>
 where
     L: tracing_subscriber::Layer<Registry> + Debug + Send + Sync + 'static,
 {
+    // NOTE: unfortunately constructing EnvFilter from vector of Directive is not part of public api
     let level_filter =
-        tracing_subscriber::filter::EnvFilter::try_new(config.base.level.to_string())?;
+        tracing_subscriber::filter::EnvFilter::try_new(config.base.level.to_string())
+            .expect("INTERNAL BUG: Directives not valid");
     let (level_filter, level_filter_handle) = reload::Layer::new(level_filter);
     let subscriber = Registry::default()
         .with(layer)

@@ -87,7 +87,7 @@ impl Default for Directives {
 }
 
 /// Convert [`Level`] into [`tracing::Level`]
-pub fn into_tracing_level(level: Level) -> tracing::Level {
+fn into_tracing_level(level: Level) -> tracing::Level {
     match level {
         Level::TRACE => tracing::Level::TRACE,
         Level::DEBUG => tracing::Level::DEBUG,
