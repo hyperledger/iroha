@@ -445,14 +445,20 @@ impl Sumeragi {
                     "Block sync update received"
                 );
 
-                if categorize_block_sync(&block, &state.view()).is_ok() {
+                let block_sync_type = categorize_block_sync(&block, &state.view());
+                if block_sync_type.is_ok() {
                     // Release block writer before creating new one
                     let _ = voting_block.take();
                 }
 
-                match handle_block_sync(&self.chain_id, block, state, genesis_account, &|e| {
-                    self.send_event(e)
-                }) {
+                match handle_categorized_block_sync(
+                    &self.chain_id,
+                    block,
+                    state,
+                    genesis_account,
+                    &|e| self.send_event(e),
+                    block_sync_type,
+                ) {
                     Ok(BlockSyncOk::CommitBlock(block, state_block, topology)) => {
                         self.topology = topology;
                         self.commit_block(block, state_block);
@@ -1231,6 +1237,7 @@ enum BlockSyncError {
     },
 }
 
+#[cfg(test)]
 fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
     chain_id: &ChainId,
     block: SignedBlock,
@@ -1238,7 +1245,26 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
     genesis_account: &AccountId,
     handle_events: &F,
 ) -> Result<BlockSyncOk<'state>, (SignedBlock, BlockSyncError)> {
-    let (mut state_block, soft_fork) = match categorize_block_sync(&block, &state.view()) {
+    let block_sync_type = categorize_block_sync(&block, &state.view());
+    handle_categorized_block_sync(
+        chain_id,
+        block,
+        state,
+        genesis_account,
+        handle_events,
+        block_sync_type,
+    )
+}
+
+fn handle_categorized_block_sync<'state, F: Fn(PipelineEventBox)>(
+    chain_id: &ChainId,
+    block: SignedBlock,
+    state: &'state State,
+    genesis_account: &AccountId,
+    handle_events: &F,
+    block_sync_type: Result<BlockSyncType, BlockSyncError>,
+) -> Result<BlockSyncOk<'state>, (SignedBlock, BlockSyncError)> {
+    let (mut state_block, soft_fork) = match block_sync_type {
         Ok(BlockSyncType::CommitBlock) => (state.block(), false),
         Ok(BlockSyncType::ReplaceTopBlock) => (state.block_and_revert(), true),
         Err(e) => return Err((block, e)),
