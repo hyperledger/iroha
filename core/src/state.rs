@@ -612,7 +612,8 @@ pub trait WorldReadOnly {
     /// - The [`Account`] with which the [`Asset`] is associated doesn't exist.
     /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
     fn asset(&self, id: &AssetId) -> Result<Asset, QueryExecutionFail> {
-        let _ = self.map_account(&id.account, |_| ())?;
+        self.map_account(&id.account, |_| ())?;
+
         self.assets()
             .get(id)
             .ok_or_else(|| QueryExecutionFail::from(FindError::Asset(id.clone())))
@@ -852,15 +853,13 @@ impl WorldTransaction<'_, '_> {
         asset_id: AssetId,
         default_asset_value: impl Into<AssetValue>,
     ) -> Result<&mut Asset, Error> {
-        // Check that asset definition exists
-        {
-            let _ = self.domain(&asset_id.definition.domain)?;
-            let _ = self.asset_definition(&asset_id.definition)?;
-        }
+        self.domain(&asset_id.definition.domain)?;
+        self.asset_definition(&asset_id.definition)?;
+        self.account(&asset_id.account)?;
 
-        let _ = self.account(&asset_id.account)?;
         if self.assets.get(&asset_id).is_none() {
             let asset = Asset::new(asset_id.clone(), default_asset_value.into());
+
             Self::emit_events_impl(
                 &mut self.triggers,
                 &mut self.events_buffer,
@@ -2175,8 +2174,7 @@ mod tests {
             .map(|(account, asset_definiton)| AssetId::new(asset_definiton, account))
             .map(|asset| (asset, ()));
 
-        let map = Storage::from_iter(assets);
-
+        let map: Storage<_, _> = assets.collect();
         let view = map.view();
         let range = view.range(AssetByAccountBounds::new(&account_id));
         assert_eq!(range.count(), 2);

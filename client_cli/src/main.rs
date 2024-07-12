@@ -660,7 +660,7 @@ mod account {
 mod asset {
     use iroha::{
         client::{self, asset},
-        data_model::{asset::AssetDefinition, name::Name},
+        data_model::name::Name,
     };
 
     use super::*;
@@ -668,8 +668,9 @@ mod asset {
     /// Subcommand for dealing with asset
     #[derive(clap::Subcommand, Debug)]
     pub enum Args {
-        /// Command for Registering a new asset
-        Register(Register),
+        /// Command for managing asset definitions
+        #[clap(subcommand)]
+        Definition(definition::Args),
         /// Command for minting asset in existing Iroha account
         Mint(Mint),
         /// Command for burning asset in existing Iroha account
@@ -681,55 +682,108 @@ mod asset {
         /// List assets
         #[clap(subcommand)]
         List(List),
+        /// Get a value from a Store asset
+        GetKeyValue(GetKeyValue),
         /// Set a key-value entry in a Store asset
         SetKeyValue(SetKeyValue),
         /// Remove a key-value entry from a Store asset
         RemoveKeyValue(RemoveKeyValue),
-        /// Get a value from a Store asset
-        GetKeyValue(GetKeyValue),
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             match_all!(
                 (self, context),
-                { Args::Register, Args::Mint, Args::Burn, Args::Transfer, Args::Get, Args::List, Args::SetKeyValue, Args::RemoveKeyValue, Args::GetKeyValue}
+                { Args::Definition, Args::Mint, Args::Burn, Args::Transfer, Args::Get, Args::List, Args::SetKeyValue, Args::RemoveKeyValue, Args::GetKeyValue}
             )
         }
     }
 
-    /// Register subcommand of asset
-    #[derive(clap::Args, Debug)]
-    pub struct Register {
-        /// Asset definition id for registering (in form of `asset#domain_name`)
-        #[arg(long)]
-        pub definition_id: AssetDefinitionId,
-        /// Mintability of asset
-        #[arg(short, long)]
-        pub unmintable: bool,
-        /// Value type stored in asset
-        #[arg(short, long)]
-        pub r#type: AssetType,
-        #[command(flatten)]
-        pub metadata: MetadataArgs,
-    }
+    mod definition {
+        use iroha::data_model::asset::{AssetDefinition, AssetDefinitionId, AssetType};
 
-    impl RunArgs for Register {
-        fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self {
-                definition_id,
-                r#type,
-                unmintable,
-                metadata,
-            } = self;
-            let mut asset_definition = AssetDefinition::new(definition_id, r#type);
-            if unmintable {
-                asset_definition = asset_definition.mintable_once();
+        use super::*;
+
+        /// Subcommand for managing asset definitions
+        #[derive(clap::Subcommand, Debug)]
+        pub enum Args {
+            /// Command for Registering a new asset
+            Register(Register),
+            /// List asset definitions
+            #[clap(subcommand)]
+            List(List),
+        }
+
+        impl RunArgs for Args {
+            fn run(self, context: &mut dyn RunContext) -> Result<()> {
+                match_all!(
+                    (self, context),
+                    { Args::Register, Args::List }
+                )
             }
-            let create_asset_definition =
-                iroha::data_model::isi::Register::asset_definition(asset_definition);
-            submit([create_asset_definition], metadata.load()?, context)
-                .wrap_err("Failed to register asset")
+        }
+
+        /// Register subcommand of asset
+        #[derive(clap::Args, Debug)]
+        pub struct Register {
+            /// Asset definition id for registering (in form of `asset#domain_name`)
+            #[arg(long)]
+            pub id: AssetDefinitionId,
+            /// Mintability of asset
+            #[arg(short, long)]
+            pub unmintable: bool,
+            /// Value type stored in asset
+            #[arg(short, long)]
+            pub r#type: AssetType,
+            #[command(flatten)]
+            pub metadata: MetadataArgs,
+        }
+
+        impl RunArgs for Register {
+            fn run(self, context: &mut dyn RunContext) -> Result<()> {
+                let Self {
+                    id: asset_id,
+                    r#type,
+                    unmintable,
+                    metadata,
+                } = self;
+                let mut asset_definition = AssetDefinition::new(asset_id, r#type);
+                if unmintable {
+                    asset_definition = asset_definition.mintable_once();
+                }
+                let create_asset_definition =
+                    iroha::data_model::isi::Register::asset_definition(asset_definition);
+                submit([create_asset_definition], metadata.load()?, context)
+                    .wrap_err("Failed to register asset")
+            }
+        }
+
+        /// List asset definitions with this command
+        #[derive(clap::Subcommand, Debug, Clone)]
+        pub enum List {
+            /// All asset definitions
+            All,
+            /// Filter asset definitions by given predicate
+            Filter(filter::Filter),
+        }
+
+        impl RunArgs for List {
+            fn run(self, context: &mut dyn RunContext) -> Result<()> {
+                let client = context.client_from_config();
+
+                let vec = match self {
+                    Self::All => client
+                        .request(client::asset::all_definitions())
+                        .wrap_err("Failed to get all assets"),
+                    Self::Filter(filter) => client
+                        .build_query(client::asset::all_definitions())
+                        .with_filter(filter.predicate)
+                        .execute()
+                        .wrap_err("Failed to get filtered assets"),
+                }?;
+                context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+                Ok(())
+            }
         }
     }
 
@@ -738,7 +792,7 @@ mod asset {
     pub struct Mint {
         /// Asset id for the asset (in form of `asset##account@domain_name`)
         #[arg(long)]
-        pub asset_id: AssetId,
+        pub id: AssetId,
         /// Quantity to mint
         #[arg(short, long)]
         pub quantity: Numeric,
@@ -749,7 +803,7 @@ mod asset {
     impl RunArgs for Mint {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                asset_id,
+                id: asset_id,
                 quantity,
                 metadata,
             } = self;
@@ -764,7 +818,7 @@ mod asset {
     pub struct Burn {
         /// Asset id for the asset (in form of `asset##account@domain_name`)
         #[arg(long)]
-        pub asset_id: AssetId,
+        pub id: AssetId,
         /// Quantity to mint
         #[arg(short, long)]
         pub quantity: Numeric,
@@ -775,7 +829,7 @@ mod asset {
     impl RunArgs for Burn {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                asset_id,
+                id: asset_id,
                 quantity,
                 metadata,
             } = self;
@@ -793,7 +847,7 @@ mod asset {
         pub to: AccountId,
         /// Asset id to transfer (in form like `asset##account@domain_name`)
         #[arg(long)]
-        pub asset_id: AssetId,
+        pub id: AssetId,
         /// Quantity of asset as number
         #[arg(short, long)]
         pub quantity: Numeric,
@@ -805,7 +859,7 @@ mod asset {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 to,
-                asset_id,
+                id: asset_id,
                 quantity,
                 metadata,
             } = self;
@@ -820,12 +874,12 @@ mod asset {
     pub struct Get {
         /// Asset id for the asset (in form of `asset##account@domain_name`)
         #[arg(long)]
-        pub asset_id: AssetId,
+        pub id: AssetId,
     }
 
     impl RunArgs for Get {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self { asset_id } = self;
+            let Self { id: asset_id } = self;
             let iroha = context.client_from_config();
             let asset = iroha
                 .request(asset::by_id(asset_id))
@@ -867,7 +921,7 @@ mod asset {
     pub struct SetKeyValue {
         /// Asset id for the Store asset (in form of `asset##account@domain_name`)
         #[clap(long)]
-        pub asset_id: AssetId,
+        pub id: AssetId,
         /// The key for the store value
         #[clap(long)]
         pub key: Name,
@@ -878,7 +932,7 @@ mod asset {
     impl RunArgs for SetKeyValue {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                asset_id,
+                id: asset_id,
                 key,
                 value: MetadataValueArg { value },
             } = self;
@@ -892,7 +946,7 @@ mod asset {
     pub struct RemoveKeyValue {
         /// Asset id for the Store asset (in form of `asset##account@domain_name`)
         #[clap(long)]
-        pub asset_id: AssetId,
+        pub id: AssetId,
         /// The key for the store value
         #[clap(long)]
         pub key: Name,
@@ -900,7 +954,7 @@ mod asset {
 
     impl RunArgs for RemoveKeyValue {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self { asset_id, key } = self;
+            let Self { id: asset_id, key } = self;
             let remove = iroha::data_model::isi::RemoveKeyValue::asset(asset_id, key);
             submit([remove], Metadata::default(), context)?;
             Ok(())
@@ -911,7 +965,7 @@ mod asset {
     pub struct GetKeyValue {
         /// Asset id for the Store asset (in form of `asset##account@domain_name`)
         #[clap(long)]
-        pub asset_id: AssetId,
+        pub id: AssetId,
         /// The key for the store value
         #[clap(long)]
         pub key: Name,
@@ -919,7 +973,7 @@ mod asset {
 
     impl RunArgs for GetKeyValue {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self { asset_id, key } = self;
+            let Self { id: asset_id, key } = self;
             let client = context.client_from_config();
             let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key);
             let asset = client

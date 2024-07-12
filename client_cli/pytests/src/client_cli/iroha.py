@@ -106,16 +106,17 @@ class Iroha(ClientCli):
         :return: Dict of asset definitions ids with there value type.
         :rtype: Dict[str, str]
         """
-        self._execute_command("domain")
+        self.command.insert(2, "definition")
+        self._execute_command("asset")
+
         if self.stdout is not None:
-            domains = json.loads(self.stdout)
+            asset_defs = json.loads(self.stdout)
+
             asset_definitions = {}
-            for domain in domains:
-                asset_defs = domain.get("asset_definitions")
-                for asset_def in asset_defs.values():
-                    type_ = asset_def.get("type_")
-                    if type_:
-                        asset_definitions[asset_def["id"]] = type_
+            for asset_def in asset_defs:
+                type_ = asset_def.get("type_")
+                if type_:
+                    asset_definitions[asset_def["id"]] = type_
             return asset_definitions
         else:
             return {}
