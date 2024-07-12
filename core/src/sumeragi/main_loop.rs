@@ -226,6 +226,8 @@ impl Sumeragi {
                     };
 
                     let mut state_block = state.block();
+                    state_block.world.genesis_creation_time_ms =
+                        Some(block.header().creation_time_ms);
                     let block = match ValidBlock::validate(
                         block,
                         &self.topology,
@@ -289,6 +291,7 @@ impl Sumeragi {
         }
 
         let mut state_block = state.block();
+        state_block.world.genesis_creation_time_ms = Some(genesis.0.header().creation_time_ms);
         let genesis = ValidBlock::validate(
             genesis.0,
             &self.topology,

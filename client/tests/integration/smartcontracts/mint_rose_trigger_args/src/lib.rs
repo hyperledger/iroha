@@ -10,7 +10,6 @@ use core::str::FromStr as _;
 use executor_custom_data_model::mint_rose_args::MintRoseArgs;
 use iroha_trigger::{debug::dbg_panic, prelude::*};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
-use serde::{Deserialize, Serialize};
 
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());

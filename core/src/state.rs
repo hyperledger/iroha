@@ -121,6 +121,8 @@ pub struct WorldBlock<'world> {
     pub(crate) executor_data_model: CellBlock<'world, ExecutorDataModel>,
     /// Events produced during execution of block
     events_buffer: Vec<EventBox>,
+
+    pub(crate) genesis_creation_time_ms: Option<u64>,
 }
 
 /// Struct for single transaction's aggregated changes
@@ -155,6 +157,8 @@ pub struct WorldTransaction<'block, 'world> {
     pub(crate) executor_data_model: CellTransaction<'block, 'world, ExecutorDataModel>,
     /// Events produced during execution of a transaction
     events_buffer: TransactionEventBuffer<'block>,
+
+    pub(crate) genesis_creation_time_ms: Option<u64>,
 }
 
 /// Wrapper for event's buffer to apply transaction rollback
@@ -193,6 +197,8 @@ pub struct WorldView<'world> {
     pub(crate) executor: CellView<'world, Executor>,
     /// Executor-defined data model
     pub(crate) executor_data_model: CellView<'world, ExecutorDataModel>,
+
+    pub(crate) genesis_creation_time_ms: Option<u64>,
 }
 
 /// Current state of the blockchain
@@ -356,6 +362,8 @@ impl World {
             executor: self.executor.block(),
             executor_data_model: self.executor_data_model.block(),
             events_buffer: Vec::new(),
+
+            genesis_creation_time_ms: None,
         }
     }
 
@@ -376,6 +384,8 @@ impl World {
             executor: self.executor.block_and_revert(),
             executor_data_model: self.executor_data_model.block_and_revert(),
             events_buffer: Vec::new(),
+
+            genesis_creation_time_ms: None,
         }
     }
 
@@ -395,6 +405,8 @@ impl World {
             triggers: self.triggers.view(),
             executor: self.executor.view(),
             executor_data_model: self.executor_data_model.view(),
+
+            genesis_creation_time_ms: None,
         }
     }
 }
@@ -415,6 +427,8 @@ pub trait WorldReadOnly {
     fn triggers(&self) -> &impl TriggerSetReadOnly;
     fn executor(&self) -> &Executor;
     fn executor_data_model(&self) -> &ExecutorDataModel;
+
+    fn genesis_creation_time_ms(&self) -> Option<u64>;
 
     // Domain-related methods
 
@@ -698,6 +712,10 @@ macro_rules! impl_world_ro {
             fn executor_data_model(&self) -> &ExecutorDataModel {
                 &self.executor_data_model
             }
+
+            fn genesis_creation_time_ms(&self) -> Option<u64> {
+                self.genesis_creation_time_ms
+            }
         }
     )*};
 }
@@ -710,6 +728,8 @@ impl<'world> WorldBlock<'world> {
     /// Create struct to apply transaction's changes
     pub fn trasaction(&mut self) -> WorldTransaction<'_, 'world> {
         WorldTransaction {
+            genesis_creation_time_ms: self.genesis_creation_time_ms(),
+
             parameters: self.parameters.transaction(),
             trusted_peers_ids: self.trusted_peers_ids.transaction(),
             domains: self.domains.transaction(),
@@ -1367,16 +1387,13 @@ impl<'state> StateBlock<'state> {
         let prev_interval = self.latest_block().map(|latest_block| {
             let header = &latest_block.as_ref().header();
 
-            TimeInterval {
-                since: header.creation_time(),
-                length: header.consensus_estimation(),
-            }
+            TimeInterval::new(header.creation_time(), header.consensus_estimation())
         });
 
-        let interval = TimeInterval {
-            since: block.as_ref().header().creation_time(),
-            length: block.as_ref().header().consensus_estimation(),
-        };
+        let interval = TimeInterval::new(
+            block.as_ref().header().creation_time(),
+            block.as_ref().header().consensus_estimation(),
+        );
 
         TimeEvent {
             prev_interval,

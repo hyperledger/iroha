@@ -13,8 +13,6 @@ pub mod specialized;
 /// - TODO: authorities.
 /// - TODO: authority permissions.
 pub mod isi {
-    use std::time::Duration;
-
     use iroha_data_model::{
         events::EventFilter,
         isi::error::{InvalidParameterError, RepetitionError},
@@ -42,11 +40,12 @@ pub mod isi {
             }
 
             let last_block_estimation = state_transaction.latest_block().map(|block| {
-                block.header().creation_time()
-                    + Duration::from_millis(block.header().consensus_estimation_ms)
+                block.header().creation_time() + block.header().consensus_estimation()
             });
 
             let engine = state_transaction.engine.clone(); // Cloning engine is cheap
+            let genesis_creation_time_ms = state_transaction.world().genesis_creation_time_ms();
+
             let triggers = &mut state_transaction.world.triggers;
             let trigger_id = new_trigger.id().clone();
             let success = match &new_trigger.action.filter {
@@ -65,20 +64,24 @@ pub mod isi {
                 TriggeringEventFilterBox::Time(time_filter) => {
                     if let ExecutionTime::Schedule(schedule) = time_filter.0 {
                         match last_block_estimation {
-                            // We're in genesis
+                            // Genesis block
                             None => {
-                                return Err(Error::InvalidParameter(
-                                    InvalidParameterError::TimeTriggerInThePast,
-                                ));
+                                let genesis_creation_time_ms = genesis_creation_time_ms
+                                    .expect("INTERNAL BUG: genesis creation time not set");
+
+                                if schedule.start_ms < genesis_creation_time_ms {
+                                    return Err(Error::InvalidParameter(
+                                        InvalidParameterError::TimeTriggerInThePast,
+                                    ));
+                                }
                             }
-                            Some(latest_block_estimation)
-                                if schedule.start < latest_block_estimation =>
-                            {
-                                return Err(Error::InvalidParameter(
-                                    InvalidParameterError::TimeTriggerInThePast,
-                                ));
+                            Some(latest_block_estimation) => {
+                                if schedule.start() < latest_block_estimation {
+                                    return Err(Error::InvalidParameter(
+                                        InvalidParameterError::TimeTriggerInThePast,
+                                    ));
+                                }
                             }
-                            Some(_) => (),
                         }
                     }
                     triggers.add_time_trigger(

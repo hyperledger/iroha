@@ -295,7 +295,7 @@ impl SignedBlock {
             .expect("Tree is not empty");
         let first_transaction = &genesis_transactions[0];
         let creation_time_ms = u64::try_from(first_transaction.creation_time().as_millis())
-            .expect("Must fit since Duration was created from u64 in creation_time()");
+            .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
         let header = BlockHeader {
             height: nonzero!(1_u64),
             prev_block_hash: None,

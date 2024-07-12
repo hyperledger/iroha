@@ -1282,12 +1282,6 @@
       }
     ]
   },
-  "Duration": {
-    "Tuple": [
-      "u64",
-      "u32"
-    ]
-  },
   "EventBox": {
     "Enum": [
       {
@@ -2577,9 +2571,6 @@
   "Option<DomainId>": {
     "Option": "DomainId"
   },
-  "Option<Duration>": {
-    "Option": "Duration"
-  },
   "Option<HashOf<SignedBlock>>": {
     "Option": "HashOf<SignedBlock>"
   },
@@ -2630,6 +2621,9 @@
   },
   "Option<u32>": {
     "Option": "u32"
+  },
+  "Option<u64>": {
+    "Option": "u64"
   },
   "Pagination": {
     "Struct": [
@@ -3535,12 +3529,12 @@
   "Schedule": {
     "Struct": [
       {
-        "name": "start",
-        "type": "Duration"
+        "name": "start_ms",
+        "type": "u64"
       },
       {
-        "name": "period",
-        "type": "Option<Duration>"
+        "name": "period_ms",
+        "type": "Option<u64>"
       }
     ]
   },
@@ -3935,12 +3929,12 @@
   "TimeInterval": {
     "Struct": [
       {
-        "name": "since",
-        "type": "Duration"
+        "name": "since_ms",
+        "type": "u64"
       },
       {
-        "name": "length",
-        "type": "Duration"
+        "name": "length_ms",
+        "type": "u64"
       }
     ]
   },
