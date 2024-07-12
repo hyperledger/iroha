@@ -94,7 +94,7 @@ assertables = "7"
 
 eyre = "0.6.12"
 color-eyre = "0.6.3"
-thiserror = { version = "1.0.61", default-features = false }
+thiserror = { version = "1.0.62", default-features = false }
 displaydoc = { version = "0.2.5", default-features = false }
 error-stack = "0.4.1"
 
