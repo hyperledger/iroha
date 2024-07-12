@@ -1,4 +1,4 @@
-name: I2::Dev::CodeQuality
+name: I2::Dev::Sonar-Dojo
 
 on:
   workflow_run:
