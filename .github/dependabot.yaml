@@ -3,7 +3,7 @@ version: 2
 updates:
   - package-ecosystem: "docker"
     target-branch: "main"
-    directory: "/"
+    directory: "/configs/swarm/"
     schedule:
       interval: "weekly"
     commit-message:
