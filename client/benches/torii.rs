@@ -45,7 +45,7 @@ fn query_requests(criterion: &mut Criterion) {
     rt.block_on(builder.start_with_peer(&mut peer));
     rt.block_on(async {
         iroha_logger::test_logger()
-            .reload_level(iroha::data_model::Level::ERROR)
+            .reload_level(iroha::data_model::Level::ERROR.into())
             .await
             .unwrap()
     });

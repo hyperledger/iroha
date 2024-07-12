@@ -10,9 +10,9 @@
 use eyre::Result;
 use iroha_config::{
     client_api::{ConfigDTO, Logger as LoggerDTO},
+    logger::Directives,
     parameters::actual::Root as Config,
 };
-use iroha_logger::Level;
 use tokio::sync::{mpsc, oneshot, watch};
 
 const DEFAULT_CHANNEL_SIZE: usize = 32;
@@ -29,7 +29,7 @@ impl KisoHandle {
     /// Spawn a new actor
     pub fn new(state: Config) -> Self {
         let (actor_sender, actor_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let (log_level_update, _) = watch::channel(state.logger.level);
+        let (log_level_update, _) = watch::channel(state.logger.level.clone());
         let mut actor = Actor {
             handle: actor_receiver,
             state,
@@ -75,7 +75,7 @@ impl KisoHandle {
     ///
     /// # Errors
     /// If communication with actor fails.
-    pub async fn subscribe_on_log_level(&self) -> Result<watch::Receiver<Level>, Error> {
+    pub async fn subscribe_on_log_level(&self) -> Result<watch::Receiver<Directives>, Error> {
         let (tx, rx) = oneshot::channel();
         let msg = Message::SubscribeOnLogLevel { respond_to: tx };
         let _ = self.actor.send(msg).await;
@@ -93,7 +93,7 @@ enum Message {
         respond_to: oneshot::Sender<Result<(), Error>>,
     },
     SubscribeOnLogLevel {
-        respond_to: oneshot::Sender<watch::Receiver<Level>>,
+        respond_to: oneshot::Sender<watch::Receiver<Directives>>,
     },
 }
 
@@ -111,7 +111,7 @@ struct Actor {
     // future dynamic parameter, it will require its own `subscribe_on_<field>` function in [`KisoHandle`],
     // new channel here, and new [`Message`] variant. If boilerplate expands, a more general solution will be
     // required. However, as of now a single manually written implementation seems optimal.
-    log_level_update: watch::Sender<Level>,
+    log_level_update: watch::Sender<Directives>,
 }
 
 impl Actor {
@@ -134,7 +134,7 @@ impl Actor {
                     },
                 respond_to,
             } => {
-                let _ = self.log_level_update.send(new_level);
+                let _ = self.log_level_update.send(new_level.clone());
                 self.state.logger.level = new_level;
 
                 let _ = respond_to.send(Ok(()));
@@ -155,6 +155,7 @@ mod tests {
         client_api::{ConfigDTO, Logger as LoggerDTO},
         parameters::{actual::Root, user::Root as UserConfig},
     };
+    use iroha_logger::Level;
 
     use super::*;
 
@@ -175,7 +176,7 @@ mod tests {
         const WATCH_LAG_MILLIS: u64 = 30;
 
         let mut config = test_config();
-        config.logger.level = INIT_LOG_LEVEL;
+        config.logger.level = INIT_LOG_LEVEL.into();
         let kiso = KisoHandle::new(config);
 
         let mut recv = kiso
@@ -189,7 +190,7 @@ mod tests {
 
         kiso.update_with_dto(ConfigDTO {
             logger: LoggerDTO {
-                level: NEW_LOG_LEVEL,
+                level: NEW_LOG_LEVEL.into(),
             },
         })
         .await
@@ -200,7 +201,7 @@ mod tests {
             .expect("Watcher should resolve within timeout")
             .expect("Watcher should not be closed");
 
-        let value = *recv.borrow_and_update();
-        assert_eq!(value, NEW_LOG_LEVEL);
+        let value = recv.borrow_and_update().clone();
+        assert_eq!(value, NEW_LOG_LEVEL.into());
     }
 }

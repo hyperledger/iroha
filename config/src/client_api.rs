@@ -9,13 +9,15 @@
 //       configuration-related crate, this part should be re-written in a clean way.
 //       Track configuration refactoring here: https://github.com/hyperledger/iroha/issues/2585
 
-use iroha_data_model::Level;
 use serde::{Deserialize, Serialize};
 
-use crate::parameters::actual::{Logger as BaseLogger, Root as BaseConfig};
+use crate::{
+    logger::Directives,
+    parameters::actual::{Logger as BaseLogger, Root as BaseConfig},
+};
 
 /// Subset of [`super::iroha`] configuration.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigDTO {
     #[allow(missing_docs)]
     pub logger: Logger,
@@ -30,27 +32,31 @@ impl From<&'_ BaseConfig> for ConfigDTO {
 }
 
 /// Subset of [`super::logger`] configuration.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Logger {
     #[allow(missing_docs)]
-    pub level: Level,
+    pub level: Directives,
 }
 
 impl From<&'_ BaseLogger> for Logger {
     fn from(value: &'_ BaseLogger) -> Self {
-        Self { level: value.level }
+        Self {
+            level: value.level.clone(),
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use iroha_data_model::Level;
+
     use super::*;
 
     #[test]
     fn snapshot_serialized_form() {
         let value = ConfigDTO {
             logger: Logger {
-                level: Level::TRACE,
+                level: Level::TRACE.into(),
             },
         };
 
@@ -62,7 +68,7 @@ mod test {
         let expected = expect_test::expect![[r#"
                 {
                   "logger": {
-                    "level": "TRACE"
+                    "level": "trace"
                   }
                 }"#]];
         expected.assert_eq(&actual);

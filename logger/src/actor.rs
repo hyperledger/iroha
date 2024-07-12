@@ -1,10 +1,9 @@
 //! Actor encapsulating interaction with logger & telemetry subsystems.
 
-use iroha_config::logger::into_tracing_level;
-use iroha_data_model::Level;
+use iroha_config::logger::Directives;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing_core::Subscriber;
-use tracing_subscriber::{reload, reload::Error as ReloadError};
+use tracing_subscriber::reload::{self, Error as ReloadError};
 
 use crate::telemetry;
 
@@ -16,7 +15,7 @@ pub struct LoggerHandle {
 
 impl LoggerHandle {
     pub(crate) fn new<S: Subscriber>(
-        handle: reload::Handle<tracing_subscriber::filter::LevelFilter, S>,
+        handle: reload::Handle<tracing_subscriber::filter::EnvFilter, S>,
         telemetry_receiver: mpsc::Receiver<telemetry::ChannelEvent>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(32);
@@ -39,7 +38,7 @@ impl LoggerHandle {
     /// # Errors
     /// - If reloading on the side of [`reload::Handle`] fails
     /// - If actor communication fails
-    pub async fn reload_level(&self, new_value: Level) -> color_eyre::Result<(), Error> {
+    pub async fn reload_level(&self, new_value: Directives) -> color_eyre::Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         let _ = self
             .sender
@@ -73,7 +72,7 @@ impl LoggerHandle {
 
 enum Message {
     ReloadLevel {
-        value: Level,
+        value: Directives,
         respond_to: oneshot::Sender<color_eyre::Result<(), ReloadError>>,
     },
     SubscribeOnTelemetry {
@@ -98,7 +97,7 @@ struct LoggerActor<S: Subscriber> {
     telemetry_receiver: mpsc::Receiver<telemetry::ChannelEvent>,
     telemetry_forwarder_regular: broadcast::Sender<telemetry::Event>,
     telemetry_forwarder_future: broadcast::Sender<telemetry::Event>,
-    level_handle: reload::Handle<tracing_subscriber::filter::LevelFilter, S>,
+    level_handle: reload::Handle<tracing_subscriber::filter::EnvFilter, S>,
 }
 
 impl<S: Subscriber> LoggerActor<S> {
@@ -125,8 +124,8 @@ impl<S: Subscriber> LoggerActor<S> {
     fn handle_message(&mut self, msg: Message) {
         match msg {
             Message::ReloadLevel { value, respond_to } => {
-                let level = into_tracing_level(value);
-                let filter = tracing_subscriber::filter::LevelFilter::from_level(level);
+                let filter = tracing_subscriber::filter::EnvFilter::try_new(value.to_string())
+                    .expect("INTERNAL BUG: Directives is not valid");
                 let result = self.level_handle.reload(filter);
                 let _ = respond_to.send(result);
             }

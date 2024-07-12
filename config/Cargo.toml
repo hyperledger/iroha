@@ -19,7 +19,7 @@ iroha_genesis = { workspace = true }
 
 error-stack = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
+tracing-subscriber = { workspace = true, features = ["fmt", "ansi", "env-filter"] }
 url = { workspace = true, features = ["serde"] }
 
 serde = { workspace = true, features = ["derive"] }

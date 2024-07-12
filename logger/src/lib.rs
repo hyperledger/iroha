@@ -13,7 +13,6 @@ use std::{
 
 use actor::LoggerHandle;
 use color_eyre::{eyre::eyre, Report, Result};
-use iroha_config::logger::into_tracing_level;
 pub use iroha_config::{
     logger::{Format, Level},
     parameters::actual::{DevTelemetry as DevTelemetryConfig, Logger as Config},
@@ -42,7 +41,7 @@ fn try_set_logger() -> Result<()> {
 }
 
 /// Configuration needed for [`init_global`]. It is a little extension of [`Config`].
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct InitConfig {
     base: Config,
     terminal_colors: bool,
@@ -100,7 +99,7 @@ pub fn test_logger() -> LoggerHandle {
             // `test_logger` simple and also will emphasise isolation which is necessary anyway in
             // case of singleton mocking (where the logger is the singleton).
             let config = Config {
-                level: Level::DEBUG,
+                level: Level::DEBUG.into(),
                 format: Format::Pretty,
             };
 
@@ -121,12 +120,15 @@ pub fn disable_global() -> Result<()> {
     try_set_logger()
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn step2<L>(config: InitConfig, layer: L) -> Result<LoggerHandle>
 where
     L: tracing_subscriber::Layer<Registry> + Debug + Send + Sync + 'static,
 {
-    let level: tracing::Level = into_tracing_level(config.base.level);
-    let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
+    // NOTE: unfortunately constructing EnvFilter from vector of Directive is not part of public api
+    let level_filter =
+        tracing_subscriber::filter::EnvFilter::try_new(config.base.level.to_string())
+            .expect("INTERNAL BUG: Directives not valid");
     let (level_filter, level_filter_handle) = reload::Layer::new(level_filter);
     let subscriber = Registry::default()
         .with(layer)

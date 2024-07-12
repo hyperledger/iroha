@@ -148,7 +148,7 @@ fn build_transactions(
         let parameters = build_transaction(
             parameters
                 .into_iter()
-                .map(SetParameter)
+                .map(SetParameter::new)
                 .map(InstructionBox::from)
                 .collect(),
             chain_id.clone(),

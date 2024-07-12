@@ -25,14 +25,14 @@ use iroha_config_base::{
     ReadConfig, WithOrigin,
 };
 use iroha_crypto::{PrivateKey, PublicKey};
-use iroha_data_model::{peer::PeerId, ChainId, Level};
+use iroha_data_model::{peer::PeerId, ChainId};
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::Deserialize;
 use url::Url;
 
 use crate::{
     kura::InitMode as KuraInitMode,
-    logger::Format as LoggerFormat,
+    logger::{Directives, Format as LoggerFormat},
     parameters::{actual, defaults},
     snapshot::Mode as SnapshotMode,
 };
@@ -346,14 +346,14 @@ impl Queue {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, ReadConfig)]
+#[derive(Debug, Clone, Default, ReadConfig)]
 pub struct Logger {
     /// Level of logging verbosity
     // TODO: parse user provided value in a case insensitive way,
     //       because `format` is set in lowercase, and `LOG_LEVEL=INFO` + `LOG_FORMAT=pretty`
     //       looks inconsistent
     #[config(env = "LOG_LEVEL", default)]
-    pub level: Level,
+    pub level: Directives,
     /// Output format
     #[config(env = "LOG_FORMAT", default)]
     pub format: LoggerFormat,
