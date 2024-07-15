@@ -9,7 +9,6 @@ use std::{
     io::{BufRead, BufReader, BufWriter, Read, Write},
     marker::PhantomData,
     path::PathBuf,
-    time::Duration,
 };
 
 use clap::Parser;

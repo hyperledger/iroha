@@ -167,7 +167,6 @@ types!(
     DomainEventSet,
     DomainId,
     DomainOwnerChanged,
-    Duration,
     EventBox,
     EventFilterBox,
     EventMessage,
@@ -278,7 +277,6 @@ types!(
     Option<AssetId>,
     Option<BlockStatus>,
     Option<DomainId>,
-    Option<Duration>,
     Option<HashOf<SignedBlock>>,
     Option<HashOf<SignedTransaction>>,
     Option<IpfsPath>,
@@ -296,6 +294,7 @@ types!(
     Option<TriggerCompletedOutcomeType>,
     Option<TriggerId>,
     Option<u32>,
+    Option<u64>,
     Pagination,
     Parameter,
     ParameterChanged,
@@ -418,6 +417,7 @@ types!(
     Vec<EventBox>,
     Vec<EventFilterBox>,
     Vec<InstructionBox>,
+    Vec<Parameter>,
     Vec<PeerId>,
     Vec<PredicateBox>,
     Vec<QueryOutputBox>,
@@ -440,10 +440,7 @@ pub mod complete_data_model {
     //! Complete set of types participating in the schema
 
     pub use core::num::{NonZeroU32, NonZeroU64};
-    pub use std::{
-        collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-        time::Duration,
-    };
+    pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
     pub use iroha_crypto::*;
     pub use iroha_data_model::{

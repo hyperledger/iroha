@@ -506,31 +506,6 @@ impl<K: IntoSchema> IntoSchema for btree_set::BTreeSet<K> {
     }
 }
 
-impl TypeId for core::time::Duration {
-    fn id() -> String {
-        "Duration".to_owned()
-    }
-}
-impl IntoSchema for core::time::Duration {
-    fn type_name() -> String {
-        "Duration".to_owned()
-    }
-    // Look at: https://docs.rs/parity-scale-codec/2.1.1/src/parity_scale_codec/codec.rs.html#1182-1192
-    fn update_schema_map(map: &mut MetaMap) {
-        if !map.contains_key::<Self>() {
-            map.insert::<Self>(Metadata::Tuple(UnnamedFieldsMeta {
-                types: vec![
-                    core::any::TypeId::of::<u64>(),
-                    core::any::TypeId::of::<u32>(),
-                ],
-            }));
-
-            u32::update_schema_map(map);
-            u64::update_schema_map(map);
-        }
-    }
-}
-
 impl<T: TypeId, const L: usize> TypeId for [T; L] {
     fn id() -> String {
         format!("Array<{}, {}>", T::id(), L)

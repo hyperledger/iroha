@@ -82,6 +82,10 @@ impl SumeragiHandle {
         // NOTE: topology need to be updated up to block's view_change_index
         topology.nth_rotation(block.header().view_change_index as usize);
 
+        if block.header().is_genesis() {
+            state_block.world.genesis_creation_time_ms = Some(block.header().creation_time_ms);
+        }
+
         let block = ValidBlock::validate(
             block.clone(),
             topology,

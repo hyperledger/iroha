@@ -635,7 +635,7 @@ mod http {
                 .get_unix_time()
                 .as_millis()
                 .try_into()
-                .expect("Unix timestamp exceedes u64::MAX");
+                .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
 
             Self::new_with_time(chain_id, authority, creation_time_ms)
         }
@@ -652,7 +652,7 @@ mod http {
                 .expect("Failed to get the current system time")
                 .as_millis()
                 .try_into()
-                .expect("Unix timestamp exceedes u64::MAX");
+                .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
             Self::new_with_time(chain_id, authority, creation_time_ms)
         }
     }
@@ -700,7 +700,7 @@ mod http {
             let ttl: u64 = time_to_live
                 .as_millis()
                 .try_into()
-                .expect("Unix timestamp exceedes u64::MAX");
+                .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
 
             self.payload.time_to_live_ms = if ttl == 0 {
                 // TODO: This is not correct, 0 is not the same as None
@@ -714,8 +714,8 @@ mod http {
 
         /// Set creation time of transaction
         pub fn set_creation_time(&mut self, value: Duration) -> &mut Self {
-            self.payload.creation_time_ms =
-                u64::try_from(value.as_millis()).expect("should never exceed u64");
+            self.payload.creation_time_ms = u64::try_from(value.as_millis())
+                .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
             self
         }
 
