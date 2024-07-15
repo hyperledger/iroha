@@ -56,7 +56,7 @@ serde_with = { workspace = true, features = ["macros", "hex"] }
 hex = { workspace = true, features = ["alloc", "serde"] }
 getset = { workspace = true }
 
-thiserror = { version = "1.0.61", optional = true }
+thiserror = { version = "1.0.62", optional = true }
 displaydoc = { workspace = true }
 
 digest = { version = "0.10.7", default-features = false, features = ["alloc"] }
