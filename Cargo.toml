@@ -118,7 +118,7 @@ rustc-hash = "1.1.0"
 serde = { version = "1.0.204", default-features = false }
 serde_json = { version = "1.0.120", default-features = false }
 serde_yaml = "0.9.34"
-serde_with = { version = "3.8.3", default-features = false }
+serde_with = { version = "3.9.0", default-features = false }
 parity-scale-codec = { version = "3.6.12", default-features = false }
 json5 = "0.4.1"
 toml = "0.8.14"
