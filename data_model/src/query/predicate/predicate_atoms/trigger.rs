@@ -1,3 +1,5 @@
+//! This module contains predicates for trigger-related objects, mirroring [`crate::trigger`]
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
@@ -17,11 +19,14 @@ use crate::{
     },
 };
 
+/// A predicate that can be applied to a [`TriggerId`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum TriggerIdPredicateBox {
     // object-specific predicates
+    /// Checks if the input is equal to the expected value.
     Equals(TriggerId),
     // projections
+    /// Checks if a predicate applies to the name of the input.
     Name(StringPredicateBox),
 }
 
@@ -36,9 +41,11 @@ impl PredicateTrait<TriggerId> for TriggerIdPredicateBox {
 
 impl_predicate_box!(TriggerId: TriggerIdPredicateBox);
 
+/// A predicate that can be applied to a [`Trigger`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum TriggerPredicateBox {
     // projections
+    /// Checks if a predicate applies to the ID of the input.
     Id(TriggerIdPredicateBox),
 }
 

@@ -407,7 +407,7 @@ pub mod asset_definition {
         CanRemoveKeyValueInAssetDefinition, CanSetKeyValueInAssetDefinition,
         CanUnregisterAssetDefinition,
     };
-    use iroha_smart_contract::SmartContractSingularQueryError;
+    use iroha_smart_contract::SmartContractSingleQueryError;
 
     use super::*;
 
@@ -428,8 +428,8 @@ pub mod asset_definition {
             .with_filter(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
             .execute_single()
             .map_err(|e| match e {
-                SmartContractSingularQueryError::Validation(e) => e,
-                SmartContractSingularQueryError::Single(_) => {
+                SmartContractSingleQueryError::Validation(e) => e,
+                SmartContractSingleQueryError::Single(_) => {
                     // assuming this can only happen due to such a domain not existing
                     ValidationFail::NotPermitted(alloc::format!(
                         "Asset definition {} not found",
@@ -740,7 +740,7 @@ pub mod domain {
         CanRegisterAccountInDomain, CanRegisterAssetDefinitionInDomain, CanRemoveKeyValueInDomain,
         CanSetKeyValueInDomain, CanUnregisterDomain,
     };
-    use iroha_smart_contract::SmartContractSingularQueryError;
+    use iroha_smart_contract::SmartContractSingleQueryError;
 
     use super::*;
 
@@ -754,8 +754,8 @@ pub mod domain {
             .execute_single()
             .map(|domain| domain.owned_by() == authority)
             .map_err(|e| match e {
-                SmartContractSingularQueryError::Validation(e) => e,
-                SmartContractSingularQueryError::Single(_) => {
+                SmartContractSingleQueryError::Validation(e) => e,
+                SmartContractSingleQueryError::Single(_) => {
                     // assuming this can only happen due to such a domain not existing
                     ValidationFail::NotPermitted(alloc::format!("Domain {} not found", domain_id))
                 }

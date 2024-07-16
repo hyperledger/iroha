@@ -1134,10 +1134,10 @@ pub mod role {
                 .execute_single()
             {
                 Ok(res) => res,
-                Err(iroha_smart_contract::SmartContractSingularQueryError::Validation(error)) => {
+                Err(iroha_smart_contract::SmartContractSingleQueryError::Validation(error)) => {
                     deny!($executor, error);
                 }
-                Err(iroha_smart_contract::SmartContractSingularQueryError::Single(_error)) => {
+                Err(iroha_smart_contract::SmartContractSingleQueryError::Single(_error)) => {
                     // assuming that only a "not found" case is possible here
                     deny!($executor, "Role not found")
                 }

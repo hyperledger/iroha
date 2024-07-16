@@ -1,6 +1,38 @@
-#![warn(missing_docs)] // TODO
-#![allow(missing_copy_implementations)]
-//! Predicate-related logic. Should contain predicate-related `impl`s.
+//! Contain definitions of predicates for different types and a DSL to build them.
+//!
+//! # Implementation details of the predicate DSL
+//!
+//! There are three main components to the predicate DSL:
+//! - Prototypes
+//! - Projectors
+//! - Atomic predicates and combinators
+//!
+//! Prototype is a structure that mimics an object the predicate is being built on.
+//! You can call methods on it to build predicate directly (like [`prototypes::account::AccountIdPrototype::eq`]) or access one of its fields, which are all prototypes of the elements of the object (like `account_id.domain_id`).
+//!
+//! Projectors are needed for inner elements of prototypes to remember the object they are part of, so that `account_id.domain_id` would still build `AccountIdPredicateBox`es, while still being an `DomainIdPrototype`.
+//!
+//! This is achieved by passing an implementation of [`projectors::ObjectProjector`] trait to the prototype. An object projector accepts a predicate of a more specific type and returns a predicate of a more general type wrapped in a projection.
+//!
+//! For example, `AccountIdDomainIdProjector` accepts a predicate on `DomainId` makes a predicate on `AccountId` by wrapping it with `AccountIdDomainIdProjection`. Notice the difference between projector and projection: projector is just an utility type, while projection is a predicate.
+//!
+//! ## Predicate combinators and normalization
+//!
+//! There are also two representations of the predicates:
+//! - Normalized representation, which is designed for serialization and evaluation
+//! - AST representation, which is designed for type-checking and easy & efficient composition
+//!
+//! Normalized representation consists of [`CompoundPredicate<T>`], with `T` being an atomic predicate box for that type (like [`predicate_atoms::account::AccountIdPredicateBox`]).
+//! The [`CompoundPredicate`] layer implements logical operators on top of the atomic predicate, while the projections are handled with the atomic predicate itself, with variants like [`predicate_atoms::account::AccountIdPredicateBox::DomainId`].
+//!
+//! Normalized representation aims to reduce the number of types not to bloat the schema and reduce redundancy.
+//!
+//! Predicates in the normalized representation can be evaluated using the [`PredicateTrait`] trait.
+//!
+//! Ast predicates are more numerous: they include atomic predicates (like [`predicate_atoms::account::AccountIdPredicateBox`]), logical combinators (three types in [`predicate_combinators`]), and projections (like [`projectors::AccountIdDomainIdProjection`]).
+//!
+//! Ast predicates implement [`AstPredicate<T>`] the trait with `T` being the atomic predicate box they normalize into.
+//! The [`AstPredicate<T>`] defines the logic for converting the AST into the normalized representation.
 
 pub mod predicate_ast_extensions;
 pub mod predicate_atoms;
@@ -13,17 +45,22 @@ use alloc::{boxed::Box, vec, vec::Vec};
 
 use super::*;
 
-/// Trait for generic predicates.
+/// Trait defining how to apply a predicate to a value `T`.
 pub trait PredicateTrait<T: ?Sized> {
     /// The result of applying the predicate to a value.
     fn applies(&self, input: &T) -> bool;
 }
 
+/// A predicate combinator adding support for logical operations on some atomic (basis) predicate type.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum CompoundPredicate<Atom> {
+    /// An atomic predicate as-is.
     Atom(Atom),
+    /// A negation of a compound predicate.
     Not(Box<Self>),
+    /// A conjunction of multiple predicates.
     And(Vec<Self>),
+    /// A disjunction of multiple predicates.
     Or(Vec<Self>),
 }
 
@@ -33,6 +70,7 @@ impl<Atom> CompoundPredicate<Atom> {
     /// A compound predicate that always evaluates to `false`.
     pub const FAIL: Self = Self::Or(Vec::new());
 
+    /// Combine two predicates with an "and" operation.
     pub fn and(self, other: Self) -> Self {
         match self {
             CompoundPredicate::And(mut and_list) => {
@@ -44,13 +82,17 @@ impl<Atom> CompoundPredicate<Atom> {
     }
 }
 
-/// A marker trait allowing to associate a predicate box type corresponding to the type
+/// A marker trait allowing to associate a predicate box type corresponding to the type.
 pub trait HasPredicateBox {
-    type PredicateBoxType: PredicateTrait<Self>; // + AstPredicate<Self::PredicateBoxType>
+    /// The type of the atomic predicate corresponding to the type.
+    type PredicateBoxType: PredicateTrait<Self>;
 }
 
-/// A marker trait allowing to associate an object prototype used to build a certain predicate type
+/// A marker trait allowing to get a type of prototype for the type.
+///
+/// Not that it is implemented on predicate, not on concrete types. That is because some predicates, like [`predicate_atoms::StringPredicateBox`] are applicable to multiple types.
 pub trait HasPrototype {
+    /// Get a prototype for the predicate, with the given projector.
     type Prototype<Projector: Default>: Default;
 }
 
@@ -68,12 +110,13 @@ where
     }
 }
 
-/// Trait that marks an ast-form predicate
+/// Trait that marks a predicate in AST representation. The `PredType` generic parameters defines the type of the atomic predicate this predicate normalizes into.
 ///
 /// The main task is to facilitate normalization:
 /// the extraction of all logical combinators ("not", "and" and "or") to the outer scope,
 /// leaving only projections as "atomic" predicates
 pub trait AstPredicate<PredType> {
+    /// Normalize the predicate, applying `proj` to every atomic predicate emitted.
     fn normalize_with_proj<OutputType, Proj>(self, proj: Proj) -> CompoundPredicate<OutputType>
     where
         Proj: Fn(PredType) -> OutputType + Copy;

@@ -1,3 +1,5 @@
+//! This module contains predicates for block-related objects, mirroring [`crate::block`].
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
@@ -19,6 +21,7 @@ use crate::{
     },
 };
 
+/// A predicate that can be applied to a [`BlockHeader`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum BlockHeaderPredicateBox {
     // nothing here yet
@@ -34,6 +37,7 @@ impl PredicateTrait<BlockHeader> for BlockHeaderPredicateBox {
     }
 }
 
+/// A predicate that can be applied to a [`SignedBlock`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum SignedBlockPredicateBox {
     // nothing here yet
@@ -49,6 +53,7 @@ impl PredicateTrait<SignedBlock> for SignedBlockPredicateBox {
     }
 }
 
+/// A predicate that can be applied to a [`TransactionQueryOutput`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum TransactionQueryOutputPredicateBox {
     // nothing here yet

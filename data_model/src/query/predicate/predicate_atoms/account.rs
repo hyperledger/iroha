@@ -1,3 +1,5 @@
+//! This module contains predicates for account-related objects, mirroring [`crate::account`].
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
@@ -22,12 +24,16 @@ use crate::{
     },
 };
 
+/// A predicate that can be applied to an [`AccountId`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum AccountIdPredicateBox {
     // object-specific predicates
+    /// Checks if the input is equal to the expected value.
     Equals(AccountId),
     // projections
+    /// Checks if a predicate applies to the domain ID of the input.
     DomainId(DomainIdPredicateBox),
+    /// Checks if a predicate applies to the signatory of the input.
     Signatory(PublicKeyPredicateBox),
 }
 
@@ -43,10 +49,13 @@ impl PredicateTrait<AccountId> for AccountIdPredicateBox {
     }
 }
 
+/// A predicate that can be applied to an [`Account`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum AccountPredicateBox {
     // projections
+    /// Checks if a predicate applies to the ID of the input.
     Id(AccountIdPredicateBox),
+    /// Checks if a predicate applies to the metadata of the input.
     Metadata(MetadataPredicateBox),
 }
 

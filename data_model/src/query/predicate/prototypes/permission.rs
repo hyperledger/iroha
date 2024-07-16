@@ -1,3 +1,5 @@
+//! Account-related prototypes, mirroring types in [`crate::permission`].
+
 use core::marker::PhantomData;
 
 use super::impl_prototype;
@@ -6,6 +8,7 @@ use crate::query::{
     AstPredicate, HasPrototype,
 };
 
+/// A prototype of [`crate::permission::Permission`] for predicate construction.
 #[derive(Default, Copy, Clone)]
 pub struct PermissionPrototype<Projector> {
     phantom: PhantomData<Projector>,

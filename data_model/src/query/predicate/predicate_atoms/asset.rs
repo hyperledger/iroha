@@ -1,3 +1,5 @@
+//! This module contains predicates for asset-related objects, mirroring [`crate::asset`].
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
@@ -23,11 +25,15 @@ use crate::{
     },
 };
 
+/// A predicate that can be applied to an [`AssetDefinitionId`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum AssetDefinitionPredicateBox {
     // projections
+    /// Checks if a predicate applies to the ID of the input.
     Id(AssetDefinitionIdPredicateBox),
+    /// Checks if a predicate applies to the metadata of the input.
     Metadata(MetadataPredicateBox),
+    /// Checks if a predicate applies to the owner of the input.
     OwnedBy(AccountIdPredicateBox),
 }
 
@@ -43,10 +49,13 @@ impl PredicateTrait<AssetDefinition> for AssetDefinitionPredicateBox {
     }
 }
 
+/// A predicate that can be applied to an [`Asset`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum AssetPredicateBox {
     // projections
+    /// Checks if a predicate applies to the ID of the input.
     Id(AssetIdPredicateBox),
+    /// Checks if a predicate applies to the value of the input.
     Value(AssetValuePredicateBox),
 }
 
@@ -61,6 +70,7 @@ impl PredicateTrait<Asset> for AssetPredicateBox {
     }
 }
 
+/// A predicate that can be applied to an [`AssetValue`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum AssetValuePredicateBox {
     // TODO: populate
@@ -76,12 +86,16 @@ impl PredicateTrait<AssetValue> for AssetValuePredicateBox {
     }
 }
 
+/// A predicate that can be applied to an [`AssetId`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum AssetIdPredicateBox {
     // object-specific predicates
+    /// Checks if the input is equal to the expected value.
     Equals(AssetId),
     // projections
+    /// Checks if a predicate applies to the definition ID of the input.
     DefinitionId(AssetDefinitionIdPredicateBox),
+    /// Checks if a predicate applies to the account ID of the input.
     AccountId(AccountIdPredicateBox),
 }
 
@@ -99,12 +113,16 @@ impl PredicateTrait<AssetId> for AssetIdPredicateBox {
     }
 }
 
+/// A predicate that can be applied to an [`AssetDefinitionId`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum AssetDefinitionIdPredicateBox {
     // object-specific predicates
+    /// Checks if the input is equal to the expected value.
     Equals(AssetDefinitionId),
     // projections
+    /// Checks if a predicate applies to the domain ID of the input.
     DomainId(DomainIdPredicateBox),
+    /// Checks if a predicate applies to the name of the input.
     Name(StringPredicateBox),
 }
 

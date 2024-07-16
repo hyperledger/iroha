@@ -1,3 +1,5 @@
+//! This module contains predicates for peer-related objects, mirroring [`crate::peer`].
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
@@ -15,6 +17,8 @@ use crate::{
         AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
     },
 };
+
+/// A predicate that can be applied to a [`Peer`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum PeerPredicateBox {
     // nothing here yet

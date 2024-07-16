@@ -1,3 +1,5 @@
+//! Contains common types and traits to facilitate building and sending queries, either from the client or from smart contracts.
+
 #[cfg(not(feature = "std"))]
 use alloc::vec::{self, Vec};
 #[cfg(feature = "std")]
@@ -13,27 +15,37 @@ use crate::query::{
     IterableQueryWithFilterFor, IterableQueryWithParams, SingularQueryBox, SingularQueryOutputBox,
 };
 
+/// A trait abstracting away concrete backend for executing queries against iroha.
 pub trait QueryExecutor {
+    /// A type of cursor used in iterable queries.
+    ///
+    /// The cursor type is an opaque type that allows to continue execution of an iterable query with [`Self::continue_iterable_query`]
     type Cursor;
+    /// An error that can occur during query execution.
     type Error;
     // bound introduced to inject `SingularQueryError` in builder's `execute_single` and `execute_single_opt` methods
-    type SingularError: From<SingleQueryError> + From<Self::Error>;
+    /// An error type that combines `SingleQueryError` and `Self::Error`. Used by helper methods in query builder that constrain the number of results of an iterable query to one.
+    type SingleError: From<SingleQueryError> + From<Self::Error>;
 
+    /// Executes a singular query and returns its result.
     fn execute_singular_query(
         &self,
         query: SingularQueryBox,
     ) -> Result<SingularQueryOutputBox, Self::Error>;
 
+    /// Starts an iterable query and returns the first batch of results.
     fn start_iterable_query(
         &self,
         query: IterableQueryWithParams,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
 
+    /// Continues an iterable query from the given cursor and returns the next batch of results.
     fn continue_iterable_query(
         cursor: Self::Cursor,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
 }
 
+/// An iterator over results of an iterable query.
 #[derive(Debug)]
 pub struct IterableQueryIterator<E: QueryExecutor, T> {
     current_batch_iter: vec::IntoIter<T>,
@@ -45,6 +57,7 @@ where
     E: QueryExecutor,
     Vec<T>: TryFrom<IterableQueryOutputBatchBox>,
 {
+    /// Create a new iterator over iterable query results.
     pub fn new(
         first_batch: IterableQueryOutputBatchBox,
         continue_cursor: Option<E::Cursor>,
@@ -62,6 +75,9 @@ impl<E, T> IterableQueryIterator<E, T>
 where
     E: QueryExecutor,
 {
+    /// Returns the number of results remaining in the current batch.
+    ///
+    /// Note that it is NOT the number of results remaining in the query, which is not exposed by iroha API.
     pub fn remaining_in_current_batch(&self) -> usize {
         self.current_batch_iter.as_slice().len()
     }
@@ -105,6 +121,7 @@ where
     }
 }
 
+/// An error that can occur when constraining the number of results of an iterable query to one.
 #[derive(
     Debug,
     Copy,
@@ -129,6 +146,7 @@ pub enum SingleQueryError {
     ExpectedOneOrZeroGotMany,
 }
 
+/// Struct that simplifies construction of an iterable query.
 pub struct IterableQueryBuilder<'e, E, Q, P> {
     query_executor: &'e E,
     query: Q,
@@ -143,6 +161,7 @@ where
     Q: IterableQuery,
     Q::Item: HasPredicateBox<PredicateBoxType = P>,
 {
+    /// Create a new iterable query builder for a given backend and query.
     pub fn new(query_executor: &'a E, query: Q) -> Self {
         Self {
             query_executor,
@@ -156,6 +175,9 @@ where
 }
 
 impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
+    /// Only return results that match the specified predicate.
+    ///
+    /// If multiple filters are added, they are combined with a logical AND.
     pub fn with_filter<B, O>(self, predicate_builder: B) -> Self
     where
         P: HasPrototype,
@@ -167,6 +189,7 @@ impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
         self.with_raw_filter(predicate_builder(Default::default()).normalize())
     }
 
+    /// Same as [`Self::with_filter`], but accepts a pre-constructed predicate in normalized form, instead of building a new one in place.
     pub fn with_raw_filter(self, filter: CompoundPredicate<P>) -> Self {
         Self {
             filter: self.filter.and(filter),
@@ -174,14 +197,19 @@ impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
         }
     }
 
+    /// Sort the results according to the specified sorting.
     pub fn with_sorting(self, sorting: Sorting) -> Self {
         Self { sorting, ..self }
     }
 
+    /// Only return part of the results specified by the pagination.
     pub fn with_pagination(self, pagination: Pagination) -> Self {
         Self { pagination, ..self }
     }
 
+    /// Change the batch size of the iterable query.
+    ///
+    /// Larger batch sizes reduce the number of round-trips to iroha peer, but require more memory.
     pub fn with_fetch_size(self, fetch_size: FetchSize) -> Self {
         Self { fetch_size, ..self }
     }
@@ -196,6 +224,7 @@ where
     Vec<Q::Item>: TryFrom<IterableQueryOutputBatchBox>,
     <Vec<Q::Item> as TryFrom<IterableQueryOutputBatchBox>>::Error: core::fmt::Debug,
 {
+    /// Execute the query, returning an iterator over its results.
     pub fn execute(self) -> Result<IterableQueryIterator<E, Q::Item>, E::Error> {
         let with_filter = IterableQueryWithFilter::new(self.query, self.filter);
         let boxed: IterableQueryBox = with_filter.into();
@@ -219,11 +248,13 @@ where
         Ok(iterator)
     }
 
+    /// Execute the query, returning all the results collected into a vector.
     pub fn execute_all(self) -> Result<Vec<Q::Item>, E::Error> {
         self.execute()?.collect::<Result<Vec<_>, _>>()
     }
 
-    pub fn execute_single_opt(self) -> Result<Option<Q::Item>, E::SingularError> {
+    /// Execute the query, constraining the number of results to zero or one. Errors if more than one result is returned.
+    pub fn execute_single_opt(self) -> Result<Option<Q::Item>, E::SingleError> {
         let mut iter = self.execute()?;
         let first = iter.next().transpose()?;
         let second = iter.next().transpose()?;
@@ -238,7 +269,8 @@ where
         }
     }
 
-    pub fn execute_single(self) -> Result<Q::Item, E::SingularError> {
+    /// Execute the query, constraining the number of results to exactly one. Errors if zero or more than one result is returned.
+    pub fn execute_single(self) -> Result<Q::Item, E::SingleError> {
         let mut iter = self.execute()?;
         let first = iter.next().transpose()?;
         let second = iter.next().transpose()?;
