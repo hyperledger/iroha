@@ -1,3 +1,5 @@
+//! Account-related prototypes, mirroring types in [`crate::parameter`].
+
 use core::marker::PhantomData;
 
 use super::impl_prototype;
@@ -6,6 +8,7 @@ use crate::query::{
     AstPredicate, HasPrototype,
 };
 
+/// A prototype of [`crate::parameter::Parameter`] for predicate construction.
 #[derive(Default, Copy, Clone)]
 pub struct ParameterPrototype<Projector> {
     phantom: PhantomData<Projector>,

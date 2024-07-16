@@ -1,3 +1,9 @@
+//! Defines projectors and projections for predicates DSL.
+//!
+//! Projection is an AST predicate combinator that changes the type of the inner predicate by wrapping it in a projection variant on normalization.
+//!
+//! Projector is a helper struct implementing the [`ObjectProjector`] trait that applies the projection.
+
 use core::marker::PhantomData;
 
 use super::{AstPredicate, CompoundPredicate};
@@ -16,13 +22,17 @@ use crate::query::predicate::{
     predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
 };
 
-/// Describes how to convert `AstPredicate<Input>` to `AstPredicate<Output>` via a projection.
+/// Describes how to convert `AstPredicate<Input>` to `AstPredicate<Output>` by wrapping them in some projection predicate combinator.
 pub trait ObjectProjector: Default + Copy + Clone {
+    /// The type of the input atomic predicate (the more concrete type).
     type Input;
+    /// The type of the output atomic predicate (the more general type).
     type Output;
 
+    /// The type of result of projecting `P` AST predicate.
     type ProjectedPredicate<P: AstPredicate<Self::Input>>: AstPredicate<Self::Output>;
 
+    /// Project the given predicate.
     fn project_predicate<P: AstPredicate<Self::Input>>(predicate: P)
         -> Self::ProjectedPredicate<P>;
 }
@@ -58,6 +68,13 @@ impl<T> ObjectProjector for BaseProjector<T> {
 /// A helper macro to define a projector and a projection
 macro_rules! proj {
     ($projector:ident($projection:ident): $in_predicate:ident => $out_predicate:ident::$proj_variant:ident) => {
+        #[doc = "An AST predicate that projects [`"]
+        #[doc = stringify!($in_predicate)]
+        #[doc = "`] to [`"]
+        #[doc = stringify!($out_predicate)]
+        #[doc = "`] by wrapping it in [`"]
+        #[doc = concat!(stringify!($out_predicate), "::", stringify!($proj_variant))]
+        #[doc = "`]."]
         #[derive(Default, Copy, Clone)]
         pub struct $projection<P>(P);
 
@@ -112,6 +129,9 @@ macro_rules! proj {
             }
         }
 
+        #[doc = "An [`ObjectProjector`] that applies [`"]
+        #[doc = stringify!($projection)]
+        #[doc = "`]."]
         #[derive(Default, Copy, Clone)]
         pub struct $projector<Base>(PhantomData<Base>);
 

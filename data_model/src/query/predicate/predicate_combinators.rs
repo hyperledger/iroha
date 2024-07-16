@@ -1,3 +1,5 @@
+//! Module containing AST predicate combinators, implementing logical operations.
+
 #[cfg(not(feature = "std"))]
 use alloc::vec;
 
@@ -36,10 +38,27 @@ macro_rules! impl_ops {
     };
 }
 
+/// Invert the AST predicate - apply not operation.
 pub struct NotAstPredicate<P>(pub P);
 
 impl_ops!(NotAstPredicate<P>);
 
+impl<PredType, P> AstPredicate<PredType> for NotAstPredicate<P>
+where
+    P: AstPredicate<PredType>,
+{
+    fn normalize_with_proj<OutputType, Proj>(self, proj: Proj) -> CompoundPredicate<OutputType>
+    where
+        Proj: Fn(PredType) -> OutputType + Copy,
+    {
+        let NotAstPredicate(inner) = self;
+
+        // project the inner predicate and negate it
+        CompoundPredicate::Not(Box::new(inner.normalize_with_proj(proj)))
+    }
+}
+
+/// Combine two AST predicates with logical OR.
 pub struct OrAstPredicate<P1, P2>(pub P1, pub P2);
 
 impl<PredType, P1, P2> AstPredicate<PredType> for OrAstPredicate<P1, P2>
@@ -53,6 +72,7 @@ where
     {
         let OrAstPredicate(lhs, rhs) = self;
 
+        // project the inner predicates and combine them with an or
         CompoundPredicate::Or(vec![
             lhs.normalize_with_proj(proj),
             rhs.normalize_with_proj(proj),
@@ -62,6 +82,7 @@ where
 
 impl_ops!(OrAstPredicate<P1, P2>);
 
+/// Combine two AST predicates with logical AND.
 pub struct AndAstPredicate<P1, P2>(pub P1, pub P2);
 
 impl<PredType, P1, P2> AstPredicate<PredType> for AndAstPredicate<P1, P2>
@@ -75,6 +96,7 @@ where
     {
         let AndAstPredicate(lhs, rhs) = self;
 
+        // project the inner predicates and combine them with an and
         CompoundPredicate::And(vec![
             lhs.normalize_with_proj(proj),
             rhs.normalize_with_proj(proj),

@@ -1,3 +1,5 @@
+//! This module contains predicates for domain-related objects, mirroring [`crate::domain`].
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
@@ -17,10 +19,13 @@ use crate::{
     },
 };
 
+/// A predicate that can be applied to a [`Domain`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum DomainPredicateBox {
     // projections
+    /// Checks if a predicate applies to the ID of the input.
     Id(DomainIdPredicateBox),
+    /// Checks if a predicate applies to the metadata of the input.
     Metadata(MetadataPredicateBox),
 }
 
@@ -35,11 +40,14 @@ impl PredicateTrait<Domain> for DomainPredicateBox {
     }
 }
 
+/// A predicate that can be applied to a [`DomainId`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum DomainIdPredicateBox {
     // object-specific predicates
+    /// Checks if the input is equal to the expected value.
     Equals(DomainId),
     // projections
+    /// Checks if a predicate applies to the name of the input.
     Name(StringPredicateBox),
 }
 

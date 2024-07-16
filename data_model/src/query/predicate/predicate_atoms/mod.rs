@@ -1,3 +1,11 @@
+//! This module contains atomic predicates for all the different types supported by the predicate system.
+//!
+//! Generally, each of the atomic predicates is an enum that has two categories of variants:
+//! - Object-specific predicates, which check something that applies to the whole object, like [`account::AccountIdPredicateBox::Equals`] or [`StringPredicateBox::Contains`]
+//! - Projections, which check a predicate on some of the fields/inner values of the object, like [`account::AccountIdPredicateBox::DomainId`]
+
+#![allow(missing_copy_implementations)] // some predicates are not yet populated, but will be. They will stop being `Copy`able later, so don't bother with marking them as such now.
+
 pub mod account;
 pub mod asset;
 pub mod block;
@@ -33,6 +41,7 @@ use crate::{metadata::Metadata, name::Name};
 macro_rules! impl_predicate_box {
     ($($ty:ty),+: $predicate_ty:ty) => {
         impl $predicate_ty {
+            /// Build a new predicate in a normalized form. This predicate has limited composability and is generally useful only to be passed to queries.
             pub fn build<F, O>(predicate: F) -> CompoundPredicate<Self>
             where
                 F: FnOnce(<Self as HasPrototype>::Prototype<BaseProjector<Self>>) -> O,
@@ -41,6 +50,7 @@ macro_rules! impl_predicate_box {
                 predicate(Default::default()).normalize()
             }
 
+            /// Build a new predicate without normalizing it. The resulting predicate can be freely composed with other predicates using logical operators, or by calling `.satisfies` method on a prototype.
             pub fn build_fragment<F, O>(predicate: F) -> O
             where
                 F: FnOnce(<Self as HasPrototype>::Prototype<BaseProjector<Self>>) -> O,
@@ -103,15 +113,16 @@ macro_rules! impl_predicate_box {
 }
 pub(crate) use impl_predicate_box;
 
+/// A predicate that can be applied to a [`String`]-like types.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum StringPredicateBox {
-    /// Forward to [`String`] equality.
+    /// Checks if the input is equal to the expected value
     Equals(String),
-    /// Forward to [`str::contains()`]
+    /// Checks if the input contains an expected substring, like [`str::contains()`]
     Contains(String),
-    /// Forward to [`str::starts_with()`]
+    /// Checks if the input starts with an expected substring, like [`str::starts_with()`]
     StartsWith(String),
-    /// Forward to [`str::ends_with()`]
+    /// Checks if the input ends with an expected substring, like [`str::ends_with()`]
     EndsWith(String),
 }
 
@@ -132,6 +143,7 @@ where
     }
 }
 
+/// A predicate that can be applied to [`Metadata`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum MetadataPredicateBox {
     // TODO: populate this with something. Seeing as how we can change it to be just a JsonString, not populating it right now
@@ -147,9 +159,11 @@ impl PredicateTrait<Metadata> for MetadataPredicateBox {
     }
 }
 
+/// A predicate that can be applied to a [`PublicKey`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum PublicKeyPredicateBox {
     // object-specific predicates
+    /// Checks if the input is equal to the expected value.
     Equals(PublicKey),
 }
 

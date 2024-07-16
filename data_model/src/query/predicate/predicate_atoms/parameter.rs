@@ -1,3 +1,5 @@
+//! This module contains predicates for parameter-related objects, mirroring [`crate::parameter`].
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
@@ -16,6 +18,7 @@ use crate::{
     },
 };
 
+/// A predicate that can be applied to a [`Parameter`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum ParameterPredicateBox {
     // nothing here yet

@@ -1,7 +1,6 @@
 //! API which simplifies writing of smartcontracts
 #![no_std]
 #![allow(unsafe_code)]
-#![warn(missing_docs)] // TODO
 
 extern crate alloc;
 
@@ -112,6 +111,7 @@ impl<I: BuiltInInstruction + Encode> ExecuteOnHost for I {
     }
 }
 
+/// An iterable query cursor for use in smart contracts.
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct SmartContractQueryCursor {
     cursor: ForwardCursor,
@@ -128,21 +128,23 @@ fn execute_query(query: QueryRequest) -> Result<QueryResponse, ValidationFail> {
     unsafe { decode_with_length_prefix_from_raw(encode_and_execute(&query, host_execute_query)) }
 }
 
+/// An error that can occur when executing a singular query in a smart contract.
 #[derive(Debug, displaydoc::Display, FromVariant)]
-pub enum SmartContractSingularQueryError {
+pub enum SmartContractSingleQueryError {
     /// Query validation error
     Validation(ValidationFail),
     /// Failed to constrain the query to a single result
     Single(SingleQueryError),
 }
 
+/// A [`QueryExecutor`] for use in smart contracts.
 #[derive(Copy, Clone, Debug)]
 pub struct SmartContractQueryExecutor;
 
 impl QueryExecutor for SmartContractQueryExecutor {
     type Cursor = SmartContractQueryCursor;
     type Error = ValidationFail;
-    type SingularError = SmartContractSingularQueryError;
+    type SingleError = SmartContractSingleQueryError;
 
     fn execute_singular_query(
         &self,
@@ -190,6 +192,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
     }
 }
 
+/// Build an iterable query for execution in a smart contract.
 pub fn iter_query<Q>(
     query: Q,
 ) -> IterableQueryBuilder<
@@ -205,6 +208,7 @@ where
     IterableQueryBuilder::new(&SmartContractQueryExecutor, query)
 }
 
+/// Run a singular query in a smart contract.
 pub fn query<Q>(query: Q) -> Result<Q::Output, ValidationFail>
 where
     Q: SingularQuery,

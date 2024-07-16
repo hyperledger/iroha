@@ -1,3 +1,5 @@
+//! This module contains predicates for permission-related objects, mirroring [`crate::permission`].
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
@@ -16,6 +18,7 @@ use crate::{
     },
 };
 
+/// A predicate that can be applied to a [`Permission`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum PermissionPredicateBox {
     // nothing here yet

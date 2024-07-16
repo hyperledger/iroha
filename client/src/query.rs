@@ -1,4 +1,4 @@
-#![warn(missing_docs)]
+//! Functions and types to make queries to the Iroha peer.
 
 use std::{collections::HashMap, fmt::Debug};
 
@@ -114,6 +114,7 @@ fn decode_iterable_query_response(
     Ok(resp)
 }
 
+/// An iterable query cursor for use in the client
 #[derive(Debug)]
 pub struct ClientQueryCursor {
     // instead of storing iroha client itself, we store the base URL and headers required to make a request
@@ -145,7 +146,7 @@ impl QueryExecutor for Client {
     type Cursor = ClientQueryCursor;
     // TODO: split these two errors maybe? (it's more useful for smart contracts though..)
     type Error = ClientQueryError;
-    type SingularError = ClientQueryError;
+    type SingleError = ClientQueryError;
 
     fn execute_singular_query(
         &self,
@@ -219,7 +220,7 @@ impl Client {
         }
     }
 
-    #[warn(missing_docs)] // TODO
+    /// Execute a singular query and return the result
     pub fn query<Q>(&self, query: Q) -> Result<Q::Output, ClientQueryError>
     where
         Q: SingularQuery,
@@ -236,7 +237,7 @@ impl Client {
             .expect("BUG: iroha returned unexpected type in singular query"))
     }
 
-    #[warn(missing_docs)] // TODO
+    /// Build an iterable query and return a builder object
     pub fn iter_query<Q, P>(&self, query: Q) -> IterableQueryBuilder<Self, Q, P>
     where
         Q: IterableQuery,
@@ -245,7 +246,9 @@ impl Client {
         IterableQueryBuilder::new(self, query)
     }
 
-    #[warn(missing_docs)] // TODO
+    /// Make a request to continue an iterable query with the provided raw [`ForwardCursor`]
+    ///
+    /// You probably do not want to use this function, but rather use the [`Self::iter_query`] method to make a query and iterate over its results.
     pub fn raw_continue_iterable_query(
         &self,
         cursor: ForwardCursor,

@@ -1,3 +1,5 @@
+//! This module contains predicates for role-related objects, mirroring [`crate::role`].
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
@@ -19,11 +21,14 @@ use crate::{
     },
 };
 
+/// A predicate that can be applied to a [`RoleId`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum RoleIdPredicateBox {
     // object-specific predicates
+    /// Checks if the input is equal to the expected value.
     Equals(RoleId),
     // projections
+    /// Checks if a predicate applies to the name of the input.
     Name(StringPredicateBox),
 }
 
@@ -38,9 +43,11 @@ impl PredicateTrait<RoleId> for RoleIdPredicateBox {
     }
 }
 
+/// A predicate that can be applied to a [`Role`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum RolePredicateBox {
     // projections
+    /// Checks if a predicate applies to the ID of the input.
     Id(RoleIdPredicateBox),
 }
 
