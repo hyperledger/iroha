@@ -1,8 +1,5 @@
 //! Module containing AST predicate combinators, implementing logical operations.
 
-#[cfg(not(feature = "std"))]
-use alloc::vec;
-
 use super::{AstPredicate, CompoundPredicate};
 
 /// Overrides the `Not`, `BitAnd`, and `BitOr` operators for easier predicate composition.
@@ -54,7 +51,8 @@ where
         let NotAstPredicate(inner) = self;
 
         // project the inner predicate and negate it
-        CompoundPredicate::Not(Box::new(inner.normalize_with_proj(proj)))
+        // use `CompoundPredicate` combinator methods that have flattening optimization
+        inner.normalize_with_proj(proj).not()
     }
 }
 
@@ -73,10 +71,9 @@ where
         let OrAstPredicate(lhs, rhs) = self;
 
         // project the inner predicates and combine them with an or
-        CompoundPredicate::Or(vec![
-            lhs.normalize_with_proj(proj),
-            rhs.normalize_with_proj(proj),
-        ])
+        // use `CompoundPredicate` combinator methods that have flattening optimization
+        lhs.normalize_with_proj(proj)
+            .or(rhs.normalize_with_proj(proj))
     }
 }
 
@@ -97,10 +94,9 @@ where
         let AndAstPredicate(lhs, rhs) = self;
 
         // project the inner predicates and combine them with an and
-        CompoundPredicate::And(vec![
-            lhs.normalize_with_proj(proj),
-            rhs.normalize_with_proj(proj),
-        ])
+        // use `CompoundPredicate` combinator methods that have flattening optimization
+        lhs.normalize_with_proj(proj)
+            .and(rhs.normalize_with_proj(proj))
     }
 }
 

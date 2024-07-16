@@ -70,14 +70,46 @@ impl<Atom> CompoundPredicate<Atom> {
     /// A compound predicate that always evaluates to `false`.
     pub const FAIL: Self = Self::Or(Vec::new());
 
+    /// Negate the predicate.
+    pub fn not(self) -> Self {
+        match self {
+            // if the top-level predicate is a negation, we can just remove it
+            CompoundPredicate::Not(expr) => *expr,
+            this => CompoundPredicate::Not(Box::new(this)),
+        }
+    }
+
     /// Combine two predicates with an "and" operation.
     pub fn and(self, other: Self) -> Self {
-        match self {
-            CompoundPredicate::And(mut and_list) => {
+        match (self, other) {
+            // if any of the predicates is an and - flatten it
+            (CompoundPredicate::And(mut and_list), other) => {
                 and_list.push(other);
                 CompoundPredicate::And(and_list)
             }
-            this => CompoundPredicate::And(vec![this, other]),
+            (this, CompoundPredicate::And(mut and_list)) => {
+                // push to front to preserve user-specified order (our predicates are short-circuiting)
+                and_list.insert(0, this);
+                CompoundPredicate::And(and_list)
+            }
+            (this, other) => CompoundPredicate::And(vec![this, other]),
+        }
+    }
+
+    /// Combine two predicates with an "or" operation.
+    pub fn or(self, other: Self) -> Self {
+        match (self, other) {
+            // if any of the predicates is an or - flatten it
+            (CompoundPredicate::Or(mut or_list), other) => {
+                or_list.push(other);
+                CompoundPredicate::Or(or_list)
+            }
+            (this, CompoundPredicate::Or(mut or_list)) => {
+                // push to front to preserve user-specified order (our predicates are short-circuiting)
+                or_list.insert(0, this);
+                CompoundPredicate::Or(or_list)
+            }
+            (this, other) => CompoundPredicate::Or(vec![this, other]),
         }
     }
 }
@@ -134,6 +166,7 @@ mod test {
     use crate::{
         account::AccountId,
         domain::DomainId,
+        prelude::StringPredicateBox,
         query::predicate::{
             predicate_ast_extensions::AstPredicateExt as _,
             predicate_atoms::{
@@ -247,5 +280,57 @@ mod test {
         });
 
         // TODO
+    }
+
+    #[test]
+    fn test_flattening() {
+        let right_assoc = StringPredicateBox::build(|s| {
+            s.starts_with("a") & (s.ends_with("b") & s.ends_with("c"))
+        });
+        let left_assoc = StringPredicateBox::build(|s| {
+            (s.starts_with("a") & s.ends_with("b")) & s.ends_with("c")
+        });
+
+        // the user ordering should be preserved, to mimic the short-circuiting behavior of `&&`
+        assert_eq!(right_assoc, left_assoc);
+
+        // the predicates should get flattened
+        assert_eq!(
+            right_assoc,
+            CompoundPredicate::And(vec![
+                CompoundPredicate::Atom(StringPredicateBox::StartsWith("a".to_string())),
+                CompoundPredicate::Atom(StringPredicateBox::EndsWith("b".to_string())),
+                CompoundPredicate::Atom(StringPredicateBox::EndsWith("c".to_string())),
+            ])
+        );
+
+        // check the same for `or`
+        let right_assoc = StringPredicateBox::build(|s| {
+            s.starts_with("a") | (s.ends_with("b") | s.ends_with("c"))
+        });
+        let left_assoc = StringPredicateBox::build(|s| {
+            (s.starts_with("a") | s.ends_with("b")) | s.ends_with("c")
+        });
+
+        // the user ordering should be preserved, to mimic the short-circuiting behavior of `||`
+        assert_eq!(right_assoc, left_assoc);
+
+        // the predicates should get flattened
+        assert_eq!(
+            right_assoc,
+            CompoundPredicate::Or(vec![
+                CompoundPredicate::Atom(StringPredicateBox::StartsWith("a".to_string())),
+                CompoundPredicate::Atom(StringPredicateBox::EndsWith("b".to_string())),
+                CompoundPredicate::Atom(StringPredicateBox::EndsWith("c".to_string())),
+            ])
+        );
+
+        // check not flattening
+        let not_flat = StringPredicateBox::build(|s| !!s.starts_with("a"));
+
+        assert_eq!(
+            not_flat,
+            CompoundPredicate::Atom(StringPredicateBox::StartsWith("a".to_string()))
+        );
     }
 }
