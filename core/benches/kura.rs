@@ -7,7 +7,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_config::{base::WithOrigin, parameters::actual::Kura as Config};
 use iroha_core::{
     block::*,
-    kura::{BlockStore, LockStatus},
+    kura::BlockStore,
     prelude::*,
     query::store::LiveQueryStore,
     state::{State, World},
@@ -62,7 +62,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     for _ in 1..n_executors {
         block.sign(&key_pair, &topology);
     }
-    let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+    let mut block_store = BlockStore::new(dir.path());
     block_store.create_files_if_they_do_not_exist().unwrap();
     block_store.append_block_to_chain(&block.into()).unwrap();
 

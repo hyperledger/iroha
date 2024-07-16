@@ -2,7 +2,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
-use iroha_core::kura::{BlockIndex, BlockStore, LockStatus};
+use iroha_core::kura::{BlockIndex, BlockStore};
 use iroha_data_model::block::SignedBlock;
 use iroha_version::scale::DecodeVersioned;
 
@@ -59,7 +59,7 @@ fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64)
         }
     }
 
-    let block_store = BlockStore::new(&block_store_path, LockStatus::Unlocked);
+    let block_store = BlockStore::new(&block_store_path);
 
     let index_count = block_store
         .read_index_count()

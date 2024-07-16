@@ -4,7 +4,6 @@
 //! blockchain.
 use std::{
     fmt::Debug,
-    fs,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -24,7 +23,6 @@ use crate::{block::CommittedBlock, handler::ThreadHandler};
 const INDEX_FILE_NAME: &str = "blocks.index";
 const DATA_FILE_NAME: &str = "blocks.data";
 const HASHES_FILE_NAME: &str = "blocks.hashes";
-const LOCK_FILE_NAME: &str = "kura.lock";
 
 const SIZE_OF_BLOCK_HASH: u64 = Hash::LENGTH as u64;
 
@@ -52,7 +50,7 @@ impl Kura {
     /// path.
     pub fn new(config: &Config) -> Result<(Arc<Self>, BlockCount)> {
         let store_dir = config.store_dir.resolve_relative_path();
-        let mut block_store = BlockStore::new(&store_dir, LockStatus::Unlocked);
+        let mut block_store = BlockStore::new(&store_dir);
         block_store.create_files_if_they_do_not_exist()?;
 
         let block_plain_text_path = config
@@ -76,7 +74,7 @@ impl Kura {
     pub fn blank_kura_for_testing() -> Arc<Kura> {
         Arc::new(Self {
             mode: InitMode::Strict,
-            block_store: Mutex::new(BlockStore::new(PathBuf::new(), LockStatus::Locked)),
+            block_store: Mutex::new(BlockStore::new(PathBuf::new())),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path: None,
         })
@@ -355,16 +353,6 @@ pub struct BlockStore {
     path_to_blockchain: PathBuf,
 }
 
-impl Drop for BlockStore {
-    fn drop(&mut self) {
-        let path = self.path_to_blockchain.join(LOCK_FILE_NAME);
-
-        if let Err(err) = fs::remove_file(path) {
-            error!(?err, "Failed to remove lock file");
-        }
-    }
-}
-
 #[derive(Default, Debug, Clone, Copy)]
 /// Lightweight wrapper for block indices in the block index file
 pub struct BlockIndex {
@@ -374,56 +362,9 @@ pub struct BlockIndex {
     pub length: u64,
 }
 
-/// Locked Status
-#[derive(Clone, Copy)]
-pub enum LockStatus {
-    /// Is locked
-    Locked,
-    /// Is unlocked
-    Unlocked,
-}
-
 impl BlockStore {
-    /// Create a new read-only block store in `path`.
-    ///
-    /// # Panics
-    /// * if you pass in `LockStatus::Unlocked` and it is unable to lock the block store.
-    pub fn new(store_path: impl AsRef<Path>, lock_status: LockStatus) -> Self {
-        if matches!(lock_status, LockStatus::Unlocked) {
-            let lock_path = store_path.as_ref().join(LOCK_FILE_NAME);
-            if let Err(e) = fs::File::options()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .open(&lock_path)
-            {
-                match e.kind() {
-                    std::io::ErrorKind::AlreadyExists => Err(Error::Locked(lock_path)),
-                    std::io::ErrorKind::NotFound => {
-                        match std::fs::create_dir_all(store_path.as_ref())
-                            .map_err(|e| Error::MkDir(e, store_path.as_ref().to_path_buf()))
-                        {
-                            Err(e) => Err(e),
-                            Ok(()) => {
-                                if let Err(e) = fs::File::options()
-                                    .read(true)
-                                    .write(true)
-                                    .create_new(true)
-                                    .open(&lock_path)
-                                {
-                                    Err(Error::IO(e, lock_path))
-                                } else {
-                                    Ok(())
-                                }
-                            }
-                        }
-                    }
-                    _ => Err(Error::IO(e, lock_path)),
-                }
-                .expect("INTERNAL BUG: Kura must be able to lock the blockstore");
-            }
-        }
-
+    /// Create a new block store in `path`.
+    pub fn new(store_path: impl AsRef<Path>) -> Self {
         Self {
             path_to_blockchain: store_path.as_ref().to_path_buf(),
         }
@@ -879,7 +820,7 @@ mod tests {
     #[test]
     fn read_and_write_to_blockchain_index() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+        let mut block_store = BlockStore::new(dir.path());
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         block_store.write_block_index(0, 5, 7).unwrap();
@@ -914,7 +855,7 @@ mod tests {
     #[test]
     fn read_and_write_to_blockchain_data_store() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+        let mut block_store = BlockStore::new(dir.path());
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         block_store
@@ -930,7 +871,7 @@ mod tests {
     #[test]
     fn fresh_block_store_has_zero_blocks() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+        let mut block_store = BlockStore::new(dir.path());
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         assert_eq!(0, block_store.read_index_count().unwrap());
@@ -939,7 +880,7 @@ mod tests {
     #[test]
     fn append_block_to_chain_increases_block_count() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+        let mut block_store = BlockStore::new(dir.path());
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         let dummy_block = ValidBlock::new_dummy(KeyPair::random().private_key()).into();
@@ -955,7 +896,7 @@ mod tests {
     #[test]
     fn append_block_to_chain_increases_hashes_count() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+        let mut block_store = BlockStore::new(dir.path());
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         let dummy_block = ValidBlock::new_dummy(KeyPair::random().private_key()).into();
@@ -971,7 +912,7 @@ mod tests {
     #[test]
     fn append_block_to_chain_write_correct_hashes() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+        let mut block_store = BlockStore::new(dir.path());
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         let dummy_block = ValidBlock::new_dummy(KeyPair::random().private_key()).into();
@@ -991,7 +932,7 @@ mod tests {
     #[test]
     fn append_block_to_chain_places_blocks_correctly_in_data_file() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+        let mut block_store = BlockStore::new(dir.path());
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         let dummy_block = ValidBlock::new_dummy(KeyPair::random().private_key()).into();
@@ -1007,41 +948,6 @@ mod tests {
             assert_eq!(i * block_data.len() as u64, start);
             assert_eq!(block_data.len() as u64, length);
         }
-    }
-
-    #[test]
-    fn lock_and_unlock() {
-        let dir = tempfile::tempdir().unwrap();
-
-        {
-            let _store = BlockStore::new(dir.path(), LockStatus::Unlocked);
-
-            assert!(
-                dir.path().join(LOCK_FILE_NAME).exists(),
-                "Lockfile should have been created"
-            );
-        }
-
-        assert!(
-            !dir.path().join(LOCK_FILE_NAME).exists(),
-            "Lockfile should have been deleted"
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Kura must be able to lock the blockstore")]
-    fn concurrent_lock() {
-        let dir = tempfile::tempdir().unwrap();
-        let _store = BlockStore::new(dir.path(), LockStatus::Unlocked);
-        let _store_2 = BlockStore::new(dir.path(), LockStatus::Unlocked);
-    }
-
-    #[test]
-    fn unexpected_unlock() {
-        let dir = tempfile::tempdir().unwrap();
-        let _block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
-        fs::remove_file(dir.path().join(LOCK_FILE_NAME))
-            .expect("Lockfile should have been created");
     }
 
     #[tokio::test]
