@@ -180,11 +180,6 @@ fn generate_synthetic(
         let domain_id: DomainId = format!("domain_{domain}").parse()?;
         genesis.append_instruction(Register::domain(Domain::new(domain_id.clone())));
 
-        for _ in 0..accounts_per_domain {
-            let (account_id, _account_keypair) = gen_account_in(&domain_id);
-            genesis.append_instruction(Register::account(Account::new(account_id.clone())));
-        }
-
         for asset in 0..assets_per_domain {
             let asset_definition_id: AssetDefinitionId =
                 format!("asset_{asset}#{domain_id}").parse()?;
@@ -193,18 +188,19 @@ fn generate_synthetic(
                 AssetType::Numeric(NumericSpec::default()),
             )));
         }
-    }
 
-    for domain in 0..domains {
-        for account in 0..accounts_per_domain {
-            // FIXME: it actually generates (assets_per_domain * accounts_per_domain) assets per domain
+        for _ in 0..accounts_per_domain {
+            let (account_id, _account_keypair) = gen_account_in(&domain_id);
+            genesis.append_instruction(Register::account(Account::new(account_id.clone())));
+
+            // FIXME: Should `assets_per_domain` be renamed to `asset_definitions_per_domain`?
             //        https://github.com/hyperledger/iroha/issues/3508
             for asset in 0..assets_per_domain {
                 let mint = Mint::asset_numeric(
                     13u32,
                     AssetId::new(
                         format!("asset_{asset}#domain_{domain}").parse()?,
-                        format!("account_{account}@domain_{domain}").parse()?,
+                        account_id.clone(),
                     ),
                 );
                 genesis.append_instruction(mint);
