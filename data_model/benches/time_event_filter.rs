@@ -14,7 +14,7 @@ fn schedule_from_zero_with_little_period(criterion: &mut Criterion) {
 
     let since = Duration::from_secs(TIMESTAMP);
     let length = Duration::from_secs(1);
-    let interval = TimeInterval { since, length };
+    let interval = TimeInterval::new(since, length);
     let event = TimeEvent {
         prev_interval: None,
         interval,
