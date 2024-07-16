@@ -15,8 +15,6 @@ fn non_existent_account_is_specific_error() {
         .execute_single()
         .expect_err("Should error");
 
-    // NOTE: with the current implementation, the error returned is less specific than it was before
-    // (we no longer get the context that it is the entire domain that doesn't exist, not just the account)
     match err {
         ClientQueryError::Single(SingleQueryError::ExpectedOneGotNone) => {}
         x => panic!("Unexpected error: {x:?}"),

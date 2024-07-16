@@ -144,7 +144,6 @@ impl From<ResponseReport> for ClientQueryError {
 
 impl QueryExecutor for Client {
     type Cursor = ClientQueryCursor;
-    // TODO: split these two errors maybe? (it's more useful for smart contracts though..)
     type Error = ClientQueryError;
     type SingleError = ClientQueryError;
 
