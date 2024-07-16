@@ -265,8 +265,10 @@ mod chained {
 }
 
 mod valid {
+    use commit::CommittedBlock;
     use indexmap::IndexMap;
-    use iroha_data_model::{account::AccountId, ChainId};
+    use iroha_data_model::{account::AccountId, events::pipeline::PipelineEventBox, ChainId};
+    use storage::storage::StorageReadOnly;
 
     use super::*;
     use crate::{state::StateBlock, sumeragi::network_topology::Role};
@@ -426,7 +428,7 @@ mod valid {
             state_block: &mut StateBlock<'_>,
         ) -> WithEvents<Result<ValidBlock, (SignedBlock, BlockValidationError)>> {
             if let Err(error) =
-                Self::validate_header(&block, topology, genesis_account, state_block)
+                Self::validate_header(&block, topology, genesis_account, state_block, false)
             {
                 return WithEvents::new(Err((block, error)));
             }
@@ -451,17 +453,22 @@ mod valid {
             genesis_account: &AccountId,
             state: &'state State,
             voting_block: &mut Option<VotingBlock>,
+            soft_fork: bool,
         ) -> WithEvents<Result<(ValidBlock, StateBlock<'state>), (SignedBlock, BlockValidationError)>>
         {
             if let Err(error) =
-                Self::validate_header(&block, topology, genesis_account, &state.view())
+                Self::validate_header(&block, topology, genesis_account, &state.view(), soft_fork)
             {
                 return WithEvents::new(Err((block, error)));
             }
 
             // Release block writer before creating new one
             let _ = voting_block.take();
-            let mut state_block = state.block();
+            let mut state_block = if soft_fork {
+                state.block_and_revert()
+            } else {
+                state.block()
+            };
 
             if let Err(error) = Self::validate_transactions(
                 &block,
@@ -480,11 +487,16 @@ mod valid {
             topology: &Topology,
             genesis_account: &AccountId,
             state: &impl StateReadOnly,
+            soft_fork: bool,
         ) -> Result<(), BlockValidationError> {
-            let expected_block_height = state
-                .height()
-                .checked_add(1)
-                .expect("INTERNAL BUG: Block height exceeds usize::MAX");
+            let expected_block_height = if soft_fork {
+                state.height()
+            } else {
+                state
+                    .height()
+                    .checked_add(1)
+                    .expect("INTERNAL BUG: Block height exceeds usize::MAX")
+            };
             let actual_height = block
                 .header()
                 .height
@@ -499,7 +511,11 @@ mod valid {
                 });
             }
 
-            let expected_prev_block_hash = state.latest_block_hash();
+            let expected_prev_block_hash = if soft_fork {
+                state.prev_block_hash()
+            } else {
+                state.latest_block_hash()
+            };
             let actual_prev_block_hash = block.header().prev_block_hash;
 
             if expected_prev_block_hash != actual_prev_block_hash {
@@ -534,10 +550,13 @@ mod valid {
                 }
             }
 
-            if block
-                .transactions()
-                .any(|tx| state.has_transaction(tx.as_ref().hash()))
-            {
+            if block.transactions().any(|tx| {
+                state
+                    .transactions()
+                    .get(&tx.as_ref().hash())
+                    // In case of soft-fork transaction is check if it was added at the same height as candidate block
+                    .is_some_and(|height| height.get() < expected_block_height)
+            }) {
                 return Err(BlockValidationError::HasCommittedTransactions);
             }
 
@@ -651,25 +670,73 @@ mod valid {
             self,
             topology: &Topology,
         ) -> WithEvents<Result<CommittedBlock, (ValidBlock, BlockValidationError)>> {
-            if !self.as_ref().header().is_genesis() {
-                if let Err(err) = Self::verify_proxy_tail_signature(self.as_ref(), topology) {
-                    return WithEvents::new(Err((self, err.into())));
-                }
+            WithEvents::new(match Self::is_commit(self.as_ref(), topology) {
+                Err(err) => Err((self, err)),
+                Ok(()) => Ok(CommittedBlock(self)),
+            })
+        }
 
-                let votes_count = self.as_ref().signatures().len();
+        /// Validate and commit block if possible.
+        ///
+        /// This method is different from calling [`ValidBlock::validate_keep_voting_block`] and [`ValidateBlock::commit`] in the following ways:
+        /// - signatures are checked eagerly so voting block is kept if block doesn't have valid signatures
+        ///
+        /// # Errors
+        /// Combinations of errors from [`ValidBlock::validate_keep_voting_block`] and [`ValidateBlock::commit`].
+        #[allow(clippy::too_many_arguments)]
+        pub fn commit_keep_voting_block<'state, F: Fn(PipelineEventBox)>(
+            block: SignedBlock,
+            topology: &Topology,
+            expected_chain_id: &ChainId,
+            genesis_account: &AccountId,
+            state: &'state State,
+            voting_block: &mut Option<VotingBlock>,
+            soft_fork: bool,
+            send_events: F,
+        ) -> WithEvents<
+            Result<(CommittedBlock, StateBlock<'state>), (SignedBlock, BlockValidationError)>,
+        > {
+            if let Err(err) = Self::is_commit(&block, topology) {
+                return WithEvents::new(Err((block, err)));
+            }
+
+            WithEvents::new(
+                Self::validate_keep_voting_block(
+                    block,
+                    topology,
+                    expected_chain_id,
+                    genesis_account,
+                    state,
+                    voting_block,
+                    soft_fork,
+                )
+                .unpack(send_events)
+                .map(|(block, state_block)| (CommittedBlock(block), state_block)),
+            )
+        }
+
+        /// Check if block satisfy requirements to be committed
+        ///
+        /// # Errors
+        ///
+        /// - Block has duplicate proxy tail signatures
+        /// - Block is not signed by the proxy tail
+        /// - Block doesn't have enough signatures
+        fn is_commit(block: &SignedBlock, topology: &Topology) -> Result<(), BlockValidationError> {
+            if !block.header().is_genesis() {
+                Self::verify_proxy_tail_signature(block, topology)?;
+
+                let votes_count = block.signatures().len();
                 if votes_count < topology.min_votes_for_commit() {
-                    return WithEvents::new(Err((
-                        self,
-                        SignatureVerificationError::NotEnoughSignatures {
-                            votes_count,
-                            min_votes_for_commit: topology.min_votes_for_commit(),
-                        }
-                        .into(),
-                    )));
+                    return Err(SignatureVerificationError::NotEnoughSignatures {
+                        votes_count,
+                        min_votes_for_commit: topology.min_votes_for_commit(),
+                    }
+                    .into());
                 }
             }
 
-            WithEvents::new(Ok(CommittedBlock(self)))
+            Ok(())
         }
 
         /// Add additional signatures for [`Self`].

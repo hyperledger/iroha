@@ -402,6 +402,7 @@ impl Sumeragi {
             genesis_account,
             state,
             existing_voting_block,
+            false,
         )
         .unpack(|e| self.send_event(e))
         .map(|(block, state_block)| VotingBlock::new(block, state_block))
@@ -449,11 +450,6 @@ impl Sumeragi {
                 );
 
                 let block_sync_type = categorize_block_sync(&block, &state.view());
-                if block_sync_type.is_ok() {
-                    // Release block writer before creating new one
-                    let _ = voting_block.take();
-                }
-
                 match handle_categorized_block_sync(
                     &self.chain_id,
                     block,
@@ -461,6 +457,7 @@ impl Sumeragi {
                     genesis_account,
                     &|e| self.send_event(e),
                     block_sync_type,
+                    voting_block,
                 ) {
                     Ok(BlockSyncOk::CommitBlock(block, state_block, topology)) => {
                         self.topology = topology;
@@ -1256,6 +1253,7 @@ fn handle_block_sync<'state, F: Fn(PipelineEventBox)>(
         genesis_account,
         handle_events,
         block_sync_type,
+        &mut None,
     )
 }
 
@@ -1266,33 +1264,38 @@ fn handle_categorized_block_sync<'state, F: Fn(PipelineEventBox)>(
     genesis_account: &AccountId,
     handle_events: &F,
     block_sync_type: Result<BlockSyncType, BlockSyncError>,
+    voting_block: &mut Option<VotingBlock>,
 ) -> Result<BlockSyncOk<'state>, (SignedBlock, BlockSyncError)> {
-    let (mut state_block, soft_fork) = match block_sync_type {
-        Ok(BlockSyncType::CommitBlock) => (state.block(), false),
-        Ok(BlockSyncType::ReplaceTopBlock) => (state.block_and_revert(), true),
+    let soft_fork = match block_sync_type {
+        Ok(BlockSyncType::CommitBlock) => false,
+        Ok(BlockSyncType::ReplaceTopBlock) => true,
         Err(e) => return Err((block, e)),
     };
-    let latest_block = state_block
-        .latest_block()
-        .expect("INTERNAL BUG: No latest block");
-    let mut topology = Topology::new(latest_block.commit_topology().cloned());
-    topology.block_committed(&latest_block, state_block.world.peers().cloned());
-    topology.nth_rotation(block.header().view_change_index as usize);
 
-    ValidBlock::validate(
+    let topology = {
+        let view = state.view();
+        let latest_block = if soft_fork {
+            view.prev_block().expect("INTERNAL BUG: No prev block")
+        } else {
+            view.latest_block().expect("INTERNAL BUG: No latest block")
+        };
+        let mut topology = Topology::new(latest_block.commit_topology().cloned());
+        topology.block_committed(&latest_block, view.world.peers().cloned());
+        topology.nth_rotation(block.header().view_change_index as usize);
+        topology
+    };
+
+    ValidBlock::commit_keep_voting_block(
         block,
         &topology,
         chain_id,
         genesis_account,
-        &mut state_block,
+        state,
+        voting_block,
+        soft_fork,
+        handle_events,
     )
     .unpack(handle_events)
-    .and_then(|block| {
-        block
-            .commit(&topology)
-            .unpack(handle_events)
-            .map_err(|(block, err)| (block.into(), err))
-    })
     .map_err(|(block, error)| {
         (
             block,
@@ -1303,7 +1306,7 @@ fn handle_categorized_block_sync<'state, F: Fn(PipelineEventBox)>(
             },
         )
     })
-    .map(|block| {
+    .map(|(block, state_block)| {
         if soft_fork {
             BlockSyncOk::ReplaceTopBlock(block, state_block, topology)
         } else {
@@ -1709,5 +1712,38 @@ mod tests {
             assert_eq!(peer_height, 1);
             assert_eq!(block_height, nonzero!(1_usize));
         }
+    }
+
+    #[test]
+    #[allow(clippy::redundant_clone)]
+    async fn block_sync_commit_err_keep_voting_block() {
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
+
+        let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
+        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let topology = Topology::new(vec![peer_id]);
+        let (state, _, mut block, genesis_public_key) =
+            create_data_for_test(&chain_id, &topology, &leader_private_key);
+
+        // Malform block signatures so that block going to be rejected
+        block.replace_signatures_unchecked(Vec::new());
+
+        let mut voting_block = Some(VotingBlock::new(
+            ValidBlock::new_dummy(&leader_private_key),
+            state.block(),
+        ));
+
+        let block_sync_type = categorize_block_sync(&block, &state.view());
+        let result = handle_categorized_block_sync(
+            &chain_id,
+            block,
+            &state,
+            &genesis_public_key,
+            &|_| {},
+            block_sync_type,
+            &mut voting_block,
+        );
+        assert!(matches!(result, Err((_, BlockSyncError::BlockNotValid(_)))));
+        assert!(voting_block.is_some());
     }
 }
