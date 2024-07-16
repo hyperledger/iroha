@@ -7,7 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  DOCKER_COMPOSE_PATH: configs/swarm
+  DOCKER_COMPOSE_PATH: defaults
 
 jobs:
   registry:

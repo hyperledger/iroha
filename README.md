@@ -124,7 +124,7 @@ docker compose up
 With the `docker-compose` instance running, use [Iroha Client CLI](./client_cli/README.md):
 
 ```bash
-cargo run --bin iroha -- --config ./configs/swarm/client.toml
+cargo run --bin iroha -- --config ./defaults/client.toml
 ```
 
 ## Integration

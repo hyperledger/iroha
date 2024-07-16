@@ -112,7 +112,7 @@ To do so, perform the following steps:
 	 # Create a new directory:
 	 mkdir test
 	 # Copy the files:
-	 cp configs/swarm/client.toml test
+	 cp defaults/client.toml test
 	 cp target/debug/iroha test
 	 ```
 

@@ -5,7 +5,7 @@
 services:
   irohad0:
     image: hyperledger/iroha:local
-    build: ../..
+    build: ..
     pull_policy: never
     environment:
       CHAIN: 00000000-0000-0000-0000-000000000000

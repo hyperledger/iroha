@@ -80,7 +80,7 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
 
 ### Native binary
 
-<!-- FIXME: I don't like that this section suggests using docker configs for deployment -->
+<!-- FIXME: I don't like that this section suggests using docker defaults for deployment -->
 
 1. Prepare a deployment environment.
 
@@ -89,8 +89,8 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
     ```bash
     # FIXME
     # cp ./target/release/irohad
-    # cp ./configs/peer/config.json deploy
-    # cp ./configs/peer/genesis.json deploy
+    # cp ./defaults/peer/config.json deploy
+    # cp ./defaults/peer/genesis.json deploy
     ```
 
 2. Make the necessary edits to `config.json` and `genesis.json`, such as:
@@ -110,7 +110,7 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
 
 ### Docker
 
-We provide a sample configuration for Docker in [`docker-compose.yml`](../configs/swarm/docker-compose.yml). We highly recommend that you adjust the `config.json` to include a set of new key pairs.
+We provide a sample configuration for Docker in [`docker-compose.yml`](../defaults/docker-compose.yml). We highly recommend that you adjust the `config.json` to include a set of new key pairs.
 
 [Generate the keys](#generating-keys) and put them into `services.*.environment` in `docker-compose.yml`. Don't forget to update the public keys of `TRUSTED_PEERS`.
 
