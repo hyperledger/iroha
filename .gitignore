@@ -50,3 +50,5 @@ result
 /iroha-java/
 /lcov.info
 **/test-smartcontracts/
+
+test_docker

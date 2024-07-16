@@ -1,0 +1,43 @@
+[package]
+name = "iroha_config"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_config_base.workspace = true
+iroha_data_model.workspace = true
+iroha_primitives.workspace = true
+iroha_crypto.workspace = true
+iroha_genesis.workspace = true
+
+error-stack.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "ansi", "env-filter"] }
+url = { workspace = true, features = ["serde"] }
+
+serde = { workspace = true, features = ["derive"] }
+serde_with.workspace = true
+strum = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+json5.workspace = true
+thiserror.workspace = true
+displaydoc.workspace = true
+derive_more.workspace = true
+cfg-if.workspace = true
+once_cell.workspace = true
+nonzero_ext.workspace = true
+hex = { workspace = true, features = ["std"] }
+
+# for tracing
+stderrlog = "0.6.0"
+
+[dev-dependencies]
+expect-test.workspace = true
+assertables.workspace = true

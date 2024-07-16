@@ -1,0 +1,30 @@
+[package]
+name = "iroha_futures"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Support lightweight telemetry, including diagnostics
+telemetry = ["iroha_futures_derive/telemetry"]
+
+[dependencies]
+iroha_futures_derive = { path = "derive" }
+
+iroha_config.workspace = true
+iroha_logger.workspace = true
+
+rand.workspace = true
+serde_json.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tokio-stream = "0.1.15"

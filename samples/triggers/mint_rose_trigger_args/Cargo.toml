@@ -1,0 +1,22 @@
+[package]
+name = "iroha_smart_contract_mint_rose_args"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_trigger.workspace = true
+iroha_executor_custom_data_model.workspace = true
+
+panic-halt.workspace = true
+dlmalloc.workspace = true
+getrandom.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true

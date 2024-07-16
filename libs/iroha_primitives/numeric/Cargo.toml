@@ -1,0 +1,43 @@
+[package]
+name = "iroha_numeric"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+maintenance = { status = "actively-developed" }
+
+[features]
+default = ["std"]
+# Enable static linkage of the rust standard library.
+# Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
+std = ["thiserror", "displaydoc/std"]
+# Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
+#ffi_import = ["iroha_ffi", "rust_decimal/c-repr"]
+
+# Expose FFI API for dynamic linking (Internal use only)
+ffi_export = ["std", "iroha_ffi", "rust_decimal/c-repr"]
+
+[dependencies]
+iroha_schema.workspace = true
+iroha_ffi = { workspace = true, optional = true }
+
+parity-scale-codec = { workspace = true, features = ["derive"] }
+derive_more = { workspace = true, features = ["display", "from", "as_ref", "as_mut", "deref", "constructor", "into_iterator"] }
+serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, features = ["macros"] }
+thiserror = { workspace = true, optional = true }
+displaydoc.workspace = true
+
+rust_decimal = { version = "1.35", default-features = false, features = ["serde", "serde-with-str"] }
+
+[dev-dependencies]
+serde_json = { workspace = true, features = ["alloc"] }

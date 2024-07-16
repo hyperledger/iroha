@@ -11,13 +11,13 @@ This is the main Iroha 2 documentation that you will find useful:
 
 Documentation for Iroha 2 tools:
 
-- [Kagami](../tools/kagami/README.md)
-- [Kura Inspector](../tools/kura_inspector/README.md)
-- [Parity Scale Decoder Tool](../tools/parity_scale_cli/README.md)
+- [Kagami](../bins/kagami/README.md)
+- [Kura Inspector](../bins/kura_inspector/README.md)
+- [Parity Scale Decoder Tool](../bins/parity_scale_cli/README.md)
 
 ## Development
 
 The following is useful for development:
 
 - [Hot reload Iroha in a Docker container](./source/guides/hot-reload.md)
-- [Benchmark your code](../client/benches/tps/README.md)
+- [Benchmark your code](../libs/iroha/benches/tps/README.md)

@@ -1,0 +1,19 @@
+[package]
+name = "iroha_executor_with_admin"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_executor.workspace = true
+iroha_schema.workspace = true
+
+panic-halt.workspace = true
+dlmalloc.workspace = true
+getrandom.workspace = true

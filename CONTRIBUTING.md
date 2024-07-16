@@ -33,6 +33,7 @@ A *bug* is an error, design flaw, failure or fault in Iroha that causes it to pr
 We track Iroha bugs via [Github Issues](https://github.com/hyperledger/iroha/issues?q=is%3Aopen+is%3Aissue+label%3ABug) labeled with the `Bug` tag.
 
 When you create a new issue, there is a template for you to fill in. Here's the checklist of what you should do when you are reporting bugs:
+
 - [ ] Add the `Bug` tag
 - [ ] Explain the issue
 - [ ] Provide a minimum working example
@@ -66,6 +67,7 @@ not to be able to mint negative values
 </details>
 
 ---
+
 **Note:** Issues such as outdated documentation, insufficient documentation, or feature requests should use the `Documentation` or `Enhancement` labels. They are not bugs.
 
 ---
@@ -99,9 +101,7 @@ If you intend to implement the suggestion yourself, do the following:
    Closes #1234
    ```
 
-4. If your change requires an API change, use the `api-changes` tag.
-
-   **Note:** features that require API changes may take longer to implement and approve as they require Iroha library makers to update their code.
+4. If your change requires an API change, use the `api-changes` tag. **Note:** features that require API changes may take longer to implement and approve as they require Iroha library makers to update their code.
 
 ### Asking Questions
 
@@ -111,7 +111,7 @@ A question is any discussion that is neither a bug nor a feature or optimization
 
 Please post your questions to [one of our instant messaging platforms](#contacts) so that the staff and members of the community could help you in a timely manner.
 
-You, as part of the aforementioned community, should consider helping others too. If you decide to help, please do so in a [respectful manner](CODE_OF_CONDUCT.md).
+As part of the community, consider helping others too. If you decide to help, please do so [respectfully](CODE_OF_CONDUCT.md).
 
 </details>
 
@@ -127,37 +127,40 @@ You, as part of the aforementioned community, should consider helping others too
 
 Please [fork](https://docs.github.com/en/get-started/quickstart/fork-a-repo) the [repository](https://github.com/hyperledger/iroha/tree/main) and [create a feature branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository) for your contributions. When working with **PRs from forks**, check [this manual](https://help.github.com/articles/checking-out-pull-requests-locally).
 
-Working on code contribution:
+### Working on code contribution:
+
 - Follow the [Rust Style Guide](#rust-style-guide) and the [Documentation Style Guide](#documentation-style-guide).
 - Ensure that the code you've written is covered by tests. If you fixed a bug, please turn the minimum working example that reproduces the bug into a test.
 
-Committing your work:
+### Committing your work:
+
 - Follow the [Git Style Guide](#git-workflow).
 - Squash your commits [either before](https://www.git-tower.com/learn/git/faq/git-squash/) or [during the merge](https://rietta.com/blog/github-merge-types/).
 - If during the preparation of your pull request your branch got out of date, rebase it locally with `git pull --rebase upstream main`. Alternatively, you may use the drop-down menu for the `Update branch` button and choose the `Update with rebase` option.
 
-  In the interest of making this process easier for everyone, try not to have more than a handful of commits for a pull request, and avoid re-using feature branches.
+In the interest of making this process easier for everyone, try not to have more than a handful of commits for a pull request, and avoid re-using feature branches.
 
-Creating a pull request:
+### Creating a pull request:
+
 - Use an appropriate pull request description by filling in the [description template](.github/PULL_REQUEST_TEMPLATE.md). Avoid deviating from this template if possible.
 - Add an appropriately formatted [pull request title](#pull-request-titles).
 - If you feel like your code isn't ready to merge, but you want the maintainers to look through it, create a draft pull request.
 
-Merging your work:
+### Merging your work:
+
 - A pull request must pass all automated checks before being merged. At a minimum, the code must be formatted, passing all tests, as well as having no outstanding `clippy` lints.
 - A pull request cannot be merged without two approving reviews from the active maintainers.
-- Each pull request will automatically notify the code owners. An up to date list of current maintainers can be found in [MAINTAINERS.md](MAINTAINERS.md).
+- Each pull request will automatically notify the code owners. An up-to-date list of current maintainers can be found in [MAINTAINERS.md](MAINTAINERS.md).
 
 ### Pull Request Titles
 
-We parse the titles of all the merged pull requests to generate changelogs. We also check that the title follows the convention via the *`check-PR-title`* check.
+We parse the titles of all the merged pull requests to generate changelogs. We also check that the title follows the convention via the *`I2::Dev::Title`* check.
 
-To pass the *`check-PR-title`* check, the pull request title must adhere to the following guidelines:
+To pass the PR title check, the pull request title must adhere to the following guidelines:
 
 <details> <summary> Expand to read the detailed title guidelines</summary>
 
 1. Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#commit-message-with-multi-paragraph-body-and-multiple-footers) format.
-
 2. If the pull request has a single commit, the PR title should be the same as the commit message.
 
 </details>
@@ -167,27 +170,23 @@ To pass the *`check-PR-title`* check, the pull request title must adhere to the 
 - [Fork](https://docs.github.com/en/get-started/quickstart/fork-a-repo) the [repository](https://github.com/hyperledger/iroha/tree/main) and [create a feature branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository) for your contributions.
 - [Configure the remote](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/configuring-a-remote-for-a-fork) to sync your fork with the [Hyperledger Iroha repository](https://github.com/hyperledger/iroha/tree/main).
 - Use the [Git Rebase Workflow](https://git-rebase.io/). Avoid using `git pull`. Use `git pull --rebase` instead.
-- Use the provided [git hooks](./hooks/) to ease the development process.
+- Use the provided [git hooks](./hooks) to ease the development process.
 
 Follow these commit guidelines:
 
 - **Sign-off every commit**. If you don't, [DCO](https://github.com/apps/dco) will not let you merge.
-
-  Use `git commit -s` to automatically add `Signed-off-by: $NAME <$EMAIL>` as the final line of your commit message. Your name and email should be the same as specified in your GitHub account.
-
-  We also encourage you to sign your commits with GPG key using `git commit -sS` ([learn more](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits)).
-
-  You may use [the `commit-msg` hook](./hooks/) to automatically sign-off your commits.
-
+  - Use `git commit -s` to automatically add `Signed-off-by: $NAME <$EMAIL>` as the final line of your commit message. Your name and email should be the same as specified in your GitHub account.
+  - We also encourage you to sign your commits with GPG key using `git commit -sS` ([learn more](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits)).
+  - You may use [the `commit-msg` hook](./hooks) to automatically sign-off your commits.
 - Commit messages must follow [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#commit-message-with-multi-paragraph-body-and-multiple-footers) and the same naming schema as for [pull request titles](#pull-request-titles). This means:
   - **Use present tense** ("Add feature", not "Added feature")
-  - **Use imperative mood** ("Deploy to docker..." not "Deploys to docker...")
+  - **Use the imperative mood** ("Deploy to docker..." not "Deploys to docker...")
 - Write a meaningful commit message.
-- Try keeping a commit message short.
+- Try keeping the commit message short.
 - If you need to have a longer commit message:
-  - Limit the first line of your commit message to 50 characters or less.
+  - Limit the first line of your commit message to 50 characters or fewer.
   - The first line of your commit message should contain the summary of the work you've done. If you need more than one line, leave a blank line between each paragraph and describe your changes in the middle. The last line must be the sign-off.
-- If you modify the Schema (check by generating the schema with `kagami schema` and diff), you should make all changes to the schema in a separate commit with the message `[schema]`.
+- If you modify the Schema (check by generating the schema with `kagami schema` and diff), you should make all changes to the schema in a separate commit with the commit type `schema:`.
 - Try to stick to one commit per meaningful change.
   - If you fixed several issues in one PR, give them separate commits.
   - As mentioned previously, changes to the `schema` and the API should be done in appropriate commits separate from the rest of your work.
@@ -227,8 +226,7 @@ In this case you should compile Iroha with support of tokio console like that:
 RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
 ```
 
-Port for tokio console can by configured through `LOG_TOKIO_CONSOLE_ADDR` configuration parameter (or environment variable).
-Using tokio console require log level to be `TRACE`, can be enabled through configuration parameter or environment variable `LOG_LEVEL`.
+Port for tokio console can by configured through `LOG_TOKIO_CONSOLE_ADDR` configuration parameter (or environment variable). Using tokio console require log level to be `TRACE`, can be enabled through configuration parameter or environment variable `LOG_LEVEL`.
 
 Example of running Iroha with tokio console support using `scripts/test_env.sh`:
 
@@ -272,8 +270,7 @@ sudo perf record -g -p <PID>
 sudo perf report
 ```
 
-To be able to observe profile of the executor during Iroha profiling, executor should be compiled without stripping symbols.
-It can be done by running:
+To be able to observe profile of the executor during Iroha profiling, executor should be compiled without stripping symbols. It can be done by running:
 
 ```bash
 # compile executor without optimizations
@@ -309,17 +306,11 @@ Code guidelines:
 
 - Unless otherwise specified, refer to [Rust best practices](https://github.com/mre/idiomatic-rust).
 - Use the `mod.rs` style. [Self-named modules](https://rust-lang.github.io/rust-clippy/master/) will not pass static analysis, except as [`trybuild`](https://crates.io/crates/trybuild) tests.
-- Use a domain-first modules structure.
-
-  Example: don't do `constants::logger`. Instead, invert the hierarchy, putting the object for which it is used first: `iroha_logger::constants`.
+- Use a domain-first modules structure. Example: don't do `constants::logger`. Instead, invert the hierarchy, putting the object for which it is used first: `iroha_logger::constants`.
 - Use [`expect`](https://learning-rust.github.io/docs/e4.unwrap_and_expect.html) with an explicit error message or proof of infallibility instead of `unwrap`.
 - Never ignore an error. If you can't `panic` and can't recover, it at least needs to be recorded in the log.
 - Prefer to return a `Result` instead of `panic!`.
-
-  Exception: when implementing something that uses `issue_send` instead of `send` ([more about actors](docs/source/guides/actor.md)). Actors and parallelism don't mix; you could deadlock the entire peer, so it's better to `panic!` if something goes wrong. This is a necessary concession for asynchronous programming.
-- Group related functionality spatially, preferably inside appropriate modules.
-
-  For example, instead of having a block with `struct` definitions and then `impl`s for each individual struct, it is better to have the `impl`s related to that `struct` next to it.
+- Group related functionality spatially, preferably inside appropriate modules. For example, instead of having a block with `struct` definitions and then `impl`s for each individual struct, it is better to have the `impl`s related to that `struct` next to it.
 - Declare before implementation: `use` statements and constants at the top, unit tests at the bottom.
 - Try to avoid `use` statements if the imported name is used only once. This makes moving your code into a different file easier.
 - Do not silence `clippy` lints indiscriminately. If you do, explain your reasoning with a comment (or `expect` message).
@@ -331,17 +322,20 @@ Code guidelines:
 - Avoid tying your code to concrete data structures; `rustc` is smart enough to turn a `Vec<InstructionExpr>` into `impl IntoIterator<Item = InstructionExpr>` and vice versa when it needs to.
 
 Naming guidelines:
+
 - Use only full words in *public* structure, variable, method, trait, constant, and module names. However, abbreviations are allowed if:
-  - The name is local (e.g. closure arguments).
-  - The name is abbreviated by Rust convention (e.g. `len`, `typ`).
-  - The name is an accepted abbreviation (e.g. `tx`, `wsv` etc) TODO link glossary.
-  - The full name would have been shadowed by a local variable (e.g. `msg <- message`).
-  - The full name would have made the code cumbersome with more than 5-6 words in it (e.g. `WorldStateViewReceiverTrait -> WSVRecvTrait`).
-- If you change naming conventions, make sure that the new name that you've chosen is _much_ clearer than what we had before.
+    - The name is local (e.g. closure arguments).
+    - The name is abbreviated by Rust convention (e.g. `len`, `typ`).
+    - The name is an accepted abbreviation (e.g. `tx`, `wsv`, etc.) TODO link glossary.
+    - The full name would have been shadowed by a local variable (e.g. `msg <- message`).
+    - The full name would have made the code cumbersome with more than 5-6 words in it (e.g. `WorldStateViewReceiverTrait -> WSVRecvTrait`).
+- If you change naming conventions, make sure that the new name that you've chosen is
+  _much_ clearer than what we had before.
 
 Comment guidelines:
+
 - When writing non-doc comments, instead of describing *what* your function does, try to explain *why* it does something in a particular way. This will save you and the reviewer time.
-- You may leave `TODO` markers in code as long as you reference an issue that you created for it. Not creating an issue means it doesn't get merged.
+- You may leave `TODO(#issue)` markers in code as long as you reference an issue that you created for it. Not creating an issue means it doesn't get merged.
 
 We use pinned dependencies. Follow these guidelines for versioning:
 
@@ -355,32 +349,28 @@ We use pinned dependencies. Follow these guidelines for versioning:
 
 <details> <summary> :book: Read documentation guidelines</summary>
 
-
 - Use the [`Rust Docs`](https://doc.rust-lang.org/cargo/commands/cargo-doc.html) format.
 - Prefer the single-line comment syntax. Use `///` above inline modules and `//!` for file-based modules.
 - If you can link to a structure/module/function's docs, do it.
 - If you can provide an example of usage, do it. This [is also a test](https://doc.rust-lang.org/rustdoc/documentation-tests.html).
 - If a function can error or panic, avoid modal verbs. Example: `Fails if disk IO fails` instead of `Can possibly fail, if disk IO happens to fail`.
 - If a function can error or panic for more than one reason, use a bulleted list of failure conditions, with the appropriate `Error` variants (if any).
-- Functions *do* things. Use imperative mood.
+- Functions *do* things. Use the imperative mood.
 - Structures *are* things. Get to the point. For example `Log level for reloading from the environment` is better than `This struct encapsulates the idea of logging levels, and is used for reloading from the environment`.
 - Structures have fields, which also *are* things.
 - Modules *contain* things, and we know that. Get to the point. Example: use `Logger-related traits.` instead of `Module which contains logger-related logic`.
 
-
 </details>
 
-## Contact
+## Contacts
 
 Our community members are active at:
 
-| Service       | Link                                                         |
-| ------------- | ------------------------------------------------------------ |
-| RocketChat    | https://chat.hyperledger.org/channel/iroha                   |
-| StackOverflow | https://stackoverflow.com/questions/tagged/hyperledger-iroha |
-| Mailing List  | hyperledger-iroha@lists.hyperledger.org                      |
-| Gitter        | https://gitter.im/hyperledger-iroha/Lobby                    |
-| Telegram      | https://t.me/hl_iroha                                        |
-| YouTube       | https://www.youtube.com/channel/UCYlK9OrZo9hvNYFuf0vrwww     |
+| Service      | Link                                                               |
+|--------------|--------------------------------------------------------------------|
+| Mailing List | https://lists.hyperledger.org/g/iroha                              |
+| Telegram     | https://t.me/hyperledgeriroha                                      |
+| Discord      | https://discord.com/channels/905194001349627914/905205848547155968 |
+| YouTube      | https://www.youtube.com/channel/UCYlK9OrZo9hvNYFuf0vrwww           |
 
 ---

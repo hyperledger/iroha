@@ -34,7 +34,7 @@ Iroha offers:
 
 Engage with the community:
 - [Contribute](./CONTRIBUTING.md) to the repository
-- [Contact us](./CONTRIBUTING.md#contact) to get help
+- [Contact us](./CONTRIBUTING.md#contacts) to get help
 
 ## System Requirements
 
@@ -93,7 +93,7 @@ To generate WASM files for smart contracts, use the provided script `generate_wa
 bash ./scripts/generate_wasm.sh [path/to/smartcontracts]
 ```
 
-The generated WASM files will be saved in a generated directory `test-smartcontracts`, relative to your current working directory. The default path for smart contracts in this project is `client/tests/integration/smartcontracts`.
+The generated WASM files will be saved in a generated directory `test-smartcontracts`, relative to your current working directory. The default path for smart contracts in this project is `samples/smart_contracts`, and `samples/executors` for executors.
 
 </details>
 
@@ -108,7 +108,7 @@ The generated WASM files will be saved in a generated directory `test-smartcontr
 - (Optional) Build the latest Iroha image:
 
   ```bash
-  docker build . -t hyperledger/iroha2:dev
+  docker build . -t hyperledger/iroha:dev
   ```
 
   If you skip this step, the Iroha container will be built using the latest available image.
@@ -121,7 +121,7 @@ Once you have built Iroha, you can instantiate the minimum viable network:
 docker compose up
 ```
 
-With the `docker-compose` instance running, use [Iroha Client CLI](./client_cli/README.md):
+With the `docker compose` instance running, use [Iroha Client CLI](./bins/iroha_cli/README.md):
 
 ```bash
 cargo run --bin iroha -- --config ./configs/swarm/client.toml
@@ -131,21 +131,21 @@ cargo run --bin iroha -- --config ./configs/swarm/client.toml
 
 Iroha project mainly consists of the following crates:
 
-* [`iroha`](client) provides a library for building clients that communicate with peers.
-* [`irohad`](server cli) is the command-line application for deploying an Iroha peer. Contains the routing table and definitions of API endpoints.
-* [`iroha_client_cli`](client cli) is the reference implementation of a client.
-* [`iroha_core`](core) is the primary library used by all other crates, including the peer endpoint management.
-* [`iroha_config`](config) handles configuration and documentation generation for options and run-time changes.
-* [`iroha_crypto`](crypto) defines cryptographic aspects of Iroha.
-* [`kagami`](tools/kagami) is used to generate cryptographic keys, default genesis, configuration reference, and schema.
-* [`iroha_data_model`](data_model) defines common data models in Iroha.
-* [`iroha_futures`](futures) is used for `async` programming.
-* [`iroha_logger`](logger) uses `tracing` to provide logging facilities.
-* [`iroha_macro`](macro) provides the convenience macros.
-* [`iroha_p2p`](p2p) defines peer creation and handshake logic.
-* [`iroha_default_executor`](default_executor) defines runtime validation logic.
-* [`iroha_telemetry`](telemetry) is used for monitoring and analysis of telemetry data.
-* [`iroha_version`](version) provides message versioning for non-simultaneous system updates.
+* [`iroha`](libs/iroha) provides a library for building clients that communicate with peers.
+* [`irohad`](bins/irohad) is the command-line application for deploying an Iroha peer. Contains the routing table and definitions of API endpoints.
+* [`iroha_cli`](bins/iroha_cli) is the reference implementation of a client.
+* [`iroha_core`](libs/iroha_core) is the primary library used by all other crates, including the peer endpoint management.
+* [`iroha_config`](libs/iroha_config) handles configuration and documentation generation for options and run-time changes.
+* [`iroha_crypto`](libs/iroha_crypto) defines cryptographic aspects of Iroha.
+* [`kagami`](bins/kagami) is used to generate cryptographic keys, default genesis, configuration reference, and schema.
+* [`iroha_data_model`](libs/iroha_data_model) defines common data models in Iroha.
+* [`iroha_futures`](libs/iroha_futures) is used for `async` programming.
+* [`iroha_logger`](libs/iroha_logger) uses `tracing` to provide logging facilities.
+* [`iroha_macro`](libs/iroha_macro) provides the convenience macros.
+* [`iroha_p2p`](libs/iroha_p2p) defines peer creation and handshake logic.
+* [`iroha_default_executor`](samples/executors/default) defines runtime validation logic. 
+* [`iroha_telemetry`](libs/iroha_telemetry) is used for monitoring and analysis of telemetry data.
+* [`iroha_version`](libs/iroha_version) provides message versioning for non-simultaneous system updates.
 
 ## Maintenance
 
@@ -197,7 +197,7 @@ Output goes to `/dev/stdout`. Piping to files or [log rotation](https://www.comm
 
 The details of the `Health` endpoint can be found in the [API Reference > Torii Endpoints](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#health).
 
-Iroha can produce both JSON-formatted as well as `prometheus`-readable metrics at the `status` and `metrics` endpoints respectively.
+Iroha can produce both JSON-formatted and `prometheus`-readable metrics at the `status` and `metrics` endpoints respectively.
 
 The [`prometheus`](https://prometheus.io/docs/introduction/overview/) monitoring system is the de-factor standard for monitoring long-running services such as an Iroha peer. In order to get started, [install `prometheus`](https://prometheus.io/docs/introduction/first_steps/) and use `configs/prometheus.template.yml` for configuration.
 
@@ -211,18 +211,18 @@ Iroha stores blocks and snapshots in the `storage` directory, which is created a
 
 Multiple instances of Iroha peer and client binaries can be run on the same physical machine and in the same working directory. However, we recommend to give each instance a clean new working directory.
 
-The provided `docker-compose` file showcases a minimum viable network and the general methods of using the `hyperledger/iroha2:dev` docker image for deploying a network of peers.
+The provided `docker-compose` file showcases a minimum viable network and the general methods of using the `hyperledger/iroha:dev` docker image for deploying a network of peers.
 
 ## Further Reading
 
-We encourage you to check out our [Iroha 2 Tutorial](https://hyperledger.github.io/iroha-2-docs/) first. It is suitable for both experienced developers and prospective users of Iroha 2, and it provides language-specific guides for Bash, Python, Rust, Kotlin/Java, and Javascript/TypeScript.
+We encourage you to check out our [Iroha Tutorial](https://hyperledger.github.io/iroha-2-docs/) first. It is suitable for both experienced developers and prospective users of Iroha, and it provides language-specific guides for Bash, Python, Rust, Kotlin/Java, and Javascript/TypeScript.
 
-* [Iroha 2 Documentation](https://hyperledger.github.io/iroha-2-docs/)
+* [Iroha Documentation](https://hyperledger.github.io/iroha-2-docs/)
   * [Glossary](https://hyperledger.github.io/iroha-2-docs/guide/glossary)
   * [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions)
   * [API Reference](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints)
 <!-- * [Configuration Reference](./docs/source/references/config.md) -->
-* [Iroha 2 Whitepaper](./docs/source/iroha_2_whitepaper.md)
+* [Iroha Whitepaper](./docs/source/iroha_2_whitepaper.md)
 
 Iroha SDKs:
 

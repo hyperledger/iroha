@@ -1,0 +1,22 @@
+[package]
+name = "iroha_smart_contract_query_assets_and_save_cursor"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_smart_contract.workspace = true
+
+panic-halt.workspace = true
+dlmalloc.workspace = true
+getrandom.workspace = true
+iroha_data_model.workspace = true
+nonzero_ext.workspace = true
+serde_json.workspace = true
+parity-scale-codec.workspace = true

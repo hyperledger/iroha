@@ -1,0 +1,96 @@
+[package]
+name = "iroha_crypto"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["std", "rand"]
+# Enable static linkage of the rust standard library.
+# Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
+std = [
+    "rand/std",
+    "blake2/std",
+    "digest/std",
+    "sha2/std",
+    "hkdf/std",
+    "w3f-bls/std",
+    "signature/std",
+    "ed25519-dalek/std",
+    "rand/std",
+    "rand_core/std",
+    "rand_chacha/std",
+    "zeroize/std",
+    "aead/std",
+    "chacha20poly1305/std",
+    "elliptic-curve/std",
+    "k256/std",
+    "dep:thiserror",
+    "displaydoc/std",
+]
+# Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
+#ffi_import = ["iroha_ffi", "iroha_primitives/ffi_import"]
+
+# Expose FFI API for dynamic linking (Internal use only)
+ffi_export = ["std", "iroha_ffi", "iroha_primitives/ffi_export"]
+
+# Allow creating key using random number generator which is tricky in some environments like Smart Contracts
+rand = []
+
+[dependencies]
+iroha_primitives.workspace = true
+iroha_macro.workspace = true
+iroha_ffi = { workspace = true, optional = true }
+iroha_schema.workspace = true
+
+derive_more = { workspace = true, features = ["deref", "deref_mut", "display"] }
+parity-scale-codec = { workspace = true, features = ["derive", "full"] }
+serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, features = ["macros", "hex"] }
+hex = { workspace = true, features = ["alloc", "serde"] }
+getset.workspace = true
+
+thiserror = { version = "1.0.62", optional = true }
+displaydoc.workspace = true
+
+digest = { version = "0.10.7", default-features = false, features = ["alloc"] }
+blake2 = { version = "0.10.6", default-features = false }
+sha2 = { version = "0.10.8", default-features = false }
+hkdf = { version = "0.12.4", default-features = false }
+w3f-bls = { version = "0.1.4", default-features = false }
+
+signature = { version = "2.2.0", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "2.1.1", default-features = false, features = ["alloc", "rand_core", "zeroize"] }
+curve25519-dalek = { version = "4.1.3", default-features = false }
+x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets"] }
+
+rand = { workspace = true, default-features = false, features = ["std_rng", "alloc"] }
+rand_core = { version = "0.6.4", default-features = false, features = ["alloc"] }
+rand_chacha = { version = "0.3.1", default-features = false }
+
+
+zeroize = { version = "1.8.1", default-features = false }
+arrayref = { version = "0.3.7", default-features = false }
+
+aead = { version = "0.5.2", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.10.1", default-features = false }
+
+elliptic-curve = { version = "0.13.8", default-features = false }
+k256 = { version = "0.13.3", default-features = false, features = ["alloc", "ecdsa", "sha256"] }
+
+[dev-dependencies]
+hex-literal.workspace = true
+serde_json = { workspace = true, features = ["std"] }
+
+# these crypto libraries are not used to implement actual crypto algorithms
+# but to test some of the primitives against them
+amcl = { version = "0.2.0", default-features = false, features = ["secp256k1"] }
+secp256k1 = { version = "0.29.0", features = ["rand", "serde"] }
+libsodium-sys-stable = "1.20.9"
+openssl = { version = "0.10.64", features = ["vendored"] }

@@ -1652,17 +1652,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "executor_custom_data_model"
-version = "2.0.0-pre-rc.21"
-dependencies = [
- "iroha_data_model",
- "iroha_executor_data_model",
- "iroha_schema",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "expect-test"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2875,7 +2864,6 @@ dependencies = [
  "derive_more",
  "displaydoc",
  "error-stack",
- "executor_custom_data_model",
  "eyre",
  "futures-util",
  "hex",
@@ -2884,11 +2872,14 @@ dependencies = [
  "iroha_config_base",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_custom_data_model",
  "iroha_executor_data_model",
  "iroha_genesis",
  "iroha_logger",
  "iroha_primitives",
  "iroha_telemetry",
+ "iroha_test_network",
+ "iroha_test_samples",
  "iroha_torii_const",
  "iroha_version",
  "iroha_wasm_builder",
@@ -2901,8 +2892,6 @@ dependencies = [
  "serde_json",
  "serde_with",
  "tempfile",
- "test_network",
- "test_samples",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
@@ -2915,7 +2904,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_client_cli"
+name = "iroha_cli"
 version = "2.0.0-pre-rc.21"
 dependencies = [
  "clap",
@@ -3025,6 +3014,7 @@ dependencies = [
  "iroha_p2p",
  "iroha_primitives",
  "iroha_telemetry",
+ "iroha_test_samples",
  "iroha_version",
  "iroha_wasm_codec",
  "nonzero_ext",
@@ -3036,7 +3026,6 @@ dependencies = [
  "serde_json",
  "storage",
  "tempfile",
- "test_samples",
  "thiserror",
  "tokio",
  "uuid",
@@ -3171,6 +3160,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_executor_custom_data_model"
+version = "2.0.0-pre-rc.21"
+dependencies = [
+ "iroha_data_model",
+ "iroha_executor_data_model",
+ "iroha_schema",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "iroha_executor_data_model"
 version = "2.0.0-pre-rc.21"
 dependencies = [
@@ -3266,11 +3266,11 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_schema",
+ "iroha_test_samples",
  "once_cell",
  "parity-scale-codec",
  "serde",
  "serde_json",
- "test_samples",
  "tracing",
 ]
 
@@ -3344,9 +3344,9 @@ dependencies = [
  "iroha_data_model",
  "iroha_logger",
  "iroha_primitives",
+ "iroha_test_network",
  "parity-scale-codec",
  "rand",
- "test_network",
  "thiserror",
  "tokio",
 ]
@@ -3431,8 +3431,8 @@ dependencies = [
  "iroha_macro",
  "iroha_smart_contract_derive",
  "iroha_smart_contract_utils",
+ "iroha_test_samples",
  "parity-scale-codec",
- "test_samples",
  "trybuild",
  "webassembly-test",
 ]
@@ -3518,6 +3518,42 @@ dependencies = [
  "quote",
  "syn 2.0.71",
  "trybuild",
+]
+
+[[package]]
+name = "iroha_test_network"
+version = "2.0.0-pre-rc.21"
+dependencies = [
+ "eyre",
+ "futures",
+ "iroha",
+ "iroha_config",
+ "iroha_core",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_executor_data_model",
+ "iroha_genesis",
+ "iroha_logger",
+ "iroha_primitives",
+ "iroha_test_samples",
+ "irohad",
+ "parity-scale-codec",
+ "rand",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "unique_port",
+]
+
+[[package]]
+name = "iroha_test_samples"
+version = "2.0.0-pre-rc.21"
+dependencies = [
+ "iroha_crypto",
+ "iroha_data_model",
+ "once_cell",
+ "serde",
+ "toml 0.8.15",
 ]
 
 [[package]]
@@ -3810,10 +3846,10 @@ dependencies = [
  "iroha_genesis",
  "iroha_primitives",
  "iroha_schema_gen",
+ "iroha_test_samples",
  "parity-scale-codec",
  "serde",
  "serde_json",
- "test_samples",
 ]
 
 [[package]]
@@ -4343,12 +4379,12 @@ dependencies = [
  "iroha_primitives",
  "iroha_schema",
  "iroha_schema_gen",
+ "iroha_test_samples",
  "iroha_version",
  "parity-scale-codec",
  "serde",
  "serde_json",
  "supports-color 2.1.0",
- "test_samples",
 ]
 
 [[package]]
@@ -5740,42 +5776,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bab24d30b911b2376f3a13cc2cd443142f0c81dda04c118693e35b3835757755"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "test_network"
-version = "2.0.0-pre-rc.21"
-dependencies = [
- "eyre",
- "futures",
- "iroha",
- "iroha_config",
- "iroha_core",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_executor_data_model",
- "iroha_genesis",
- "iroha_logger",
- "iroha_primitives",
- "irohad",
- "parity-scale-codec",
- "rand",
- "serde_json",
- "tempfile",
- "test_samples",
- "tokio",
- "unique_port",
-]
-
-[[package]]
-name = "test_samples"
-version = "2.0.0-pre-rc.21"
-dependencies = [
- "iroha_crypto",
- "iroha_data_model",
- "once_cell",
- "serde",
- "toml 0.8.15",
 ]
 
 [[package]]

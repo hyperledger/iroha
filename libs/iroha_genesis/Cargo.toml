@@ -1,0 +1,28 @@
+[package]
+name = "iroha_genesis"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_crypto.workspace = true
+iroha_schema.workspace = true
+iroha_data_model = { workspace = true, features = ["http"] }
+
+derive_more = { workspace = true, features = ["deref"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["std"] }
+once_cell.workspace = true
+tracing.workspace = true
+eyre.workspace = true
+parity-scale-codec.workspace = true
+
+[dev-dependencies]
+iroha_crypto = { workspace = true, features = ["rand"] }
+iroha_test_samples.workspace = true

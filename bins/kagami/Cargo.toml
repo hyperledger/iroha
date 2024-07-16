@@ -1,0 +1,30 @@
+[package]
+name = "kagami"     # Translates to teacher, the exemplar, the looking glass.
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+description = "A tool used to generate cryptographic keys, docs, the schema and genesis block."
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_executor_data_model.workspace = true
+iroha_data_model.workspace = true
+iroha_crypto.workspace = true
+iroha_config.workspace = true
+iroha_schema_gen.workspace = true
+iroha_primitives.workspace = true
+iroha_genesis.workspace = true
+iroha_test_samples.workspace = true
+
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+color-eyre.workspace = true
+serde_json.workspace = true
+derive_more.workspace = true
+parity-scale-codec.workspace = true

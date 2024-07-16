@@ -154,7 +154,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build binaries
         run: |
-          cargo build -p iroha_client_cli -p kagami -p irohad
+          cargo build -p iroha_cli -p kagami -p irohad
       - name: Setup test Iroha 2 environment on the bare metal
         run: |
           pip3 install -r scripts/requirements.txt --no-input --break-system-packages
@@ -163,23 +163,23 @@ jobs:
         run: |
           chmod +x ${{ env.CLIENT_CLI_DIR }}
       - name: Install torii api dependencies using Poetry
-        working-directory: torii/pytests
+        working-directory: libs/iroha_torii/pytests
         run: |
           poetry install
       - name: Run torii api tests
-        working-directory: torii/pytests
+        working-directory: libs/iroha_torii/pytests
         run: |
           poetry run pytest
       - name: Install client cli dependencies using Poetry
-        working-directory: client_cli/pytests
+        working-directory: bins/iroha_cli/pytests
         run: |
           poetry install
       - name: Run client cli tests
-        working-directory: client_cli/pytests
+        working-directory: bins/iroha_cli/pytests
         env:
           # prepared by `test_env.py`
-          CLIENT_CLI_BINARY: ../../test/iroha
-          CLIENT_CLI_CONFIG: ../../test/client.toml
+          CLIENT_CLI_BINARY: ../../../test/iroha
+          CLIENT_CLI_CONFIG: ../../../test/client.toml
         run: |
           poetry run pytest
       - name: Cleanup test environment

@@ -4,15 +4,15 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'data_model/**.rs'
-      - 'data_model/**.yml'
-      - 'data_model/**.json'
-      - 'data_model/**.toml'
+      - 'libs/iroha_data_model/**.rs'
+      - 'libs/iroha_data_model/**.yml'
+      - 'libs/iroha_data_model/**.json'
+      - 'libs/iroha_data_model/**.toml'
 
-      - 'smart_contract/**.rs'
-      - 'smart_contract/**.yml'
-      - 'smart_contract/**.json'
-      - 'smart_contract/**.toml'
+      - 'libs/iroha_smart_contract/**.rs'
+      - 'libs/iroha_smart_contract/**.yml'
+      - 'libs/iroha_smart_contract/**.json'
+      - 'libs/iroha_smart_contract/**.toml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Install iroha_wasm_test_runner
-        run: cargo install --path tools/wasm_test_runner
+        run: cargo install --path bins/iroha_wasm_test_runner
       - name: Run smart contract tests on WebAssembly VM
         working-directory: smart_contract
         run: mold --run cargo test -p iroha_smart_contract -p iroha_smart_contract_utils --release --tests --target wasm32-unknown-unknown --no-fail-fast --quiet

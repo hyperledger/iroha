@@ -3,15 +3,12 @@
 set -e
 # format checks
 cargo fmt --all -- --check
-cd ./default_executor
-cargo fmt --all -- --check
-cd -
-cd ./client/tests/integration/smartcontracts
+cd ./samples
 cargo fmt --all -- --check
 cd -
 # update the default executor
-cargo run --release --bin iroha_wasm_builder -- build ./default_executor --optimize --out-file ./configs/swarm/executor.wasm
-# update the default genesis, assuming the transaction authority is `test_samples::SAMPLE_GENESIS_ACCOUNT_ID`
+cargo run --release --bin iroha_wasm_builder -- build ./samples/executors/default --optimize --out-file ./configs/swarm/executor.wasm
+# update the default genesis, assuming the transaction authority is `iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_ID`
 cargo run --release --bin kagami -- genesis generate --executor-path-in-genesis ./executor.wasm --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 > ./configs/swarm/genesis.json
 # update schema
 cargo run --release --bin kagami -- schema > ./docs/source/references/schema.json

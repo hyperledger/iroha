@@ -1,0 +1,27 @@
+[package]
+name = "iroha_derive"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true, features = ["default", "full"] }
+quote.workspace = true
+proc-macro2.workspace = true
+manyhow.workspace = true
+darling.workspace = true
+
+[dev-dependencies]
+iroha_macro.workspace = true
+
+trybuild.workspace = true
+impls.workspace = true

@@ -1,0 +1,59 @@
+[workspace.package]
+edition = "2021"
+version = "2.0.0-pre-rc.21"
+# TODO: teams are being deprecated update the authors URL
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+
+license = "Apache-2.0"
+
+[workspace]
+resolver = "2"
+members = [
+    "executors/default",
+    "executors/admin",
+    "executors/custom_permission",
+    "executors/custom_parameter",
+    "executors/remove_permission",
+    "executors/migration_fail",
+    "executors/custom_instructions_simple",
+    "executors/custom_instructions_complex",
+    "executors/custom_data_model",
+    "smart_contracts/query_assets_and_save_cursor",
+    "smart_contracts/query_and_filter_asset_definitions",
+    "triggers/create_nft_for_every_user",
+    "triggers/mint_rose_trigger",
+    "triggers/mint_rose_trigger_args",
+    "triggers/multisig_register",
+    "triggers/multisig",
+]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+strip = "debuginfo" # Remove debugging info from the binary
+panic = "abort"     # Panics are transcribed to Traps when compiling for wasm anyway
+lto = true          # Link-time-optimization produces notable decrease in binary size
+opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
+codegen-units = 1   # Further reduces binary size but increases compilation time
+
+[workspace.dependencies]
+iroha_data_model = { version = "=2.0.0-pre-rc.21", path = "../libs/iroha_data_model", default-features = false }
+iroha_schema = { version = "=2.0.0-pre-rc.21", path = "../libs/iroha_schema", default-features = false }
+
+iroha_smart_contract = { version = "=2.0.0-pre-rc.21", path = "../libs/iroha_smart_contract", features = ["debug"] }
+iroha_trigger = { version = "=2.0.0-pre-rc.21", path = "../libs/iroha_trigger", features = ["debug"] }
+iroha_executor = { version = "=2.0.0-pre-rc.21", path = "../libs/iroha_executor", features = ["debug"] }
+iroha_executor_data_model = { version = "=2.0.0-pre-rc.21", path = "../libs/iroha_executor/data_model" }
+iroha_executor_custom_data_model = { version = "=2.0.0-pre-rc.21", path = "executors/custom_data_model" }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.21", path = "../libs/iroha_wasm_builder" }
+
+anyhow = { version = "1.0.86", default-features = false }
+serde = { version = "1.0.204", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0.120", default-features = false }
+getrandom = { version = "0.2.15", features = ["custom"] }
+nonzero_ext = { version = "0.3.0", default-features = false }
+parity-scale-codec = { version = "3.6.12", default-features = false }
+
+dlmalloc = { version = "0.2.6", features = ["global"] }
+panic-halt = "0.2.0"

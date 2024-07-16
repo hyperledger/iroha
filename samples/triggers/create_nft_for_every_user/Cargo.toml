@@ -1,0 +1,18 @@
+[package]
+name = "iroha_smart_contract_create_nft_for_every_user"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_trigger.workspace = true
+
+panic-halt.workspace = true
+dlmalloc.workspace = true
+getrandom.workspace = true

@@ -8,7 +8,7 @@ on:
       - '**.json'
       - '**.toml'
       - '.github/workflows/iroha2-dev-pr-static.yml'
-      - 'client_cli/pytests/**/*.py'
+      - 'bins/iroha_cli/pytests/**/*.py'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,13 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - name: Default executor format
+      - name: Format executors and smart contracts
         run: |
-          cd ./default_executor
-          mold --run cargo fmt --all -- --check
-      - name: Integration tests smart contracts format
-        run: |
-          cd ./client/tests/integration/smartcontracts
+          cd ./samples
           mold --run cargo fmt --all -- --check
 
   python_static_analysis:
@@ -41,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies using Poetry for client_cli/pytests
-        working-directory: client_cli/pytests
+        working-directory: bins/iroha_cli/pytests
         run: |
           poetry lock --no-update
           poetry install
