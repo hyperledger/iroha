@@ -1,0 +1,51 @@
+name: I2::Dev::Sonar-Dojo
+
+on:
+  workflow_run:
+    workflows: ["I2::Dev::Tests"]
+    types: [completed]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.actor }}
+  cancel-in-progress: true
+
+jobs:
+  sonarqube-defectdojo:
+    if: ${{ always() }}
+    needs: [workspace_analysis_clippy, with_coverage]
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download clippy and lcov artifact reports
+        uses: actions/download-artifact@v4
+        with:
+          path: lints
+          merge-multiple: true
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: SonarQube
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dcommunity.rust.clippy.reportPaths=lints/clippy.json
+            -Dcommunity.rust.lcov.reportPaths=lints/lcov.info
+      - name: DefectDojo
+        id: defectdojo
+        uses: C4tWithShell/defectdojo-action@1.0.4
+        with:
+          token: ${{ secrets.DEFECTOJO_TOKEN }}
+          defectdojo_url: ${{ secrets.DEFECTOJO_URL }}
+          product_type: iroha2
+          engagement: ${{ github.ref_name }}
+          tools: "SonarQube API Import,Github Vulnerability Scan"
+          sonar_projectKey: hyperledger:iroha
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_repository: ${{ github.repository }}
+          product: ${{ github.repository }}
+          environment: Test
+          reports: '{"Github Vulnerability Scan": "github.json"}'
