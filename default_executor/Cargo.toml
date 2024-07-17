@@ -27,5 +27,5 @@ codegen-units = 1   # Further reduces binary size but increases compilation time
 iroha_executor = { version = "2.0.0-pre-rc.21", path = "../smart_contract/executor", features = ["debug"] }
 getrandom = { version = "0.2", features = ["custom"] }
 
-lol_alloc = "0.4.0"
+dlmalloc = { version = "0.2.6", features = ["global"] }
 panic-halt = "0.2.0"
