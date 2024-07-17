@@ -670,7 +670,7 @@ impl PrivateKey {
     fn payload(&self) -> Vec<u8> {
         use crate::secrecy::ExposeSecret;
         match self.0.expose_secret() {
-            PrivateKeyInner::Ed25519(key) => key.to_keypair_bytes().to_vec(),
+            PrivateKeyInner::Ed25519(key) => key.to_bytes().to_vec(),
             PrivateKeyInner::Secp256k1(key) => key.to_bytes().to_vec(),
             PrivateKeyInner::BlsNormal(key) => key.to_bytes(),
             PrivateKeyInner::BlsSmall(key) => key.to_bytes(),
@@ -1009,13 +1009,17 @@ mod tests {
 
     #[test]
     fn key_pair_match() {
-        KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
-            .parse()
-            .expect("Public key not in mulithash format"),
-                                PrivateKey::from_hex(
-            Algorithm::Ed25519,
-            "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
-        ).expect("Private key not hex encoded")).unwrap();
+        KeyPair::new(
+            "ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+                .parse()
+                .expect("Public key not in mulithash format"),
+            PrivateKey::from_hex(
+                Algorithm::Ed25519,
+                "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC",
+            )
+            .expect("Private key not hex encoded"),
+        )
+        .unwrap();
 
         KeyPair::new("ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
             .parse()
@@ -1066,13 +1070,17 @@ mod tests {
 
     #[test]
     fn key_pair_mismatch() {
-        KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
-            .parse()
-            .expect("Public key not in mulithash format"),
-                                PrivateKey::from_hex(
-            Algorithm::Ed25519,
-            "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
-        ).expect("Private key not valid")).unwrap_err();
+        KeyPair::new(
+            "ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+                .parse()
+                .expect("Public key not in mulithash format"),
+            PrivateKey::from_hex(
+                Algorithm::Ed25519,
+                "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A",
+            )
+            .expect("Private key not valid"),
+        )
+        .unwrap_err();
 
         KeyPair::new("ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
             .parse()
@@ -1155,17 +1163,21 @@ mod tests {
         assert_test_json_serde!(
             json!({
                 "public_key": "ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4",
-                "private_key": "8026403A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
+                "private_key": "8026203A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A"
             }),
             TestJson {
                 public_key: PublicKey::from_hex(
                     Algorithm::Ed25519,
                     "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
-                ).unwrap(),
-                private_key: ExposedPrivateKey(PrivateKey::from_hex(
-                    Algorithm::Ed25519,
-                    "3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4",
-                ).unwrap())
+                )
+                .unwrap(),
+                private_key: ExposedPrivateKey(
+                    PrivateKey::from_hex(
+                        Algorithm::Ed25519,
+                        "3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a",
+                    )
+                    .unwrap()
+                )
             }
         );
     }
