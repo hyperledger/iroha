@@ -8,12 +8,12 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
+use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::simple_isi::{CustomInstructionBox, MintAssetForAllAccounts};
 use iroha_executor::{data_model::isi::CustomInstruction, debug::DebugExpectExt, prelude::*};
-use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
-static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
+static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 

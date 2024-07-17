@@ -7,13 +7,13 @@ extern crate panic_halt;
 
 extern crate alloc;
 
+use dlmalloc::GlobalDlmalloc;
 use iroha_smart_contract::{data_model::query::cursor::ForwardCursor, prelude::*};
-use lol_alloc::{FreeListAllocator, LockedAllocator};
 use nonzero_ext::nonzero;
 use parity_scale_codec::{Decode, DecodeAll, Encode};
 
 #[global_allocator]
-static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
+static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
 

@@ -15,5 +15,5 @@ iroha_executor.workspace = true
 iroha_schema.workspace = true
 
 panic-halt.workspace = true
-lol_alloc.workspace = true
+dlmalloc.workspace = true
 getrandom.workspace = true

@@ -16,7 +16,7 @@ iroha_executor_data_model.workspace = true
 executor_custom_data_model.workspace = true
 
 panic-halt.workspace = true
-lol_alloc.workspace = true
+dlmalloc.workspace = true
 getrandom.workspace = true
 
 serde = { workspace = true, features = ["derive"] }

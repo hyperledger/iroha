@@ -7,13 +7,13 @@ extern crate panic_halt;
 
 use alloc::format;
 
+use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::parameters::DomainLimits;
 use iroha_executor::{prelude::*, DataModelBuilder};
 use iroha_executor_data_model::parameter::Parameter;
-use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
-static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
+static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 

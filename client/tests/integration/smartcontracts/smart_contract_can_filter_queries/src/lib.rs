@@ -9,15 +9,15 @@ extern crate alloc;
 
 use alloc::{collections::BTreeSet, string::ToString, vec::Vec};
 
+use dlmalloc::GlobalDlmalloc;
 use iroha_smart_contract::{
     data_model::query::predicate::{string::StringPredicate, value::QueryOutputPredicate},
     prelude::*,
     QueryOutputCursor,
 };
-use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
-static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
+static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
 
