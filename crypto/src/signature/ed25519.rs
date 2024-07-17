@@ -1,4 +1,4 @@
-use core::convert::TryFrom;
+use core::convert::{Infallible, TryFrom};
 
 use ed25519_dalek::Signature;
 #[cfg(feature = "rand")]
@@ -51,7 +51,9 @@ impl Ed25519Sha512 {
     }
 
     pub fn parse_private_key(payload: &[u8]) -> Result<PrivateKey, ParseError> {
-        parse_fixed_size(payload, PrivateKey::from_keypair_bytes)
+        parse_fixed_size(payload, |bytes| {
+            Ok::<_, Infallible>(PrivateKey::from_bytes(bytes))
+        })
     }
 
     pub fn sign(message: &[u8], sk: &PrivateKey) -> Vec<u8> {
@@ -78,7 +80,7 @@ mod test {
 
     const MESSAGE_1: &[u8] = b"This is a dummy message for use with tests";
     const SIGNATURE_1: &str = "451b5b8e8725321541954997781de51f4142e4a56bab68d24f6a6b92615de5eefb74134138315859a32c7cf5fe5a488bc545e2e08e5eedfd1fb10188d532d808";
-    const PRIVATE_KEY: &str = "1c1179a560d092b90458fe6ab8291215a427fcd6b3927cb240701778ef55201927c96646f2d4632d4fc241f84cbc427fbc3ecaa95becba55088d6c7b81fc5bbf";
+    const PRIVATE_KEY: &str = "1c1179a560d092b90458fe6ab8291215a427fcd6b3927cb240701778ef552019";
     const PUBLIC_KEY: &str = "27c96646f2d4632d4fc241f84cbc427fbc3ecaa95becba55088d6c7b81fc5bbf";
 
     fn key_pair_factory() -> (ed25519::PublicKey, ed25519::PrivateKey) {
@@ -168,7 +170,7 @@ mod test {
         let err = Ed25519Sha512::parse_private_key(&[1, 2, 3]).unwrap_err();
         assert_eq!(
             err,
-            ParseError("the payload size is incorrect: expected 64, but got 3".to_string())
+            ParseError("the payload size is incorrect: expected 32, but got 3".to_string())
         );
     }
 }
