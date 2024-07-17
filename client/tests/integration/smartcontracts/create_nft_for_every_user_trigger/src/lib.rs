@@ -7,11 +7,11 @@ extern crate panic_halt;
 
 use alloc::{format, string::ToString};
 
+use dlmalloc::GlobalDlmalloc;
 use iroha_trigger::prelude::*;
-use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
-static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
+static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 

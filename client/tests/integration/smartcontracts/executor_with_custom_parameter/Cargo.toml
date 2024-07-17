@@ -22,5 +22,5 @@ serde_json.workspace = true
 serde.workspace = true
 
 panic-halt.workspace = true
-lol_alloc.workspace = true
+dlmalloc.workspace = true
 getrandom.workspace = true

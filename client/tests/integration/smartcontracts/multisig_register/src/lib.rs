@@ -8,13 +8,13 @@ extern crate panic_halt;
 
 use alloc::format;
 
+use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::multisig::MultisigRegisterArgs;
 use iroha_executor_data_model::permission::trigger::CanExecuteUserTrigger;
 use iroha_trigger::{debug::dbg_panic, prelude::*};
-use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
-static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
+static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 

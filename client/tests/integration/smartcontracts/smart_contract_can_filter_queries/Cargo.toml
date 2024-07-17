@@ -14,7 +14,7 @@ crate-type = ['cdylib']
 iroha_smart_contract.workspace = true
 
 panic-halt.workspace = true
-lol_alloc.workspace = true
+dlmalloc.workspace = true
 getrandom.workspace = true
 parity-scale-codec.workspace = true
 nonzero_ext.workspace = true
