@@ -17,7 +17,9 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
-use crate::{events::prelude::*, metadata::Metadata, transaction::Executable, Name, Registered};
+use crate::{
+    events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name, Registered,
+};
 
 #[model]
 mod model {

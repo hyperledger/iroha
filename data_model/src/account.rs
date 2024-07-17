@@ -12,7 +12,8 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    domain::prelude::*, metadata::Metadata, HasMetadata, ParseError, PublicKey, Registered,
+    domain::prelude::*, metadata::Metadata, HasMetadata, Identifiable, ParseError, PublicKey,
+    Registered,
 };
 
 #[model]

@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
-use crate::{ipfs::IpfsPath, metadata::Metadata, prelude::*, HasMetadata, Name, Registered};
+use crate::{
+    ipfs::IpfsPath, metadata::Metadata, prelude::*, HasMetadata, Identifiable, Name, Registered,
+};
 
 #[model]
 mod model {

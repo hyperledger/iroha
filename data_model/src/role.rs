@@ -8,7 +8,7 @@ use iroha_data_model_derive::model;
 pub use self::model::*;
 use crate::{
     permission::{Permission, Permissions},
-    Name, Registered,
+    Identifiable, Name, Registered,
 };
 
 #[model]

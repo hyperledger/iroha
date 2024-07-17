@@ -10,7 +10,7 @@ use iroha_primitives::json::JsonString;
 use nonzero_ext::nonzero;
 
 pub use self::model::*;
-use crate::name::Name;
+use crate::{name::Name, Identifiable};
 
 /// Collection of [`CustomParameter`]s
 pub(crate) type CustomParameters = btree_map::BTreeMap<CustomParameterId, CustomParameter>;

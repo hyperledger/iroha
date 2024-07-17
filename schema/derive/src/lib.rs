@@ -129,6 +129,12 @@ impl FromVariant for IntoSchemaVariant {
     }
 }
 
+#[derive(FromField, Default)]
+#[darling(default, attributes(serde))]
+struct SerdeFieldOpts {
+    rename: Option<String>,
+}
+
 type IntoSchemaFields = darling::ast::Fields<IntoSchemaField>;
 
 #[derive(Debug, Clone)]
@@ -140,7 +146,11 @@ struct IntoSchemaField {
 
 impl FromField for IntoSchemaField {
     fn from_field(field: &syn::Field) -> darling::Result<Self> {
-        let ident = field.ident.clone();
+        let SerdeFieldOpts { rename } = SerdeFieldOpts::from_field(field).unwrap_or_default();
+
+        let ident = rename
+            .map(|rename| syn::Ident::new(&rename, Span::call_site()))
+            .or_else(|| field.ident.clone());
         let ty = field.ty.clone();
         let codec_attrs = CodecAttributes::from_attributes(&field.attrs)?;
 

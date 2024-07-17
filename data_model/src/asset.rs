@@ -16,8 +16,8 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    account::prelude::*, domain::prelude::*, ipfs::IpfsPath, metadata::Metadata, HasMetadata, Name,
-    ParseError, Registered,
+    account::prelude::*, domain::prelude::*, ipfs::IpfsPath, metadata::Metadata, HasMetadata,
+    Identifiable, Name, ParseError, Registered,
 };
 
 /// [`AssetTotalQuantityMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetValue`])
@@ -114,6 +114,7 @@ mod model {
         pub id: AssetDefinitionId,
         /// Type of [`AssetValue`]
         #[getset(get_copy = "pub")]
+        #[serde(rename = "type")]
         pub type_: AssetType,
         /// Is the asset mintable
         #[getset(get_copy = "pub")]
@@ -162,6 +163,7 @@ mod model {
         /// The identification associated with the asset definition builder.
         pub id: AssetDefinitionId,
         /// The type value associated with the asset definition builder.
+        #[serde(rename = "type")]
         pub type_: AssetType,
         /// The mintablility associated with the asset definition builder.
         pub mintable: Mintable,
