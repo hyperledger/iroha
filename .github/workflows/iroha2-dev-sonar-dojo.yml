@@ -11,8 +11,6 @@ concurrency:
 
 jobs:
   sonarqube-defectdojo:
-    if: ${{ always() }}
-    needs: [workspace_analysis_clippy, with_coverage]
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
