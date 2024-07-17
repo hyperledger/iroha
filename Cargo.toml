@@ -121,7 +121,7 @@ serde_yaml = "0.9.34"
 serde_with = { version = "3.9.0", default-features = false }
 parity-scale-codec = { version = "3.6.12", default-features = false }
 json5 = "0.4.1"
-toml = "0.8.14"
+toml = "0.8.15"
 
 storage = { git = "https://github.com/Erigara/storage.git", rev = "cf82588d20494a1c1613ea2f4faa1e66bd827b5c" }
 
