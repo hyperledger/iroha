@@ -428,7 +428,7 @@ mod valid {
             if let Err(error) =
                 Self::validate_header(&block, topology, genesis_account, state_block)
             {
-                return WithEvents::new(Err((block, error.into())));
+                return WithEvents::new(Err((block, error)));
             }
 
             if let Err(error) =

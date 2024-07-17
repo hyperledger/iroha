@@ -13,7 +13,7 @@ use iroha_data_model_derive::model;
 use iroha_primitives::addr::SocketAddr;
 
 pub use self::model::*;
-use crate::{PublicKey, Registered};
+use crate::{Identifiable, PublicKey, Registered};
 
 #[model]
 mod model {

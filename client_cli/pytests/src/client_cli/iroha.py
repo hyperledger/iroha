@@ -114,7 +114,7 @@ class Iroha(ClientCli):
 
             asset_definitions = {}
             for asset_def in asset_defs:
-                type_ = asset_def.get("type_")
+                type_ = asset_def.get("type")
                 if type_:
                     asset_definitions[asset_def["id"]] = type_
             return asset_definitions
