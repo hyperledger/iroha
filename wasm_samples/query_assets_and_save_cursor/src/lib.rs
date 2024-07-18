@@ -36,7 +36,7 @@ fn main(owner: AccountId) {
     }
 
     let (_batch, cursor) = SmartContractQueryExecutor
-        .start_iterable_query(IterableQueryWithParams::new(
+        .start_query(IterableQueryWithParams::new(
             IterableQueryWithFilter::new(FindAllAssets, CompoundPredicate::PASS).into(),
             IterableQueryParams::new(
                 Default::default(),

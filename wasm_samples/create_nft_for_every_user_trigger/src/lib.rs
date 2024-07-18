@@ -8,7 +8,7 @@ extern crate panic_halt;
 use alloc::{format, string::ToString};
 
 use dlmalloc::GlobalDlmalloc;
-use iroha_trigger::{prelude::*, smart_contract::iter_query};
+use iroha_trigger::{prelude::*, smart_contract::query};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -19,7 +19,7 @@ getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 fn main(_id: TriggerId, _owner: AccountId, _event: EventBox) {
     iroha_trigger::log::info!("Executing trigger");
 
-    let accounts_cursor = iter_query(FindAllAccounts).execute().dbg_unwrap();
+    let accounts_cursor = query(FindAllAccounts).execute().dbg_unwrap();
 
     let bad_domain_ids: [DomainId; 2] = [
         "genesis".parse().dbg_unwrap(),
@@ -60,7 +60,7 @@ fn main(_id: TriggerId, _owner: AccountId, _event: EventBox) {
 }
 
 fn generate_new_nft_id(account_id: &AccountId) -> AssetDefinitionId {
-    let assets = iter_query(FindAllAssets)
+    let assets = query(FindAllAssets)
         .with_filter(|asset| asset.id.account.eq(account_id.clone()))
         .execute()
         .dbg_unwrap();

@@ -8,7 +8,7 @@ use tokio::runtime::Runtime;
 
 fn find_trigger(iroha: &Client, trigger_id: TriggerId) -> Option<TriggerId> {
     iroha
-        .query(trigger::by_id(trigger_id))
+        .query_single(trigger::by_id(trigger_id))
         .ok()
         .map(|trigger| trigger.id)
 }

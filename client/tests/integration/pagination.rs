@@ -14,7 +14,7 @@ fn limits_should_work() -> Result<()> {
     register_assets(&client)?;
 
     let vec = client
-        .iter_query(asset::all_definitions())
+        .query(asset::all_definitions())
         .with_pagination(Pagination {
             limit: Some(nonzero!(7_u32)),
             start: Some(nonzero!(1_u64)),
@@ -32,7 +32,7 @@ fn fetch_size_should_work() -> Result<()> {
     register_assets(&client)?;
 
     let iter = client
-        .iter_query(asset::all_definitions())
+        .query(asset::all_definitions())
         .with_pagination(Pagination {
             limit: Some(nonzero!(7_u32)),
             start: Some(nonzero!(1_u64)),

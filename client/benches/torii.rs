@@ -82,7 +82,7 @@ fn query_requests(criterion: &mut Criterion) {
         .expect("Failed to prepare state");
 
     let query = iroha
-        .iter_query(asset::all())
+        .query(asset::all())
         .with_filter(|asset| asset.id.account.eq(account_id));
     thread::sleep(std::time::Duration::from_millis(1500));
     let mut success_count = 0;
