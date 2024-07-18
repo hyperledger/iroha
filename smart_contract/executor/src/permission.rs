@@ -136,7 +136,6 @@ pub trait ExecutorPermision: Permission + PartialEq {
         iter_query(FindPermissionsByAccountId::new(account_id.clone()))
             .execute()
             .expect("INTERNAL BUG: `FindPermissionsByAccountId` must never fail")
-            .into_iter()
             .map(|res| res.dbg_expect("Failed to get permission from cursor"))
             .filter_map(|permission| Self::try_from(&permission).ok())
             .any(|permission| *self == permission)
@@ -432,8 +431,7 @@ pub mod asset_definition {
                 SmartContractSingleQueryError::Single(_) => {
                     // assuming this can only happen due to such a domain not existing
                     ValidationFail::NotPermitted(alloc::format!(
-                        "Asset definition {} not found",
-                        asset_definition_id
+                        "Asset definition {asset_definition_id} not found"
                     ))
                 }
             })?;
@@ -757,7 +755,7 @@ pub mod domain {
                 SmartContractSingleQueryError::Validation(e) => e,
                 SmartContractSingleQueryError::Single(_) => {
                     // assuming this can only happen due to such a domain not existing
-                    ValidationFail::NotPermitted(alloc::format!("Domain {} not found", domain_id))
+                    ValidationFail::NotPermitted(alloc::format!("Domain {domain_id} not found"))
                 }
             })
     }

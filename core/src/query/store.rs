@@ -323,7 +323,7 @@ mod tests {
 
             // it's not important which type we use here, just to test the flow
             let query_output =
-                (0..100).map(|_| Permission::new(Default::default(), JsonString::from(false)));
+                (0..100).map(|_| Permission::new(String::default(), JsonString::from(false)));
             let query_output = crate::smartcontracts::query::apply_query_postprocessing(
                 query_output,
                 &query_params,

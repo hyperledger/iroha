@@ -153,9 +153,7 @@ impl_predicate_box!(Metadata: MetadataPredicateBox);
 
 impl PredicateTrait<Metadata> for MetadataPredicateBox {
     fn applies(&self, _input: &Metadata) -> bool {
-        match self {
-            _ => todo!(),
-        }
+        match *self {}
     }
 }
 

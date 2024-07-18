@@ -117,7 +117,7 @@ pub struct SmartContractQueryCursor {
     cursor: ForwardCursor,
 }
 
-fn execute_query(query: QueryRequest) -> Result<QueryResponse, ValidationFail> {
+fn execute_query(query: &QueryRequest) -> Result<QueryResponse, ValidationFail> {
     #[cfg(not(test))]
     use host::execute_query as host_execute_query;
     #[cfg(test)]
@@ -150,7 +150,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
         &self,
         query: SingularQueryBox,
     ) -> Result<SingularQueryOutputBox, Self::Error> {
-        let QueryResponse::Singular(output) = execute_query(QueryRequest::Singular(query))? else {
+        let QueryResponse::Singular(output) = execute_query(&QueryRequest::Singular(query))? else {
             dbg_panic("BUG: iroha returned unexpected type in singular query");
         };
 
@@ -161,7 +161,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
         &self,
         query: IterableQueryWithParams,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
-        let QueryResponse::Iterable(output) = execute_query(QueryRequest::StartIterable(query))?
+        let QueryResponse::Iterable(output) = execute_query(&QueryRequest::StartIterable(query))?
         else {
             dbg_panic("BUG: iroha returned unexpected type in iterable query");
         };
@@ -178,7 +178,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
         cursor: Self::Cursor,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) =
-            execute_query(QueryRequest::ContinueIterable(cursor.cursor))?
+            execute_query(&QueryRequest::ContinueIterable(cursor.cursor))?
         else {
             dbg_panic("BUG: iroha returned unexpected type in iterable query");
         };
@@ -209,6 +209,10 @@ where
 }
 
 /// Run a singular query in a smart contract.
+///
+/// # Errors
+///
+/// Returns an error if the query execution fails.
 pub fn query<Q>(query: Q) -> Result<Q::Output, ValidationFail>
 where
     Q: SingularQuery,

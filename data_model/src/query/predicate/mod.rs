@@ -71,6 +71,11 @@ impl<Atom> CompoundPredicate<Atom> {
     pub const FAIL: Self = Self::Or(Vec::new());
 
     /// Negate the predicate.
+    #[allow(clippy::should_implement_trait)]
+    // not implementing std::ops::Not, because
+    // - don't need it used as an overloaded operator (most of this happens with AST predicates)
+    // - making this symmetric with `and` and `or` would require renaming them to `bitand` and `bitor` which is a downgrade IMO
+    #[must_use]
     pub fn not(self) -> Self {
         match self {
             // if the top-level predicate is a negation, we can just remove it
@@ -80,6 +85,7 @@ impl<Atom> CompoundPredicate<Atom> {
     }
 
     /// Combine two predicates with an "and" operation.
+    #[must_use]
     pub fn and(self, other: Self) -> Self {
         match (self, other) {
             // if any of the predicates is an and - flatten it
@@ -97,6 +103,7 @@ impl<Atom> CompoundPredicate<Atom> {
     }
 
     /// Combine two predicates with an "or" operation.
+    #[must_use]
     pub fn or(self, other: Self) -> Self {
         match (self, other) {
             // if any of the predicates is an or - flatten it

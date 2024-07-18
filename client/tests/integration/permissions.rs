@@ -456,7 +456,6 @@ fn associated_permissions_removed_from_role_on_unregister() {
         .execute_single()
         .expect("failed to get role")
         .permissions()
-        .into_iter()
         .any(|permission| {
             CanSetKeyValueInDomain::try_from(permission)
                 .is_ok_and(|permission| permission == set_kv_in_domain)
@@ -474,7 +473,6 @@ fn associated_permissions_removed_from_role_on_unregister() {
         .execute_single()
         .expect("failed to get role")
         .permissions()
-        .into_iter()
         .any(|permission| {
             CanSetKeyValueInDomain::try_from(permission)
                 .is_ok_and(|permission| permission == set_kv_in_domain)

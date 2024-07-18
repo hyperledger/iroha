@@ -283,6 +283,7 @@ impl IterableQueryOutputBatchBox {
     }
 
     /// Returns length of this batch
+    #[allow(clippy::len_without_is_empty)] // having a len without `is_empty` is fine, we don't return empty batches
     pub fn len(&self) -> usize {
         match self {
             Self::Domain(v) => v.len(),

@@ -28,9 +28,7 @@ impl_predicate_box!(Peer: PeerPredicateBox);
 
 impl PredicateTrait<Peer> for PeerPredicateBox {
     fn applies(&self, _input: &Peer) -> bool {
-        match self {
-            _ => todo!(),
-        }
+        match *self {}
     }
 }
 
