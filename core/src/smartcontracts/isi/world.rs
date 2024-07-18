@@ -519,7 +519,7 @@ pub mod query {
                 .peers()
                 .cloned()
                 .map(Peer::new)
-                .filter(move |peer| filter.applies(&peer)))
+                .filter(move |peer| filter.applies(peer)))
         }
     }
 

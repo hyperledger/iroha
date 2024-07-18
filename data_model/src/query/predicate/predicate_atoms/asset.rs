@@ -80,9 +80,7 @@ impl_predicate_box!(AssetValue: AssetValuePredicateBox);
 
 impl PredicateTrait<AssetValue> for AssetValuePredicateBox {
     fn applies(&self, _input: &AssetValue) -> bool {
-        match self {
-            _ => todo!(),
-        }
+        match *self {}
     }
 }
 

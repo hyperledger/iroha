@@ -28,9 +28,7 @@ impl_predicate_box!(Permission: PermissionPredicateBox);
 
 impl PredicateTrait<Permission> for PermissionPredicateBox {
     fn applies(&self, _input: &Permission) -> bool {
-        match self {
-            _ => todo!(),
-        }
+        match *self {}
     }
 }
 

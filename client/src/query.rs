@@ -220,6 +220,10 @@ impl Client {
     }
 
     /// Execute a singular query and return the result
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails.
     pub fn query<Q>(&self, query: Q) -> Result<Q::Output, ClientQueryError>
     where
         Q: SingularQuery,
@@ -248,6 +252,10 @@ impl Client {
     /// Make a request to continue an iterable query with the provided raw [`ForwardCursor`]
     ///
     /// You probably do not want to use this function, but rather use the [`Self::iter_query`] method to make a query and iterate over its results.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails.
     pub fn raw_continue_iterable_query(
         &self,
         cursor: ForwardCursor,

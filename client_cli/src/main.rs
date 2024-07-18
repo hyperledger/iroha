@@ -282,6 +282,14 @@ mod filter {
         pub predicate: CompoundPredicate<AssetPredicateBox>,
     }
 
+    /// Filter for asset definition queries
+    #[derive(Clone, Debug, clap::Parser)]
+    pub struct AssetDefinitionFilter {
+        /// Predicate for filtering given as JSON5 string
+        #[clap(value_parser = parse_json5::<CompoundPredicate<AssetDefinitionPredicateBox>>)]
+        pub predicate: CompoundPredicate<AssetDefinitionPredicateBox>,
+    }
+
     fn parse_json5<T>(s: &str) -> Result<T, String>
     where
         T: for<'a> Deserialize<'a>,
@@ -784,24 +792,25 @@ mod asset {
             /// All asset definitions
             All,
             /// Filter asset definitions by given predicate
-            Filter(filter::Filter),
+            Filter(filter::AssetDefinitionFilter),
         }
 
         impl RunArgs for List {
             fn run(self, context: &mut dyn RunContext) -> Result<()> {
                 let client = context.client_from_config();
 
-                let vec = match self {
-                    Self::All => client
-                        .request(client::asset::all_definitions())
-                        .wrap_err("Failed to get all assets"),
-                    Self::Filter(filter) => client
-                        .build_query(client::asset::all_definitions())
-                        .with_filter(filter.predicate)
-                        .execute()
-                        .wrap_err("Failed to get filtered assets"),
-                }?;
-                context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+                let query = client.iter_query(client::asset::all_definitions());
+
+                let query = match self {
+                    List::All => query,
+                    List::Filter(filter) => query.with_raw_filter(filter.predicate),
+                };
+
+                let result = query
+                    .execute_all()
+                    .wrap_err("Failed to get all asset definitions")?;
+
+                context.print_data(&result)?;
                 Ok(())
             }
         }

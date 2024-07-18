@@ -28,18 +28,30 @@ pub trait QueryExecutor {
     type SingleError: From<SingleQueryError> + From<Self::Error>;
 
     /// Executes a singular query and returns its result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails.
     fn execute_singular_query(
         &self,
         query: SingularQueryBox,
     ) -> Result<SingularQueryOutputBox, Self::Error>;
 
     /// Starts an iterable query and returns the first batch of results.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails.
     fn start_iterable_query(
         &self,
         query: IterableQueryWithParams,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
 
     /// Continues an iterable query from the given cursor and returns the next batch of results.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails.
     fn continue_iterable_query(
         cursor: Self::Cursor,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
@@ -58,6 +70,10 @@ where
     Vec<T>: TryFrom<IterableQueryOutputBatchBox>,
 {
     /// Create a new iterator over iterable query results.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the type of the batch does not match the expected type `T`.
     pub fn new(
         first_batch: IterableQueryOutputBatchBox,
         continue_cursor: Option<E::Cursor>,
@@ -97,10 +113,8 @@ where
             return Some(Ok(item));
         }
 
-        // no cursor means the query result is exhausted
-        let Some(cursor) = self.continue_cursor.take() else {
-            return None;
-        };
+        // no cursor means the query result is exhausted or an error occurred on one of the previous iterations
+        let cursor = self.continue_cursor.take()?;
 
         // get a next batch from iroha
         let (batch, cursor) = match E::continue_iterable_query(cursor) {
@@ -117,7 +131,7 @@ where
 
         self.current_batch_iter = batch.into_iter();
 
-        return self.next();
+        self.next()
     }
 }
 
@@ -178,6 +192,7 @@ impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
     /// Only return results that match the specified predicate.
     ///
     /// If multiple filters are added, they are combined with a logical AND.
+    #[must_use]
     pub fn with_filter<B, O>(self, predicate_builder: B) -> Self
     where
         P: HasPrototype,
@@ -190,6 +205,7 @@ impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
     }
 
     /// Same as [`Self::with_filter`], but accepts a pre-constructed predicate in normalized form, instead of building a new one in place.
+    #[must_use]
     pub fn with_raw_filter(self, filter: CompoundPredicate<P>) -> Self {
         Self {
             filter: self.filter.and(filter),
@@ -198,11 +214,13 @@ impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
     }
 
     /// Sort the results according to the specified sorting.
+    #[must_use]
     pub fn with_sorting(self, sorting: Sorting) -> Self {
         Self { sorting, ..self }
     }
 
     /// Only return part of the results specified by the pagination.
+    #[must_use]
     pub fn with_pagination(self, pagination: Pagination) -> Self {
         Self { pagination, ..self }
     }
@@ -210,6 +228,7 @@ impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
     /// Change the batch size of the iterable query.
     ///
     /// Larger batch sizes reduce the number of round-trips to iroha peer, but require more memory.
+    #[must_use]
     pub fn with_fetch_size(self, fetch_size: FetchSize) -> Self {
         Self { fetch_size, ..self }
     }
@@ -225,6 +244,10 @@ where
     <Vec<Q::Item> as TryFrom<IterableQueryOutputBatchBox>>::Error: core::fmt::Debug,
 {
     /// Execute the query, returning an iterator over its results.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails.
     pub fn execute(self) -> Result<IterableQueryIterator<E, Q::Item>, E::Error> {
         let with_filter = IterableQueryWithFilter::new(self.query, self.filter);
         let boxed: IterableQueryBox = with_filter.into();
@@ -249,11 +272,19 @@ where
     }
 
     /// Execute the query, returning all the results collected into a vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails.
     pub fn execute_all(self) -> Result<Vec<Q::Item>, E::Error> {
         self.execute()?.collect::<Result<Vec<_>, _>>()
     }
 
-    /// Execute the query, constraining the number of results to zero or one. Errors if more than one result is returned.
+    /// Execute the query, constraining the number of results to zero or one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails or if more than one result is returned.
     pub fn execute_single_opt(self) -> Result<Option<Q::Item>, E::SingleError> {
         let mut iter = self.execute()?;
         let first = iter.next().transpose()?;
@@ -269,7 +300,11 @@ where
         }
     }
 
-    /// Execute the query, constraining the number of results to exactly one. Errors if zero or more than one result is returned.
+    /// Execute the query, constraining the number of results to exactly one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails or if zero or more than one result is returned.
     pub fn execute_single(self) -> Result<Q::Item, E::SingleError> {
         let mut iter = self.execute()?;
         let first = iter.next().transpose()?;

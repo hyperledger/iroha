@@ -28,9 +28,7 @@ impl_predicate_box!(Parameter: ParameterPredicateBox);
 
 impl PredicateTrait<Parameter> for ParameterPredicateBox {
     fn applies(&self, _input: &Parameter) -> bool {
-        match self {
-            _ => todo!(),
-        }
+        match *self {}
     }
 }
 

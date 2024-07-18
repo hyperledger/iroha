@@ -111,6 +111,10 @@ impl SortableQueryOutput for iroha_data_model::block::BlockHeader {
 }
 
 /// Applies sorting and pagination to the query output and wraps it into a type-erasing batching iterator.
+///
+/// # Errors
+///
+/// Returns an error if the fetch size is too big
 pub fn apply_query_postprocessing<I>(
     iter: I,
     &IterableQueryParams {
@@ -158,6 +162,8 @@ where
         }
         // no sorting required, can just paginate the results without constructing the full output vec
         None => {
+            // FP: this collect is very deliberate
+            #[allow(clippy::needless_collect)]
             let output = iter
                 .paginate(pagination)
                 // it should theoretically be possible to not collect the results into a vec and build the response lazily
@@ -180,6 +186,10 @@ pub struct ValidQueryRequest(QueryRequest);
 
 impl ValidQueryRequest {
     /// Validate a query for an API client by calling the executor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query validation fails.
     pub fn validate_for_client(
         query: QueryRequestWithAuthority,
         state_ro: &impl StateReadOnly,
@@ -194,6 +204,10 @@ impl ValidQueryRequest {
     /// Validate a query for a wasm program.
     ///
     /// The validation logic is defined by the implementation of the [`ValidateQueryOperation`] trait.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query validation fails.
     pub fn validate_for_wasm<W, S>(
         query: QueryRequest,
         state: &mut wasm::state::CommonState<W, S>,
@@ -209,6 +223,10 @@ impl ValidQueryRequest {
     }
 
     /// Execute a validated query request
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails.
     pub fn execute(
         self,
         live_query_store: &LiveQueryStoreHandle,

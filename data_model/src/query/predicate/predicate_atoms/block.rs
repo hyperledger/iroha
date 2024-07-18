@@ -31,9 +31,7 @@ impl_predicate_box!(BlockHeader: BlockHeaderPredicateBox);
 
 impl PredicateTrait<BlockHeader> for BlockHeaderPredicateBox {
     fn applies(&self, _input: &BlockHeader) -> bool {
-        match self {
-            _ => todo!(),
-        }
+        match *self {}
     }
 }
 
@@ -47,9 +45,7 @@ impl_predicate_box!(SignedBlock: SignedBlockPredicateBox);
 
 impl PredicateTrait<SignedBlock> for SignedBlockPredicateBox {
     fn applies(&self, _input: &SignedBlock) -> bool {
-        match self {
-            _ => todo!(),
-        }
+        match *self {}
     }
 }
 
@@ -63,9 +59,7 @@ impl_predicate_box!(TransactionQueryOutput: TransactionQueryOutputPredicateBox);
 
 impl PredicateTrait<TransactionQueryOutput> for TransactionQueryOutputPredicateBox {
     fn applies(&self, _input: &TransactionQueryOutput) -> bool {
-        match self {
-            _ => todo!(),
-        }
+        match *self {}
     }
 }
 
