@@ -253,6 +253,9 @@ members = [
     "wasm_codec/derive",
     "wasm_builder",
 ]
+exclude = [
+    "wasm_samples",
+]
 
 [profile.deploy]
 inherits = "release"

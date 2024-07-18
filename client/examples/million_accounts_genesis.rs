@@ -34,7 +34,8 @@ fn generate_genesis(
             .finish_domain();
     }
 
-    let executor = construct_executor("../default_executor").expect("Failed to construct executor");
+    let executor = construct_executor("../wasm_samples/default_executor")
+        .expect("Failed to construct executor");
     builder.build_and_sign(executor, chain_id, genesis_key_pair, topology)
 }
 

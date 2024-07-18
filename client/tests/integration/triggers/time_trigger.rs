@@ -220,13 +220,12 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     const EXPECTED_COUNT: u64 = 4;
 
     info!("Building trigger");
-    let wasm = iroha_wasm_builder::Builder::new(
-        "tests/integration/smartcontracts/create_nft_for_every_user_trigger",
-    )
-    .show_output()
-    .build()?
-    .optimize()?
-    .into_bytes()?;
+    let wasm =
+        iroha_wasm_builder::Builder::new("../wasm_samples/create_nft_for_every_user_trigger")
+            .show_output()
+            .build()?
+            .optimize()?
+            .into_bytes()?;
 
     info!("WASM size is {} bytes", wasm.len());
 

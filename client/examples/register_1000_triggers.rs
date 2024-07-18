@@ -33,13 +33,11 @@ fn generate_genesis(
             SmartContractParameter::Memory(NonZeroU64::MAX),
         )));
 
-    let wasm = iroha_wasm_builder::Builder::new(
-        "client/tests/integration/smartcontracts/mint_rose_trigger",
-    )
-    .show_output()
-    .build()?
-    .optimize()?
-    .into_bytes()?;
+    let wasm = iroha_wasm_builder::Builder::new("wasm_samples/mint_rose_trigger")
+        .show_output()
+        .build()?
+        .optimize()?
+        .into_bytes()?;
     let wasm = WasmSmartContract::from_compiled(wasm);
     let (account_id, _account_keypair) = gen_account_in("wonderland");
 
@@ -65,7 +63,8 @@ fn generate_genesis(
         })
         .fold(builder, GenesisBuilder::append_instruction);
 
-    let executor = construct_executor("default_executor").expect("Failed to construct executor");
+    let executor = construct_executor("../wasm_samples/default_executor")
+        .expect("Failed to construct executor");
     Ok(builder.build_and_sign(executor, chain_id, genesis_key_pair, topology))
 }
 

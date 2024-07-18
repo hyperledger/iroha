@@ -32,12 +32,11 @@ fn mutlisig() -> Result<()> {
     let account_id = ALICE_ID.clone();
     let multisig_register_trigger_id = TriggerId::from_str("multisig_register")?;
 
-    let wasm =
-        iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/multisig_register")
-            .show_output()
-            .build()?
-            .optimize()?
-            .into_bytes()?;
+    let wasm = iroha_wasm_builder::Builder::new("../wasm_samples/multisig_register")
+        .show_output()
+        .build()?
+        .optimize()?
+        .into_bytes()?;
     let wasm = WasmSmartContract::from_compiled(wasm);
 
     let trigger = Trigger::new(

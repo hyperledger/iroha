@@ -39,7 +39,7 @@ updates:
 
   - package-ecosystem: "cargo"
     target-branch: "main"
-    directory: "/default_executor/"
+    directory: "/wasm_samples/"
     schedule:
       interval: "daily"
     commit-message:
