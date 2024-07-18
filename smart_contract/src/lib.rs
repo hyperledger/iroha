@@ -157,7 +157,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
         Ok(output)
     }
 
-    fn start_iterable_query(
+    fn start_query(
         &self,
         query: IterableQueryWithParams,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
@@ -174,7 +174,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
         ))
     }
 
-    fn continue_iterable_query(
+    fn continue_query(
         cursor: Self::Cursor,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) =
@@ -193,7 +193,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
 }
 
 /// Build an iterable query for execution in a smart contract.
-pub fn iter_query<Q>(
+pub fn query<Q>(
     query: Q,
 ) -> IterableQueryBuilder<
     'static,
@@ -213,7 +213,7 @@ where
 /// # Errors
 ///
 /// Returns an error if the query execution fails.
-pub fn query<Q>(query: Q) -> Result<Q::Output, ValidationFail>
+pub fn query_single<Q>(query: Q) -> Result<Q::Output, ValidationFail>
 where
     Q: SingularQuery,
     SingularQueryBox: From<Q>,
@@ -337,6 +337,6 @@ mod tests {
 
     #[webassembly_test]
     fn execute_query() {
-        assert_eq!(query(get_test_query()), QUERY_RESULT);
+        assert_eq!(query_single(get_test_query()), QUERY_RESULT);
     }
 }

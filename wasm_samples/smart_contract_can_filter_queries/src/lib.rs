@@ -10,7 +10,7 @@ extern crate alloc;
 use alloc::collections::BTreeSet;
 
 use dlmalloc::GlobalDlmalloc;
-use iroha_smart_contract::{iter_query, prelude::*};
+use iroha_smart_contract::{prelude::*, query};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -46,7 +46,7 @@ fn main(_owner: AccountId) {
     .dbg_unwrap();
 
     // genesis registers some more asset definitions, but we apply a filter to find only the ones from the `looking_glass` domain
-    let cursor = iter_query(FindAllAssetsDefinitions)
+    let cursor = query(FindAllAssetsDefinitions)
         .with_filter(|asset_definition| asset_definition.id.domain_id.eq(domain_id))
         .execute()
         .dbg_unwrap();

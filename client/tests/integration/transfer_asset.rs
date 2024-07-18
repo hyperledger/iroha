@@ -63,7 +63,7 @@ fn simulate_transfer_store_asset() {
     iroha
         .poll(|client| {
             let assets = client
-                .iter_query(client::asset::all())
+                .query(client::asset::all())
                 .with_filter(|asset| asset.id.account.eq(mouse_id.clone()))
                 .execute_all()?;
             Ok(assets.iter().any(|asset| {
@@ -122,7 +122,7 @@ fn simulate_transfer<T>(
     iroha
         .poll(|client| {
             let assets = client
-                .iter_query(client::asset::all())
+                .query(client::asset::all())
                 .with_filter(|asset| asset.id.account.eq(mouse_id.clone()))
                 .execute_all()?;
 

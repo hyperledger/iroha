@@ -39,7 +39,7 @@ fn failed_trigger_revert() -> Result<()> {
 
     //Then
     let query_result = client
-        .iter_query(client::asset::all_definitions())
+        .query(client::asset::all_definitions())
         .execute_all()?;
     assert!(query_result
         .iter()

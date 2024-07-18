@@ -34,7 +34,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     test_client.submit_transaction(&tx)?;
     test_client.poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
         Ok(assets.iter().any(|asset| {
@@ -50,7 +50,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     assert!(test_client
         .poll(|client| {
             let assets = client
-                .iter_query(client::asset::all())
+                .query(client::asset::all())
                 .with_filter(|asset| asset.id.account.eq(account_id.clone()))
                 .execute_all()?;
             Ok(assets.iter().any(|asset| {
@@ -82,7 +82,7 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
         .submit_all::<InstructionBox>([create_asset.into(), register_asset.clone().into()])?;
     test_client.poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
         Ok(assets.iter().any(|asset| {
@@ -125,7 +125,7 @@ fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()
     ])?;
     test_client.poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
 

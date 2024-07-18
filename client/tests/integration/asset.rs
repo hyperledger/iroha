@@ -41,7 +41,7 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
     // should result in asset being created
     test_client.poll(move |client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id))
             .execute_all()?;
 
@@ -77,7 +77,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
     // Wait for asset to be registered
     test_client.poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
 
@@ -91,7 +91,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
     // ... and check that it is removed after Unregister
     test_client.poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
 
@@ -127,7 +127,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     test_client.submit_transaction(&tx)?;
     test_client.poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id))
             .execute_all()?;
 
@@ -161,7 +161,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     test_client.submit_transaction(&tx)?;
     test_client.poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id))
             .execute_all()?;
 
@@ -196,7 +196,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     test_client.submit_transaction(&tx)?;
     test_client.poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
 
@@ -219,7 +219,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     test_client.submit(mint)?;
     test_client.poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id))
             .execute_all()?;
 
@@ -258,7 +258,7 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     thread::sleep(pipeline_time * 4);
 
     let mut asset_definition_ids = test_client
-        .iter_query(client::asset::all_definitions())
+        .query(client::asset::all_definitions())
         .execute_all()
         .expect("Failed to execute request.")
         .into_iter()
@@ -335,7 +335,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let assert_balance = |asset_id: AssetId, expected: Numeric| {
         let got = test_client
-            .query(FindAssetQuantityById::new(asset_id))
+            .query_single(FindAssetQuantityById::new(asset_id))
             .expect("query should succeed");
         assert_eq!(got, expected);
     };
@@ -344,7 +344,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     assert_balance(buyer_eth.clone(), numeric!(200));
 
     let rate: u32 = test_client
-        .query(FindAssetQuantityById::new(rate))
+        .query_single(FindAssetQuantityById::new(rate))
         .expect("query should succeed")
         .try_into()
         .expect("numeric should be u32 originally");
@@ -357,7 +357,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let assert_purged = |asset_id: AssetId| {
         let _err = test_client
-            .query(FindAssetQuantityById::new(asset_id))
+            .query_single(FindAssetQuantityById::new(asset_id))
             .expect_err("query should fail, as zero assets are purged from accounts");
     };
     let seller_eth: AssetId = format!("eth#crypto#{}", &seller_id)
@@ -389,7 +389,7 @@ fn transfer_asset_definition() {
         .expect("Failed to submit transaction");
 
     let asset_definition = test_client
-        .iter_query(client::asset::all_definitions())
+        .query(client::asset::all_definitions())
         .with_filter(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
         .execute_single()
         .expect("Failed to execute Iroha Query");
@@ -404,7 +404,7 @@ fn transfer_asset_definition() {
         .expect("Failed to submit transaction");
 
     let asset_definition = test_client
-        .iter_query(client::asset::all_definitions())
+        .query(client::asset::all_definitions())
         .with_filter(|asset_definition| asset_definition.id.eq(asset_definition_id))
         .execute_single()
         .expect("Failed to execute Iroha Query");

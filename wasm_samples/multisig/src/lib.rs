@@ -10,7 +10,7 @@ use alloc::{collections::btree_set::BTreeSet, format, vec::Vec};
 
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::multisig::MultisigArgs;
-use iroha_trigger::{debug::dbg_panic, prelude::*, smart_contract::query};
+use iroha_trigger::{debug::dbg_panic, prelude::*, smart_contract::query_single};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -41,7 +41,7 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
 
     let (votes, instructions) = match args {
         MultisigArgs::Instructions(instructions) => {
-            query(FindTriggerKeyValueByIdAndKey::new(
+            query_single(FindTriggerKeyValueByIdAndKey::new(
                 id.clone(),
                 votes_metadata_key.clone(),
             ))
@@ -68,7 +68,7 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
             (votes, instructions)
         }
         MultisigArgs::Vote(_instructions_hash) => {
-            let mut votes: BTreeSet<AccountId> = query(FindTriggerKeyValueByIdAndKey::new(
+            let mut votes: BTreeSet<AccountId> = query_single(FindTriggerKeyValueByIdAndKey::new(
                 id.clone(),
                 votes_metadata_key.clone(),
             ))
@@ -86,10 +86,9 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
             .execute()
             .dbg_unwrap();
 
-            let instructions: Vec<InstructionBox> = query(FindTriggerKeyValueByIdAndKey::new(
-                id.clone(),
-                instructions_metadata_key.clone(),
-            ))
+            let instructions: Vec<InstructionBox> = query_single(
+                FindTriggerKeyValueByIdAndKey::new(id.clone(), instructions_metadata_key.clone()),
+            )
             .dbg_unwrap()
             .try_into_any()
             .dbg_unwrap();
@@ -98,7 +97,7 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
         }
     };
 
-    let signatories: BTreeSet<AccountId> = query(FindTriggerKeyValueByIdAndKey::new(
+    let signatories: BTreeSet<AccountId> = query_single(FindTriggerKeyValueByIdAndKey::new(
         id.clone(),
         "signatories".parse().unwrap(),
     ))

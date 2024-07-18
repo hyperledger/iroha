@@ -251,12 +251,12 @@ impl DataModelBuilder {
     /// Set the data model of the executor via [`set_data_model`]
     #[cfg(not(test))]
     pub fn build_and_set(self) {
-        use iroha_smart_contract::iter_query;
+        use iroha_smart_contract::query;
 
         use crate::smart_contract::ExecuteOnHost as _;
 
-        let all_accounts = iter_query(FindAllAccounts::new()).execute().unwrap();
-        let all_roles = iter_query(FindAllRoles::new()).execute().unwrap();
+        let all_accounts = query(FindAllAccounts::new()).execute().unwrap();
+        let all_roles = query(FindAllRoles::new()).execute().unwrap();
 
         for role in all_roles.into_iter().map(|role| role.unwrap()) {
             for permission in role.permissions() {
@@ -269,11 +269,10 @@ impl DataModelBuilder {
         }
 
         for account in all_accounts.into_iter().map(|account| account.unwrap()) {
-            let account_permissions =
-                iter_query(FindPermissionsByAccountId::new(account.id().clone()))
-                    .execute()
-                    .unwrap()
-                    .into_iter();
+            let account_permissions = query(FindPermissionsByAccountId::new(account.id().clone()))
+                .execute()
+                .unwrap()
+                .into_iter();
 
             for permission in account_permissions.map(|permission| permission.unwrap()) {
                 if !self.permissions.contains(permission.name()) {

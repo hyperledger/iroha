@@ -19,7 +19,7 @@ use crate::query::{
 pub trait QueryExecutor {
     /// A type of cursor used in iterable queries.
     ///
-    /// The cursor type is an opaque type that allows to continue execution of an iterable query with [`Self::continue_iterable_query`]
+    /// The cursor type is an opaque type that allows to continue execution of an iterable query with [`Self::continue_query`]
     type Cursor;
     /// An error that can occur during query execution.
     type Error;
@@ -42,7 +42,7 @@ pub trait QueryExecutor {
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
-    fn start_iterable_query(
+    fn start_query(
         &self,
         query: IterableQueryWithParams,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
@@ -52,7 +52,7 @@ pub trait QueryExecutor {
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
-    fn continue_iterable_query(
+    fn continue_query(
         cursor: Self::Cursor,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
 }
@@ -117,7 +117,7 @@ where
         let cursor = self.continue_cursor.take()?;
 
         // get a next batch from iroha
-        let (batch, cursor) = match E::continue_iterable_query(cursor) {
+        let (batch, cursor) = match E::continue_query(cursor) {
             Ok(r) => r,
             Err(e) => return Some(Err(e)),
         };
@@ -261,7 +261,7 @@ where
             },
         };
 
-        let (first_batch, continue_cursor) = self.query_executor.start_iterable_query(query)?;
+        let (first_batch, continue_cursor) = self.query_executor.start_query(query)?;
 
         let iterator = IterableQueryIterator::<E, Q::Item>::new(first_batch, continue_cursor)
             .expect(

@@ -66,9 +66,11 @@ struct Context;
 impl executor_custom_data_model::complex_isi::Context for Context {
     fn query(&self, q: &NumericQuery) -> Result<Value, ValidationFail> {
         let result = match q.clone() {
-            NumericQuery::FindAssetQuantityById(q) => iroha_executor::smart_contract::query(q),
+            NumericQuery::FindAssetQuantityById(q) => {
+                iroha_executor::smart_contract::query_single(q)
+            }
             NumericQuery::FindTotalAssetQuantityByAssetDefinitionId(q) => {
-                iroha_executor::smart_contract::query(q)
+                iroha_executor::smart_contract::query_single(q)
             }
         };
 

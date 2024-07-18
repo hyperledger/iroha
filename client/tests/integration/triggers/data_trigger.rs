@@ -14,7 +14,7 @@ fn must_execute_both_triggers() -> Result<()> {
 
     let get_asset_value = |iroha: &client::Client, asset_id: AssetId| -> Numeric {
         match *iroha
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.eq(asset_id))
             .execute_single()
             .unwrap()

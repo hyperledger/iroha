@@ -62,7 +62,7 @@ fn check_no_blocks(test_client: &Client) {
 
 fn get_assets(iroha: &Client, id: &AccountId) -> Vec<Asset> {
     iroha
-        .iter_query(client::asset::all())
+        .query(client::asset::all())
         .with_filter(|asset| asset.id.account.eq(id.clone()))
         .execute_all()
         .expect("Failed to execute request.")
@@ -189,14 +189,14 @@ fn account_can_query_only_its_own_domain() -> Result<()> {
 
     // Alice can query the domain in which her account exists.
     assert!(client
-        .iter_query(client::domain::all())
+        .query(client::domain::all())
         .with_filter(|domain| domain.id.eq(domain_id))
         .execute_single()
         .is_ok());
 
     // Alice cannot query other domains.
     assert!(client
-        .iter_query(client::domain::all())
+        .query(client::domain::all())
         .with_filter(|domain| domain.id.eq(new_domain_id))
         .execute_single()
         .is_err());
@@ -402,7 +402,7 @@ fn associated_permissions_removed_on_unregister() {
 
     // check that bob indeed have granted permission
     assert!(iroha
-        .iter_query(client::permission::by_account_id(bob_id.clone()))
+        .query(client::permission::by_account_id(bob_id.clone()))
         .execute_all()
         .expect("failed to get permissions for bob")
         .into_iter()
@@ -418,7 +418,7 @@ fn associated_permissions_removed_on_unregister() {
 
     // check that permission is removed from bob
     assert!(!iroha
-        .iter_query(client::permission::by_account_id(bob_id))
+        .query(client::permission::by_account_id(bob_id))
         .execute_all()
         .expect("failed to get permissions for bob")
         .into_iter()
@@ -451,7 +451,7 @@ fn associated_permissions_removed_from_role_on_unregister() {
 
     // check that role indeed have permission
     assert!(iroha
-        .iter_query(client::role::all())
+        .query(client::role::all())
         .with_filter(|role| role.id.eq(role_id.clone()))
         .execute_single()
         .expect("failed to get role")
@@ -468,7 +468,7 @@ fn associated_permissions_removed_from_role_on_unregister() {
 
     // check that permission is removed from role
     assert!(!iroha
-        .iter_query(client::role::all())
+        .query(client::role::all())
         .with_filter(|role| role.id.eq(role_id.clone()))
         .execute_single()
         .expect("failed to get role")

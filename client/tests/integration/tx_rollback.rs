@@ -23,7 +23,7 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
 
     //Then;
     let query_result = client
-        .iter_query(client::asset::all())
+        .query(client::asset::all())
         .with_filter(|asset| asset.id.account.eq(account_id))
         .execute_all()?;
 
@@ -31,7 +31,7 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
         .iter()
         .all(|asset| *asset.id().definition() != wrong_asset_definition_id));
     let definition_query_result = client
-        .iter_query(client::asset::all_definitions())
+        .query(client::asset::all_definitions())
         .execute_all()?;
     assert!(definition_query_result
         .iter()

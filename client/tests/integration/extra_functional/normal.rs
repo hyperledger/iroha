@@ -46,7 +46,7 @@ fn tranasctions_should_be_applied() {
     iroha.submit_blocking(mint_asset).unwrap();
 
     iroha
-        .iter_query(client::asset::all())
+        .query(client::asset::all())
         .with_filter(|asset| asset.id.eq(asset_id))
         .execute_single()
         .unwrap();

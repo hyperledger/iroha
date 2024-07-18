@@ -74,7 +74,7 @@ fn correct_pagination_assets_after_creating_new_one() {
         .expect("Valid");
 
     let queried_assets = test_client
-        .iter_query(client::asset::all())
+        .query(client::asset::all())
         .with_raw_filter(xor_filter.clone())
         .with_pagination(pagination)
         .with_sorting(sorting.clone())
@@ -99,7 +99,7 @@ fn correct_pagination_assets_after_creating_new_one() {
         .expect("Valid");
 
     let queried_assets = test_client
-        .iter_query(client::asset::all())
+        .query(client::asset::all())
         .with_raw_filter(xor_filter)
         .with_pagination(pagination)
         .with_sorting(sorting)
@@ -148,7 +148,7 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .iter_query(client::asset::all_definitions())
+        .query(client::asset::all_definitions())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
         .with_filter(|asset_definition| asset_definition.id.name.starts_with("xor_"))
         .execute_all()
@@ -198,7 +198,7 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .iter_query(client::account::all())
+        .query(client::account::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
         .with_filter(|account| account.id.domain_id.eq(domain_id))
         .execute_all()
@@ -234,7 +234,7 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .iter_query(client::domain::all())
+        .query(client::domain::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
         .with_filter(|domain| domain.id.name.starts_with("neverland"))
         .execute_all()
@@ -268,7 +268,7 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .iter_query(client::domain::all())
+        .query(client::domain::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key))
         .with_filter(|domain| domain.id.name.starts_with("neverland_"))
         .execute()
@@ -334,7 +334,7 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
         .wrap_err("Failed to register accounts")?;
 
     let res = test_client
-        .iter_query(client::account::all())
+        .query(client::account::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key))
         .with_filter(|account| account.id.domain_id.eq(domain_id))
         .execute_all()

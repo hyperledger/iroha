@@ -161,7 +161,7 @@ impl QueryExecutor for Client {
         Ok(response)
     }
 
-    fn start_iterable_query(
+    fn start_query(
         &self,
         query: IterableQueryWithParams,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
@@ -182,7 +182,7 @@ impl QueryExecutor for Client {
         Ok((batch, cursor))
     }
 
-    fn continue_iterable_query(
+    fn continue_query(
         cursor: Self::Cursor,
     ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
         let ClientQueryCursor {
@@ -209,7 +209,7 @@ impl QueryExecutor for Client {
 impl Client {
     /// Get a [`ClientQueryRequestHead`] - an object that can be used to make queries independently of the client.
     ///
-    /// You probably do not want to use it directly, but rather use [`Client::query`] or [`Client::iter_query`].
+    /// You probably do not want to use it directly, but rather use [`Client::query_single`] or [`Client::query`].
     fn get_query_request_head(&self) -> ClientQueryRequestHead {
         ClientQueryRequestHead {
             torii_url: self.torii_url.clone(),
@@ -224,7 +224,7 @@ impl Client {
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
-    pub fn query<Q>(&self, query: Q) -> Result<Q::Output, ClientQueryError>
+    pub fn query_single<Q>(&self, query: Q) -> Result<Q::Output, ClientQueryError>
     where
         Q: SingularQuery,
         SingularQueryBox: From<Q>,
@@ -241,7 +241,7 @@ impl Client {
     }
 
     /// Build an iterable query and return a builder object
-    pub fn iter_query<Q, P>(&self, query: Q) -> IterableQueryBuilder<Self, Q, P>
+    pub fn query<Q, P>(&self, query: Q) -> IterableQueryBuilder<Self, Q, P>
     where
         Q: IterableQuery,
         Q::Item: HasPredicateBox<PredicateBoxType = P>,
@@ -251,7 +251,7 @@ impl Client {
 
     /// Make a request to continue an iterable query with the provided raw [`ForwardCursor`]
     ///
-    /// You probably do not want to use this function, but rather use the [`Self::iter_query`] method to make a query and iterate over its results.
+    /// You probably do not want to use this function, but rather use the [`Self::query`] method to make a query and iterate over its results.
     ///
     /// # Errors
     ///

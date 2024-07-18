@@ -73,7 +73,7 @@ fn check_assets(
     iroha
         .poll_with_period(Config::block_sync_gossip_time(), 15, |client| {
             let assets = client
-                .iter_query(client::asset::all())
+                .query(client::asset::all())
                 .with_filter(|asset| asset.id.account.eq(account_id.clone()))
                 .execute_all()?;
 

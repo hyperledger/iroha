@@ -48,7 +48,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     let peer = network.peers.values().last().unwrap();
     client::Client::test(&peer.api_address).poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id))
             .execute_all()?;
 

@@ -76,7 +76,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
 
     // Check that `CanUnregisterDomain` exists
     assert!(client
-        .query(FindExecutorDataModel)?
+        .query_single(FindExecutorDataModel)?
         .permissions()
         .iter()
         .any(|permission| CanUnregisterDomain::name() == *permission));
@@ -84,7 +84,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     // Check that Alice has permission to unregister Wonderland
     let alice_id = ALICE_ID.clone();
     let alice_permissions = client
-        .iter_query(client::permission::by_account_id(alice_id.clone()))
+        .query(client::permission::by_account_id(alice_id.clone()))
         .execute_all()?;
     let can_unregister_domain = CanUnregisterDomain {
         domain: "wonderland".parse()?,
@@ -98,7 +98,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     upgrade_executor(&client, "../wasm_samples/executor_with_custom_permission")?;
 
     // Check that `CanUnregisterDomain` doesn't exist
-    let data_model = client.query(FindExecutorDataModel)?;
+    let data_model = client.query_single(FindExecutorDataModel)?;
     assert!(data_model
         .permissions()
         .iter()
@@ -111,7 +111,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
 
     // Check that Alice has `CanControlDomainLives` permission
     let alice_permissions = client
-        .iter_query(client::permission::by_account_id(alice_id.clone()))
+        .query(client::permission::by_account_id(alice_id.clone()))
         .execute_all()?;
     let can_control_domain_lives = CanControlDomainLives;
     assert!(alice_permissions.iter().any(|permission| {
@@ -139,13 +139,13 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that permission exists
     assert!(client
-        .query(FindExecutorDataModel)?
+        .query_single(FindExecutorDataModel)?
         .permissions()
         .contains(&CanUnregisterDomain::name()));
 
     // Check that `TEST_ROLE` has permission
     assert!(client
-        .iter_query(client::role::all())
+        .query(client::role::all())
         .execute_all()?
         .into_iter()
         .find(|role| role.id == test_role_id)
@@ -160,7 +160,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
     // Check that Alice has permission
     let alice_id = ALICE_ID.clone();
     assert!(client
-        .iter_query(client::permission::by_account_id(alice_id.clone()))
+        .query(client::permission::by_account_id(alice_id.clone()))
         .execute_all()?
         .iter()
         .any(|permission| {
@@ -172,13 +172,13 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that permission doesn't exist
     assert!(!client
-        .query(FindExecutorDataModel)?
+        .query_single(FindExecutorDataModel)?
         .permissions()
         .contains(&CanUnregisterDomain::name()));
 
     // Check that `TEST_ROLE` doesn't have permission
     assert!(!client
-        .iter_query(client::role::all())
+        .query(client::role::all())
         .execute_all()?
         .into_iter()
         .find(|role| role.id == test_role_id)
@@ -192,7 +192,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that Alice doesn't have permission
     assert!(!client
-        .iter_query(client::permission::by_account_id(alice_id.clone()))
+        .query(client::permission::by_account_id(alice_id.clone()))
         .execute_all()?
         .iter()
         .any(|permission| {
@@ -223,7 +223,7 @@ fn executor_custom_instructions_simple() -> Result<()> {
 
     // Check that bob has 1 rose
     assert_eq!(
-        client.query(FindAssetQuantityById::new(bob_rose.clone()))?,
+        client.query_single(FindAssetQuantityById::new(bob_rose.clone()))?,
         Numeric::from(1u32)
     );
 
@@ -236,7 +236,7 @@ fn executor_custom_instructions_simple() -> Result<()> {
 
     // Check that bob has 2 roses
     assert_eq!(
-        client.query(FindAssetQuantityById::new(bob_rose.clone()))?,
+        client.query_single(FindAssetQuantityById::new(bob_rose.clone()))?,
         Numeric::from(2u32)
     );
 
@@ -268,7 +268,7 @@ fn executor_custom_instructions_complex() -> Result<()> {
 
     // Check that bob has 6 roses
     assert_eq!(
-        client.query(FindAssetQuantityById::new(bob_rose.clone()))?,
+        client.query_single(FindAssetQuantityById::new(bob_rose.clone()))?,
         Numeric::from(6u32)
     );
 
@@ -291,7 +291,7 @@ fn executor_custom_instructions_complex() -> Result<()> {
 
     // Check that bob has 5 roses
     assert_eq!(
-        client.query(FindAssetQuantityById::new(bob_rose.clone()))?,
+        client.query_single(FindAssetQuantityById::new(bob_rose.clone()))?,
         Numeric::from(5u32)
     );
 
@@ -299,7 +299,7 @@ fn executor_custom_instructions_complex() -> Result<()> {
 
     // Check that bob has 5 roses
     assert_eq!(
-        client.query(FindAssetQuantityById::new(bob_rose.clone()))?,
+        client.query_single(FindAssetQuantityById::new(bob_rose.clone()))?,
         Numeric::from(5u32)
     );
 
@@ -314,7 +314,7 @@ fn migration_fail_should_not_cause_any_effects() {
     let assert_domain_does_not_exist = |client: &Client, domain_id: &DomainId| {
         assert!(
             client
-                .iter_query(client::domain::all())
+                .query(client::domain::all())
                 .with_filter(|domain| domain.id.eq(domain_id.clone()))
                 .execute_single_opt()
                 .expect("Query failed")

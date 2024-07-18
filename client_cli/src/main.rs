@@ -430,7 +430,7 @@ mod domain {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let query = client.iter_query(client::domain::all());
+            let query = client.query(client::domain::all());
 
             let query = match self {
                 List::All => query,
@@ -606,7 +606,7 @@ mod account {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let query = client.iter_query(client::account::all());
+            let query = client.query(client::account::all());
 
             let query = match self {
                 List::All => query,
@@ -676,7 +676,7 @@ mod account {
             let client = context.client_from_config();
             let find_all_permissions = FindPermissionsByAccountId::new(self.id);
             let permissions = client
-                .iter_query(find_all_permissions)
+                .query(find_all_permissions)
                 .execute_all()
                 .wrap_err("Failed to get all account permissions")?;
             context.print_data(&permissions)?;
@@ -799,7 +799,7 @@ mod asset {
             fn run(self, context: &mut dyn RunContext) -> Result<()> {
                 let client = context.client_from_config();
 
-                let query = client.iter_query(client::asset::all_definitions());
+                let query = client.query(client::asset::all_definitions());
 
                 let query = match self {
                     List::All => query,
@@ -911,7 +911,7 @@ mod asset {
             let Self { id: asset_id } = self;
             let iroha = context.client_from_config();
             let asset = iroha
-                .iter_query(asset::all())
+                .query(asset::all())
                 .with_filter(|asset| asset.id.eq(asset_id))
                 .execute_single()
                 .wrap_err("Failed to get asset.")?;
@@ -933,7 +933,7 @@ mod asset {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let query = client.iter_query(client::asset::all());
+            let query = client.query(client::asset::all());
 
             let query = match self {
                 List::All => query,
@@ -1007,7 +1007,7 @@ mod asset {
             let client = context.client_from_config();
             let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key);
             let asset = client
-                .query(find_key_value)
+                .query_single(find_key_value)
                 .wrap_err("Failed to get key-value")?;
             context.print_data(&asset)?;
             Ok(())
@@ -1166,8 +1166,9 @@ mod json {
 
                     match query {
                         QueryBox::Singular(query) => {
-                            let result =
-                                client.query(query).wrap_err("Failed to query response")?;
+                            let result = client
+                                .query_single(query)
+                                .wrap_err("Failed to query response")?;
 
                             context.print_data(&result)?;
                         }
@@ -1176,11 +1177,11 @@ mod json {
                             use iroha::data_model::query::builder::QueryExecutor;
 
                             let (mut first_batch, mut continue_cursor) =
-                                client.start_iterable_query(query)?;
+                                client.start_query(query)?;
 
                             while let Some(cursor) = continue_cursor {
                                 let (next_batch, next_continue_cursor) =
-                                    <Client as QueryExecutor>::continue_iterable_query(cursor)?;
+                                    <Client as QueryExecutor>::continue_query(cursor)?;
 
                                 first_batch.extend(next_batch);
                                 continue_cursor = next_continue_cursor;

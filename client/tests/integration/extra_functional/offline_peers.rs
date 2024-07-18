@@ -27,7 +27,7 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
 
     //Then
     let assets = client
-        .iter_query(client::asset::all())
+        .query(client::asset::all())
         .with_filter(|asset| asset.id.account.eq(alice_id))
         .execute_all()?;
     let asset = assets

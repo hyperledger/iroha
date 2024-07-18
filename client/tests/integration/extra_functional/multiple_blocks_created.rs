@@ -58,7 +58,7 @@ fn long_multiple_blocks_created() -> Result<()> {
     let peer = network.peers().last().unwrap();
     Client::test(&peer.api_address).poll(|client| {
         let assets = client
-            .iter_query(client::asset::all())
+            .query(client::asset::all())
             .with_filter(|asset| asset.id.account.eq(account_id))
             .execute_all()?;
 
