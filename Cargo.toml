@@ -58,7 +58,7 @@ darling = "0.20.10"
 drop_bomb = "0.1.5"
 
 futures = { version = "0.3.30", default-features = false }
-tokio = "1.38.0"
+tokio = "1.38.1"
 tokio-stream = "0.1.15"
 tokio-tungstenite = "0.21.0"
 tungstenite = "0.21.0"
