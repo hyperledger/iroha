@@ -261,12 +261,6 @@ impl Iroha {
             [genesis_domain(config.genesis.public_key.clone())],
             [genesis_account(config.genesis.public_key.clone())],
             [],
-            config
-                .sumeragi
-                .trusted_peers
-                .value()
-                .clone()
-                .into_non_empty_vec(),
         );
 
         let (kura, block_count) = Kura::new(&config.kura).change_context(StartError::InitKura)?;

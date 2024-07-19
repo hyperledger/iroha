@@ -264,9 +264,8 @@ impl Sumeragi {
                         continue;
                     }
 
-                    *state_block.world.trusted_peers_ids =
-                        block.as_ref().commit_topology().cloned().collect();
-                    self.topology = Topology::new(block.as_ref().commit_topology().cloned());
+                    // NOTE: By this time genesis block is executed and list of trusted peers is updated
+                    self.topology = Topology::new(state_block.world.trusted_peers_ids.clone());
                     self.commit_block(block, state_block);
                     return Ok(());
                 }
@@ -307,7 +306,8 @@ impl Sumeragi {
             "Genesis contains invalid transactions"
         );
 
-        self.topology = Topology::new(genesis.as_ref().commit_topology().cloned());
+        // NOTE: By this time genesis block is executed and list of trusted peers is updated
+        self.topology = Topology::new(state_block.world.trusted_peers_ids.clone());
 
         let msg = BlockCreated::from(&genesis);
         let genesis = genesis
@@ -334,12 +334,13 @@ impl Sumeragi {
     ) {
         let prev_role = self.role();
 
-        let state_events = state_block.apply_without_execution(&block);
-
-        self.cache_transaction(&state_block);
-
         self.topology
             .block_committed(block.as_ref(), state_block.world.peers().cloned());
+
+        let state_events =
+            state_block.apply_without_execution(&block, self.topology.as_ref().to_owned());
+
+        self.cache_transaction(&state_block);
         self.connect_peers(&self.topology);
 
         let block_hash = block.as_ref().hash();
@@ -847,11 +848,10 @@ impl Sumeragi {
             let mut state_block = state.block();
             let event_recommendations = Vec::new();
             let create_block_start_time = Instant::now();
-            let new_block =
-                BlockBuilder::new(transactions, self.topology.clone(), event_recommendations)
-                    .chain(self.topology.view_change_index(), &mut state_block)
-                    .sign(self.key_pair.private_key())
-                    .unpack(|e| self.send_event(e));
+            let new_block = BlockBuilder::new(transactions, event_recommendations)
+                .chain(self.topology.view_change_index(), &mut state_block)
+                .sign(self.key_pair.private_key())
+                .unpack(|e| self.send_event(e));
 
             let created_in = create_block_start_time.elapsed();
             let pipeline_time = state.world.view().parameters().sumeragi.pipeline_time();
@@ -1274,13 +1274,11 @@ fn handle_categorized_block_sync<'state, F: Fn(PipelineEventBox)>(
 
     let topology = {
         let view = state.view();
-        let latest_block = if soft_fork {
-            view.prev_block().expect("INTERNAL BUG: No prev block")
+        let mut topology = Topology::new(if soft_fork {
+            view.prev_commit_topology.clone()
         } else {
-            view.latest_block().expect("INTERNAL BUG: No latest block")
-        };
-        let mut topology = Topology::new(latest_block.commit_topology().cloned());
-        topology.block_committed(&latest_block, view.world.peers().cloned());
+            view.commit_topology.clone()
+        });
         topology.nth_rotation(block.header().view_change_index as usize);
         topology
     };
@@ -1362,6 +1360,7 @@ fn categorize_block_sync(
 
 #[cfg(test)]
 mod tests {
+    use iroha_data_model::{isi::InstructionBox, transaction::TransactionBuilder};
     use iroha_genesis::GENESIS_DOMAIN_ID;
     use nonzero_ext::nonzero;
     use test_samples::gen_account_in;
@@ -1396,7 +1395,7 @@ mod tests {
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = "wonderland".parse().expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
-        let world = World::with([domain], [account], [], topology.iter().cloned().collect());
+        let world = World::with([domain], [account], []);
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, Arc::clone(&kura), query_handle);
@@ -1414,8 +1413,23 @@ mod tests {
             AcceptedTransaction::accept(tx, chain_id, state_block.transaction_executor().limits)
                 .expect("Valid");
 
+        // NOTE: imitate peer registration in the genesis block
+        let peers = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
+            .with_instructions(
+                topology
+                    .iter()
+                    .cloned()
+                    .map(Peer::new)
+                    .map(Register::peer)
+                    .map(InstructionBox::from),
+            )
+            .sign(alice_keypair.private_key());
+        let peers =
+            AcceptedTransaction::accept(peers, chain_id, state_block.transaction_executor().limits)
+                .expect("Valid");
+
         // Creating a block of two identical transactions and validating it
-        let block = BlockBuilder::new(vec![tx.clone(), tx], topology.clone(), Vec::new())
+        let block = BlockBuilder::new(vec![peers, tx.clone(), tx], Vec::new())
             .chain(0, &mut state_block)
             .sign(leader_private_key)
             .unpack(|_| {});
@@ -1424,7 +1438,7 @@ mod tests {
             .commit(topology)
             .unpack(|_| {})
             .expect("Block is valid");
-        let _events = state_block.apply(&genesis).expect("Failed to apply block");
+        let _events = state_block.apply_without_execution(&genesis, topology.as_ref().to_owned());
         state_block.commit();
         kura.store_block(genesis);
 
@@ -1460,7 +1474,7 @@ mod tests {
             .expect("Valid");
 
             // Creating a block of two identical transactions and validating it
-            BlockBuilder::new(vec![tx1, tx2], topology.clone(), Vec::new())
+            BlockBuilder::new(vec![tx1, tx2], Vec::new())
                 .chain(0, &mut state_block)
                 .sign(leader_private_key)
                 .unpack(|_| {})
@@ -1482,7 +1496,8 @@ mod tests {
 
         // Malform block to make it invalid
         let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
-            payload.commit_topology.clear();
+            payload.header.prev_block_hash =
+                Some(HashOf::from_untyped_unchecked(Hash::new([1; 32])));
         });
 
         let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
@@ -1512,13 +1527,15 @@ mod tests {
         .commit(&topology)
         .unpack(|_| {})
         .expect("Block is valid");
-        let _events = state_block.apply_without_execution(&committed_block);
+        let _events =
+            state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
         state_block.commit();
         kura.store_block(committed_block);
 
         // Malform block to make it invalid
         let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
-            payload.commit_topology.clear();
+            payload.header.prev_block_hash =
+                Some(HashOf::from_untyped_unchecked(Hash::new([1; 32])));
             payload.header.view_change_index = 1;
         });
 
@@ -1601,7 +1618,8 @@ mod tests {
         .commit(&topology)
         .unpack(|_| {})
         .expect("Block is valid");
-        let _events = state_block.apply_without_execution(&committed_block);
+        let _events =
+            state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
         state_block.commit();
 
         kura.store_block(committed_block);
@@ -1649,7 +1667,8 @@ mod tests {
         .commit(&topology)
         .unpack(|_| {})
         .expect("Block is valid");
-        let _events = state_block.apply_without_execution(&committed_block);
+        let _events =
+            state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
         state_block.commit();
         kura.store_block(committed_block);
         let latest_block = state

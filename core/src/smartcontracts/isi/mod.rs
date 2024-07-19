@@ -240,11 +240,10 @@ mod tests {
         query::store::LiveQueryStore,
         state::{State, World},
         tx::AcceptTransactionFail,
-        PeersIds,
     };
 
     fn state_with_test_domains(kura: &Arc<Kura>) -> Result<State> {
-        let world = World::with([], [], [], PeersIds::new());
+        let world = World::with([], [], []);
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura.clone(), query_handle);
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;

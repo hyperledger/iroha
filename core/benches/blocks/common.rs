@@ -21,7 +21,6 @@ use iroha_executor_data_model::permission::{
     account::CanUnregisterAccount, asset_definition::CanUnregisterAssetDefinition,
     domain::CanUnregisterDomain,
 };
-use iroha_primitives::unique_vec::UniqueVec;
 
 /// Create block
 pub fn create_block(
@@ -41,7 +40,6 @@ pub fn create_block(
 
     let block = BlockBuilder::new(
         vec![AcceptedTransaction::accept(transaction, &chain_id, limits).unwrap()],
-        topology.clone(),
         Vec::new(),
     )
     .chain(0, state)
@@ -189,7 +187,6 @@ pub fn build_state(rt: &tokio::runtime::Handle, account_id: &AccountId) -> State
             [domain],
             [Account::new(account_id.clone()).build(account_id)],
             [],
-            UniqueVec::new(),
         ),
         kura,
         query_handle,

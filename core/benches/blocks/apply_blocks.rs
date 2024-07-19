@@ -13,6 +13,7 @@ use common::*;
 pub struct StateApplyBlocks {
     state: State,
     blocks: Vec<CommittedBlock>,
+    topology: Topology,
 }
 
 impl StateApplyBlocks {
@@ -56,14 +57,19 @@ impl StateApplyBlocks {
                         &topology,
                         &peer_private_key,
                     );
-                    let _events = state_block.apply_without_execution(&block);
+                    let _events =
+                        state_block.apply_without_execution(&block, topology.as_ref().to_owned());
                     state_block.commit();
                     block
                 })
                 .collect::<Vec<_>>()
         };
 
-        Self { state, blocks }
+        Self {
+            state,
+            blocks,
+            topology,
+        }
     }
 
     /// Run benchmark body.
@@ -74,10 +80,16 @@ impl StateApplyBlocks {
     ///
     /// # Panics
     /// If state height isn't updated after applying block
-    pub fn measure(Self { state, blocks }: &Self) -> Result<()> {
+    pub fn measure(
+        Self {
+            state,
+            blocks,
+            topology,
+        }: &Self,
+    ) -> Result<()> {
         for (block, i) in blocks.iter().zip(1..) {
             let mut state_block = state.block();
-            let _events = state_block.apply(block)?;
+            let _events = state_block.apply(block, topology.as_ref().to_owned())?;
             assert_eq!(state_block.height(), i);
             state_block.commit();
         }

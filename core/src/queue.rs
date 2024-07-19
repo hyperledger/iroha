@@ -389,7 +389,6 @@ pub mod tests {
         query::store::LiveQueryStore,
         smartcontracts::isi::Registrable as _,
         state::{State, World},
-        PeersIds,
     };
 
     impl Queue {
@@ -439,7 +438,7 @@ pub mod tests {
         let (account_id, _account_keypair) = gen_account_in("wonderland");
         let domain = Domain::new(domain_id).build(&account_id);
         let account = Account::new(account_id.clone()).build(&account_id);
-        World::with([domain], [account], [], PeersIds::new())
+        World::with([domain], [account], [])
     }
 
     fn config_factory() -> Config {
@@ -840,7 +839,7 @@ pub mod tests {
             let domain = Domain::new(domain_id).build(&alice_id);
             let alice_account = Account::new(alice_id.clone()).build(&alice_id);
             let bob_account = Account::new(bob_id.clone()).build(&bob_id);
-            World::with([domain], [alice_account, bob_account], [], PeersIds::new())
+            World::with([domain], [alice_account, bob_account], [])
         };
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);

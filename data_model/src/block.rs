@@ -19,7 +19,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{events::prelude::*, peer, peer::PeerId, transaction::prelude::*};
+use crate::{events::prelude::*, transaction::prelude::*};
 
 #[model]
 mod model {
@@ -91,8 +91,6 @@ mod model {
     pub(crate) struct BlockPayload {
         /// Block header
         pub header: BlockHeader,
-        /// Topology of the network at the time of block commit.
-        pub commit_topology: Vec<peer::PeerId>,
         /// array of transactions, which successfully passed validation and consensus step.
         pub transactions: Vec<CommittedTransaction>,
         /// Event recommendations.
@@ -203,14 +201,6 @@ impl SignedBlock {
         block.payload.transactions.iter()
     }
 
-    /// Topology of the network at the time of block commit.
-    #[inline]
-    #[cfg(feature = "transparent_api")]
-    pub fn commit_topology(&self) -> impl ExactSizeIterator<Item = &peer::PeerId> {
-        let SignedBlock::V1(block) = self;
-        block.payload.commit_topology.iter()
-    }
-
     /// Signatures of peers which approved this block.
     #[inline]
     pub fn signatures(
@@ -285,7 +275,6 @@ impl SignedBlock {
     pub fn genesis(
         genesis_transactions: Vec<SignedTransaction>,
         genesis_private_key: &PrivateKey,
-        topology: Vec<PeerId>,
     ) -> SignedBlock {
         let transactions_hash = genesis_transactions
             .iter()
@@ -311,9 +300,9 @@ impl SignedBlock {
                 error: None,
             })
             .collect();
+
         let payload = BlockPayload {
             header,
-            commit_topology: topology,
             transactions,
             event_recommendations: vec![],
         };
@@ -383,9 +372,9 @@ mod candidate {
                 );
             };
 
-            if transactions.len() > 3 {
+            if transactions.len() > 4 {
                 return Err(
-                    "Genesis block must have 1 to 3 transactions (executor upgrade, parameters, other isi)",
+                    "Genesis block must have 1 to 4 transactions (executor upgrade, initial topology, parameters, other isi)",
                 );
             }
 

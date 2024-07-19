@@ -128,8 +128,6 @@ mod pending {
     /// the previous round, which might then be processed by the trigger system.
     #[derive(Debug, Clone)]
     pub struct Pending {
-        /// The topology at the time of block commit.
-        commit_topology: Topology,
         /// Collection of transactions which have been accepted.
         /// Transaction will be validated when block is chained.
         transactions: Vec<AcceptedTransaction>,
@@ -146,11 +144,9 @@ mod pending {
         #[inline]
         pub fn new(
             transactions: Vec<AcceptedTransaction>,
-            commit_topology: Topology,
             event_recommendations: Vec<EventBox>,
         ) -> Self {
             Self(Pending {
-                commit_topology,
                 transactions,
                 event_recommendations,
             })
@@ -242,7 +238,6 @@ mod pending {
                     state.world.parameters().sumeragi.consensus_estimation(),
                 ),
                 transactions,
-                commit_topology: self.0.commit_topology.into_iter().collect(),
                 event_recommendations: self.0.event_recommendations,
             }))
         }
@@ -529,25 +524,11 @@ mod valid {
                 if let Err(e) = check_genesis_block(block, genesis_account) {
                     return Err(e.into());
                 }
-            } else {
-                if let Err(err) = Self::verify_leader_signature(block, topology)
-                    .and_then(|()| Self::verify_validator_signatures(block, topology))
-                    .and_then(|()| Self::verify_no_undefined_signatures(block, topology))
-                {
-                    return Err(err.into());
-                }
-
-                let actual_commit_topology = block.commit_topology().cloned().collect();
-                let expected_commit_topology = topology.as_ref();
-
-                // NOTE: checked AFTER height and hash because
-                // both of them can lead to a topology mismatch
-                if actual_commit_topology != expected_commit_topology {
-                    return Err(BlockValidationError::TopologyMismatch {
-                        expected: expected_commit_topology.to_owned(),
-                        actual: actual_commit_topology,
-                    });
-                }
+            } else if let Err(err) = Self::verify_leader_signature(block, topology)
+                .and_then(|()| Self::verify_validator_signatures(block, topology))
+                .and_then(|()| Self::verify_no_undefined_signatures(block, topology))
+            {
+                return Err(err.into());
             }
 
             if block.transactions().any(|tx| {
@@ -772,7 +753,6 @@ mod valid {
                     consensus_estimation_ms: 4_000,
                 },
                 transactions: Vec::new(),
-                commit_topology: Vec::new(),
                 event_recommendations: Vec::new(),
             };
             f(&mut payload);
@@ -1085,7 +1065,6 @@ mod tests {
 
     use iroha_data_model::prelude::*;
     use iroha_genesis::GENESIS_DOMAIN_ID;
-    use iroha_primitives::unique_vec::UniqueVec;
     use test_samples::gen_account_in;
 
     use super::*;
@@ -1121,7 +1100,7 @@ mod tests {
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
-        let world = World::with([domain], [account], [], UniqueVec::new());
+        let world = World::with([domain], [account], []);
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -1141,10 +1120,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];
-        let (peer_public_key, _) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
-        let topology = Topology::new(vec![peer_id]);
-        let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
+        let valid_block = BlockBuilder::new(transactions, Vec::new())
             .chain(0, &mut state_block)
             .sign(alice_keypair.private_key())
             .unpack(|_| {});
@@ -1177,7 +1153,7 @@ mod tests {
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
-        let world = World::with([domain], [account], [], UniqueVec::new());
+        let world = World::with([domain], [account], []);
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -1215,10 +1191,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx0, tx, tx2];
-        let (peer_public_key, _) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
-        let topology = Topology::new(vec![peer_id]);
-        let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
+        let valid_block = BlockBuilder::new(transactions, Vec::new())
             .chain(0, &mut state_block)
             .sign(alice_keypair.private_key())
             .unpack(|_| {});
@@ -1251,7 +1224,7 @@ mod tests {
         let account = Account::new(alice_id.clone()).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
-        let world = World::with([domain], [account], [], UniqueVec::new());
+        let world = World::with([domain], [account], []);
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -1277,10 +1250,7 @@ mod tests {
 
         // Creating a block of where first transaction must fail and second one fully executed
         let transactions = vec![tx_fail, tx_accept];
-        let (peer_public_key, _) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
-        let topology = Topology::new(vec![peer_id]);
-        let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
+        let valid_block = BlockBuilder::new(transactions, Vec::new())
             .chain(0, &mut state_block)
             .sign(alice_keypair.private_key())
             .unpack(|_| {});
@@ -1329,12 +1299,7 @@ mod tests {
             Domain::new(GENESIS_DOMAIN_ID.clone()).build(&genesis_correct_account_id);
         let genesis_wrong_account =
             Account::new(genesis_wrong_account_id.clone()).build(&genesis_wrong_account_id);
-        let world = World::with(
-            [genesis_domain],
-            [genesis_wrong_account],
-            [],
-            UniqueVec::new(),
-        );
+        let world = World::with([genesis_domain], [genesis_wrong_account], []);
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
@@ -1359,7 +1324,7 @@ mod tests {
         let (peer_public_key, _) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let valid_block = BlockBuilder::new(transactions, topology.clone(), Vec::new())
+        let valid_block = BlockBuilder::new(transactions, Vec::new())
             .chain(0, &mut state_block)
             .sign(genesis_correct_key.private_key())
             .unpack(|_| {});

@@ -307,7 +307,6 @@ mod tests {
         state::{State, World},
         sumeragi::network_topology::Topology,
         tx::AcceptedTransaction,
-        PeersIds,
     };
 
     fn world_with_test_domains() -> World {
@@ -316,7 +315,7 @@ mod tests {
         let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
-        World::with([domain], [account], [asset_definition], PeersIds::new())
+        World::with([domain], [account], [asset_definition])
     }
 
     fn world_with_test_asset_with_metadata() -> World {
@@ -334,13 +333,7 @@ mod tests {
         let asset_id = AssetId::new(asset_definition_id, account.id().clone());
         let asset = Asset::new(asset_id, AssetValue::Store(store));
 
-        World::with_assets(
-            [domain],
-            [account],
-            [asset_definition],
-            [asset],
-            PeersIds::new(),
-        )
+        World::with_assets([domain], [account], [asset_definition], [asset])
     }
 
     fn world_with_test_account_with_metadata() -> Result<World> {
@@ -353,12 +346,7 @@ mod tests {
             .build(&ALICE_ID);
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
-        Ok(World::with(
-            [domain],
-            [account],
-            [asset_definition],
-            PeersIds::new(),
-        ))
+        Ok(World::with([domain], [account], [asset_definition]))
     }
 
     fn state_with_test_blocks_and_transactions(
@@ -404,7 +392,7 @@ mod tests {
             let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
             let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
             let topology = Topology::new(vec![peer_id]);
-            let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
+            let first_block = BlockBuilder::new(transactions.clone(), Vec::new())
                 .chain(0, &mut state_block)
                 .sign(&peer_private_key)
                 .unpack(|_| {})
@@ -412,11 +400,11 @@ mod tests {
                 .unpack(|_| {})
                 .expect("Block is valid");
 
-            let _events = state_block.apply(&first_block)?;
+            let _events = state_block.apply(&first_block, topology.as_ref().to_owned())?;
             kura.store_block(first_block);
 
             for _ in 1u64..blocks {
-                let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
+                let block = BlockBuilder::new(transactions.clone(), Vec::new())
                     .chain(0, &mut state_block)
                     .sign(&peer_private_key)
                     .unpack(|_| {})
@@ -424,7 +412,7 @@ mod tests {
                     .unpack(|_| {})
                     .expect("Block is valid");
 
-                let _events = state_block.apply(&block)?;
+                let _events = state_block.apply(&block, topology.as_ref().to_owned())?;
                 kura.store_block(block);
             }
             state_block.commit();
@@ -555,7 +543,7 @@ mod tests {
         let (peer_public_key, _) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
+        let vcb = BlockBuilder::new(vec![va_tx.clone()], Vec::new())
             .chain(0, &mut state_block)
             .sign(ALICE_KEYPAIR.private_key())
             .unpack(|_| {})
@@ -563,7 +551,7 @@ mod tests {
             .unpack(|_| {})
             .expect("Block is valid");
 
-        let _events = state_block.apply(&vcb)?;
+        let _events = state_block.apply(&vcb, topology.as_ref().to_owned())?;
         kura.store_block(vcb);
         state_block.commit();
 
@@ -604,7 +592,7 @@ mod tests {
             let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
             let query_handle = LiveQueryStore::test().start();
             State::new(
-                World::with([domain], [account], [asset_definition], PeersIds::new()),
+                World::with([domain], [account], [asset_definition]),
                 kura,
                 query_handle,
             )
