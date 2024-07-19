@@ -74,10 +74,14 @@ RUN <<EOT
   mkdir -p $WASM_DIRECTORY
   chown $USER:$USER $STORAGE
   chown $USER:$USER $WASM_DIRECTORY
+  chown $USER:$USER $CONFIG_DIR
 EOT
 
 COPY --from=builder $TARGET_DIR/irohad $BIN_PATH
 COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
 COPY --from=builder $TARGET_DIR/kagami $BIN_PATH
+COPY defaults/genesis.json $CONFIG_DIR
+COPY defaults/executor.wasm $CONFIG_DIR
+COPY defaults/client.toml $CONFIG_DIR
 USER $USER
 CMD ["irohad"]

@@ -11,10 +11,29 @@ env:
   IROHA2_RUSTFLAGS: -C force-frame-pointers=on
   IROHA2_FEATURES: profiling
   IROHA2_CARGOFLAGS: -Z build-std
+  DOCKER_COMPOSE_PATH: defaults
 
 jobs:
+  build_executor:
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Build iroha executor
+        run: cargo run --bin iroha_wasm_builder -- build ./wasm_samples/default_executor --optimize --out-file ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
+      - name: Upload executor to reuse in other jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: executor.wasm
+          path: ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
+          retention-days: 1
+
   registry:
     runs-on: [self-hosted, Linux, iroha2]
+    needs: build_executor
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     steps:
@@ -35,6 +54,11 @@ jobs:
           registry: docker.soramitsu.co.jp
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
+      - name: Download executor.wasm file
+        uses: actions/download-artifact@v4
+        with:
+          name: executor.wasm
+          path: ${{ env.DOCKER_COMPOSE_PATH }}
       - name: Set up Docker Buildx
         id: buildx
         if: always()

@@ -21,7 +21,8 @@ services:
     - 1337:1337
     - 8080:8080
     volumes:
-    - ./:/config
+    - ./genesis.json:/config/genesis.json:ro
+    - ./client.toml:/config/client.toml:ro
     init: true
     healthcheck:
       test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0
