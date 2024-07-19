@@ -169,33 +169,27 @@ pub fn try_read_snapshot(
             kura_height: block_count,
         });
     }
-    for height in 1..snapshot_height {
+    for height in 1..=snapshot_height {
         let kura_block_hash = NonZeroUsize::new(height)
             .and_then(|height| kura.get_block_hash(height))
             .expect("Kura has height at least as large as state height");
         let snapshot_block_hash = state_view.block_hashes[height - 1];
         if kura_block_hash != snapshot_block_hash {
-            return Err(TryReadError::MismatchedHash {
-                height,
-                snapshot_block_hash,
-                kura_block_hash,
-            });
+            // If last block hash is different it might mean that snapshot was crated for soft-fork block so just drop changes made by this block
+            if height == snapshot_height {
+                iroha_logger::warn!(
+                    "Snapshot has incorrect latest block hash, discarding changes made by this block"
+                );
+                state.block_and_revert().commit();
+            } else {
+                return Err(TryReadError::MismatchedHash {
+                    height,
+                    snapshot_block_hash,
+                    kura_block_hash,
+                });
+            }
         }
     }
-    // If last block hash is different it might mean that snapshot was crated for soft-fork block so just drop changes made by this block
-    if snapshot_height > 0 {
-        let kura_block_hash = NonZeroUsize::new(snapshot_height)
-            .and_then(|height| kura.get_block_hash(height))
-            .expect("Kura has height at least as large as state height");
-        let snapshot_block_hash = state_view.block_hashes[snapshot_height - 1];
-        if kura_block_hash != snapshot_block_hash {
-            iroha_logger::warn!(
-                "Snapshot has incorrect latest block hash, discarding changes made by this block"
-            );
-            state.block_and_revert().commit();
-        }
-    }
-
     Ok(state)
 }
 
@@ -263,11 +257,15 @@ enum TryWriteError {
 mod tests {
     use std::{fs::File, io::Write};
 
+    use iroha_crypto::KeyPair;
+    use iroha_data_model::peer::PeerId;
     use tempfile::tempdir;
     use tokio::test;
 
     use super::*;
-    use crate::query::store::LiveQueryStore;
+    use crate::{
+        block::ValidBlock, query::store::LiveQueryStore, sumeragi::network_topology::Topology,
+    };
 
     fn state_factory() -> State {
         let kura = Kura::blank_kura_for_testing();
@@ -345,5 +343,131 @@ mod tests {
         assert_eq!(format!("{error}"), "Error (de)serializing state snapshot");
     }
 
-    // TODO: test block count comparison
+    #[test]
+    async fn can_read_multiple_blocks() {
+        let tmp_root = tempdir().unwrap();
+        let store_dir = tmp_root.path().join("snapshot");
+        let kura = Kura::blank_kura_for_testing();
+        let state = state_factory();
+
+        let peer_key_pair = KeyPair::random();
+        let peer_id = PeerId::new(
+            "127.0.0.1:8080".parse().unwrap(),
+            peer_key_pair.public_key().clone(),
+        );
+        let topology = Topology::new(vec![peer_id]);
+        let valid_block = ValidBlock::new_dummy(peer_key_pair.private_key());
+        let committed_block = valid_block
+            .clone()
+            .commit(&topology)
+            .unpack(|_| {})
+            .unwrap();
+
+        {
+            let mut state_block = state.block();
+            let _events = state_block.apply_without_execution(&committed_block);
+            state_block.commit();
+        }
+        kura.store_block(committed_block);
+
+        let valid_block =
+            ValidBlock::new_dummy_and_modify_payload(peer_key_pair.private_key(), |block| {
+                block.header.height = block.header.height.checked_add(1).unwrap();
+            });
+        let committed_block = valid_block
+            .clone()
+            .commit(&topology)
+            .unpack(|_| {})
+            .unwrap();
+
+        {
+            let mut state_block = state.block();
+            let _events = state_block.apply_without_execution(&committed_block);
+            state_block.commit();
+        }
+        kura.store_block(committed_block);
+
+        try_write_snapshot(&state, &store_dir).unwrap();
+
+        let state = try_read_snapshot(
+            &store_dir,
+            &kura,
+            LiveQueryStore::test().start(),
+            BlockCount(state.view().height()),
+        )
+        .unwrap();
+
+        assert_eq!(state.view().height(), 2);
+    }
+
+    #[test]
+    async fn can_read_last_block_incorrect() {
+        let tmp_root = tempdir().unwrap();
+        let store_dir = tmp_root.path().join("snapshot");
+        let kura = Kura::blank_kura_for_testing();
+        let state = state_factory();
+
+        let peer_key_pair = KeyPair::random();
+        let peer_id = PeerId::new(
+            "127.0.0.1:8080".parse().unwrap(),
+            peer_key_pair.public_key().clone(),
+        );
+        let topology = Topology::new(vec![peer_id]);
+        let valid_block = ValidBlock::new_dummy(peer_key_pair.private_key());
+        let committed_block = valid_block
+            .clone()
+            .commit(&topology)
+            .unpack(|_| {})
+            .unwrap();
+
+        {
+            let mut state_block = state.block();
+            let _events = state_block.apply_without_execution(&committed_block);
+            state_block.commit();
+        }
+        kura.store_block(committed_block);
+
+        let valid_block =
+            ValidBlock::new_dummy_and_modify_payload(peer_key_pair.private_key(), |block| {
+                block.header.height = block.header.height.checked_add(1).unwrap();
+            });
+        let committed_block = valid_block
+            .clone()
+            .commit(&topology)
+            .unpack(|_| {})
+            .unwrap();
+
+        {
+            let mut state_block = state.block();
+            let _events = state_block.apply_without_execution(&committed_block);
+            state_block.commit();
+        }
+
+        // Store inside kura different block at the same height with different view change index so that block
+        // This case imitate situation when snapshot was created for block which later is discarded as soft-fork
+        let valid_block =
+            ValidBlock::new_dummy_and_modify_payload(peer_key_pair.private_key(), |block| {
+                block.header.height = block.header.height.checked_add(1).unwrap();
+                block.header.view_change_index += 1;
+            });
+        let committed_block = valid_block
+            .clone()
+            .commit(&topology)
+            .unpack(|_| {})
+            .unwrap();
+        kura.store_block(committed_block);
+
+        try_write_snapshot(&state, &store_dir).unwrap();
+
+        let state = try_read_snapshot(
+            &store_dir,
+            &kura,
+            LiveQueryStore::test().start(),
+            BlockCount(state.view().height()),
+        )
+        .unwrap();
+
+        // Invalid block was discarded
+        assert_eq!(state.view().height(), 1);
+    }
 }
