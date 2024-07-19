@@ -49,19 +49,19 @@ pub mod isi {
             let triggers = &mut state_transaction.world.triggers;
             let trigger_id = new_trigger.id().clone();
             let success = match &new_trigger.action.filter {
-                TriggeringEventFilterBox::Data(_) => triggers.add_data_trigger(
+                EventFilterBox::Data(_) => triggers.add_data_trigger(
                     &engine,
                     new_trigger
                         .try_into()
                         .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                 ),
-                TriggeringEventFilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
+                EventFilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
                     &engine,
                     new_trigger
                         .try_into()
                         .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                 ),
-                TriggeringEventFilterBox::Time(time_filter) => {
+                EventFilterBox::Time(time_filter) => {
                     if let ExecutionTime::Schedule(schedule) = time_filter.0 {
                         match last_block_estimation {
                             // Genesis block
@@ -91,12 +91,15 @@ pub mod isi {
                             .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                     )
                 }
-                TriggeringEventFilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
+                EventFilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
                     &engine,
                     new_trigger
                         .try_into()
                         .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                 ),
+                EventFilterBox::TriggerCompleted(_) => {
+                    unreachable!("Disallowed during deserialization");
+                }
             }
             .map_err(|e| InvalidParameterError::Wasm(e.to_string()))?;
 
@@ -289,7 +292,7 @@ pub mod isi {
                 .world
                 .triggers
                 .inspect_by_id(id, |action| -> Result<(), Error> {
-                    let allow_execute = if let TriggeringEventFilterBox::ExecuteTrigger(filter) =
+                    let allow_execute = if let EventFilterBox::ExecuteTrigger(filter) =
                         action.clone_and_box().filter
                     {
                         filter.matches(&event) || action.authority() == authority

@@ -612,6 +612,12 @@ impl<'set> SetBlock<'set> {
     }
 }
 
+trait TriggeringEventFilter: EventFilter {}
+impl TriggeringEventFilter for DataEventFilter {}
+impl TriggeringEventFilter for PipelineEventFilterBox {}
+impl TriggeringEventFilter for TimeEventFilter {}
+impl TriggeringEventFilter for ExecuteTriggerEventFilter {}
+
 impl<'block, 'set> SetTransaction<'block, 'set> {
     /// Apply transaction's changes
     pub fn apply(self) {
@@ -704,7 +710,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     /// # Errors
     ///
     /// Return [`Err`] if failed to preload wasm trigger
-    fn add_to<F: storage::Value + EventFilter>(
+    fn add_to<F: TriggeringEventFilter + storage::Value>(
         &mut self,
         engine: &wasmtime::Engine,
         trigger: SpecializedTrigger<F>,
