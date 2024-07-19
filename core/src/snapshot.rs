@@ -182,6 +182,20 @@ pub fn try_read_snapshot(
             });
         }
     }
+    // If last block hash is different it might mean that snapshot was crated for soft-fork block so just drop changes made by this block
+    if snapshot_height > 0 {
+        let kura_block_hash = NonZeroUsize::new(snapshot_height)
+            .and_then(|height| kura.get_block_hash(height))
+            .expect("Kura has height at least as large as state height");
+        let snapshot_block_hash = state_view.block_hashes[snapshot_height - 1];
+        if kura_block_hash != snapshot_block_hash {
+            iroha_logger::warn!(
+                "Snapshot has incorrect latest block hash, discarding changes made by this block"
+            );
+            state.block_and_revert().commit();
+        }
+    }
+
     Ok(state)
 }
 
