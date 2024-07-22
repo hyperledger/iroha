@@ -29,8 +29,6 @@ const SIZE_OF_BLOCK_HASH: u64 = Hash::LENGTH as u64;
 /// The interface of Kura subsystem
 #[derive(Debug)]
 pub struct Kura {
-    /// The mode of initialisation of [`Kura`].
-    mode: InitMode,
     /// The block storage
     block_store: Mutex<BlockStore>,
     /// The array of block hashes and a slot for an arc of the block. This is normally recovered from the index file.
@@ -38,6 +36,8 @@ pub struct Kura {
     block_data: Mutex<Vec<(HashOf<BlockHeader>, Option<Arc<SignedBlock>>)>>,
     /// Path to file for plain text blocks.
     block_plain_text_path: Option<PathBuf>,
+    /// Amount of blocks loaded during initialization
+    init_block_count: usize,
 }
 
 impl Kura {
@@ -57,26 +57,28 @@ impl Kura {
             .debug_output_new_blocks
             .then(|| store_dir.join("blocks.json"));
 
+        let block_data = Kura::init(&mut block_store, config.init_mode)?;
+        let block_count = block_data.len();
+        info!(mode=?config.init_mode, block_count, "Kura init complete");
+
         let kura = Arc::new(Self {
-            mode: config.init_mode,
             block_store: Mutex::new(block_store),
-            block_data: Mutex::new(Vec::new()),
+            block_data: Mutex::new(block_data),
             block_plain_text_path,
+            init_block_count: block_count,
         });
 
-        let block_count = kura.init()?;
-
-        Ok((kura, block_count))
+        Ok((kura, BlockCount(block_count)))
     }
 
     /// Create a kura instance that doesn't write to disk. Instead it serves as a handler
     /// for in-memory blocks only.
     pub fn blank_kura_for_testing() -> Arc<Kura> {
         Arc::new(Self {
-            mode: InitMode::Strict,
             block_store: Mutex::new(BlockStore::new(PathBuf::new())),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path: None,
+            init_block_count: 0,
         })
     }
 
@@ -105,30 +107,28 @@ impl Kura {
     /// - file storage is unavailable
     /// - data in file storage is invalid or corrupted
     #[iroha_logger::log(skip_all, name = "kura_init")]
-    fn init(self: &Arc<Self>) -> Result<BlockCount> {
-        let mut block_store = self.block_store.lock();
-
+    fn init(
+        block_store: &mut BlockStore,
+        mode: InitMode,
+    ) -> Result<Vec<(HashOf<SignedBlock>, Option<Arc<SignedBlock>>)>> {
         let block_index_count: usize = block_store
             .read_index_count()?
             .try_into()
             .expect("INTERNAL BUG: block index count exceeds usize::MAX");
 
-        let block_hashes = match self.mode {
+        let block_hashes = match mode {
             InitMode::Fast => {
-                Kura::init_fast_mode(&block_store, block_index_count).or_else(|error| {
+                Kura::init_fast_mode(block_store, block_index_count).or_else(|error| {
                     warn!(%error, "Hashes file is broken. Falling back to strict init mode.");
-                    Kura::init_strict_mode(&mut block_store, block_index_count)
+                    Kura::init_strict_mode(block_store, block_index_count)
                 })
             }
-            InitMode::Strict => Kura::init_strict_mode(&mut block_store, block_index_count),
+            InitMode::Strict => Kura::init_strict_mode(block_store, block_index_count),
         }?;
 
-        let block_count = block_hashes.len();
-        info!(mode=?self.mode, block_count, "Kura init complete");
-
         // The none value is set in order to indicate that the blocks exist on disk but are not yet loaded.
-        *self.block_data.lock() = block_hashes.into_iter().map(|hash| (hash, None)).collect();
-        Ok(BlockCount(block_count))
+        let block_data = block_hashes.into_iter().map(|hash| (hash, None)).collect();
+        Ok(block_data)
     }
 
     fn init_fast_mode(
@@ -193,9 +193,12 @@ impl Kura {
         kura: &Kura,
         mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
     ) {
-        let (mut written_block_count, mut latest_block_hash) = {
-            let block_data_guard = kura.block_data.lock();
-            (block_data_guard.len(), block_data_guard.last().map(|d| d.0))
+        let mut written_block_count = kura.init_block_count;
+        let mut latest_written_block_hash = {
+            let block_data = kura.block_data.lock();
+            written_block_count
+                .checked_sub(1)
+                .map(|idx| block_data[idx].0)
         };
 
         let mut should_exit = false;
@@ -210,11 +213,11 @@ impl Kura {
 
             let new_latest_block_hash = block_data_guard.last().map(|d| d.0);
             if block_data_guard.len() == written_block_count
-                && new_latest_block_hash != latest_block_hash
+                && new_latest_block_hash != latest_written_block_hash
             {
                 written_block_count -= 1; // There has been a soft-fork and we need to rewrite the top block.
             }
-            latest_block_hash = new_latest_block_hash;
+            latest_written_block_hash = new_latest_block_hash;
 
             if written_block_count >= block_data_guard.len() {
                 if should_exit {
