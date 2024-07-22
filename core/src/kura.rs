@@ -209,24 +209,24 @@ impl Kura {
                 should_exit = true;
             }
 
-            let block_data_guard = kura.block_data.lock();
+            let block_data = kura.block_data.lock();
 
-            let new_latest_block_hash = block_data_guard.last().map(|d| d.0);
-            if block_data_guard.len() == written_block_count
-                && new_latest_block_hash != latest_written_block_hash
-            {
+            let new_latest_written_block_hash = written_block_count
+                .checked_sub(1)
+                .map(|idx| block_data[idx].0);
+            if new_latest_written_block_hash != latest_written_block_hash {
                 written_block_count -= 1; // There has been a soft-fork and we need to rewrite the top block.
             }
-            latest_written_block_hash = new_latest_block_hash;
+            latest_written_block_hash = new_latest_written_block_hash;
 
-            if written_block_count >= block_data_guard.len() {
+            if written_block_count >= block_data.len() {
                 if should_exit {
                     info!("Kura has written remaining blocks to disk and is shutting down.");
                     return;
                 }
 
-                written_block_count = block_data_guard.len();
-                drop(block_data_guard);
+                written_block_count = block_data.len();
+                drop(block_data);
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 continue;
             }
@@ -234,8 +234,8 @@ impl Kura {
             // If we get here there are blocks to be written.
             let start_height = written_block_count;
             let mut blocks_to_be_written = Vec::new();
-            while written_block_count < block_data_guard.len() {
-                let block_ref = block_data_guard[written_block_count].1.as_ref().expect(
+            while written_block_count < block_data.len() {
+                let block_ref = block_data[written_block_count].1.as_ref().expect(
                     "INTERNAL BUG: The block to be written is None. Check store_block function.",
                 );
                 blocks_to_be_written.push(Arc::clone(block_ref));
@@ -243,7 +243,7 @@ impl Kura {
             }
 
             // We don't want to hold up other threads so we drop the lock on the block data.
-            drop(block_data_guard);
+            drop(block_data);
 
             if let Some(path) = kura.block_plain_text_path.as_ref() {
                 let mut plain_text_file = std::fs::OpenOptions::new()
