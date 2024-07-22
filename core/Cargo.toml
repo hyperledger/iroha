@@ -69,6 +69,7 @@ indexmap = "2.2.6"
 
 [dev-dependencies]
 iroha_executor_data_model = { workspace = true }
+iroha_wasm_builder = {workspace = true }
 test_samples = { workspace = true }
 
 criterion = { workspace = true }

@@ -778,12 +778,33 @@ impl<T> AddErrContextExt<T> for Result<T, std::io::Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::{str::FromStr, thread, time::Duration};
 
     use iroha_crypto::KeyPair;
+    use iroha_data_model::{
+        account::Account,
+        domain::{Domain, DomainId},
+        executor::Executor,
+        isi::Log,
+        peer::PeerId,
+        transaction::{TransactionBuilder, WasmSmartContract},
+        ChainId, Level,
+    };
+    use iroha_genesis::GenesisBuilder;
+    use iroha_primitives::unique_vec::UniqueVec;
+    use nonzero_ext::nonzero;
     use tempfile::TempDir;
+    use test_samples::gen_account_in;
 
     use super::*;
-    use crate::block::ValidBlock;
+    use crate::{
+        block::{BlockBuilder, ValidBlock},
+        query::store::LiveQueryStore,
+        smartcontracts::Registrable,
+        state::State,
+        sumeragi::network_topology::Topology,
+        StateReadOnly, World,
+    };
 
     fn indices<const N: usize>(value: [(u64, u64); N]) -> [BlockIndex; N] {
         let mut ret = [BlockIndex {
@@ -961,5 +982,210 @@ mod tests {
             debug_output_new_blocks: false,
         })
         .unwrap();
+    }
+
+    #[test]
+    fn kura_not_miss_replace_block() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+
+        {
+            let _rt_guard = rt.enter();
+            let _logger = iroha_logger::test_logger();
+        }
+
+        let temp_dir = TempDir::new().unwrap();
+
+        let [block_genesis, block, block_soft_fork, block_next] =
+            create_blocks(&rt).try_into().unwrap();
+
+        // Create kura and write some blocks
+        {
+            let (kura, block_count) = Kura::new(&Config {
+                init_mode: InitMode::Strict,
+                store_dir: iroha_config::base::WithOrigin::inline(
+                    temp_dir.path().to_str().unwrap().into(),
+                ),
+                debug_output_new_blocks: false,
+            })
+            .unwrap();
+            // Starting with empty block store
+            assert_eq!(block_count.0, 0);
+
+            let _handle = Kura::start(kura.clone());
+
+            kura.store_block(block_genesis.clone());
+            kura.store_block(block);
+            // Add wait so that previous block is written to the block store
+            thread::sleep(Duration::from_secs(1));
+            kura.replace_top_block(block_soft_fork.clone());
+            kura.store_block(block_next.clone());
+        }
+
+        // Reinitialize kura and check that correct blocks are loaded
+        {
+            let (kura, block_count) = Kura::new(&Config {
+                init_mode: InitMode::Strict,
+                store_dir: iroha_config::base::WithOrigin::inline(
+                    temp_dir.path().to_str().unwrap().into(),
+                ),
+                debug_output_new_blocks: false,
+            })
+            .unwrap();
+
+            assert_eq!(block_count.0, 3);
+
+            assert_eq!(
+                kura.get_block_by_height(nonzero!(1_usize)),
+                Some(Arc::new(block_genesis.into()))
+            );
+            assert_eq!(
+                kura.get_block_by_height(nonzero!(2_usize)),
+                Some(Arc::new(block_soft_fork.into()))
+            );
+            assert_eq!(
+                kura.get_block_by_height(nonzero!(3_usize)),
+                Some(Arc::new(block_next.into()))
+            );
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn create_blocks(rt: &tokio::runtime::Runtime) -> Vec<CommittedBlock> {
+        let mut blocks = Vec::new();
+
+        let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
+        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let topology = Topology::new(vec![peer_id]);
+
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
+
+        let (genesis_id, genesis_key_pair) = gen_account_in("genesis");
+        let genesis_domain_id = DomainId::from_str("genesis").expect("Valid");
+        let genesis_domain = Domain::new(genesis_domain_id).build(&genesis_id);
+        let genesis_account = Account::new(genesis_id.clone()).build(&genesis_id);
+        let (account_id, account_keypair) = gen_account_in("wonderland");
+        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let domain = Domain::new(domain_id).build(&genesis_id);
+        let account = Account::new(account_id.clone()).build(&genesis_id);
+
+        let live_query_store = LiveQueryStore::test();
+        let live_query_store = {
+            let _rt_guard = rt.enter();
+            live_query_store.start()
+        };
+        let state = State::new(
+            World::with(
+                [domain, genesis_domain],
+                [account, genesis_account],
+                [],
+                UniqueVec::new(),
+            ),
+            Kura::blank_kura_for_testing(),
+            live_query_store,
+        );
+
+        let executor = {
+            let wasm_blob = iroha_wasm_builder::Builder::new("../default_executor")
+                .build()
+                .unwrap()
+                .optimize()
+                .unwrap()
+                .into_bytes()
+                .unwrap();
+
+            Executor::new(WasmSmartContract::from_compiled(wasm_blob))
+        };
+        let genesis = GenesisBuilder::default().build_and_sign(
+            executor,
+            chain_id.clone(),
+            &genesis_key_pair,
+            topology.as_ref().to_owned(),
+        );
+
+        {
+            let mut state_block = state.block();
+            let block_genesis = ValidBlock::validate(
+                genesis.0,
+                &topology,
+                &chain_id,
+                &genesis_id,
+                &mut state_block,
+            )
+            .unpack(|_| {})
+            .unwrap()
+            .commit(&topology)
+            .unpack(|_| {})
+            .unwrap();
+            let _events = state_block.apply_without_execution(&block_genesis);
+            state_block.commit();
+            blocks.push(block_genesis);
+        }
+
+        let tx1 = TransactionBuilder::new(chain_id.clone(), account_id.clone())
+            .with_instructions([Log::new(Level::INFO, "msg1".to_string())])
+            .sign(account_keypair.private_key());
+
+        let tx2 = TransactionBuilder::new(chain_id.clone(), account_id)
+            .with_instructions([Log::new(Level::INFO, "msg2".to_string())])
+            .sign(account_keypair.private_key());
+        let tx1 = crate::AcceptedTransaction::accept(
+            tx1,
+            &chain_id,
+            state.view().transaction_executor().limits,
+        )
+        .unwrap();
+        let tx2 = crate::AcceptedTransaction::accept(
+            tx2,
+            &chain_id,
+            state.view().transaction_executor().limits,
+        )
+        .unwrap();
+
+        {
+            let mut state_block = state.block();
+            let block = BlockBuilder::new(vec![tx1.clone()], topology.clone(), Vec::new())
+                .chain(0, &mut state_block)
+                .sign(&leader_private_key)
+                .unpack(|_| {})
+                .commit(&topology)
+                .unpack(|_| {})
+                .unwrap();
+            let _events = state_block.apply_without_execution(&block);
+            state_block.commit();
+            blocks.push(block);
+        }
+
+        {
+            let mut state_block = state.block_and_revert();
+            let block_soft_fork = BlockBuilder::new(vec![tx1], topology.clone(), Vec::new())
+                .chain(1, &mut state_block)
+                .sign(&leader_private_key)
+                .unpack(|_| {})
+                .commit(&topology)
+                .unpack(|_| {})
+                .unwrap();
+            let _events = state_block.apply_without_execution(&block_soft_fork);
+            state_block.commit();
+            blocks.push(block_soft_fork);
+        }
+
+        {
+            let mut state_block: crate::state::StateBlock = state.block();
+            let block_next = BlockBuilder::new(vec![tx2], topology.clone(), Vec::new())
+                .chain(0, &mut state_block)
+                .sign(&leader_private_key)
+                .unpack(|_| {})
+                .commit(&topology)
+                .unpack(|_| {})
+                .unwrap();
+            let _events = state_block.apply_without_execution(&block_next);
+            state_block.commit();
+            blocks.push(block_next);
+        }
+
+        blocks
     }
 }
