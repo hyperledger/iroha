@@ -406,7 +406,10 @@ pub mod asset_definition {
         CanRemoveKeyValueInAssetDefinition, CanSetKeyValueInAssetDefinition,
         CanUnregisterAssetDefinition,
     };
-    use iroha_smart_contract::SmartContractSingleQueryError;
+    use iroha_smart_contract::{
+        data_model::{isi::error::InstructionExecutionError, query::error::FindError},
+        SmartContractSingleQueryError,
+    };
 
     use super::*;
 
@@ -430,8 +433,8 @@ pub mod asset_definition {
                 SmartContractSingleQueryError::Validation(e) => e,
                 SmartContractSingleQueryError::Single(_) => {
                     // assuming this can only happen due to such a domain not existing
-                    ValidationFail::NotPermitted(alloc::format!(
-                        "Asset definition {asset_definition_id} not found"
+                    ValidationFail::InstructionFailed(InstructionExecutionError::Find(
+                        FindError::AssetDefinition(asset_definition_id.clone()),
                     ))
                 }
             })?;
@@ -738,7 +741,10 @@ pub mod domain {
         CanRegisterAccountInDomain, CanRegisterAssetDefinitionInDomain, CanRemoveKeyValueInDomain,
         CanSetKeyValueInDomain, CanUnregisterDomain,
     };
-    use iroha_smart_contract::SmartContractSingleQueryError;
+    use iroha_smart_contract::{
+        data_model::{isi::error::InstructionExecutionError, query::error::FindError},
+        SmartContractSingleQueryError,
+    };
 
     use super::*;
 
@@ -755,7 +761,9 @@ pub mod domain {
                 SmartContractSingleQueryError::Validation(e) => e,
                 SmartContractSingleQueryError::Single(_) => {
                     // assuming this can only happen due to such a domain not existing
-                    ValidationFail::NotPermitted(alloc::format!("Domain {domain_id} not found"))
+                    ValidationFail::InstructionFailed(InstructionExecutionError::Find(
+                        FindError::Domain(domain_id.clone()),
+                    ))
                 }
             })
     }
