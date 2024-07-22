@@ -32,13 +32,14 @@ pub struct Kura {
     /// The block storage
     block_store: Mutex<BlockStore>,
     /// The array of block hashes and a slot for an arc of the block. This is normally recovered from the index file.
-    #[allow(clippy::type_complexity)]
-    block_data: Mutex<Vec<(HashOf<BlockHeader>, Option<Arc<SignedBlock>>)>>,
+    block_data: Mutex<BlockData>,
     /// Path to file for plain text blocks.
     block_plain_text_path: Option<PathBuf>,
     /// Amount of blocks loaded during initialization
     init_block_count: usize,
 }
+
+type BlockData = Vec<(HashOf<BlockHeader>, Option<Arc<SignedBlock>>)>;
 
 impl Kura {
     /// Initialize Kura and start a thread that receives
@@ -107,10 +108,7 @@ impl Kura {
     /// - file storage is unavailable
     /// - data in file storage is invalid or corrupted
     #[iroha_logger::log(skip_all, name = "kura_init")]
-    fn init(
-        block_store: &mut BlockStore,
-        mode: InitMode,
-    ) -> Result<Vec<(HashOf<SignedBlock>, Option<Arc<SignedBlock>>)>> {
+    fn init(block_store: &mut BlockStore, mode: InitMode) -> Result<BlockData> {
         let block_index_count: usize = block_store
             .read_index_count()?
             .try_into()
@@ -551,6 +549,7 @@ impl BlockStore {
         let path = self.path_to_blockchain.join(INDEX_FILE_NAME);
         let mut index_file = std::fs::OpenOptions::new()
             .write(true)
+            .truncate(false)
             .create(true)
             .open(path.clone())
             .add_err_context(&path)?;
@@ -638,6 +637,7 @@ impl BlockStore {
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         let mut hashes_file = std::fs::OpenOptions::new()
             .write(true)
+            .truncate(false)
             .create(true)
             .open(path.clone())
             .add_err_context(&path)?;
@@ -691,18 +691,21 @@ impl BlockStore {
         let path = self.path_to_blockchain.join(INDEX_FILE_NAME);
         std::fs::OpenOptions::new()
             .write(true)
+            .truncate(false)
             .create(true)
             .open(path.clone())
             .add_err_context(&path)?;
         let path = self.path_to_blockchain.join(DATA_FILE_NAME);
         std::fs::OpenOptions::new()
             .write(true)
+            .truncate(false)
             .create(true)
             .open(path.clone())
             .add_err_context(&path)?;
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         std::fs::OpenOptions::new()
             .write(true)
+            .truncate(false)
             .create(true)
             .open(path.clone())
             .add_err_context(&path)?;
@@ -794,7 +797,6 @@ mod tests {
         ChainId, Level,
     };
     use iroha_genesis::GenesisBuilder;
-    use iroha_primitives::unique_vec::UniqueVec;
     use nonzero_ext::nonzero;
     use tempfile::TempDir;
     use test_samples::gen_account_in;
@@ -1080,26 +1082,14 @@ mod tests {
             live_query_store.start()
         };
         let state = State::new(
-            World::with(
-                [domain, genesis_domain],
-                [account, genesis_account],
-                [],
-                UniqueVec::new(),
-            ),
+            World::with([domain, genesis_domain], [account, genesis_account], []),
             Kura::blank_kura_for_testing(),
             live_query_store,
         );
 
         let executor = {
-            let wasm_blob = iroha_wasm_builder::Builder::new("../default_executor")
-                .build()
-                .unwrap()
-                .optimize()
-                .unwrap()
-                .into_bytes()
-                .unwrap();
-
-            Executor::new(WasmSmartContract::from_compiled(wasm_blob))
+            let executor_blob = std::fs::read("../defaults/executor.wasm").unwrap();
+            Executor::new(WasmSmartContract::from_compiled(executor_blob))
         };
         let genesis = GenesisBuilder::default().build_and_sign(
             executor,
@@ -1122,7 +1112,8 @@ mod tests {
             .commit(&topology)
             .unpack(|_| {})
             .unwrap();
-            let _events = state_block.apply_without_execution(&block_genesis);
+            let _events =
+                state_block.apply_without_execution(&block_genesis, topology.as_ref().to_owned());
             state_block.commit();
             blocks.push(block_genesis);
         }
@@ -1149,42 +1140,44 @@ mod tests {
 
         {
             let mut state_block = state.block();
-            let block = BlockBuilder::new(vec![tx1.clone()], topology.clone(), Vec::new())
+            let block = BlockBuilder::new(vec![tx1.clone()])
                 .chain(0, &mut state_block)
                 .sign(&leader_private_key)
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
                 .unwrap();
-            let _events = state_block.apply_without_execution(&block);
+            let _events = state_block.apply_without_execution(&block, topology.as_ref().to_owned());
             state_block.commit();
             blocks.push(block);
         }
 
         {
             let mut state_block = state.block_and_revert();
-            let block_soft_fork = BlockBuilder::new(vec![tx1], topology.clone(), Vec::new())
+            let block_soft_fork = BlockBuilder::new(vec![tx1])
                 .chain(1, &mut state_block)
                 .sign(&leader_private_key)
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
                 .unwrap();
-            let _events = state_block.apply_without_execution(&block_soft_fork);
+            let _events =
+                state_block.apply_without_execution(&block_soft_fork, topology.as_ref().to_owned());
             state_block.commit();
             blocks.push(block_soft_fork);
         }
 
         {
             let mut state_block: crate::state::StateBlock = state.block();
-            let block_next = BlockBuilder::new(vec![tx2], topology.clone(), Vec::new())
+            let block_next = BlockBuilder::new(vec![tx2])
                 .chain(0, &mut state_block)
                 .sign(&leader_private_key)
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
                 .unwrap();
-            let _events = state_block.apply_without_execution(&block_next);
+            let _events =
+                state_block.apply_without_execution(&block_next, topology.as_ref().to_owned());
             state_block.commit();
             blocks.push(block_next);
         }

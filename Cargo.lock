@@ -3023,7 +3023,6 @@ dependencies = [
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_version",
- "iroha_wasm_builder",
  "iroha_wasm_codec",
  "nonzero_ext",
  "once_cell",
