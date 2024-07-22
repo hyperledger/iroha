@@ -265,7 +265,7 @@ where
 
         let iterator = IterableQueryIterator::<E, Q::Item>::new(first_batch, continue_cursor)
             .expect(
-                "iroha returned unexpected type in iterable query. Is there a schema mismatch?",
+                "INTERNAL BUG: iroha returned unexpected type in iterable query. Is there a schema mismatch?",
             );
 
         Ok(iterator)
