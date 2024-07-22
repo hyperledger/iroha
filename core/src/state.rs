@@ -1143,6 +1143,17 @@ pub trait StateReadOnly {
         NonZeroUsize::new(self.height()).and_then(|height| self.kura().get_block_by_height(height))
     }
 
+    /// Get a reference to the previous to latest block. Returns none if at least 2 blocks are not committed.
+    ///
+    /// If you only need hash of the previous block prefer using [`Self::prev_block_hash`]
+    #[inline]
+    fn prev_block(&self) -> Option<Arc<SignedBlock>> {
+        self.height()
+            .checked_sub(1)
+            .and_then(NonZeroUsize::new)
+            .and_then(|height| self.kura().get_block_by_height(height))
+    }
+
     /// Return the hash of the latest block
     fn latest_block_hash(&self) -> Option<HashOf<SignedBlock>> {
         self.block_hashes().iter().nth_back(0).copied()
