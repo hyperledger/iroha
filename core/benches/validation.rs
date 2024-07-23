@@ -43,7 +43,7 @@ fn build_test_transaction(chain_id: ChainId) -> TransactionBuilder {
 
 fn build_test_and_transient_state() -> State {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::test().start();
+    let query_handle = LiveQueryStore::start_test();
 
     let state = State::new(
         {
@@ -146,7 +146,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     )
     .expect("Failed to accept transaction.");
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::test().start();
+    let query_handle = LiveQueryStore::start_test();
     let state = State::new(World::new(), kura, query_handle);
     let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
     let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);

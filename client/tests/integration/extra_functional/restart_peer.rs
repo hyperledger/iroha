@@ -60,7 +60,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             .collect();
         let removed_peer_idx = rand::thread_rng().gen_range(0..all_peers.len());
         let mut removed_peer = all_peers.swap_remove(removed_peer_idx);
-        removed_peer.stop();
+        removed_peer.terminate();
         removed_peer
     };
     // All peers have been stopped here
