@@ -138,11 +138,11 @@ mod model {
         FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
         FindTriggerById(FindTriggerById),
 
-        FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
-        FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
-        FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
-        FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
-        FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
+        FindDomainMetadata(FindDomainMetadata),
+        FindAccountMetadata(FindAccountMetadata),
+        FindAssetMetadata(FindAssetMetadata),
+        FindAssetDefinitionMetadata(FindAssetDefinitionMetadata),
+        FindTriggerMetadata(FindTriggerMetadata),
 
         FindTransactionByHash(FindTransactionByHash),
         FindBlockHeaderByHash(FindBlockHeaderByHash),
@@ -458,15 +458,15 @@ impl_iter_queries! {
 }
 
 impl_singular_queries! {
-    FindAccountKeyValueByIdAndKey => JsonString,
+    FindAccountMetadata => JsonString,
     FindAssetQuantityById => Numeric,
     FindTotalAssetQuantityByAssetDefinitionId => Numeric,
-    FindAssetKeyValueByIdAndKey => JsonString,
-    FindAssetDefinitionKeyValueByIdAndKey => JsonString,
-    FindDomainKeyValueByIdAndKey => JsonString,
+    FindAssetMetadata => JsonString,
+    FindAssetDefinitionMetadata => JsonString,
+    FindDomainMetadata => JsonString,
     FindParameters => crate::parameter::Parameters,
     FindTriggerById => crate::trigger::Trigger,
-    FindTriggerKeyValueByIdAndKey => JsonString,
+    FindTriggerMetadata => JsonString,
     FindTransactionByHash => TransactionQueryOutput,
     FindBlockHeaderByHash => crate::block::BlockHeader,
     FindExecutorDataModel => crate::executor::ExecutorDataModel,
@@ -588,12 +588,12 @@ pub mod account {
         #[ffi_type]
         pub struct FindAccounts;
 
-        /// [`FindAccountKeyValueByIdAndKey`] Iroha Query finds an [`MetadataValue`]
+        /// [`FindAccountMetadata`] Iroha Query finds an [`MetadataValue`]
         /// of the key-value metadata pair in the specified account.
         #[derive(Display)]
         #[display(fmt = "Find metadata value with `{key}` key in `{id}` account")]
         #[ffi_type]
-        pub struct FindAccountKeyValueByIdAndKey {
+        pub struct FindAccountMetadata {
             /// `Id` of an account to find.
             pub id: AccountId,
             /// Key of the specific key-value in the Account's metadata.
@@ -615,7 +615,7 @@ pub mod account {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAccountKeyValueByIdAndKey, FindAccounts, FindAccountsWithAsset};
+        pub use super::{FindAccountMetadata, FindAccounts, FindAccountsWithAsset};
     }
 }
 
@@ -670,24 +670,24 @@ pub mod asset {
             pub id: AssetDefinitionId,
         }
 
-        /// [`FindAssetKeyValueByIdAndKey`] Iroha Query gets [`AssetId`] and key as input and finds [`MetadataValue`]
+        /// [`FindAssetMetadata`] Iroha Query gets [`AssetId`] and key as input and finds [`MetadataValue`]
         /// of the key-value pair stored in this asset.
         #[derive(Display)]
         #[display(fmt = "Find metadata value with `{key}` key in `{id}` asset")]
         #[ffi_type]
-        pub struct FindAssetKeyValueByIdAndKey {
+        pub struct FindAssetMetadata {
             /// `Id` of an [`Asset`] acting as [`Store`](crate::asset::AssetValue::Store).
             pub id: AssetId,
             /// The key of the key-value pair stored in the asset.
             pub key: Name,
         }
 
-        /// [`FindAssetDefinitionKeyValueByIdAndKey`] Iroha Query gets [`AssetDefinitionId`] and key as input and finds [`MetadataValue`]
+        /// [`FindAssetDefinitionMetadata`] Iroha Query gets [`AssetDefinitionId`] and key as input and finds [`MetadataValue`]
         /// of the key-value pair stored in this asset definition.
         #[derive(Display)]
         #[display(fmt = "Find metadata value with `{key}` key in `{id}` asset definition")]
         #[ffi_type]
-        pub struct FindAssetDefinitionKeyValueByIdAndKey {
+        pub struct FindAssetDefinitionMetadata {
             /// `Id` of an [`Asset`] acting as [`Store`](crate::asset::AssetValue::Store)..
             pub id: AssetDefinitionId,
             /// The key of the key-value pair stored in the asset.
@@ -698,9 +698,8 @@ pub mod asset {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAssetDefinitionKeyValueByIdAndKey, FindAssetKeyValueByIdAndKey,
-            FindAssetQuantityById, FindAssets, FindAssetsDefinitions,
-            FindTotalAssetQuantityByAssetDefinitionId,
+            FindAssetDefinitionMetadata, FindAssetMetadata, FindAssetQuantityById, FindAssets,
+            FindAssetsDefinitions, FindTotalAssetQuantityByAssetDefinitionId,
         };
     }
 }
@@ -724,12 +723,12 @@ pub mod domain {
         #[ffi_type]
         pub struct FindDomains;
 
-        /// [`FindDomainKeyValueByIdAndKey`] Iroha Query finds a [`MetadataValue`] of the key-value metadata pair
+        /// [`FindDomainMetadata`] Iroha Query finds a [`MetadataValue`] of the key-value metadata pair
         /// in the specified domain.
         #[derive(Display)]
         #[display(fmt = "Find metadata value with key `{key}` in `{id}` domain")]
         #[ffi_type]
-        pub struct FindDomainKeyValueByIdAndKey {
+        pub struct FindDomainMetadata {
             /// `Id` of an domain to find.
             pub id: DomainId,
             /// Key of the specific key-value in the domain's metadata.
@@ -739,7 +738,7 @@ pub mod domain {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindDomainKeyValueByIdAndKey, FindDomains};
+        pub use super::{FindDomainMetadata, FindDomains};
     }
 }
 
@@ -825,7 +824,7 @@ pub mod trigger {
         #[derive(Display)]
         #[display(fmt = "Find metadata value with `{key}` key in `{id}` trigger")]
         #[ffi_type]
-        pub struct FindTriggerKeyValueByIdAndKey {
+        pub struct FindTriggerMetadata {
             /// The Identification of the trigger to be found.
             pub id: TriggerId,
             /// The key inside the metadata dictionary to be returned.
@@ -835,7 +834,7 @@ pub mod trigger {
 
     pub mod prelude {
         //! Prelude Re-exports most commonly used traits, structs and macros from this crate.
-        pub use super::{FindActiveTriggerIds, FindTriggerById, FindTriggerKeyValueByIdAndKey};
+        pub use super::{FindActiveTriggerIds, FindTriggerById, FindTriggerMetadata};
     }
 }
 

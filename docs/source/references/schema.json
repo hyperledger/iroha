@@ -1819,7 +1819,7 @@
       }
     ]
   },
-  "FindAccountKeyValueByIdAndKey": {
+  "FindAccountMetadata": {
     "Struct": [
       {
         "name": "id",
@@ -1831,6 +1831,7 @@
       }
     ]
   },
+  "FindAccounts": null,
   "FindAccountsWithAsset": {
     "Struct": [
       {
@@ -1839,19 +1840,8 @@
       }
     ]
   },
-  "FindAllAccounts": null,
-  "FindAllActiveTriggerIds": null,
-  "FindAllAssets": null,
-  "FindAllAssetsDefinitions": null,
-  "FindAllBlockHeaders": null,
-  "FindAllBlocks": null,
-  "FindAllDomains": null,
-  "FindAllParameters": null,
-  "FindAllPeers": null,
-  "FindAllRoleIds": null,
-  "FindAllRoles": null,
-  "FindAllTransactions": null,
-  "FindAssetDefinitionKeyValueByIdAndKey": {
+  "FindActiveTriggerIds": null,
+  "FindAssetDefinitionMetadata": {
     "Struct": [
       {
         "name": "id",
@@ -1863,7 +1853,7 @@
       }
     ]
   },
-  "FindAssetKeyValueByIdAndKey": {
+  "FindAssetMetadata": {
     "Struct": [
       {
         "name": "id",
@@ -1883,6 +1873,8 @@
       }
     ]
   },
+  "FindAssets": null,
+  "FindAssetsDefinitions": null,
   "FindBlockHeaderByHash": {
     "Struct": [
       {
@@ -1891,7 +1883,9 @@
       }
     ]
   },
-  "FindDomainKeyValueByIdAndKey": {
+  "FindBlockHeaders": null,
+  "FindBlocks": null,
+  "FindDomainMetadata": {
     "Struct": [
       {
         "name": "id",
@@ -1903,6 +1897,7 @@
       }
     ]
   },
+  "FindDomains": null,
   "FindError": {
     "Enum": [
       {
@@ -1968,6 +1963,8 @@
     ]
   },
   "FindExecutorDataModel": null,
+  "FindParameters": null,
+  "FindPeers": null,
   "FindPermissionsByAccountId": {
     "Struct": [
       {
@@ -1976,6 +1973,8 @@
       }
     ]
   },
+  "FindRoleIds": null,
+  "FindRoles": null,
   "FindRolesByAccountId": {
     "Struct": [
       {
@@ -2000,6 +1999,7 @@
       }
     ]
   },
+  "FindTransactions": null,
   "FindTransactionsByAccountId": {
     "Struct": [
       {
@@ -2016,7 +2016,7 @@
       }
     ]
   },
-  "FindTriggerKeyValueByIdAndKey": {
+  "FindTriggerMetadata": {
     "Struct": [
       {
         "name": "id",
@@ -2381,34 +2381,34 @@
   "IterableQueryBox": {
     "Enum": [
       {
-        "tag": "FindAllDomains",
+        "tag": "FindDomains",
         "discriminant": 0,
-        "type": "IterableQueryWithFilter<FindAllDomains, DomainPredicateBox>"
+        "type": "IterableQueryWithFilter<FindDomains, DomainPredicateBox>"
       },
       {
-        "tag": "FindAllAccounts",
+        "tag": "FindAccounts",
         "discriminant": 1,
-        "type": "IterableQueryWithFilter<FindAllAccounts, AccountPredicateBox>"
+        "type": "IterableQueryWithFilter<FindAccounts, AccountPredicateBox>"
       },
       {
-        "tag": "FindAllAssets",
+        "tag": "FindAssets",
         "discriminant": 2,
-        "type": "IterableQueryWithFilter<FindAllAssets, AssetPredicateBox>"
+        "type": "IterableQueryWithFilter<FindAssets, AssetPredicateBox>"
       },
       {
-        "tag": "FindAllAssetsDefinitions",
+        "tag": "FindAssetsDefinitions",
         "discriminant": 3,
-        "type": "IterableQueryWithFilter<FindAllAssetsDefinitions, AssetDefinitionPredicateBox>"
+        "type": "IterableQueryWithFilter<FindAssetsDefinitions, AssetDefinitionPredicateBox>"
       },
       {
-        "tag": "FindAllRoles",
+        "tag": "FindRoles",
         "discriminant": 4,
-        "type": "IterableQueryWithFilter<FindAllRoles, RolePredicateBox>"
+        "type": "IterableQueryWithFilter<FindRoles, RolePredicateBox>"
       },
       {
-        "tag": "FindAllRoleIds",
+        "tag": "FindRoleIds",
         "discriminant": 5,
-        "type": "IterableQueryWithFilter<FindAllRoleIds, RoleIdPredicateBox>"
+        "type": "IterableQueryWithFilter<FindRoleIds, RoleIdPredicateBox>"
       },
       {
         "tag": "FindPermissionsByAccountId",
@@ -2431,29 +2431,29 @@
         "type": "IterableQueryWithFilter<FindAccountsWithAsset, AccountPredicateBox>"
       },
       {
-        "tag": "FindAllPeers",
+        "tag": "FindPeers",
         "discriminant": 10,
-        "type": "IterableQueryWithFilter<FindAllPeers, PeerPredicateBox>"
+        "type": "IterableQueryWithFilter<FindPeers, PeerPredicateBox>"
       },
       {
-        "tag": "FindAllActiveTriggerIds",
+        "tag": "FindActiveTriggerIds",
         "discriminant": 11,
-        "type": "IterableQueryWithFilter<FindAllActiveTriggerIds, TriggerIdPredicateBox>"
+        "type": "IterableQueryWithFilter<FindActiveTriggerIds, TriggerIdPredicateBox>"
       },
       {
-        "tag": "FindAllTransactions",
+        "tag": "FindTransactions",
         "discriminant": 12,
-        "type": "IterableQueryWithFilter<FindAllTransactions, TransactionQueryOutputPredicateBox>"
+        "type": "IterableQueryWithFilter<FindTransactions, TransactionQueryOutputPredicateBox>"
       },
       {
-        "tag": "FindAllBlocks",
+        "tag": "FindBlocks",
         "discriminant": 13,
-        "type": "IterableQueryWithFilter<FindAllBlocks, SignedBlockPredicateBox>"
+        "type": "IterableQueryWithFilter<FindBlocks, SignedBlockPredicateBox>"
       },
       {
-        "tag": "FindAllBlockHeaders",
+        "tag": "FindBlockHeaders",
         "discriminant": 14,
-        "type": "IterableQueryWithFilter<FindAllBlockHeaders, BlockHeaderPredicateBox>"
+        "type": "IterableQueryWithFilter<FindBlockHeaders, BlockHeaderPredicateBox>"
       }
     ]
   },
@@ -2554,6 +2554,18 @@
       }
     ]
   },
+  "IterableQueryWithFilter<FindAccounts, AccountPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindAccounts"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<AccountPredicateBox>"
+      }
+    ]
+  },
   "IterableQueryWithFilter<FindAccountsWithAsset, AccountPredicateBox>": {
     "Struct": [
       {
@@ -2566,23 +2578,11 @@
       }
     ]
   },
-  "IterableQueryWithFilter<FindAllAccounts, AccountPredicateBox>": {
+  "IterableQueryWithFilter<FindActiveTriggerIds, TriggerIdPredicateBox>": {
     "Struct": [
       {
         "name": "query",
-        "type": "FindAllAccounts"
-      },
-      {
-        "name": "predicate",
-        "type": "CompoundPredicate<AccountPredicateBox>"
-      }
-    ]
-  },
-  "IterableQueryWithFilter<FindAllActiveTriggerIds, TriggerIdPredicateBox>": {
-    "Struct": [
-      {
-        "name": "query",
-        "type": "FindAllActiveTriggerIds"
+        "type": "FindActiveTriggerIds"
       },
       {
         "name": "predicate",
@@ -2590,11 +2590,11 @@
       }
     ]
   },
-  "IterableQueryWithFilter<FindAllAssets, AssetPredicateBox>": {
+  "IterableQueryWithFilter<FindAssets, AssetPredicateBox>": {
     "Struct": [
       {
         "name": "query",
-        "type": "FindAllAssets"
+        "type": "FindAssets"
       },
       {
         "name": "predicate",
@@ -2602,11 +2602,11 @@
       }
     ]
   },
-  "IterableQueryWithFilter<FindAllAssetsDefinitions, AssetDefinitionPredicateBox>": {
+  "IterableQueryWithFilter<FindAssetsDefinitions, AssetDefinitionPredicateBox>": {
     "Struct": [
       {
         "name": "query",
-        "type": "FindAllAssetsDefinitions"
+        "type": "FindAssetsDefinitions"
       },
       {
         "name": "predicate",
@@ -2614,11 +2614,11 @@
       }
     ]
   },
-  "IterableQueryWithFilter<FindAllBlockHeaders, BlockHeaderPredicateBox>": {
+  "IterableQueryWithFilter<FindBlockHeaders, BlockHeaderPredicateBox>": {
     "Struct": [
       {
         "name": "query",
-        "type": "FindAllBlockHeaders"
+        "type": "FindBlockHeaders"
       },
       {
         "name": "predicate",
@@ -2626,11 +2626,11 @@
       }
     ]
   },
-  "IterableQueryWithFilter<FindAllBlocks, SignedBlockPredicateBox>": {
+  "IterableQueryWithFilter<FindBlocks, SignedBlockPredicateBox>": {
     "Struct": [
       {
         "name": "query",
-        "type": "FindAllBlocks"
+        "type": "FindBlocks"
       },
       {
         "name": "predicate",
@@ -2638,11 +2638,11 @@
       }
     ]
   },
-  "IterableQueryWithFilter<FindAllDomains, DomainPredicateBox>": {
+  "IterableQueryWithFilter<FindDomains, DomainPredicateBox>": {
     "Struct": [
       {
         "name": "query",
-        "type": "FindAllDomains"
+        "type": "FindDomains"
       },
       {
         "name": "predicate",
@@ -2650,51 +2650,15 @@
       }
     ]
   },
-  "IterableQueryWithFilter<FindAllPeers, PeerPredicateBox>": {
+  "IterableQueryWithFilter<FindPeers, PeerPredicateBox>": {
     "Struct": [
       {
         "name": "query",
-        "type": "FindAllPeers"
+        "type": "FindPeers"
       },
       {
         "name": "predicate",
         "type": "CompoundPredicate<PeerPredicateBox>"
-      }
-    ]
-  },
-  "IterableQueryWithFilter<FindAllRoleIds, RoleIdPredicateBox>": {
-    "Struct": [
-      {
-        "name": "query",
-        "type": "FindAllRoleIds"
-      },
-      {
-        "name": "predicate",
-        "type": "CompoundPredicate<RoleIdPredicateBox>"
-      }
-    ]
-  },
-  "IterableQueryWithFilter<FindAllRoles, RolePredicateBox>": {
-    "Struct": [
-      {
-        "name": "query",
-        "type": "FindAllRoles"
-      },
-      {
-        "name": "predicate",
-        "type": "CompoundPredicate<RolePredicateBox>"
-      }
-    ]
-  },
-  "IterableQueryWithFilter<FindAllTransactions, TransactionQueryOutputPredicateBox>": {
-    "Struct": [
-      {
-        "name": "query",
-        "type": "FindAllTransactions"
-      },
-      {
-        "name": "predicate",
-        "type": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
       }
     ]
   },
@@ -2710,6 +2674,30 @@
       }
     ]
   },
+  "IterableQueryWithFilter<FindRoleIds, RoleIdPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindRoleIds"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<RoleIdPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindRoles, RolePredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindRoles"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<RolePredicateBox>"
+      }
+    ]
+  },
   "IterableQueryWithFilter<FindRolesByAccountId, RoleIdPredicateBox>": {
     "Struct": [
       {
@@ -2719,6 +2707,18 @@
       {
         "name": "predicate",
         "type": "CompoundPredicate<RoleIdPredicateBox>"
+      }
+    ]
+  },
+  "IterableQueryWithFilter<FindTransactions, TransactionQueryOutputPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindTransactions"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
       }
     ]
   },
@@ -4031,7 +4031,7 @@
       {
         "tag": "FindAllParameters",
         "discriminant": 2,
-        "type": "FindAllParameters"
+        "type": "FindParameters"
       },
       {
         "tag": "FindTotalAssetQuantityByAssetDefinitionId",
@@ -4044,29 +4044,29 @@
         "type": "FindTriggerById"
       },
       {
-        "tag": "FindDomainKeyValueByIdAndKey",
+        "tag": "FindDomainMetadata",
         "discriminant": 5,
-        "type": "FindDomainKeyValueByIdAndKey"
+        "type": "FindDomainMetadata"
       },
       {
-        "tag": "FindAccountKeyValueByIdAndKey",
+        "tag": "FindAccountMetadata",
         "discriminant": 6,
-        "type": "FindAccountKeyValueByIdAndKey"
+        "type": "FindAccountMetadata"
       },
       {
-        "tag": "FindAssetKeyValueByIdAndKey",
+        "tag": "FindAssetMetadata",
         "discriminant": 7,
-        "type": "FindAssetKeyValueByIdAndKey"
+        "type": "FindAssetMetadata"
       },
       {
-        "tag": "FindAssetDefinitionKeyValueByIdAndKey",
+        "tag": "FindAssetDefinitionMetadata",
         "discriminant": 8,
-        "type": "FindAssetDefinitionKeyValueByIdAndKey"
+        "type": "FindAssetDefinitionMetadata"
       },
       {
-        "tag": "FindTriggerKeyValueByIdAndKey",
+        "tag": "FindTriggerMetadata",
         "discriminant": 9,
-        "type": "FindTriggerKeyValueByIdAndKey"
+        "type": "FindTriggerMetadata"
       },
       {
         "tag": "FindTransactionByHash",

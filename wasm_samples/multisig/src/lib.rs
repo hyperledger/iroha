@@ -41,7 +41,7 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
 
     let (votes, instructions) = match args {
         MultisigArgs::Instructions(instructions) => {
-            query_single(FindTriggerKeyValueByIdAndKey::new(
+            query_single(FindTriggerMetadata::new(
                 id.clone(),
                 votes_metadata_key.clone(),
             ))
@@ -68,7 +68,7 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
             (votes, instructions)
         }
         MultisigArgs::Vote(_instructions_hash) => {
-            let mut votes: BTreeSet<AccountId> = query_single(FindTriggerKeyValueByIdAndKey::new(
+            let mut votes: BTreeSet<AccountId> = query_single(FindTriggerMetadata::new(
                 id.clone(),
                 votes_metadata_key.clone(),
             ))
@@ -86,9 +86,10 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
             .execute()
             .dbg_unwrap();
 
-            let instructions: Vec<InstructionBox> = query_single(
-                FindTriggerKeyValueByIdAndKey::new(id.clone(), instructions_metadata_key.clone()),
-            )
+            let instructions: Vec<InstructionBox> = query_single(FindTriggerMetadata::new(
+                id.clone(),
+                instructions_metadata_key.clone(),
+            ))
             .dbg_unwrap()
             .try_into_any()
             .dbg_unwrap();
@@ -97,7 +98,7 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
         }
     };
 
-    let signatories: BTreeSet<AccountId> = query_single(FindTriggerKeyValueByIdAndKey::new(
+    let signatories: BTreeSet<AccountId> = query_single(FindTriggerMetadata::new(
         id.clone(),
         "signatories".parse().unwrap(),
     ))
