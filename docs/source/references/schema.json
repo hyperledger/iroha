@@ -1962,7 +1962,7 @@
       {
         "tag": "NewRole",
         "discriminant": 3,
-        "type": "NewRole"
+        "type": "Role"
       },
       {
         "tag": "Peer",
@@ -2518,14 +2518,6 @@
       {
         "name": "metadata",
         "type": "Metadata"
-      }
-    ]
-  },
-  "NewRole": {
-    "Struct": [
-      {
-        "name": "inner",
-        "type": "Role"
       }
     ]
   },
@@ -3211,7 +3203,7 @@
     "Struct": [
       {
         "name": "object",
-        "type": "NewRole"
+        "type": "Role"
       }
     ]
   },

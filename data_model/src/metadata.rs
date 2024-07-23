@@ -4,7 +4,7 @@
 use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
 use core::borrow::Borrow;
 #[cfg(feature = "std")]
-use std::{collections::BTreeMap, vec::Vec};
+use std::collections::BTreeMap;
 
 use iroha_data_model_derive::model;
 use iroha_primitives::json::JsonString;

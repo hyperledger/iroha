@@ -82,6 +82,7 @@ mod model {
     #[derive(
         Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
+    #[serde(rename = "Domain")]
     #[display(fmt = "[{id}]")]
     #[ffi_type]
     pub struct NewDomain {

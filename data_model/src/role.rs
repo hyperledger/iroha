@@ -76,10 +76,11 @@ mod model {
         Serialize,
         IntoSchema,
     )]
-    #[getset(get = "pub")]
-    #[serde(transparent)]
-    #[repr(transparent)]
+    #[serde(transparent, rename = "Role")]
     #[ffi_type(unsafe {robust})]
+    #[getset(get = "pub")]
+    #[schema(transparent)]
+    #[repr(transparent)]
     pub struct NewRole {
         #[allow(missing_docs)]
         #[id(transparent)]

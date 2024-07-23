@@ -81,8 +81,9 @@ mod model {
     #[derive(
         DebugCustom, Display, Clone, IdEqOrdHash, Decode, Encode, Serialize, Deserialize, IntoSchema,
     )]
-    #[display(fmt = "[{id}]")]
     #[debug(fmt = "[{id:?}] {{ metadata: {metadata} }}")]
+    #[display(fmt = "[{id}]")]
+    #[serde(rename = "Account")]
     #[ffi_type]
     pub struct NewAccount {
         /// Identification
