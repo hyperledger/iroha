@@ -971,8 +971,8 @@ pub mod account {
     use super::*;
 
     /// Construct a query to get all accounts
-    pub const fn all() -> FindAllAccounts {
-        FindAllAccounts
+    pub const fn all() -> FindAccounts {
+        FindAccounts
     }
 
     /// Construct a query to get all accounts containing specified asset
@@ -986,13 +986,13 @@ pub mod asset {
     use super::*;
 
     /// Construct a query to get all assets
-    pub const fn all() -> FindAllAssets {
-        FindAllAssets
+    pub const fn all() -> FindAssets {
+        FindAssets
     }
 
     /// Construct a query to get all asset definitions
-    pub const fn all_definitions() -> FindAllAssetsDefinitions {
-        FindAllAssetsDefinitions
+    pub const fn all_definitions() -> FindAssetsDefinitions {
+        FindAssetsDefinitions
     }
 }
 
@@ -1002,13 +1002,13 @@ pub mod block {
     use super::*;
 
     /// Construct a query to find all blocks
-    pub const fn all() -> FindAllBlocks {
-        FindAllBlocks
+    pub const fn all() -> FindBlocks {
+        FindBlocks
     }
 
     /// Construct a query to find all block headers
-    pub const fn all_headers() -> FindAllBlockHeaders {
-        FindAllBlockHeaders
+    pub const fn all_headers() -> FindBlockHeaders {
+        FindBlockHeaders
     }
 
     /// Construct a query to find block header by hash
@@ -1022,8 +1022,8 @@ pub mod domain {
     use super::*;
 
     /// Construct a query to get all domains
-    pub const fn all() -> FindAllDomains {
-        FindAllDomains
+    pub const fn all() -> FindDomains {
+        FindDomains
     }
 }
 
@@ -1033,8 +1033,8 @@ pub mod transaction {
     use super::*;
 
     /// Construct a query to find all transactions
-    pub fn all() -> FindAllTransactions {
-        FindAllTransactions
+    pub fn all() -> FindTransactions {
+        FindTransactions
     }
 
     /// Construct a query to retrieve transactions for account
@@ -1053,8 +1053,8 @@ pub mod trigger {
     use super::*;
 
     /// Construct a query to get all active trigger ids
-    pub fn all_ids() -> FindAllActiveTriggerIds {
-        FindAllActiveTriggerIds
+    pub fn all_ids() -> FindActiveTriggerIds {
+        FindActiveTriggerIds
     }
 
     /// Construct a query to get a trigger by its id
@@ -1079,13 +1079,13 @@ pub mod role {
     use super::*;
 
     /// Construct a query to retrieve all roles
-    pub const fn all() -> FindAllRoles {
-        FindAllRoles
+    pub const fn all() -> FindRoles {
+        FindRoles
     }
 
     /// Construct a query to retrieve all role ids
-    pub const fn all_ids() -> FindAllRoleIds {
-        FindAllRoleIds
+    pub const fn all_ids() -> FindRoleIds {
+        FindRoleIds
     }
 
     /// Construct a query to retrieve all roles for an account
@@ -1099,8 +1099,8 @@ pub mod parameter {
     use super::*;
 
     /// Construct a query to retrieve all config parameters
-    pub const fn all() -> FindAllParameters {
-        FindAllParameters
+    pub const fn all() -> FindParameters {
+        FindParameters
     }
 }
 

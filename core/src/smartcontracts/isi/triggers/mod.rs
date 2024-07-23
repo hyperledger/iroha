@@ -337,7 +337,7 @@ pub mod query {
         state::StateReadOnly,
     };
 
-    impl ValidIterableQuery for FindAllActiveTriggerIds {
+    impl ValidIterableQuery for FindActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
         fn execute<'state>(
             self,

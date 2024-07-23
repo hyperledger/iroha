@@ -1,4 +1,4 @@
-//! Smart contract which executes [`FindAllAssets`] and saves cursor to the owner's metadata.
+//! Smart contract which executes [`FindAssets`] and saves cursor to the owner's metadata.
 
 #![no_std]
 
@@ -46,7 +46,7 @@ fn main(_owner: AccountId) {
     .dbg_unwrap();
 
     // genesis registers some more asset definitions, but we apply a filter to find only the ones from the `looking_glass` domain
-    let cursor = query(FindAllAssetsDefinitions)
+    let cursor = query(FindAssetsDefinitions)
         .with_filter(|asset_definition| asset_definition.id.domain_id.eq(domain_id))
         .execute()
         .dbg_unwrap();

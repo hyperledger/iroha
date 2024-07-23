@@ -86,23 +86,23 @@ mod model {
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
     )]
     pub enum IterableQueryBox {
-        FindAllDomains(IterableQueryWithFilterFor<FindAllDomains>),
-        FindAllAccounts(IterableQueryWithFilterFor<FindAllAccounts>),
-        FindAllAssets(IterableQueryWithFilterFor<FindAllAssets>),
-        FindAllAssetsDefinitions(IterableQueryWithFilterFor<FindAllAssetsDefinitions>),
-        FindAllRoles(IterableQueryWithFilterFor<FindAllRoles>),
+        FindDomains(IterableQueryWithFilterFor<FindDomains>),
+        FindAccounts(IterableQueryWithFilterFor<FindAccounts>),
+        FindAssets(IterableQueryWithFilterFor<FindAssets>),
+        FindAssetsDefinitions(IterableQueryWithFilterFor<FindAssetsDefinitions>),
+        FindRoles(IterableQueryWithFilterFor<FindRoles>),
 
-        FindAllRoleIds(IterableQueryWithFilterFor<FindAllRoleIds>),
+        FindRoleIds(IterableQueryWithFilterFor<FindRoleIds>),
         FindPermissionsByAccountId(IterableQueryWithFilterFor<FindPermissionsByAccountId>),
         FindRolesByAccountId(IterableQueryWithFilterFor<FindRolesByAccountId>),
         FindTransactionsByAccountId(IterableQueryWithFilterFor<FindTransactionsByAccountId>),
         FindAccountsWithAsset(IterableQueryWithFilterFor<FindAccountsWithAsset>),
 
-        FindAllPeers(IterableQueryWithFilterFor<FindAllPeers>),
-        FindAllActiveTriggerIds(IterableQueryWithFilterFor<FindAllActiveTriggerIds>),
-        FindAllTransactions(IterableQueryWithFilterFor<FindAllTransactions>),
-        FindAllBlocks(IterableQueryWithFilterFor<FindAllBlocks>),
-        FindAllBlockHeaders(IterableQueryWithFilterFor<FindAllBlockHeaders>),
+        FindPeers(IterableQueryWithFilterFor<FindPeers>),
+        FindActiveTriggerIds(IterableQueryWithFilterFor<FindActiveTriggerIds>),
+        FindTransactions(IterableQueryWithFilterFor<FindTransactions>),
+        FindBlocks(IterableQueryWithFilterFor<FindBlocks>),
+        FindBlockHeaders(IterableQueryWithFilterFor<FindBlockHeaders>),
     }
 
     /// An enum of all possible iterable query batches.
@@ -134,7 +134,7 @@ mod model {
     pub enum SingularQueryBox {
         FindAssetQuantityById(FindAssetQuantityById),
         FindExecutorDataModel(FindExecutorDataModel),
-        FindAllParameters(FindAllParameters),
+        FindAllParameters(FindParameters),
         FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
         FindTriggerById(FindTriggerById),
 
@@ -226,7 +226,7 @@ mod model {
         pub payload: QueryRequestWithAuthority,
     }
 
-    /// Output of [`FindAllTransactions`] query
+    /// Output of [`FindTransactions`] query
     #[derive(
         Debug,
         Clone,
@@ -440,21 +440,21 @@ macro_rules! impl_singular_queries {
 }
 
 impl_iter_queries! {
-    FindAllRoles => crate::role::Role,
-    FindAllRoleIds => crate::role::RoleId,
+    FindRoles => crate::role::Role,
+    FindRoleIds => crate::role::RoleId,
     FindRolesByAccountId => crate::role::RoleId,
     FindPermissionsByAccountId => crate::permission::Permission,
-    FindAllAccounts => crate::account::Account,
-    FindAllAssets => crate::asset::Asset,
-    FindAllAssetsDefinitions => crate::asset::AssetDefinition,
-    FindAllDomains => crate::domain::Domain,
-    FindAllPeers => crate::peer::Peer,
-    FindAllActiveTriggerIds => crate::trigger::TriggerId,
-    FindAllTransactions => TransactionQueryOutput,
+    FindAccounts => crate::account::Account,
+    FindAssets => crate::asset::Asset,
+    FindAssetsDefinitions => crate::asset::AssetDefinition,
+    FindDomains => crate::domain::Domain,
+    FindPeers => crate::peer::Peer,
+    FindActiveTriggerIds => crate::trigger::TriggerId,
+    FindTransactions => TransactionQueryOutput,
     FindTransactionsByAccountId => TransactionQueryOutput,
     FindAccountsWithAsset => crate::account::Account,
-    FindAllBlockHeaders => crate::block::BlockHeader,
-    FindAllBlocks => SignedBlock,
+    FindBlockHeaders => crate::block::BlockHeader,
+    FindBlocks => SignedBlock,
 }
 
 impl_singular_queries! {
@@ -464,7 +464,7 @@ impl_singular_queries! {
     FindAssetKeyValueByIdAndKey => JsonString,
     FindAssetDefinitionKeyValueByIdAndKey => JsonString,
     FindDomainKeyValueByIdAndKey => JsonString,
-    FindAllParameters => crate::parameter::Parameters,
+    FindParameters => crate::parameter::Parameters,
     FindTriggerById => crate::trigger::Trigger,
     FindTriggerKeyValueByIdAndKey => JsonString,
     FindTransactionByHash => TransactionQueryOutput,
@@ -509,18 +509,18 @@ pub mod role {
     use crate::prelude::*;
 
     queries! {
-        /// [`FindAllRoles`] Iroha Query finds all [`Role`]s presented.
+        /// [`FindRoles`] Iroha Query finds all [`Role`]s presented.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all roles")]
         #[ffi_type]
-        pub struct FindAllRoles;
+        pub struct FindRoles;
 
-        /// [`FindAllRoleIds`] Iroha Query finds [`Id`](crate::RoleId)s of
+        /// [`FindRoleIds`] Iroha Query finds [`Id`](crate::RoleId)s of
         /// all [`Role`]s presented.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all role ids")]
         #[ffi_type]
-        pub struct FindAllRoleIds;
+        pub struct FindRoleIds;
 
         /// [`FindRolesByAccountId`] Iroha Query finds all [`Role`]s for a specified account.
         #[derive(Display)]
@@ -536,7 +536,7 @@ pub mod role {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
-        pub use super::{FindAllRoleIds, FindAllRoles, FindRolesByAccountId};
+        pub use super::{FindRoleIds, FindRoles, FindRolesByAccountId};
     }
 }
 
@@ -582,11 +582,11 @@ pub mod account {
 
     queries! {
         // TODO: Better to have find all account ids query instead.
-        /// [`FindAllAccounts`] Iroha Query finds all [`Account`]s presented.
+        /// [`FindAccounts`] Iroha Query finds all [`Account`]s presented.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all accounts")]
         #[ffi_type]
-        pub struct FindAllAccounts;
+        pub struct FindAccounts;
 
         /// [`FindAccountKeyValueByIdAndKey`] Iroha Query finds an [`MetadataValue`]
         /// of the key-value metadata pair in the specified account.
@@ -615,7 +615,7 @@ pub mod account {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAccountKeyValueByIdAndKey, FindAccountsWithAsset, FindAllAccounts};
+        pub use super::{FindAccountKeyValueByIdAndKey, FindAccounts, FindAccountsWithAsset};
     }
 }
 
@@ -632,18 +632,18 @@ pub mod asset {
     use crate::prelude::*;
 
     queries! {
-        /// [`FindAllAssets`] Iroha Query finds all [`Asset`]s presented in Iroha Peer.
+        /// [`FindAssets`] Iroha Query finds all [`Asset`]s presented in Iroha Peer.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all assets")]
         #[ffi_type]
-        pub struct FindAllAssets;
+        pub struct FindAssets;
 
-        /// [`FindAllAssetsDefinitions`] Iroha Query finds all [`AssetDefinition`]s presented
+        /// [`FindAssetsDefinitions`] Iroha Query finds all [`AssetDefinition`]s presented
         /// in Iroha Peer.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all asset definitions")]
         #[ffi_type]
-        pub struct FindAllAssetsDefinitions; // TODO: Should it be renamed to [`FindAllAssetDefinitions`?
+        pub struct FindAssetsDefinitions; // TODO: Should it be renamed to [`FindAllAssetDefinitions`?
 
         /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`]
         /// value if [`Asset`] is presented in Iroha Peer.
@@ -698,8 +698,8 @@ pub mod asset {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAllAssets, FindAllAssetsDefinitions, FindAssetDefinitionKeyValueByIdAndKey,
-            FindAssetKeyValueByIdAndKey, FindAssetQuantityById,
+            FindAssetDefinitionKeyValueByIdAndKey, FindAssetKeyValueByIdAndKey,
+            FindAssetQuantityById, FindAssets, FindAssetsDefinitions,
             FindTotalAssetQuantityByAssetDefinitionId,
         };
     }
@@ -718,11 +718,11 @@ pub mod domain {
     use crate::prelude::*;
 
     queries! {
-        /// [`FindAllDomains`] Iroha Query finds all [`Domain`]s presented in Iroha [`Peer`].
+        /// [`FindDomains`] Iroha Query finds all [`Domain`]s presented in Iroha [`Peer`].
         #[derive(Copy, Display)]
         #[display(fmt = "Find all domains")]
         #[ffi_type]
-        pub struct FindAllDomains;
+        pub struct FindDomains;
 
         /// [`FindDomainKeyValueByIdAndKey`] Iroha Query finds a [`MetadataValue`] of the key-value metadata pair
         /// in the specified domain.
@@ -739,7 +739,7 @@ pub mod domain {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAllDomains, FindDomainKeyValueByIdAndKey};
+        pub use super::{FindDomainKeyValueByIdAndKey, FindDomains};
     }
 }
 
@@ -752,16 +752,16 @@ pub mod peer {
     use derive_more::Display;
 
     queries! {
-        /// [`FindAllPeers`] Iroha Query finds all trusted [`Peer`]s presented in current Iroha [`Peer`].
+        /// [`FindPeers`] Iroha Query finds all trusted [`Peer`]s presented in current Iroha [`Peer`].
         #[derive(Copy, Display)]
         #[display(fmt = "Find all peers")]
         #[ffi_type]
-        pub struct FindAllPeers;
+        pub struct FindPeers;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::FindAllPeers;
+        pub use super::FindPeers;
     }
 }
 
@@ -780,16 +780,16 @@ pub mod executor {
         #[ffi_type]
         pub struct FindExecutorDataModel;
 
-        /// [`FindAllParameters`] Iroha Query finds all defined executor configuration parameters.
+        /// [`FindParameters`] Iroha Query finds all defined executor configuration parameters.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all peers parameters")]
         #[ffi_type]
-        pub struct FindAllParameters;
+        pub struct FindParameters;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAllParameters, FindExecutorDataModel};
+        pub use super::{FindExecutorDataModel, FindParameters};
     }
 }
 
@@ -808,7 +808,7 @@ pub mod trigger {
         #[derive(Copy, Display)]
         #[display(fmt = "Find all trigger ids")]
         #[ffi_type]
-        pub struct FindAllActiveTriggerIds;
+        pub struct FindActiveTriggerIds;
 
         /// Find Trigger given its ID.
         #[derive(Display)]
@@ -835,7 +835,7 @@ pub mod trigger {
 
     pub mod prelude {
         //! Prelude Re-exports most commonly used traits, structs and macros from this crate.
-        pub use super::{FindAllActiveTriggerIds, FindTriggerById, FindTriggerKeyValueByIdAndKey};
+        pub use super::{FindActiveTriggerIds, FindTriggerById, FindTriggerKeyValueByIdAndKey};
     }
 }
 
@@ -853,11 +853,11 @@ pub mod transaction {
     use crate::{account::AccountId, transaction::SignedTransaction};
 
     queries! {
-        /// [`FindAllTransactions`] Iroha Query lists all transactions included in a blockchain
+        /// [`FindTransactions`] Iroha Query lists all transactions included in a blockchain
         #[derive(Copy, Display)]
         #[display(fmt = "Find all transactions")]
         #[ffi_type]
-        pub struct FindAllTransactions;
+        pub struct FindTransactions;
 
         /// [`FindTransactionsByAccountId`] Iroha Query finds all transactions included in a blockchain
         /// for the account
@@ -886,7 +886,7 @@ pub mod transaction {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAllTransactions, FindTransactionByHash, FindTransactionsByAccountId};
+        pub use super::{FindTransactionByHash, FindTransactions, FindTransactionsByAccountId};
     }
 }
 
@@ -904,19 +904,19 @@ pub mod block {
     use super::SignedBlock;
 
     queries! {
-        /// [`FindAllBlocks`] Iroha Query lists all blocks sorted by
+        /// [`FindBlocks`] Iroha Query lists all blocks sorted by
         /// height in descending order
         #[derive(Copy, Display)]
         #[display(fmt = "Find all blocks")]
         #[ffi_type]
-        pub struct FindAllBlocks;
+        pub struct FindBlocks;
 
-        /// [`FindAllBlockHeaders`] Iroha Query lists all block headers
+        /// [`FindBlockHeaders`] Iroha Query lists all block headers
         /// sorted by height in descending order
         #[derive(Copy, Display)]
         #[display(fmt = "Find all block headers")]
         #[ffi_type]
-        pub struct FindAllBlockHeaders;
+        pub struct FindBlockHeaders;
 
         /// [`FindBlockHeaderByHash`] Iroha Query finds block header by block hash
         #[derive(Copy, Display)]
@@ -932,7 +932,7 @@ pub mod block {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAllBlockHeaders, FindAllBlocks, FindBlockHeaderByHash};
+        pub use super::{FindBlockHeaderByHash, FindBlockHeaders, FindBlocks};
     }
 }
 

@@ -255,8 +255,8 @@ impl DataModelBuilder {
 
         use crate::smart_contract::ExecuteOnHost as _;
 
-        let all_accounts = query(FindAllAccounts::new()).execute().unwrap();
-        let all_roles = query(FindAllRoles::new()).execute().unwrap();
+        let all_accounts = query(FindAccounts::new()).execute().unwrap();
+        let all_roles = query(FindRoles::new()).execute().unwrap();
 
         for role in all_roles.into_iter().map(|role| role.unwrap()) {
             for permission in role.permissions() {

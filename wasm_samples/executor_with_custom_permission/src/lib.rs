@@ -47,7 +47,7 @@ struct Executor {
 
 impl Executor {
     fn get_all_accounts_with_can_unregister_domain_permission() -> impl Iterator<Item = Account> {
-        query(FindAllAccounts)
+        query(FindAccounts)
             .execute()
             .expect("INTERNAL BUG: Failed to execute `FindAllAccounts`")
             .filter_map(|res| {

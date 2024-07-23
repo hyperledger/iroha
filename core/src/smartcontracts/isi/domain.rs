@@ -403,7 +403,7 @@ pub mod query {
     use super::*;
     use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
-    impl ValidIterableQuery for FindAllDomains {
+    impl ValidIterableQuery for FindDomains {
         #[metrics(+"find_all_domains")]
         fn execute<'state>(
             self,

@@ -426,7 +426,7 @@ pub mod asset_definition {
         asset_definition_id: &AssetDefinitionId,
         authority: &AccountId,
     ) -> Result<bool> {
-        let asset_definition = query(FindAllAssetsDefinitions)
+        let asset_definition = query(FindAssetsDefinitions)
             .with_filter(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
             .execute_single()
             .map_err(|e| match e {
@@ -753,7 +753,7 @@ pub mod domain {
     /// # Errors
     /// Fails if query fails
     pub fn is_domain_owner(domain_id: &DomainId, authority: &AccountId) -> Result<bool> {
-        query(FindAllDomains)
+        query(FindDomains)
             .with_filter(|domain| domain.id.eq(domain_id.clone()))
             .execute_single()
             .map(|domain| domain.owned_by() == authority)
@@ -877,7 +877,7 @@ impl<T: Permission> From<&T> for OnlyGenesis {
 
 /// Iterator over all accounts and theirs permission tokens
 pub(crate) fn accounts_permissions() -> impl Iterator<Item = (AccountId, PermissionObject)> {
-    query(FindAllAccounts)
+    query(FindAccounts)
         .execute()
         .dbg_expect("INTERNAL BUG: `FindAllAccounts` must never fail")
         .map(|account| account.dbg_expect("Failed to get account from cursor"))
@@ -892,7 +892,7 @@ pub(crate) fn accounts_permissions() -> impl Iterator<Item = (AccountId, Permiss
 
 /// Iterator over all roles and theirs permission tokens
 pub(crate) fn roles_permissions() -> impl Iterator<Item = (RoleId, PermissionObject)> {
-    query(FindAllRoles)
+    query(FindRoles)
         .execute()
         .dbg_expect("INTERNAL BUG: `FindAllRoles` must never fail")
         .map(|role| role.dbg_expect("Failed to get role from cursor"))
