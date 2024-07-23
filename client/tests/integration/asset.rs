@@ -42,7 +42,7 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
     test_client.poll(move |client| {
         let assets = client
             .query(client::asset::all())
-            .with_filter(|asset| asset.id.account.eq(account_id))
+            .filter_with(|asset| asset.id.account.eq(account_id))
             .execute_all()?;
 
         Ok(assets.iter().any(|asset| {
@@ -78,7 +78,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
     test_client.poll(|client| {
         let assets = client
             .query(client::asset::all())
-            .with_filter(|asset| asset.id.account.eq(account_id.clone()))
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
 
         Ok(assets
@@ -92,7 +92,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
     test_client.poll(|client| {
         let assets = client
             .query(client::asset::all())
-            .with_filter(|asset| asset.id.account.eq(account_id.clone()))
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
 
         Ok(assets
@@ -128,7 +128,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     test_client.poll(|client| {
         let assets = client
             .query(client::asset::all())
-            .with_filter(|asset| asset.id.account.eq(account_id))
+            .filter_with(|asset| asset.id.account.eq(account_id))
             .execute_all()?;
 
         Ok(assets.iter().any(|asset| {
@@ -162,7 +162,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     test_client.poll(|client| {
         let assets = client
             .query(client::asset::all())
-            .with_filter(|asset| asset.id.account.eq(account_id))
+            .filter_with(|asset| asset.id.account.eq(account_id))
             .execute_all()?;
 
         Ok(assets.iter().any(|asset| {
@@ -197,7 +197,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     test_client.poll(|client| {
         let assets = client
             .query(client::asset::all())
-            .with_filter(|asset| asset.id.account.eq(account_id.clone()))
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
 
         Ok(assets.iter().any(|asset| {
@@ -220,7 +220,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     test_client.poll(|client| {
         let assets = client
             .query(client::asset::all())
-            .with_filter(|asset| asset.id.account.eq(account_id))
+            .filter_with(|asset| asset.id.account.eq(account_id))
             .execute_all()?;
 
         Ok(assets.iter().any(|asset| {
@@ -390,7 +390,7 @@ fn transfer_asset_definition() {
 
     let asset_definition = test_client
         .query(client::asset::all_definitions())
-        .with_filter(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
+        .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
         .execute_single()
         .expect("Failed to execute Iroha Query");
     assert_eq!(asset_definition.owned_by(), &alice_id);
@@ -405,7 +405,7 @@ fn transfer_asset_definition() {
 
     let asset_definition = test_client
         .query(client::asset::all_definitions())
-        .with_filter(|asset_definition| asset_definition.id.eq(asset_definition_id))
+        .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id))
         .execute_single()
         .expect("Failed to execute Iroha Query");
     assert_eq!(asset_definition.owned_by(), &bob_id);

@@ -42,7 +42,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
     let asset = client
         .query(client::asset::all())
-        .with_filter(|asset| asset.id.eq(asset_id))
+        .filter_with(|asset| asset.id.eq(asset_id))
         .execute_single()
         .unwrap();
 

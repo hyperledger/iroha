@@ -89,7 +89,7 @@ fn find_role_by_id() -> Result<()> {
 
     let found_role = test_client
         .query(client::role::all())
-        .with_filter(|role| role.id.eq(role_id))
+        .filter_with(|role| role.id.eq(role_id))
         .execute_single()?;
 
     assert_eq!(found_role.id(), new_role.id());
@@ -107,7 +107,7 @@ fn find_unregistered_role_by_id() {
 
     let found_role = test_client
         .query(client::role::all())
-        .with_filter(|role| role.id.eq(role_id))
+        .filter_with(|role| role.id.eq(role_id))
         .execute_single();
 
     // Checking result

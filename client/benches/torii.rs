@@ -83,7 +83,7 @@ fn query_requests(criterion: &mut Criterion) {
 
     let query = iroha
         .query(asset::all())
-        .with_filter(|asset| asset.id.account.eq(account_id));
+        .filter_with(|asset| asset.id.account.eq(account_id));
     thread::sleep(std::time::Duration::from_millis(1500));
     let mut success_count = 0;
     let mut failures_count = 0;

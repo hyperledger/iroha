@@ -288,7 +288,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         let end_pattern = format!("_for_{}#{}", account_id.signatory(), account_id.domain());
         let assets = test_client
             .query(client::asset::all())
-            .with_filter(|asset| asset.id.account.eq(account_id.clone()))
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
         let count: u64 = assets
             .into_iter()
@@ -321,7 +321,7 @@ fn get_block_committed_event_listener(
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
     let asset = client
         .query(client::asset::all())
-        .with_filter(|asset| asset.id.eq(asset_id))
+        .filter_with(|asset| asset.id.eq(asset_id))
         .execute_single()
         .unwrap();
 

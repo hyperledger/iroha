@@ -47,7 +47,7 @@ fn main(_owner: AccountId) {
 
     // genesis registers some more asset definitions, but we apply a filter to find only the ones from the `looking_glass` domain
     let cursor = query(FindAssetsDefinitions)
-        .with_filter(|asset_definition| asset_definition.id.domain_id.eq(domain_id))
+        .filter_with(|asset_definition| asset_definition.id.domain_id.eq(domain_id))
         .execute()
         .dbg_unwrap();
 

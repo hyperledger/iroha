@@ -181,7 +181,7 @@ fn role_permissions_are_deduplicated() {
 
     let role = test_client
         .query(client::role::all())
-        .with_filter(|role| role.id.eq(role_id))
+        .filter_with(|role| role.id.eq(role_id))
         .execute_single()
         .expect("failed to find role");
 

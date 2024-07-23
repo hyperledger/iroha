@@ -74,7 +74,7 @@ fn check_assets(
         .poll_with_period(Config::block_sync_gossip_time(), 15, |client| {
             let assets = client
                 .query(client::asset::all())
-                .with_filter(|asset| asset.id.account.eq(account_id.clone()))
+                .filter_with(|asset| asset.id.account.eq(account_id.clone()))
                 .execute_all()?;
 
             Ok(assets.iter().any(|asset| {

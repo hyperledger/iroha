@@ -24,7 +24,7 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
     //Then;
     let query_result = client
         .query(client::asset::all())
-        .with_filter(|asset| asset.id.account.eq(account_id))
+        .filter_with(|asset| asset.id.account.eq(account_id))
         .execute_all()?;
 
     assert!(query_result

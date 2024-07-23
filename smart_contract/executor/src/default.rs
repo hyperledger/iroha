@@ -1130,7 +1130,7 @@ pub mod role {
             let role_id = $isi.object();
 
             let find_role_query_res = match iroha_smart_contract::query(FindRoles)
-                .with_filter(|role| role.id.eq(role_id.clone()))
+                .filter_with(|role| role.id.eq(role_id.clone()))
                 .execute_single()
             {
                 Ok(res) => res,
