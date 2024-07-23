@@ -225,6 +225,9 @@ pub struct State {
     /// TODO: this should be done through events
     #[serde(skip)]
     pub new_tx_amounts: Arc<Mutex<Vec<f64>>>,
+    /// Lock to prevent getting inconsistent view of the state
+    #[serde(skip)]
+    view_lock: parking_lot::RwLock<()>,
 }
 
 /// Struct for block's aggregated changes
@@ -245,6 +248,8 @@ pub struct StateBlock<'state> {
     /// Temporary metrics buffer of amounts of any asset that has been transacted.
     /// TODO: this should be done through events
     pub new_tx_amounts: &'state Mutex<Vec<f64>>,
+    /// Lock to prevent getting inconsistent view of the state
+    view_lock: &'state parking_lot::RwLock<()>,
 }
 
 /// Struct for single transaction's aggregated changes
@@ -1081,6 +1086,7 @@ impl State {
             engine: wasm::create_engine(),
             kura,
             query_handle,
+            view_lock: parking_lot::RwLock::new(()),
         }
     }
 
@@ -1094,6 +1100,7 @@ impl State {
             kura: &self.kura,
             query_handle: &self.query_handle,
             new_tx_amounts: &self.new_tx_amounts,
+            view_lock: &self.view_lock,
         }
     }
 
@@ -1107,11 +1114,13 @@ impl State {
             kura: &self.kura,
             query_handle: &self.query_handle,
             new_tx_amounts: &self.new_tx_amounts,
+            view_lock: &self.view_lock,
         }
     }
 
     /// Create point in time view of [`WorldState`]
     pub fn view(&self) -> StateView<'_> {
+        let _view_lock = self.view_lock.read();
         StateView {
             world: self.world.view(),
             block_hashes: self.block_hashes.view(),
@@ -1293,6 +1302,7 @@ impl<'state> StateBlock<'state> {
 
     /// Commit changes aggregated during application of block
     pub fn commit(self) {
+        let _view_lock = self.view_lock.write();
         self.transactions.commit();
         self.block_hashes.commit();
         self.world.commit();
@@ -1830,6 +1840,7 @@ pub(crate) mod deserialize {
     impl<'de> DeserializeSeed<'de> for WasmSeed<'_, World> {
         type Value = World;
 
+        #[allow(clippy::too_many_lines)]
         fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
         where
             D: serde::Deserializer<'de>,
@@ -2028,6 +2039,7 @@ pub(crate) mod deserialize {
                         query_handle: self.loader.query_handle,
                         engine,
                         new_tx_amounts: Arc::new(Mutex::new(Vec::new())),
+                        view_lock: parking_lot::RwLock::new(()),
                     })
                 }
             }
