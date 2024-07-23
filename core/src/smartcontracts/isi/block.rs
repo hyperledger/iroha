@@ -16,7 +16,7 @@ use iroha_telemetry::metrics;
 use super::*;
 use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
-impl ValidIterableQuery for FindAllBlocks {
+impl ValidIterableQuery for FindBlocks {
     #[metrics(+"find_all_blocks")]
     fn execute<'state>(
         self,
@@ -31,7 +31,7 @@ impl ValidIterableQuery for FindAllBlocks {
     }
 }
 
-impl ValidIterableQuery for FindAllBlockHeaders {
+impl ValidIterableQuery for FindBlockHeaders {
     #[metrics(+"find_all_block_headers")]
     fn execute<'state>(
         self,

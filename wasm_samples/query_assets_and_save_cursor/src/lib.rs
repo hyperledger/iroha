@@ -1,4 +1,4 @@
-//! Smart contract which executes [`FindAllAssets`] and saves cursor to the owner's metadata.
+//! Smart contract which executes [`FindAssets`] and saves cursor to the owner's metadata.
 
 #![no_std]
 
@@ -26,7 +26,7 @@ static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
 
-/// Execute [`FindAllAssets`] and save cursor to the owner's metadata.
+/// Execute [`FindAssets`] and save cursor to the owner's metadata.
 /// NOTE: DON'T TAKE THIS AS AN EXAMPLE, THIS IS ONLY FOR TESTING INTERNALS OF IROHA
 #[iroha_smart_contract::main]
 fn main(owner: AccountId) {
@@ -37,7 +37,7 @@ fn main(owner: AccountId) {
 
     let (_batch, cursor) = SmartContractQueryExecutor
         .start_query(IterableQueryWithParams::new(
-            IterableQueryWithFilter::new(FindAllAssets, CompoundPredicate::PASS).into(),
+            IterableQueryWithFilter::new(FindAssets, CompoundPredicate::PASS).into(),
             IterableQueryParams::new(
                 Default::default(),
                 Default::default(),

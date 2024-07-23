@@ -67,7 +67,7 @@ impl BlockTransactionRef {
     }
 }
 
-impl ValidIterableQuery for FindAllTransactions {
+impl ValidIterableQuery for FindTransactions {
     #[metrics(+"find_all_transactions")]
     fn execute<'state>(
         self,

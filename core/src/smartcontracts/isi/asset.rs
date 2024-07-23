@@ -437,7 +437,7 @@ pub mod query {
     use super::*;
     use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
-    impl ValidIterableQuery for FindAllAssets {
+    impl ValidIterableQuery for FindAssets {
         #[metrics(+"find_all_assets")]
         fn execute<'state>(
             self,
@@ -451,7 +451,7 @@ pub mod query {
                 .cloned())
         }
     }
-    impl ValidIterableQuery for FindAllAssetsDefinitions {
+    impl ValidIterableQuery for FindAssetsDefinitions {
         #[metrics(+"find_all_asset_definitions")]
         fn execute<'state>(
             self,

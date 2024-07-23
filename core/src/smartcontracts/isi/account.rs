@@ -529,7 +529,7 @@ pub mod query {
         }
     }
 
-    impl ValidIterableQuery for FindAllAccounts {
+    impl ValidIterableQuery for FindAccounts {
         #[metrics(+"find_all_accounts")]
         fn execute<'state>(
             self,

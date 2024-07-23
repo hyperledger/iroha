@@ -25,7 +25,7 @@ struct Executor {
 }
 
 fn visit_register_domain(executor: &mut Executor, _authority: &AccountId, isi: &Register<Domain>) {
-    let parameters = query_single(FindAllParameters).dbg_unwrap();
+    let parameters = query_single(FindParameters).dbg_unwrap();
 
     let domain_limits: DomainLimits = parameters
         .custom()

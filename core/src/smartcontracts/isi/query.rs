@@ -279,27 +279,27 @@ impl ValidQueryRequest {
             QueryRequest::StartIterable(iter_query) => {
                 let output = match iter_query.query {
                     // dispatch on a concrete query type, erasing the type with `QueryBatchedErasedIterator` in the end
-                    IterableQueryBox::FindAllDomains(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindDomains(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    IterableQueryBox::FindAllAccounts(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindAccounts(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    IterableQueryBox::FindAllAssets(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindAssets(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    IterableQueryBox::FindAllAssetsDefinitions(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindAssetsDefinitions(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    IterableQueryBox::FindAllRoles(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindRoles(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    IterableQueryBox::FindAllRoleIds(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindRoleIds(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
@@ -319,23 +319,23 @@ impl ValidQueryRequest {
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    IterableQueryBox::FindAllPeers(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindPeers(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    IterableQueryBox::FindAllActiveTriggerIds(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindActiveTriggerIds(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    IterableQueryBox::FindAllTransactions(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindTransactions(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    IterableQueryBox::FindAllBlocks(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindBlocks(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    IterableQueryBox::FindAllBlockHeaders(q) => apply_query_postprocessing(
+                    IterableQueryBox::FindBlockHeaders(q) => apply_query_postprocessing(
                         ValidIterableQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
@@ -521,7 +521,7 @@ mod tests {
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
         let blocks =
-            ValidIterableQuery::execute(FindAllBlocks, CompoundPredicate::PASS, &state.view())?
+            ValidIterableQuery::execute(FindBlocks, CompoundPredicate::PASS, &state.view())?
                 .collect::<Vec<_>>();
 
         assert_eq!(blocks.len() as u64, num_blocks);
@@ -537,12 +537,9 @@ mod tests {
         let num_blocks = 100;
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let block_headers = ValidIterableQuery::execute(
-            FindAllBlockHeaders,
-            CompoundPredicate::PASS,
-            &state.view(),
-        )?
-        .collect::<Vec<_>>();
+        let block_headers =
+            ValidIterableQuery::execute(FindBlockHeaders, CompoundPredicate::PASS, &state.view())?
+                .collect::<Vec<_>>();
 
         assert_eq!(block_headers.len() as u64, num_blocks);
         assert!(block_headers.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -575,12 +572,9 @@ mod tests {
         let num_blocks = 100;
 
         let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let txs = ValidIterableQuery::execute(
-            FindAllTransactions,
-            CompoundPredicate::PASS,
-            &state.view(),
-        )?
-        .collect::<Vec<_>>();
+        let txs =
+            ValidIterableQuery::execute(FindTransactions, CompoundPredicate::PASS, &state.view())?
+                .collect::<Vec<_>>();
 
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(
