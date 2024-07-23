@@ -502,7 +502,7 @@ pub mod query {
         }
     }
 
-    impl ValidSingularQuery for FindAssetKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindAssetMetadata {
         #[metrics(+"find_asset_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;

@@ -22,13 +22,10 @@ fn main(id: TriggerId, owner: AccountId, _event: EventBox) {
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
     let rose_id = AssetId::new(rose_definition_id, owner);
 
-    let val: u32 = query_single(FindTriggerKeyValueByIdAndKey::new(
-        id,
-        "VAL".parse().unwrap(),
-    ))
-    .dbg_unwrap()
-    .try_into_any()
-    .dbg_unwrap();
+    let val: u32 = query_single(FindTriggerMetadata::new(id, "VAL".parse().unwrap()))
+        .dbg_unwrap()
+        .try_into_any()
+        .dbg_unwrap();
 
     Mint::asset_numeric(val, rose_id)
         .execute()

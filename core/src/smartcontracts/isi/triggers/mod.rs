@@ -377,7 +377,7 @@ pub mod query {
         }
     }
 
-    impl ValidSingularQuery for FindTriggerKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindTriggerMetadata {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;

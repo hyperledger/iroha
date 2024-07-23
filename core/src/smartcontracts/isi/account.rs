@@ -544,7 +544,7 @@ pub mod query {
         }
     }
 
-    impl ValidSingularQuery for FindAccountKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindAccountMetadata {
         #[metrics(+"find_account_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;

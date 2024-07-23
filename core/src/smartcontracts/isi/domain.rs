@@ -418,7 +418,7 @@ pub mod query {
         }
     }
 
-    impl ValidSingularQuery for FindDomainKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindDomainMetadata {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
@@ -432,7 +432,7 @@ pub mod query {
         }
     }
 
-    impl ValidSingularQuery for FindAssetDefinitionKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindAssetDefinitionMetadata {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;

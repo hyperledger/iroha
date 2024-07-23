@@ -251,19 +251,19 @@ impl ValidQueryRequest {
                     SingularQueryBox::FindTriggerById(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
-                    SingularQueryBox::FindDomainKeyValueByIdAndKey(q) => {
+                    SingularQueryBox::FindDomainMetadata(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
-                    SingularQueryBox::FindAccountKeyValueByIdAndKey(q) => {
+                    SingularQueryBox::FindAccountMetadata(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
-                    SingularQueryBox::FindAssetKeyValueByIdAndKey(q) => {
+                    SingularQueryBox::FindAssetMetadata(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
-                    SingularQueryBox::FindAssetDefinitionKeyValueByIdAndKey(q) => {
+                    SingularQueryBox::FindAssetDefinitionMetadata(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
-                    SingularQueryBox::FindTriggerKeyValueByIdAndKey(q) => {
+                    SingularQueryBox::FindTriggerMetadata(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
                     SingularQueryBox::FindTransactionByHash(q) => {
@@ -497,8 +497,8 @@ mod tests {
 
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
-        let bytes = FindAssetKeyValueByIdAndKey::new(asset_id, Name::from_str("Bytes")?)
-            .execute(&state.view())?;
+        let bytes =
+            FindAssetMetadata::new(asset_id, Name::from_str("Bytes")?).execute(&state.view())?;
         assert_eq!(JsonString::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
@@ -509,7 +509,7 @@ mod tests {
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_account_with_metadata()?, kura, query_handle);
 
-        let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
+        let bytes = FindAccountMetadata::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
             .execute(&state.view())?;
         assert_eq!(JsonString::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
@@ -669,7 +669,7 @@ mod tests {
 
         let domain_id = DomainId::from_str("wonderland")?;
         let key = Name::from_str("Bytes")?;
-        let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&state.view())?;
+        let bytes = FindDomainMetadata::new(domain_id, key).execute(&state.view())?;
         assert_eq!(JsonString::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
