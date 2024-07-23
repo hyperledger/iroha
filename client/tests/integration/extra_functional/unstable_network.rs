@@ -108,7 +108,7 @@ fn unstable_network(
             .poll_with_period(Config::pipeline_time(), 4, |client| {
                 let assets = client
                     .query(client::asset::all())
-                    .with_filter(|asset| asset.id.account.eq(account_id.clone()))
+                    .filter_with(|asset| asset.id.account.eq(account_id.clone()))
                     .execute_all()?;
 
                 Ok(assets.iter().any(|asset| {

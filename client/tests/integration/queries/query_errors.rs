@@ -11,7 +11,7 @@ fn non_existent_account_is_specific_error() {
 
     let err = client
         .query(client::account::all())
-        .with_filter(|account| account.id.eq(gen_account_in("regalia").0))
+        .filter_with(|account| account.id.eq(gen_account_in("regalia").0))
         .execute_single()
         .expect_err("Should error");
 

@@ -18,7 +18,7 @@ fn find_accounts_with_asset() -> Result<()> {
     // Checking results before all
     let received_asset_definition = test_client
         .query(client::asset::all_definitions())
-        .with_filter(|asset_definition| asset_definition.id.eq(definition_id.clone()))
+        .filter_with(|asset_definition| asset_definition.id.eq(definition_id.clone()))
         .execute_single()?;
 
     assert_eq!(received_asset_definition.id(), asset_definition.id());
@@ -57,7 +57,7 @@ fn find_accounts_with_asset() -> Result<()> {
     // Checking results
     let received_asset_definition = test_client
         .query(client::asset::all_definitions())
-        .with_filter(|asset_definition| asset_definition.id.eq(definition_id.clone()))
+        .filter_with(|asset_definition| asset_definition.id.eq(definition_id.clone()))
         .execute_single()?;
 
     assert_eq!(received_asset_definition.id(), asset_definition.id());

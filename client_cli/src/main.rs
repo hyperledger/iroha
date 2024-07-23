@@ -434,7 +434,7 @@ mod domain {
 
             let query = match self {
                 List::All => query,
-                List::Filter(filter) => query.with_raw_filter(filter.predicate),
+                List::Filter(filter) => query.filter(filter.predicate),
             };
 
             let result = query.execute_all().wrap_err("Failed to get all accounts")?;
@@ -610,7 +610,7 @@ mod account {
 
             let query = match self {
                 List::All => query,
-                List::Filter(filter) => query.with_raw_filter(filter.predicate),
+                List::Filter(filter) => query.filter(filter.predicate),
             };
 
             let result = query.execute_all().wrap_err("Failed to get all accounts")?;
@@ -803,7 +803,7 @@ mod asset {
 
                 let query = match self {
                     List::All => query,
-                    List::Filter(filter) => query.with_raw_filter(filter.predicate),
+                    List::Filter(filter) => query.filter(filter.predicate),
                 };
 
                 let result = query
@@ -912,7 +912,7 @@ mod asset {
             let iroha = context.client_from_config();
             let asset = iroha
                 .query(asset::all())
-                .with_filter(|asset| asset.id.eq(asset_id))
+                .filter_with(|asset| asset.id.eq(asset_id))
                 .execute_single()
                 .wrap_err("Failed to get asset.")?;
             context.print_data(&asset)?;
@@ -937,7 +937,7 @@ mod asset {
 
             let query = match self {
                 List::All => query,
-                List::Filter(filter) => query.with_raw_filter(filter.predicate),
+                List::Filter(filter) => query.filter(filter.predicate),
             };
 
             let result = query.execute_all().wrap_err("Failed to get all accounts")?;

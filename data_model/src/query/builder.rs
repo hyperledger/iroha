@@ -189,11 +189,22 @@ where
 }
 
 impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
-    /// Only return results that match the specified predicate.
+    /// Only return results that match the given predicate.
     ///
     /// If multiple filters are added, they are combined with a logical AND.
     #[must_use]
-    pub fn with_filter<B, O>(self, predicate_builder: B) -> Self
+    pub fn filter(self, filter: CompoundPredicate<P>) -> Self {
+        Self {
+            filter: self.filter.and(filter),
+            ..self
+        }
+    }
+
+    /// Only return results that match the predicate constructed with the given closure.
+    ///
+    /// If multiple filters are added, they are combined with a logical AND.
+    #[must_use]
+    pub fn filter_with<B, O>(self, predicate_builder: B) -> Self
     where
         P: HasPrototype,
         B: FnOnce(P::Prototype<projectors::BaseProjector<P>>) -> O,
@@ -201,16 +212,7 @@ impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
     {
         use crate::query::predicate::predicate_ast_extensions::AstPredicateExt as _;
 
-        self.with_raw_filter(predicate_builder(Default::default()).normalize())
-    }
-
-    /// Same as [`Self::with_filter`], but accepts a pre-constructed predicate in normalized form, instead of building a new one in place.
-    #[must_use]
-    pub fn with_raw_filter(self, filter: CompoundPredicate<P>) -> Self {
-        Self {
-            filter: self.filter.and(filter),
-            ..self
-        }
+        self.filter(predicate_builder(Default::default()).normalize())
     }
 
     /// Sort the results according to the specified sorting.

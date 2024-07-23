@@ -64,7 +64,7 @@ fn simulate_transfer_store_asset() {
         .poll(|client| {
             let assets = client
                 .query(client::asset::all())
-                .with_filter(|asset| asset.id.account.eq(mouse_id.clone()))
+                .filter_with(|asset| asset.id.account.eq(mouse_id.clone()))
                 .execute_all()?;
             Ok(assets.iter().any(|asset| {
                 *asset.id().definition() == asset_definition_id && *asset.id().account() == mouse_id
@@ -123,7 +123,7 @@ fn simulate_transfer<T>(
         .poll(|client| {
             let assets = client
                 .query(client::asset::all())
-                .with_filter(|asset| asset.id.account.eq(mouse_id.clone()))
+                .filter_with(|asset| asset.id.account.eq(mouse_id.clone()))
                 .execute_all()?;
 
             Ok(assets.iter().any(|asset| {

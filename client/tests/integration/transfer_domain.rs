@@ -341,7 +341,7 @@ fn domain_owner_transfer() -> Result<()> {
 
     let domain = test_client
         .query(client::domain::all())
-        .with_filter(|domain| domain.id.eq(kingdom_id.clone()))
+        .filter_with(|domain| domain.id.eq(kingdom_id.clone()))
         .execute_single()?;
 
     assert_eq!(domain.owned_by(), &alice_id);
@@ -356,7 +356,7 @@ fn domain_owner_transfer() -> Result<()> {
 
     let domain = test_client
         .query(client::domain::all())
-        .with_filter(|domain| domain.id.eq(kingdom_id.clone()))
+        .filter_with(|domain| domain.id.eq(kingdom_id.clone()))
         .execute_single()?;
     assert_eq!(domain.owned_by(), &bob_id);
 
@@ -393,7 +393,7 @@ fn not_allowed_to_transfer_other_user_domain() -> Result<()> {
 
     let domain = client
         .query(client::domain::all())
-        .with_filter(|domain| domain.id.eq(foo_domain.clone()))
+        .filter_with(|domain| domain.id.eq(foo_domain.clone()))
         .execute_single()?;
     assert_eq!(domain.owned_by(), &user1);
 

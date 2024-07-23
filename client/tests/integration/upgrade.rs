@@ -315,7 +315,7 @@ fn migration_fail_should_not_cause_any_effects() {
         assert!(
             client
                 .query(client::domain::all())
-                .with_filter(|domain| domain.id.eq(domain_id.clone()))
+                .filter_with(|domain| domain.id.eq(domain_id.clone()))
                 .execute_single_opt()
                 .expect("Query failed")
                 .is_none(),

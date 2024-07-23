@@ -427,7 +427,7 @@ pub mod asset_definition {
         authority: &AccountId,
     ) -> Result<bool> {
         let asset_definition = query(FindAssetsDefinitions)
-            .with_filter(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
+            .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
             .execute_single()
             .map_err(|e| match e {
                 SmartContractSingleQueryError::Validation(e) => e,
@@ -754,7 +754,7 @@ pub mod domain {
     /// Fails if query fails
     pub fn is_domain_owner(domain_id: &DomainId, authority: &AccountId) -> Result<bool> {
         query(FindDomains)
-            .with_filter(|domain| domain.id.eq(domain_id.clone()))
+            .filter_with(|domain| domain.id.eq(domain_id.clone()))
             .execute_single()
             .map(|domain| domain.owned_by() == authority)
             .map_err(|e| match e {

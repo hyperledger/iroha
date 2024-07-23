@@ -48,7 +48,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             .choose(&mut thread_rng())
             .unwrap()
             .query(client::asset::all())
-            .with_filter(|asset| asset.id.account.eq(account_id.clone()))
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
         let asset = assets
             .into_iter()
@@ -80,7 +80,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         removed_peer_client.poll(|client| {
             let assets = client
                 .query(client::asset::all())
-                .with_filter(|asset| asset.id.account.eq(account_id.clone()))
+                .filter_with(|asset| asset.id.account.eq(account_id.clone()))
                 .execute_all()?;
             iroha_logger::error!(?assets);
 

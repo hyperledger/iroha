@@ -75,7 +75,7 @@ fn correct_pagination_assets_after_creating_new_one() {
 
     let queried_assets = test_client
         .query(client::asset::all())
-        .with_raw_filter(xor_filter.clone())
+        .filter(xor_filter.clone())
         .with_pagination(pagination)
         .with_sorting(sorting.clone())
         .execute_all()
@@ -100,7 +100,7 @@ fn correct_pagination_assets_after_creating_new_one() {
 
     let queried_assets = test_client
         .query(client::asset::all())
-        .with_raw_filter(xor_filter)
+        .filter(xor_filter)
         .with_pagination(pagination)
         .with_sorting(sorting)
         .execute_all()
@@ -150,7 +150,7 @@ fn correct_sorting_of_entities() {
     let res = test_client
         .query(client::asset::all_definitions())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
-        .with_filter(|asset_definition| asset_definition.id.name.starts_with("xor_"))
+        .filter_with(|asset_definition| asset_definition.id.name.starts_with("xor_"))
         .execute_all()
         .expect("Valid");
 
@@ -200,7 +200,7 @@ fn correct_sorting_of_entities() {
     let res = test_client
         .query(client::account::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
-        .with_filter(|account| account.id.domain_id.eq(domain_id))
+        .filter_with(|account| account.id.domain_id.eq(domain_id))
         .execute_all()
         .expect("Valid");
 
@@ -236,7 +236,7 @@ fn correct_sorting_of_entities() {
     let res = test_client
         .query(client::domain::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
-        .with_filter(|domain| domain.id.name.starts_with("neverland"))
+        .filter_with(|domain| domain.id.name.starts_with("neverland"))
         .execute_all()
         .expect("Valid");
 
@@ -270,7 +270,7 @@ fn correct_sorting_of_entities() {
     let res = test_client
         .query(client::domain::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key))
-        .with_filter(|domain| domain.id.name.starts_with("neverland_"))
+        .filter_with(|domain| domain.id.name.starts_with("neverland_"))
         .execute()
         .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
@@ -336,7 +336,7 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
     let res = test_client
         .query(client::account::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key))
-        .with_filter(|account| account.id.domain_id.eq(domain_id))
+        .filter_with(|account| account.id.domain_id.eq(domain_id))
         .execute_all()
         .wrap_err("Failed to submit request")?;
 

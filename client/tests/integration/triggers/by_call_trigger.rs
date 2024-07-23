@@ -311,7 +311,7 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
 
     test_client
         .query(client::account::all())
-        .with_filter(|account| account.id.eq(rabbit_account_id.clone()))
+        .filter_with(|account| account.id.eq(rabbit_account_id.clone()))
         .execute_single()
         .expect("Account not found");
     info!("Rabbit is found.");
@@ -623,7 +623,7 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
     let asset = client
         .query(client::asset::all())
-        .with_filter(|asset| asset.id.eq(asset_id))
+        .filter_with(|asset| asset.id.eq(asset_id))
         .execute_single()
         .unwrap();
 
