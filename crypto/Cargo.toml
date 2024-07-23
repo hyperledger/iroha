@@ -76,7 +76,7 @@ rand_chacha = { version = "0.3.1", default-features = false }
 
 
 zeroize = { version = "1.8.1", default-features = false }
-arrayref = { version = "0.3.7", default-features = false }
+arrayref = { version = "0.3.8", default-features = false }
 
 aead = { version = "0.5.2", default-features = false, features = ["alloc"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false }
