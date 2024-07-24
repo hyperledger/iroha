@@ -378,7 +378,7 @@ mod candidate {
 
             signature
                 .verify(&self.payload.authority.signatory, &self.payload)
-                .map_err(|_| "Query signature is not valid")?;
+                .map_err(|_| "Query request signature is not valid")?;
 
             Ok(SignedQueryV1 {
                 payload: self.payload,
@@ -405,6 +405,111 @@ mod candidate {
             SignedQueryCandidate::deserialize(deserializer)?
                 .validate()
                 .map_err(D::Error::custom)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use iroha_crypto::KeyPair;
+        use once_cell::sync::Lazy;
+        use parity_scale_codec::{DecodeAll, Encode};
+
+        use crate::{
+            account::AccountId,
+            query::{
+                candidate::SignedQueryCandidate, FindExecutorDataModel, QueryRequest,
+                QuerySignature, SignedQuery, SingularQueryBox,
+            },
+        };
+
+        static ALICE_ID: Lazy<AccountId> = Lazy::new(|| {
+            format!("{}@{}", ALICE_KEYPAIR.public_key(), "wonderland")
+                .parse()
+                .unwrap()
+        });
+        static ALICE_KEYPAIR: Lazy<KeyPair> = Lazy::new(|| {
+            KeyPair::new(
+                "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03"
+                    .parse()
+                    .unwrap(),
+                "802620CCF31D85E3B32A4BEA59987CE0C78E3B8E2DB93881468AB2435FE45D5C9DCD53"
+                    .parse()
+                    .unwrap(),
+            )
+            .unwrap()
+        });
+
+        static BOB_KEYPAIR: Lazy<KeyPair> = Lazy::new(|| {
+            KeyPair::new(
+                "ed012004FF5B81046DDCCF19E2E451C45DFB6F53759D4EB30FA2EFA807284D1CC33016"
+                    .parse()
+                    .unwrap(),
+                "802620AF3F96DEEF44348FEB516C057558972CEC4C75C4DB9C5B3AAC843668854BF828"
+                    .parse()
+                    .unwrap(),
+            )
+            .unwrap()
+        });
+
+        #[test]
+        fn valid() {
+            let SignedQuery::V1(signed_query) = QueryRequest::Singular(
+                SingularQueryBox::FindExecutorDataModel(FindExecutorDataModel),
+            )
+            .with_authority(ALICE_ID.clone())
+            .sign(&ALICE_KEYPAIR);
+
+            let candidate = SignedQueryCandidate {
+                signature: signed_query.signature,
+                payload: signed_query.payload,
+            };
+
+            candidate.validate().unwrap();
+        }
+
+        #[test]
+        fn invalid_signature() {
+            let SignedQuery::V1(signed_query) = QueryRequest::Singular(
+                SingularQueryBox::FindExecutorDataModel(FindExecutorDataModel),
+            )
+            .with_authority(ALICE_ID.clone())
+            .sign(&ALICE_KEYPAIR);
+
+            let mut candidate = SignedQueryCandidate {
+                signature: signed_query.signature,
+                payload: signed_query.payload,
+            };
+
+            // corrupt the signature by changing a single byte in an encoded signature
+            let mut signature_bytes = candidate.signature.encode();
+            let idx = signature_bytes.len() - 1;
+            signature_bytes[idx] = signature_bytes[idx].wrapping_add(1);
+            candidate.signature = QuerySignature::decode_all(&mut &signature_bytes[..]).unwrap();
+
+            assert_eq!(
+                candidate.validate().unwrap_err(),
+                "Query request signature is not valid"
+            );
+        }
+
+        #[test]
+        fn mismatching_authority() {
+            let SignedQuery::V1(signed_query) = QueryRequest::Singular(
+                SingularQueryBox::FindExecutorDataModel(FindExecutorDataModel),
+            )
+            // signing with a wrong key here
+            .with_authority(ALICE_ID.clone())
+            .sign(&BOB_KEYPAIR);
+
+            let candidate = SignedQueryCandidate {
+                signature: signed_query.signature,
+                payload: signed_query.payload,
+            };
+
+            assert_eq!(
+                candidate.validate().unwrap_err(),
+                "Query request signature is not valid"
+            );
         }
     }
 }
