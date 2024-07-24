@@ -521,14 +521,11 @@ mod valid {
             }
 
             if block.header().is_genesis() {
-                if let Err(e) = check_genesis_block(block, genesis_account) {
-                    return Err(e.into());
-                }
-            } else if let Err(err) = Self::verify_leader_signature(block, topology)
-                .and_then(|()| Self::verify_validator_signatures(block, topology))
-                .and_then(|()| Self::verify_no_undefined_signatures(block, topology))
-            {
-                return Err(err.into());
+                check_genesis_block(block, genesis_account)?;
+            } else {
+                Self::verify_leader_signature(block, topology)?;
+                Self::verify_validator_signatures(block, topology)?;
+                Self::verify_no_undefined_signatures(block, topology)?;
             }
 
             if block.transactions().any(|tx| {
