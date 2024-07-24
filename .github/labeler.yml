@@ -12,4 +12,6 @@ config-changes:
     - base-branch: 'main'
     - changed-files:
       # TODO have templates actually reflect configurations #4288
-      - any-glob-to-any-file: 'defaults/*.template.toml'
+      - any-glob-to-any-file:
+        - 'defaults/*'
+        - 'docs/source/references/*.template.*'

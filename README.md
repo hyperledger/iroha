@@ -199,7 +199,7 @@ The details of the `Health` endpoint can be found in the [API Reference > Torii 
 
 Iroha can produce both JSON-formatted as well as `prometheus`-readable metrics at the `status` and `metrics` endpoints respectively.
 
-The [`prometheus`](https://prometheus.io/docs/introduction/overview/) monitoring system is the de-factor standard for monitoring long-running services such as an Iroha peer. In order to get started, [install `prometheus`](https://prometheus.io/docs/introduction/first_steps/) and use `configs/prometheus.template.yml` for configuration.
+The [`prometheus`](https://prometheus.io/docs/introduction/overview/) monitoring system is the de-factor standard for monitoring long-running services such as an Iroha peer. In order to get started, [install `prometheus`](https://prometheus.io/docs/introduction/first_steps/) and use [the configuration template](docs/source/references/prometheus.template.yml).
 
 ### Storage
 
