@@ -4,7 +4,6 @@ use bytes::{Buf, BufMut, BytesMut};
 use iroha_data_model::prelude::PeerId;
 use message::*;
 use parity_scale_codec::{DecodeAll, Encode};
-use rand::{Rng, RngCore};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -478,14 +477,12 @@ mod state {
             let key_exchange = K::new();
             let (kx_local_pk, kx_local_sk) = key_exchange.keypair(KeyGenOption::Random);
             let write_half = &mut connection.write;
-            garbage::write(write_half).await?;
             write_half
                 .write_all(K::encode_public_key(&kx_local_pk))
                 .await?;
             // Read server hello with node's public key
             let read_half = &mut connection.read;
             let kx_remote_pk = {
-                garbage::read(read_half).await?;
                 // Then we have servers public key
                 let mut key = vec![0_u8; 32];
                 let _ = read_half.read_exact(&mut key).await?;
@@ -526,14 +523,12 @@ mod state {
             let kx_local_pk_raw = K::encode_public_key(&kx_local_pk);
             let read_half = &mut connection.read;
             let kx_remote_pk = {
-                garbage::read(read_half).await?;
                 // And then we have clients public key
                 let mut key = vec![0_u8; 32];
                 let _ = read_half.read_exact(&mut key).await?;
                 K::decode_public_key(key).map_err(iroha_crypto::error::Error::from)?
             };
             let write_half = &mut connection.write;
-            garbage::write(write_half).await?;
             write_half.write_all(kx_local_pk_raw).await?;
             let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk);
             let cryptographer = Cryptographer::new(&shared_key);
@@ -837,37 +832,5 @@ impl Connection {
     pub fn new(id: ConnectionId, stream: TcpStream) -> Self {
         let (read, write) = stream.into_split();
         Connection { id, read, write }
-    }
-}
-
-mod garbage {
-    //! Module with functions to read and write garbage.
-    // TODO: why do we need this?
-
-    use super::*;
-
-    /// Generate random garbage bytes and writes then to the stream.
-    pub(super) async fn write(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
-        let size;
-        // Additional byte for the length of the garbage to send everything in one go
-        let mut garbage = [0u8; MAX_HANDSHAKE_LENGTH as usize + 1];
-        {
-            let rng = &mut rand::thread_rng();
-            size = rng.gen_range(64..=MAX_HANDSHAKE_LENGTH);
-            garbage[0] = size;
-            rng.fill_bytes(&mut garbage[1..=(size as usize)]);
-        }
-        iroha_logger::trace!(size, "Writing garbage");
-        stream.write_all(&garbage[..=(size as usize)]).await?;
-        Ok(())
-    }
-
-    /// Read and discards random garbage bytes from the stream.
-    pub(super) async fn read(stream: &mut OwnedReadHalf) -> Result<(), Error> {
-        let size = stream.read_u8().await? as usize;
-        iroha_logger::trace!(size, "Reading garbage");
-        let mut garbage = [0u8; MAX_HANDSHAKE_LENGTH as usize];
-        let _ = stream.read_exact(&mut garbage[..size]).await?;
-        Ok(())
     }
 }
