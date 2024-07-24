@@ -172,13 +172,13 @@ mod test {
 
     use crate::{
         account::AccountId,
+        asset::AssetId,
         domain::DomainId,
-        prelude::StringPredicateBox,
+        prelude::{AssetDefinitionIdPredicateBox, AssetIdPredicateBox, StringPredicateBox},
         query::predicate::{
             predicate_ast_extensions::AstPredicateExt as _,
             predicate_atoms::{
                 account::{AccountIdPredicateBox, AccountPredicateBox},
-                asset::AssetPredicateBox,
                 domain::DomainIdPredicateBox,
                 PublicKeyPredicateBox,
             },
@@ -246,18 +246,13 @@ mod test {
 
         let account_predicate_denorm = AccountPredicateBox::build_fragment(|account| {
             let account_id_predicate = AccountIdPredicateBox::build_fragment(|account_id| {
-                // can't use `&&` because it's not overloadable =(
-                account_id.signatory.eq(alice_signatory.clone())
-                    & account_id.domain_id.eq(alice_domain_id.clone())
-
-                // alternative syntax w/o operator overloading
-                // account_id
-                //     .signatory
-                //     .eq(alice_signatory.clone())
-                //     .and(account_id.domain_id.eq(alice_domain_id.clone()))
+                account_id
+                    .signatory
+                    .eq(alice_signatory.clone())
+                    .and(account_id.domain_id.eq(alice_domain_id.clone()))
             });
 
-            // TODO: do we want to allow `CompoundPredicate` to be passed here? Converting from the normalized representation it uses is kind of inefficient...
+            // note that we use a non-normalized predicate, built with `build_fragment`
             account.id.satisfies(account_id_predicate)
         });
         let account_predicate = account_predicate_denorm.normalize();
@@ -279,18 +274,50 @@ mod test {
     /// Tests operator overloading shorthand combinators for various cases
     #[test]
     fn test_operator_overloading() {
-        AssetPredicateBox::build(|asset| {
-            let id = asset.id;
+        let asset_id1: AssetId = "xor##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse().unwrap();
+        let asset_id2: AssetId = "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse().unwrap();
 
-            id.definition_id.name.starts_with("xor")
-                | id.account.domain_id.eq("wonderland".parse().unwrap())
+        let asset_predicate = AssetIdPredicateBox::build(|id| {
+            // DSL uses `|` and `&` operators, even though the actual logic is short-circuiting internally.
+            // this is because `||` and `&&` are not overloadable in Rust
+
+            // check that operator overloading works on atomic predicates
+            let or_predicate1 = id.eq(asset_id1.clone()) | id.eq(asset_id2.clone());
+
+            // check that operator overloading works on projection predicates
+            let or_predicate2 = id.definition_id.name.starts_with("xor")
+                | id.account.domain_id.eq("wonderland".parse().unwrap());
+
+            // check that operator overloading works on predicate combinators
+            or_predicate1 & or_predicate2
         });
 
-        // TODO
+        assert_eq!(
+            asset_predicate,
+            CompoundPredicate::And(vec![
+                CompoundPredicate::Or(vec![
+                    CompoundPredicate::Atom(AssetIdPredicateBox::Equals(asset_id1)),
+                    CompoundPredicate::Atom(AssetIdPredicateBox::Equals(asset_id2)),
+                ]),
+                CompoundPredicate::Or(vec![
+                    CompoundPredicate::Atom(AssetIdPredicateBox::DefinitionId(
+                        AssetDefinitionIdPredicateBox::Name(StringPredicateBox::StartsWith(
+                            "xor".to_string()
+                        ))
+                    )),
+                    CompoundPredicate::Atom(AssetIdPredicateBox::AccountId(
+                        AccountIdPredicateBox::DomainId(DomainIdPredicateBox::Equals(
+                            "wonderland".parse().unwrap()
+                        ))
+                    )),
+                ]),
+            ])
+        );
     }
 
     #[test]
     fn test_flattening() {
+        // check `and` flattening
         let right_assoc = StringPredicateBox::build(|s| {
             s.starts_with("a") & (s.ends_with("b") & s.ends_with("c"))
         });
@@ -332,7 +359,7 @@ mod test {
             ])
         );
 
-        // check not flattening
+        // check `not` flattening
         let not_flat = StringPredicateBox::build(|s| !!s.starts_with("a"));
 
         assert_eq!(
