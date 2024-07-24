@@ -158,6 +158,7 @@ mod model {
         Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     #[display(fmt = "{id} {mintable}{type_}")]
+    #[serde(rename = "AssetDefinition")]
     #[ffi_type]
     pub struct NewAssetDefinition {
         /// The identification associated with the asset definition builder.
