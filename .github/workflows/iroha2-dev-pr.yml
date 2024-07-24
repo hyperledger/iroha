@@ -18,6 +18,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CLIENT_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
+  DOCKER_COMPOSE_PATH: configs/swarm
+  POETRY_HOME: /opt/poetry
 
 jobs:
   consistency:
@@ -146,42 +148,63 @@ jobs:
 
   torii-api-and-client-cli-tests:
     runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
+    #container:
+    # image: hyperledger/iroha2-ci:nightly-2024-04-18
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - name: Build binaries
+      - name: Set up Docker Buildx
+        id: buildx
+        if: always()
+        uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+      - name: Install Poetry
         run: |
-          cargo build -p iroha_client_cli -p kagami -p irohad
-      - name: Setup test Iroha 2 environment on the bare metal
+          curl -sSL https://install.python-poetry.org | python3 -
+          export PATH="/opt/poetry/bin:$PATH"
+      - name: Build and export to Docker iroha:local and iroha:dev images
+        uses: docker/build-push-action@v6
+        if: always()
+        with:
+          context: .
+          load: true
+          file: Dockerfile
+          tags: |
+            hyperledger/iroha:local
+            hyperledger/iroha:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Test docker-compose.yml containers
         run: |
-          pip3 install -r scripts/requirements.txt --no-input --break-system-packages
-          ./scripts/test_env.py setup
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml up --wait || exit 1
+      - name: Show containers names
+        run: docker ps -a
+      - name: Copy build client cli bin from peer into runner
+        run: |
+          mkdir -p test
+          docker cp swarm-irohad0-1:/usr/local/bin/iroha test
+          cp ./configs/swarm/client.toml test
       - name: Mark binaries as executable
         run: |
-          chmod +x ${{ env.CLIENT_CLI_DIR }}
+          chmod +x test/iroha
       - name: Install torii api dependencies using Poetry
         working-directory: torii/pytests
         run: |
-          poetry install
+          /opt/poetry/bin/poetry install
       - name: Run torii api tests
         working-directory: torii/pytests
         run: |
-          poetry run pytest
+          /opt/poetry/bin/poetry run pytest
       - name: Install client cli dependencies using Poetry
         working-directory: client_cli/pytests
         run: |
-          poetry install
+          /opt/poetry/bin/poetry install
       - name: Run client cli tests
         working-directory: client_cli/pytests
         env:
-          # prepared by `test_env.py`
           CLIENT_CLI_BINARY: ../../test/iroha
           CLIENT_CLI_CONFIG: ../../test/client.toml
         run: |
-          poetry run pytest
-      - name: Cleanup test environment
-        run: |
-          ./scripts/test_env.py cleanup
+          /opt/poetry/bin/poetry run pytest
