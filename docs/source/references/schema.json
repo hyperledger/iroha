@@ -167,7 +167,7 @@
       },
       {
         "name": "filter",
-        "type": "TriggeringEventFilterBox"
+        "type": "EventFilterBox"
       },
       {
         "name": "metadata",
@@ -2228,12 +2228,8 @@
         "type": "String"
       },
       {
-        "tag": "NameLength",
-        "discriminant": 1
-      },
-      {
         "tag": "TimeTriggerInThePast",
-        "discriminant": 2
+        "discriminant": 1
       }
     ]
   },
@@ -4337,30 +4333,6 @@
       {
         "name": "by",
         "type": "u32"
-      }
-    ]
-  },
-  "TriggeringEventFilterBox": {
-    "Enum": [
-      {
-        "tag": "Pipeline",
-        "discriminant": 0,
-        "type": "PipelineEventFilterBox"
-      },
-      {
-        "tag": "Data",
-        "discriminant": 1,
-        "type": "DataEventFilter"
-      },
-      {
-        "tag": "Time",
-        "discriminant": 2,
-        "type": "TimeEventFilter"
-      },
-      {
-        "tag": "ExecuteTrigger",
-        "discriminant": 3,
-        "type": "ExecuteTriggerEventFilter"
       }
     ]
   },

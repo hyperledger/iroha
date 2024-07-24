@@ -32,7 +32,7 @@ use self::{
 use crate::{
     account::{Account, AccountId},
     block::{BlockHeader, SignedBlock},
-    events::TriggeringEventFilterBox,
+    events::EventFilterBox,
     seal,
     transaction::{CommittedTransaction, SignedTransaction, TransactionPayload},
     IdBox, Identifiable, IdentifiableBox,
@@ -1031,7 +1031,7 @@ pub mod trigger {
     use crate::{
         account::AccountId,
         domain::prelude::*,
-        events::TriggeringEventFilterBox,
+        events::EventFilterBox,
         prelude::InstructionBox,
         trigger::{Trigger, TriggerId},
         Executable, Identifiable, Name,

@@ -400,7 +400,6 @@ types!(
     TriggerEventSet,
     TriggerId,
     TriggerNumberOfExecutionsChanged,
-    TriggeringEventFilterBox,
     TypeError,
     Unregister<Account>,
     Unregister<Asset>,

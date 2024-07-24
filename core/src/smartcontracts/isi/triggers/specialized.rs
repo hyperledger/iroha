@@ -4,7 +4,7 @@ use derive_more::Constructor;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     account::AccountId,
-    events::{EventFilter, TriggeringEventFilterBox},
+    events::{EventFilter, EventFilterBox},
     metadata::Metadata,
     prelude::*,
 };
@@ -52,7 +52,7 @@ impl<F> SpecializedAction<F> {
 
 impl<F> From<SpecializedAction<F>> for Action
 where
-    F: Into<TriggeringEventFilterBox>,
+    F: Into<EventFilterBox>,
 {
     fn from(value: SpecializedAction<F>) -> Self {
         Action {
@@ -81,7 +81,7 @@ macro_rules! impl_try_from_box {
                 type Error = &'static str;
 
                 fn try_from(boxed: Trigger) -> Result<Self, Self::Error> {
-                    if let TriggeringEventFilterBox::$variant(concrete_filter) = boxed.action.filter {
+                    if let EventFilterBox::$variant(concrete_filter) = boxed.action.filter {
                         let action = SpecializedAction::new(
                             boxed.action.executable,
                             boxed.action.repeats,
@@ -93,7 +93,7 @@ macro_rules! impl_try_from_box {
                             action,
                         })
                     } else {
-                        Err(concat!("Expected `TriggeringEventFilterBox::", stringify!($variant),"`, but another variant found"))
+                        Err(concat!("Expected `EventFilterBox::", stringify!($variant),"`, but another variant found"))
                     }
                 }
             }
@@ -159,15 +159,13 @@ pub trait LoadedActionTrait {
     fn mintable(&self) -> bool;
 
     /// Convert action to a boxed representation
-    fn into_boxed(self) -> LoadedAction<TriggeringEventFilterBox>;
+    fn into_boxed(self) -> LoadedAction<EventFilterBox>;
 
     /// Same as [`into_boxed()`](LoadedActionTrait::into_boxed) but clones `self`
-    fn clone_and_box(&self) -> LoadedAction<TriggeringEventFilterBox>;
+    fn clone_and_box(&self) -> LoadedAction<EventFilterBox>;
 }
 
-impl<F: EventFilter + Into<TriggeringEventFilterBox> + Clone> LoadedActionTrait
-    for LoadedAction<F>
-{
+impl<F: EventFilter + Into<EventFilterBox> + Clone> LoadedActionTrait for LoadedAction<F> {
     fn executable(&self) -> &ExecutableRef {
         &self.executable
     }
@@ -196,7 +194,7 @@ impl<F: EventFilter + Into<TriggeringEventFilterBox> + Clone> LoadedActionTrait
         self.filter.mintable()
     }
 
-    fn into_boxed(self) -> LoadedAction<TriggeringEventFilterBox> {
+    fn into_boxed(self) -> LoadedAction<EventFilterBox> {
         let Self {
             executable,
             repeats,
@@ -214,7 +212,7 @@ impl<F: EventFilter + Into<TriggeringEventFilterBox> + Clone> LoadedActionTrait
         }
     }
 
-    fn clone_and_box(&self) -> LoadedAction<TriggeringEventFilterBox> {
+    fn clone_and_box(&self) -> LoadedAction<EventFilterBox> {
         self.clone().into_boxed()
     }
 }
@@ -225,29 +223,28 @@ mod tests {
 
     #[test]
     fn trigger_with_filterbox_can_be_unboxed() {
-        /// Should fail to compile if a new variant will be added to `TriggeringEventFilterBox`
+        /// Should fail to compile if a new variant will be added to `EventFilterBox`
         #[allow(dead_code)]
         fn compile_time_check(boxed: Trigger) {
             match &boxed.action.filter {
-                TriggeringEventFilterBox::Data(_) => {
-                    SpecializedTrigger::<DataEventFilter>::try_from(boxed)
-                        .map(|_| ())
-                        .unwrap()
-                }
-                TriggeringEventFilterBox::Pipeline(_) => {
+                EventFilterBox::Data(_) => SpecializedTrigger::<DataEventFilter>::try_from(boxed)
+                    .map(|_| ())
+                    .unwrap(),
+                EventFilterBox::Pipeline(_) => {
                     SpecializedTrigger::<PipelineEventFilterBox>::try_from(boxed)
                         .map(|_| ())
                         .unwrap()
                 }
-                TriggeringEventFilterBox::Time(_) => {
-                    SpecializedTrigger::<TimeEventFilter>::try_from(boxed)
-                        .map(|_| ())
-                        .unwrap()
-                }
-                TriggeringEventFilterBox::ExecuteTrigger(_) => {
+                EventFilterBox::Time(_) => SpecializedTrigger::<TimeEventFilter>::try_from(boxed)
+                    .map(|_| ())
+                    .unwrap(),
+                EventFilterBox::ExecuteTrigger(_) => {
                     SpecializedTrigger::<ExecuteTriggerEventFilter>::try_from(boxed)
                         .map(|_| ())
                         .unwrap()
+                }
+                EventFilterBox::TriggerCompleted(_) => {
+                    unreachable!("Disallowed during deserialization")
                 }
             }
         }

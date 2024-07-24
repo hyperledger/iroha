@@ -1467,10 +1467,6 @@ pub mod error {
         pub enum InvalidParameterError {
             /// Invalid WASM binary: {0}
             Wasm(String),
-            /// Name length violation
-            ///
-            /// i.e. too long [`AccountId`]
-            NameLength,
             /// Attempt to register a time-trigger with `start` point in the past
             TimeTriggerInThePast,
         }

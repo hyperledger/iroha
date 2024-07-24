@@ -96,35 +96,6 @@ mod model {
         /// Listen to trigger completion event with filter.
         TriggerCompleted(trigger_completed::TriggerCompletedEventFilter),
     }
-
-    /// Event filter which could be attached to trigger.
-    #[allow(variant_size_differences)]
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    // TODO: Temporarily made opaque
-    #[ffi_type(opaque)]
-    pub enum TriggeringEventFilterBox {
-        /// Listen to pipeline events with filter.
-        Pipeline(pipeline::PipelineEventFilterBox),
-        /// Listen to data events with filter.
-        Data(data::DataEventFilter),
-        /// Listen to time events with filter.
-        Time(time::TimeEventFilter),
-        /// Listen to trigger execution event with filter.
-        ExecuteTrigger(execute_trigger::ExecuteTriggerEventFilter),
-    }
 }
 
 impl From<TransactionEvent> for EventBox {
@@ -232,32 +203,6 @@ impl EventFilter for EventFilterBox {
     }
 }
 
-#[cfg(feature = "transparent_api")]
-impl EventFilter for TriggeringEventFilterBox {
-    type Event = EventBox;
-
-    /// Apply filter to event.
-    fn matches(&self, event: &EventBox) -> bool {
-        match (event, self) {
-            (EventBox::Pipeline(event), Self::Pipeline(filter)) => filter.matches(event),
-            (EventBox::Data(event), Self::Data(filter)) => filter.matches(event),
-            (EventBox::Time(event), Self::Time(filter)) => filter.matches(event),
-            (EventBox::ExecuteTrigger(event), Self::ExecuteTrigger(filter)) => {
-                filter.matches(event)
-            }
-            // Fail to compile in case when new variant to event or filter is added
-            (
-                EventBox::Pipeline(_)
-                | EventBox::Data(_)
-                | EventBox::Time(_)
-                | EventBox::ExecuteTrigger(_)
-                | EventBox::TriggerCompleted(_),
-                Self::Pipeline(_) | Self::Data(_) | Self::Time(_) | Self::ExecuteTrigger(_),
-            ) => false,
-        }
-    }
-}
-
 mod conversions {
     use super::{
         pipeline::{BlockEventFilter, TransactionEventFilter},
@@ -299,19 +244,6 @@ mod conversions {
         RoleEventFilter             => DataEventFilter => EventFilterBox,
         ConfigurationEventFilter    => DataEventFilter => EventFilterBox,
         ExecutorEventFilter         => DataEventFilter => EventFilterBox,
-
-        PeerEventFilter             => DataEventFilter => TriggeringEventFilterBox,
-        DomainEventFilter           => DataEventFilter => TriggeringEventFilterBox,
-        AccountEventFilter          => DataEventFilter => TriggeringEventFilterBox,
-        AssetEventFilter            => DataEventFilter => TriggeringEventFilterBox,
-        AssetDefinitionEventFilter  => DataEventFilter => TriggeringEventFilterBox,
-        TriggerEventFilter          => DataEventFilter => TriggeringEventFilterBox,
-        RoleEventFilter             => DataEventFilter => TriggeringEventFilterBox,
-        ConfigurationEventFilter    => DataEventFilter => TriggeringEventFilterBox,
-        ExecutorEventFilter         => DataEventFilter => TriggeringEventFilterBox,
-
-        TransactionEventFilter => PipelineEventFilterBox => TriggeringEventFilterBox,
-        BlockEventFilter       => PipelineEventFilterBox => TriggeringEventFilterBox,
 
         TransactionEventFilter => PipelineEventFilterBox => EventFilterBox,
         BlockEventFilter       => PipelineEventFilterBox => EventFilterBox,
@@ -361,7 +293,6 @@ pub mod prelude {
     pub use super::EventFilter;
     pub use super::{
         data::prelude::*, execute_trigger::prelude::*, pipeline::prelude::*, time::prelude::*,
-        trigger_completed::prelude::*, EventBox, EventFilterBox, TriggeringEventFilterBox,
-        TriggeringEventType,
+        trigger_completed::prelude::*, EventBox, EventFilterBox, TriggeringEventType,
     };
 }

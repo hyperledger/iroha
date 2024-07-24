@@ -115,9 +115,7 @@ pub mod action {
         /// triggers without gaps, the `Executable` wrapped in the action must
         /// be run before any of the ISIs are pushed into the queue of the
         /// next block.
-        #[derive(
-            Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
-        )]
+        #[derive(Debug, Clone, PartialEq, Eq, Encode, Serialize, IntoSchema)]
         #[ffi_type]
         pub struct Action {
             /// The executable linked to this action
@@ -129,7 +127,7 @@ pub mod action {
             /// Account executing this action
             pub authority: AccountId,
             /// Defines events which trigger the `Action`
-            pub filter: TriggeringEventFilterBox,
+            pub filter: EventFilterBox,
             /// Metadata used as persistent storage for trigger data.
             pub metadata: Metadata,
         }
@@ -170,27 +168,34 @@ pub mod action {
             &self.authority
         }
         /// Defines events which trigger the `Action`
-        pub fn filter(&self) -> &TriggeringEventFilterBox {
+        pub fn filter(&self) -> &EventFilterBox {
             &self.filter
         }
     }
 
     impl Action {
         /// Construct an action given `executable`, `repeats`, `authority` and `filter`.
+        /// Filter of type [`EventFilterBox::TriggerCompleted`] is not allowed.
+        ///
+        /// # Panics
+        ///
+        /// - if filter matches [`EventFilterBox::TriggerCompleted`]
         pub fn new(
             executable: impl Into<Executable>,
             repeats: impl Into<Repeats>,
             authority: AccountId,
-            filter: impl Into<TriggeringEventFilterBox>,
+            filter: impl Into<EventFilterBox>,
         ) -> Self {
-            Self {
+            let action = candidate::ActionCandidate {
                 executable: executable.into(),
                 repeats: repeats.into(),
                 // TODO: At this point the authority is meaningless.
                 authority,
                 filter: filter.into(),
                 metadata: Metadata::default(),
-            }
+            };
+
+            action.validate().unwrap()
         }
 
         /// Add [`Metadata`] to the trigger replacing previously defined
@@ -241,6 +246,57 @@ pub mod action {
     impl From<u32> for Repeats {
         fn from(num: u32) -> Self {
             Repeats::Exactly(num)
+        }
+    }
+
+    mod candidate {
+        use parity_scale_codec::Input;
+
+        use super::*;
+
+        #[derive(Decode, Deserialize)]
+        pub(super) struct ActionCandidate {
+            pub executable: Executable,
+            pub repeats: Repeats,
+            pub authority: AccountId,
+            pub filter: EventFilterBox,
+            pub metadata: Metadata,
+        }
+
+        impl ActionCandidate {
+            pub(super) fn validate(self) -> Result<Action, &'static str> {
+                if matches!(self.filter, EventFilterBox::TriggerCompleted(_)) {
+                    return Err("TriggerCompleted cannot be used as filter for triggering actions");
+                }
+
+                Ok(Action {
+                    executable: self.executable,
+                    repeats: self.repeats,
+                    authority: self.authority,
+                    filter: self.filter,
+                    metadata: self.metadata,
+                })
+            }
+        }
+
+        impl Decode for Action {
+            fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+                ActionCandidate::decode(input)?
+                    .validate()
+                    .map_err(Into::into)
+            }
+        }
+        impl<'de> Deserialize<'de> for Action {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                use serde::de::Error as _;
+
+                ActionCandidate::deserialize(deserializer)?
+                    .validate()
+                    .map_err(D::Error::custom)
+            }
         }
     }
 
