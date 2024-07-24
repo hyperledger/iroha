@@ -631,10 +631,6 @@
         "type": "BlockHeader"
       },
       {
-        "name": "commit_topology",
-        "type": "Vec<PeerId>"
-      },
-      {
         "name": "transactions",
         "type": "Vec<CommittedTransaction>"
       },

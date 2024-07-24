@@ -7,14 +7,12 @@ use iroha_core::{
     query::store::LiveQueryStore,
     smartcontracts::{isi::Registrable as _, Execute},
     state::{State, World},
-    sumeragi::network_topology::Topology,
     tx::TransactionExecutor,
 };
 use iroha_data_model::{
     account::AccountId, isi::InstructionBox, parameter::TransactionParameters, prelude::*,
     transaction::TransactionBuilder,
 };
-use iroha_primitives::unique_vec::UniqueVec;
 use nonzero_ext::nonzero;
 use once_cell::sync::Lazy;
 use test_samples::gen_account_in;
@@ -50,7 +48,7 @@ fn build_test_and_transient_state() -> State {
             let (account_id, _account_keypair) = gen_account_in(&*STARTER_DOMAIN);
             let domain = Domain::new(STARTER_DOMAIN.clone()).build(&account_id);
             let account = Account::new(account_id.clone()).build(&account_id);
-            World::with([domain], [account], [], UniqueVec::new())
+            World::with([domain], [account], [])
         },
         kura,
         query_handle,
@@ -148,15 +146,12 @@ fn sign_blocks(criterion: &mut Criterion) {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::test().start();
     let state = State::new(World::new(), kura, query_handle);
-    let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
-    let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
-    let topology = Topology::new(vec![peer_id]);
+    let (_, peer_private_key) = KeyPair::random().into_parts();
 
     let mut count = 0;
 
     let mut state_block = state.block();
-    let block =
-        BlockBuilder::new(vec![transaction], topology, Vec::new()).chain(0, &mut state_block);
+    let block = BlockBuilder::new(vec![transaction], Vec::new()).chain(0, &mut state_block);
 
     let _ = criterion.bench_function("sign_block", |b| {
         b.iter_batched(

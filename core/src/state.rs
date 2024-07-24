@@ -211,6 +211,10 @@ pub struct State {
     pub block_hashes: Cell<Vec<HashOf<SignedBlock>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: Storage<HashOf<SignedTransaction>, NonZeroUsize>,
+    /// Topology used to commit latest block
+    pub commit_topology: Cell<Vec<PeerId>>,
+    /// Topology used to commit previous block
+    pub prev_commit_topology: Cell<Vec<PeerId>>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
     #[serde(skip)]
     pub engine: wasmtime::Engine,
@@ -238,6 +242,10 @@ pub struct StateBlock<'state> {
     pub block_hashes: CellBlock<'state, Vec<HashOf<SignedBlock>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: StorageBlock<'state, HashOf<SignedTransaction>, NonZeroUsize>,
+    /// Topology used to commit latest block
+    pub commit_topology: CellBlock<'state, Vec<PeerId>>,
+    /// Topology used to commit previous block
+    pub prev_commit_topology: CellBlock<'state, Vec<PeerId>>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
     pub engine: &'state wasmtime::Engine,
 
@@ -260,6 +268,10 @@ pub struct StateTransaction<'block, 'state> {
     pub block_hashes: CellTransaction<'block, 'state, Vec<HashOf<SignedBlock>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: StorageTransaction<'block, 'state, HashOf<SignedTransaction>, NonZeroUsize>,
+    /// Topology used to commit latest block
+    pub commit_topology: CellTransaction<'block, 'state, Vec<PeerId>>,
+    /// Topology used to commit previous block
+    pub prev_commit_topology: CellTransaction<'block, 'state, Vec<PeerId>>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
     pub engine: &'state wasmtime::Engine,
 
@@ -280,6 +292,10 @@ pub struct StateView<'state> {
     pub block_hashes: CellView<'state, Vec<HashOf<SignedBlock>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: StorageView<'state, HashOf<SignedTransaction>, NonZeroUsize>,
+    /// Topology used to commit latest block
+    pub commit_topology: CellView<'state, Vec<PeerId>>,
+    /// Topology used to commit previous block
+    pub prev_commit_topology: CellView<'state, Vec<PeerId>>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
     pub engine: &'state wasmtime::Engine,
 
@@ -299,18 +315,13 @@ impl World {
     }
 
     /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
-    pub fn with<D, A, Ad>(
-        domains: D,
-        accounts: A,
-        asset_definitions: Ad,
-        trusted_peers_ids: PeersIds,
-    ) -> Self
+    pub fn with<D, A, Ad>(domains: D, accounts: A, asset_definitions: Ad) -> Self
     where
         D: IntoIterator<Item = Domain>,
         A: IntoIterator<Item = Account>,
         Ad: IntoIterator<Item = AssetDefinition>,
     {
-        Self::with_assets(domains, accounts, asset_definitions, [], trusted_peers_ids)
+        Self::with_assets(domains, accounts, asset_definitions, [])
     }
 
     /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
@@ -319,7 +330,6 @@ impl World {
         accounts: A,
         asset_definitions: Ad,
         assets: As,
-        trusted_peers_ids: PeersIds,
     ) -> Self
     where
         D: IntoIterator<Item = Domain>,
@@ -341,7 +351,6 @@ impl World {
             .collect();
         let assets = assets.into_iter().map(|ad| (ad.id().clone(), ad)).collect();
         Self {
-            trusted_peers_ids: Cell::new(trusted_peers_ids),
             domains,
             accounts,
             asset_definitions,
@@ -757,40 +766,76 @@ impl<'world> WorldBlock<'world> {
 
     /// Commit block's changes
     pub fn commit(self) {
+        // NOTE: intentionally destruct self not to forget commit some fields
+        let Self {
+            parameters,
+            trusted_peers_ids,
+            domains,
+            accounts,
+            asset_definitions,
+            asset_total_quantities,
+            assets,
+            roles,
+            account_permissions,
+            account_roles,
+            triggers,
+            executor,
+            executor_data_model,
+            events_buffer: _,
+            genesis_creation_time_ms: _,
+        } = self;
         // IMPORTANT!!! Commit fields in reverse order, this way consistent results are insured
-        self.executor_data_model.commit();
-        self.executor.commit();
-        self.triggers.commit();
-        self.account_roles.commit();
-        self.account_permissions.commit();
-        self.roles.commit();
-        self.assets.commit();
-        self.asset_total_quantities.commit();
-        self.asset_definitions.commit();
-        self.accounts.commit();
-        self.domains.commit();
-        self.trusted_peers_ids.commit();
-        self.parameters.commit();
+        executor_data_model.commit();
+        executor.commit();
+        triggers.commit();
+        account_roles.commit();
+        account_permissions.commit();
+        roles.commit();
+        assets.commit();
+        asset_total_quantities.commit();
+        asset_definitions.commit();
+        accounts.commit();
+        domains.commit();
+        trusted_peers_ids.commit();
+        parameters.commit();
     }
 }
 
 impl WorldTransaction<'_, '_> {
     /// Apply transaction's changes
-    pub fn apply(mut self) {
-        self.executor_data_model.apply();
-        self.executor.apply();
-        self.triggers.apply();
-        self.account_roles.apply();
-        self.account_permissions.apply();
-        self.roles.apply();
-        self.assets.apply();
-        self.asset_total_quantities.apply();
-        self.asset_definitions.apply();
-        self.accounts.apply();
-        self.domains.apply();
-        self.trusted_peers_ids.apply();
-        self.parameters.apply();
-        self.events_buffer.events_created_in_transaction = 0;
+    pub fn apply(self) {
+        // NOTE: intentionally destruct self not to forget commit some fields
+        let Self {
+            parameters,
+            trusted_peers_ids,
+            domains,
+            accounts,
+            asset_definitions,
+            asset_total_quantities,
+            assets,
+            roles,
+            account_permissions,
+            account_roles,
+            triggers,
+            executor,
+            executor_data_model,
+            mut events_buffer,
+            genesis_creation_time_ms: _,
+        } = self;
+        executor_data_model.apply();
+        executor.apply();
+        triggers.apply();
+        account_roles.apply();
+        account_permissions.apply();
+        roles.apply();
+        assets.apply();
+        asset_total_quantities.apply();
+        asset_definitions.apply();
+        accounts.apply();
+        domains.apply();
+        trusted_peers_ids.apply();
+        parameters.apply();
+        events_buffer.events_created_in_transaction = 0;
     }
 
     /// Get `Domain` with an ability to modify it.
@@ -1081,6 +1126,8 @@ impl State {
         Self {
             world,
             transactions: Storage::new(),
+            commit_topology: Cell::new(Vec::new()),
+            prev_commit_topology: Cell::new(Vec::new()),
             block_hashes: Cell::new(Vec::new()),
             new_tx_amounts: Arc::new(Mutex::new(Vec::new())),
             engine: wasm::create_engine(),
@@ -1096,6 +1143,8 @@ impl State {
             world: self.world.block(),
             block_hashes: self.block_hashes.block(),
             transactions: self.transactions.block(),
+            commit_topology: self.commit_topology.block(),
+            prev_commit_topology: self.prev_commit_topology.block(),
             engine: &self.engine,
             kura: &self.kura,
             query_handle: &self.query_handle,
@@ -1110,6 +1159,8 @@ impl State {
             world: self.world.block_and_revert(),
             block_hashes: self.block_hashes.block_and_revert(),
             transactions: self.transactions.block_and_revert(),
+            commit_topology: self.commit_topology.block_and_revert(),
+            prev_commit_topology: self.prev_commit_topology.block_and_revert(),
             engine: &self.engine,
             kura: &self.kura,
             query_handle: &self.query_handle,
@@ -1125,6 +1176,8 @@ impl State {
             world: self.world.view(),
             block_hashes: self.block_hashes.view(),
             transactions: self.transactions.view(),
+            commit_topology: self.commit_topology.view(),
+            prev_commit_topology: self.prev_commit_topology.view(),
             engine: &self.engine,
             kura: &self.kura,
             query_handle: &self.query_handle,
@@ -1139,6 +1192,8 @@ pub trait StateReadOnly {
     fn world(&self) -> &impl WorldReadOnly;
     fn block_hashes(&self) -> &[HashOf<SignedBlock>];
     fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, NonZeroUsize>;
+    fn commit_topology(&self) -> &[PeerId];
+    fn prev_commit_topology(&self) -> &[PeerId];
     fn engine(&self) -> &wasmtime::Engine;
     fn kura(&self) -> &Kura;
     fn query_handle(&self) -> &LiveQueryStoreHandle;
@@ -1150,17 +1205,6 @@ pub trait StateReadOnly {
     #[inline]
     fn latest_block(&self) -> Option<Arc<SignedBlock>> {
         NonZeroUsize::new(self.height()).and_then(|height| self.kura().get_block_by_height(height))
-    }
-
-    /// Get a reference to the previous to latest block. Returns none if at least 2 blocks are not committed.
-    ///
-    /// If you only need hash of the previous block prefer using [`Self::prev_block_hash`]
-    #[inline]
-    fn prev_block(&self) -> Option<Arc<SignedBlock>> {
-        self.height()
-            .checked_sub(1)
-            .and_then(NonZeroUsize::new)
-            .and_then(|height| self.kura().get_block_by_height(height))
     }
 
     /// Return the hash of the latest block
@@ -1266,6 +1310,12 @@ macro_rules! impl_state_ro {
             fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, NonZeroUsize> {
                 &self.transactions
             }
+            fn commit_topology(&self) -> &[PeerId] {
+                &self.commit_topology
+            }
+            fn prev_commit_topology(&self) -> &[PeerId] {
+                &self.prev_commit_topology
+            }
             fn engine(&self) -> &wasmtime::Engine {
                 &self.engine
             }
@@ -1293,6 +1343,8 @@ impl<'state> StateBlock<'state> {
             world: self.world.trasaction(),
             block_hashes: self.block_hashes.transaction(),
             transactions: self.transactions.transaction(),
+            commit_topology: self.commit_topology.transaction(),
+            prev_commit_topology: self.prev_commit_topology.transaction(),
             engine: self.engine,
             kura: self.kura,
             query_handle: self.query_handle,
@@ -1302,10 +1354,25 @@ impl<'state> StateBlock<'state> {
 
     /// Commit changes aggregated during application of block
     pub fn commit(self) {
-        let _view_lock = self.view_lock.write();
-        self.transactions.commit();
-        self.block_hashes.commit();
-        self.world.commit();
+        // NOTE: intentionally destruct self not to forget commit some fields
+        let Self {
+            world,
+            block_hashes,
+            transactions,
+            commit_topology: committed_topology,
+            prev_commit_topology: prev_committed_topology,
+            view_lock,
+            engine: _,
+            kura: _,
+            query_handle: _,
+            new_tx_amounts: _,
+        } = self;
+        let _view_lock = view_lock.write();
+        prev_committed_topology.commit();
+        committed_topology.commit();
+        transactions.commit();
+        block_hashes.commit();
+        world.commit();
     }
 
     /// Commit `CommittedBlock` with changes in form of **Iroha Special
@@ -1325,10 +1392,14 @@ impl<'state> StateBlock<'state> {
         deprecated(note = "This function is to be used in testing only. ")
     )]
     #[iroha_logger::log(skip_all, fields(block_height))]
-    pub fn apply(&mut self, block: &CommittedBlock) -> Result<MustUse<Vec<EventBox>>> {
+    pub fn apply(
+        &mut self,
+        block: &CommittedBlock,
+        topology: Vec<PeerId>,
+    ) -> Result<MustUse<Vec<EventBox>>> {
         self.execute_transactions(block)?;
         debug!("All block transactions successfully executed");
-        Ok(self.apply_without_execution(block).into())
+        Ok(self.apply_without_execution(block, topology).into())
     }
 
     /// Execute `block` transactions and store their hashes as well as
@@ -1357,7 +1428,11 @@ impl<'state> StateBlock<'state> {
     /// It's assumed that block's transaction was already executed (as part of validation for example).
     #[iroha_logger::log(skip_all, fields(block_height = block.as_ref().header().height))]
     #[must_use]
-    pub fn apply_without_execution(&mut self, block: &CommittedBlock) -> Vec<EventBox> {
+    pub fn apply_without_execution(
+        &mut self,
+        block: &CommittedBlock,
+        topology: Vec<PeerId>,
+    ) -> Vec<EventBox> {
         let block_hash = block.as_ref().hash();
         trace!(%block_hash, "Applying block");
 
@@ -1391,6 +1466,9 @@ impl<'state> StateBlock<'state> {
         }
 
         self.block_hashes.push(block_hash);
+
+        *self.prev_commit_topology = core::mem::take(&mut self.commit_topology);
+        *self.commit_topology = topology;
 
         self.world.events_buffer.push(
             BlockEvent {
@@ -1475,9 +1553,23 @@ impl<'state> StateBlock<'state> {
 impl StateTransaction<'_, '_> {
     /// Apply transaction making it's changes visible
     pub fn apply(self) {
-        self.transactions.apply();
-        self.block_hashes.apply();
-        self.world.apply();
+        // NOTE: intentionally destruct self not to forget apply some fields
+        let Self {
+            world,
+            block_hashes,
+            transactions,
+            commit_topology: committed_topology,
+            prev_commit_topology: prev_committed_topology,
+            engine: _,
+            kura: _,
+            query_handle: _,
+            new_tx_amounts: _,
+        } = self;
+        prev_committed_topology.apply();
+        committed_topology.apply();
+        transactions.apply();
+        block_hashes.apply();
+        world.apply();
     }
 
     fn process_executable(&mut self, executable: &Executable, authority: AccountId) -> Result<()> {
@@ -2006,6 +2098,8 @@ pub(crate) mod deserialize {
                     let mut world = None;
                     let mut block_hashes = None;
                     let mut transactions = None;
+                    let mut commit_topology = None;
+                    let mut prev_commit_topology = None;
 
                     let engine = wasm::create_engine();
 
@@ -2025,6 +2119,12 @@ pub(crate) mod deserialize {
                             "transactions" => {
                                 transactions = Some(map.next_value()?);
                             }
+                            "commit_topology" => {
+                                commit_topology = Some(map.next_value()?);
+                            }
+                            "prev_commit_topology" => {
+                                prev_commit_topology = Some(map.next_value()?);
+                            }
                             _ => { /* Skip unknown fields */ }
                         }
                     }
@@ -2035,6 +2135,11 @@ pub(crate) mod deserialize {
                             .ok_or_else(|| serde::de::Error::missing_field("block_hashes"))?,
                         transactions: transactions
                             .ok_or_else(|| serde::de::Error::missing_field("transactions"))?,
+                        commit_topology: commit_topology
+                            .ok_or_else(|| serde::de::Error::missing_field("commit_topology"))?,
+                        prev_commit_topology: prev_commit_topology.ok_or_else(|| {
+                            serde::de::Error::missing_field("prev_commit_topology")
+                        })?,
                         kura: self.loader.kura,
                         query_handle: self.loader.query_handle,
                         engine,
@@ -2046,7 +2151,13 @@ pub(crate) mod deserialize {
 
             deserializer.deserialize_struct(
                 "WorldState",
-                &["world", "block_hashes", "transactions"],
+                &[
+                    "world",
+                    "block_hashes",
+                    "transactions",
+                    "commit_topology",
+                    "prev_commit_topology",
+                ],
                 StateVisitor { loader: self },
             )
         }
@@ -2095,7 +2206,7 @@ mod tests {
             });
 
             block_hashes.push(block.as_ref().hash());
-            let _events = state_block.apply(&block).unwrap();
+            let _events = state_block.apply(&block, Vec::new()).unwrap();
         }
 
         assert!(state_block
@@ -2118,7 +2229,7 @@ mod tests {
                 payload.header.height = NonZeroU64::new(i as u64).unwrap();
             });
 
-            let _events = state_block.apply(&block).unwrap();
+            let _events = state_block.apply(&block, Vec::new()).unwrap();
             kura.store_block(block);
         }
 

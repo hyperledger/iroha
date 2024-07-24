@@ -1713,7 +1713,7 @@ mod tests {
     use super::*;
     use crate::{
         kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _,
-        state::State, PeersIds, World,
+        state::State, World,
     };
 
     fn world_with_test_account(authority: &AccountId) -> World {
@@ -1721,7 +1721,7 @@ mod tests {
         let account = Account::new(authority.clone()).build(authority);
         let domain = Domain::new(domain_id).build(authority);
 
-        World::with([domain], [account], [], PeersIds::new())
+        World::with([domain], [account], [])
     }
 
     fn memory_and_alloc(isi_hex: &str) -> String {

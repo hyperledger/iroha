@@ -104,20 +104,17 @@ impl SumeragiHandle {
         .expect("INTERNAL BUG: Invalid block stored in Kura");
 
         if block.as_ref().header().is_genesis() {
-            *state_block.world.trusted_peers_ids =
-                block.as_ref().commit_topology().cloned().collect();
-
-            *topology = Topology::new(block.as_ref().commit_topology().cloned());
+            *topology = Topology::new(state_block.world.trusted_peers_ids.clone());
         }
 
+        topology.block_committed(block.as_ref(), state_block.world.peers().cloned());
+
         state_block
-            .apply_without_execution(&block)
+            .apply_without_execution(&block, topology.as_ref().to_owned())
             .into_iter()
             .for_each(|e| {
                 let _ = events_sender.send(e);
             });
-
-        topology.block_committed(block.as_ref(), state_block.world.peers().cloned());
     }
 
     /// Start [`Sumeragi`] actor and return handle to it.
@@ -167,18 +164,7 @@ impl SumeragiHandle {
                         .clone()
                         .into_non_empty_vec(),
                 ),
-                height => {
-                    let block_ref = NonZeroUsize::new(height)
-                        .and_then(|height| kura.get_block_by_height(height))
-                        .expect(
-                            "Sumeragi could not load block that was reported as present. \
-                             Please check that the block storage was not disconnected.",
-                        );
-                    let mut topology = Topology::new(block_ref.commit_topology().cloned());
-                    topology
-                        .block_committed(&block_ref, state_view.world.peers_ids().iter().cloned());
-                    topology
-                }
+                _height => Topology::new(state_view.commit_topology.clone()),
             };
         }
 

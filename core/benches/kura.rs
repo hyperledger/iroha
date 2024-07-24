@@ -52,7 +52,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let topology = Topology::new(vec![peer_id]);
     let mut block = {
         let mut state_block = state.block();
-        BlockBuilder::new(vec![tx], topology.clone(), Vec::new())
+        BlockBuilder::new(vec![tx], Vec::new())
             .chain(0, &mut state_block)
             .sign(&peer_private_key)
             .unpack(|_| {})

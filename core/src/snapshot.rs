@@ -365,7 +365,8 @@ mod tests {
 
         {
             let mut state_block = state.block();
-            let _events = state_block.apply_without_execution(&committed_block);
+            let _events =
+                state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
             state_block.commit();
         }
         kura.store_block(committed_block);
@@ -382,7 +383,8 @@ mod tests {
 
         {
             let mut state_block = state.block();
-            let _events = state_block.apply_without_execution(&committed_block);
+            let _events =
+                state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
             state_block.commit();
         }
         kura.store_block(committed_block);
@@ -422,7 +424,8 @@ mod tests {
 
         {
             let mut state_block = state.block();
-            let _events = state_block.apply_without_execution(&committed_block);
+            let _events =
+                state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
             state_block.commit();
         }
         kura.store_block(committed_block);
@@ -439,7 +442,8 @@ mod tests {
 
         {
             let mut state_block = state.block();
-            let _events = state_block.apply_without_execution(&committed_block);
+            let _events =
+                state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
             state_block.commit();
         }
 

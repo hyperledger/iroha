@@ -10,7 +10,9 @@ use std::{
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{block::SignedBlock, isi::Instruction, parameter::Parameter, prelude::*};
+use iroha_data_model::{
+    block::SignedBlock, isi::Instruction, parameter::Parameter, peer::Peer, prelude::*,
+};
 use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
 use parity_scale_codec::{Decode, Encode};
@@ -126,10 +128,11 @@ fn build_and_sign_genesis(
         instructions,
         executor,
         parameters,
+        topology,
         chain_id,
         genesis_key_pair,
     );
-    let block = SignedBlock::genesis(transactions, genesis_key_pair.private_key(), topology);
+    let block = SignedBlock::genesis(transactions, genesis_key_pair.private_key());
     GenesisBlock(block)
 }
 
@@ -137,6 +140,7 @@ fn build_transactions(
     instructions: Vec<InstructionBox>,
     executor: Executor,
     parameters: Vec<Parameter>,
+    topology: Vec<PeerId>,
     chain_id: ChainId,
     genesis_key_pair: &KeyPair,
 ) -> Vec<SignedTransaction> {
@@ -144,6 +148,19 @@ fn build_transactions(
     let transaction_executor =
         build_transaction(vec![upgrade_isi], chain_id.clone(), genesis_key_pair);
     let mut transactions = vec![transaction_executor];
+    if !topology.is_empty() {
+        let register_peers = build_transaction(
+            topology
+                .into_iter()
+                .map(Peer::new)
+                .map(Register::peer)
+                .map(InstructionBox::from)
+                .collect(),
+            chain_id.clone(),
+            genesis_key_pair,
+        );
+        transactions.push(register_peers)
+    }
     if !parameters.is_empty() {
         let parameters = build_transaction(
             parameters
