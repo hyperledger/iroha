@@ -286,9 +286,7 @@ fn forget_all_executed_queries(
     executed_queries: impl IntoIterator<Item = QueryId>,
 ) -> Result<()> {
     for query_id in executed_queries {
-        let _ = query_handle
-            .drop_query(query_id)
-            .map_err(Error::Finalization)?;
+        query_handle.drop_query(query_id);
     }
     Ok(())
 }
@@ -814,7 +812,9 @@ where
                         .execute(state_ro)?
                         .apply_postprocessing(&filter, &sorting, pagination, fetch_size)?;
 
-                    state_ro.query_handle().handle_query_output(output)
+                    state_ro
+                        .query_handle()
+                        .handle_query_output(output, &state.authority)
                 }?;
                 match &batched {
                     BatchedResponse::V1(batched) => {

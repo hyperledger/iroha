@@ -170,6 +170,8 @@ fn minimal_config_snapshot() {
             },
             live_query_store: LiveQueryStore {
                 idle_time: 30s,
+                capacity: 256,
+                capacity_per_user: 256,
             },
             logger: Logger {
                 level: info,

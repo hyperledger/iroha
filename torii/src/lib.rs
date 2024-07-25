@@ -383,6 +383,7 @@ impl Error {
                     StatusCode::BAD_REQUEST
                 }
                 Find(_) => StatusCode::NOT_FOUND,
+                CapacityLimit => StatusCode::TOO_MANY_REQUESTS,
             },
             TooComplex => StatusCode::UNPROCESSABLE_ENTITY,
             InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,

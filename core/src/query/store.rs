@@ -1,13 +1,15 @@
 //! This module contains [`LiveQueryStore`] actor.
 
 use std::{
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-use indexmap::IndexMap;
+use dashmap::{mapref::entry::Entry, DashMap};
 use iroha_config::parameters::actual::LiveQueryStore as Config;
 use iroha_data_model::{
+    account::AccountId,
     query::{
         cursor::{ForwardCursor, QueryId},
         error::QueryExecutionFail,
@@ -15,26 +17,34 @@ use iroha_data_model::{
     },
     BatchedResponse, BatchedResponseV1, ValidationFail,
 };
-use iroha_logger::trace;
+use iroha_logger::{trace, warn};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::Notify;
 
 use super::cursor::{Batched, UnknownCursor};
 use crate::smartcontracts::query::ProcessedQueryOutput;
 
 /// Query service error.
-#[derive(Debug, thiserror::Error, Copy, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(
+    Debug,
+    thiserror::Error,
+    displaydoc::Display,
+    Copy,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+)]
 pub enum Error {
     /// Unknown cursor error.
     #[error(transparent)]
     UnknownCursor(#[from] UnknownCursor),
-    /// Connection with `LiveQueryStore` is closed.
-    #[error("Connection with LiveQueryStore is closed")]
-    ConnectionClosed,
     /// Fetch size is too big.
-    #[error("Fetch size is too big")]
     FetchSizeTooBig,
+    /// Reached limit of parallel queries. Either wait for previous queries to complete, or increase the limit in the config.
+    CapacityLimit,
 }
 
 #[allow(clippy::fallible_impl_from)]
@@ -44,12 +54,10 @@ impl From<Error> for ValidationFail {
             Error::UnknownCursor(_) => {
                 ValidationFail::QueryFailed(QueryExecutionFail::UnknownCursor)
             }
-            Error::ConnectionClosed => {
-                panic!("Connection to `LiveQueryStore` was unexpectedly closed, this is a bug")
-            }
             Error::FetchSizeTooBig => {
                 ValidationFail::QueryFailed(QueryExecutionFail::FetchSizeTooBig)
             }
+            Error::CapacityLimit => ValidationFail::QueryFailed(QueryExecutionFail::CapacityLimit),
         }
     }
 }
@@ -64,16 +72,34 @@ type LiveQuery = Batched<Vec<QueryOutputBox>>;
 /// Clients can handle their queries using [`LiveQueryStoreHandle`]
 #[derive(Debug)]
 pub struct LiveQueryStore {
-    queries: IndexMap<QueryId, (LiveQuery, Instant)>,
+    queries: DashMap<QueryId, QueryInfo>,
+    queries_per_user: DashMap<AccountId, usize>,
+    // The maximum number of queries in the store
+    capacity: NonZeroUsize,
+    // The maximum number of queries in the store per user
+    capacity_per_user: NonZeroUsize,
+    // Queries older then this time will be automatically removed from the store
     idle_time: Duration,
+    notify_shutdown: Arc<Notify>,
+}
+
+#[derive(Debug)]
+struct QueryInfo {
+    live_query: LiveQuery,
+    last_access_time: Instant,
+    authority: AccountId,
 }
 
 impl LiveQueryStore {
     /// Construct [`LiveQueryStore`] from configuration.
-    pub fn from_config(cfg: Config) -> Self {
+    pub fn from_config(cfg: Config, notify_shutdown: Arc<Notify>) -> Self {
         Self {
-            queries: IndexMap::new(),
+            queries: DashMap::new(),
+            queries_per_user: DashMap::new(),
             idle_time: cfg.idle_time,
+            capacity: cfg.capacity,
+            capacity_per_user: cfg.capacity_per_user,
+            notify_shutdown,
         }
     }
 
@@ -82,74 +108,133 @@ impl LiveQueryStore {
     ///
     /// Not marked as `#[cfg(test)]` because it is used in benches as well.
     pub fn test() -> Self {
-        Self::from_config(Config::default())
+        let notify_shutdown = Arc::new(Notify::new());
+        Self::from_config(Config::default(), notify_shutdown)
     }
 
     /// Start [`LiveQueryStore`]. Requires a [`tokio::runtime::Runtime`] being run
     /// as it will create new [`tokio::task`] and detach it.
     ///
     /// Returns a handle to interact with the service.
-    pub fn start(mut self) -> LiveQueryStoreHandle {
-        const ALL_HANDLERS_DROPPED: &str =
-            "All handler to LiveQueryStore are dropped. Shutting down...";
+    pub fn start(self) -> LiveQueryStoreHandle {
+        let store = Arc::new(self);
+        Arc::clone(&store).spawn_pruning_task();
+        LiveQueryStoreHandle { store }
+    }
 
-        let (message_sender, mut message_receiver) = mpsc::channel(1);
-
+    fn spawn_pruning_task(self: Arc<Self>) {
         let mut idle_interval = tokio::time::interval(self.idle_time);
-
         tokio::task::spawn(async move {
             loop {
                 tokio::select! {
                     _ = idle_interval.tick() => {
-                        self.queries
-                            .retain(|_, (_, last_access_time)| last_access_time.elapsed() <= self.idle_time);
-                    },
-                    msg = message_receiver.recv() => {
-                        let Some(msg) = msg else {
-                            iroha_logger::info!("{ALL_HANDLERS_DROPPED}");
-                            break;
-                        };
-
-                        match msg {
-                            Message::Insert(query_id, live_query) => {
-                                self.insert(query_id, live_query)
+                        self.queries.retain(|_, query| {
+                            if query.last_access_time.elapsed() <= self.idle_time {
+                                true
+                            } else {
+                                self.decrease_queries_per_user(query.authority.clone());
+                                false
                             }
-                            Message::Remove(query_id, response_sender) => {
-                                let live_query_opt = self.remove(&query_id);
-                                let _ = response_sender.send(live_query_opt);
-                            }
-                        }
+                        });
+                    }
+                    () = self.notify_shutdown.notified() => {
+                        iroha_logger::info!("LiveQueryStore is being shut down.");
+                        break;
                     }
                     else => break,
                 }
-                tokio::task::yield_now().await;
             }
         });
-
-        LiveQueryStoreHandle { message_sender }
     }
 
-    fn insert(&mut self, query_id: QueryId, live_query: LiveQuery) {
-        self.queries.insert(query_id, (live_query, Instant::now()));
+    fn insert(
+        &self,
+        query_id: QueryId,
+        live_query: Batched<Vec<QueryOutputBox>>,
+        authority: AccountId,
+    ) {
+        *self.queries_per_user.entry(authority.clone()).or_insert(0) += 1;
+        let query_info = QueryInfo {
+            live_query,
+            last_access_time: Instant::now(),
+            authority,
+        };
+        self.queries.insert(query_id, query_info);
     }
 
-    fn remove(&mut self, query_id: &str) -> Option<LiveQuery> {
-        self.queries.swap_remove(query_id).map(|(output, _)| output)
+    fn remove(&self, query_id: &str) -> Option<QueryInfo> {
+        let (_, query_info) = self.queries.remove(query_id)?;
+        self.decrease_queries_per_user(query_info.authority.clone());
+        Some(query_info)
     }
-}
 
-enum Message {
-    Insert(QueryId, Batched<Vec<QueryOutputBox>>),
-    Remove(
-        QueryId,
-        oneshot::Sender<Option<Batched<Vec<QueryOutputBox>>>>,
-    ),
+    fn decrease_queries_per_user(&self, authority: AccountId) {
+        if let Entry::Occupied(mut entry) = self.queries_per_user.entry(authority) {
+            *entry.get_mut() -= 1;
+            if *entry.get() == 0 {
+                entry.remove_entry();
+            }
+        }
+    }
+
+    fn insert_new_query(
+        &self,
+        query_id: QueryId,
+        live_query: Batched<Vec<QueryOutputBox>>,
+        authority: AccountId,
+    ) -> Result<()> {
+        trace!(%query_id, "Inserting new query");
+        self.check_capacity(&authority)?;
+        self.insert(query_id, live_query, authority);
+        Ok(())
+    }
+
+    // For the existing query, takes and returns the first batch.
+    // If query becomes depleted, it will be removed from the store.
+    fn get_query_next_batch(
+        &self,
+        query_id: QueryId,
+        cursor: Option<u64>,
+    ) -> Result<(Vec<QueryOutputBox>, Option<NonZeroU64>)> {
+        trace!(%query_id, "Advancing existing query");
+        let QueryInfo {
+            mut live_query,
+            authority,
+            ..
+        } = self.remove(&query_id).ok_or(UnknownCursor)?;
+        let next_batch = live_query.next_batch(cursor)?;
+        if !live_query.is_depleted() {
+            self.insert(query_id, live_query, authority);
+        }
+        Ok(next_batch)
+    }
+
+    fn check_capacity(&self, authority: &AccountId) -> Result<()> {
+        if self.queries.len() >= self.capacity.get() {
+            warn!(
+                max_queries = self.capacity,
+                "Reached maximum allowed number of queries in LiveQueryStore"
+            );
+            return Err(Error::CapacityLimit);
+        }
+        if let Some(value) = self.queries_per_user.get(authority) {
+            if *value >= self.capacity_per_user.get() {
+                warn!(
+                    max_queries_per_user = self.capacity_per_user,
+                    %authority,
+                    "Account reached maximum allowed number of queries in LiveQueryStore"
+                );
+                return Err(Error::CapacityLimit);
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Handle to interact with [`LiveQueryStore`].
 #[derive(Clone)]
 pub struct LiveQueryStoreHandle {
-    message_sender: mpsc::Sender<Message>,
+    store: Arc<LiveQueryStore>,
 }
 
 impl LiveQueryStoreHandle {
@@ -157,11 +242,12 @@ impl LiveQueryStoreHandle {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::ConnectionClosed`] if [`LiveQueryStore`] is dropped,
+    /// - Returns [`Error::CapacityLimit`] if [`LiveQueryStore`] capacity is reached,
     /// - Otherwise throws up query output handling errors.
     pub fn handle_query_output(
         &self,
         query_output: ProcessedQueryOutput,
+        authority: &AccountId,
     ) -> Result<BatchedResponse<QueryOutputBox>> {
         match query_output {
             ProcessedQueryOutput::Single(batch) => {
@@ -169,11 +255,16 @@ impl LiveQueryStoreHandle {
                 let result = BatchedResponseV1 { batch, cursor };
                 Ok(result.into())
             }
-            ProcessedQueryOutput::Iter(live_query) => {
+            ProcessedQueryOutput::Iter(mut live_query) => {
                 let query_id = uuid::Uuid::new_v4().to_string();
 
                 let curr_cursor = Some(0);
-                self.construct_query_response(query_id, curr_cursor, live_query)
+                let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
+                if !live_query.is_depleted() {
+                    self.store
+                        .insert_new_query(query_id.clone(), live_query, authority.clone())?;
+                }
+                Ok(Self::construct_query_response(batch, query_id, next_cursor))
             }
         }
     }
@@ -182,69 +273,36 @@ impl LiveQueryStoreHandle {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::ConnectionClosed`] if [`LiveQueryStore`] is dropped,
-    /// - Otherwise throws up query output handling errors.
+    /// - Returns [`Error::UnknownCursor`] if query id not found or cursor position doesn't match.
     pub fn handle_query_cursor(
         &self,
         cursor: ForwardCursor,
     ) -> Result<BatchedResponse<QueryOutputBox>> {
         let query_id = cursor.query.ok_or(UnknownCursor)?;
-        let live_query = self.remove(query_id.clone())?.ok_or(UnknownCursor)?;
+        let cursor = cursor.cursor.map(NonZeroU64::get);
+        let (batch, next_cursor) = self.store.get_query_next_batch(query_id.clone(), cursor)?;
 
-        self.construct_query_response(query_id, cursor.cursor.map(NonZeroU64::get), live_query)
+        Ok(Self::construct_query_response(batch, query_id, next_cursor))
     }
 
     /// Remove query from the storage if there is any.
-    ///
-    /// Returns `true` if query was removed, `false` otherwise.
-    ///
-    /// # Errors
-    ///
-    /// - Returns [`Error::ConnectionClosed`] if [`QueryService`] is dropped,
-    /// - Otherwise throws up query output handling errors.
-    pub fn drop_query(&self, query_id: QueryId) -> Result<bool> {
-        self.remove(query_id).map(|query_opt| query_opt.is_some())
-    }
-
-    fn insert(&self, query_id: QueryId, live_query: LiveQuery) -> Result<()> {
-        trace!(%query_id, "Inserting");
-        self.message_sender
-            .blocking_send(Message::Insert(query_id, live_query))
-            .map_err(|_| Error::ConnectionClosed)
-    }
-
-    fn remove(&self, query_id: QueryId) -> Result<Option<LiveQuery>> {
-        trace!(%query_id, "Removing");
-        let (sender, receiver) = oneshot::channel();
-
-        self.message_sender
-            .blocking_send(Message::Remove(query_id, sender))
-            .or(Err(Error::ConnectionClosed))?;
-
-        receiver.blocking_recv().or(Err(Error::ConnectionClosed))
+    pub fn drop_query(&self, query_id: QueryId) {
+        self.store.remove(&query_id);
     }
 
     fn construct_query_response(
-        &self,
+        batch: Vec<QueryOutputBox>,
         query_id: QueryId,
-        curr_cursor: Option<u64>,
-        mut live_query: Batched<Vec<QueryOutputBox>>,
-    ) -> Result<BatchedResponse<QueryOutputBox>> {
-        let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
-
-        if !live_query.is_depleted() {
-            self.insert(query_id.clone(), live_query)?
-        }
-
-        let query_response = BatchedResponseV1 {
+        cursor: Option<NonZeroU64>,
+    ) -> BatchedResponse<QueryOutputBox> {
+        BatchedResponseV1 {
             batch: QueryOutputBox::Vec(batch),
             cursor: ForwardCursor {
                 query: Some(query_id),
-                cursor: next_cursor,
+                cursor,
             },
-        };
-
-        Ok(query_response.into())
+        }
+        .into()
     }
 }
 
@@ -253,6 +311,7 @@ mod tests {
     use iroha_data_model::query::{predicate::PredicateBox, FetchSize, Pagination, Sorting};
     use iroha_primitives::json::JsonString;
     use nonzero_ext::nonzero;
+    use test_samples::ALICE_ID;
 
     use super::*;
     use crate::smartcontracts::query::LazyQueryOutput;
@@ -281,7 +340,7 @@ mod tests {
                 .unwrap();
 
             let (batch, mut cursor) = query_store_handle
-                .handle_query_output(query_output)
+                .handle_query_output(query_output, &ALICE_ID)
                 .unwrap()
                 .into();
             let QueryOutputBox::Vec(v) = batch else {

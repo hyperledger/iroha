@@ -1495,6 +1495,8 @@ pub mod error {
             FetchSizeTooBig,
             /// Some of the specified parameters (filter/pagination/fetch_size/sorting) are not applicable to singular queries
             InvalidSingularParameters,
+            /// Reached limit of parallel queries. Either wait for previous queries to complete, or increase the limit in the config.
+            CapacityLimit,
         }
 
         /// Type assertion error

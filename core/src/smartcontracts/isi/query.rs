@@ -221,6 +221,11 @@ impl ValidQueryRequest {
         // Metadata should be restricted in what types it can
         // contain.
     }
+
+    /// Return query authority
+    pub fn authority(&self) -> &AccountId {
+        self.0.authority()
+    }
 }
 
 impl ValidQuery for QueryBox {

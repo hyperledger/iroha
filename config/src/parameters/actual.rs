@@ -149,12 +149,16 @@ impl Sumeragi {
 #[allow(missing_docs)]
 pub struct LiveQueryStore {
     pub idle_time: Duration,
+    pub capacity: NonZeroUsize,
+    pub capacity_per_user: NonZeroUsize,
 }
 
 impl Default for LiveQueryStore {
     fn default() -> Self {
         Self {
             idle_time: defaults::torii::QUERY_IDLE_TIME,
+            capacity: defaults::torii::QUERY_STORE_CAPACITY,
+            capacity_per_user: defaults::torii::QUERY_STORE_CAPACITY_PER_USER,
         }
     }
 }
