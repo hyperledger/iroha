@@ -647,7 +647,7 @@ impl Sumeragi {
                         ),
                         _ => {
                             if let Some(mut voted_block) = voting_block.take() {
-                                let actual_hash = voted_block.block.as_ref().hash_of_payload();
+                                let actual_hash = voted_block.block.as_ref().hash();
 
                                 if hash != actual_hash {
                                     error!(
@@ -698,7 +698,7 @@ impl Sumeragi {
                 Role::Leader | Role::ValidatingPeer | Role::ObservingPeer,
             ) => {
                 if let Some(mut voted_block) = voting_block.take() {
-                    let actual_hash = voted_block.block.as_ref().hash_of_payload();
+                    let actual_hash = voted_block.block.as_ref().hash();
 
                     if actual_hash == hash {
                         match voted_block

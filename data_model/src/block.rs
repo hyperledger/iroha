@@ -123,8 +123,7 @@ mod model {
     #[derive(
         Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
-    #[cfg_attr(not(feature = "std"), display(fmt = "Signed block"))]
-    #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
+    #[display(fmt = "{}", "self.hash()")]
     #[ffi_type]
     pub struct SignedBlockV1 {
         /// Signatures of peers which approved this block.
@@ -173,9 +172,10 @@ impl BlockPayload {
 }
 
 impl SignedBlockV1 {
-    #[cfg(feature = "std")]
     fn hash(&self) -> iroha_crypto::HashOf<SignedBlock> {
-        iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::HashOf::new(self).into())
+        iroha_crypto::HashOf::from_untyped_unchecked(
+            iroha_crypto::HashOf::new(&self.payload.header).into(),
+        )
     }
 }
 
@@ -213,7 +213,8 @@ impl SignedBlock {
     /// Calculate block hash
     #[inline]
     pub fn hash(&self) -> HashOf<Self> {
-        iroha_crypto::HashOf::new(self)
+        let SignedBlock::V1(block) = self;
+        block.hash()
     }
 
     /// Add signature to the block
@@ -249,15 +250,6 @@ impl SignedBlock {
     ) -> Vec<BlockSignature> {
         let SignedBlock::V1(block) = self;
         std::mem::replace(&mut block.signatures, signatures)
-    }
-
-    /// Calculate block payload [`Hash`](`iroha_crypto::HashOf`).
-    #[inline]
-    #[cfg(feature = "std")]
-    #[cfg(feature = "transparent_api")]
-    pub fn hash_of_payload(&self) -> iroha_crypto::HashOf<BlockPayload> {
-        let SignedBlock::V1(block) = self;
-        iroha_crypto::HashOf::new(&block.payload)
     }
 
     /// Add additional signatures to this block

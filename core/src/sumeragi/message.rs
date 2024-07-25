@@ -1,6 +1,6 @@
 //! Contains message structures for p2p communication during consensus.
 use iroha_crypto::HashOf;
-use iroha_data_model::block::{BlockPayload, BlockSignature, SignedBlock};
+use iroha_data_model::block::{BlockSignature, SignedBlock};
 use iroha_macro::*;
 use parity_scale_codec::{Decode, Encode};
 
@@ -56,7 +56,7 @@ impl From<&ValidBlock> for BlockCreated {
 #[derive(Debug, Clone, Decode, Encode)]
 pub struct BlockSigned {
     /// Hash of the block being signed.
-    pub hash: HashOf<BlockPayload>,
+    pub hash: HashOf<SignedBlock>,
     /// Signature of the block
     pub signature: BlockSignature,
 }
@@ -64,7 +64,7 @@ pub struct BlockSigned {
 impl From<&ValidBlock> for BlockSigned {
     fn from(block: &ValidBlock) -> Self {
         Self {
-            hash: block.as_ref().hash_of_payload(),
+            hash: block.as_ref().hash(),
             signature: block
                 .as_ref()
                 .signatures()
@@ -79,7 +79,7 @@ impl From<&ValidBlock> for BlockSigned {
 #[derive(Debug, Clone, Encode)]
 pub struct BlockCommitted {
     /// Hash of the block being signed.
-    pub hash: HashOf<BlockPayload>,
+    pub hash: HashOf<SignedBlock>,
     /// Set of signatures.
     pub signatures: Vec<BlockSignature>,
 }
@@ -87,7 +87,7 @@ pub struct BlockCommitted {
 impl From<&CommittedBlock> for BlockCommitted {
     fn from(block: &CommittedBlock) -> Self {
         Self {
-            hash: block.as_ref().hash_of_payload(),
+            hash: block.as_ref().hash(),
             signatures: block.as_ref().signatures().cloned().collect(),
         }
     }
@@ -118,7 +118,7 @@ mod candidate {
     #[derive(Decode)]
     struct BlockCommittedCandidate {
         /// Hash of the block being signed.
-        pub hash: HashOf<BlockPayload>,
+        pub hash: HashOf<SignedBlock>,
         /// Set of signatures.
         pub signatures: Vec<BlockSignature>,
     }
