@@ -51,7 +51,6 @@ iroha_crypto = { workspace = true }
 iroha_torii = { workspace = true }
 iroha_genesis = { workspace = true }
 iroha_version = { workspace = true }
-iroha_wasm_builder = { workspace = true }
 
 clap = { workspace = true, features = ["derive", "env", "string"] }
 eyre = { workspace = true }
@@ -75,7 +74,6 @@ path-absolutize = { workspace = true }
 assertables = { workspace = true }
 
 [build-dependencies]
-iroha_wasm_builder = { workspace = true }
 eyre = { workspace = true }
 
 vergen = { workspace = true, features = ["cargo"] }

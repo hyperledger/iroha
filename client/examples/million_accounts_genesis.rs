@@ -7,10 +7,10 @@ use iroha::{
 };
 use iroha_genesis::{GenesisBlock, GenesisBuilder};
 use iroha_primitives::unique_vec;
-use irohad::samples::{construct_executor, get_config};
+use irohad::samples::get_config;
 use test_network::{
-    get_chain_id, get_key_pair, wait_for_genesis_committed, Peer as TestPeer, PeerBuilder,
-    TestRuntime,
+    construct_executor, get_chain_id, get_key_pair, wait_for_genesis_committed, Peer as TestPeer,
+    PeerBuilder, TestRuntime,
 };
 use tokio::runtime::Runtime;
 

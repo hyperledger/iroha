@@ -1,9 +1,9 @@
 //! This module contains the sample configurations used for testing and benchmarking throughout Iroha.
-use std::{collections::HashSet, path::Path, str::FromStr};
+use std::{collections::HashSet, str::FromStr};
 
 use iroha_config::{base::toml::TomlSource, parameters::actual::Root as Config};
 use iroha_crypto::{ExposedPrivateKey, KeyPair, PublicKey};
-use iroha_data_model::{peer::PeerId, prelude::*, ChainId};
+use iroha_data_model::{peer::PeerId, ChainId};
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
     unique_vec::UniqueVec,
@@ -95,25 +95,4 @@ pub fn get_config(
         genesis_public_key,
     )))
     .expect("should be a valid config")
-}
-
-/// Construct executor from path.
-///
-/// `relative_path` should be relative to `CARGO_MANIFEST_DIR`.
-///
-/// # Errors
-///
-/// - Failed to create temp dir for executor output
-/// - Failed to build executor
-/// - Failed to optimize executor
-pub fn construct_executor<P>(relative_path: &P) -> eyre::Result<Executor>
-where
-    P: AsRef<Path> + ?Sized,
-{
-    let wasm_blob = iroha_wasm_builder::Builder::new(relative_path)
-        .build()?
-        .optimize()?
-        .into_bytes()?;
-
-    Ok(Executor::new(WasmSmartContract::from_compiled(wasm_blob)))
 }
