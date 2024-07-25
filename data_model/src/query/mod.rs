@@ -44,7 +44,7 @@ pub mod predicate;
 pub mod sorting;
 
 /// Default value for `fetch_size` parameter in queries.
-pub const DEFAULT_FETCH_SIZE: NonZeroU32 = nonzero!(10_u32);
+pub const DEFAULT_FETCH_SIZE: NonZeroU32 = nonzero!(100_u32);
 
 /// Max value for `fetch_size` parameter in queries.
 pub const MAX_FETCH_SIZE: NonZeroU32 = nonzero!(10_000_u32);
