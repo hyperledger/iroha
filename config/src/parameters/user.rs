@@ -434,6 +434,12 @@ pub struct Torii {
     pub max_content_len: Bytes<u64>,
     #[config(default = "defaults::torii::QUERY_IDLE_TIME.into()")]
     pub query_idle_time_ms: DurationMs,
+    /// The upper limit of the number of live queries.
+    #[config(default = "defaults::torii::QUERY_STORE_CAPACITY")]
+    pub query_store_capacity: NonZeroUsize,
+    /// The upper limit of the number of live queries for a single user.
+    #[config(default = "defaults::torii::QUERY_STORE_CAPACITY_PER_USER")]
+    pub query_store_capacity_per_user: NonZeroUsize,
 }
 
 impl Torii {
@@ -445,6 +451,8 @@ impl Torii {
 
         let query = actual::LiveQueryStore {
             idle_time: self.query_idle_time_ms.get(),
+            capacity: self.query_store_capacity,
+            capacity_per_user: self.query_store_capacity_per_user,
         };
 
         (torii, query)

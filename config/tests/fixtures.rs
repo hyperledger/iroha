@@ -169,7 +169,9 @@ fn minimal_config_snapshot() {
                 gossip_size: 500,
             },
             live_query_store: LiveQueryStore {
-                idle_time: 30s,
+                idle_time: 10s,
+                capacity: 128,
+                capacity_per_user: 128,
             },
             logger: Logger {
                 level: info,

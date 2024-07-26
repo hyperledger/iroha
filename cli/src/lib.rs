@@ -263,9 +263,13 @@ impl Iroha {
             [],
         );
 
+        let notify_shutdown = Arc::new(Notify::new());
+
         let (kura, block_count) = Kura::new(&config.kura).change_context(StartError::InitKura)?;
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
-        let live_query_store_handle = LiveQueryStore::from_config(config.live_query_store).start();
+        let live_query_store_handle =
+            LiveQueryStore::from_config(config.live_query_store, Arc::clone(&notify_shutdown))
+                .start();
 
         let state = match try_read_snapshot(
             config.snapshot.store_dir.resolve_relative_path(),
@@ -354,7 +358,6 @@ impl Iroha {
 
         #[cfg(debug_assertions)]
         let freeze_status = FreezeStatus::new(config.common.peer.clone());
-        let notify_shutdown = Arc::new(Notify::new());
 
         NetworkRelay {
             sumeragi: sumeragi.clone(),

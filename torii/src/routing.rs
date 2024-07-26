@@ -62,7 +62,7 @@ pub async fn handle_queries(
                 let valid_query = ValidQueryRequest::validate(signed_query, &state_view)?;
                 let query_output = valid_query.execute_and_process(&state_view)?;
                 live_query_store
-                    .handle_query_output(query_output)
+                    .handle_query_output(query_output, valid_query.authority())
                     .map_err(ValidationFail::from)
             }
             QueryRequest::Cursor(cursor) => live_query_store

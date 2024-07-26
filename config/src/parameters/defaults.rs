@@ -45,12 +45,15 @@ pub mod snapshot {
 }
 
 pub mod torii {
-    use std::time::Duration;
+    use std::{num::NonZeroUsize, time::Duration};
 
     use iroha_config_base::util::Bytes;
+    use nonzero_ext::nonzero;
 
     pub const MAX_CONTENT_LEN: Bytes<u64> = Bytes(2_u64.pow(20) * 16);
-    pub const QUERY_IDLE_TIME: Duration = Duration::from_secs(30);
+    pub const QUERY_IDLE_TIME: Duration = Duration::from_secs(10);
+    pub const QUERY_STORE_CAPACITY: NonZeroUsize = nonzero!(128usize);
+    pub const QUERY_STORE_CAPACITY_PER_USER: NonZeroUsize = nonzero!(128usize);
 }
 
 pub mod telemetry {

@@ -20,6 +20,8 @@ idle_timeout_ms = 10_000
 address = "localhost:5000"
 max_content_len = 16_000
 query_idle_time_ms = 30_000
+query_store_capacity = 128
+query_store_capacity_per_user = 128
 
 [kura]
 init_mode = "strict"
