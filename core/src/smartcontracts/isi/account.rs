@@ -530,7 +530,7 @@ pub mod query {
     }
 
     impl ValidIterableQuery for FindAccounts {
-        #[metrics(+"find_all_accounts")]
+        #[metrics(+"find_accounts")]
         fn execute<'state>(
             self,
             filter: CompoundPredicate<AccountPredicateBox>,

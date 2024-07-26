@@ -242,7 +242,7 @@ impl ValidQueryRequest {
                     SingularQueryBox::FindExecutorDataModel(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
-                    SingularQueryBox::FindAllParameters(q) => {
+                    SingularQueryBox::FindParameters(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
                     SingularQueryBox::FindTotalAssetQuantityByAssetDefinitionId(q) => {

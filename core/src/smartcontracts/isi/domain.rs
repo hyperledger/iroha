@@ -404,7 +404,7 @@ pub mod query {
     use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
     impl ValidIterableQuery for FindDomains {
-        #[metrics(+"find_all_domains")]
+        #[metrics(+"find_domains")]
         fn execute<'state>(
             self,
             filter: CompoundPredicate<DomainPredicateBox>,
