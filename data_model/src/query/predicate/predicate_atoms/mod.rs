@@ -145,9 +145,7 @@ where
 
 /// A predicate that can be applied to [`Metadata`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub enum MetadataPredicateBox {
-    // TODO: populate this with something. Seeing as how we can change it to be just a JsonString, not populating it right now
-}
+pub enum MetadataPredicateBox {}
 
 impl_predicate_box!(Metadata: MetadataPredicateBox);
 
