@@ -15,7 +15,7 @@ use crate::{
         predicate_atoms::StringPredicateBox,
         predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
         projectors::BaseProjector,
-        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
+        AstPredicate, CompoundPredicate, EvaluatePredicate, HasPredicateBox, HasPrototype,
     },
 };
 
@@ -30,7 +30,7 @@ pub enum TriggerIdPredicateBox {
     Name(StringPredicateBox),
 }
 
-impl PredicateTrait<TriggerId> for TriggerIdPredicateBox {
+impl EvaluatePredicate<TriggerId> for TriggerIdPredicateBox {
     fn applies(&self, input: &TriggerId) -> bool {
         match self {
             TriggerIdPredicateBox::Equals(expected) => expected == input,
@@ -51,7 +51,7 @@ pub enum TriggerPredicateBox {
 
 impl_predicate_box!(Trigger: TriggerPredicateBox);
 
-impl PredicateTrait<Trigger> for TriggerPredicateBox {
+impl EvaluatePredicate<Trigger> for TriggerPredicateBox {
     fn applies(&self, input: &Trigger) -> bool {
         match self {
             TriggerPredicateBox::Id(id) => id.applies(&input.id),

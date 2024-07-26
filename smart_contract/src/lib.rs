@@ -16,7 +16,7 @@ use data_model::{
 };
 pub use iroha_data_model as data_model;
 use iroha_data_model::query::{
-    builder::{IterableQueryBuilder, QueryExecutor, SingleQueryError},
+    builder::{QueryBuilder, QueryExecutor, SingleQueryError},
     predicate::HasPredicateBox,
     IterableQueryOutputBatchBox, IterableQueryWithParams, QueryRequest, QueryResponse,
     SingularQuery, SingularQueryBox, SingularQueryOutputBox,
@@ -195,7 +195,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
 /// Build an iterable query for execution in a smart contract.
 pub fn query<Q>(
     query: Q,
-) -> IterableQueryBuilder<
+) -> QueryBuilder<
     'static,
     SmartContractQueryExecutor,
     Q,
@@ -205,7 +205,7 @@ where
     Q: IterableQuery,
     Q::Item: HasPredicateBox,
 {
-    IterableQueryBuilder::new(&SmartContractQueryExecutor, query)
+    QueryBuilder::new(&SmartContractQueryExecutor, query)
 }
 
 /// Run a singular query in a smart contract.

@@ -14,7 +14,7 @@ use crate::{
         predicate_ast_extensions::AstPredicateExt as _,
         predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
         projectors::BaseProjector,
-        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
+        AstPredicate, CompoundPredicate, EvaluatePredicate, HasPredicateBox, HasPrototype,
     },
 };
 
@@ -26,7 +26,7 @@ pub enum PermissionPredicateBox {
 
 impl_predicate_box!(Permission: PermissionPredicateBox);
 
-impl PredicateTrait<Permission> for PermissionPredicateBox {
+impl EvaluatePredicate<Permission> for PermissionPredicateBox {
     fn applies(&self, _input: &Permission) -> bool {
         match *self {}
     }

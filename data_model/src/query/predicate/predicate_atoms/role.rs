@@ -17,7 +17,7 @@ use crate::{
             predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
             projectors::BaseProjector,
         },
-        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
+        AstPredicate, CompoundPredicate, EvaluatePredicate, HasPredicateBox, HasPrototype,
     },
 };
 
@@ -34,7 +34,7 @@ pub enum RoleIdPredicateBox {
 
 impl_predicate_box!(RoleId: RoleIdPredicateBox);
 
-impl PredicateTrait<RoleId> for RoleIdPredicateBox {
+impl EvaluatePredicate<RoleId> for RoleIdPredicateBox {
     fn applies(&self, input: &RoleId) -> bool {
         match self {
             RoleIdPredicateBox::Equals(expected) => expected == input,
@@ -53,7 +53,7 @@ pub enum RolePredicateBox {
 
 impl_predicate_box!(Role: RolePredicateBox);
 
-impl PredicateTrait<Role> for RolePredicateBox {
+impl EvaluatePredicate<Role> for RolePredicateBox {
     fn applies(&self, input: &Role) -> bool {
         match self {
             RolePredicateBox::Id(id) => id.applies(&input.id),

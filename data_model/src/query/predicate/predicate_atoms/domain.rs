@@ -15,7 +15,7 @@ use crate::{
         predicate_atoms::StringPredicateBox,
         predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
         projectors::BaseProjector,
-        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
+        AstPredicate, CompoundPredicate, EvaluatePredicate, HasPredicateBox, HasPrototype,
     },
 };
 
@@ -31,7 +31,7 @@ pub enum DomainPredicateBox {
 
 impl_predicate_box!(Domain: DomainPredicateBox);
 
-impl PredicateTrait<Domain> for DomainPredicateBox {
+impl EvaluatePredicate<Domain> for DomainPredicateBox {
     fn applies(&self, input: &Domain) -> bool {
         match self {
             DomainPredicateBox::Id(id) => id.applies(&input.id),
@@ -53,7 +53,7 @@ pub enum DomainIdPredicateBox {
 
 impl_predicate_box!(DomainId: DomainIdPredicateBox);
 
-impl PredicateTrait<DomainId> for DomainIdPredicateBox {
+impl EvaluatePredicate<DomainId> for DomainIdPredicateBox {
     fn applies(&self, input: &DomainId) -> bool {
         match self {
             DomainIdPredicateBox::Equals(expected) => expected == input,

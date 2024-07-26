@@ -15,7 +15,7 @@ use crate::{
             predicate_ast_extensions::AstPredicateExt as _,
             predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
             projectors::BaseProjector,
-            AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
+            AstPredicate, CompoundPredicate, EvaluatePredicate, HasPredicateBox, HasPrototype,
         },
         TransactionQueryOutput,
     },
@@ -29,7 +29,7 @@ pub enum BlockHeaderPredicateBox {
 
 impl_predicate_box!(BlockHeader: BlockHeaderPredicateBox);
 
-impl PredicateTrait<BlockHeader> for BlockHeaderPredicateBox {
+impl EvaluatePredicate<BlockHeader> for BlockHeaderPredicateBox {
     fn applies(&self, _input: &BlockHeader) -> bool {
         match *self {}
     }
@@ -43,7 +43,7 @@ pub enum SignedBlockPredicateBox {
 
 impl_predicate_box!(SignedBlock: SignedBlockPredicateBox);
 
-impl PredicateTrait<SignedBlock> for SignedBlockPredicateBox {
+impl EvaluatePredicate<SignedBlock> for SignedBlockPredicateBox {
     fn applies(&self, _input: &SignedBlock) -> bool {
         match *self {}
     }
@@ -57,7 +57,7 @@ pub enum TransactionQueryOutputPredicateBox {
 
 impl_predicate_box!(TransactionQueryOutput: TransactionQueryOutputPredicateBox);
 
-impl PredicateTrait<TransactionQueryOutput> for TransactionQueryOutputPredicateBox {
+impl EvaluatePredicate<TransactionQueryOutput> for TransactionQueryOutputPredicateBox {
     fn applies(&self, _input: &TransactionQueryOutput) -> bool {
         match *self {}
     }

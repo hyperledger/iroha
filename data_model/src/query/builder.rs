@@ -59,12 +59,12 @@ pub trait QueryExecutor {
 
 /// An iterator over results of an iterable query.
 #[derive(Debug)]
-pub struct IterableQueryIterator<E: QueryExecutor, T> {
+pub struct QueryIterator<E: QueryExecutor, T> {
     current_batch_iter: vec::IntoIter<T>,
     continue_cursor: Option<E::Cursor>,
 }
 
-impl<E, T> IterableQueryIterator<E, T>
+impl<E, T> QueryIterator<E, T>
 where
     E: QueryExecutor,
     Vec<T>: TryFrom<IterableQueryOutputBatchBox>,
@@ -87,7 +87,7 @@ where
     }
 }
 
-impl<E, T> IterableQueryIterator<E, T>
+impl<E, T> QueryIterator<E, T>
 where
     E: QueryExecutor,
 {
@@ -99,7 +99,7 @@ where
     }
 }
 
-impl<E, T> Iterator for IterableQueryIterator<E, T>
+impl<E, T> Iterator for QueryIterator<E, T>
 where
     E: QueryExecutor,
     Vec<T>: TryFrom<IterableQueryOutputBatchBox>,
@@ -161,7 +161,7 @@ pub enum SingleQueryError {
 }
 
 /// Struct that simplifies construction of an iterable query.
-pub struct IterableQueryBuilder<'e, E, Q, P> {
+pub struct QueryBuilder<'e, E, Q, P> {
     query_executor: &'e E,
     query: Q,
     filter: CompoundPredicate<P>,
@@ -170,7 +170,7 @@ pub struct IterableQueryBuilder<'e, E, Q, P> {
     fetch_size: FetchSize,
 }
 
-impl<'a, E, Q, P> IterableQueryBuilder<'a, E, Q, P>
+impl<'a, E, Q, P> QueryBuilder<'a, E, Q, P>
 where
     Q: IterableQuery,
     Q::Item: HasPredicateBox<PredicateBoxType = P>,
@@ -188,7 +188,7 @@ where
     }
 }
 
-impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
+impl<E, Q, P> QueryBuilder<'_, E, Q, P> {
     /// Only return results that match the given predicate.
     ///
     /// If multiple filters are added, they are combined with a logical AND.
@@ -236,7 +236,7 @@ impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P> {
     }
 }
 
-impl<E, Q, P> IterableQueryBuilder<'_, E, Q, P>
+impl<E, Q, P> QueryBuilder<'_, E, Q, P>
 where
     E: QueryExecutor,
     Q: IterableQuery,
@@ -250,7 +250,7 @@ where
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
-    pub fn execute(self) -> Result<IterableQueryIterator<E, Q::Item>, E::Error> {
+    pub fn execute(self) -> Result<QueryIterator<E, Q::Item>, E::Error> {
         let with_filter = IterableQueryWithFilter::new(self.query, self.filter);
         let boxed: IterableQueryBox = with_filter.into();
 
@@ -265,7 +265,7 @@ where
 
         let (first_batch, continue_cursor) = self.query_executor.start_query(query)?;
 
-        let iterator = IterableQueryIterator::<E, Q::Item>::new(first_batch, continue_cursor)
+        let iterator = QueryIterator::<E, Q::Item>::new(first_batch, continue_cursor)
             .expect(
                 "INTERNAL BUG: iroha returned unexpected type in iterable query. Is there a schema mismatch?",
             );
@@ -323,7 +323,7 @@ where
     }
 }
 
-impl<E, Q, P> Clone for IterableQueryBuilder<'_, E, Q, P>
+impl<E, Q, P> Clone for QueryBuilder<'_, E, Q, P>
 where
     Q: Clone,
     P: Clone,
