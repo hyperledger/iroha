@@ -241,10 +241,12 @@ impl Client {
     }
 
     /// Build an iterable query and return a builder object
-    pub fn query<Q, P>(&self, query: Q) -> QueryBuilder<Self, Q, P>
+    pub fn query<Q>(
+        &self,
+        query: Q,
+    ) -> QueryBuilder<Self, Q, <<Q as IterableQuery>::Item as HasPredicateBox>::PredicateBoxType>
     where
         Q: IterableQuery,
-        Q::Item: HasPredicateBox<PredicateBoxType = P>,
     {
         QueryBuilder::new(self, query)
     }
