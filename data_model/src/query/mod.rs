@@ -134,7 +134,7 @@ mod model {
     pub enum SingularQueryBox {
         FindAssetQuantityById(FindAssetQuantityById),
         FindExecutorDataModel(FindExecutorDataModel),
-        FindAllParameters(FindParameters),
+        FindParameters(FindParameters),
         FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
         FindTriggerById(FindTriggerById),
 

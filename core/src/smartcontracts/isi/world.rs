@@ -473,7 +473,7 @@ pub mod query {
     use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
     impl ValidIterableQuery for FindRoles {
-        #[metrics(+"find_all_roles")]
+        #[metrics(+"find_roles")]
         fn execute<'state>(
             self,
             filter: CompoundPredicate<RolePredicateBox>,
@@ -490,7 +490,7 @@ pub mod query {
     }
 
     impl ValidIterableQuery for FindRoleIds {
-        #[metrics(+"find_all_role_ids")]
+        #[metrics(+"find_role_ids")]
         fn execute<'state>(
             self,
             filter: CompoundPredicate<RoleIdPredicateBox>,
@@ -508,7 +508,7 @@ pub mod query {
     }
 
     impl ValidIterableQuery for FindPeers {
-        #[metrics("find_all_peers")]
+        #[metrics(+"find_peers")]
         fn execute<'state>(
             self,
             filter: CompoundPredicate<PeerPredicateBox>,
@@ -524,14 +524,14 @@ pub mod query {
     }
 
     impl ValidSingularQuery for FindExecutorDataModel {
-        #[metrics("find_executor_data_model")]
+        #[metrics(+"find_executor_data_model")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<ExecutorDataModel, Error> {
             Ok(state_ro.world().executor_data_model().clone())
         }
     }
 
     impl ValidSingularQuery for FindParameters {
-        #[metrics("find_all_parameters")]
+        #[metrics(+"find_parameters")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Parameters, Error> {
             Ok(state_ro.world().parameters().clone())
         }

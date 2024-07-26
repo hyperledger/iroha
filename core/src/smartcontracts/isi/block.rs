@@ -17,7 +17,7 @@ use super::*;
 use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
 impl ValidIterableQuery for FindBlocks {
-    #[metrics(+"find_all_blocks")]
+    #[metrics(+"find_blocks")]
     fn execute<'state>(
         self,
         filter: CompoundPredicate<SignedBlockPredicateBox>,
@@ -32,7 +32,7 @@ impl ValidIterableQuery for FindBlocks {
 }
 
 impl ValidIterableQuery for FindBlockHeaders {
-    #[metrics(+"find_all_block_headers")]
+    #[metrics(+"find_block_headers")]
     fn execute<'state>(
         self,
         filter: CompoundPredicate<BlockHeaderPredicateBox>,

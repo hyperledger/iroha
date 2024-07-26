@@ -338,7 +338,7 @@ pub mod query {
     };
 
     impl ValidIterableQuery for FindActiveTriggerIds {
-        #[metrics(+"find_all_active_triggers")]
+        #[metrics(+"find_active_triggers")]
         fn execute<'state>(
             self,
             filter: CompoundPredicate<TriggerIdPredicateBox>,

@@ -438,7 +438,7 @@ pub mod query {
     use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
 
     impl ValidIterableQuery for FindAssets {
-        #[metrics(+"find_all_assets")]
+        #[metrics(+"find_assets")]
         fn execute<'state>(
             self,
             filter: CompoundPredicate<AssetPredicateBox>,
@@ -452,7 +452,7 @@ pub mod query {
         }
     }
     impl ValidIterableQuery for FindAssetsDefinitions {
-        #[metrics(+"find_all_asset_definitions")]
+        #[metrics(+"find_asset_definitions")]
         fn execute<'state>(
             self,
             filter: CompoundPredicate<AssetDefinitionPredicateBox>,

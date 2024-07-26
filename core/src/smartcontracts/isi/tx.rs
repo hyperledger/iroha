@@ -68,7 +68,7 @@ impl BlockTransactionRef {
 }
 
 impl ValidIterableQuery for FindTransactions {
-    #[metrics(+"find_all_transactions")]
+    #[metrics(+"find_transactions")]
     fn execute<'state>(
         self,
         filter: CompoundPredicate<TransactionQueryOutputPredicateBox>,

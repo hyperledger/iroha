@@ -170,7 +170,7 @@ pub fn visit_singular_query<V: Visit + ?Sized>(
     singular_query_visitors! {
         visit_find_asset_quantity_by_id(FindAssetQuantityById),
         visit_find_executor_data_model(FindExecutorDataModel),
-        visit_find_parameters(FindAllParameters),
+        visit_find_parameters(FindParameters),
         visit_find_total_asset_quantity_by_asset_definition_id(FindTotalAssetQuantityByAssetDefinitionId),
         visit_find_trigger_by_id(FindTriggerById),
         visit_find_domain_metadata(FindDomainMetadata),
