@@ -87,6 +87,16 @@ impl Root {
                 .attach_printable("Note: only `http` and `https` protocols are supported"),
             ),
         }
+        let torii_api_url = {
+            let mut url = torii_url.into_value();
+            let path = url.path();
+            // Ensure torii url ends with a trailing slash
+            if !path.ends_with('/') {
+                let path = path.to_owned() + "/";
+                url.set_path(&path)
+            }
+            url
+        };
 
         let (public_key, public_key_origin) = public_key.into_tuple();
         let (private_key, private_key_origin) = private_key.into_tuple();
@@ -103,7 +113,7 @@ impl Root {
             chain: chain_id,
             account: account_id,
             key_pair: key_pair.unwrap(),
-            torii_api_url: torii_url.into_value(),
+            torii_api_url,
             basic_auth,
             transaction_ttl: tx_ttl.into_value().get(),
             transaction_status_timeout: tx_timeout.into_value().get(),

@@ -388,7 +388,7 @@ impl QueryRequest {
     fn assemble(self) -> DefaultRequestBuilder {
         let builder = DefaultRequestBuilder::new(
             HttpMethod::POST,
-            self.torii_url.join(torii_uri::QUERY).expect("Valid URI"),
+            join_torii_url(&self.torii_url, torii_uri::QUERY),
         )
         .headers(self.headers);
 
@@ -689,9 +689,7 @@ impl Client {
         (
             B::new(
                 HttpMethod::POST,
-                self.torii_url
-                    .join(torii_uri::TRANSACTION)
-                    .expect("Valid URI"),
+                join_torii_url(&self.torii_url, torii_uri::TRANSACTION),
             )
             .headers(self.headers.clone())
             .body(transaction_bytes),
@@ -958,9 +956,7 @@ impl Client {
         events_api::flow::Init::new(
             event_filters.into_iter().map(Into::into).collect(),
             self.headers.clone(),
-            self.torii_url
-                .join(torii_uri::SUBSCRIPTION)
-                .expect("Valid URI"),
+            join_torii_url(&self.torii_url, torii_uri::SUBSCRIPTION),
         )
     }
 
@@ -994,9 +990,7 @@ impl Client {
         blocks_api::flow::Init::new(
             height,
             self.headers.clone(),
-            self.torii_url
-                .join(torii_uri::BLOCKS_STREAM)
-                .expect("Valid URI"),
+            join_torii_url(&self.torii_url, torii_uri::BLOCKS_STREAM),
         )
     }
 
@@ -1007,9 +1001,7 @@ impl Client {
     pub fn get_config(&self) -> Result<ConfigDTO> {
         let resp = DefaultRequestBuilder::new(
             HttpMethod::GET,
-            self.torii_url
-                .join(torii_uri::CONFIGURATION)
-                .expect("Valid URI"),
+            join_torii_url(&self.torii_url, torii_uri::CONFIGURATION),
         )
         .headers(&self.headers)
         .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
@@ -1032,10 +1024,7 @@ impl Client {
     /// If sending request or decoding fails
     pub fn set_config(&self, dto: &ConfigDTO) -> Result<()> {
         let body = serde_json::to_vec(&dto).wrap_err(format!("Failed to serialize {dto:?}"))?;
-        let url = self
-            .torii_url
-            .join(torii_uri::CONFIGURATION)
-            .expect("Valid URI");
+        let url = join_torii_url(&self.torii_url, torii_uri::CONFIGURATION);
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
             .headers(&self.headers)
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
@@ -1076,10 +1065,23 @@ impl Client {
     pub fn prepare_status_request<B: RequestBuilder>(&self) -> B {
         B::new(
             HttpMethod::GET,
-            self.torii_url.join(torii_uri::STATUS).expect("Valid URI"),
+            join_torii_url(&self.torii_url, torii_uri::STATUS),
         )
         .headers(self.headers.clone())
     }
+}
+
+fn join_torii_url(url: &Url, path: &str) -> Url {
+    // This is needed to prevent "https://iroha-peer.jp/peer1/".join("/query") == "https://iroha-peer.jp/query"
+    let path = path.strip_prefix('/').unwrap_or(path);
+
+    // This is needed to prevent "https://iroha-peer.jp/peer1".join("query") == "https://iroha-peer.jp/query"
+    assert!(
+        url.path().ends_with('/'),
+        "Torii url must end with trailing slash"
+    );
+
+    url.join(path).expect("Valid URI")
 }
 
 /// Logic for `sync` and `async` Iroha websocket streams
