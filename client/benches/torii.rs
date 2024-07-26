@@ -10,8 +10,10 @@ use iroha::{
 use iroha_genesis::GenesisBuilder;
 use iroha_primitives::unique_vec;
 use iroha_version::Encode;
-use irohad::samples::{construct_executor, get_config};
-use test_network::{get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
+use irohad::samples::get_config;
+use test_network::{
+    construct_executor, get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime,
+};
 use test_samples::gen_account_in;
 use tokio::runtime::Runtime;
 
