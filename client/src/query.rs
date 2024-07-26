@@ -8,7 +8,7 @@ use iroha_crypto::KeyPair;
 use iroha_data_model::{
     account::AccountId,
     query::{
-        builder::{IterableQueryBuilder, QueryExecutor, SingleQueryError},
+        builder::{QueryBuilder, QueryExecutor, SingleQueryError},
         parameters::ForwardCursor,
         predicate::HasPredicateBox,
         IterableQueryOutput, IterableQueryOutputBatchBox, IterableQueryWithParams, QueryRequest,
@@ -241,12 +241,12 @@ impl Client {
     }
 
     /// Build an iterable query and return a builder object
-    pub fn query<Q, P>(&self, query: Q) -> IterableQueryBuilder<Self, Q, P>
+    pub fn query<Q, P>(&self, query: Q) -> QueryBuilder<Self, Q, P>
     where
         Q: IterableQuery,
         Q::Item: HasPredicateBox<PredicateBoxType = P>,
     {
-        IterableQueryBuilder::new(self, query)
+        QueryBuilder::new(self, query)
     }
 
     /// Make a request to continue an iterable query with the provided raw [`ForwardCursor`]

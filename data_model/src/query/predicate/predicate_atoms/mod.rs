@@ -28,7 +28,7 @@ use super::{
     predicate_ast_extensions::AstPredicateExt as _,
     predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
     projectors::BaseProjector,
-    AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
+    AstPredicate, CompoundPredicate, EvaluatePredicate, HasPredicateBox, HasPrototype,
 };
 use crate::{metadata::Metadata, name::Name};
 
@@ -128,7 +128,7 @@ pub enum StringPredicateBox {
 
 impl_predicate_box!(String, Name: StringPredicateBox);
 
-impl<T> PredicateTrait<T> for StringPredicateBox
+impl<T> EvaluatePredicate<T> for StringPredicateBox
 where
     T: AsRef<str>,
 {
@@ -151,7 +151,7 @@ pub enum MetadataPredicateBox {
 
 impl_predicate_box!(Metadata: MetadataPredicateBox);
 
-impl PredicateTrait<Metadata> for MetadataPredicateBox {
+impl EvaluatePredicate<Metadata> for MetadataPredicateBox {
     fn applies(&self, _input: &Metadata) -> bool {
         match *self {}
     }
@@ -167,7 +167,7 @@ pub enum PublicKeyPredicateBox {
 
 impl_predicate_box!(PublicKey: PublicKeyPredicateBox);
 
-impl PredicateTrait<PublicKey> for PublicKeyPredicateBox {
+impl EvaluatePredicate<PublicKey> for PublicKeyPredicateBox {
     fn applies(&self, input: &PublicKey) -> bool {
         match self {
             PublicKeyPredicateBox::Equals(expected) => expected == input,

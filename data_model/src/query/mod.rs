@@ -49,7 +49,7 @@ pub trait SingularQuery: Sealed {
 ///
 /// Iterable queries logically return a stream of items.
 /// In the actual implementation, the items collected into batches and a cursor is used to fetch the next batch.
-/// [`builder::IterableQueryIterator`] abstracts over this and allows the query consumer to use a familiar [`Iterator`] interface to iterate over the results.
+/// [`builder::QueryIterator`] abstracts over this and allows the query consumer to use a familiar [`Iterator`] interface to iterate over the results.
 pub trait IterableQuery: Sealed {
     /// The type of single element of the output collection
     type Item: HasPredicateBox;

@@ -14,7 +14,7 @@ use crate::{
         predicate_ast_extensions::AstPredicateExt as _,
         predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
         projectors::BaseProjector,
-        AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype, PredicateTrait,
+        AstPredicate, CompoundPredicate, EvaluatePredicate, HasPredicateBox, HasPrototype,
     },
 };
 
@@ -26,7 +26,7 @@ pub enum PeerPredicateBox {
 
 impl_predicate_box!(Peer: PeerPredicateBox);
 
-impl PredicateTrait<Peer> for PeerPredicateBox {
+impl EvaluatePredicate<Peer> for PeerPredicateBox {
     fn applies(&self, _input: &Peer) -> bool {
         match *self {}
     }

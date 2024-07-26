@@ -19,7 +19,7 @@ use crate::{
             },
             predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
             projectors::BaseProjector,
-            PredicateTrait,
+            EvaluatePredicate,
         },
         AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype,
     },
@@ -39,7 +39,7 @@ pub enum AssetDefinitionPredicateBox {
 
 impl_predicate_box!(AssetDefinition: AssetDefinitionPredicateBox);
 
-impl PredicateTrait<AssetDefinition> for AssetDefinitionPredicateBox {
+impl EvaluatePredicate<AssetDefinition> for AssetDefinitionPredicateBox {
     fn applies(&self, input: &AssetDefinition) -> bool {
         match self {
             AssetDefinitionPredicateBox::Id(id) => id.applies(&input.id),
@@ -61,7 +61,7 @@ pub enum AssetPredicateBox {
 
 impl_predicate_box!(Asset: AssetPredicateBox);
 
-impl PredicateTrait<Asset> for AssetPredicateBox {
+impl EvaluatePredicate<Asset> for AssetPredicateBox {
     fn applies(&self, input: &Asset) -> bool {
         match self {
             AssetPredicateBox::Id(id) => id.applies(&input.id),
@@ -78,7 +78,7 @@ pub enum AssetValuePredicateBox {
 
 impl_predicate_box!(AssetValue: AssetValuePredicateBox);
 
-impl PredicateTrait<AssetValue> for AssetValuePredicateBox {
+impl EvaluatePredicate<AssetValue> for AssetValuePredicateBox {
     fn applies(&self, _input: &AssetValue) -> bool {
         match *self {}
     }
@@ -99,7 +99,7 @@ pub enum AssetIdPredicateBox {
 
 impl_predicate_box!(AssetId: AssetIdPredicateBox);
 
-impl PredicateTrait<AssetId> for AssetIdPredicateBox {
+impl EvaluatePredicate<AssetId> for AssetIdPredicateBox {
     fn applies(&self, input: &AssetId) -> bool {
         match self {
             AssetIdPredicateBox::Equals(expected) => expected == input,
@@ -126,7 +126,7 @@ pub enum AssetDefinitionIdPredicateBox {
 
 impl_predicate_box!(AssetDefinitionId: AssetDefinitionIdPredicateBox);
 
-impl PredicateTrait<AssetDefinitionId> for AssetDefinitionIdPredicateBox {
+impl EvaluatePredicate<AssetDefinitionId> for AssetDefinitionIdPredicateBox {
     fn applies(&self, input: &AssetDefinitionId) -> bool {
         match self {
             AssetDefinitionIdPredicateBox::Equals(expected) => expected == input,

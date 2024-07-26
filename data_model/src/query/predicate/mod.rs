@@ -27,7 +27,7 @@
 //!
 //! Normalized representation aims to reduce the number of types not to bloat the schema and reduce redundancy.
 //!
-//! Predicates in the normalized representation can be evaluated using the [`PredicateTrait`] trait.
+//! Predicates in the normalized representation can be evaluated using the [`EvaluatePredicate`] trait.
 //!
 //! Ast predicates are more numerous: they include atomic predicates (like [`predicate_atoms::account::AccountIdPredicateBox`]), logical combinators (three types in [`predicate_combinators`]), and projections (like [`projectors::AccountIdDomainIdProjection`]).
 //!
@@ -46,7 +46,7 @@ use alloc::{boxed::Box, vec, vec::Vec};
 use super::*;
 
 /// Trait defining how to apply a predicate to a value `T`.
-pub trait PredicateTrait<T: ?Sized> {
+pub trait EvaluatePredicate<T: ?Sized> {
     /// The result of applying the predicate to a value.
     fn applies(&self, input: &T) -> bool;
 }
@@ -124,7 +124,7 @@ impl<Atom> CompoundPredicate<Atom> {
 /// A marker trait allowing to associate a predicate box type corresponding to the type.
 pub trait HasPredicateBox {
     /// The type of the atomic predicate corresponding to the type.
-    type PredicateBoxType: PredicateTrait<Self>;
+    type PredicateBoxType: EvaluatePredicate<Self>;
 }
 
 /// A marker trait allowing to get a type of prototype for the type.
@@ -135,9 +135,9 @@ pub trait HasPrototype {
     type Prototype<Projector: Default>: Default;
 }
 
-impl<T, Atom> PredicateTrait<T> for CompoundPredicate<Atom>
+impl<T, Atom> EvaluatePredicate<T> for CompoundPredicate<Atom>
 where
-    Atom: PredicateTrait<T>,
+    Atom: EvaluatePredicate<T>,
 {
     fn applies(&self, input: &T) -> bool {
         match self {
@@ -163,7 +163,7 @@ pub trait AstPredicate<PredType> {
 
 pub mod prelude {
     //! Re-export important types and traits for glob import `(::*)`
-    pub use super::{predicate_atoms::prelude::*, CompoundPredicate, PredicateTrait};
+    pub use super::{predicate_atoms::prelude::*, CompoundPredicate, EvaluatePredicate};
 }
 
 #[cfg(test)]
