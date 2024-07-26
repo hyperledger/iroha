@@ -82,7 +82,7 @@ nonzero_ext = { version = "0.3.0", default-features = false }
 url = "2.5.2"
 prometheus = { version = "0.13.4", default-features = false }
 
-clap = "4.5.10"
+clap = "4.5.11"
 owo-colors = "3.5.0"
 supports-color = "2.1.0"
 inquire = "0.6.2"
