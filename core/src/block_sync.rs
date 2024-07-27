@@ -1,5 +1,11 @@
 //! This module contains structures and messages for synchronization of blocks between peers.
-use std::{fmt::Debug, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    fmt::Debug,
+    num::{NonZeroU32, NonZeroU64},
+    sync::Arc,
+    time::Duration,
+};
 
 use iroha_config::parameters::actual::BlockSync as Config;
 use iroha_crypto::HashOf;
@@ -44,6 +50,8 @@ pub struct BlockSynchronizer {
     gossip_size: NonZeroU32,
     network: IrohaNetwork,
     state: Arc<State>,
+    seen_blocks: BTreeSet<(NonZeroU64, HashOf<SignedBlock>)>,
+    latest_height: NonZeroU64,
 }
 
 impl BlockSynchronizer {
@@ -74,6 +82,19 @@ impl BlockSynchronizer {
 
     /// Sends request for latest blocks to a random peer
     async fn request_block(&mut self) {
+        let now_height = (self.state.view().height() as u64)
+            .try_into()
+            .expect("Should not be zero");
+
+        // This guards against a softfork and adds general redundancy.
+        if now_height == self.latest_height {
+            self.seen_blocks.clear();
+        }
+        self.latest_height = now_height;
+
+        self.seen_blocks
+            .retain(|(height, _hash)| *height >= now_height);
+
         if let Some(random_peer) = self.network.online_peers(Self::random_peer) {
             self.request_latest_blocks_from_peer(random_peer.id().clone())
                 .await;
@@ -98,6 +119,10 @@ impl BlockSynchronizer {
         message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
             latest_hash,
             prev_hash,
+            self.seen_blocks
+                .iter()
+                .map(|(_height, hash)| hash.clone())
+                .collect(),
             self.peer_id.clone(),
         ))
         .send_to(&self.network, peer_id)
@@ -121,6 +146,8 @@ impl BlockSynchronizer {
             gossip_size: config.gossip_size,
             network,
             state,
+            seen_blocks: BTreeSet::new(),
+            latest_height: NonZeroU64::new(1).expect("1 is not 0"),
         }
     }
 }
@@ -138,6 +165,8 @@ pub mod message {
         pub latest_hash: Option<HashOf<SignedBlock>>,
         /// Hash of second to latest block
         pub prev_hash: Option<HashOf<SignedBlock>>,
+        /// The block hashes already seen
+        pub seen_blocks: BTreeSet<HashOf<SignedBlock>>,
         /// Peer id
         pub peer_id: PeerId,
     }
@@ -147,11 +176,13 @@ pub mod message {
         pub const fn new(
             latest_hash: Option<HashOf<SignedBlock>>,
             prev_hash: Option<HashOf<SignedBlock>>,
+            seen_blocks: BTreeSet<HashOf<SignedBlock>>,
             peer_id: PeerId,
         ) -> Self {
             Self {
                 latest_hash,
                 prev_hash,
+                seen_blocks,
                 peer_id,
             }
         }
@@ -190,6 +221,7 @@ pub mod message {
                 Message::GetBlocksAfter(GetBlocksAfter {
                     latest_hash,
                     prev_hash,
+                    seen_blocks,
                     peer_id,
                 }) => {
                     let local_latest_block_hash = block_sync.state.view().latest_block_hash();
@@ -225,6 +257,7 @@ pub mod message {
                                 .and_then(|height| block_sync.kura.get_block_by_height(height))
                         })
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
+                        .filter(|block| !seen_blocks.contains(&block.hash()))
                         .map(|block| (*block).clone())
                         .collect::<Vec<_>>();
 
@@ -244,6 +277,9 @@ pub mod message {
                     use crate::sumeragi::message::BlockSyncUpdate;
 
                     for block in blocks.clone() {
+                        block_sync
+                            .seen_blocks
+                            .insert((block.header().height(), block.hash()));
                         let msg = BlockSyncUpdate::from(&block);
                         block_sync.sumeragi.incoming_block_message(msg);
                     }
