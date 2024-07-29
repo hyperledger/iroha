@@ -10,16 +10,16 @@ cd ./client/tests/integration/smartcontracts
 cargo fmt --all -- --check
 cd -
 # update the default executor
-cargo run --release --bin iroha_wasm_builder -- build ./default_executor --optimize --out-file ./configs/swarm/executor.wasm
+cargo run --release --bin iroha_wasm_builder -- build ./default_executor --optimize --out-file ./defaults/executor.wasm
 # update the default genesis, assuming the transaction authority is `test_samples::SAMPLE_GENESIS_ACCOUNT_ID`
-cargo run --release --bin kagami -- genesis generate --executor-path-in-genesis ./executor.wasm --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 > ./configs/swarm/genesis.json
+cargo run --release --bin kagami -- genesis generate --executor-path-in-genesis ./executor.wasm --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 > ./defaults/genesis.json
 # update schema
 cargo run --release --bin kagami -- schema > ./docs/source/references/schema.json
 # update docker compose files
-cargo run --release --bin iroha_swarm -- -p 1 -s Iroha -H -c ./configs/swarm -i hyperledger/iroha:local -b . -o ./configs/swarm/docker-compose.single.yml -F
-cargo run --release --bin iroha_swarm -- -p 4 -s Iroha -H -c ./configs/swarm -i hyperledger/iroha:local -b . -o ./configs/swarm/docker-compose.local.yml -F
-cargo run --release --bin iroha_swarm -- -p 4 -s Iroha -H -c ./configs/swarm -i hyperledger/iroha:dev -o ./configs/swarm/docker-compose.yml -F
+cargo run --release --bin iroha_swarm -- -p 1 -s Iroha -H -c ./defaults -i hyperledger/iroha:local -b . -o ./defaults/docker-compose.single.yml -F
+cargo run --release --bin iroha_swarm -- -p 4 -s Iroha -H -c ./defaults -i hyperledger/iroha:local -b . -o ./defaults/docker-compose.local.yml -F
+cargo run --release --bin iroha_swarm -- -p 4 -s Iroha -H -c ./defaults -i hyperledger/iroha:dev -o ./defaults/docker-compose.yml -F
 # lints
 cargo lints clippy --workspace --benches --tests --examples --all-features
 # stage updates
-git add ./configs/swarm/executor.wasm ./configs/swarm/genesis.json ./docs/source/references/schema.json ./configs/swarm/docker-compose.single.yml ./configs/swarm/docker-compose.local.yml ./configs/swarm/docker-compose.yml
+git add ./defaults/executor.wasm ./defaults/genesis.json ./docs/source/references/schema.json ./defaults/docker-compose.single.yml ./defaults/docker-compose.local.yml ./defaults/docker-compose.yml

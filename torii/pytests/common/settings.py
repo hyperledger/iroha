@@ -7,7 +7,7 @@ load_dotenv()
 BASE_DIR = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
-CONFIG_DIR = os.path.join(BASE_DIR, "configs/swarm/client.toml")
+CONFIG_DIR = os.path.join(BASE_DIR, "defaults/client.toml")
 
 with open(CONFIG_DIR, "r") as file:
     config = toml.load(file)

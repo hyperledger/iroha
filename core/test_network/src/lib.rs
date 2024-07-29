@@ -95,7 +95,7 @@ impl TestGenesis for GenesisBlock {
         // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut genesis =
-            RawGenesisTransaction::from_path(manifest_dir.join("../../configs/swarm/genesis.json"))
+            RawGenesisTransaction::from_path(manifest_dir.join("../../defaults/genesis.json"))
                 .expect("Failed to deserialize genesis block from file");
 
         let rose_definition_id = "rose#wonderland".parse::<AssetDefinitionId>().unwrap();

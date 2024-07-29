@@ -5,7 +5,7 @@ use iroha::{
 };
 
 fn main() {
-    let config = Config::load("../configs/swarm/client.toml").unwrap();
+    let config = Config::load("../defaults/client.toml").unwrap();
 
     let client = Client::new(config);
 

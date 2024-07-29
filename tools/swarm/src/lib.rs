@@ -144,8 +144,8 @@ mod tests {
     use crate::Swarm;
 
     const IMAGE: &str = "hyperledger/iroha:dev";
-    const PEER_CONFIG_PATH: &str = "./configs/swarm";
-    const TARGET_PATH: &str = "./configs/swarm/docker-compose.yml";
+    const PEER_CONFIG_PATH: &str = "./defaults";
+    const TARGET_PATH: &str = "./defaults/docker-compose.yml";
 
     fn build_as_string(
         count: std::num::NonZeroU16,
@@ -180,7 +180,7 @@ mod tests {
             services:
               irohad0:
                 image: hyperledger/iroha:dev
-                build: ../..
+                build: ..
                 pull_policy: never
                 environment:
                   CHAIN: 00000000-0000-0000-0000-000000000000
@@ -232,7 +232,7 @@ mod tests {
             services:
               irohad0:
                 image: hyperledger/iroha:dev
-                build: ../..
+                build: ..
                 pull_policy: build
                 environment:
                   CHAIN: 00000000-0000-0000-0000-000000000000
@@ -283,7 +283,7 @@ mod tests {
             services:
               irohad0:
                 image: hyperledger/iroha:dev
-                build: ../..
+                build: ..
                 pull_policy: build
                 environment:
                   CHAIN: 00000000-0000-0000-0000-000000000000
