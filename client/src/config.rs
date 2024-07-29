@@ -158,6 +158,19 @@ mod tests {
     }
 
     #[test]
+    fn torii_url_ensure_trailing_slash() {
+        let config = ConfigReader::new()
+            .with_toml_source(TomlSource::inline(config_sample()))
+            .with_env(MockEnv::from([("TORII_URL", "http://127.0.0.1/peer-1")]))
+            .read_and_complete::<user::Root>()
+            .unwrap()
+            .parse()
+            .unwrap();
+
+        assert_eq!(config.torii_api_url.as_str(), "http://127.0.0.1/peer-1/");
+    }
+
+    #[test]
     fn invalid_toml_file_is_handled_properly() {
         use std::io::Write;
 
