@@ -1076,6 +1076,7 @@ fn join_torii_url(url: &Url, path: &str) -> Url {
     let path = path.strip_prefix('/').unwrap_or(path);
 
     // This is needed to prevent "https://iroha-peer.jp/peer1".join("query") == "https://iroha-peer.jp/query"
+    // Note: trailing slash is added to url at config user layer if needed
     assert!(
         url.path().ends_with('/'),
         "Torii url must end with trailing slash"
@@ -1702,6 +1703,45 @@ mod tests {
                 Err(ClientQueryError::Other(_)) => Ok(()),
                 x => Err(eyre!("Expected indeterminate, found: {:?}", x)),
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod join_torii_url {
+        use url::Url;
+
+        use super::*;
+
+        fn do_test(url: &str, path: &str, expected: &str) {
+            let url = Url::parse(url).unwrap();
+            let actual = join_torii_url(&url, path);
+            assert_eq!(actual.as_str(), expected);
+        }
+
+        #[test]
+        fn path_with_slash() {
+            do_test("https://iroha.jp/", "/query", "https://iroha.jp/query");
+            do_test(
+                "https://iroha.jp/peer-1/",
+                "/query",
+                "https://iroha.jp/peer-1/query",
+            );
+        }
+
+        #[test]
+        fn path_without_slash() {
+            do_test("https://iroha.jp/", "query", "https://iroha.jp/query");
+            do_test(
+                "https://iroha.jp/peer-1/",
+                "query",
+                "https://iroha.jp/peer-1/query",
+            );
+        }
+
+        #[test]
+        #[should_panic(expected = "Torii url must end with trailing slash")]
+        fn panic_if_url_without_trailing_slash() {
+            do_test("https://iroha.jp/peer-1", "query", "should panic");
         }
     }
 }
