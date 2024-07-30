@@ -39,7 +39,7 @@ ENV  GID=1001
 
 RUN  set -ex && \
      apt-get update -y && \
-     apt-get install -y curl ca-certificates && \
+     apt-get install -y curl ca-certificates jq && \
      addgroup --gid $GID $USER && \
      adduser \
      --disabled-password \
