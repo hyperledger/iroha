@@ -413,12 +413,11 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     // Building wasm trigger
 
     info!("Building trigger");
-    let wasm =
-        iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose_trigger")
-            .show_output()
-            .build()?
-            .optimize()?
-            .into_bytes()?;
+    let wasm = iroha_wasm_builder::Builder::new("../wasm_samples/mint_rose_trigger")
+        .show_output()
+        .build()?
+        .optimize()?
+        .into_bytes()?;
 
     info!("WASM size is {} bytes", wasm.len());
 
@@ -579,12 +578,11 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
     let first_trigger_id = TriggerId::from_str("mint_rose_1")?;
     let second_trigger_id = TriggerId::from_str("mint_rose_2")?;
 
-    let wasm =
-        iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose_trigger")
-            .show_output()
-            .build()?
-            .optimize()?
-            .into_bytes()?;
+    let wasm = iroha_wasm_builder::Builder::new("../wasm_samples/mint_rose_trigger")
+        .show_output()
+        .build()?
+        .optimize()?
+        .into_bytes()?;
     let wasm = WasmSmartContract::from_compiled(wasm);
 
     let build_trigger = |trigger_id: TriggerId| {
@@ -661,12 +659,11 @@ fn call_execute_trigger_with_args() -> Result<()> {
     let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
     let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
-    let wasm =
-        iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose_trigger_args")
-            .show_output()
-            .build()?
-            .optimize()?
-            .into_bytes()?;
+    let wasm = iroha_wasm_builder::Builder::new("../wasm_samples/mint_rose_trigger_args")
+        .show_output()
+        .build()?
+        .optimize()?
+        .into_bytes()?;
     let wasm = WasmSmartContract::from_compiled(wasm);
     let trigger = Trigger::new(
         trigger_id.clone(),

@@ -32,7 +32,8 @@ fn query_requests(criterion: &mut Criterion) {
     );
 
     let rt = Runtime::test();
-    let executor = construct_executor("../default_executor").expect("Failed to construct executor");
+    let executor = construct_executor("../wasm_samples/default_executor")
+        .expect("Failed to construct executor");
     let topology = vec![peer.id.clone()];
     let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
@@ -127,7 +128,8 @@ fn instruction_submits(criterion: &mut Criterion) {
         get_key_pair(test_network::Signatory::Peer),
         genesis_key_pair.public_key(),
     );
-    let executor = construct_executor("../default_executor").expect("Failed to construct executor");
+    let executor = construct_executor("../wasm_samples/default_executor")
+        .expect("Failed to construct executor");
     let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
         .account(configuration.common.key_pair.public_key().clone())

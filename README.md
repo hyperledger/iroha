@@ -93,7 +93,7 @@ To generate WASM files for smart contracts, use the provided script `generate_wa
 bash ./scripts/generate_wasm.sh [path/to/smartcontracts]
 ```
 
-The generated WASM files will be saved in a generated directory `test-smartcontracts`, relative to your current working directory. The default path for smart contracts in this project is `client/tests/integration/smartcontracts`.
+The generated WASM files will be saved in a generated directory `test-smartcontracts`, relative to your current working directory. The default path for smart contracts in this project is `wasm_samples`.
 
 </details>
 
@@ -143,7 +143,7 @@ Iroha project mainly consists of the following crates:
 * [`iroha_logger`](logger) uses `tracing` to provide logging facilities.
 * [`iroha_macro`](macro) provides the convenience macros.
 * [`iroha_p2p`](p2p) defines peer creation and handshake logic.
-* [`iroha_default_executor`](default_executor) defines runtime validation logic.
+* [`iroha_default_executor`](wasm_samples/default_executor) defines runtime validation logic.
 * [`iroha_telemetry`](telemetry) is used for monitoring and analysis of telemetry data.
 * [`iroha_version`](version) provides message versioning for non-simultaneous system updates.
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Default source directory
-DEFAULT_SOURCE_DIR="client/tests/integration/smartcontracts"
+DEFAULT_SOURCE_DIR="wasm_samples"
 
 # If no arguments are provided, use the default source directory
 if [ "$#" -eq 0 ]; then

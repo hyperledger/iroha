@@ -55,10 +55,7 @@ fn executor_upgrade_should_work() -> Result<()> {
         .submit_transaction_blocking(&transfer_rose_tx)
         .expect_err("Should fail");
 
-    upgrade_executor(
-        &client,
-        "tests/integration/smartcontracts/executor_with_admin",
-    )?;
+    upgrade_executor(&client, "../wasm_samples/executor_with_admin")?;
 
     // Check that admin can transfer alice's rose now
     // Creating new transaction instead of cloning, because we need to update it's creation time
@@ -99,10 +96,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
             .is_ok_and(|permission| permission == can_unregister_domain)
     }));
 
-    upgrade_executor(
-        &client,
-        "tests/integration/smartcontracts/executor_with_custom_permission",
-    )?;
+    upgrade_executor(&client, "../wasm_samples/executor_with_custom_permission")?;
 
     // Check that `CanUnregisterDomain` doesn't exist
     let data_model = client.request(FindExecutorDataModel)?;
@@ -176,10 +170,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
                 .is_ok_and(|permission| permission == can_unregister_domain)
         }));
 
-    upgrade_executor(
-        &client,
-        "tests/integration/smartcontracts/executor_remove_permission",
-    )?;
+    upgrade_executor(&client, "../wasm_samples/executor_remove_permission")?;
 
     // Check that permission doesn't exist
     assert!(!client
@@ -223,7 +214,7 @@ fn executor_custom_instructions_simple() -> Result<()> {
 
     upgrade_executor(
         &client,
-        "tests/integration/smartcontracts/executor_custom_instructions_simple",
+        "../wasm_samples/executor_custom_instructions_simple",
     )?;
 
     let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().unwrap();
@@ -269,7 +260,7 @@ fn executor_custom_instructions_complex() -> Result<()> {
     client.submit_blocking(executor_fuel_limit)?;
     upgrade_executor(
         &client,
-        "tests/integration/smartcontracts/executor_custom_instructions_complex",
+        "../wasm_samples/executor_custom_instructions_complex",
     )?;
 
     // Give 6 roses to bob
@@ -334,11 +325,8 @@ fn migration_fail_should_not_cause_any_effects() {
         "failed_migration_test_domain".parse().expect("Valid");
     assert_domain_does_not_exist(&client, &domain_registered_in_migration);
 
-    let _err = upgrade_executor(
-        &client,
-        "tests/integration/smartcontracts/executor_with_migration_fail",
-    )
-    .expect_err("Upgrade should fail due to migration failure");
+    let _err = upgrade_executor(&client, "../wasm_samples/executor_with_migration_fail")
+        .expect_err("Upgrade should fail due to migration failure");
 
     // Checking that things registered in migration does not exist after failed migration
     assert_domain_does_not_exist(&client, &domain_registered_in_migration);
@@ -369,11 +357,7 @@ fn migration_should_cause_upgrade_event() {
         }
     });
 
-    upgrade_executor(
-        &client,
-        "tests/integration/smartcontracts/executor_with_custom_permission",
-    )
-    .unwrap();
+    upgrade_executor(&client, "../wasm_samples/executor_with_custom_permission").unwrap();
 
     rt.block_on(async {
         tokio::time::timeout(core::time::Duration::from_secs(60), task)
@@ -394,11 +378,7 @@ fn define_custom_parameter() -> Result<()> {
     let create_domain = Register::domain(Domain::new(long_domain_name));
     client.submit_blocking(create_domain)?;
 
-    upgrade_executor(
-        &client,
-        "tests/integration/smartcontracts/executor_with_custom_parameter",
-    )
-    .unwrap();
+    upgrade_executor(&client, "../wasm_samples/executor_with_custom_parameter").unwrap();
 
     let too_long_domain_name = "1".repeat(2_usize.pow(5)).parse::<DomainId>()?;
     let create_domain = Register::domain(Domain::new(too_long_domain_name));
