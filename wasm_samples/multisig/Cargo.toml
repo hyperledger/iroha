@@ -22,4 +22,4 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, default-features = false }
 
 [build-dependencies]
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.22.0", path = "../../wasm_builder" }
+iroha_wasm_builder = { version = "=2.0.0-rc.1.0", path = "../../wasm_builder" }
