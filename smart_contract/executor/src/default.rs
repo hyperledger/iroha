@@ -1129,19 +1129,25 @@ pub mod role {
         ($executor:ident, $isi:ident, $authority:ident, $method:ident) => {
             let role_id = $isi.object();
 
-            let find_role_query_res = match iroha_smart_contract::query(FindRoles)
-                .filter_with(|role| role.id.eq(role_id.clone()))
-                .execute_single()
-            {
-                Ok(res) => res,
-                Err(iroha_smart_contract::SmartContractSingleQueryError::Validation(error)) => {
-                    deny!($executor, error);
-                }
-                Err(iroha_smart_contract::SmartContractSingleQueryError::Single(_error)) => {
-                    // assuming that only a "not found" case is possible here
-                    deny!($executor, "Role not found")
-                }
-            };
+            let find_role_query_res =
+                match crate::data_model::query::builder::QueryBuilderExt::execute_single(
+                    iroha_smart_contract::query(FindRoles)
+                        .filter_with(|role| role.id.eq(role_id.clone())),
+                ) {
+                    Ok(res) => res,
+                    Err(crate::data_model::query::builder::SingleQueryError::QueryError(error)) => {
+                        deny!($executor, error);
+                    }
+                    Err(
+                        crate::data_model::query::builder::SingleQueryError::ExpectedOneGotNone,
+                    ) => {
+                        // assuming that only a "not found" case is possible here
+                        deny!($executor, "Role not found")
+                    }
+                    Err(_) => {
+                        unreachable!();
+                    }
+                };
             let role = Role::try_from(find_role_query_res).unwrap();
 
             let mut unknown_tokens = alloc::vec::Vec::new();

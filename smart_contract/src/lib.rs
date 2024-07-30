@@ -16,12 +16,11 @@ use data_model::{
 };
 pub use iroha_data_model as data_model;
 use iroha_data_model::query::{
-    builder::{QueryBuilder, QueryExecutor, SingleQueryError},
+    builder::{QueryBuilder, QueryExecutor},
     predicate::HasPredicateBox,
     IterableQueryOutputBatchBox, IterableQueryWithParams, QueryRequest, QueryResponse,
     SingularQuery, SingularQueryBox, SingularQueryOutputBox,
 };
-use iroha_macro::FromVariant;
 pub use iroha_smart_contract_derive::main;
 pub use iroha_smart_contract_utils::{debug, error, info, log, warn};
 use iroha_smart_contract_utils::{
@@ -128,15 +127,6 @@ fn execute_query(query: &QueryRequest) -> Result<QueryResponse, ValidationFail> 
     unsafe { decode_with_length_prefix_from_raw(encode_and_execute(&query, host_execute_query)) }
 }
 
-/// An error that can occur when executing a singular query in a smart contract.
-#[derive(Debug, displaydoc::Display, FromVariant)]
-pub enum SmartContractSingleQueryError {
-    /// Query validation error
-    Validation(ValidationFail),
-    /// Failed to constrain the query to a single result
-    Single(SingleQueryError),
-}
-
 /// A [`QueryExecutor`] for use in smart contracts.
 #[derive(Copy, Clone, Debug)]
 pub struct SmartContractQueryExecutor;
@@ -144,7 +134,6 @@ pub struct SmartContractQueryExecutor;
 impl QueryExecutor for SmartContractQueryExecutor {
     type Cursor = SmartContractQueryCursor;
     type Error = ValidationFail;
-    type SingleError = SmartContractSingleQueryError;
 
     fn execute_singular_query(
         &self,
