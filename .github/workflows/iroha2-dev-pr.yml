@@ -186,7 +186,7 @@ jobs:
       - name: Copy build client cli bin from peer into runner
         run: |
           mkdir -p test
-          docker cp swarm-irohad0-1:/usr/local/bin/iroha test
+          docker cp defaults-irohad0-1:/usr/local/bin/iroha test
           cp ./defaults/client.toml test
       - name: Mark binaries as executable
         run: |
