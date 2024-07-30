@@ -177,7 +177,7 @@ impl Queue {
     /// # Errors
     /// See [`enum@Error`]
     pub fn push(&self, tx: AcceptedTransaction, state_view: &StateView) -> Result<(), Failure> {
-        trace!(?tx, "Pushing to the queue");
+        trace!(tx=%tx.as_ref().hash(), "Pushing to the queue");
         if let Err(err) = self.check_tx(&tx, state_view) {
             return Err(Failure { tx, err });
         }
