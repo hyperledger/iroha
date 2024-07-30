@@ -93,11 +93,9 @@ body:
       description: |
         If you figure out the right person to tag, your issue might be resolved faster.
         You can use `git blame` or check the following list of people **you can tag** based on what the issue is connected to:
-
-         - Documentation issues: Ekaterina Mekhnetsova (`@outoftardis`)
+         - Documentation issues: Alexandra Zorina (`@a-zorina`)
          - Quality Assurance (`@AlexStroke`)
-         - WASM: Marin Veršić (`@mversic`)
-         - Triggers: Daniil Polyakov (`@Arjentix`)
+         - WASM and Triggers: Marin Veršić (`@mversic`)
       placeholder: "@Username ..."
   - type: textarea
     id: notes
