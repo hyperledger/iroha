@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
-## [2.0.0-pre-rc.22.0] - 2024-07-25
+## [2.0.0-pre-rc.22.1] - 2024-07-30
+
+### Fixed
+
+- added `jq` to the docker image
+
+## [2.0.0-pre-rc.22.1] - 2024-07-25
 
 ### Added
 
