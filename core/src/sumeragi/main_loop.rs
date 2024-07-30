@@ -1026,7 +1026,7 @@ pub(crate) fn run(
                 if expired {
                     debug!(?tx, "Transaction expired")
                 }
-                expired
+                !expired
             });
 
         sumeragi.queue.get_transactions_for_block(
