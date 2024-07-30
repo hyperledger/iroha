@@ -23,9 +23,6 @@ pub trait QueryExecutor {
     type Cursor;
     /// An error that can occur during query execution.
     type Error;
-    // bound introduced to inject `SingularQueryError` in builder's `execute_single` and `execute_single_opt` methods
-    /// An error type that combines `SingleQueryError` and `Self::Error`. Used by helper methods in query builder that constrain the number of results of an iterable query to one.
-    type SingleError: From<SingleQueryError> + From<Self::Error>;
 
     /// Executes a singular query and returns its result.
     ///
@@ -151,13 +148,21 @@ where
     Encode,
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
-pub enum SingleQueryError {
+pub enum SingleQueryError<E> {
+    /// An error occurred during query execution
+    QueryError(E),
     /// Expected exactly one query result, got none
     ExpectedOneGotNone,
     /// Expected exactly one query result, got more than one
     ExpectedOneGotMany,
     /// Expected one or zero query results, got more than one
     ExpectedOneOrZeroGotMany,
+}
+
+impl<E> From<E> for SingleQueryError<E> {
+    fn from(e: E) -> Self {
+        SingleQueryError::QueryError(e)
+    }
 }
 
 /// Struct that simplifies construction of an iterable query.
@@ -272,55 +277,6 @@ where
 
         Ok(iterator)
     }
-
-    /// Execute the query, returning all the results collected into a vector.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the query execution fails.
-    pub fn execute_all(self) -> Result<Vec<Q::Item>, E::Error> {
-        self.execute()?.collect::<Result<Vec<_>, _>>()
-    }
-
-    /// Execute the query, constraining the number of results to zero or one.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the query execution fails or if more than one result is returned.
-    pub fn execute_single_opt(self) -> Result<Option<Q::Item>, E::SingleError> {
-        let mut iter = self.execute()?;
-        let first = iter.next().transpose()?;
-        let second = iter.next().transpose()?;
-
-        match (first, second) {
-            (None, None) => Ok(None),
-            (Some(result), None) => Ok(Some(result)),
-            (Some(_), Some(_)) => Err(SingleQueryError::ExpectedOneOrZeroGotMany.into()),
-            (None, Some(_)) => {
-                unreachable!()
-            }
-        }
-    }
-
-    /// Execute the query, constraining the number of results to exactly one.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the query execution fails or if zero or more than one result is returned.
-    pub fn execute_single(self) -> Result<Q::Item, E::SingleError> {
-        let mut iter = self.execute()?;
-        let first = iter.next().transpose()?;
-        let second = iter.next().transpose()?;
-
-        match (first, second) {
-            (None, None) => Err(SingleQueryError::ExpectedOneGotNone.into()),
-            (Some(result), None) => Ok(result),
-            (Some(_), Some(_)) => Err(SingleQueryError::ExpectedOneGotMany.into()),
-            (None, Some(_)) => {
-                unreachable!()
-            }
-        }
-    }
 }
 
 impl<E, Q, P> Clone for QueryBuilder<'_, E, Q, P>
@@ -338,4 +294,81 @@ where
             fetch_size: self.fetch_size,
         }
     }
+}
+
+/// An extension trait for query builders that provides convenience methods to execute queries.
+pub trait QueryBuilderExt<E, Q>
+where
+    E: QueryExecutor,
+    Q: IterableQuery,
+{
+    /// Execute the query, returning all the results collected into a vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails.
+    fn execute_all(self) -> Result<Vec<Q::Item>, E::Error>;
+
+    /// Execute the query, constraining the number of results to zero or one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails or if more than one result is returned.
+    fn execute_single_opt(self) -> Result<Option<Q::Item>, SingleQueryError<E::Error>>;
+
+    /// Execute the query, constraining the number of results to exactly one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails or if zero or more than one result is returned.
+    fn execute_single(self) -> Result<Q::Item, SingleQueryError<E::Error>>;
+}
+
+impl<E, Q, P> QueryBuilderExt<E, Q> for QueryBuilder<'_, E, Q, P>
+where
+    E: QueryExecutor,
+    Q: IterableQuery,
+    Q::Item: HasPredicateBox<PredicateBoxType = P>,
+    IterableQueryBox: From<IterableQueryWithFilterFor<Q>>,
+    Vec<Q::Item>: TryFrom<IterableQueryOutputBatchBox>,
+    <Vec<Q::Item> as TryFrom<IterableQueryOutputBatchBox>>::Error: core::fmt::Debug,
+{
+    fn execute_all(self) -> Result<Vec<Q::Item>, E::Error> {
+        self.execute()?.collect::<Result<Vec<_>, _>>()
+    }
+
+    fn execute_single_opt(self) -> Result<Option<Q::Item>, SingleQueryError<E::Error>> {
+        let mut iter = self.execute()?;
+        let first = iter.next().transpose()?;
+        let second = iter.next().transpose()?;
+
+        match (first, second) {
+            (None, None) => Ok(None),
+            (Some(result), None) => Ok(Some(result)),
+            (Some(_), Some(_)) => Err(SingleQueryError::ExpectedOneOrZeroGotMany.into()),
+            (None, Some(_)) => {
+                unreachable!()
+            }
+        }
+    }
+
+    fn execute_single(self) -> Result<Q::Item, SingleQueryError<E::Error>> {
+        let mut iter = self.execute()?;
+        let first = iter.next().transpose()?;
+        let second = iter.next().transpose()?;
+
+        match (first, second) {
+            (None, None) => Err(SingleQueryError::ExpectedOneGotNone.into()),
+            (Some(result), None) => Ok(result),
+            (Some(_), Some(_)) => Err(SingleQueryError::ExpectedOneGotMany.into()),
+            (None, Some(_)) => {
+                unreachable!()
+            }
+        }
+    }
+}
+
+/// The prelude re-exports most commonly used traits, structs and macros from this crate.
+pub mod prelude {
+    pub use super::QueryBuilderExt;
 }

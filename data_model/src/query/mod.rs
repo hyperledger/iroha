@@ -1145,9 +1145,10 @@ pub mod error {
 #[allow(ambiguous_glob_reexports)]
 pub mod prelude {
     pub use super::{
-        account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
-        executor::prelude::*, parameters::prelude::*, peer::prelude::*, permission::prelude::*,
-        predicate::prelude::*, role::prelude::*, transaction::prelude::*, trigger::prelude::*,
-        IterableQueryBox, QueryBox, QueryRequest, SingularQueryBox, TransactionQueryOutput,
+        account::prelude::*, asset::prelude::*, block::prelude::*, builder::prelude::*,
+        domain::prelude::*, executor::prelude::*, parameters::prelude::*, peer::prelude::*,
+        permission::prelude::*, predicate::prelude::*, role::prelude::*, transaction::prelude::*,
+        trigger::prelude::*, IterableQueryBox, QueryBox, QueryRequest, SingularQueryBox,
+        TransactionQueryOutput,
     };
 }

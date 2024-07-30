@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, str::FromStr};
 use executor_custom_data_model::multisig::{MultisigArgs, MultisigRegisterArgs};
 use eyre::Result;
 use iroha::{
-    client::{self, ClientQueryError},
+    client,
     crypto::KeyPair,
     data_model::{
         prelude::*,
@@ -121,10 +121,7 @@ fn mutlisig() -> Result<()> {
         .filter_with(|domain| domain.id.eq(domain_id.clone()))
         .execute_single()
         .expect_err("domain shouldn't be created before enough votes are collected");
-    assert!(matches!(
-        err,
-        ClientQueryError::Single(SingleQueryError::ExpectedOneGotNone)
-    ));
+    assert!(matches!(err, SingleQueryError::ExpectedOneGotNone));
 
     for (signatory, key_pair) in signatories_iter {
         let args = MultisigArgs::Vote(isi_hash);

@@ -114,9 +114,7 @@ fn find_unregistered_role_by_id() {
     // Not found error
     assert!(matches!(
         found_role,
-        Err(client::ClientQueryError::Single(
-            SingleQueryError::ExpectedOneGotNone
-        ))
+        Err(SingleQueryError::ExpectedOneGotNone)
     ));
 }
 

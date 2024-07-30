@@ -8,7 +8,7 @@ use iroha_crypto::KeyPair;
 use iroha_data_model::{
     account::AccountId,
     query::{
-        builder::{QueryBuilder, QueryExecutor, SingleQueryError},
+        builder::{QueryBuilder, QueryExecutor},
         parameters::ForwardCursor,
         predicate::HasPredicateBox,
         IterableQueryOutput, IterableQueryOutputBatchBox, IterableQueryWithParams, QueryRequest,
@@ -129,8 +129,6 @@ pub struct ClientQueryCursor {
 pub enum ClientQueryError {
     /// Query validation error
     Validation(#[from] ValidationFail),
-    /// Failed to constrain the query to a single result
-    Single(#[from] SingleQueryError),
     /// Other error
     Other(#[from] eyre::Error),
 }
@@ -145,7 +143,6 @@ impl From<ResponseReport> for ClientQueryError {
 impl QueryExecutor for Client {
     type Cursor = ClientQueryCursor;
     type Error = ClientQueryError;
-    type SingleError = ClientQueryError;
 
     fn execute_singular_query(
         &self,

@@ -406,9 +406,12 @@ pub mod asset_definition {
         CanRemoveKeyValueInAssetDefinition, CanSetKeyValueInAssetDefinition,
         CanUnregisterAssetDefinition,
     };
-    use iroha_smart_contract::{
-        data_model::{isi::error::InstructionExecutionError, query::error::FindError},
-        SmartContractSingleQueryError,
+    use iroha_smart_contract::data_model::{
+        isi::error::InstructionExecutionError,
+        query::{
+            builder::{QueryBuilderExt, SingleQueryError},
+            error::FindError,
+        },
     };
 
     use super::*;
@@ -430,13 +433,14 @@ pub mod asset_definition {
             .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
             .execute_single()
             .map_err(|e| match e {
-                SmartContractSingleQueryError::Validation(e) => e,
-                SmartContractSingleQueryError::Single(_) => {
+                SingleQueryError::QueryError(e) => e,
+                SingleQueryError::ExpectedOneGotNone => {
                     // assuming this can only happen due to such a domain not existing
                     ValidationFail::InstructionFailed(InstructionExecutionError::Find(
                         FindError::AssetDefinition(asset_definition_id.clone()),
                     ))
                 }
+                _ => unreachable!(),
             })?;
         if asset_definition.owned_by() == authority {
             Ok(true)
@@ -741,9 +745,12 @@ pub mod domain {
         CanRegisterAccountInDomain, CanRegisterAssetDefinitionInDomain, CanRemoveKeyValueInDomain,
         CanSetKeyValueInDomain, CanUnregisterDomain,
     };
-    use iroha_smart_contract::{
-        data_model::{isi::error::InstructionExecutionError, query::error::FindError},
-        SmartContractSingleQueryError,
+    use iroha_smart_contract::data_model::{
+        isi::error::InstructionExecutionError,
+        query::{
+            builder::{QueryBuilderExt, SingleQueryError},
+            error::FindError,
+        },
     };
 
     use super::*;
@@ -758,13 +765,14 @@ pub mod domain {
             .execute_single()
             .map(|domain| domain.owned_by() == authority)
             .map_err(|e| match e {
-                SmartContractSingleQueryError::Validation(e) => e,
-                SmartContractSingleQueryError::Single(_) => {
+                SingleQueryError::QueryError(e) => e,
+                SingleQueryError::ExpectedOneGotNone => {
                     // assuming this can only happen due to such a domain not existing
                     ValidationFail::InstructionFailed(InstructionExecutionError::Find(
                         FindError::Domain(domain_id.clone()),
                     ))
                 }
+                _ => unreachable!(),
             })
     }
 

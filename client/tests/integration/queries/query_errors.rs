@@ -1,5 +1,5 @@
-use iroha::client::{self, ClientQueryError};
-use iroha_data_model::query::builder::SingleQueryError;
+use iroha::client;
+use iroha_data_model::{prelude::QueryBuilderExt, query::builder::SingleQueryError};
 use test_samples::gen_account_in;
 
 #[test]
@@ -16,7 +16,7 @@ fn non_existent_account_is_specific_error() {
         .expect_err("Should error");
 
     match err {
-        ClientQueryError::Single(SingleQueryError::ExpectedOneGotNone) => {}
+        SingleQueryError::ExpectedOneGotNone => {}
         x => panic!("Unexpected error: {x:?}"),
     }
 }
