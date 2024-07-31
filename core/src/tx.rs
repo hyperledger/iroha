@@ -229,7 +229,7 @@ impl TransactionExecutor {
             ));
         }
 
-        debug!("Validating transaction: {:?}", tx);
+        debug!(tx=%tx.as_ref().hash(), "Validating transaction");
         Self::validate_with_runtime_executor(tx.clone(), state_transaction)?;
 
         if let (authority, Executable::Wasm(bytes)) = tx.into() {
