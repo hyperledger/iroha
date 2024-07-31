@@ -299,10 +299,11 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         let self_public_key_hash = blake2b_hash(self.key_pair.public_key().encode());
         let topology = topology
             .into_iter()
+            .filter(|peer_id| peer_id.public_key() != self.key_pair.public_key())
             .map(|peer_id| {
                 // Determine who is responsible for connecting
                 let peer_public_key_hash = blake2b_hash(peer_id.public_key().encode());
-                let is_active = self_public_key_hash > peer_public_key_hash;
+                let is_active = self_public_key_hash >= peer_public_key_hash;
                 (peer_id, is_active)
             })
             .collect();
