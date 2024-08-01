@@ -26,13 +26,13 @@ pub enum BlockMessage {
 pub struct ControlFlowMessage {
     /// Proof of view change. As part of this message handling, all
     /// peers which agree with view change should sign it.
-    pub view_change_proofs: view_change::ProofChain,
+    pub view_change_proof: view_change::SignedViewChangeProof,
 }
 
 impl ControlFlowMessage {
     /// Helper function to construct a `ControlFlowMessage`
-    pub fn new(view_change_proofs: view_change::ProofChain) -> ControlFlowMessage {
-        ControlFlowMessage { view_change_proofs }
+    pub fn new(view_change_proof: view_change::SignedViewChangeProof) -> ControlFlowMessage {
+        ControlFlowMessage { view_change_proof }
     }
 }
 
