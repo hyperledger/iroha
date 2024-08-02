@@ -71,6 +71,8 @@ pub enum BlockValidationError {
     ViewChangeIndexTooLarge,
     /// Invalid genesis block: {0}
     InvalidGenesis(#[from] InvalidGenesisError),
+    /// Block's creation time is earlier than that of the previous block
+    BlockInThePast,
 }
 
 /// Error during signature verification
@@ -514,6 +516,19 @@ mod valid {
             if block.header().is_genesis() {
                 check_genesis_block(block, genesis_account)?;
             } else {
+                let prev_block_time = if soft_fork {
+                    state.prev_block()
+                } else {
+                    state.latest_block()
+                }
+                .expect("INTERNAL BUG: Genesis not committed")
+                .header()
+                .creation_time();
+
+                if block.header().creation_time() <= prev_block_time {
+                    return Err(BlockValidationError::BlockInThePast);
+                }
+
                 Self::verify_leader_signature(block, topology)?;
                 Self::verify_validator_signatures(block, topology)?;
                 Self::verify_no_undefined_signatures(block, topology)?;

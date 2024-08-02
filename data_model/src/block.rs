@@ -39,9 +39,7 @@ mod model {
         Ord,
         CopyGetters,
         Getters,
-        Decode,
         Encode,
-        Deserialize,
         Serialize,
         IntoSchema,
     )]
@@ -73,18 +71,7 @@ mod model {
     }
 
     #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
     #[display(fmt = "({header})")]
     #[allow(missing_docs)]
@@ -308,6 +295,7 @@ impl SignedBlock {
 mod candidate {
     #[cfg(not(feature = "std"))]
     use alloc::collections::BTreeSet;
+    use core::num::NonZeroU64;
     #[cfg(feature = "std")]
     use std::collections::BTreeSet;
 
@@ -322,10 +310,86 @@ mod candidate {
         payload: BlockPayload,
     }
 
+    #[derive(Decode, Deserialize)]
+    struct BlockPayloadCandidate {
+        header: BlockHeader,
+        transactions: Vec<CommittedTransaction>,
+    }
+
+    #[derive(Decode, Deserialize)]
+    struct BlockHeaderCandidate {
+        height: NonZeroU64,
+        prev_block_hash: Option<HashOf<SignedBlock>>,
+        transactions_hash: HashOf<MerkleTree<SignedTransaction>>,
+        creation_time_ms: u64,
+        view_change_index: u32,
+        consensus_estimation_ms: u64,
+    }
+
+    impl BlockHeaderCandidate {
+        #[cfg(feature = "std")]
+        const fn creation_time(&self) -> Duration {
+            Duration::from_millis(self.creation_time_ms)
+        }
+
+        fn validate(self) -> Result<BlockHeader, &'static str> {
+            #[cfg(feature = "std")]
+            {
+                use std::time::SystemTime;
+
+                let now = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("INTERNAL BUG: Failed to get the current system time");
+
+                if now <= self.creation_time() {
+                    return Err("Block creation time is in the future");
+                }
+            }
+
+            Ok(BlockHeader {
+                height: self.height,
+                prev_block_hash: self.prev_block_hash,
+                transactions_hash: self.transactions_hash,
+                creation_time_ms: self.creation_time_ms,
+                view_change_index: self.view_change_index,
+                consensus_estimation_ms: self.consensus_estimation_ms,
+            })
+        }
+    }
+
+    impl BlockPayloadCandidate {
+        fn validate(self) -> Result<BlockPayload, &'static str> {
+            self.validate_header()?;
+
+            Ok(BlockPayload {
+                header: self.header,
+                transactions: self.transactions,
+            })
+        }
+
+        fn validate_header(&self) -> Result<(), &'static str> {
+            let actual_txs_hash = self.header.transactions_hash;
+
+            let expected_txs_hash = self
+                .transactions
+                .iter()
+                .map(|value| value.as_ref().hash())
+                .collect::<MerkleTree<_>>()
+                .hash()
+                .ok_or("Block is empty")?;
+
+            if expected_txs_hash != actual_txs_hash {
+                return Err("Transactions' hash incorrect. Expected: {expected_txs_hash:?}, actual: {actual_txs_hash:?}");
+            }
+
+            Ok(())
+        }
+    }
+
     impl SignedBlockCandidate {
         fn validate(self) -> Result<SignedBlockV1, &'static str> {
             self.validate_signatures()?;
-            self.validate_header()?;
+
             if self.payload.header.height.get() == 1 {
                 self.validate_genesis()?;
             }
@@ -334,6 +398,25 @@ mod candidate {
                 signatures: self.signatures,
                 payload: self.payload,
             })
+        }
+
+        fn validate_signatures(&self) -> Result<(), &'static str> {
+            if self.signatures.is_empty() && self.payload.header.height.get() != 1 {
+                return Err("Block missing signatures");
+            }
+
+            self.signatures
+                .iter()
+                .map(|signature| signature.0)
+                .try_fold(BTreeSet::new(), |mut acc, elem| {
+                    if !acc.insert(elem) {
+                        return Err("Duplicate signature in block");
+                    }
+
+                    Ok(acc)
+                })?;
+
+            Ok(())
         }
 
         fn validate_genesis(&self) -> Result<(), &'static str> {
@@ -369,43 +452,47 @@ mod candidate {
 
             Ok(())
         }
+    }
 
-        fn validate_signatures(&self) -> Result<(), &'static str> {
-            if self.signatures.is_empty() && self.payload.header.height.get() != 1 {
-                return Err("Block missing signatures");
-            }
-
-            self.signatures
-                .iter()
-                .map(|signature| signature.0)
-                .try_fold(BTreeSet::new(), |mut acc, elem| {
-                    if !acc.insert(elem) {
-                        return Err("Duplicate signature in block");
-                    }
-
-                    Ok(acc)
-                })?;
-
-            Ok(())
+    impl Decode for super::BlockHeader {
+        fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+            BlockHeaderCandidate::decode(input)?
+                .validate()
+                .map_err(Into::into)
         }
+    }
 
-        fn validate_header(&self) -> Result<(), &'static str> {
-            let actual_txs_hash = self.payload.header.transactions_hash;
+    impl<'de> Deserialize<'de> for super::BlockHeader {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            use serde::de::Error as _;
 
-            let expected_txs_hash = self
-                .payload
-                .transactions
-                .iter()
-                .map(|value| value.as_ref().hash())
-                .collect::<MerkleTree<_>>()
-                .hash()
-                .ok_or("Block is empty")?;
+            BlockHeaderCandidate::deserialize(deserializer)?
+                .validate()
+                .map_err(D::Error::custom)
+        }
+    }
 
-            if expected_txs_hash != actual_txs_hash {
-                return Err("Transactions' hash incorrect. Expected: {expected_txs_hash:?}, actual: {actual_txs_hash:?}");
-            }
+    impl Decode for super::BlockPayload {
+        fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+            BlockPayloadCandidate::decode(input)?
+                .validate()
+                .map_err(Into::into)
+        }
+    }
 
-            Ok(())
+    impl<'de> Deserialize<'de> for super::BlockPayload {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            use serde::de::Error as _;
+
+            BlockPayloadCandidate::deserialize(deserializer)?
+                .validate()
+                .map_err(D::Error::custom)
         }
     }
 
@@ -416,6 +503,7 @@ mod candidate {
                 .map_err(Into::into)
         }
     }
+
     impl<'de> Deserialize<'de> for SignedBlockV1 {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
