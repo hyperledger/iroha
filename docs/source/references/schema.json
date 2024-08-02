@@ -633,10 +633,6 @@
       {
         "name": "transactions",
         "type": "Vec<CommittedTransaction>"
-      },
-      {
-        "name": "event_recommendations",
-        "type": "Vec<EventBox>"
       }
     ]
   },
@@ -4477,9 +4473,6 @@
   },
   "Vec<CommittedTransaction>": {
     "Vec": "CommittedTransaction"
-  },
-  "Vec<EventBox>": {
-    "Vec": "EventBox"
   },
   "Vec<EventFilterBox>": {
     "Vec": "EventFilterBox"

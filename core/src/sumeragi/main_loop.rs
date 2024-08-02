@@ -844,11 +844,9 @@ impl Sumeragi {
         if tx_cache_full || (deadline_reached && tx_cache_non_empty) {
             let transactions = self.transaction_cache.clone();
 
-            // TODO: properly process triggers!
             let mut state_block = state.block();
-            let event_recommendations = Vec::new();
             let create_block_start_time = Instant::now();
-            let new_block = BlockBuilder::new(transactions, event_recommendations)
+            let new_block = BlockBuilder::new(transactions)
                 .chain(self.topology.view_change_index(), &mut state_block)
                 .sign(self.key_pair.private_key())
                 .unpack(|e| self.send_event(e));
@@ -1429,7 +1427,7 @@ mod tests {
                 .expect("Valid");
 
         // Creating a block of two identical transactions and validating it
-        let block = BlockBuilder::new(vec![peers, tx.clone(), tx], Vec::new())
+        let block = BlockBuilder::new(vec![peers, tx.clone(), tx])
             .chain(0, &mut state_block)
             .sign(leader_private_key)
             .unpack(|_| {});
@@ -1474,7 +1472,7 @@ mod tests {
             .expect("Valid");
 
             // Creating a block of two identical transactions and validating it
-            BlockBuilder::new(vec![tx1, tx2], Vec::new())
+            BlockBuilder::new(vec![tx1, tx2])
                 .chain(0, &mut state_block)
                 .sign(leader_private_key)
                 .unpack(|_| {})
