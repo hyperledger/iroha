@@ -13,6 +13,11 @@
       }
     },
     {
+      "Sumeragi": {
+        "MaxClockDriftMs": 1000
+      }
+    },
+    {
       "Block": {
         "MaxTransactions": 512
       }

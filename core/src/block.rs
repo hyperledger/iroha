@@ -4,7 +4,7 @@
 //! 2. If a block is received, i.e. deserialized:
 //!     `SignedBlock` -> `ValidBlock` -> `CommittedBlock`
 //! [`Block`]s are organised into a linear sequence over time (also known as the block chain).
-use std::error::Error as _;
+use std::{error::Error as _, time::Duration};
 
 use iroha_crypto::{HashOf, KeyPair, MerkleTree};
 use iroha_data_model::{
@@ -71,6 +71,10 @@ pub enum BlockValidationError {
     ViewChangeIndexTooLarge,
     /// Invalid genesis block: {0}
     InvalidGenesis(#[from] InvalidGenesisError),
+    /// Block's creation time is earlier than that of the previous block
+    BlockInThePast,
+    /// Block's creation time is later than the current node local time
+    BlockInTheFuture,
 }
 
 /// Error during signature verification
@@ -112,12 +116,10 @@ pub enum InvalidGenesisError {
 pub struct BlockBuilder<B>(B);
 
 mod pending {
-    use std::{
-        num::NonZeroUsize,
-        time::{Duration, SystemTime},
-    };
+    use std::time::SystemTime;
 
     use iroha_data_model::transaction::CommittedTransaction;
+    use nonzero_ext::nonzero;
 
     use super::*;
     use crate::state::StateBlock;
@@ -134,6 +136,8 @@ mod pending {
     }
 
     impl BlockBuilder<Pending> {
+        const TIME_PADDING: Duration = Duration::from_millis(1);
+
         /// Create [`Self`]
         ///
         /// # Panics
@@ -141,35 +145,61 @@ mod pending {
         /// if the given list of transaction is empty
         #[inline]
         pub fn new(transactions: Vec<AcceptedTransaction>) -> Self {
+            assert!(
+                !transactions.is_empty(),
+                "Block must contain at least 1 transaction"
+            );
+
             Self(Pending { transactions })
         }
 
         fn make_header(
-            prev_height: usize,
-            prev_block_hash: Option<HashOf<BlockHeader>>,
+            prev_block: Option<&SignedBlock>,
             view_change_index: usize,
             transactions: &[CommittedTransaction],
             consensus_estimation: Duration,
         ) -> BlockHeader {
+            let prev_block_time =
+                prev_block.map_or(Duration::ZERO, |block| block.header().creation_time());
+
+            let latest_txn_time = transactions
+                .iter()
+                .map(|tx| tx.as_ref().creation_time())
+                .max()
+                .expect("INTERNAL BUG: Block empty");
+
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap();
+
+            // NOTE: Lower time bound must always be upheld for a valid block
+            // If the clock has drifted too far this block will be rejected
+            let creation_time = [
+                now,
+                latest_txn_time + Self::TIME_PADDING,
+                prev_block_time + Self::TIME_PADDING,
+            ]
+            .into_iter()
+            .max()
+            .unwrap();
+
             BlockHeader {
-                height: NonZeroUsize::new(
-                    prev_height
-                        .checked_add(1)
-                        .expect("INTERNAL BUG: Blockchain height exceeds usize::MAX"),
-                )
-                .expect("INTERNAL BUG: block height must not be 0")
-                .try_into()
-                .expect("INTERNAL BUG: Number of blocks exceeds u64::MAX"),
-                prev_block_hash,
+                height: prev_block
+                    .map(|block| block.header().height)
+                    .map(|height| {
+                        height
+                            .checked_add(1)
+                            .expect("INTERNAL BUG: Blockchain height exceeds usize::MAX")
+                    })
+                    .unwrap_or(nonzero!(1_u64)),
+                prev_block_hash: prev_block.map(SignedBlock::hash),
                 transactions_hash: transactions
                     .iter()
                     .map(|value| value.as_ref().hash())
                     .collect::<MerkleTree<_>>()
                     .hash()
                     .expect("INTERNAL BUG: Empty block created"),
-                creation_time_ms: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("INTERNAL BUG: Failed to get the current system time")
+                creation_time_ms: creation_time
                     .as_millis()
                     .try_into()
                     .expect("Time should fit into u64"),
@@ -189,25 +219,23 @@ mod pending {
         ) -> Vec<CommittedTransaction> {
             transactions
                 .into_iter()
-                .map(
-                    |tx| match state_block.transaction_executor().validate(tx, state_block) {
-                        Ok(tx) => CommittedTransaction {
-                            value: tx,
-                            error: None,
-                        },
-                        Err((tx, error)) => {
-                            iroha_logger::warn!(
-                                reason = %error,
-                                caused_by = ?error.source(),
-                                "Transaction validation failed",
-                            );
-                            CommittedTransaction {
-                                value: tx,
-                                error: Some(error),
-                            }
-                        }
+                .map(|tx| match state_block.validate(tx) {
+                    Ok(tx) => CommittedTransaction {
+                        value: tx,
+                        error: None,
                     },
-                )
+                    Err((tx, error)) => {
+                        iroha_logger::warn!(
+                            reason = %error,
+                            caused_by = ?error.source(),
+                            "Transaction validation failed",
+                        );
+                        CommittedTransaction {
+                            value: tx,
+                            error: Some(error),
+                        }
+                    }
+                })
                 .collect()
         }
 
@@ -223,8 +251,7 @@ mod pending {
 
             BlockBuilder(Chained(BlockPayload {
                 header: Self::make_header(
-                    state.height(),
-                    state.latest_block_hash(),
+                    state.latest_block().as_deref(),
                     view_change_index,
                     &transactions,
                     state.world.parameters().sumeragi.consensus_estimation(),
@@ -251,6 +278,8 @@ mod chained {
 }
 
 mod valid {
+    use std::time::SystemTime;
+
     use commit::CommittedBlock;
     use indexmap::IndexMap;
     use iroha_data_model::{account::AccountId, events::pipeline::PipelineEventBox, ChainId};
@@ -497,6 +526,14 @@ mod valid {
                 });
             }
 
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap();
+            let max_clock_drift = state.world().parameters().sumeragi.max_clock_drift();
+            if block.header().creation_time().saturating_sub(now) > max_clock_drift {
+                return Err(BlockValidationError::BlockInTheFuture);
+            }
+
             let expected_prev_block_hash = if soft_fork {
                 state.prev_block_hash()
             } else {
@@ -514,6 +551,19 @@ mod valid {
             if block.header().is_genesis() {
                 check_genesis_block(block, genesis_account)?;
             } else {
+                let prev_block_time = if soft_fork {
+                    state.prev_block()
+                } else {
+                    state.latest_block()
+                }
+                .expect("INTERNAL BUG: Genesis not committed")
+                .header()
+                .creation_time();
+
+                if block.header().creation_time() <= prev_block_time {
+                    return Err(BlockValidationError::BlockInThePast);
+                }
+
                 Self::verify_leader_signature(block, topology)?;
                 Self::verify_validator_signatures(block, topology)?;
                 Self::verify_no_undefined_signatures(block, topology)?;
@@ -540,35 +590,40 @@ mod valid {
         ) -> Result<(), TransactionValidationError> {
             let is_genesis = block.header().is_genesis();
 
+            let (max_clock_drift, tx_limits) = {
+                let params = state_block.world().parameters();
+                (params.sumeragi().max_clock_drift(), params.transaction)
+            };
+
             block
                 .transactions()
                 // TODO: Unnecessary clone?
                 .cloned()
                 .try_for_each(|CommittedTransaction { value, error }| {
-                    let transaction_executor = state_block.transaction_executor();
-
                     let tx = if is_genesis {
                         AcceptedTransaction::accept_genesis(
                             value,
                             expected_chain_id,
+                            max_clock_drift,
                             genesis_account,
                         )
                     } else {
                         AcceptedTransaction::accept(
                             value,
                             expected_chain_id,
-                            transaction_executor.limits,
+                            max_clock_drift,
+                            tx_limits,
                         )
                     }?;
 
                     if error.is_some() {
-                        match transaction_executor.validate(tx, state_block) {
+                        match state_block.validate(tx) {
                             Err(rejected_transaction) => Ok(rejected_transaction),
                             Ok(_) => Err(TransactionValidationError::RejectedIsValid),
                         }?;
                     } else {
-                        transaction_executor
-                            .validate(tx, state_block)
+                        state_block
+                            .validate(tx)
                             .map_err(|(_tx, error)| TransactionValidationError::NotValid(error))?;
                     }
 
@@ -1095,6 +1150,11 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
+        let (max_clock_drift, tx_limits) = {
+            let state_view = state.world.view();
+            let params = state_view.parameters();
+            (params.sumeragi().max_clock_drift(), params.transaction)
+        };
         let mut state_block = state.block();
 
         // Creating an instruction
@@ -1103,11 +1163,11 @@ mod tests {
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
 
         // Making two transactions that have the same instruction
-        let transaction_limits = state_block.transaction_executor().limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([create_asset_definition])
             .sign(alice_keypair.private_key());
-        let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
+        let tx =
+            AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];
@@ -1148,6 +1208,11 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
+        let (max_clock_drift, tx_limits) = {
+            let state_view = state.world.view();
+            let params = state_view.parameters();
+            (params.sumeragi().max_clock_drift(), params.transaction)
+        };
         let mut state_block = state.block();
 
         // Creating an instruction
@@ -1156,11 +1221,11 @@ mod tests {
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
 
         // Making two transactions that have the same instruction
-        let transaction_limits = state_block.transaction_executor().limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([create_asset_definition])
             .sign(alice_keypair.private_key());
-        let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
+        let tx =
+            AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits).expect("Valid");
 
         let fail_mint = Mint::asset_numeric(
             20u32,
@@ -1173,12 +1238,14 @@ mod tests {
         let tx0 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_mint])
             .sign(alice_keypair.private_key());
-        let tx0 = AcceptedTransaction::accept(tx0, &chain_id, transaction_limits).expect("Valid");
+        let tx0 =
+            AcceptedTransaction::accept(tx0, &chain_id, max_clock_drift, tx_limits).expect("Valid");
 
         let tx2 = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([succeed_mint])
             .sign(alice_keypair.private_key());
-        let tx2 = AcceptedTransaction::accept(tx2, &chain_id, transaction_limits).expect("Valid");
+        let tx2 =
+            AcceptedTransaction::accept(tx2, &chain_id, max_clock_drift, tx_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx0, tx, tx2];
@@ -1219,8 +1286,12 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world, kura, query_handle);
+        let (max_clock_drift, tx_limits) = {
+            let state_view = state.world.view();
+            let params = state_view.parameters();
+            (params.sumeragi().max_clock_drift(), params.transaction)
+        };
         let mut state_block = state.block();
-        let transaction_limits = state_block.transaction_executor().limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");
         let create_domain = Register::domain(Domain::new(domain_id));
@@ -1231,13 +1302,14 @@ mod tests {
         let tx_fail = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions::<InstructionBox>([create_domain.clone().into(), fail_isi.into()])
             .sign(alice_keypair.private_key());
-        let tx_fail =
-            AcceptedTransaction::accept(tx_fail, &chain_id, transaction_limits).expect("Valid");
+        let tx_fail = AcceptedTransaction::accept(tx_fail, &chain_id, max_clock_drift, tx_limits)
+            .expect("Valid");
         let tx_accept = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions::<InstructionBox>([create_domain.into(), create_asset.into()])
             .sign(alice_keypair.private_key());
         let tx_accept =
-            AcceptedTransaction::accept(tx_accept, &chain_id, transaction_limits).expect("Valid");
+            AcceptedTransaction::accept(tx_accept, &chain_id, max_clock_drift, tx_limits)
+                .expect("Valid");
 
         // Creating a block of where first transaction must fail and second one fully executed
         let transactions = vec![tx_fail, tx_accept];

@@ -17,7 +17,6 @@ pub mod queue {
     pub const CAPACITY_PER_USER: NonZeroUsize = nonzero!(2_usize.pow(16));
     // 24 hours
     pub const TRANSACTION_TIME_TO_LIVE: Duration = Duration::from_secs(24 * 60 * 60);
-    pub const FUTURE_THRESHOLD: Duration = Duration::from_secs(1);
 }
 
 pub mod kura {
@@ -40,8 +39,8 @@ pub mod snapshot {
     use super::*;
 
     pub const STORE_DIR: &str = "./storage/snapshot";
-    // The default frequency of making snapshots is 1 minute, need to be adjusted for larger world state view size
-    pub const CREATE_EVERY: Duration = Duration::from_secs(60);
+    // 10 mins
+    pub const CREATE_EVERY: Duration = Duration::from_secs(10 * 60);
 }
 
 pub mod torii {

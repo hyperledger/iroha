@@ -434,14 +434,17 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let state_block = state.block();
+        let (max_clock_drift, tx_limits) = {
+            let state_view = state.world.view();
+            let params = state_view.parameters();
+            (params.sumeragi().max_clock_drift(), params.transaction)
+        };
 
         let tx = TransactionBuilder::new(chain_id.clone(), SAMPLE_GENESIS_ACCOUNT_ID.clone())
             .with_instructions::<InstructionBox>([])
             .sign(SAMPLE_GENESIS_ACCOUNT_KEYPAIR.private_key());
-        let tx_limits = state_block.transaction_executor().limits;
         assert!(matches!(
-            AcceptedTransaction::accept(tx, &chain_id, tx_limits),
+            AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits),
             Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature)
         ));
         Ok(())

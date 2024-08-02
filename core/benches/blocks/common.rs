@@ -36,12 +36,16 @@ pub fn create_block(
     let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)
         .sign(account_private_key);
-    let limits = state.transaction_executor().limits;
+    let (max_clock_drift, tx_limits) = {
+        let params = state.world.parameters();
+        (params.sumeragi().max_clock_drift(), params.transaction)
+    };
 
     let block = BlockBuilder::new(vec![AcceptedTransaction::accept(
         transaction,
         &chain_id,
-        limits,
+        max_clock_drift,
+        tx_limits,
     )
     .unwrap()])
     .chain(0, state)

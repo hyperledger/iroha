@@ -45,7 +45,6 @@ format = "compact"
 capacity = 65_536
 capacity_per_user = 65_536
 transaction_time_to_live_ms = 100
-future_threshold_ms = 50
 
 [snapshot]
 mode = "read_write"

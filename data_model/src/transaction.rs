@@ -660,7 +660,7 @@ mod http {
             // can't delegate to `new_with_time_source`, because it's gated behind "transparent_api"
             let creation_time_ms = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get the current system time")
+                .unwrap()
                 .as_millis()
                 .try_into()
                 .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");

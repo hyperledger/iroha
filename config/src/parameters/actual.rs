@@ -94,7 +94,6 @@ pub struct Queue {
     pub capacity: NonZeroUsize,
     pub capacity_per_user: NonZeroUsize,
     pub transaction_time_to_live: Duration,
-    pub future_threshold: Duration,
 }
 
 #[allow(missing_docs)]
@@ -109,7 +108,6 @@ impl Default for Queue {
     fn default() -> Self {
         Self {
             transaction_time_to_live: defaults::queue::TRANSACTION_TIME_TO_LIVE,
-            future_threshold: defaults::queue::FUTURE_THRESHOLD,
             capacity: defaults::queue::CAPACITY,
             capacity_per_user: defaults::queue::CAPACITY_PER_USER,
         }
