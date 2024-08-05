@@ -276,7 +276,7 @@ impl ValidQueryRequest {
 
                 Ok(QueryResponse::Singular(output))
             }
-            QueryRequest::StartIterable(iter_query) => {
+            QueryRequest::Start(iter_query) => {
                 let output = match iter_query.query {
                     // dispatch on a concrete query type, erasing the type with `QueryBatchedErasedIterator` in the end
                     QueryBox::FindDomains(q) => apply_query_postprocessing(
@@ -345,7 +345,7 @@ impl ValidQueryRequest {
                     live_query_store.handle_iter_start(output, authority)?,
                 ))
             }
-            QueryRequest::ContinueIterable(cursor) => Ok(QueryResponse::Iterable(
+            QueryRequest::Continue(cursor) => Ok(QueryResponse::Iterable(
                 live_query_store.handle_iter_continue(cursor)?,
             )),
         }

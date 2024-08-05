@@ -55,7 +55,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
         .query(transaction::by_account_id(account_id.clone()))
         .with_pagination(Pagination {
             limit: Some(nonzero!(50_u32)),
-            start: Some(nonzero!(1_u64)),
+            offset: Some(nonzero!(1_u64)),
         })
         .execute_all()?;
     assert_eq!(transactions.len(), 50);

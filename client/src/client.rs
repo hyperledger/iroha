@@ -23,7 +23,7 @@ use rand::Rng;
 use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
-pub use crate::query::ClientQueryError;
+pub use crate::query::QueryError;
 use crate::{
     config::Config,
     crypto::{HashOf, KeyPair},
@@ -44,8 +44,8 @@ use crate::{
 
 const APPLICATION_JSON: &str = "application/json";
 
-/// `Result` with [`ClientQueryError`] as an error
-pub type QueryResult<T> = core::result::Result<T, ClientQueryError>;
+/// `Result` with [`QueryError`] as an error
+pub type QueryResult<T> = core::result::Result<T, QueryError>;
 
 /// Phantom struct that handles Transaction API HTTP response
 #[derive(Clone, Copy)]

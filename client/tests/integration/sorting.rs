@@ -22,7 +22,7 @@ fn correct_pagination_assets_after_creating_new_one() {
     let missing_indices = vec![N_ASSETS / 2];
     let pagination = Pagination {
         limit: Some(nonzero!(N_ASSETS as u32 / 3)),
-        start: Some(nonzero!(N_ASSETS as u64 / 3)),
+        offset: Some(nonzero!(N_ASSETS as u64 / 3)),
     };
     let xor_filter =
         AssetPredicateBox::build(|asset| asset.id.definition_id.name.starts_with("xor"));

@@ -2,7 +2,7 @@ use std::str::FromStr as _;
 
 use eyre::Result;
 use iroha::{
-    client::ClientQueryError,
+    client::QueryError,
     data_model::{prelude::*, query::error::QueryExecutionFail},
 };
 use test_network::*;
@@ -35,7 +35,7 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
 
     assert!(matches!(
         err,
-        ClientQueryError::Validation(ValidationFail::QueryFailed(
+        QueryError::Validation(ValidationFail::QueryFailed(
             QueryExecutionFail::UnknownCursor
         ))
     ));

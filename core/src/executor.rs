@@ -207,8 +207,8 @@ impl Executor {
 
         let query = match query {
             QueryRequest::Singular(singular) => AnyQueryBox::Singular(singular.clone()),
-            QueryRequest::StartIterable(iterable) => AnyQueryBox::Iterable(iterable.clone()),
-            QueryRequest::ContinueIterable(_) => {
+            QueryRequest::Start(iterable) => AnyQueryBox::Iterable(iterable.clone()),
+            QueryRequest::Continue(_) => {
                 // The iterable query was already validated when it started
                 return Ok(());
             }

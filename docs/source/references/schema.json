@@ -2764,7 +2764,7 @@
         "type": "Option<NonZero<u32>>"
       },
       {
-        "name": "start",
+        "name": "offset",
         "type": "Option<NonZero<u64>>"
       }
     ]
@@ -3185,12 +3185,12 @@
         "type": "SingularQueryBox"
       },
       {
-        "tag": "StartIterable",
+        "tag": "Start",
         "discriminant": 1,
         "type": "QueryWithParams"
       },
       {
-        "tag": "ContinueIterable",
+        "tag": "Continue",
         "discriminant": 2,
         "type": "ForwardCursor"
       }

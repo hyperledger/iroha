@@ -72,7 +72,7 @@ fn decode_query_response(resp: &http::Response<Vec<u8>>) -> QueryResult<QueryRes
         )
             .map_or_else(
                 |_| {
-                    ClientQueryError::Other(
+                    QueryError::Other(
                         ResponseReport::with_msg("Query failed", resp)
                             .map_or_else(
                                 |_| eyre!(
@@ -84,7 +84,7 @@ fn decode_query_response(resp: &http::Response<Vec<u8>>) -> QueryResult<QueryRes
                             ),
                     )
                 },
-                ClientQueryError::Validation,
+                QueryError::Validation,
             )),
         _ => Err(ResponseReport::with_msg("Unexpected query response", resp).unwrap_or_else(core::convert::identity).into()),
     }
@@ -114,7 +114,7 @@ fn decode_iterable_query_response(resp: &http::Response<Vec<u8>>) -> QueryResult
 
 /// An iterable query cursor for use in the client
 #[derive(Debug)]
-pub struct ClientQueryCursor {
+pub struct QueryCursor {
     // instead of storing iroha client itself, we store the base URL and headers required to make a request
     //   along with the account id and key pair to sign the request.
     // this removes the need to either keep a reference or use an Arc, but breaks abstraction a little
@@ -124,14 +124,14 @@ pub struct ClientQueryCursor {
 
 /// Different errors as a result of query response handling
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum ClientQueryError {
+pub enum QueryError {
     /// Query validation error
     Validation(#[from] ValidationFail),
     /// Other error
     Other(#[from] eyre::Error),
 }
 
-impl From<ResponseReport> for ClientQueryError {
+impl From<ResponseReport> for QueryError {
     #[inline]
     fn from(ResponseReport(err): ResponseReport) -> Self {
         Self::Other(err)
@@ -139,8 +139,8 @@ impl From<ResponseReport> for ClientQueryError {
 }
 
 impl QueryExecutor for Client {
-    type Cursor = ClientQueryCursor;
-    type Error = ClientQueryError;
+    type Cursor = QueryCursor;
+    type Error = QueryError;
 
     fn execute_singular_query(
         &self,
@@ -162,14 +162,14 @@ impl QueryExecutor for Client {
     ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
         let request_head = self.get_query_request_head();
 
-        let request = QueryRequest::StartIterable(query);
+        let request = QueryRequest::Start(query);
 
         let response = request_head.assemble(request).build()?.send()?;
         let response = decode_iterable_query_response(&response)?;
 
         let (batch, cursor) = response.into_parts();
 
-        let cursor = cursor.map(|cursor| ClientQueryCursor {
+        let cursor = cursor.map(|cursor| QueryCursor {
             request_head,
             cursor,
         });
@@ -180,19 +180,19 @@ impl QueryExecutor for Client {
     fn continue_query(
         cursor: Self::Cursor,
     ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
-        let ClientQueryCursor {
+        let QueryCursor {
             request_head,
             cursor,
         } = cursor;
 
-        let request = QueryRequest::ContinueIterable(cursor);
+        let request = QueryRequest::Continue(cursor);
 
         let response = request_head.assemble(request).build()?.send()?;
         let response = decode_iterable_query_response(&response)?;
 
         let (batch, cursor) = response.into_parts();
 
-        let cursor = cursor.map(|cursor| ClientQueryCursor {
+        let cursor = cursor.map(|cursor| QueryCursor {
             request_head,
             cursor,
         });
@@ -219,7 +219,7 @@ impl Client {
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
-    pub fn query_single<Q>(&self, query: Q) -> Result<Q::Output, ClientQueryError>
+    pub fn query_single<Q>(&self, query: Q) -> Result<Q::Output, QueryError>
     where
         Q: SingularQuery,
         SingularQueryBox: From<Q>,
@@ -256,10 +256,10 @@ impl Client {
     pub fn raw_continue_iterable_query(
         &self,
         cursor: ForwardCursor,
-    ) -> Result<QueryResponse, ClientQueryError> {
+    ) -> Result<QueryResponse, QueryError> {
         let request_head = self.get_query_request_head();
 
-        let request = QueryRequest::ContinueIterable(cursor);
+        let request = QueryRequest::Continue(cursor);
 
         let response = request_head.assemble(request).build()?.send()?;
         let response = decode_query_response(&response)?;
@@ -282,7 +282,7 @@ mod query_errors_handling {
             let resp = Response::builder().status(status_code).body(err.encode())?;
 
             match decode_query_response(&resp) {
-                Err(ClientQueryError::Validation(actual)) => {
+                Err(QueryError::Validation(actual)) => {
                     // PartialEq isn't implemented, so asserting by encoded repr
                     assert_eq!(actual.encode(), err.encode());
                 }
@@ -300,7 +300,7 @@ mod query_errors_handling {
             .body(Vec::<u8>::new())?;
 
         match decode_query_response(&response) {
-            Err(ClientQueryError::Other(_)) => Ok(()),
+            Err(QueryError::Other(_)) => Ok(()),
             x => Err(eyre!("Expected indeterminate, found: {:?}", x)),
         }
     }

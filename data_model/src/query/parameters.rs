@@ -59,15 +59,14 @@ mod model {
     )]
     #[display(
         fmt = "{}--{}",
-        "start.map(NonZeroU64::get).unwrap_or(0)",
+        "offset.map(NonZeroU64::get).unwrap_or(0)",
         "limit.map_or(\".inf\".to_owned(), |n| n.to_string())"
     )]
     pub struct Pagination {
         /// limit of indexing
         pub limit: Option<NonZeroU32>,
         /// start of indexing
-        // TODO: Rename to offset
-        pub start: Option<NonZeroU64>,
+        pub offset: Option<NonZeroU64>,
     }
 
     /// Struct for sorting requests
