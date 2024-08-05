@@ -1,6 +1,6 @@
 use eyre::Result;
 use iroha::{
-    client::{Client, ClientQueryError},
+    client::{Client, QueryError},
     data_model::{
         asset::AssetValue,
         isi::Instruction,
@@ -118,7 +118,7 @@ fn find_asset_total_quantity() -> Result<()> {
     ));
     assert!(matches!(
         result,
-        Err(ClientQueryError::Validation(ValidationFail::QueryFailed(
+        Err(QueryError::Validation(ValidationFail::QueryFailed(
             QueryExecutionFail::Find(_)
         )))
     ));
@@ -211,7 +211,7 @@ where
     ));
     assert!(matches!(
         result,
-        Err(ClientQueryError::Validation(ValidationFail::QueryFailed(
+        Err(QueryError::Validation(ValidationFail::QueryFailed(
             QueryExecutionFail::Find(_)
         )))
     ));

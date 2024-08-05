@@ -798,7 +798,7 @@ where
         iroha_logger::debug!(?query_request, "Executing");
 
         // if the query is continuing a cursor, preserve it (but only if validation succeeds)
-        let continue_query_id = if let QueryRequest::ContinueIterable(cursor) = &query_request {
+        let continue_query_id = if let QueryRequest::Continue(cursor) = &query_request {
             Some(cursor.query.clone())
         } else {
             None

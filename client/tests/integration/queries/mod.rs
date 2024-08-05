@@ -1,5 +1,5 @@
 use iroha::{
-    client::{self, ClientQueryError},
+    client::{self, QueryError},
     data_model::{prelude::*, query::error::QueryExecutionFail},
 };
 use iroha_data_model::query::parameters::MAX_FETCH_SIZE;
@@ -24,7 +24,7 @@ fn too_big_fetch_size_is_not_allowed() {
 
     assert!(matches!(
         err,
-        ClientQueryError::Validation(ValidationFail::QueryFailed(
+        QueryError::Validation(ValidationFail::QueryFailed(
             QueryExecutionFail::FetchSizeTooBig
         ))
     ));

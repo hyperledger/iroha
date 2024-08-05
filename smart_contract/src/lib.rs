@@ -112,7 +112,7 @@ impl<I: BuiltInInstruction + Encode> ExecuteOnHost for I {
 
 /// An iterable query cursor for use in smart contracts.
 #[derive(Clone, Debug, Encode, Decode)]
-pub struct SmartContractQueryCursor {
+pub struct QueryCursor {
     cursor: ForwardCursor,
 }
 
@@ -132,7 +132,7 @@ fn execute_query(query: &QueryRequest) -> Result<QueryResponse, ValidationFail> 
 pub struct SmartContractQueryExecutor;
 
 impl QueryExecutor for SmartContractQueryExecutor {
-    type Cursor = SmartContractQueryCursor;
+    type Cursor = QueryCursor;
     type Error = ValidationFail;
 
     fn execute_singular_query(
@@ -150,34 +150,27 @@ impl QueryExecutor for SmartContractQueryExecutor {
         &self,
         query: QueryWithParams,
     ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
-        let QueryResponse::Iterable(output) = execute_query(&QueryRequest::StartIterable(query))?
-        else {
+        let QueryResponse::Iterable(output) = execute_query(&QueryRequest::Start(query))? else {
             dbg_panic("BUG: iroha returned unexpected type in iterable query");
         };
 
         let (batch, cursor) = output.into_parts();
 
-        Ok((
-            batch,
-            cursor.map(|cursor| SmartContractQueryCursor { cursor }),
-        ))
+        Ok((batch, cursor.map(|cursor| QueryCursor { cursor })))
     }
 
     fn continue_query(
         cursor: Self::Cursor,
     ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) =
-            execute_query(&QueryRequest::ContinueIterable(cursor.cursor))?
+            execute_query(&QueryRequest::Continue(cursor.cursor))?
         else {
             dbg_panic("BUG: iroha returned unexpected type in iterable query");
         };
 
         let (batch, cursor) = output.into_parts();
 
-        Ok((
-            batch,
-            cursor.map(|cursor| SmartContractQueryCursor { cursor }),
-        ))
+        Ok((batch, cursor.map(|cursor| QueryCursor { cursor })))
     }
 }
 

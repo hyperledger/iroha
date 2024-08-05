@@ -188,8 +188,8 @@ mod model {
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum QueryRequest {
         Singular(SingularQueryBox),
-        StartIterable(QueryWithParams),
-        ContinueIterable(ForwardCursor),
+        Start(QueryWithParams),
+        Continue(ForwardCursor),
     }
 
     /// An enum containing either a singular or an iterable query
