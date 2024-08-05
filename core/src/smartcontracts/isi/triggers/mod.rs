@@ -333,11 +333,11 @@ pub mod query {
     use super::*;
     use crate::{
         prelude::*,
-        smartcontracts::{triggers::set::SetReadOnly, ValidIterableQuery},
+        smartcontracts::{triggers::set::SetReadOnly, ValidQuery},
         state::StateReadOnly,
     };
 
-    impl ValidIterableQuery for FindActiveTriggerIds {
+    impl ValidQuery for FindActiveTriggerIds {
         #[metrics(+"find_active_triggers")]
         fn execute<'state>(
             self,

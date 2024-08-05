@@ -19,7 +19,7 @@ use iroha_data_model::{
 use iroha_telemetry::metrics;
 
 use super::*;
-use crate::smartcontracts::ValidIterableQuery;
+use crate::smartcontracts::ValidQuery;
 
 pub(crate) struct BlockTransactionIter(Arc<SignedBlock>, usize);
 pub(crate) struct BlockTransactionRef(Arc<SignedBlock>, usize);
@@ -67,7 +67,7 @@ impl BlockTransactionRef {
     }
 }
 
-impl ValidIterableQuery for FindTransactions {
+impl ValidQuery for FindTransactions {
     #[metrics(+"find_transactions")]
     fn execute<'state>(
         self,
@@ -85,7 +85,7 @@ impl ValidIterableQuery for FindTransactions {
     }
 }
 
-impl ValidIterableQuery for FindTransactionsByAccountId {
+impl ValidQuery for FindTransactionsByAccountId {
     #[metrics(+"find_transactions_by_account_id")]
     fn execute<'state>(
         self,

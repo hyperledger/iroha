@@ -470,9 +470,9 @@ pub mod query {
     };
 
     use super::*;
-    use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
+    use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
 
-    impl ValidIterableQuery for FindRoles {
+    impl ValidQuery for FindRoles {
         #[metrics(+"find_roles")]
         fn execute<'state>(
             self,
@@ -489,7 +489,7 @@ pub mod query {
         }
     }
 
-    impl ValidIterableQuery for FindRoleIds {
+    impl ValidQuery for FindRoleIds {
         #[metrics(+"find_role_ids")]
         fn execute<'state>(
             self,
@@ -507,7 +507,7 @@ pub mod query {
         }
     }
 
-    impl ValidIterableQuery for FindPeers {
+    impl ValidQuery for FindPeers {
         #[metrics(+"find_peers")]
         fn execute<'state>(
             self,

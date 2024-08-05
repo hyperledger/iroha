@@ -11,8 +11,8 @@ use iroha_data_model::{
         builder::{QueryBuilder, QueryExecutor},
         parameters::ForwardCursor,
         predicate::HasPredicateBox,
-        IterableQueryOutput, IterableQueryOutputBatchBox, IterableQueryWithParams, QueryRequest,
-        QueryResponse, SingularQuery, SingularQueryBox, SingularQueryOutputBox,
+        QueryOutput, QueryOutputBatchBox, QueryRequest, QueryResponse, QueryWithParams,
+        SingularQuery, SingularQueryBox, SingularQueryOutputBox,
     },
     ValidationFail,
 };
@@ -22,7 +22,7 @@ use url::Url;
 
 use crate::{
     client::{join_torii_url, Client, QueryResult, ResponseReport},
-    data_model::query::IterableQuery,
+    data_model::query::Query,
     http::{Method as HttpMethod, RequestBuilder},
     http_default::DefaultRequestBuilder,
 };
@@ -102,9 +102,7 @@ fn decode_singular_query_response(
     Ok(resp)
 }
 
-fn decode_iterable_query_response(
-    resp: &http::Response<Vec<u8>>,
-) -> QueryResult<IterableQueryOutput> {
+fn decode_iterable_query_response(resp: &http::Response<Vec<u8>>) -> QueryResult<QueryOutput> {
     let QueryResponse::Iterable(resp) = decode_query_response(resp)? else {
         return Err(eyre!(
             "Got unexpected type of query response from the node (expected iterable)"
@@ -160,8 +158,8 @@ impl QueryExecutor for Client {
 
     fn start_query(
         &self,
-        query: IterableQueryWithParams,
-    ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
+        query: QueryWithParams,
+    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
         let request_head = self.get_query_request_head();
 
         let request = QueryRequest::StartIterable(query);
@@ -181,7 +179,7 @@ impl QueryExecutor for Client {
 
     fn continue_query(
         cursor: Self::Cursor,
-    ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
         let ClientQueryCursor {
             request_head,
             cursor,
@@ -241,9 +239,9 @@ impl Client {
     pub fn query<Q>(
         &self,
         query: Q,
-    ) -> QueryBuilder<Self, Q, <<Q as IterableQuery>::Item as HasPredicateBox>::PredicateBoxType>
+    ) -> QueryBuilder<Self, Q, <<Q as Query>::Item as HasPredicateBox>::PredicateBoxType>
     where
-        Q: IterableQuery,
+        Q: Query,
     {
         QueryBuilder::new(self, query)
     }

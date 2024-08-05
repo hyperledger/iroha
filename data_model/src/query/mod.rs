@@ -12,7 +12,7 @@ use iroha_macro::FromVariant;
 use iroha_primitives::{json::JsonString, numeric::Numeric};
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
-use parameters::{ForwardCursor, IterableQueryParams, MAX_FETCH_SIZE};
+use parameters::{ForwardCursor, QueryParams, MAX_FETCH_SIZE};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +40,7 @@ pub mod parameters;
 pub mod predicate;
 
 /// A query that either returns a single value or errors out
+// NOTE: we are planning to remove this class of queries (https://github.com/hyperledger/iroha/issues/4933)
 pub trait SingularQuery: Sealed {
     /// The type of the output of the query
     type Output;
@@ -50,7 +51,7 @@ pub trait SingularQuery: Sealed {
 /// Iterable queries logically return a stream of items.
 /// In the actual implementation, the items collected into batches and a cursor is used to fetch the next batch.
 /// [`builder::QueryIterator`] abstracts over this and allows the query consumer to use a familiar [`Iterator`] interface to iterate over the results.
-pub trait IterableQuery: Sealed {
+pub trait Query: Sealed {
     /// The type of single element of the output collection
     type Item: HasPredicateBox;
 }
@@ -67,11 +68,11 @@ mod model {
     /// An iterable query bundled with a filter
     ///
     /// The `P` type doesn't have any bounds to simplify generic trait bounds in some places.
-    /// Use [`super::IterableQueryWithFilterFor`] if you have a concrete query type to avoid specifying `P` manually.
+    /// Use [`super::QueryWithFilterFor`] if you have a concrete query type to avoid specifying `P` manually.
     #[derive(
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Constructor,
     )]
-    pub struct IterableQueryWithFilter<Q, P> {
+    pub struct QueryWithFilter<Q, P> {
         pub query: Q,
         #[serde(default = "predicate_default")]
         pub predicate: CompoundPredicate<P>,
@@ -85,24 +86,24 @@ mod model {
     #[derive(
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
     )]
-    pub enum IterableQueryBox {
-        FindDomains(IterableQueryWithFilterFor<FindDomains>),
-        FindAccounts(IterableQueryWithFilterFor<FindAccounts>),
-        FindAssets(IterableQueryWithFilterFor<FindAssets>),
-        FindAssetsDefinitions(IterableQueryWithFilterFor<FindAssetsDefinitions>),
-        FindRoles(IterableQueryWithFilterFor<FindRoles>),
+    pub enum QueryBox {
+        FindDomains(QueryWithFilterFor<FindDomains>),
+        FindAccounts(QueryWithFilterFor<FindAccounts>),
+        FindAssets(QueryWithFilterFor<FindAssets>),
+        FindAssetsDefinitions(QueryWithFilterFor<FindAssetsDefinitions>),
+        FindRoles(QueryWithFilterFor<FindRoles>),
 
-        FindRoleIds(IterableQueryWithFilterFor<FindRoleIds>),
-        FindPermissionsByAccountId(IterableQueryWithFilterFor<FindPermissionsByAccountId>),
-        FindRolesByAccountId(IterableQueryWithFilterFor<FindRolesByAccountId>),
-        FindTransactionsByAccountId(IterableQueryWithFilterFor<FindTransactionsByAccountId>),
-        FindAccountsWithAsset(IterableQueryWithFilterFor<FindAccountsWithAsset>),
+        FindRoleIds(QueryWithFilterFor<FindRoleIds>),
+        FindPermissionsByAccountId(QueryWithFilterFor<FindPermissionsByAccountId>),
+        FindRolesByAccountId(QueryWithFilterFor<FindRolesByAccountId>),
+        FindTransactionsByAccountId(QueryWithFilterFor<FindTransactionsByAccountId>),
+        FindAccountsWithAsset(QueryWithFilterFor<FindAccountsWithAsset>),
 
-        FindPeers(IterableQueryWithFilterFor<FindPeers>),
-        FindActiveTriggerIds(IterableQueryWithFilterFor<FindActiveTriggerIds>),
-        FindTransactions(IterableQueryWithFilterFor<FindTransactions>),
-        FindBlocks(IterableQueryWithFilterFor<FindBlocks>),
-        FindBlockHeaders(IterableQueryWithFilterFor<FindBlockHeaders>),
+        FindPeers(QueryWithFilterFor<FindPeers>),
+        FindActiveTriggerIds(QueryWithFilterFor<FindActiveTriggerIds>),
+        FindTransactions(QueryWithFilterFor<FindTransactions>),
+        FindBlocks(QueryWithFilterFor<FindBlocks>),
+        FindBlockHeaders(QueryWithFilterFor<FindBlockHeaders>),
     }
 
     /// An enum of all possible iterable query batches.
@@ -111,7 +112,7 @@ mod model {
     #[derive(
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
     )]
-    pub enum IterableQueryOutputBatchBox {
+    pub enum QueryOutputBatchBox {
         Domain(Vec<Domain>),
         Account(Vec<Account>),
         Asset(Vec<Asset>),
@@ -164,9 +165,9 @@ mod model {
 
     /// The results of a single iterable query request.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct IterableQueryOutput {
+    pub struct QueryOutput {
         /// A single batch of results
-        pub batch: IterableQueryOutputBatchBox,
+        pub batch: QueryOutputBatchBox,
         /// If not `None`, contains a cursor that can be used to fetch the next batch of results. Otherwise the current batch is the last one.
         pub continue_cursor: Option<ForwardCursor>,
     }
@@ -175,10 +176,10 @@ mod model {
     #[derive(
         Debug, Clone, PartialEq, Eq, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
-    pub struct IterableQueryWithParams {
-        pub query: IterableQueryBox,
+    pub struct QueryWithParams {
+        pub query: QueryBox,
         #[serde(default)]
-        pub params: IterableQueryParams,
+        pub params: QueryParams,
     }
 
     /// A query request that can be sent to an Iroha peer.
@@ -187,22 +188,22 @@ mod model {
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum QueryRequest {
         Singular(SingularQueryBox),
-        StartIterable(IterableQueryWithParams),
+        StartIterable(QueryWithParams),
         ContinueIterable(ForwardCursor),
     }
 
     /// An enum containing either a singular or an iterable query
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub enum QueryBox {
+    pub enum AnyQueryBox {
         Singular(SingularQueryBox),
-        Iterable(IterableQueryWithParams),
+        Iterable(QueryWithParams),
     }
 
     /// A response to a [`QuertRequest`] from an Iroha peer
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum QueryResponse {
         Singular(SingularQueryOutputBox),
-        Iterable(IterableQueryOutput),
+        Iterable(QueryOutput),
     }
 
     /// A [`QueryRequest`], combined with an authority that wants to execute the query
@@ -252,18 +253,18 @@ mod model {
     }
 }
 
-/// A type alias to refer to a [`IterableQueryWithFilter`] paired with a correct predicate
-pub type IterableQueryWithFilterFor<Q> =
-    IterableQueryWithFilter<Q, <<Q as IterableQuery>::Item as HasPredicateBox>::PredicateBoxType>;
+/// A type alias to refer to a [`QueryWithFilter`] paired with a correct predicate
+pub type QueryWithFilterFor<Q> =
+    QueryWithFilter<Q, <<Q as Query>::Item as HasPredicateBox>::PredicateBoxType>;
 
-impl IterableQueryOutputBatchBox {
+impl QueryOutputBatchBox {
     // this is used in client cli to do type-erased iterable queries
     /// Extends this batch with another batch of the same type
     ///
     /// # Panics
     ///
     /// Panics if the types of the two batches do not match
-    pub fn extend(&mut self, other: IterableQueryOutputBatchBox) {
+    pub fn extend(&mut self, other: QueryOutputBatchBox) {
         match (self, other) {
             (Self::Domain(v1), Self::Domain(v2)) => v1.extend(v2),
             (Self::Account(v1), Self::Account(v2)) => v1.extend(v2),
@@ -307,17 +308,17 @@ impl SingularQuery for SingularQueryBox {
     type Output = SingularQueryOutputBox;
 }
 
-impl IterableQueryOutput {
-    /// Create a new [`IterableQueryOutput`] from the iroha response parts.
-    pub fn new(batch: IterableQueryOutputBatchBox, continue_cursor: Option<ForwardCursor>) -> Self {
+impl QueryOutput {
+    /// Create a new [`QueryOutput`] from the iroha response parts.
+    pub fn new(batch: QueryOutputBatchBox, continue_cursor: Option<ForwardCursor>) -> Self {
         Self {
             batch,
             continue_cursor,
         }
     }
 
-    /// Split this [`IterableQueryOutput`] into its constituent parts.
-    pub fn into_parts(self) -> (IterableQueryOutputBatchBox, Option<ForwardCursor>) {
+    /// Split this [`QueryOutput`] into its constituent parts.
+    pub fn into_parts(self) -> (QueryOutputBatchBox, Option<ForwardCursor>) {
         (self.batch, self.continue_cursor)
     }
 }
@@ -514,10 +515,10 @@ mod candidate {
     }
 }
 
-/// Use a custom syntax to implement [`IterableQuery`] for applicable types
+/// Use a custom syntax to implement [`Query`] for applicable types
 macro_rules! impl_iter_queries {
     ($ty:ty => $item:ty $(, $($rest:tt)*)?) => {
-        impl IterableQuery for $ty {
+        impl Query for $ty {
             type Item = $item;
         }
 
@@ -1148,7 +1149,6 @@ pub mod prelude {
         account::prelude::*, asset::prelude::*, block::prelude::*, builder::prelude::*,
         domain::prelude::*, executor::prelude::*, parameters::prelude::*, peer::prelude::*,
         permission::prelude::*, predicate::prelude::*, role::prelude::*, transaction::prelude::*,
-        trigger::prelude::*, IterableQueryBox, QueryBox, QueryRequest, SingularQueryBox,
-        TransactionQueryOutput,
+        trigger::prelude::*, QueryBox, QueryRequest, SingularQueryBox, TransactionQueryOutput,
     };
 }

@@ -32,8 +32,8 @@ pub trait Execute {
     ) -> Result<(), Error>;
 }
 
-/// This trait should be implemented for all iterable Iroha Queries.
-pub trait ValidIterableQuery: iroha_data_model::query::IterableQuery
+/// This trait defines how an Iroha Iterable query is executed.
+pub trait ValidQuery: iroha_data_model::query::Query
 where
     Self::Item: HasPredicateBox,
 {
@@ -51,9 +51,9 @@ where
     ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail>;
 }
 
-/// This trait should be implemented for all Iroha Queries.
+/// This trait defines how an Iroha Singular query is executed.
 pub trait ValidSingularQuery: iroha_data_model::query::SingularQuery {
-    /// Execute query on the [`WorldSnapshot`].
+    /// Execute a query on a read-only state.
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
     ///

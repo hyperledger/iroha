@@ -11,9 +11,9 @@ use iroha_config::parameters::actual::LiveQueryStore as Config;
 use iroha_data_model::{
     account::AccountId,
     query::{
-        parameters::{ForwardCursor, QueryId},
         error::QueryExecutionFail,
-        IterableQueryOutput, IterableQueryOutputBatchBox,
+        parameters::{ForwardCursor, QueryId},
+        QueryOutput, QueryOutputBatchBox,
     },
 };
 use iroha_logger::{trace, warn};
@@ -189,7 +189,7 @@ impl LiveQueryStore {
         &self,
         query_id: QueryId,
         cursor: NonZeroU64,
-    ) -> Result<(IterableQueryOutputBatchBox, Option<NonZeroU64>)> {
+    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>)> {
         trace!(%query_id, "Advancing existing query");
         let QueryInfo {
             mut live_query,
@@ -242,7 +242,7 @@ impl LiveQueryStoreHandle {
         &self,
         mut live_query: QueryBatchedErasedIterator,
         authority: &AccountId,
-    ) -> Result<IterableQueryOutput> {
+    ) -> Result<QueryOutput> {
         let query_id = uuid::Uuid::new_v4().to_string();
 
         let curr_cursor = 0;
@@ -264,7 +264,7 @@ impl LiveQueryStoreHandle {
     pub fn handle_iter_continue(
         &self,
         ForwardCursor { query, cursor }: ForwardCursor,
-    ) -> Result<IterableQueryOutput> {
+    ) -> Result<QueryOutput> {
         let (batch, next_cursor) = self.store.get_query_next_batch(query.clone(), cursor)?;
 
         Ok(Self::construct_query_response(batch, query, next_cursor))
@@ -276,11 +276,11 @@ impl LiveQueryStoreHandle {
     }
 
     fn construct_query_response(
-        batch: IterableQueryOutputBatchBox,
+        batch: QueryOutputBatchBox,
         query_id: QueryId,
         cursor: Option<NonZeroU64>,
-    ) -> IterableQueryOutput {
-        IterableQueryOutput::new(
+    ) -> QueryOutput {
+        QueryOutput::new(
             batch,
             cursor.map(|cursor| ForwardCursor {
                 query: query_id,
@@ -294,7 +294,7 @@ impl LiveQueryStoreHandle {
 mod tests {
     use iroha_data_model::{
         permission::Permission,
-        query::parameters::{FetchSize, IterableQueryParams, Pagination, Sorting},
+        query::parameters::{FetchSize, Pagination, QueryParams, Sorting},
     };
     use iroha_primitives::json::JsonString;
     use nonzero_ext::nonzero;
@@ -315,7 +315,7 @@ mod tests {
             };
             let sorting = Sorting::default();
 
-            let query_params = IterableQueryParams {
+            let query_params = QueryParams {
                 pagination,
                 sorting,
                 fetch_size,

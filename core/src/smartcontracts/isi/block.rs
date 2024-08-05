@@ -14,9 +14,9 @@ use iroha_data_model::{
 use iroha_telemetry::metrics;
 
 use super::*;
-use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
+use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
 
-impl ValidIterableQuery for FindBlocks {
+impl ValidQuery for FindBlocks {
     #[metrics(+"find_blocks")]
     fn execute<'state>(
         self,
@@ -31,7 +31,7 @@ impl ValidIterableQuery for FindBlocks {
     }
 }
 
-impl ValidIterableQuery for FindBlockHeaders {
+impl ValidQuery for FindBlockHeaders {
     #[metrics(+"find_block_headers")]
     fn execute<'state>(
         self,

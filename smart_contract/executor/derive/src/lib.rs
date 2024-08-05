@@ -104,7 +104,7 @@ pub fn derive_validate(input: TokenStream) -> TokenStream {
 /// }
 ///
 /// // Custom visit function should supply a `&mut Executor` as first argument
-/// fn visit_query(executor: &mut Executor, _authority: &AccountId, _query: &QueryBox) {
+/// fn visit_query(executor: &mut Executor, _authority: &AccountId, _query: &AnyQueryBox) {
 ///     executor.deny(ValidationFail::NotPermitted(
 ///         "All queries are forbidden".to_owned(),
 ///     ));

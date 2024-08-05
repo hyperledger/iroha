@@ -12,7 +12,7 @@ use iroha_data_model::{
     isi::InstructionBox,
     parameter::SmartContractParameters as Config,
     prelude::*,
-    query::{parameters::QueryId, IterableQueryOutput, QueryBox, QueryRequest, QueryResponse},
+    query::{parameters::QueryId, AnyQueryBox, QueryOutput, QueryRequest, QueryResponse},
     smart_contract::payloads::{self, Validate},
     Level as LogLevel, ValidationFail,
 };
@@ -99,7 +99,7 @@ mod import {
             fn get_validate_instruction_payload(state: &S) -> Validate<InstructionBox>;
 
             #[codec::wrap_trait_fn]
-            fn get_validate_query_payload(state: &S) -> Validate<QueryBox>;
+            fn get_validate_query_payload(state: &S) -> Validate<AnyQueryBox>;
         }
 
         pub trait SetDataModel<S> {
@@ -473,8 +473,6 @@ pub mod state {
         pub mod executor {
             //! States related to *Executor* execution.
 
-            use iroha_data_model::query::QueryBox;
-
             use super::*;
 
             /// Struct to encapsulate common state kinds for `validate_*` entrypoints
@@ -487,7 +485,7 @@ pub mod state {
             pub type ValidateTransaction = Validate<SignedTransaction>;
 
             /// State kind for executing `validate_query()` entrypoint of executor
-            pub type ValidateQuery = Validate<QueryBox>;
+            pub type ValidateQuery = Validate<AnyQueryBox>;
 
             /// State kind for executing `validate_instruction()` entrypoint of executor
             pub type ValidateInstruction = Validate<InstructionBox>;
@@ -824,7 +822,7 @@ where
         let response = query.execute(live_query_store, state_ro, authority)?;
 
         // store the output cursor if there is one
-        if let QueryResponse::Iterable(IterableQueryOutput {
+        if let QueryResponse::Iterable(QueryOutput {
             continue_cursor: Some(cursor),
             ..
         }) = &response
@@ -1169,7 +1167,7 @@ impl<'wrld, 'block, 'state>
     #[codec::wrap]
     fn get_validate_query_payload(
         _state: &state::executor::ValidateTransaction<'wrld, 'block, 'state>,
-    ) -> Validate<QueryBox> {
+    ) -> Validate<AnyQueryBox> {
         panic!("Executor `validate_transaction()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
@@ -1249,7 +1247,7 @@ impl<'wrld, 'block, 'state>
     #[codec::wrap]
     fn get_validate_query_payload(
         _state: &state::executor::ValidateInstruction<'wrld, 'block, 'state>,
-    ) -> Validate<QueryBox> {
+    ) -> Validate<AnyQueryBox> {
         panic!("Executor `validate_instruction()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
@@ -1274,7 +1272,7 @@ impl<'wrld, S: StateReadOnly> Runtime<state::executor::ValidateQuery<'wrld, S>> 
         state_ro: &'wrld S,
         authority: &AccountId,
         module: &wasmtime::Module,
-        query: QueryBox,
+        query: AnyQueryBox,
     ) -> Result<executor::Result> {
         let span = wasm_log_span!("Running `validate_query()`");
 
@@ -1341,7 +1339,7 @@ impl<'wrld, S: StateReadOnly>
     #[codec::wrap]
     fn get_validate_query_payload(
         state: &state::executor::ValidateQuery<'wrld, S>,
-    ) -> Validate<QueryBox> {
+    ) -> Validate<AnyQueryBox> {
         Validate {
             authority: state.authority.clone(),
             block_height: state.state.0.height() as u64,
@@ -1436,7 +1434,7 @@ impl<'wrld, 'block, 'state>
     #[codec::wrap]
     fn get_validate_query_payload(
         _state: &state::executor::Migrate<'wrld, 'block, 'state>,
-    ) -> Validate<QueryBox> {
+    ) -> Validate<AnyQueryBox> {
         panic!("Executor `migrate()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
