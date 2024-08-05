@@ -1142,7 +1142,12 @@ pub mod role {
                         crate::data_model::query::builder::SingleQueryError::ExpectedOneGotNone,
                     ) => {
                         // assuming that only a "not found" case is possible here
-                        deny!($executor, "Role not found")
+                        $executor.deny($crate::data_model::ValidationFail::QueryFailed(
+                            $crate::data_model::query::error::QueryExecutionFail::Find(
+                                $crate::data_model::query::error::FindError::Role(role_id.clone()),
+                            ),
+                        ));
+                        return;
                     }
                     Err(_) => {
                         unreachable!();
