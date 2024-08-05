@@ -852,7 +852,17 @@ impl Sumeragi {
                 .unpack(|e| self.send_event(e));
 
             let created_in = create_block_start_time.elapsed();
-            let pipeline_time = state.world.view().parameters().sumeragi.pipeline_time();
+            let pipeline_time = state
+                .world
+                .view()
+                .parameters()
+                .sumeragi
+                .pipeline_time()
+                .saturating_mul(
+                    (self.topology.view_change_index() + 1)
+                        .try_into()
+                        .unwrap_or(u32::MAX),
+                );
             if created_in > pipeline_time / 2 {
                 warn!(
                     role=%self.role(),
@@ -932,7 +942,8 @@ fn reset_state(
         *voting_block = None;
         voting_signatures.clear();
         *last_view_change_time = Instant::now();
-        *view_change_time = pipeline_time;
+        *view_change_time =
+            pipeline_time.saturating_mul((view_change_index + 1).try_into().unwrap_or(u32::MAX));
 
         *was_commit = false;
     }
@@ -1134,7 +1145,13 @@ pub(crate) fn run(
 
             // NOTE: View change must be periodically suggested until it is accepted.
             // Must be initialized to pipeline time but can increase by chosen amount
-            view_change_time += state.world.view().parameters().sumeragi.pipeline_time();
+            view_change_time += state
+                .world
+                .view()
+                .parameters()
+                .sumeragi
+                .pipeline_time()
+                .saturating_mul((view_change_index + 1).try_into().unwrap_or(u32::MAX));
         }
 
         reset_state(
