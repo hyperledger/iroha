@@ -12,14 +12,14 @@ use data_model::smart_contract::payloads;
 use data_model::{
     isi::BuiltInInstruction,
     prelude::*,
-    query::{parameters::ForwardCursor, IterableQuery},
+    query::{parameters::ForwardCursor, Query},
 };
 pub use iroha_data_model as data_model;
 use iroha_data_model::query::{
     builder::{QueryBuilder, QueryExecutor},
     predicate::HasPredicateBox,
-    IterableQueryOutputBatchBox, IterableQueryWithParams, QueryRequest, QueryResponse,
-    SingularQuery, SingularQueryBox, SingularQueryOutputBox,
+    QueryOutputBatchBox, QueryRequest, QueryResponse, QueryWithParams, SingularQuery,
+    SingularQueryBox, SingularQueryOutputBox,
 };
 pub use iroha_smart_contract_derive::main;
 pub use iroha_smart_contract_utils::{debug, error, info, log, warn};
@@ -148,8 +148,8 @@ impl QueryExecutor for SmartContractQueryExecutor {
 
     fn start_query(
         &self,
-        query: IterableQueryWithParams,
-    ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
+        query: QueryWithParams,
+    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) = execute_query(&QueryRequest::StartIterable(query))?
         else {
             dbg_panic("BUG: iroha returned unexpected type in iterable query");
@@ -165,7 +165,7 @@ impl QueryExecutor for SmartContractQueryExecutor {
 
     fn continue_query(
         cursor: Self::Cursor,
-    ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) =
             execute_query(&QueryRequest::ContinueIterable(cursor.cursor))?
         else {
@@ -191,7 +191,7 @@ pub fn query<Q>(
     <Q::Item as HasPredicateBox>::PredicateBoxType,
 >
 where
-    Q: IterableQuery,
+    Q: Query,
     Q::Item: HasPredicateBox,
 {
     QueryBuilder::new(&SmartContractQueryExecutor, query)

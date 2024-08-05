@@ -494,9 +494,9 @@ pub mod query {
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
+    use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
 
-    impl ValidIterableQuery for FindRolesByAccountId {
+    impl ValidQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]
         fn execute<'state>(
             self,
@@ -513,7 +513,7 @@ pub mod query {
         }
     }
 
-    impl ValidIterableQuery for FindPermissionsByAccountId {
+    impl ValidQuery for FindPermissionsByAccountId {
         #[metrics(+"find_permissions_by_account_id")]
         fn execute<'state>(
             self,
@@ -529,7 +529,7 @@ pub mod query {
         }
     }
 
-    impl ValidIterableQuery for FindAccounts {
+    impl ValidQuery for FindAccounts {
         #[metrics(+"find_accounts")]
         fn execute<'state>(
             self,
@@ -558,7 +558,7 @@ pub mod query {
         }
     }
 
-    impl ValidIterableQuery for FindAccountsWithAsset {
+    impl ValidQuery for FindAccountsWithAsset {
         #[metrics(+"find_accounts_with_asset")]
         fn execute<'state>(
             self,

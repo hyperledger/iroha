@@ -6,7 +6,7 @@ use std::{
 };
 
 use derive_more::Display;
-use iroha_data_model::query::IterableQueryOutputBatchBox;
+use iroha_data_model::query::QueryOutputBatchBox;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +14,7 @@ trait BatchedTrait {
     fn next_batch(
         &mut self,
         cursor: u64,
-    ) -> Result<(IterableQueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor>;
+    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor>;
 }
 
 struct BatchedInner<I> {
@@ -26,12 +26,12 @@ struct BatchedInner<I> {
 impl<I> BatchedTrait for BatchedInner<I>
 where
     I: Iterator,
-    IterableQueryOutputBatchBox: From<Vec<I::Item>>,
+    QueryOutputBatchBox: From<Vec<I::Item>>,
 {
     fn next_batch(
         &mut self,
         cursor: u64,
-    ) -> Result<(IterableQueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor> {
+    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor> {
         let Some(server_cursor) = self.cursor else {
             // the server is done with the iterator
             return Err(UnknownCursor);
@@ -104,7 +104,7 @@ impl QueryBatchedErasedIterator {
     pub fn new<I>(iter: I, batch_size: NonZeroU32) -> Self
     where
         I: Iterator + Send + Sync + 'static,
-        IterableQueryOutputBatchBox: From<Vec<I::Item>>,
+        QueryOutputBatchBox: From<Vec<I::Item>>,
     {
         Self {
             inner: Box::new(BatchedInner {
@@ -128,7 +128,7 @@ impl QueryBatchedErasedIterator {
     pub fn next_batch(
         &mut self,
         cursor: u64,
-    ) -> Result<(IterableQueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor> {
+    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor> {
         self.inner.next_batch(cursor)
     }
 }

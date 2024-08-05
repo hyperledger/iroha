@@ -9,10 +9,10 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::query::{
-    parameters::{FetchSize, IterableQueryParams, Pagination, Sorting},
+    parameters::{FetchSize, Pagination, QueryParams, Sorting},
     predicate::{projectors, AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype},
-    IterableQuery, IterableQueryBox, IterableQueryOutputBatchBox, IterableQueryWithFilter,
-    IterableQueryWithFilterFor, IterableQueryWithParams, SingularQueryBox, SingularQueryOutputBox,
+    Query, QueryBox, QueryOutputBatchBox, QueryWithFilter, QueryWithFilterFor, QueryWithParams,
+    SingularQueryBox, SingularQueryOutputBox,
 };
 
 /// A trait abstracting away concrete backend for executing queries against iroha.
@@ -41,8 +41,8 @@ pub trait QueryExecutor {
     /// Returns an error if the query execution fails.
     fn start_query(
         &self,
-        query: IterableQueryWithParams,
-    ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
+        query: QueryWithParams,
+    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
 
     /// Continues an iterable query from the given cursor and returns the next batch of results.
     ///
@@ -51,7 +51,7 @@ pub trait QueryExecutor {
     /// Returns an error if the query execution fails.
     fn continue_query(
         cursor: Self::Cursor,
-    ) -> Result<(IterableQueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
+    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
 }
 
 /// An iterator over results of an iterable query.
@@ -64,7 +64,7 @@ pub struct QueryIterator<E: QueryExecutor, T> {
 impl<E, T> QueryIterator<E, T>
 where
     E: QueryExecutor,
-    Vec<T>: TryFrom<IterableQueryOutputBatchBox>,
+    Vec<T>: TryFrom<QueryOutputBatchBox>,
 {
     /// Create a new iterator over iterable query results.
     ///
@@ -72,9 +72,9 @@ where
     ///
     /// Returns an error if the type of the batch does not match the expected type `T`.
     pub fn new(
-        first_batch: IterableQueryOutputBatchBox,
+        first_batch: QueryOutputBatchBox,
         continue_cursor: Option<E::Cursor>,
-    ) -> Result<Self, <Vec<T> as TryFrom<IterableQueryOutputBatchBox>>::Error> {
+    ) -> Result<Self, <Vec<T> as TryFrom<QueryOutputBatchBox>>::Error> {
         let batch: Vec<T> = first_batch.try_into()?;
 
         Ok(Self {
@@ -99,8 +99,8 @@ where
 impl<E, T> Iterator for QueryIterator<E, T>
 where
     E: QueryExecutor,
-    Vec<T>: TryFrom<IterableQueryOutputBatchBox>,
-    <Vec<T> as TryFrom<IterableQueryOutputBatchBox>>::Error: core::fmt::Debug,
+    Vec<T>: TryFrom<QueryOutputBatchBox>,
+    <Vec<T> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
 {
     type Item = Result<T, E::Error>;
 
@@ -177,7 +177,7 @@ pub struct QueryBuilder<'e, E, Q, P> {
 
 impl<'a, E, Q, P> QueryBuilder<'a, E, Q, P>
 where
-    Q: IterableQuery,
+    Q: Query,
     Q::Item: HasPredicateBox<PredicateBoxType = P>,
 {
     /// Create a new iterable query builder for a given backend and query.
@@ -244,11 +244,11 @@ impl<E, Q, P> QueryBuilder<'_, E, Q, P> {
 impl<E, Q, P> QueryBuilder<'_, E, Q, P>
 where
     E: QueryExecutor,
-    Q: IterableQuery,
+    Q: Query,
     Q::Item: HasPredicateBox<PredicateBoxType = P>,
-    IterableQueryBox: From<IterableQueryWithFilterFor<Q>>,
-    Vec<Q::Item>: TryFrom<IterableQueryOutputBatchBox>,
-    <Vec<Q::Item> as TryFrom<IterableQueryOutputBatchBox>>::Error: core::fmt::Debug,
+    QueryBox: From<QueryWithFilterFor<Q>>,
+    Vec<Q::Item>: TryFrom<QueryOutputBatchBox>,
+    <Vec<Q::Item> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
 {
     /// Execute the query, returning an iterator over its results.
     ///
@@ -256,12 +256,12 @@ where
     ///
     /// Returns an error if the query execution fails.
     pub fn execute(self) -> Result<QueryIterator<E, Q::Item>, E::Error> {
-        let with_filter = IterableQueryWithFilter::new(self.query, self.filter);
-        let boxed: IterableQueryBox = with_filter.into();
+        let with_filter = QueryWithFilter::new(self.query, self.filter);
+        let boxed: QueryBox = with_filter.into();
 
-        let query = IterableQueryWithParams {
+        let query = QueryWithParams {
             query: boxed,
-            params: IterableQueryParams {
+            params: QueryParams {
                 pagination: self.pagination,
                 sorting: self.sorting,
                 fetch_size: self.fetch_size,
@@ -300,7 +300,7 @@ where
 pub trait QueryBuilderExt<E, Q>
 where
     E: QueryExecutor,
-    Q: IterableQuery,
+    Q: Query,
 {
     /// Execute the query, returning all the results collected into a vector.
     ///
@@ -327,11 +327,11 @@ where
 impl<E, Q, P> QueryBuilderExt<E, Q> for QueryBuilder<'_, E, Q, P>
 where
     E: QueryExecutor,
-    Q: IterableQuery,
+    Q: Query,
     Q::Item: HasPredicateBox<PredicateBoxType = P>,
-    IterableQueryBox: From<IterableQueryWithFilterFor<Q>>,
-    Vec<Q::Item>: TryFrom<IterableQueryOutputBatchBox>,
-    <Vec<Q::Item> as TryFrom<IterableQueryOutputBatchBox>>::Error: core::fmt::Debug,
+    QueryBox: From<QueryWithFilterFor<Q>>,
+    Vec<Q::Item>: TryFrom<QueryOutputBatchBox>,
+    <Vec<Q::Item> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
 {
     fn execute_all(self) -> Result<Vec<Q::Item>, E::Error> {
         self.execute()?.collect::<Result<Vec<_>, _>>()

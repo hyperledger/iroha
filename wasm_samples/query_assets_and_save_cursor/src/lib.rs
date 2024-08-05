@@ -11,9 +11,9 @@ use dlmalloc::GlobalDlmalloc;
 use iroha_smart_contract::{
     data_model::query::{
         builder::QueryExecutor,
-        parameters::{ForwardCursor, IterableQueryParams},
+        parameters::{ForwardCursor, QueryParams},
         predicate::CompoundPredicate,
-        IterableQueryWithFilter, IterableQueryWithParams,
+        QueryWithFilter, QueryWithParams,
     },
     prelude::*,
     SmartContractQueryExecutor,
@@ -36,9 +36,9 @@ fn main(owner: AccountId) {
     }
 
     let (_batch, cursor) = SmartContractQueryExecutor
-        .start_query(IterableQueryWithParams::new(
-            IterableQueryWithFilter::new(FindAssets, CompoundPredicate::PASS).into(),
-            IterableQueryParams::new(
+        .start_query(QueryWithParams::new(
+            QueryWithFilter::new(FindAssets, CompoundPredicate::PASS).into(),
+            QueryParams::new(
                 Default::default(),
                 Default::default(),
                 FetchSize::new(Some(nonzero!(1_u32))),

@@ -435,9 +435,9 @@ pub mod query {
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
+    use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
 
-    impl ValidIterableQuery for FindAssets {
+    impl ValidQuery for FindAssets {
         #[metrics(+"find_assets")]
         fn execute<'state>(
             self,
@@ -451,7 +451,7 @@ pub mod query {
                 .cloned())
         }
     }
-    impl ValidIterableQuery for FindAssetsDefinitions {
+    impl ValidQuery for FindAssetsDefinitions {
         #[metrics(+"find_asset_definitions")]
         fn execute<'state>(
             self,

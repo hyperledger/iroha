@@ -401,9 +401,9 @@ pub mod query {
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::{smartcontracts::ValidIterableQuery, state::StateReadOnly};
+    use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
 
-    impl ValidIterableQuery for FindDomains {
+    impl ValidQuery for FindDomains {
         #[metrics(+"find_domains")]
         fn execute<'state>(
             self,

@@ -1129,7 +1129,7 @@ mod json {
     use std::io::{BufReader, Read as _};
 
     use clap::Subcommand;
-    use iroha::data_model::query::QueryBox;
+    use iroha::data_model::query::AnyQueryBox;
 
     use super::*;
 
@@ -1162,17 +1162,17 @@ mod json {
                 }
                 Variant::Query => {
                     let client = Client::new(context.configuration().clone());
-                    let query: QueryBox = json5::from_str(&string_content)?;
+                    let query: AnyQueryBox = json5::from_str(&string_content)?;
 
                     match query {
-                        QueryBox::Singular(query) => {
+                        AnyQueryBox::Singular(query) => {
                             let result = client
                                 .query_single(query)
                                 .wrap_err("Failed to query response")?;
 
                             context.print_data(&result)?;
                         }
-                        QueryBox::Iterable(query) => {
+                        AnyQueryBox::Iterable(query) => {
                             // we can't really do type-erased iterable queries in a nice way right now...
                             use iroha::data_model::query::builder::QueryExecutor;
 

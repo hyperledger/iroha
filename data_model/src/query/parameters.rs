@@ -115,7 +115,7 @@ mod model {
         Serialize,
         IntoSchema,
     )]
-    pub struct IterableQueryParams {
+    pub struct QueryParams {
         pub pagination: Pagination,
         pub sorting: Sorting,
         pub fetch_size: FetchSize,
