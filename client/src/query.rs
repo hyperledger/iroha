@@ -29,14 +29,14 @@ use crate::{
 
 #[derive(Debug)]
 struct ClientQueryRequestHead {
-    pub torii_url: Url,
-    pub headers: HashMap<String, String>,
-    pub account_id: AccountId,
-    pub key_pair: KeyPair,
+    torii_url: Url,
+    headers: HashMap<String, String>,
+    account_id: AccountId,
+    key_pair: KeyPair,
 }
 
 impl ClientQueryRequestHead {
-    pub fn assemble(&self, query: QueryRequest) -> DefaultRequestBuilder {
+    fn assemble(&self, query: QueryRequest) -> DefaultRequestBuilder {
         // authorize and sign the query
         let query = query
             .with_authority(self.account_id.clone())
