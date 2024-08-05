@@ -18,7 +18,7 @@ use iroha_test_samples::{gen_account_in, load_sample_wasm, ALICE_ID};
 pub fn pipeline_time() -> Duration {
     let default_parameters = SumeragiParameters::default();
 
-    default_parameters.pipeline_time()
+    default_parameters.pipeline_time(0, 0)
 }
 
 fn curr_time() -> core::time::Duration {
