@@ -284,11 +284,10 @@ fn create_config() -> Result<WasmtimeConfig> {
 fn forget_all_executed_queries(
     query_handle: &LiveQueryStoreHandle,
     executed_queries: impl IntoIterator<Item = QueryId>,
-) -> Result<()> {
+) {
     for query_id in executed_queries {
         query_handle.drop_query(query_id);
     }
-    Ok(())
 }
 
 /// Limits checker for smartcontracts.
@@ -780,7 +779,8 @@ impl<W: state::chain_state::ConstState, S> Runtime<state::CommonState<W, S>> {
         forget_all_executed_queries(
             state.state.state().borrow().query_handle(),
             executed_queries,
-        )?;
+        );
+
         Ok(validation_res)
     }
 }
@@ -936,7 +936,9 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::SmartContract<'wrld, '
             .map_err(ExportFnCallError::from)?;
         let mut state = store.into_data();
         let executed_queries = state.take_executed_queries();
-        forget_all_executed_queries(state.state.0.query_handle, executed_queries)
+        forget_all_executed_queries(state.state.0.query_handle, executed_queries);
+
+        Ok(())
     }
 
     #[codec::wrap]
@@ -1008,7 +1010,9 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::Trigger<'wrld, 'block,
 
         let mut state = store.into_data();
         let executed_queries = state.take_executed_queries();
-        forget_all_executed_queries(state.state.0.query_handle, executed_queries)
+        forget_all_executed_queries(state.state.0.query_handle, executed_queries);
+
+        Ok(())
     }
 
     #[codec::wrap]

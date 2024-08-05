@@ -413,7 +413,6 @@ types!(
     ValidationFail,
     Vec<BlockSignature>,
     Vec<CommittedTransaction>,
-    Vec<EventBox>,
     Vec<EventFilterBox>,
     Vec<InstructionBox>,
     Vec<Parameter>,

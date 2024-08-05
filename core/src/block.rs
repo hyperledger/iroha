@@ -131,8 +131,6 @@ mod pending {
         /// Collection of transactions which have been accepted.
         /// Transaction will be validated when block is chained.
         transactions: Vec<AcceptedTransaction>,
-        /// Event recommendations for use in triggers and off-chain work
-        event_recommendations: Vec<EventBox>,
     }
 
     impl BlockBuilder<Pending> {
@@ -142,14 +140,8 @@ mod pending {
         ///
         /// if the given list of transaction is empty
         #[inline]
-        pub fn new(
-            transactions: Vec<AcceptedTransaction>,
-            event_recommendations: Vec<EventBox>,
-        ) -> Self {
-            Self(Pending {
-                transactions,
-                event_recommendations,
-            })
+        pub fn new(transactions: Vec<AcceptedTransaction>) -> Self {
+            Self(Pending { transactions })
         }
 
         fn make_header(
@@ -238,7 +230,6 @@ mod pending {
                     state.world.parameters().sumeragi.consensus_estimation(),
                 ),
                 transactions,
-                event_recommendations: self.0.event_recommendations,
             }))
         }
     }
@@ -750,7 +741,6 @@ mod valid {
                     consensus_estimation_ms: 4_000,
                 },
                 transactions: Vec::new(),
-                event_recommendations: Vec::new(),
             };
             f(&mut payload);
             BlockBuilder(Chained(payload))
@@ -1117,7 +1107,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];
-        let valid_block = BlockBuilder::new(transactions, Vec::new())
+        let valid_block = BlockBuilder::new(transactions)
             .chain(0, &mut state_block)
             .sign(alice_keypair.private_key())
             .unpack(|_| {});
@@ -1188,7 +1178,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx0, tx, tx2];
-        let valid_block = BlockBuilder::new(transactions, Vec::new())
+        let valid_block = BlockBuilder::new(transactions)
             .chain(0, &mut state_block)
             .sign(alice_keypair.private_key())
             .unpack(|_| {});
@@ -1247,7 +1237,7 @@ mod tests {
 
         // Creating a block of where first transaction must fail and second one fully executed
         let transactions = vec![tx_fail, tx_accept];
-        let valid_block = BlockBuilder::new(transactions, Vec::new())
+        let valid_block = BlockBuilder::new(transactions)
             .chain(0, &mut state_block)
             .sign(alice_keypair.private_key())
             .unpack(|_| {});
@@ -1321,7 +1311,7 @@ mod tests {
         let (peer_public_key, _) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let valid_block = BlockBuilder::new(transactions, Vec::new())
+        let valid_block = BlockBuilder::new(transactions)
             .chain(0, &mut state_block)
             .sign(genesis_correct_key.private_key())
             .unpack(|_| {});

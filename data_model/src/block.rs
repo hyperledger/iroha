@@ -19,7 +19,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{events::prelude::*, transaction::prelude::*};
+use crate::transaction::prelude::*;
 
 #[model]
 mod model {
@@ -93,8 +93,6 @@ mod model {
         pub header: BlockHeader,
         /// array of transactions, which successfully passed validation and consensus step.
         pub transactions: Vec<CommittedTransaction>,
-        /// Event recommendations.
-        pub event_recommendations: Vec<EventBox>,
     }
 
     /// Signature of a block
@@ -296,7 +294,6 @@ impl SignedBlock {
         let payload = BlockPayload {
             header,
             transactions,
-            event_recommendations: vec![],
         };
 
         let signature = BlockSignature(0, SignatureOf::new(genesis_private_key, &payload));
@@ -407,7 +404,6 @@ mod candidate {
             if expected_txs_hash != actual_txs_hash {
                 return Err("Transactions' hash incorrect. Expected: {expected_txs_hash:?}, actual: {actual_txs_hash:?}");
             }
-            // TODO: Validate Event recommendations somehow?
 
             Ok(())
         }

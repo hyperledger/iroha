@@ -38,10 +38,12 @@ pub fn create_block(
         .sign(account_private_key);
     let limits = state.transaction_executor().limits;
 
-    let block = BlockBuilder::new(
-        vec![AcceptedTransaction::accept(transaction, &chain_id, limits).unwrap()],
-        Vec::new(),
+    let block = BlockBuilder::new(vec![AcceptedTransaction::accept(
+        transaction,
+        &chain_id,
+        limits,
     )
+    .unwrap()])
     .chain(0, state)
     .sign(peer_private_key)
     .unpack(|_| {})
