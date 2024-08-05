@@ -282,7 +282,7 @@ fn forget_all_executed_queries(
     executed_queries: impl IntoIterator<Item = QueryId>,
 ) {
     for query_id in executed_queries {
-        query_handle.drop_query(query_id);
+        query_handle.drop_query(&query_id);
     }
 }
 
