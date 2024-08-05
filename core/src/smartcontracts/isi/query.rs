@@ -227,6 +227,7 @@ impl ValidQueryRequest {
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
+    #[allow(clippy::too_many_lines)] // not much we can do, we _need_ to list all the box types here
     pub fn execute(
         self,
         live_query_store: &LiveQueryStoreHandle,

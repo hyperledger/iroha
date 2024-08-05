@@ -345,7 +345,7 @@ where
         match (first, second) {
             (None, None) => Ok(None),
             (Some(result), None) => Ok(Some(result)),
-            (Some(_), Some(_)) => Err(SingleQueryError::ExpectedOneOrZeroGotMany.into()),
+            (Some(_), Some(_)) => Err(SingleQueryError::ExpectedOneOrZeroGotMany),
             (None, Some(_)) => {
                 unreachable!()
             }
@@ -358,9 +358,9 @@ where
         let second = iter.next().transpose()?;
 
         match (first, second) {
-            (None, None) => Err(SingleQueryError::ExpectedOneGotNone.into()),
+            (None, None) => Err(SingleQueryError::ExpectedOneGotNone),
             (Some(result), None) => Ok(result),
-            (Some(_), Some(_)) => Err(SingleQueryError::ExpectedOneGotMany.into()),
+            (Some(_), Some(_)) => Err(SingleQueryError::ExpectedOneGotMany),
             (None, Some(_)) => {
                 unreachable!()
             }

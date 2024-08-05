@@ -271,8 +271,8 @@ impl LiveQueryStoreHandle {
     }
 
     /// Remove query from the storage if there is any.
-    pub fn drop_query(&self, query_id: QueryId) {
-        self.store.remove(&query_id);
+    pub fn drop_query(&self, query_id: &QueryId) {
+        self.store.remove(query_id);
     }
 
     fn construct_query_response(
