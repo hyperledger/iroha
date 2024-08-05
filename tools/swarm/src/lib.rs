@@ -196,7 +196,8 @@ mod tests {
                 - 1337:1337
                 - 8080:8080
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
                 command: |-
                   /bin/sh -c "
@@ -248,7 +249,8 @@ mod tests {
                 - 1337:1337
                 - 8080:8080
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
                 command: |-
                   /bin/sh -c "
@@ -300,7 +302,8 @@ mod tests {
                 - 1337:1337
                 - 8080:8080
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
                 command: |-
                   /bin/sh -c "
@@ -335,7 +338,8 @@ mod tests {
                 - 1338:1338
                 - 8081:8081
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
               irohad2:
                 depends_on:
@@ -354,7 +358,8 @@ mod tests {
                 - 1339:1339
                 - 8082:8082
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
               irohad3:
                 depends_on:
@@ -373,7 +378,8 @@ mod tests {
                 - 1340:1340
                 - 8083:8083
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
         "##]).assert_eq(&build_as_string(
             nonzero_ext::nonzero!(4u16),
@@ -404,7 +410,8 @@ mod tests {
                 - 1337:1337
                 - 8080:8080
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
                 healthcheck:
                   test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0
@@ -459,7 +466,8 @@ mod tests {
                 - 1337:1337
                 - 8080:8080
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
                 healthcheck:
                   test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0
@@ -498,7 +506,8 @@ mod tests {
                 - 1338:1338
                 - 8081:8081
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
                 healthcheck:
                   test: test $(curl -s http://127.0.0.1:8081/status/blocks) -gt 0
@@ -521,7 +530,8 @@ mod tests {
                 - 1339:1339
                 - 8082:8082
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
                 healthcheck:
                   test: test $(curl -s http://127.0.0.1:8082/status/blocks) -gt 0
@@ -544,7 +554,8 @@ mod tests {
                 - 1340:1340
                 - 8083:8083
                 volumes:
-                - ./:/config
+                - ./genesis.json:/config/genesis.json:ro
+                - ./client.toml:/config/client.toml:ro
                 init: true
                 healthcheck:
                   test: test $(curl -s http://127.0.0.1:8083/status/blocks) -gt 0
