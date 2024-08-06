@@ -18,6 +18,12 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CLIENT_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
+  DOCKER_COMPOSE_PATH: defaults
+  TEST_DIR: "tmp/test"
+  IROHA_BIN: "iroha"
+  IROHA_CONTAINER: "defaults-irohad0-1"
+  PYTHON_VERSION: "3.11"
+  POETRY_PATH: "/root/.local/bin/poetry"
 
 jobs:
   consistency:
@@ -144,44 +150,68 @@ jobs:
           name: clippy.json
           path: clippy.json
 
-  torii-api-and-client-cli-tests:
+  torii-api-client-cli-tests:
     runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Build binaries
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+      - name: Build and Tag Docker Images
+        uses: docker/build-push-action@v6
+        if: always()
+        with:
+          context: .
+          load: true
+          file: Dockerfile
+          tags: |
+            hyperledger/iroha:local
+            hyperledger/iroha:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Test docker-compose.single.yml
         run: |
-          cargo build -p iroha_client_cli -p kagami -p irohad
-      - name: Setup test Iroha 2 environment on the bare metal
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.single.yml up --wait || exit 1
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.single.yml down
+      - name: Test docker-compose.local.yml
         run: |
-          pip3 install -r scripts/requirements.txt --no-input --break-system-packages
-          ./scripts/test_env.py setup
-      - name: Mark binaries as executable
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml up --wait || exit 1
+          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml down
+      - name: Run docker-compose.yml containers
+        run: docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml up --wait || exit 1
+      - name: Install Python and Poetry
         run: |
-          chmod +x ${{ env.CLIENT_CLI_DIR }}
-      - name: Install torii api dependencies using Poetry
+          yum install -y python${{ env.PYTHON_VERSION }} python${{ env.PYTHON_VERSION }}-devel
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo 'export PATH="${{ env.POETRY_PATH }}:$PATH"' >> /etc/profile
+          source /etc/profile
+      - name: Install Torii API Dependencies
         working-directory: torii/pytests
-        run: |
-          poetry install
-      - name: Run torii api tests
+        run: ${{ env.POETRY_PATH }} install
+      - name: Run Torii API Tests
         working-directory: torii/pytests
+        run: ${{ env.POETRY_PATH }} run pytest
+      - name: Copy Client CLI Binary from Iroha Container
+        if: always()
         run: |
-          poetry run pytest
-      - name: Install client cli dependencies using Poetry
+          mkdir -p ${{ env.TEST_DIR }}
+          docker cp ${{ env.IROHA_CONTAINER }}:/usr/local/bin/${{ env.IROHA_BIN }} ${{ env.TEST_DIR }}
+          cp ./defaults/client.toml ${{ env.TEST_DIR }}
+      - name: Make Binaries Executable
+        run: chmod +x ${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
+      - name: Install Client CLI Dependencies
         working-directory: client_cli/pytests
-        run: |
-          poetry install
-      - name: Run client cli tests
+        run: ${{ env.POETRY_PATH }} install
+      - name: Run Client CLI Tests
         working-directory: client_cli/pytests
         env:
-          # prepared by `test_env.py`
-          CLIENT_CLI_BINARY: ../../test/iroha
-          CLIENT_CLI_CONFIG: ../../test/client.toml
-        run: |
-          poetry run pytest
-      - name: Cleanup test environment
-        run: |
-          ./scripts/test_env.py cleanup
+          CLIENT_CLI_BINARY: ../../${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
+          CLIENT_CLI_CONFIG: ../../${{ env.TEST_DIR }}/client.toml
+        run: ${{ env.POETRY_PATH }} run pytest
+      - name: Wipe docker-compose.yml containers
+        if: always()
+        run: docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml down

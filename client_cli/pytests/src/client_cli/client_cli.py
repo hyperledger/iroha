@@ -302,7 +302,8 @@ class ClientCli:
         :type temp_file_path: str
         """
         self._execute_pipe(
-            ["cat", temp_file_path], [self.BASE_PATH] + self.BASE_FLAGS + ["json"]
+            ["cat", temp_file_path],
+            [self.BASE_PATH] + self.BASE_FLAGS + ["json"] + ["transaction"],
         )
 
     def register_trigger(self, account):
