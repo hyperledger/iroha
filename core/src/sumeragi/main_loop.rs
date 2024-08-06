@@ -375,7 +375,13 @@ impl Sumeragi {
 
     fn cache_transaction(&mut self, state_block: &StateBlock<'_>) {
         self.transaction_cache.retain(|tx| {
-            !state_block.has_transaction(tx.as_ref().hash()) && !self.queue.is_expired(tx)
+            let has_transaction = state_block.has_transaction(tx.as_ref().hash());
+            let retain = !has_transaction && !self.queue.is_expired(tx);
+            if !retain {
+                let is_expired = !has_transaction;
+                self.queue.remove_stale_transaction(tx, is_expired);
+            }
+            retain
         });
     }
 
@@ -1022,7 +1028,8 @@ pub(crate) fn run(
             .retain(|tx| {
                 let expired = sumeragi.queue.is_expired(tx);
                 if expired {
-                    debug!(tx=%tx.as_ref().hash(), "Transaction expired")
+                    debug!(tx=%tx.as_ref().hash(), "Transaction expired");
+                    sumeragi.queue.remove_stale_transaction(tx, true);
                 }
                 !expired
             });

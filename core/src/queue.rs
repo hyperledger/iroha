@@ -239,7 +239,6 @@ impl Queue {
     /// Pop single transaction from the queue. Removes all transactions that fail the `tx_check`.
     fn pop_from_queue(
         &self,
-        seen: &mut Vec<HashOf<SignedTransaction>>,
         state_view: &StateView,
         expired_transactions: &mut Vec<AcceptedTransaction>,
     ) -> Option<AcceptedTransaction> {
@@ -267,7 +266,6 @@ impl Queue {
                 continue;
             }
 
-            seen.push(hash);
             return Some(tx.clone());
         }
     }
@@ -288,6 +286,10 @@ impl Queue {
     ) -> Vec<AcceptedTransaction> {
         let mut transactions = Vec::with_capacity(max_txs_in_block.get());
         self.get_transactions_for_block(state_view, max_txs_in_block, &mut transactions);
+        for transaction in &transactions {
+            // pretend block was committed and transaction is in blockchain
+            self.remove_stale_transaction(transaction, false);
+        }
         transactions
     }
 
@@ -304,12 +306,10 @@ impl Queue {
             return;
         }
 
-        let mut seen_queue = Vec::new();
         let mut expired_transactions = Vec::new();
 
-        let txs_from_queue = core::iter::from_fn(|| {
-            self.pop_from_queue(&mut seen_queue, state_view, &mut expired_transactions)
-        });
+        let txs_from_queue =
+            core::iter::from_fn(|| self.pop_from_queue(state_view, &mut expired_transactions));
 
         let transactions_hashes: IndexSet<HashOf<SignedTransaction>> =
             transactions.iter().map(|tx| tx.as_ref().hash()).collect();
@@ -317,11 +317,6 @@ impl Queue {
             .filter(|tx| !transactions_hashes.contains(&tx.as_ref().hash()))
             .take(max_txs_in_block.get() - transactions.len());
         transactions.extend(txs);
-
-        seen_queue
-            .into_iter()
-            .try_for_each(|hash| self.tx_hashes.push(hash))
-            .expect("Exceeded the number of transactions pending");
 
         expired_transactions
             .into_iter()
@@ -333,6 +328,31 @@ impl Queue {
             .for_each(|e| {
                 let _ = self.events_sender.send(e.into());
             });
+    }
+
+    /// Overview:
+    /// 1. Transaction is added to queue using [`Queue::push`] method.
+    /// 2. Transaction is moved to [`Sumeragi::transaction_cache`] using [`Queue::pop_from_queue`] method.
+    ///    (transaction is removed from [`Queue::tx_hashes`], but kept in [`Queue::accepted_tx`])
+    /// 3. When transaction is removed from [`Sumeragi::transaction_cache`]
+    ///    (either because it was expired, or because transaction is commited to blockchain),
+    ///    we should remove transaction from [`Queue::accepted_tx`].
+    ///
+    /// `is_expired` is passed as a small optimization to not again call `self.is_expired(tx)`.
+    pub fn remove_stale_transaction(&self, tx: &AcceptedTransaction, is_expired: bool) {
+        let removed = self.accepted_txs.remove(&tx.as_ref().hash());
+        if removed.is_some() {
+            self.decrease_per_user_tx_count(tx.as_ref().authority());
+
+            if is_expired {
+                let event = TransactionEvent {
+                    hash: tx.as_ref().hash(),
+                    block_height: None,
+                    status: TransactionStatus::Expired,
+                };
+                let _ = self.events_sender.send(event.into());
+            }
+        }
     }
 
     /// Check that the user adhered to the maximum transaction per user limit and increment their transaction count.
@@ -622,37 +642,6 @@ pub mod tests {
                 .len(),
             0
         );
-    }
-
-    // Queue should only drop transactions which are already committed or ttl expired.
-    // Others should stay in the queue until that moment.
-    #[test]
-    async fn transactions_available_after_pop() {
-        let max_txs_in_block = nonzero!(2_usize);
-        let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
-        let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
-        let state_view = state.view();
-
-        let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
-
-        let queue = Queue::test(config_factory(), &time_source);
-        queue
-            .push(accepted_tx_by_someone(&time_source), &state_view)
-            .expect("Failed to push tx into queue");
-
-        let a = queue
-            .collect_transactions_for_block(&state_view, max_txs_in_block)
-            .into_iter()
-            .map(|tx| tx.as_ref().hash())
-            .collect::<Vec<_>>();
-        let b = queue
-            .collect_transactions_for_block(&state_view, max_txs_in_block)
-            .into_iter()
-            .map(|tx| tx.as_ref().hash())
-            .collect::<Vec<_>>();
-        assert_eq!(a.len(), 1);
-        assert_eq!(a, b);
     }
 
     #[test]
