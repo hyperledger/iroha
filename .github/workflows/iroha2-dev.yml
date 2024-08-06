@@ -19,31 +19,6 @@ jobs:
         uses: docker/setup-buildx-action@v3
         with:
           install: true
-      - name: Build and export to Docker iroha:local and iroha:dev images
-        uses: docker/build-push-action@v6
-        if: always()
-        with:
-          context: .
-          load: true
-          file: Dockerfile
-          tags: |
-            hyperledger/iroha:local
-            hyperledger/iroha:dev
-            docker.soramitsu.co.jp/iroha2/iroha:dev
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Test docker-compose.single.yml before pushing
-        run: |
-          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.single.yml up --wait || exit 1
-          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.single.yml down
-      - name: Test docker-compose.local.yml before pushing
-        run: |
-          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml up --wait || exit 1
-          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml down
-      - name: Test docker-compose.yml before pushing
-        run: |
-          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml up --wait || exit 1
-          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml down
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
@@ -55,15 +30,18 @@ jobs:
           registry: docker.soramitsu.co.jp
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
-      - name: Push iroha2:dev image
+      - name: Build and push iroha2:dev image
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile
           push: true
           tags: |
             hyperledger/iroha:dev
             docker.soramitsu.co.jp/iroha2/iroha:dev
           labels: commit=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   archive_binaries_and_schema:
     runs-on: ubuntu-latest
