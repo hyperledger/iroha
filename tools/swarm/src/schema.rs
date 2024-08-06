@@ -178,7 +178,7 @@ struct GenesisEnv<'a> {
     #[serde(flatten)]
     base: PeerEnv<'a>,
     genesis_private_key: &'a iroha_crypto::ExposedPrivateKey,
-    genesis: ContainerPath<'a>,
+    genesis: ContainerFile<'a>,
     #[serde_as(as = "serde_with::json::JsonString")]
     topology: std::collections::BTreeSet<&'a iroha_data_model::peer::PeerId>,
 }
@@ -194,7 +194,7 @@ impl<'a> GenesisEnv<'a> {
         Self {
             base: PeerEnv::new(key_pair, ports, chain, genesis_public_key, topology),
             genesis_private_key,
-            genesis: ContainerPath(GENESIS_FILE),
+            genesis: CONTAINER_SIGNED_GENESIS,
             topology: topology.iter().collect(),
         }
     }
@@ -204,17 +204,66 @@ impl<'a> GenesisEnv<'a> {
 #[derive(Debug)]
 struct PortMapping(u16, u16);
 
+#[derive(Copy, Clone, Debug)]
+struct Filename<'a>(&'a str);
+
+impl std::fmt::Display for Filename<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+/// Path on the host.
+#[derive(Copy, Clone, Debug)]
+struct HostFile<'a>(&'a path::RelativePath, Filename<'a>);
+
+impl std::fmt::Display for HostFile<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}{}", self.0.as_ref().display(), self.1))
+    }
+}
+
 /// Path inside the container.
-#[derive(serde::Serialize, Copy, Clone, Debug)]
-#[serde(transparent)]
+#[derive(Copy, Clone, Debug)]
 struct ContainerPath<'a>(&'a str);
 
-const CONTAINER_CONFIG_DIR: &str = "/config";
-const GENESIS_FILE: &str = "/tmp/genesis.signed.scale";
+impl std::fmt::Display for ContainerPath<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+/// Path inside the container.
+#[derive(Copy, Clone, Debug)]
+struct ContainerFile<'a>(ContainerPath<'a>, Filename<'a>);
+
+impl std::fmt::Display for ContainerFile<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}{}", self.0, self.1))
+    }
+}
+
+const GENESIS_FILE: Filename = Filename("genesis.json");
+const CONFIG_FILE: Filename = Filename("client.toml");
+const GENESIS_SIGNED_SCALE: Filename = Filename("genesis.signed.scale");
+
+const CONTAINER_CONFIG_DIR: ContainerPath = ContainerPath("/config/");
+const CONTAINER_TMP_DIR: ContainerPath = ContainerPath("/tmp/");
+
+const CONTAINER_GENESIS_CONFIG: ContainerFile = ContainerFile(CONTAINER_CONFIG_DIR, GENESIS_FILE);
+const CONTAINER_CLIENT_CONFIG: ContainerFile = ContainerFile(CONTAINER_CONFIG_DIR, CONFIG_FILE);
+const CONTAINER_SIGNED_GENESIS: ContainerFile =
+    ContainerFile(CONTAINER_TMP_DIR, GENESIS_SIGNED_SCALE);
+
+#[derive(Copy, Clone, Debug)]
+struct ReadOnly;
 
 /// Mapping between `host:container` paths.
 #[derive(Copy, Clone, Debug)]
-struct PathMapping<'a>(HostPath<'a>, ContainerPath<'a>);
+struct PathMapping<'a>(HostFile<'a>, ContainerFile<'a>, ReadOnly);
+
+/// Mapping between host and container paths.
+type Volumes<'a> = [PathMapping<'a>; 2];
 
 /// Healthcheck parameters.
 #[derive(Debug)]
@@ -242,7 +291,7 @@ where
     image: Image,
     environment: Environment,
     ports: [PortMapping; 2],
-    volumes: [PathMapping<'a>; 1],
+    volumes: Volumes<'a>,
     init: Bool<true>,
     #[serde(skip_serializing_if = "Option::is_none")]
     healthcheck: Option<Healthcheck>,
@@ -257,7 +306,7 @@ where
         image: Image,
         environment: Environment,
         [port_p2p, port_api]: [u16; 2],
-        volumes: [PathMapping<'a>; 1],
+        volumes: Volumes<'a>,
         healthcheck: bool,
     ) -> Self {
         Self {
@@ -314,7 +363,7 @@ where
         image: Image,
         environment: GenesisEnv<'a>,
         ports: [u16; 2],
-        volumes: [PathMapping<'a>; 1],
+        volumes: Volumes<'a>,
         healthcheck: bool,
     ) -> Self {
         Self {
@@ -346,7 +395,7 @@ enum BuildOrPull<'a> {
 impl<'a> BuildOrPull<'a> {
     fn pull(
         image: PulledImage<'a>,
-        volumes: [PathMapping<'a>; 1],
+        volumes: Volumes<'a>,
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
         (genesis_public_key, genesis_private_key): &'a peer::ExposedKeyPair,
@@ -377,7 +426,7 @@ impl<'a> BuildOrPull<'a> {
 
     fn build(
         image: BuildImage<'a>,
-        volumes: [PathMapping<'a>; 1],
+        volumes: Volumes<'a>,
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
         (genesis_public_key, genesis_private_key): &'a peer::ExposedKeyPair,
@@ -408,7 +457,7 @@ impl<'a> BuildOrPull<'a> {
 
     fn irohad0<Image: serde::Serialize>(
         image: Image,
-        volumes: [PathMapping<'a>; 1],
+        volumes: Volumes<'a>,
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
         (genesis_public_key, genesis_private_key): peer::ExposedKeyRefPair<'a>,
@@ -433,7 +482,7 @@ impl<'a> BuildOrPull<'a> {
 
     fn irohads<Image: serde::Serialize + Copy>(
         image: Image,
-        volumes: [PathMapping<'a>; 1],
+        volumes: Volumes<'a>,
         healthcheck: bool,
         chain: &'a iroha_data_model::ChainId,
         genesis_public_key: &'a iroha_crypto::PublicKey,
@@ -483,10 +532,18 @@ impl<'a> DockerCompose<'a> {
         }: &'a PeerSettings,
     ) -> Self {
         let image = ImageId(name);
-        let volumes = [PathMapping(
-            HostPath(config_dir),
-            ContainerPath(CONTAINER_CONFIG_DIR),
-        )];
+        let volumes = [
+            PathMapping(
+                HostFile(config_dir, GENESIS_FILE),
+                CONTAINER_GENESIS_CONFIG,
+                ReadOnly,
+            ),
+            PathMapping(
+                HostFile(config_dir, CONFIG_FILE),
+                CONTAINER_CLIENT_CONFIG,
+                ReadOnly,
+            ),
+        ];
         Self {
             services: build_dir.as_ref().map_or_else(
                 || {
