@@ -678,6 +678,7 @@ impl Sumeragi {
                                         ?actual_hash,
                                         "Block hash mismatch"
                                     );
+                                    *voting_block = Some(voted_block);
                                 } else if let Err(err) =
                                     voted_block.block.add_signature(signature, &self.topology)
                                 {
@@ -687,6 +688,7 @@ impl Sumeragi {
                                         ?err,
                                         "Signature not valid"
                                     );
+                                    *voting_block = Some(voted_block);
                                 } else {
                                     *voting_block =
                                         self.try_commit_block(voted_block, is_genesis_peer);
