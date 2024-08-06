@@ -535,6 +535,13 @@ impl Sumeragi {
                 }
             }
             (BlockMessage::BlockCreated(block_created), Role::ValidatingPeer) => {
+                info!(
+                    peer_id=%self.peer_id,
+                    role=%self.role(),
+                    block=%block_created.block.hash(),
+                    "Block received"
+                );
+
                 let topology = &self
                     .topology
                     .is_consensus_required()
@@ -552,10 +559,23 @@ impl Sumeragi {
                     let msg = BlockSigned::from(&v_block.block);
                     self.broadcast_packet_to(msg, [topology.proxy_tail()]);
 
+                    info!(
+                        peer_id=%self.peer_id,
+                        role=%self.role(),
+                        block=%v_block.block.as_ref().hash(),
+                        "Block signed and forwarded"
+                    );
                     *voting_block = Some(v_block);
                 }
             }
             (BlockMessage::BlockCreated(block_created), Role::ObservingPeer) => {
+                info!(
+                    peer_id=%self.peer_id,
+                    role=%self.role(),
+                    block=%block_created.block.hash(),
+                    "Block received"
+                );
+
                 let topology = &self
                     .topology
                     .is_consensus_required()
@@ -618,6 +638,7 @@ impl Sumeragi {
                 info!(
                     peer_id=%self.peer_id,
                     role=%self.role(),
+                    block=%hash,
                     "Received block signatures"
                 );
 
@@ -697,6 +718,12 @@ impl Sumeragi {
                 BlockMessage::BlockCommitted(BlockCommitted { hash, signatures }),
                 Role::Leader | Role::ValidatingPeer | Role::ObservingPeer,
             ) => {
+                info!(
+                    peer_id=%self.peer_id,
+                    role=%self.role(),
+                    block=%hash,
+                    "Received block committed",
+                );
                 if let Some(mut voted_block) = voting_block.take() {
                     let actual_hash = voted_block.block.as_ref().hash();
 
@@ -852,6 +879,14 @@ impl Sumeragi {
                 .unpack(|e| self.send_event(e));
 
             let created_in = create_block_start_time.elapsed();
+            info!(
+                peer_id=%self.peer_id,
+                block=%new_block.as_ref().hash(),
+                view_change_index=%self.topology.view_change_index(),
+                txns=%new_block.as_ref().transactions().len(),
+                created_in_ms=%created_in.as_millis(),
+                "Block created"
+            );
             let pipeline_time = state
                 .world
                 .view()
@@ -874,15 +909,6 @@ impl Sumeragi {
             }
 
             if self.topology.is_consensus_required().is_some() {
-                info!(
-                    peer_id=%self.peer_id,
-                    block=%new_block.as_ref().hash(),
-                    view_change_index=%self.topology.view_change_index(),
-                    txns=%new_block.as_ref().transactions().len(),
-                    created_in_ms=%created_in.as_millis(),
-                    "Block created"
-                );
-
                 let msg = BlockCreated::from(&new_block);
                 *voting_block = Some(VotingBlock::new(new_block, state_block));
                 self.broadcast_packet(msg);
