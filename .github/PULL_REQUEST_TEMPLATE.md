@@ -12,7 +12,7 @@
 
 ### Migration Guide (optional)
 
-- If this PR contains a breaking change *(DECIDE: relative to `main` or last release?)*, provide an instruction on how affected parties might need to adapt to the change.
+- If this PR contains a breaking change relative to the `main` branch, provide an instruction on how affected parties might need to adapt to the change.
 
 ---
 
