@@ -14,6 +14,7 @@ use iroha_data_model::{
     transaction::CommittedTransaction,
 };
 use iroha_telemetry::metrics;
+use nonzero_ext::nonzero;
 
 use super::*;
 
@@ -71,7 +72,7 @@ impl ValidQuery for FindAllTransactions {
     ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
             state_ro
-                .all_blocks()
+                .all_blocks(nonzero!(1_usize))
                 .flat_map(BlockTransactionIter::new)
                 .map(|tx| TransactionQueryOutput {
                     block_hash: tx.block_hash(),
@@ -91,7 +92,7 @@ impl ValidQuery for FindTransactionsByAccountId {
 
         Ok(Box::new(
             state_ro
-                .all_blocks()
+                .all_blocks(nonzero!(1_usize))
                 .flat_map(BlockTransactionIter::new)
                 .filter(move |tx| *tx.authority() == account_id)
                 .map(|tx| TransactionQueryOutput {

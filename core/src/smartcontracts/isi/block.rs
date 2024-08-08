@@ -8,6 +8,7 @@ use iroha_data_model::{
     },
 };
 use iroha_telemetry::metrics;
+use nonzero_ext::nonzero;
 
 use super::*;
 use crate::state::StateReadOnly;
@@ -19,7 +20,10 @@ impl ValidQuery for FindAllBlocks {
         state_ro: &'state impl StateReadOnly,
     ) -> Result<Box<dyn Iterator<Item = SignedBlock> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
-            state_ro.all_blocks().rev().map(|block| (*block).clone()),
+            state_ro
+                .all_blocks(nonzero!(1_usize))
+                .rev()
+                .map(|block| (*block).clone()),
         ))
     }
 }
@@ -32,7 +36,7 @@ impl ValidQuery for FindAllBlockHeaders {
     ) -> Result<Box<dyn Iterator<Item = BlockHeader> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
             staete_snapshot
-                .all_blocks()
+                .all_blocks(nonzero!(1_usize))
                 .rev()
                 .map(|block| block.header().clone()),
         ))
@@ -45,8 +49,9 @@ impl ValidQuery for FindBlockHeaderByHash {
         let hash = self.hash;
 
         let block = state_ro
-            .all_blocks()
-            .find(|block| block.hash() == hash)
+            .kura()
+            .get_block_height_by_hash(hash)
+            .and_then(|height| state_ro.kura().get_block_by_height(height))
             .ok_or_else(|| QueryExecutionFail::Find(FindError::Block(hash)))?;
 
         Ok(block.header().clone())

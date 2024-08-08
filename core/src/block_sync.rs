@@ -96,9 +96,9 @@ impl BlockSynchronizer {
             (state_view.prev_block_hash(), state_view.latest_block_hash())
         };
         message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
-            latest_hash,
-            prev_hash,
             self.peer_id.clone(),
+            prev_hash,
+            latest_hash,
         ))
         .send_to(&self.network, peer_id)
         .await;
@@ -127,49 +127,48 @@ impl BlockSynchronizer {
 
 pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
-    use std::num::NonZeroUsize;
 
     use super::*;
 
     /// Get blocks after some block
-    #[derive(Debug, Clone, Decode, Encode)]
+    #[derive(Debug, Clone, Encode)]
     pub struct GetBlocksAfter {
-        /// Hash of latest available block
-        pub latest_hash: Option<HashOf<SignedBlock>>,
-        /// Hash of second to latest block
-        pub prev_hash: Option<HashOf<SignedBlock>>,
         /// Peer id
         pub peer_id: PeerId,
+        /// Hash of second to latest block
+        pub prev_hash: Option<HashOf<SignedBlock>>,
+        /// Hash of latest available block
+        pub latest_hash: Option<HashOf<SignedBlock>>,
     }
 
     impl GetBlocksAfter {
         /// Construct [`GetBlocksAfter`].
         pub const fn new(
-            latest_hash: Option<HashOf<SignedBlock>>,
-            prev_hash: Option<HashOf<SignedBlock>>,
             peer_id: PeerId,
+            prev_hash: Option<HashOf<SignedBlock>>,
+            latest_hash: Option<HashOf<SignedBlock>>,
         ) -> Self {
             Self {
-                latest_hash,
-                prev_hash,
                 peer_id,
+                prev_hash,
+                latest_hash,
             }
         }
     }
 
     /// Message variant to share blocks to peer
-    #[derive(Debug, Clone, Decode, Encode)]
+    #[derive(Debug, Clone, Encode)]
     pub struct ShareBlocks {
-        /// Blocks
-        pub blocks: Vec<SignedBlock>,
         /// Peer id
         pub peer_id: PeerId,
+        /// Blocks
+        pub blocks: Vec<SignedBlock>,
     }
 
     impl ShareBlocks {
         /// Construct [`ShareBlocks`].
         pub const fn new(blocks: Vec<SignedBlock>, peer_id: PeerId) -> Self {
-            Self { blocks, peer_id }
+            Self { peer_id, blocks }
         }
     }
 
@@ -188,9 +187,9 @@ pub mod message {
         pub async fn handle_message(&self, block_sync: &mut BlockSynchronizer) {
             match self {
                 Message::GetBlocksAfter(GetBlocksAfter {
-                    latest_hash,
-                    prev_hash,
                     peer_id,
+                    prev_hash,
+                    latest_hash,
                 }) => {
                     let local_latest_block_hash = block_sync.state.view().latest_block_hash();
 
@@ -200,31 +199,30 @@ pub mod message {
                         return;
                     }
 
-                    let start_height = match prev_hash {
-                        Some(hash) => match block_sync.kura.get_block_height_by_hash(hash) {
+                    let start_height = if let Some(hash) = *prev_hash {
+                        match block_sync.kura.get_block_height_by_hash(hash) {
                             None => {
                                 error!(
-                                    peer_id=%block_sync.peer_id,
+                                    peer=%block_sync.peer_id,
                                     block=%hash,
                                     "Block hash not found"
                                 );
                                 return;
                             }
-                            // It's get blocks *after*, so we add 1.
                             Some(height) => height
                                 .checked_add(1)
-                                .expect("INTERNAL BUG: Block height exceeds usize::MAX"),
-                        },
-                        None => nonzero_ext::nonzero!(1_usize),
+                                .expect("INTERNAL BUG: Blockchain height overflow"),
+                        }
+                    } else {
+                        nonzero_ext::nonzero!(1_usize)
                     };
 
-                    let blocks = (start_height.get()..)
-                        .take(block_sync.gossip_size.get() as usize + 1)
-                        .map_while(|height| {
-                            NonZeroUsize::new(height)
-                                .and_then(|height| block_sync.kura.get_block_by_height(height))
-                        })
+                    let blocks = block_sync
+                        .state
+                        .view()
+                        .all_blocks(start_height)
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
+                        .take(block_sync.gossip_size.get() as usize)
                         .map(|block| (*block).clone())
                         .collect::<Vec<_>>();
 
@@ -261,6 +259,76 @@ pub mod message {
                 peer_id: peer.clone(),
             };
             network.post(message);
+        }
+    }
+
+    mod candidate {
+        use parity_scale_codec::Input;
+
+        use super::*;
+
+        #[derive(Decode)]
+        struct GetBlocksAfterCandidate {
+            peer: PeerId,
+            prev_hash: Option<HashOf<SignedBlock>>,
+            latest_hash: Option<HashOf<SignedBlock>>,
+        }
+
+        #[derive(Decode)]
+        struct ShareBlocksCandidate {
+            peer: PeerId,
+            blocks: Vec<SignedBlock>,
+        }
+
+        impl GetBlocksAfterCandidate {
+            fn validate(self) -> Result<GetBlocksAfter, parity_scale_codec::Error> {
+                if self.prev_hash.is_some() && self.latest_hash.is_none() {
+                    return Err(parity_scale_codec::Error::from(
+                        "Latest hash must be defined if previous hash is",
+                    ));
+                }
+
+                Ok(GetBlocksAfter {
+                    peer_id: self.peer,
+                    prev_hash: self.prev_hash,
+                    latest_hash: self.latest_hash,
+                })
+            }
+        }
+
+        impl ShareBlocksCandidate {
+            fn validate(self) -> Result<ShareBlocks, parity_scale_codec::Error> {
+                if !self
+                    .blocks
+                    .windows(2)
+                    .all(|wnd| wnd[1].header().height.get() == wnd[0].header().height.get() - 1)
+                {
+                    return Err(parity_scale_codec::Error::from(
+                        "Blocks are not ordered correctly",
+                    ));
+                }
+
+                Ok(ShareBlocks {
+                    peer_id: self.peer,
+                    blocks: self.blocks,
+                })
+            }
+        }
+
+        impl Decode for ShareBlocks {
+            fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+                ShareBlocksCandidate::decode(input)?
+                    .validate()
+                    .map_err(Into::into)
+            }
+        }
+
+        impl Decode for GetBlocksAfter {
+            fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+                GetBlocksAfterCandidate::decode(input)?
+                    .validate()
+                    .map_err(Into::into)
+            }
         }
     }
 }
