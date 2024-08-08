@@ -127,26 +127,31 @@ You, as part of the aforementioned community, should consider helping others too
 
 Please [fork](https://docs.github.com/en/get-started/quickstart/fork-a-repo) the [repository](https://github.com/hyperledger/iroha/tree/main) and [create a feature branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository) for your contributions. When working with **PRs from forks**, check [this manual](https://help.github.com/articles/checking-out-pull-requests-locally).
 
-Working on code contribution:
+#### Working on code contribution:
 - Follow the [Rust Style Guide](#rust-style-guide) and the [Documentation Style Guide](#documentation-style-guide).
 - Ensure that the code you've written is covered by tests. If you fixed a bug, please turn the minimum working example that reproduces the bug into a test.
 
-Committing your work:
+#### Committing your work:
 - Follow the [Git Style Guide](#git-workflow).
 - Squash your commits [either before](https://www.git-tower.com/learn/git/faq/git-squash/) or [during the merge](https://rietta.com/blog/github-merge-types/).
 - If during the preparation of your pull request your branch got out of date, rebase it locally with `git pull --rebase upstream main`. Alternatively, you may use the drop-down menu for the `Update branch` button and choose the `Update with rebase` option.
 
   In the interest of making this process easier for everyone, try not to have more than a handful of commits for a pull request, and avoid re-using feature branches.
 
-Creating a pull request:
+#### Creating a pull request:
 - Use an appropriate pull request description by filling in the [description template](.github/PULL_REQUEST_TEMPLATE.md). Avoid deviating from this template if possible.
 - Add an appropriately formatted [pull request title](#pull-request-titles).
 - If you feel like your code isn't ready to merge, but you want the maintainers to look through it, create a draft pull request.
 
-Merging your work:
+#### Merging your work:
 - A pull request must pass all automated checks before being merged. At a minimum, the code must be formatted, passing all tests, as well as having no outstanding `clippy` lints.
 - A pull request cannot be merged without two approving reviews from the active maintainers.
 - Each pull request will automatically notify the code owners. An up to date list of current maintainers can be found in [MAINTAINERS.md](MAINTAINERS.md).
+
+#### Review etiquette:
+- Do not resolve a conversation on your own. Let the reviewer make a decision.
+- Acknowledge review comments and engage with the reviewer (agree, disagree, clarify, explain, etc.). Do not ignore comments.
+- For simple code change suggestions, if you apply them directly, you can resolve the conversation.
 
 ### Pull Request Titles
 
