@@ -31,15 +31,28 @@ fn fetch_size_should_work() -> Result<()> {
 
     register_assets(&client)?;
 
-    let iter = client
-        .query(asset::all_definitions())
-        .with_pagination(Pagination {
-            limit: Some(nonzero!(7_u32)),
-            offset: Some(nonzero!(1_u64)),
-        })
-        .with_fetch_size(FetchSize::new(Some(nonzero!(3_u32))))
-        .execute()?;
-    assert_eq!(iter.remaining_in_current_batch(), 3);
+    // use the lower-level API to inspect the batch size
+    use iroha_data_model::query::{
+        builder::QueryExecutor as _,
+        parameters::{FetchSize, QueryParams, Sorting},
+        QueryWithFilter, QueryWithParams,
+    };
+
+    let query = QueryWithParams::new(
+        QueryWithFilter::new(asset::all_definitions(), CompoundPredicate::PASS).into(),
+        QueryParams::new(
+            Pagination {
+                limit: Some(nonzero!(7_u32)),
+                offset: Some(nonzero!(1_u64)),
+            },
+            Sorting::default(),
+            FetchSize::new(Some(nonzero!(3_u32))),
+        ),
+    );
+    let (first_batch, _continue_cursor) = client.start_query(query)?;
+
+    assert_eq!(first_batch.len(), 3);
+
     Ok(())
 }
 
