@@ -175,21 +175,23 @@ impl Sumeragi {
                 })
                 .ok()?;
 
-            let block_vc_index = match &block_msg {
+            match &block_msg {
                 BlockMessage::BlockCreated(bc) => {
-                    Some(bc.block.header().view_change_index as usize)
+                    if (bc.block.header().view_change_index as usize) < current_view_change_index {
+                        trace!(
+                            ty="BlockCreated",
+                            block=%bc.block.hash(),
+                            "Discarding message due to outdated view change index",
+                        );
+                        // ignore block_message
+                        continue;
+                    }
                 }
                 // Signed and Committed contain no block.
                 // Block sync updates are exempt from early pruning.
                 BlockMessage::BlockSigned(_)
                 | BlockMessage::BlockCommitted(_)
-                | BlockMessage::BlockSyncUpdate(_) => None,
-            };
-            if let Some(block_vc_index) = block_vc_index {
-                if block_vc_index < current_view_change_index {
-                    // ignore block_message
-                    continue;
-                }
+                | BlockMessage::BlockSyncUpdate(_) => {}
             }
             return Some(block_msg);
         }

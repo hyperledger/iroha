@@ -22,8 +22,9 @@ pub enum Error {
     ViewChangeNotFound,
 }
 
-#[derive(Debug, Clone, Decode, Encode)]
-struct ViewChangeProofPayload {
+/// Payload of view change.
+#[derive(Debug, Clone, Copy, Decode, Encode)]
+pub struct ViewChangeProofPayload {
     /// Hash of the latest committed block.
     latest_block: HashOf<SignedBlock>,
     /// Within a round, what is the index of the view change this proof is trying to prove.
