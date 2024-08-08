@@ -12,6 +12,7 @@ use iroha_data_model::{
     },
 };
 use iroha_telemetry::metrics;
+use nonzero_ext::nonzero;
 
 use super::*;
 use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
@@ -24,7 +25,7 @@ impl ValidQuery for FindBlocks {
         state_ro: &'state impl StateReadOnly,
     ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail> {
         Ok(state_ro
-            .all_blocks()
+            .all_blocks(nonzero!(1_usize))
             .rev()
             .filter(move |block| filter.applies(block))
             .map(|block| (*block).clone()))
@@ -39,7 +40,7 @@ impl ValidQuery for FindBlockHeaders {
         state_ro: &'state impl StateReadOnly,
     ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail> {
         Ok(state_ro
-            .all_blocks()
+            .all_blocks(nonzero!(1_usize))
             .rev()
             .filter(move |block| filter.applies(block.header()))
             .map(|block| block.header().clone()))
@@ -52,8 +53,9 @@ impl ValidSingularQuery for FindBlockHeaderByHash {
         let hash = self.hash;
 
         let block = state_ro
-            .all_blocks()
-            .find(|block| block.hash() == hash)
+            .kura()
+            .get_block_height_by_hash(hash)
+            .and_then(|height| state_ro.kura().get_block_by_height(height))
             .ok_or_else(|| QueryExecutionFail::Find(FindError::Block(hash)))?;
 
         Ok(block.header().clone())

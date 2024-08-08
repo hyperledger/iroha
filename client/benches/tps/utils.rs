@@ -1,4 +1,4 @@
-use std::{fmt, fs::File, io::BufReader, path::Path, sync::mpsc, thread, time};
+use std::{fmt, fs::File, io::BufReader, num::NonZeroUsize, path::Path, sync::mpsc, thread, time};
 
 use eyre::{Result, WrapErr};
 use iroha::{
@@ -108,7 +108,8 @@ impl Config {
             .expect("Must be some")
             .state()
             .view();
-        let mut blocks = state_view.all_blocks().skip(blocks_out_of_measure as usize);
+        let mut blocks =
+            state_view.all_blocks(NonZeroUsize::new(blocks_out_of_measure as usize + 1).unwrap());
         let (txs_accepted, txs_rejected) = (0..self.blocks)
             .map(|_| {
                 let block = blocks
