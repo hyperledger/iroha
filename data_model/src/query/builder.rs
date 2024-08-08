@@ -84,18 +84,6 @@ where
     }
 }
 
-impl<E, T> QueryIterator<E, T>
-where
-    E: QueryExecutor,
-{
-    /// Returns the number of results remaining in the current batch.
-    ///
-    /// Note that it is NOT the number of results remaining in the query, which is not exposed by iroha API.
-    pub fn remaining_in_current_batch(&self) -> usize {
-        self.current_batch_iter.as_slice().len()
-    }
-}
-
 impl<E, T> Iterator for QueryIterator<E, T>
 where
     E: QueryExecutor,
