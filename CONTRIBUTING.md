@@ -152,7 +152,7 @@ Please [fork](https://docs.github.com/en/get-started/quickstart/fork-a-repo) the
 - Do not resolve a conversation on your own. Let the reviewer make a decision.
 - Acknowledge review comments and engage with the reviewer (agree, disagree, clarify, explain, etc.). Do not ignore comments.
 - For simple code change suggestions, if you apply them directly, you can resolve the conversation.
-- Avoid overwriting your previous commits when pushing new changes. It obfuscates what changed since the last review and forces the reviewer to start from scratch. PRs are squashed before merging automatically.
+- Avoid overwriting your previous commits when pushing new changes. It obfuscates what changed since the last review and forces the reviewer to start from scratch. Commits are squashed before merging automatically.
 
 ### Pull Request Titles
 
