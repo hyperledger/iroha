@@ -1,5 +1,7 @@
 //! Structures and impls related to *runtime* `Executor`s processing.
 
+use std::sync::Arc;
+
 use derive_more::DebugCustom;
 use iroha_data_model::{
     account::AccountId,
@@ -278,7 +280,9 @@ impl Executor {
 pub struct LoadedExecutor {
     #[serde(skip)]
     module: wasmtime::Module,
-    raw_executor: data_model_executor::Executor,
+    /// Arc is needed so cloning of executor will be fast.
+    /// See [`crate::tx::TransactionExecutor::validate_with_runtime_executor`].
+    raw_executor: Arc<data_model_executor::Executor>,
 }
 
 impl LoadedExecutor {
@@ -288,7 +292,7 @@ impl LoadedExecutor {
     ) -> Result<Self, wasm::error::Error> {
         Ok(Self {
             module: wasm::load_module(engine, &raw_executor.wasm)?,
-            raw_executor,
+            raw_executor: Arc::new(raw_executor),
         })
     }
 }
