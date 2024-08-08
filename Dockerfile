@@ -37,7 +37,7 @@ WORKDIR /iroha
 COPY . .
 RUN cargo build \
     -p irohad \
-    -p iroha_client_cli \
+    -p iroha \
     -p kagami \
     --target x86_64-unknown-linux-musl \
     --profile deploy

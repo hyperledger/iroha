@@ -195,7 +195,6 @@ resolver = "2"
 members = [
     "cli",
     "client",
-    "client_cli",
     "config",
     "config/base",
     "core",

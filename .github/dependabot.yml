@@ -21,7 +21,7 @@ updates:
 
   - package-ecosystem: "pip"
     target-branch: "main"
-    directory: "/client_cli/pytests/"
+    directory: "**/pytests/"
     schedule:
       interval: "daily"
     commit-message:
