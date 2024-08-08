@@ -23,7 +23,7 @@
 
 > #### On review etiquette
 > 
-> - Do not resolve a conversation on your own. Let the commentator make a decision.
+> - Do not resolve a conversation on your own. Let the reviewer make a decision.
 > - Acknowledge review comments and engage with the reviewer (agree, disagree, clarify, explain, etc.). Do not ignore comments.
 > - For simple code change suggestions, if you apply them directly, you can resolve the conversation.
 
