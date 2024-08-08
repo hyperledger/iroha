@@ -21,12 +21,6 @@
 - For complex PRs, try to provide some information on how to approach the review more effectively.
 - For example, is there a natural order in which the affected files should be reviewed?
 
-> #### On review etiquette
-> 
-> - Do not resolve a conversation on your own. Let the reviewer make a decision.
-> - Acknowledge review comments and engage with the reviewer (agree, disagree, clarify, explain, etc.). Do not ignore comments.
-> - For simple code change suggestions, if you apply them directly, you can resolve the conversation.
-
 ### Checklist
 
 - [ ] I've read [`CONTRIBUTING.md`](../CONTRIBUTING.md).
