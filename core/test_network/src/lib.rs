@@ -5,16 +5,14 @@ use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc, thread};
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::{
-    client::{Client, QueryOutput},
+    client::Client,
     config::Config as ClientConfig,
-    data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query},
+    data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*},
 };
 use iroha_config::parameters::actual::{Root as Config, Sumeragi, TrustedPeers};
 pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair};
-use iroha_data_model::{
-    asset::AssetDefinitionId, isi::InstructionBox, query::QueryOutputBox, ChainId,
-};
+use iroha_data_model::{asset::AssetDefinitionId, isi::InstructionBox, ChainId};
 use iroha_executor_data_model::permission::{
     asset::{CanBurnAssetWithDefinition, CanMintAssetWithDefinition},
     domain::CanUnregisterDomain,
@@ -734,65 +732,22 @@ pub trait TestClient: Sized {
     /// Loop for events with filter and handler function
     fn for_each_event(self, event_filter: impl Into<EventFilterBox>, f: impl Fn(Result<EventBox>));
 
-    /// Submit instruction with polling
-    ///
-    /// # Errors
-    /// If predicate is not satisfied, after maximum retries.
-    fn submit_till<R: Query + Debug + Clone>(
-        &self,
-        instruction: impl Instruction + Debug + Clone,
-        request: R,
-        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
-    ) -> eyre::Result<()>
-    where
-        R::Output: QueryOutput,
-        <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>;
-
-    /// Submits instructions with polling
-    ///
-    /// # Errors
-    /// If predicate is not satisfied, after maximum retries.
-    fn submit_all_till<R: Query + Debug + Clone>(
-        &self,
-        instructions: Vec<InstructionBox>,
-        request: R,
-        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
-    ) -> eyre::Result<()>
-    where
-        R::Output: QueryOutput,
-        <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>;
-
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
     ///
     /// # Errors
     /// If predicate is not satisfied after maximum retries.
-    fn poll_request<R: Query + Debug + Clone>(
-        &self,
-        request: R,
-        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
-    ) -> eyre::Result<()>
-    where
-        R::Output: QueryOutput,
-        <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>;
+    fn poll(&self, f: impl FnOnce(&Self) -> Result<bool> + Clone) -> eyre::Result<()>;
 
     /// Polls request till predicate `f` is satisfied with `period` and `max_attempts` supplied.
     ///
     /// # Errors
     /// If predicate is not satisfied after maximum retries.
-    fn poll_request_with_period<R: Query + Debug + Clone + Clone>(
+    fn poll_with_period(
         &self,
-        request: R,
         period: Duration,
         max_attempts: u32,
-        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
-    ) -> eyre::Result<()>
-    where
-        R::Output: QueryOutput,
-        <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>;
+        f: impl FnOnce(&Self) -> Result<bool> + Clone,
+    ) -> eyre::Result<()>;
 }
 
 impl TestRuntime for Runtime {
@@ -879,55 +834,15 @@ impl TestClient for Client {
         }
     }
 
-    fn submit_till<R: Query + Debug + Clone>(
+    fn poll_with_period(
         &self,
-        instruction: impl Instruction + Debug + Clone,
-        request: R,
-        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
-    ) -> eyre::Result<()>
-    where
-        R::Output: QueryOutput,
-        <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-    {
-        self.submit(instruction)
-            .expect("Failed to submit instruction.");
-        self.poll_request(request, f)
-    }
-
-    fn submit_all_till<R: Query + Debug + Clone>(
-        &self,
-        instructions: Vec<InstructionBox>,
-        request: R,
-        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
-    ) -> eyre::Result<()>
-    where
-        R::Output: QueryOutput,
-        <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-    {
-        self.submit_all(instructions)
-            .expect("Failed to submit instruction.");
-        self.poll_request(request, f)
-    }
-
-    fn poll_request_with_period<R: Query + Debug + Clone>(
-        &self,
-        request: R,
         period: Duration,
         max_attempts: u32,
-        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
-    ) -> eyre::Result<()>
-    where
-        R::Output: QueryOutput,
-        <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-    {
+        f: impl FnOnce(&Self) -> Result<bool> + Clone,
+    ) -> eyre::Result<()> {
         for _ in 0..max_attempts {
-            if let Ok(result) = self.request(request.clone()) {
-                if f(result) {
-                    return Ok(());
-                }
+            if f.clone()(self)? {
+                return Ok(());
             };
             thread::sleep(period);
         }
@@ -936,17 +851,8 @@ impl TestClient for Client {
         ))
     }
 
-    fn poll_request<R: Query + Debug + Clone>(
-        &self,
-        request: R,
-        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
-    ) -> eyre::Result<()>
-    where
-        R::Output: QueryOutput,
-        <R::Output as QueryOutput>::Target: core::fmt::Debug,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-    {
-        self.poll_request_with_period(request, Config::pipeline_time() / 2, 10, f)
+    fn poll(&self, f: impl FnOnce(&Self) -> Result<bool> + Clone) -> eyre::Result<()> {
+        self.poll_with_period(Config::pipeline_time() / 2, 10, f)
     }
 }
 

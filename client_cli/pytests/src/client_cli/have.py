@@ -40,9 +40,7 @@ def domain(expected, owned_by=None):
     """
 
     def domain_in_domains() -> bool:
-        domains = iroha.list_filter(
-            f'{{"Identifiable": {{"Is": "{expected}"}}}}'
-        ).domains()
+        domains = iroha.list_filter({"Atom": {"Id": {"Equals": expected}}}).domains()
         if not expected_in_actual(expected, domains):
             return False
         if owned_by:
@@ -64,9 +62,7 @@ def account(expected):
     """
 
     def account_in_accounts() -> bool:
-        accounts = iroha.list_filter(
-            f'{{"Identifiable": {{"Is": "{expected}"}}}}'
-        ).accounts()
+        accounts = iroha.list_filter({"Atom": {"Id": {"Equals": expected}}}).accounts()
         return expected_in_actual(expected, accounts)
 
     return client_cli.wait_for(account_in_accounts)
@@ -82,7 +78,7 @@ def asset_definition(expected):
 
     def asset_definition_in_asset_definitions() -> bool:
         asset_definitions = iroha.list_filter(
-            f'{{"Identifiable": {{"Is": "{expected}"}}}}'
+            {"Atom": {"Id": {"Equals": expected}}}
         ).asset_definitions()
         return expected_in_actual(expected, asset_definitions)
 
@@ -98,9 +94,7 @@ def asset(expected):
     """
 
     def asset_in_assets() -> bool:
-        assets = iroha.list_filter(
-            f'{{"Identifiable": {{"Is": "{expected}"}}}}'
-        ).assets()
+        assets = iroha.list_filter({"Atom": {"Id": {"Equals": expected}}}).assets()
         return expected_in_actual(expected, assets)
 
     return client_cli.wait_for(asset_in_assets)
@@ -117,7 +111,7 @@ def asset_has_quantity(expected_asset_id, expected_quantity):
 
     def check_quantity() -> bool:
         assets = iroha.list_filter(
-            f'{{"Identifiable": {{"Is": "{expected_asset_id}"}}}}'
+            {"Atom": {"Id": {"Equals": expected_asset_id}}}
         ).assets()
         actual_quantity = None
         for asset_item in assets:

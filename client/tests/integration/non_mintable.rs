@@ -2,7 +2,7 @@ use std::str::FromStr as _;
 
 use eyre::Result;
 use iroha::{
-    client::{self, QueryResult},
+    client,
     data_model::{isi::InstructionBox, prelude::*},
 };
 use test_network::*;
@@ -32,12 +32,15 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
 
     // We can register and mint the non-mintable token
     test_client.submit_transaction(&tx)?;
-    test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
-        assets.iter().any(|asset| {
+    test_client.poll(|client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+            .execute_all()?;
+        Ok(assets.iter().any(|asset| {
             *asset.id().definition() == asset_definition_id
                 && *asset.value() == AssetValue::Numeric(numeric!(200))
-        })
+        }))
     })?;
 
     // We can submit the request to mint again.
@@ -45,12 +48,15 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
 
     // However, this will fail
     assert!(test_client
-        .poll_request(client::asset::by_account_id(account_id), |result| {
-            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
-            assets.iter().any(|asset| {
+        .poll(|client| {
+            let assets = client
+                .query(client::asset::all())
+                .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+                .execute_all()?;
+            Ok(assets.iter().any(|asset| {
                 *asset.id().definition() == asset_definition_id
                     && *asset.value() == AssetValue::Numeric(numeric!(400))
-            })
+            }))
         })
         .is_err());
     Ok(())
@@ -74,12 +80,15 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
     // We can register the non-mintable token
     test_client
         .submit_all::<InstructionBox>([create_asset.into(), register_asset.clone().into()])?;
-    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
-        assets.iter().any(|asset| {
+    test_client.poll(|client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+            .execute_all()?;
+        Ok(assets.iter().any(|asset| {
             *asset.id().definition() == asset_definition_id
                 && *asset.value() == AssetValue::Numeric(numeric!(1))
-        })
+        }))
     })?;
 
     // But only once
@@ -114,12 +123,16 @@ fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()
         register_asset.into(),
         mint.into(),
     ])?;
-    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
-        assets.iter().any(|asset| {
+    test_client.poll(|client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+            .execute_all()?;
+
+        Ok(assets.iter().any(|asset| {
             *asset.id().definition() == asset_definition_id
                 && *asset.value() == AssetValue::Numeric(numeric!(1))
-        })
+        }))
     })?;
     Ok(())
 }

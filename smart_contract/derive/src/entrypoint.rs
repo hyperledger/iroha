@@ -33,9 +33,7 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
     block.stmts.insert(
         0,
         parse_quote!(
-            use ::iroha_smart_contract::{
-                debug::DebugExpectExt as _, ExecuteOnHost as _, ExecuteQueryOnHost as _,
-            };
+            use ::iroha_smart_contract::{debug::DebugExpectExt as _, ExecuteOnHost as _};
         ),
     );
 

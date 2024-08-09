@@ -4,7 +4,6 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    marker::PhantomData,
     num::{NonZeroU32, NonZeroU64},
     thread,
     time::Duration,
@@ -16,7 +15,6 @@ use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
 pub use iroha_config::client_api::ConfigDTO;
 use iroha_logger::prelude::*;
-use iroha_primitives::json;
 use iroha_telemetry::metrics::Status;
 use iroha_torii_const::uri as torii_uri;
 use iroha_version::prelude::*;
@@ -25,6 +23,7 @@ use rand::Rng;
 use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
+pub use crate::query::QueryError;
 use crate::{
     config::Config,
     crypto::{HashOf, KeyPair},
@@ -36,109 +35,17 @@ use crate::{
         },
         isi::Instruction,
         prelude::*,
-        query::{predicate::PredicateBox, Pagination, Query, QueryOutputBox, Sorting},
         transaction::TransactionBuilder,
-        BatchedResponse, ChainId, ValidationFail,
+        ChainId,
     },
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
-    query_builder::QueryRequestBuilder,
 };
 
 const APPLICATION_JSON: &str = "application/json";
 
-/// Phantom struct that handles responses of Query API.
-/// Depending on input query struct, transforms a response into appropriate output.
-#[derive(Debug, Clone)]
-pub struct QueryResponseHandler<R> {
-    query_request: QueryRequest,
-    _output_type: PhantomData<R>,
-}
-
-impl<R> QueryResponseHandler<R> {
-    fn new(query_request: QueryRequest) -> Self {
-        Self {
-            query_request,
-            _output_type: PhantomData,
-        }
-    }
-}
-
-/// `Result` with [`ClientQueryError`] as an error
-pub type QueryResult<T> = core::result::Result<T, ClientQueryError>;
-
-impl<R: QueryOutput> QueryResponseHandler<R>
-where
-    <R as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-{
-    fn handle(&mut self, resp: &Response<Vec<u8>>) -> QueryResult<R> {
-        // Separate-compilation friendly response handling
-        fn _handle_query_response_base(
-            resp: &Response<Vec<u8>>,
-        ) -> QueryResult<BatchedResponse<QueryOutputBox>> {
-            match resp.status() {
-                StatusCode::OK => {
-                    let res = BatchedResponse::decode_all_versioned(resp.body());
-                    res.wrap_err(
-                        "Failed to decode response from Iroha. \
-                         You are likely using a version of the client library \
-                         that is incompatible with the version of the peer software",
-                    )
-                        .map_err(Into::into)
-                }
-                StatusCode::BAD_REQUEST
-                | StatusCode::UNAUTHORIZED
-                | StatusCode::FORBIDDEN
-                | StatusCode::NOT_FOUND
-                | StatusCode::UNPROCESSABLE_ENTITY => Err(ValidationFail::decode_all(
-                    &mut resp.body().as_ref(),
-                )
-                    .map_or_else(
-                        |_| {
-                            ClientQueryError::Other(
-                                ResponseReport::with_msg("Query failed", resp)
-                                    .map_or_else(
-                                        |_| eyre!(
-                                        "Failed to decode response from Iroha. \
-                                        Response is neither a `ValidationFail` encoded value nor a valid utf-8 string error response. \
-                                        You are likely using a version of the client library that is incompatible with the version of the peer software",
-                                    ),
-                                        Into::into
-                                    ),
-                            )
-                        },
-                        ClientQueryError::Validation,
-                    )),
-                _ => Err(ResponseReport::with_msg("Unexpected query response", resp).unwrap_or_else(core::convert::identity).into()),
-            }
-        }
-
-        let (batch, cursor) = _handle_query_response_base(resp)?.into();
-
-        let output = R::try_from(batch)
-            .map_err(Into::into)
-            .wrap_err("Unexpected type")?;
-
-        self.query_request.request = crate::data_model::query::QueryRequest::Cursor(cursor);
-        Ok(output)
-    }
-}
-
-/// Different errors as a result of query response handling
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum ClientQueryError {
-    /// Query validation error
-    Validation(#[from] ValidationFail),
-    /// Other error
-    Other(#[from] eyre::Error),
-}
-
-impl From<ResponseReport> for ClientQueryError {
-    #[inline]
-    fn from(ResponseReport(err): ResponseReport) -> Self {
-        Self::Other(err)
-    }
-}
+/// `Result` with [`QueryError`] as an error
+pub type QueryResult<T> = core::result::Result<T, QueryError>;
 
 /// Phantom struct that handles Transaction API HTTP response
 #[derive(Clone, Copy)]
@@ -179,14 +86,17 @@ impl StatusResponseHandler {
 }
 
 /// Private structure to incapsulate error reporting for HTTP response.
-struct ResponseReport(eyre::Report);
+pub(crate) struct ResponseReport(pub(crate) eyre::Report);
 
 impl ResponseReport {
     /// Constructs report with provided message
     ///
     /// # Errors
     /// If response body isn't a valid utf-8 string
-    fn with_msg<S: AsRef<str>>(msg: S, response: &Response<Vec<u8>>) -> Result<Self, Self> {
+    pub(crate) fn with_msg<S: AsRef<str>>(
+        msg: S,
+        response: &Response<Vec<u8>>,
+    ) -> Result<Self, Self> {
         let status = response.status();
         let body = std::str::from_utf8(response.body());
         let msg = msg.as_ref();
@@ -205,134 +115,6 @@ impl From<ResponseReport> for eyre::Report {
     fn from(report: ResponseReport) -> Self {
         report.0
     }
-}
-
-/// Output of a query
-pub trait QueryOutput: Into<QueryOutputBox> + TryFrom<QueryOutputBox> {
-    /// Type of the query output
-    type Target;
-
-    /// Construct query output from query response
-    fn new(output: Self, query_request: QueryResponseHandler<Self>) -> Self::Target;
-}
-
-/// Iterable query output
-#[derive(Debug, Clone)]
-pub struct ResultSet<T> {
-    query_handler: QueryResponseHandler<Vec<T>>,
-
-    iter: Vec<T>,
-    client_cursor: usize,
-}
-
-impl<T> ResultSet<T> {
-    /// Get the length of the batch returned by Iroha.
-    ///
-    /// This is controlled by `fetch_size` parameter of the query.
-    pub fn batch_len(&self) -> usize {
-        self.iter.len()
-    }
-}
-
-impl<T: Clone> Iterator for ResultSet<T>
-where
-    Vec<T>: QueryOutput,
-    <Vec<T> as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-{
-    type Item = QueryResult<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.client_cursor >= self.iter.len() {
-            let crate::data_model::query::QueryRequest::Cursor(cursor) =
-                &self.query_handler.query_request.request
-            else {
-                return None;
-            };
-            if cursor.cursor().is_none() {
-                return None;
-            }
-
-            let request = match self.query_handler.query_request.clone().assemble().build() {
-                Err(err) => return Some(Err(ClientQueryError::Other(err))),
-                Ok(ok) => ok,
-            };
-
-            let response = match request.send() {
-                Err(err) => return Some(Err(ClientQueryError::Other(err))),
-                Ok(ok) => ok,
-            };
-            let output = match self.query_handler.handle(&response) {
-                Err(err) => return Some(Err(err)),
-                Ok(ok) => ok,
-            };
-            self.iter = output;
-            self.client_cursor = 0;
-        }
-
-        let item = Ok(self.iter.get(self.client_cursor).cloned());
-        self.client_cursor += 1;
-        item.transpose()
-    }
-}
-
-impl<T: Debug + Clone> QueryOutput for Vec<T>
-where
-    Self: Into<QueryOutputBox> + TryFrom<QueryOutputBox>,
-{
-    type Target = ResultSet<T>;
-
-    fn new(output: Self, query_handler: QueryResponseHandler<Self>) -> Self::Target {
-        ResultSet {
-            query_handler,
-            iter: output,
-            client_cursor: 0,
-        }
-    }
-}
-
-impl QueryOutput for QueryOutputBox {
-    type Target = QueryResult<Self>;
-
-    fn new(output: Self, query_handler: QueryResponseHandler<Self>) -> Self::Target {
-        match output {
-            Self::Vec(v) => {
-                let query_handler = QueryResponseHandler::new(query_handler.query_request);
-                let set = ResultSet {
-                    query_handler,
-                    iter: v,
-                    client_cursor: 0,
-                };
-                set.collect::<QueryResult<Vec<_>>>().map(Self::Vec)
-            }
-            other => Ok(other),
-        }
-    }
-}
-
-macro_rules! impl_query_output {
-    ( $($ident:ty),+ $(,)? ) => { $(
-        impl QueryOutput for $ident {
-            type Target = Self;
-
-            fn new(output: Self, _query_handler: QueryResponseHandler<Self>) -> Self::Target {
-                output
-            }
-        } )+
-    };
-}
-impl_query_output! {
-    crate::data_model::role::Role,
-    crate::data_model::asset::Asset,
-    crate::data_model::asset::AssetDefinition,
-    crate::data_model::account::Account,
-    crate::data_model::domain::Domain,
-    crate::data_model::block::BlockHeader,
-    json::JsonString,
-    crate::data_model::query::TransactionQueryOutput,
-    crate::data_model::executor::ExecutorDataModel,
-    crate::data_model::trigger::Trigger,
-    crate::data_model::prelude::Numeric,
-    crate::data_model::parameter::Parameters,
 }
 
 /// Iroha client
@@ -360,47 +142,6 @@ pub struct Client {
     /// If `true` add nonce, which makes different hashes for
     /// transactions which occur repeatedly and/or simultaneously
     pub add_transaction_nonce: bool,
-}
-
-/// Query request
-#[derive(Debug, Clone)]
-pub struct QueryRequest {
-    torii_url: Url,
-    headers: HashMap<String, String>,
-    request: crate::data_model::query::QueryRequest<SignedQuery>,
-}
-
-impl QueryRequest {
-    #[cfg(test)]
-    fn dummy() -> Self {
-        let torii_url = torii_uri::DEFAULT_API_ADDR;
-
-        Self {
-            torii_url: format!("http://{torii_url}").parse().unwrap(),
-            headers: HashMap::new(),
-            request: crate::data_model::query::QueryRequest::Query(
-                ClientQueryBuilder::new(FindAllAccounts, test_samples::ALICE_ID.clone())
-                    .sign(&test_samples::ALICE_KEYPAIR),
-            ),
-        }
-    }
-
-    fn assemble(self) -> DefaultRequestBuilder {
-        let builder = DefaultRequestBuilder::new(
-            HttpMethod::POST,
-            join_torii_url(&self.torii_url, torii_uri::QUERY),
-        )
-        .headers(self.headers);
-
-        match self.request {
-            crate::data_model::query::QueryRequest::Query(signed_query) => {
-                builder.body(signed_query.encode())
-            }
-            crate::data_model::query::QueryRequest::Cursor(cursor) => {
-                builder.params(Vec::from(cursor))
-            }
-        }
-    }
 }
 
 /// Representation of `Iroha` client.
@@ -482,14 +223,6 @@ impl Client {
     /// Fails if signature generation fails
     pub fn sign_transaction(&self, transaction: TransactionBuilder) -> SignedTransaction {
         transaction.sign(self.key_pair.private_key())
-    }
-
-    /// Signs query
-    ///
-    /// # Errors
-    /// Fails if signature generation fails
-    pub fn sign_query(&self, query: ClientQueryBuilder) -> SignedQuery {
-        query.sign(&self.key_pair)
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
@@ -750,176 +483,6 @@ impl Client {
         self.submit_transaction_blocking(&transaction)
     }
 
-    /// Lower-level Query API entry point. Prepares an http-request and returns it with an http-response handler.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use eyre::Result;
-    /// use crate::{
-    ///     data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}},
-    ///     client::Client,
-    ///     http::{RequestBuilder, Response, Method},
-    /// };
-    ///
-    /// struct YourAsyncRequest;
-    ///
-    /// impl YourAsyncRequest {
-    ///     async fn send(self) -> Response<Vec<u8>> {
-    ///         todo!()
-    ///     }
-    /// }
-    ///
-    /// // Implement builder for this request
-    /// impl RequestBuilder for YourAsyncRequest {
-    ///     fn new(_: Method, url: impl AsRef<str>) -> Self {
-    ///          todo!()
-    ///     }
-    ///
-    ///     fn param<K: AsRef<str>, V: ToString>(self, _: K, _: V) -> Self  {
-    ///          todo!()
-    ///     }
-    ///
-    ///     fn header<N: AsRef<str>, V: ToString>(self, _: N, _: V) -> Self {
-    ///          todo!()
-    ///     }
-    ///
-    ///     fn body(self, data: Vec<u8>) -> Self {
-    ///          todo!()
-    ///     }
-    /// }
-    ///
-    /// async fn fetch_accounts(client: &Client) -> Result<Vec<Account>> {
-    ///     // Put `YourAsyncRequest` as a type here
-    ///     // It returns the request and the handler (zero-cost abstraction) for the response
-    ///     let (req, resp_handler) = client.prepare_query_request::<_, YourAsyncRequest>(
-    ///         FindAllAccounts::new(),
-    ///         Pagination::default(),
-    ///         PredicateBox::default(),
-    ///     )?;
-    ///
-    ///     // Do what you need to send the request and to get the response
-    ///     let resp = req.send().await;
-    ///
-    ///     // Handle response with the handler and get typed result
-    ///     let accounts = resp_handler.handle(resp)?;
-    ///
-    ///     Ok(accounts.output())
-    /// }
-    /// ```
-    fn prepare_query_request<R: Query>(
-        &self,
-        request: R,
-        filter: PredicateBox,
-        pagination: Pagination,
-        sorting: Sorting,
-        fetch_size: FetchSize,
-    ) -> (DefaultRequestBuilder, QueryResponseHandler<R::Output>)
-    where
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-    {
-        let query_builder = ClientQueryBuilder::new(request, self.account.clone())
-            .with_filter(filter)
-            .with_pagination(pagination)
-            .with_sorting(sorting)
-            .with_fetch_size(fetch_size);
-        let request = self.sign_query(query_builder);
-
-        let query_request = QueryRequest {
-            torii_url: self.torii_url.clone(),
-            headers: self.headers.clone(),
-            request: crate::data_model::query::QueryRequest::Query(request),
-        };
-
-        (
-            query_request.clone().assemble(),
-            QueryResponseHandler::new(query_request),
-        )
-    }
-
-    /// Create a request with pagination, sorting and add the filter.
-    ///
-    /// # Errors
-    /// Fails if sending request fails
-    pub(crate) fn request_with_filter_and_pagination_and_sorting<R: Query + Debug>(
-        &self,
-        request: R,
-        pagination: Pagination,
-        fetch_size: FetchSize,
-        sorting: Sorting,
-        filter: PredicateBox,
-    ) -> QueryResult<<R::Output as QueryOutput>::Target>
-    where
-        R::Output: QueryOutput,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-    {
-        iroha_logger::trace!(?request, %pagination, ?sorting, ?filter);
-        let (req, mut resp_handler) =
-            self.prepare_query_request::<R>(request, filter, pagination, sorting, fetch_size);
-
-        let response = req.build()?.send()?;
-        let output = resp_handler.handle(&response)?;
-        let output = QueryOutput::new(output, resp_handler);
-
-        Ok(output)
-    }
-
-    /// Query API entry point. Shorthand for `self.build_query(r).execute()`.
-    ///
-    /// # Errors
-    /// Fails if sending request fails
-    pub fn request<R>(&self, request: R) -> QueryResult<<R::Output as QueryOutput>::Target>
-    where
-        R: Query + Debug,
-        R::Output: QueryOutput,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-    {
-        self.build_query(request).execute()
-    }
-
-    /// Query API entry point using cursor.
-    ///
-    /// You should probably not use this function directly.
-    ///
-    /// # Errors
-    /// Fails if sending request fails
-    #[cfg(debug_assertions)]
-    pub fn request_with_cursor<O>(
-        &self,
-        cursor: crate::data_model::query::cursor::ForwardCursor,
-    ) -> QueryResult<O::Target>
-    where
-        O: QueryOutput,
-        <O as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-    {
-        let request = QueryRequest {
-            torii_url: self.torii_url.clone(),
-            headers: self.headers.clone(),
-            request: crate::data_model::query::QueryRequest::Cursor(cursor),
-        };
-        let response = request.clone().assemble().build()?.send()?;
-
-        let mut resp_handler = QueryResponseHandler::<O>::new(request);
-        let output = resp_handler.handle(&response)?;
-        let output = O::new(output, resp_handler);
-
-        Ok(output)
-    }
-
-    /// Query API entry point.
-    /// Creates a [`QueryRequestBuilder`] which can be used to configure requests queries from `Iroha` peers.
-    ///
-    /// # Errors
-    /// Fails if sending request fails
-    pub fn build_query<R>(&self, request: R) -> QueryRequestBuilder<'_, R>
-    where
-        R: Query + Debug,
-        R::Output: QueryOutput,
-        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
-    {
-        QueryRequestBuilder::new(self, request)
-    }
-
     /// Connect (through `WebSocket`) to listen for `Iroha` `pipeline` and `data` events.
     ///
     /// # Errors
@@ -1071,7 +634,7 @@ impl Client {
     }
 }
 
-fn join_torii_url(url: &Url, path: &str) -> Url {
+pub(crate) fn join_torii_url(url: &Url, path: &str) -> Url {
     // This is needed to prevent "https://iroha-peer.jp/peer1/".join("/query") == "https://iroha-peer.jp/query"
     let path = path.strip_prefix('/').unwrap_or(path);
 
@@ -1408,13 +971,8 @@ pub mod account {
     use super::*;
 
     /// Construct a query to get all accounts
-    pub const fn all() -> FindAllAccounts {
-        FindAllAccounts
-    }
-
-    /// Construct a query to get account by id
-    pub fn by_id(account_id: AccountId) -> FindAccountById {
-        FindAccountById::new(account_id)
+    pub const fn all() -> FindAccounts {
+        FindAccounts
     }
 
     /// Construct a query to get all accounts containing specified asset
@@ -1428,28 +986,13 @@ pub mod asset {
     use super::*;
 
     /// Construct a query to get all assets
-    pub const fn all() -> FindAllAssets {
-        FindAllAssets
+    pub const fn all() -> FindAssets {
+        FindAssets
     }
 
     /// Construct a query to get all asset definitions
-    pub const fn all_definitions() -> FindAllAssetsDefinitions {
-        FindAllAssetsDefinitions
-    }
-
-    /// Construct a query to get asset definition by its id
-    pub fn definition_by_id(asset_definition_id: AssetDefinitionId) -> FindAssetDefinitionById {
-        FindAssetDefinitionById::new(asset_definition_id)
-    }
-
-    /// Construct a query to get all assets by account id
-    pub fn by_account_id(account_id: AccountId) -> FindAssetsByAccountId {
-        FindAssetsByAccountId::new(account_id)
-    }
-
-    /// Construct a query to get an asset by its id
-    pub fn by_id(asset_id: AssetId) -> FindAssetById {
-        FindAssetById::new(asset_id)
+    pub const fn all_definitions() -> FindAssetsDefinitions {
+        FindAssetsDefinitions
     }
 }
 
@@ -1459,13 +1002,13 @@ pub mod block {
     use super::*;
 
     /// Construct a query to find all blocks
-    pub const fn all() -> FindAllBlocks {
-        FindAllBlocks
+    pub const fn all() -> FindBlocks {
+        FindBlocks
     }
 
     /// Construct a query to find all block headers
-    pub const fn all_headers() -> FindAllBlockHeaders {
-        FindAllBlockHeaders
+    pub const fn all_headers() -> FindBlockHeaders {
+        FindBlockHeaders
     }
 
     /// Construct a query to find block header by hash
@@ -1479,13 +1022,8 @@ pub mod domain {
     use super::*;
 
     /// Construct a query to get all domains
-    pub const fn all() -> FindAllDomains {
-        FindAllDomains
-    }
-
-    /// Construct a query to get all domain by id
-    pub fn by_id(domain_id: DomainId) -> FindDomainById {
-        FindDomainById::new(domain_id)
+    pub const fn all() -> FindDomains {
+        FindDomains
     }
 }
 
@@ -1495,8 +1033,8 @@ pub mod transaction {
     use super::*;
 
     /// Construct a query to find all transactions
-    pub fn all() -> FindAllTransactions {
-        FindAllTransactions
+    pub fn all() -> FindTransactions {
+        FindTransactions
     }
 
     /// Construct a query to retrieve transactions for account
@@ -1514,21 +1052,14 @@ pub mod trigger {
     //! Module with queries for triggers
     use super::*;
 
+    /// Construct a query to get all active trigger ids
+    pub fn all_ids() -> FindActiveTriggerIds {
+        FindActiveTriggerIds
+    }
+
     /// Construct a query to get a trigger by its id
     pub fn by_id(trigger_id: TriggerId) -> FindTriggerById {
         FindTriggerById::new(trigger_id)
-    }
-
-    /// Construct a query to find all triggers executable
-    /// on behalf of the given account.
-    pub fn by_authority(account_id: AccountId) -> FindTriggersByAuthorityId {
-        FindTriggersByAuthorityId::new(account_id)
-    }
-
-    /// Construct a query to find all triggers executable
-    /// on behalf of any account belonging to the given domain.
-    pub fn by_domain_of_authority(domain_id: DomainId) -> FindTriggersByAuthorityDomainId {
-        FindTriggersByAuthorityDomainId::new(domain_id)
     }
 }
 
@@ -1548,18 +1079,13 @@ pub mod role {
     use super::*;
 
     /// Construct a query to retrieve all roles
-    pub const fn all() -> FindAllRoles {
-        FindAllRoles
+    pub const fn all() -> FindRoles {
+        FindRoles
     }
 
     /// Construct a query to retrieve all role ids
-    pub const fn all_ids() -> FindAllRoleIds {
-        FindAllRoleIds
-    }
-
-    /// Construct a query to retrieve a role by its id
-    pub fn by_id(role_id: RoleId) -> FindRoleByRoleId {
-        FindRoleByRoleId::new(role_id)
+    pub const fn all_ids() -> FindRoleIds {
+        FindRoleIds
     }
 
     /// Construct a query to retrieve all roles for an account
@@ -1573,8 +1099,8 @@ pub mod parameter {
     use super::*;
 
     /// Construct a query to retrieve all config parameters
-    pub const fn all() -> FindAllParameters {
-        FindAllParameters
+    pub const fn all() -> FindParameters {
+        FindParameters
     }
 }
 
@@ -1664,46 +1190,6 @@ mod tests {
             .expect("Expected `Authorization` header");
         let expected_value = format!("Basic {ENCRYPTED_CREDENTIALS}");
         assert_eq!(value, &expected_value);
-    }
-
-    #[cfg(test)]
-    mod query_errors_handling {
-        use http::Response;
-
-        use super::*;
-        use crate::data_model::{asset::Asset, ValidationFail};
-
-        #[test]
-        fn certain_errors() -> Result<()> {
-            let mut sut = QueryResponseHandler::<Vec<Asset>>::new(QueryRequest::dummy());
-            let responses = vec![(StatusCode::UNPROCESSABLE_ENTITY, ValidationFail::TooComplex)];
-            for (status_code, err) in responses {
-                let resp = Response::builder().status(status_code).body(err.encode())?;
-
-                match sut.handle(&resp) {
-                    Err(ClientQueryError::Validation(actual)) => {
-                        // PartialEq isn't implemented, so asserting by encoded repr
-                        assert_eq!(actual.encode(), err.encode());
-                    }
-                    x => return Err(eyre!("Wrong output for {:?}: {:?}", (status_code, err), x)),
-                }
-            }
-
-            Ok(())
-        }
-
-        #[test]
-        fn indeterminate() -> Result<()> {
-            let mut sut = QueryResponseHandler::<Vec<Asset>>::new(QueryRequest::dummy());
-            let response = Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Vec::<u8>::new())?;
-
-            match sut.handle(&response) {
-                Err(ClientQueryError::Other(_)) => Ok(()),
-                x => Err(eyre!("Expected indeterminate, found: {:?}", x)),
-            }
-        }
     }
 
     #[cfg(test)]

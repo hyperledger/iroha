@@ -9,7 +9,6 @@ use iroha::{
 };
 use iroha_genesis::GenesisBuilder;
 use iroha_primitives::unique_vec;
-use iroha_version::Encode;
 use irohad::samples::get_config;
 use test_network::{
     construct_executor, get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime,
@@ -82,15 +81,17 @@ fn query_requests(criterion: &mut Criterion) {
         ])
         .expect("Failed to prepare state");
 
-    let request = asset::by_account_id(account_id);
+    let query = iroha
+        .query(asset::all())
+        .filter_with(|asset| asset.id.account.eq(account_id));
     thread::sleep(std::time::Duration::from_millis(1500));
     let mut success_count = 0;
     let mut failures_count = 0;
-    let _dropable = group.throughput(Throughput::Bytes(request.encode().len() as u64));
+    // reporting elements and not bytes here because the new query builder doesn't easily expose the box type used in transport
+    let _dropable = group.throughput(Throughput::Elements(1));
     let _dropable2 = group.bench_function("query", |b| {
         b.iter(|| {
-            let iter: Result<Vec<_>, _> =
-                iroha.request(request.clone()).and_then(Iterator::collect);
+            let iter = query.clone().execute_all();
 
             match iter {
                 Ok(assets) => {

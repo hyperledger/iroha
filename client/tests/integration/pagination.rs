@@ -1,7 +1,7 @@
 use eyre::Result;
 use iroha::{
-    client::{asset, Client, QueryResult},
-    data_model::{asset::AssetDefinition, prelude::*, query::Pagination},
+    client::{asset, Client},
+    data_model::{asset::AssetDefinition, prelude::*},
 };
 use nonzero_ext::nonzero;
 use test_network::*;
@@ -13,14 +13,13 @@ fn limits_should_work() -> Result<()> {
 
     register_assets(&client)?;
 
-    let vec = &client
-        .build_query(asset::all_definitions())
+    let vec = client
+        .query(asset::all_definitions())
         .with_pagination(Pagination {
             limit: Some(nonzero!(7_u32)),
-            start: Some(nonzero!(1_u64)),
+            offset: Some(nonzero!(1_u64)),
         })
-        .execute()?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .execute_all()?;
     assert_eq!(vec.len(), 7);
     Ok(())
 }
@@ -32,15 +31,28 @@ fn fetch_size_should_work() -> Result<()> {
 
     register_assets(&client)?;
 
-    let iter = client
-        .build_query(asset::all_definitions())
-        .with_pagination(Pagination {
-            limit: Some(nonzero!(7_u32)),
-            start: Some(nonzero!(1_u64)),
-        })
-        .with_fetch_size(FetchSize::new(Some(nonzero!(3_u32))))
-        .execute()?;
-    assert_eq!(iter.batch_len(), 3);
+    // use the lower-level API to inspect the batch size
+    use iroha_data_model::query::{
+        builder::QueryExecutor as _,
+        parameters::{FetchSize, QueryParams, Sorting},
+        QueryWithFilter, QueryWithParams,
+    };
+
+    let query = QueryWithParams::new(
+        QueryWithFilter::new(asset::all_definitions(), CompoundPredicate::PASS).into(),
+        QueryParams::new(
+            Pagination {
+                limit: Some(nonzero!(7_u32)),
+                offset: Some(nonzero!(1_u64)),
+            },
+            Sorting::default(),
+            FetchSize::new(Some(nonzero!(3_u32))),
+        ),
+    );
+    let (first_batch, _continue_cursor) = client.start_query(query)?;
+
+    assert_eq!(first_batch.len(), 3);
+
     Ok(())
 }
 

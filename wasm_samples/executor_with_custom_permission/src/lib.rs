@@ -19,7 +19,8 @@ extern crate panic_halt;
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::permissions::CanControlDomainLives;
 use iroha_executor::{
-    data_model::prelude::*, permission::ExecutorPermision as _, prelude::*, DataModelBuilder,
+    data_model::prelude::*, permission::ExecutorPermision as _, prelude::*, smart_contract::query,
+    DataModelBuilder,
 };
 use iroha_executor_data_model::permission::domain::CanUnregisterDomain;
 
@@ -46,17 +47,15 @@ struct Executor {
 
 impl Executor {
     fn get_all_accounts_with_can_unregister_domain_permission() -> impl Iterator<Item = Account> {
-        FindAllAccounts
+        query(FindAccounts)
             .execute()
             .expect("INTERNAL BUG: Failed to execute `FindAllAccounts`")
-            .into_iter()
             .filter_map(|res| {
                 let account = res.dbg_unwrap();
 
-                if FindPermissionsByAccountId::new(account.id().clone())
+                if query(FindPermissionsByAccountId::new(account.id().clone()))
                     .execute()
                     .expect("INTERNAL BUG: Failed to execute `FindPermissionsByAccountId`")
-                    .into_iter()
                     .filter_map(|res| {
                         let permission = res.dbg_unwrap();
                         CanUnregisterDomain::try_from(&permission).ok()

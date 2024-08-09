@@ -40,7 +40,11 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
 }
 
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
-    let asset = client.request(client::asset::by_id(asset_id)).unwrap();
+    let asset = client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.eq(asset_id))
+        .execute_single()
+        .unwrap();
 
     let AssetValue::Numeric(val) = *asset.value() else {
         panic!("Unexpected asset value");

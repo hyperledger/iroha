@@ -2,8 +2,8 @@ use std::{str::FromStr as _, thread};
 
 use eyre::Result;
 use iroha::{
-    client::{transaction, QueryResult},
-    data_model::{prelude::*, query::Pagination},
+    client::transaction,
+    data_model::{prelude::*, query::parameters::Pagination},
 };
 use iroha_config::parameters::actual::Root as Config;
 use nonzero_ext::nonzero;
@@ -52,13 +52,12 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     thread::sleep(pipeline_time * 5);
 
     let transactions = client
-        .build_query(transaction::by_account_id(account_id.clone()))
+        .query(transaction::by_account_id(account_id.clone()))
         .with_pagination(Pagination {
             limit: Some(nonzero!(50_u32)),
-            start: Some(nonzero!(1_u64)),
+            offset: Some(nonzero!(1_u64)),
         })
-        .execute()?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .execute_all()?;
     assert_eq!(transactions.len(), 50);
 
     let mut prev_creation_time = core::time::Duration::from_millis(0);

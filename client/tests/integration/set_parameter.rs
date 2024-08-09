@@ -15,7 +15,7 @@ fn can_change_parameter_value() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_135).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let old_params: Parameters = test_client.request(client::parameter::all())?;
+    let old_params: Parameters = test_client.query_single(client::parameter::all())?;
     assert_eq!(
         old_params.sumeragi().block_time(),
         SumeragiParameters::default().block_time()
@@ -26,7 +26,7 @@ fn can_change_parameter_value() -> Result<()> {
     let set_param_isi = SetParameter::new(parameter);
     test_client.submit_blocking(set_param_isi)?;
 
-    let sumeragi_params = test_client.request(client::parameter::all())?.sumeragi;
+    let sumeragi_params = test_client.query_single(client::parameter::all())?.sumeragi;
     assert_eq!(
         sumeragi_params.block_time(),
         Duration::from_millis(block_time)

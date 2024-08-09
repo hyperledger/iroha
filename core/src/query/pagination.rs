@@ -1,6 +1,6 @@
 //! Module with [`Paginate`] iterator adaptor which provides [`paginate`] function.
 
-use iroha_data_model::query::Pagination;
+use iroha_data_model::query::parameters::Pagination;
 
 /// Describes a collection to which pagination can be applied.
 /// Implemented for the [`Iterator`] implementors.
@@ -23,7 +23,7 @@ pub struct Paginated<I: Iterator>(core::iter::Take<core::iter::Skip<I>>);
 impl<I: Iterator> Paginated<I> {
     fn new(pagination: Pagination, iter: I) -> Self {
         Self(
-            iter.skip(pagination.start.map_or_else(
+            iter.skip(pagination.offset.map_or_else(
                 || 0,
                 |start| start.get().try_into().expect("U64 should fit into usize"),
             ))
@@ -45,7 +45,7 @@ impl<I: Iterator> Iterator for Paginated<I> {
 
 #[cfg(test)]
 mod tests {
-    use iroha_data_model::query::pagination::Pagination;
+    use iroha_data_model::query::parameters::Pagination;
     use nonzero_ext::nonzero;
 
     use super::*;
@@ -57,7 +57,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: None,
-                    start: None
+                    offset: None
                 })
                 .collect::<Vec<_>>(),
             vec![1_i32, 2_i32, 3_i32]
@@ -71,7 +71,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: None,
-                    start: Some(nonzero!(1_u64))
+                    offset: Some(nonzero!(1_u64))
                 })
                 .collect::<Vec<_>>(),
             vec![2_i32, 3_i32]
@@ -81,7 +81,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: None,
-                    start: Some(nonzero!(3_u64))
+                    offset: Some(nonzero!(3_u64))
                 })
                 .collect::<Vec<_>>(),
             Vec::<i32>::new()
@@ -95,7 +95,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: Some(nonzero!(2_u32)),
-                    start: None
+                    offset: None
                 })
                 .collect::<Vec<_>>(),
             vec![1_i32, 2_i32]
@@ -105,7 +105,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: Some(nonzero!(4_u32)),
-                    start: None
+                    offset: None
                 })
                 .collect::<Vec<_>>(),
             vec![1_i32, 2_i32, 3_i32]
@@ -119,7 +119,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: Some(nonzero!(1_u32)),
-                    start: Some(nonzero!(1_u64)),
+                    offset: Some(nonzero!(1_u64)),
                 })
                 .collect::<Vec<_>>(),
             vec![2_i32]

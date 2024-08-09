@@ -322,25 +322,38 @@ pub mod isi {
 pub mod query {
     //! Queries associated to triggers.
     use iroha_data_model::{
-        query::error::QueryExecutionFail as Error,
+        query::{
+            error::QueryExecutionFail as Error,
+            predicate::{predicate_atoms::trigger::TriggerIdPredicateBox, CompoundPredicate},
+        },
         trigger::{Trigger, TriggerId},
     };
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::{prelude::*, smartcontracts::triggers::set::SetReadOnly, state::StateReadOnly};
+    use crate::{
+        prelude::*,
+        smartcontracts::{triggers::set::SetReadOnly, ValidQuery},
+        state::StateReadOnly,
+    };
 
-    impl ValidQuery for FindAllActiveTriggerIds {
-        #[metrics(+"find_all_active_triggers")]
+    impl ValidQuery for FindActiveTriggerIds {
+        #[metrics(+"find_active_triggers")]
         fn execute<'state>(
-            &self,
+            self,
+            filter: CompoundPredicate<TriggerIdPredicateBox>,
             state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = TriggerId> + 'state>, Error> {
-            Ok(Box::new(state_ro.world().triggers().ids_iter().cloned()))
+        ) -> Result<impl Iterator<Item = TriggerId> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .triggers()
+                .ids_iter()
+                .filter(move |&id| filter.applies(id))
+                .cloned())
         }
     }
 
-    impl ValidQuery for FindTriggerById {
+    impl ValidSingularQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Trigger, Error> {
             let id = &self.id;
@@ -364,7 +377,7 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindTriggerKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindTriggerMetadata {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
@@ -382,62 +395,6 @@ pub mod query {
                 })
                 .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?
                 .map(Into::into)
-        }
-    }
-
-    impl ValidQuery for FindTriggersByAuthorityId {
-        #[metrics(+"find_triggers_by_authority_id")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> eyre::Result<Box<dyn Iterator<Item = Trigger> + 'state>, Error> {
-            let account_id = self.account.clone();
-
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .triggers()
-                    .inspect_by_action(
-                        move |action| action.authority() == &account_id,
-                        |trigger_id, action| (trigger_id.clone(), action.clone_and_box()),
-                    )
-                    .map(|(trigger_id, action)| {
-                        let action = state_ro
-                            .world()
-                            .triggers()
-                            .get_original_action(action)
-                            .into();
-                        Trigger::new(trigger_id, action)
-                    }),
-            ))
-        }
-    }
-
-    impl ValidQuery for FindTriggersByAuthorityDomainId {
-        #[metrics(+"find_triggers_by_authority_domain_id")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> eyre::Result<Box<dyn Iterator<Item = Trigger> + 'state>, Error> {
-            let domain_id = self.domain.clone();
-
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .triggers()
-                    .inspect_by_action(
-                        move |action| action.authority().domain() == &domain_id,
-                        |trigger_id, action| (trigger_id.clone(), action.clone_and_box()),
-                    )
-                    .map(|(trigger_id, action)| {
-                        let action = state_ro
-                            .world()
-                            .triggers()
-                            .get_original_action(action)
-                            .into();
-                        Trigger::new(trigger_id, action)
-                    }),
-            ))
         }
     }
 }

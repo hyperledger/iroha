@@ -391,32 +391,34 @@ pub mod isi {
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
     use eyre::Result;
-    use iroha_data_model::{domain::Domain, query::error::QueryExecutionFail as Error};
+    use iroha_data_model::{
+        domain::Domain,
+        query::{
+            error::QueryExecutionFail as Error,
+            predicate::{predicate_atoms::domain::DomainPredicateBox, CompoundPredicate},
+        },
+    };
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::state::StateReadOnly;
+    use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
 
-    impl ValidQuery for FindAllDomains {
-        #[metrics(+"find_all_domains")]
+    impl ValidQuery for FindDomains {
+        #[metrics(+"find_domains")]
         fn execute<'state>(
-            &self,
+            self,
+            filter: CompoundPredicate<DomainPredicateBox>,
             state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Domain> + 'state>, Error> {
-            Ok(Box::new(state_ro.world().domains_iter().cloned()))
+        ) -> std::result::Result<impl Iterator<Item = Domain> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .domains_iter()
+                .filter(move |&v| filter.applies(v))
+                .cloned())
         }
     }
 
-    impl ValidQuery for FindDomainById {
-        #[metrics(+"find_domain_by_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Domain, Error> {
-            let id = &self.id;
-            iroha_logger::trace!(%id);
-            Ok(state_ro.world().domain(id)?.clone())
-        }
-    }
-
-    impl ValidQuery for FindDomainKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindDomainMetadata {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
@@ -430,7 +432,7 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindAssetDefinitionMetadata {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;

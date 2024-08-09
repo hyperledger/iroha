@@ -309,10 +309,11 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
     // Register rabbit's account
     test_client.submit_blocking(Register::account(rabbit_account))?;
 
-    let find_rabbit = FindAccountById {
-        id: rabbit_account_id.clone(),
-    };
-    test_client.request(find_rabbit).expect("Account not found");
+    test_client
+        .query(client::account::all())
+        .filter_with(|account| account.id.eq(rabbit_account_id.clone()))
+        .execute_single()
+        .expect("Account not found");
     info!("Rabbit is found.");
 
     // Trying register the trigger without permissions
@@ -336,7 +337,7 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
     let find_trigger = FindTriggerById {
         id: trigger_id.clone(),
     };
-    let found_trigger = test_client.request(find_trigger)?;
+    let found_trigger = test_client.query_single(find_trigger)?;
 
     assert_eq!(found_trigger.id, trigger_id);
 
@@ -370,7 +371,7 @@ fn unregister_trigger() -> Result<()> {
     let find_trigger = FindTriggerById {
         id: trigger_id.clone(),
     };
-    let found_trigger = test_client.request(find_trigger.clone())?;
+    let found_trigger = test_client.query_single(find_trigger.clone())?;
     let found_action = found_trigger.action;
     let Executable::Instructions(found_instructions) = found_action.executable else {
         panic!("Expected instructions");
@@ -391,7 +392,7 @@ fn unregister_trigger() -> Result<()> {
     test_client.submit_blocking(unregister_trigger)?;
 
     // Checking result
-    assert!(test_client.request(find_trigger).is_err());
+    assert!(test_client.query_single(find_trigger).is_err());
 
     Ok(())
 }
@@ -609,7 +610,7 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
 
     test_client.submit_blocking(Unregister::trigger(first_trigger_id))?;
     let got_second_trigger = test_client
-        .request(FindTriggerById {
+        .query_single(FindTriggerById {
             id: second_trigger_id,
         })
         .expect("Failed to request second trigger");
@@ -620,7 +621,11 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
 }
 
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
-    let asset = client.request(client::asset::by_id(asset_id)).unwrap();
+    let asset = client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.eq(asset_id))
+        .execute_single()
+        .unwrap();
 
     let AssetValue::Numeric(val) = *asset.value() else {
         panic!("Unexpected asset value");

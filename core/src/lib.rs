@@ -157,7 +157,7 @@ pub mod prelude {
 
     #[doc(inline)]
     pub use crate::{
-        smartcontracts::ValidQuery,
+        smartcontracts::ValidSingularQuery,
         state::{StateReadOnly, StateView, World, WorldReadOnly},
         tx::AcceptedTransaction,
     };

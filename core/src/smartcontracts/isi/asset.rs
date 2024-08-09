@@ -424,158 +424,49 @@ pub mod query {
     use eyre::Result;
     use iroha_data_model::{
         asset::{Asset, AssetDefinition, AssetValue},
-        query::{asset::FindAssetDefinitionById, error::QueryExecutionFail as Error},
+        query::{
+            error::QueryExecutionFail as Error,
+            predicate::{
+                predicate_atoms::asset::{AssetDefinitionPredicateBox, AssetPredicateBox},
+                CompoundPredicate,
+            },
+        },
     };
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::state::StateReadOnly;
+    use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
 
-    impl ValidQuery for FindAllAssets {
-        #[metrics(+"find_all_assets")]
+    impl ValidQuery for FindAssets {
+        #[metrics(+"find_assets")]
         fn execute<'state>(
-            &self,
+            self,
+            filter: CompoundPredicate<AssetPredicateBox>,
             state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            Ok(Box::new(state_ro.world().assets_iter().cloned()))
+        ) -> Result<impl Iterator<Item = Asset> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .assets_iter()
+                .filter(move |&asset| filter.applies(asset))
+                .cloned())
         }
     }
-
-    impl ValidQuery for FindAllAssetsDefinitions {
-        #[metrics(+"find_all_asset_definitions")]
+    impl ValidQuery for FindAssetsDefinitions {
+        #[metrics(+"find_asset_definitions")]
         fn execute<'state>(
-            &self,
+            self,
+            filter: CompoundPredicate<AssetDefinitionPredicateBox>,
             state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = AssetDefinition> + 'state>, Error> {
-            Ok(Box::new(state_ro.world().asset_definitions_iter().cloned()))
+        ) -> Result<impl Iterator<Item = AssetDefinition> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .asset_definitions_iter()
+                .filter(move |&asset_definition| filter.applies(asset_definition))
+                .cloned())
         }
     }
 
-    impl ValidQuery for FindAssetById {
-        #[metrics(+"find_asset_by_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Asset, Error> {
-            let id = &self.id;
-            iroha_logger::trace!(%id);
-            state_ro.world().asset(id).map_err(|asset_err| {
-                if let Err(definition_err) = state_ro.world().asset_definition(&id.definition) {
-                    definition_err.into()
-                } else {
-                    asset_err
-                }
-            })
-        }
-    }
-
-    impl ValidQuery for FindAssetDefinitionById {
-        #[metrics(+"find_asset_defintion_by_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<AssetDefinition, Error> {
-            let id = &self.id;
-
-            let entry = state_ro.world().asset_definition(id).map_err(Error::from)?;
-
-            Ok(entry)
-        }
-    }
-
-    impl ValidQuery for FindAssetsByName {
-        #[metrics(+"find_assets_by_name")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let name = self.name.clone();
-            iroha_logger::trace!(%name);
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .assets_iter()
-                    .filter(move |asset| asset.id().definition.name == name)
-                    .cloned(),
-            ))
-        }
-    }
-
-    impl ValidQuery for FindAssetsByAccountId {
-        #[metrics(+"find_assets_by_account_id")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let id = self.account.clone();
-            iroha_logger::trace!(%id);
-            state_ro.world().map_account(&id, |_| ())?;
-
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .assets_iter()
-                    .filter(move |asset| asset.id().account == id)
-                    .cloned(),
-            ))
-        }
-    }
-
-    impl ValidQuery for FindAssetsByAssetDefinitionId {
-        #[metrics(+"find_assets_by_asset_definition_id")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let id = self.asset_definition.clone();
-            iroha_logger::trace!(%id);
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .assets_iter()
-                    .filter(move |asset| asset.id().definition == id)
-                    .cloned(),
-            ))
-        }
-    }
-
-    impl ValidQuery for FindAssetsByDomainId {
-        #[metrics(+"find_assets_by_domain_id")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let id = self.domain.clone();
-            iroha_logger::trace!(%id);
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .assets_iter()
-                    .filter(move |asset| asset.id().account.domain() == &id)
-                    .cloned(),
-            ))
-        }
-    }
-
-    impl ValidQuery for FindAssetsByDomainIdAndAssetDefinitionId {
-        #[metrics(+"find_assets_by_domain_id_and_asset_definition_id")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Asset> + 'state>, Error> {
-            let domain_id = self.domain.clone();
-            let asset_definition_id = self.asset_definition.clone();
-            let _ = state_ro.world().domain(&domain_id)?;
-            let _ = state_ro.world().asset_definition(&asset_definition_id)?;
-            iroha_logger::trace!(%domain_id, %asset_definition_id);
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .assets_iter()
-                    .filter(move |asset| {
-                        asset.id().definition == asset_definition_id
-                            && asset.id().account.domain() == &domain_id
-                    })
-                    .cloned(),
-            ))
-        }
-    }
-
-    impl ValidQuery for FindAssetQuantityById {
+    impl ValidSingularQuery for FindAssetQuantityById {
         #[metrics(+"find_asset_quantity_by_id")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Numeric, Error> {
             let id = &self.id;
@@ -601,7 +492,7 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindTotalAssetQuantityByAssetDefinitionId {
+    impl ValidSingularQuery for FindTotalAssetQuantityByAssetDefinitionId {
         #[metrics(+"find_total_asset_quantity_by_asset_definition_id")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Numeric, Error> {
             let id = &self.id;
@@ -611,7 +502,7 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindAssetKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindAssetMetadata {
         #[metrics(+"find_asset_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;

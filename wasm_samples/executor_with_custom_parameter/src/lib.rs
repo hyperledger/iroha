@@ -9,7 +9,7 @@ use alloc::format;
 
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::parameters::DomainLimits;
-use iroha_executor::{prelude::*, DataModelBuilder};
+use iroha_executor::{prelude::*, smart_contract::query_single, DataModelBuilder};
 use iroha_executor_data_model::parameter::Parameter;
 
 #[global_allocator]
@@ -25,7 +25,7 @@ struct Executor {
 }
 
 fn visit_register_domain(executor: &mut Executor, _authority: &AccountId, isi: &Register<Domain>) {
-    let parameters = FindAllParameters.execute().unwrap().into_inner();
+    let parameters = query_single(FindParameters).dbg_unwrap();
 
     let domain_limits: DomainLimits = parameters
         .custom()

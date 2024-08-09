@@ -4,15 +4,9 @@ use eyre::{Result, WrapErr as _};
 use iroha::{
     client::{self, QueryResult},
     crypto::KeyPair,
-    data_model::{
-        account::Account,
-        prelude::*,
-        query::{
-            predicate::{string, value, PredicateBox},
-            Pagination, Sorting,
-        },
-    },
+    data_model::{account::Account, prelude::*},
 };
+use iroha_data_model::query::predicate::predicate_atoms::asset::AssetPredicateBox;
 use nonzero_ext::nonzero;
 use rand::{seq::SliceRandom, thread_rng};
 use test_network::*;
@@ -28,11 +22,11 @@ fn correct_pagination_assets_after_creating_new_one() {
     let missing_indices = vec![N_ASSETS / 2];
     let pagination = Pagination {
         limit: Some(nonzero!(N_ASSETS as u32 / 3)),
-        start: Some(nonzero!(N_ASSETS as u64 / 3)),
+        offset: Some(nonzero!(N_ASSETS as u64 / 3)),
     };
-    let xor_filter = PredicateBox::new(value::QueryOutputPredicate::Identifiable(
-        string::StringPredicate::starts_with("xor"),
-    ));
+    let xor_filter =
+        AssetPredicateBox::build(|asset| asset.id.definition_id.name.starts_with("xor"));
+
     let sort_by_metadata_key = Name::from_str("sort").expect("Valid");
     let sorting = Sorting::by_metadata_key(sort_by_metadata_key.clone());
     let account_id = ALICE_ID.clone();
@@ -80,13 +74,11 @@ fn correct_pagination_assets_after_creating_new_one() {
         .expect("Valid");
 
     let queried_assets = test_client
-        .build_query(client::asset::all())
-        .with_filter(xor_filter.clone())
+        .query(client::asset::all())
+        .filter(xor_filter.clone())
         .with_pagination(pagination)
         .with_sorting(sorting.clone())
-        .execute()
-        .expect("Valid")
-        .collect::<QueryResult<Vec<_>>>()
+        .execute_all()
         .expect("Valid");
 
     tester_assets
@@ -107,13 +99,11 @@ fn correct_pagination_assets_after_creating_new_one() {
         .expect("Valid");
 
     let queried_assets = test_client
-        .build_query(client::asset::all())
-        .with_filter(xor_filter)
+        .query(client::asset::all())
+        .filter(xor_filter)
         .with_pagination(pagination)
         .with_sorting(sorting)
-        .execute()
-        .expect("Valid")
-        .collect::<QueryResult<Vec<_>>>()
+        .execute_all()
         .expect("Valid");
 
     tester_assets
@@ -158,14 +148,10 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .build_query(client::asset::all_definitions())
+        .query(client::asset::all_definitions())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
-        .with_filter(PredicateBox::new(
-            value::QueryOutputPredicate::Identifiable(string::StringPredicate::starts_with("xor_")),
-        ))
-        .execute()
-        .expect("Valid")
-        .collect::<QueryResult<Vec<_>>>()
+        .filter_with(|asset_definition| asset_definition.id.name.starts_with("xor_"))
+        .execute_all()
         .expect("Valid");
 
     assert!(res
@@ -212,16 +198,10 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .build_query(client::account::all())
+        .query(client::account::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
-        .with_filter(PredicateBox::new(
-            value::QueryOutputPredicate::Identifiable(string::StringPredicate::ends_with(
-                domain_name,
-            )),
-        ))
-        .execute()
-        .expect("Valid")
-        .collect::<QueryResult<Vec<_>>>()
+        .filter_with(|account| account.id.domain_id.eq(domain_id))
+        .execute_all()
         .expect("Valid");
 
     assert!(res.iter().map(Identifiable::id).eq(accounts.iter().rev()));
@@ -254,16 +234,10 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .build_query(client::domain::all())
+        .query(client::domain::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
-        .with_filter(PredicateBox::new(
-            value::QueryOutputPredicate::Identifiable(string::StringPredicate::starts_with(
-                "neverland",
-            )),
-        ))
-        .execute()
-        .expect("Valid")
-        .collect::<QueryResult<Vec<_>>>()
+        .filter_with(|domain| domain.id.name.starts_with("neverland"))
+        .execute_all()
         .expect("Valid");
 
     assert!(res.iter().map(Identifiable::id).eq(domains.iter().rev()));
@@ -293,13 +267,10 @@ fn correct_sorting_of_entities() {
         .submit_all_blocking(instructions)
         .expect("Valid");
 
-    let filter = PredicateBox::new(value::QueryOutputPredicate::Identifiable(
-        string::StringPredicate::starts_with("neverland_"),
-    ));
     let res = test_client
-        .build_query(client::domain::all())
+        .query(client::domain::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key))
-        .with_filter(filter)
+        .filter_with(|domain| domain.id.name.starts_with("neverland_"))
         .execute()
         .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
@@ -363,16 +334,11 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
         .wrap_err("Failed to register accounts")?;
 
     let res = test_client
-        .build_query(client::account::all())
+        .query(client::account::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key))
-        .with_filter(PredicateBox::new(
-            value::QueryOutputPredicate::Identifiable(string::StringPredicate::ends_with(
-                TEST_DOMAIN,
-            )),
-        ))
-        .execute()
-        .wrap_err("Failed to submit request")?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .filter_with(|account| account.id.domain_id.eq(domain_id))
+        .execute_all()
+        .wrap_err("Failed to submit request")?;
 
     let accounts = accounts_a.iter().rev().chain(accounts_b.iter());
     assert!(res.iter().map(Identifiable::id).eq(accounts));

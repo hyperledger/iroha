@@ -4,7 +4,7 @@ pub mod client;
 pub mod config;
 pub mod http;
 mod http_default;
-mod query_builder;
+pub mod query;
 
 pub mod samples {
     //! Module containing sample configurations for tests and benchmarks.

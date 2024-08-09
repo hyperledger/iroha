@@ -2,7 +2,7 @@ use std::str::FromStr as _;
 
 use eyre::Result;
 use iroha::{
-    client::ClientQueryError,
+    client::QueryError,
     data_model::{prelude::*, query::error::QueryExecutionFail},
 };
 use test_network::*;
@@ -22,19 +22,20 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
         client.build_transaction(WasmSmartContract::from_compiled(wasm), Metadata::default());
     client.submit_transaction_blocking(&transaction)?;
 
-    let metadata_value: JsonString = client.request(FindAccountKeyValueByIdAndKey::new(
+    let metadata_value: JsonString = client.query_single(FindAccountMetadata::new(
         client.account.clone(),
         Name::from_str("cursor").unwrap(),
     ))?;
     let asset_cursor = metadata_value.try_into_any()?;
 
+    // here we are breaking the abstraction preventing us from using a cursor we pulled from the metadata
     let err = client
-        .request_with_cursor::<Vec<Asset>>(asset_cursor)
+        .raw_continue_iterable_query(asset_cursor)
         .expect_err("Request with cursor from smart contract should fail");
 
     assert!(matches!(
         err,
-        ClientQueryError::Validation(ValidationFail::QueryFailed(
+        QueryError::Validation(ValidationFail::QueryFailed(
             QueryExecutionFail::UnknownCursor
         ))
     ));

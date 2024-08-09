@@ -1,10 +1,7 @@
 use std::{collections::HashSet, str::FromStr as _};
 
 use eyre::Result;
-use iroha::{
-    client::{self, QueryResult},
-    data_model::prelude::*,
-};
+use iroha::{client, data_model::prelude::*};
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
 
@@ -19,8 +16,10 @@ fn find_accounts_with_asset() -> Result<()> {
     test_client.submit_blocking(Register::asset_definition(asset_definition.clone()))?;
 
     // Checking results before all
-    let received_asset_definition =
-        test_client.request(client::asset::definition_by_id(definition_id.clone()))?;
+    let received_asset_definition = test_client
+        .query(client::asset::all_definitions())
+        .filter_with(|asset_definition| asset_definition.id.eq(definition_id.clone()))
+        .execute_single()?;
 
     assert_eq!(received_asset_definition.id(), asset_definition.id());
     assert!(matches!(
@@ -56,8 +55,10 @@ fn find_accounts_with_asset() -> Result<()> {
     let accounts = HashSet::from(accounts);
 
     // Checking results
-    let received_asset_definition =
-        test_client.request(client::asset::definition_by_id(definition_id.clone()))?;
+    let received_asset_definition = test_client
+        .query(client::asset::all_definitions())
+        .filter_with(|asset_definition| asset_definition.id.eq(definition_id.clone()))
+        .execute_single()?;
 
     assert_eq!(received_asset_definition.id(), asset_definition.id());
     assert_eq!(
@@ -66,8 +67,8 @@ fn find_accounts_with_asset() -> Result<()> {
     );
 
     let found_accounts = test_client
-        .request(client::account::all_with_asset(definition_id))?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .query(client::account::all_with_asset(definition_id))
+        .execute_all()?;
     let found_ids = found_accounts
         .into_iter()
         .map(|account| account.id().clone())

@@ -14,8 +14,7 @@ use iroha_data_model::{
         SignedBlock,
     },
     prelude::*,
-    query::{http, QueryOutputBox, QueryRequest},
-    BatchedResponse,
+    query::{QueryRequestWithAuthority, QueryResponse, SignedQuery},
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
@@ -53,22 +52,19 @@ pub async fn handle_transaction(
 pub async fn handle_queries(
     live_query_store: LiveQueryStoreHandle,
     state: Arc<State>,
-    query_request: http::ClientQueryRequest,
-) -> Result<Scale<BatchedResponse<QueryOutputBox>>> {
+    query: SignedQuery,
+) -> Result<Scale<QueryResponse>> {
     let handle = task::spawn_blocking(move || {
         let state_view = state.view();
-        match query_request.0 {
-            QueryRequest::Query(signed_query) => {
-                let valid_query = ValidQueryRequest::validate(signed_query, &state_view)?;
-                let query_output = valid_query.execute_and_process(&state_view)?;
-                live_query_store
-                    .handle_query_output(query_output, valid_query.authority())
-                    .map_err(ValidationFail::from)
-            }
-            QueryRequest::Cursor(cursor) => live_query_store
-                .handle_query_cursor(cursor)
-                .map_err(ValidationFail::from),
-        }
+
+        let SignedQuery::V1(query) = query;
+        let query: QueryRequestWithAuthority = query.payload;
+        let authority = query.authority.clone();
+
+        let valid_query = ValidQueryRequest::validate_for_client(query, &state_view)?;
+        let response = valid_query.execute(&live_query_store, &state_view, &authority)?;
+
+        Ok::<_, ValidationFail>(response)
     });
     handle
         .await

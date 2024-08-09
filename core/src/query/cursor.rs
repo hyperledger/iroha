@@ -1,34 +1,84 @@
 //! Module with cursor-based pagination functional like [`Batched`].
 
-use std::num::{NonZeroU32, NonZeroU64};
+use std::{
+    fmt::Debug,
+    num::{NonZeroU32, NonZeroU64},
+};
 
 use derive_more::Display;
+use iroha_data_model::query::QueryOutputBatchBox;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-/// Trait for iterators that can be batched.
-pub trait Batch: IntoIterator + Sized {
-    /// Pack iterator into batches of the given size.
-    fn batched(self, fetch_size: NonZeroU32) -> Batched<Self>;
+trait BatchedTrait {
+    fn next_batch(
+        &mut self,
+        cursor: u64,
+    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor>;
 }
 
-impl<I: IntoIterator> Batch for I {
-    fn batched(self, batch_size: NonZeroU32) -> Batched<Self> {
-        Batched {
-            iter: self.into_iter(),
-            batch_size,
-            cursor: Some(0),
-        }
-    }
-}
-
-/// Paginated [`Iterator`].
-/// Not recommended to use directly, only use in iterator chains.
-#[derive(Debug)]
-pub struct Batched<I: IntoIterator> {
-    iter: I::IntoIter,
+struct BatchedInner<I> {
+    iter: I,
     batch_size: NonZeroU32,
     cursor: Option<u64>,
+}
+
+impl<I> BatchedTrait for BatchedInner<I>
+where
+    I: Iterator,
+    QueryOutputBatchBox: From<Vec<I::Item>>,
+{
+    fn next_batch(
+        &mut self,
+        cursor: u64,
+    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor> {
+        let Some(server_cursor) = self.cursor else {
+            // the server is done with the iterator
+            return Err(UnknownCursor);
+        };
+
+        if cursor != server_cursor {
+            // the cursor doesn't match
+            return Err(UnknownCursor);
+        }
+
+        let expected_batch_size: usize = self
+            .batch_size
+            .get()
+            .try_into()
+            .expect("`u32` should always fit into `usize`");
+
+        let mut current_batch_size = 0;
+        let batch: Vec<I::Item> = self
+            .iter
+            .by_ref()
+            .inspect(|_| current_batch_size += 1)
+            .take(
+                self.batch_size
+                    .get()
+                    .try_into()
+                    .expect("`u32` should always fit into `usize`"),
+            )
+            .collect();
+        let batch = batch.into();
+
+        // did we get enough elements to continue?
+        if current_batch_size >= expected_batch_size {
+            self.cursor = Some(
+                cursor
+                    .checked_add(current_batch_size as u64)
+                    .expect("Cursor size should never reach the platform limit"),
+            );
+        } else {
+            self.cursor = None;
+        }
+
+        Ok((
+            batch,
+            self.cursor
+                .map(|cursor| NonZeroU64::new(cursor).expect("Cursor is never 0")),
+        ))
+    }
 }
 
 /// Unknown cursor error.
@@ -38,54 +88,47 @@ pub struct Batched<I: IntoIterator> {
 #[display(fmt = "Unknown cursor")]
 pub struct UnknownCursor;
 
-impl<I: IntoIterator + FromIterator<I::Item>> Batched<I> {
-    pub(crate) fn next_batch(
-        &mut self,
-        cursor: Option<u64>,
-    ) -> Result<(I, Option<NonZeroU64>), UnknownCursor> {
-        if cursor != self.cursor {
-            return Err(UnknownCursor);
+/// A query output iterator that combines batching and type erasure.
+pub struct QueryBatchedErasedIterator {
+    inner: Box<dyn BatchedTrait + Send + Sync>,
+}
+
+impl Debug for QueryBatchedErasedIterator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QueryBatchedErasedIterator").finish()
+    }
+}
+
+impl QueryBatchedErasedIterator {
+    /// Creates a new batched iterator. Boxes the inner iterator to erase its type.
+    pub fn new<I>(iter: I, batch_size: NonZeroU32) -> Self
+    where
+        I: Iterator + Send + Sync + 'static,
+        QueryOutputBatchBox: From<Vec<I::Item>>,
+    {
+        Self {
+            inner: Box::new(BatchedInner {
+                iter,
+                batch_size,
+                cursor: Some(0),
+            }),
         }
-
-        let mut batch_size = 0;
-        let batch: I = self
-            .iter
-            .by_ref()
-            .inspect(|_| batch_size += 1)
-            .take(
-                self.batch_size
-                    .get()
-                    .try_into()
-                    .expect("`u32` should always fit into `usize`"),
-            )
-            .collect();
-
-        self.cursor = if let Some(cursor) = self.cursor {
-            if batch_size >= self.batch_size.get() {
-                let batch_size = self.batch_size.get().into();
-                Some(
-                    cursor
-                        .checked_add(batch_size)
-                        .expect("Cursor size should never reach the platform limit"),
-                )
-            } else {
-                None
-            }
-        } else if batch_size >= self.batch_size.get() {
-            Some(self.batch_size.get().into())
-        } else {
-            None
-        };
-
-        Ok((
-            batch,
-            self.cursor
-                .map(|cursor| NonZeroU64::new(cursor).expect("Cursor is never 0")),
-        ))
     }
 
-    /// Check if all values where drained from the iterator.
-    pub fn is_depleted(&self) -> bool {
-        self.cursor.is_none()
+    /// Gets the next batch of results.
+    ///
+    /// Checks if the cursor matches the server's cursor.
+    ///
+    /// Returns the batch and the next cursor if the query iterator is not drained.
+    ///
+    /// # Errors
+    ///
+    /// - The cursor doesn't match the server's cursor.
+    /// - The iterator is drained.
+    pub fn next_batch(
+        &mut self,
+        cursor: u64,
+    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor> {
+        self.inner.next_batch(cursor)
     }
 }

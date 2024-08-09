@@ -1,4 +1,4 @@
-//! Smart contract which executes [`FindAllAssets`] and saves cursor to the owner's metadata.
+//! Smart contract which executes [`FindAssets`] and saves cursor to the owner's metadata.
 
 #![no_std]
 
@@ -7,14 +7,10 @@ extern crate panic_halt;
 
 extern crate alloc;
 
-use alloc::{collections::BTreeSet, string::ToString, vec::Vec};
+use alloc::collections::BTreeSet;
 
 use dlmalloc::GlobalDlmalloc;
-use iroha_smart_contract::{
-    data_model::query::predicate::{string::StringPredicate, value::QueryOutputPredicate},
-    prelude::*,
-    QueryOutputCursor,
-};
+use iroha_smart_contract::{prelude::*, query};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -24,8 +20,10 @@ getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
 /// Create two asset definitions in the looking_glass domain, query all asset definitions, filter them to only be in the looking_glass domain, check that the results are consistent
 #[iroha_smart_contract::main]
 fn main(_owner: AccountId) {
+    let domain_id: DomainId = "looking_glass".parse().unwrap();
+
     // create the "looking_glass" domain
-    Register::domain(Domain::new("looking_glass".parse().unwrap()))
+    Register::domain(Domain::new(domain_id.clone()))
         .execute()
         .dbg_unwrap();
 
@@ -48,10 +46,8 @@ fn main(_owner: AccountId) {
     .dbg_unwrap();
 
     // genesis registers some more asset definitions, but we apply a filter to find only the ones from the `looking_glass` domain
-    let cursor: QueryOutputCursor<Vec<AssetDefinition>> = FindAllAssetsDefinitions
-        .filter(QueryOutputPredicate::Identifiable(
-            StringPredicate::EndsWith("#looking_glass".to_string()),
-        ))
+    let cursor = query(FindAssetsDefinitions)
+        .filter_with(|asset_definition| asset_definition.id.domain_id.eq(domain_id))
         .execute()
         .dbg_unwrap();
 

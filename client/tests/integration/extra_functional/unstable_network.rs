@@ -1,7 +1,7 @@
 use std::thread;
 
 use iroha::{
-    client::{self, QueryResult},
+    client,
     data_model::{
         parameter::{BlockParameter, Parameter},
         prelude::*,
@@ -105,19 +105,17 @@ fn unstable_network(
         thread::sleep(pipeline_time);
 
         iroha
-            .poll_request_with_period(
-                client::asset::by_account_id(account_id.clone()),
-                Config::pipeline_time(),
-                4,
-                |result| {
-                    let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+            .poll_with_period(Config::pipeline_time(), 4, |client| {
+                let assets = client
+                    .query(client::asset::all())
+                    .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+                    .execute_all()?;
 
-                    assets.iter().any(|asset| {
-                        *asset.id().definition() == asset_definition_id
-                            && *asset.value() == AssetValue::Numeric(account_has_quantity)
-                    })
-                },
-            )
+                Ok(assets.iter().any(|asset| {
+                    *asset.id().definition() == asset_definition_id
+                        && *asset.value() == AssetValue::Numeric(account_has_quantity)
+                }))
+            })
             .expect("Test case failure.");
 
         // Return all peers to normal function.

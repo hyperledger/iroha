@@ -8,7 +8,7 @@ use alloc::collections::BTreeSet;
 
 use data_model::{executor::Result, ValidationFail};
 #[cfg(not(test))]
-use data_model::{prelude::*, smart_contract::payloads};
+use data_model::{prelude::*, query::AnyQueryBox, smart_contract::payloads};
 use iroha_executor_data_model::{parameter::Parameter, permission::Permission};
 use iroha_schema::{Ident, MetaMap};
 pub use iroha_smart_contract as smart_contract;
@@ -61,7 +61,7 @@ pub fn get_validate_instruction_payload() -> payloads::Validate<InstructionBox> 
 /// Host side will generate a trap if this function was called not from a
 /// executor `validate_query()` entrypoint.
 #[cfg(not(test))]
-pub fn get_validate_query_payload() -> payloads::Validate<QueryBox> {
+pub fn get_validate_query_payload() -> payloads::Validate<AnyQueryBox> {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
     unsafe { decode_with_length_prefix_from_raw(host::get_validate_query_payload()) }
 }
@@ -251,10 +251,12 @@ impl DataModelBuilder {
     /// Set the data model of the executor via [`set_data_model`]
     #[cfg(not(test))]
     pub fn build_and_set(self) {
-        use crate::smart_contract::{ExecuteOnHost as _, ExecuteQueryOnHost as _};
+        use iroha_smart_contract::query;
 
-        let all_accounts = FindAllAccounts::new().execute().unwrap();
-        let all_roles = FindAllRoles::new().execute().unwrap();
+        use crate::smart_contract::ExecuteOnHost as _;
+
+        let all_accounts = query(FindAccounts::new()).execute().unwrap();
+        let all_roles = query(FindRoles::new()).execute().unwrap();
 
         for role in all_roles.into_iter().map(|role| role.unwrap()) {
             for permission in role.permissions() {
@@ -267,7 +269,7 @@ impl DataModelBuilder {
         }
 
         for account in all_accounts.into_iter().map(|account| account.unwrap()) {
-            let account_permissions = FindPermissionsByAccountId::new(account.id().clone())
+            let account_permissions = query(FindPermissionsByAccountId::new(account.id().clone()))
                 .execute()
                 .unwrap()
                 .into_iter();

@@ -5,7 +5,7 @@ use iroha_data_model::{
     account::AccountId,
     executor as data_model_executor,
     isi::InstructionBox,
-    query::QueryBox,
+    query::{AnyQueryBox, QueryRequest},
     transaction::{Executable, SignedTransaction},
     ValidationFail,
 };
@@ -201,9 +201,18 @@ impl Executor {
         &self,
         state_ro: &S,
         authority: &AccountId,
-        query: QueryBox,
+        query: &QueryRequest,
     ) -> Result<(), ValidationFail> {
         trace!("Running query validation");
+
+        let query = match query {
+            QueryRequest::Singular(singular) => AnyQueryBox::Singular(singular.clone()),
+            QueryRequest::Start(iterable) => AnyQueryBox::Iterable(iterable.clone()),
+            QueryRequest::Continue(_) => {
+                // The iterable query was already validated when it started
+                return Ok(());
+            }
+        };
 
         match self {
             Self::Initial => Ok(()),

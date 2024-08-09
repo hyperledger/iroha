@@ -2,7 +2,7 @@ use std::{str::FromStr as _, thread, time::Duration};
 
 use eyre::Result;
 use iroha::{
-    client::{self, Client, QueryResult},
+    client::{self, Client},
     crypto::KeyPair,
     data_model::{
         permission::Permission, prelude::*, role::RoleId,
@@ -62,9 +62,9 @@ fn check_no_blocks(test_client: &Client) {
 
 fn get_assets(iroha: &Client, id: &AccountId) -> Vec<Asset> {
     iroha
-        .request(client::asset::by_account_id(id.clone()))
-        .expect("Failed to execute request.")
-        .collect::<QueryResult<Vec<_>>>()
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(id.clone()))
+        .execute_all()
         .expect("Failed to execute request.")
 }
 
@@ -188,11 +188,17 @@ fn account_can_query_only_its_own_domain() -> Result<()> {
     client.submit_blocking(register_domain)?;
 
     // Alice can query the domain in which her account exists.
-    assert!(client.request(client::domain::by_id(domain_id)).is_ok());
+    assert!(client
+        .query(client::domain::all())
+        .filter_with(|domain| domain.id.eq(domain_id))
+        .execute_single()
+        .is_ok());
 
     // Alice cannot query other domains.
     assert!(client
-        .request(client::domain::by_id(new_domain_id))
+        .query(client::domain::all())
+        .filter_with(|domain| domain.id.eq(new_domain_id))
+        .execute_single()
         .is_err());
     Ok(())
 }
@@ -396,8 +402,8 @@ fn associated_permissions_removed_on_unregister() {
 
     // check that bob indeed have granted permission
     assert!(iroha
-        .request(client::permission::by_account_id(bob_id.clone()))
-        .and_then(std::iter::Iterator::collect::<QueryResult<Vec<Permission>>>)
+        .query(client::permission::by_account_id(bob_id.clone()))
+        .execute_all()
         .expect("failed to get permissions for bob")
         .into_iter()
         .any(|permission| {
@@ -412,8 +418,8 @@ fn associated_permissions_removed_on_unregister() {
 
     // check that permission is removed from bob
     assert!(!iroha
-        .request(client::permission::by_account_id(bob_id))
-        .and_then(std::iter::Iterator::collect::<QueryResult<Vec<Permission>>>)
+        .query(client::permission::by_account_id(bob_id))
+        .execute_all()
         .expect("failed to get permissions for bob")
         .into_iter()
         .any(|permission| {
@@ -445,12 +451,13 @@ fn associated_permissions_removed_from_role_on_unregister() {
 
     // check that role indeed have permission
     assert!(iroha
-        .request(client::role::by_id(role_id.clone()))
-        .map(|role| role.permissions().cloned().collect::<Vec<_>>())
-        .expect("failed to get permissions for role")
-        .into_iter()
+        .query(client::role::all())
+        .filter_with(|role| role.id.eq(role_id.clone()))
+        .execute_single()
+        .expect("failed to get role")
+        .permissions()
         .any(|permission| {
-            CanSetKeyValueInDomain::try_from(&permission)
+            CanSetKeyValueInDomain::try_from(permission)
                 .is_ok_and(|permission| permission == set_kv_in_domain)
         }));
 
@@ -461,12 +468,13 @@ fn associated_permissions_removed_from_role_on_unregister() {
 
     // check that permission is removed from role
     assert!(!iroha
-        .request(client::role::by_id(role_id.clone()))
-        .map(|role| role.permissions().cloned().collect::<Vec<_>>())
-        .expect("failed to get permissions for role")
-        .into_iter()
+        .query(client::role::all())
+        .filter_with(|role| role.id.eq(role_id.clone()))
+        .execute_single()
+        .expect("failed to get role")
+        .permissions()
         .any(|permission| {
-            CanSetKeyValueInDomain::try_from(&permission)
+            CanSetKeyValueInDomain::try_from(permission)
                 .is_ok_and(|permission| permission == set_kv_in_domain)
         }));
 }

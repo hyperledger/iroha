@@ -2928,6 +2928,7 @@ dependencies = [
  "iroha_primitives",
  "json5",
  "once_cell",
+ "serde",
  "serde_json",
  "supports-color 2.1.0",
  "thiserror",
@@ -3426,6 +3427,7 @@ name = "iroha_smart_contract"
 version = "2.0.0-rc.1.0"
 dependencies = [
  "derive_more",
+ "displaydoc",
  "getrandom",
  "iroha_data_model",
  "iroha_macro",

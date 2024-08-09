@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use eyre::Result;
 use iroha::{
-    client::{self, Client, QueryResult},
+    client::{self, Client},
     data_model::{
         asset::AssetId,
         events::pipeline::{BlockEventFilter, BlockStatus},
@@ -127,7 +127,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
     let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
 
-    let init_quantity = test_client.request(FindAssetQuantityById {
+    let init_quantity = test_client.query_single(FindAssetQuantityById {
         id: asset_id.clone(),
     })?;
 
@@ -148,7 +148,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
 
     // Schedule start is in the future so trigger isn't executed after creating a new block
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
-    let after_registration_quantity = test_client.request(FindAssetQuantityById {
+    let after_registration_quantity = test_client.query_single(FindAssetQuantityById {
         id: asset_id.clone(),
     })?;
     assert_eq!(init_quantity, after_registration_quantity);
@@ -157,7 +157,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
     std::thread::sleep(default_consensus_estimation());
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
 
-    let after_wait_quantity = test_client.request(FindAssetQuantityById {
+    let after_wait_quantity = test_client.query_single(FindAssetQuantityById {
         id: asset_id.clone(),
     })?;
     // Schedule is in the past now so trigger is executed
@@ -287,8 +287,9 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         let start_pattern = "nft_number_";
         let end_pattern = format!("_for_{}#{}", account_id.signatory(), account_id.domain());
         let assets = test_client
-            .request(client::asset::by_account_id(account_id.clone()))?
-            .collect::<QueryResult<Vec<_>>>()?;
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+            .execute_all()?;
         let count: u64 = assets
             .into_iter()
             .filter(|asset| {
@@ -318,7 +319,11 @@ fn get_block_committed_event_listener(
 
 /// Get asset numeric value
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
-    let asset = client.request(client::asset::by_id(asset_id)).unwrap();
+    let asset = client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.eq(asset_id))
+        .execute_single()
+        .unwrap();
 
     let AssetValue::Numeric(val) = *asset.value() else {
         panic!("Unexpected asset value");

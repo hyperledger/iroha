@@ -3,7 +3,11 @@
 
 use iroha_primitives::numeric::Numeric;
 
-use crate::{isi::Log, prelude::*};
+use crate::{
+    isi::Log,
+    prelude::*,
+    query::{AnyQueryBox, QueryWithFilterFor, QueryWithParams, SingularQueryBox},
+};
 
 macro_rules! delegate {
     ( $($visitor:ident $(<$param:ident $(: $bound:path)?>)?($operation:ty)),+ $(,)? ) => { $(
@@ -24,7 +28,9 @@ pub trait Visit {
         visit_transaction(&SignedTransaction),
         visit_instruction(&InstructionBox),
         visit_wasm(&WasmSmartContract),
-        visit_query(&QueryBox),
+        visit_query(&AnyQueryBox),
+        visit_singular_query(&SingularQueryBox),
+        visit_iter_query(&QueryWithParams),
 
         // Visit InstructionBox
         visit_burn(&BurnBox),
@@ -43,47 +49,36 @@ pub trait Visit {
         visit_log(&Log),
         visit_custom(&CustomInstruction),
 
-        // Visit QueryBox
-        visit_find_account_by_id(&FindAccountById),
-        visit_find_account_key_value_by_id_and_key(&FindAccountKeyValueByIdAndKey),
-        visit_find_accounts_by_domain_id(&FindAccountsByDomainId),
-        visit_find_accounts_with_asset(&FindAccountsWithAsset),
-        visit_find_all_accounts(&FindAllAccounts),
-        visit_find_all_active_trigger_ids(&FindAllActiveTriggerIds),
-        visit_find_all_assets(&FindAllAssets),
-        visit_find_all_assets_definitions(&FindAllAssetsDefinitions),
-        visit_find_all_block_headers(&FindAllBlockHeaders),
-        visit_find_all_blocks(&FindAllBlocks),
-        visit_find_all_domains(&FindAllDomains),
-        visit_find_all_parameters(&FindAllParameters),
-        visit_find_all_peers(&FindAllPeers),
-        visit_find_executor_data_model(&FindExecutorDataModel),
-        visit_find_all_role_ids(&FindAllRoleIds),
-        visit_find_all_roles(&FindAllRoles),
-        visit_find_all_transactions(&FindAllTransactions),
-        visit_find_asset_by_id(&FindAssetById),
-        visit_find_asset_definition_by_id(&FindAssetDefinitionById),
-        visit_find_asset_definition_key_value_by_id_and_key(&FindAssetDefinitionKeyValueByIdAndKey),
-        visit_find_asset_key_value_by_id_and_key(&FindAssetKeyValueByIdAndKey),
+        // Visit SingularQueryBox
         visit_find_asset_quantity_by_id(&FindAssetQuantityById),
-        visit_find_assets_by_account_id(&FindAssetsByAccountId),
-        visit_find_assets_by_asset_definition_id(&FindAssetsByAssetDefinitionId),
-        visit_find_assets_by_domain_id(&FindAssetsByDomainId),
-        visit_find_assets_by_domain_id_and_asset_definition_id(&FindAssetsByDomainIdAndAssetDefinitionId),
-        visit_find_assets_by_name(&FindAssetsByName),
-        visit_find_block_header_by_hash(&FindBlockHeaderByHash),
-        visit_find_domain_by_id(&FindDomainById),
-        visit_find_domain_key_value_by_id_and_key(&FindDomainKeyValueByIdAndKey),
-        visit_find_permissions_by_account_id(&FindPermissionsByAccountId),
-        visit_find_role_by_role_id(&FindRoleByRoleId),
-        visit_find_roles_by_account_id(&FindRolesByAccountId),
+        visit_find_executor_data_model(&FindExecutorDataModel),
+        visit_find_parameters(&FindParameters),
         visit_find_total_asset_quantity_by_asset_definition_id(&FindTotalAssetQuantityByAssetDefinitionId),
-        visit_find_transaction_by_hash(&FindTransactionByHash),
-        visit_find_transactions_by_account_id(&FindTransactionsByAccountId),
         visit_find_trigger_by_id(&FindTriggerById),
-        visit_find_trigger_key_value_by_id_and_key(&FindTriggerKeyValueByIdAndKey),
-        visit_find_triggers_by_authority_id(&FindTriggersByAuthorityId),
-        visit_find_triggers_by_authority_domain_id(&FindTriggersByAuthorityDomainId),
+        visit_find_domain_metadata(&FindDomainMetadata),
+        visit_find_account_metadata(&FindAccountMetadata),
+        visit_find_asset_metadata(&FindAssetMetadata),
+        visit_find_asset_definition_metadata(&FindAssetDefinitionMetadata),
+        visit_find_trigger_metadata(&FindTriggerMetadata),
+        visit_find_transaction_by_hash(&FindTransactionByHash),
+        visit_find_block_header_by_hash(&FindBlockHeaderByHash),
+
+        // Visit IterableQueryBox
+        visit_find_domains(&QueryWithFilterFor<FindDomains>),
+        visit_find_accounts(&QueryWithFilterFor<FindAccounts>),
+        visit_find_assets(&QueryWithFilterFor<FindAssets>),
+        visit_find_assets_definitions(&QueryWithFilterFor<FindAssetsDefinitions>),
+        visit_find_roles(&QueryWithFilterFor<FindRoles>),
+        visit_find_role_ids(&QueryWithFilterFor<FindRoleIds>),
+        visit_find_permissions_by_account_id(&QueryWithFilterFor<FindPermissionsByAccountId>),
+        visit_find_roles_by_account_id(&QueryWithFilterFor<FindRolesByAccountId>),
+        visit_find_transactions_by_account_id(&QueryWithFilterFor<FindTransactionsByAccountId>),
+        visit_find_accounts_with_asset(&QueryWithFilterFor<FindAccountsWithAsset>),
+        visit_find_peers(&QueryWithFilterFor<FindPeers>),
+        visit_find_active_trigger_ids(&QueryWithFilterFor<FindActiveTriggerIds>),
+        visit_find_transactions(&QueryWithFilterFor<FindTransactions>),
+        visit_find_blocks(&QueryWithFilterFor<FindBlocks>),
+        visit_find_block_headers(&QueryWithFilterFor<FindBlockHeaders>),
 
         // Visit RegisterBox
         visit_register_peer(&Register<Peer>),
@@ -159,57 +154,71 @@ pub fn visit_transaction<V: Visit + ?Sized>(
     }
 }
 
-/// Default validation for [`QueryBox`].
-pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, query: &QueryBox) {
-    macro_rules! query_visitors {
+pub fn visit_singular_query<V: Visit + ?Sized>(
+    visitor: &mut V,
+    authority: &AccountId,
+    query: &SingularQueryBox,
+) {
+    macro_rules! singular_query_visitors {
         ( $($visitor:ident($query:ident)),+ $(,)? ) => {
             match query { $(
+                SingularQueryBox::$query(query) => visitor.$visitor(authority, &query), )+
+            }
+        };
+    }
+
+    singular_query_visitors! {
+        visit_find_asset_quantity_by_id(FindAssetQuantityById),
+        visit_find_executor_data_model(FindExecutorDataModel),
+        visit_find_parameters(FindParameters),
+        visit_find_total_asset_quantity_by_asset_definition_id(FindTotalAssetQuantityByAssetDefinitionId),
+        visit_find_trigger_by_id(FindTriggerById),
+        visit_find_domain_metadata(FindDomainMetadata),
+        visit_find_account_metadata(FindAccountMetadata),
+        visit_find_asset_metadata(FindAssetMetadata),
+        visit_find_asset_definition_metadata(FindAssetDefinitionMetadata),
+        visit_find_trigger_metadata(FindTriggerMetadata),
+        visit_find_transaction_by_hash(FindTransactionByHash),
+        visit_find_block_header_by_hash(FindBlockHeaderByHash),
+    }
+}
+
+pub fn visit_iter_query<V: Visit + ?Sized>(
+    visitor: &mut V,
+    authority: &AccountId,
+    query: &QueryWithParams,
+) {
+    macro_rules! iterable_query_visitors {
+        ( $($visitor:ident($query:ident)),+ $(,)? ) => {
+            match &query.query { $(
                 QueryBox::$query(query) => visitor.$visitor(authority, &query), )+
             }
         };
     }
 
-    query_visitors! {
-        visit_find_account_by_id(FindAccountById),
-        visit_find_account_key_value_by_id_and_key(FindAccountKeyValueByIdAndKey),
-        visit_find_accounts_by_domain_id(FindAccountsByDomainId),
-        visit_find_accounts_with_asset(FindAccountsWithAsset),
-        visit_find_all_accounts(FindAllAccounts),
-        visit_find_all_active_trigger_ids(FindAllActiveTriggerIds),
-        visit_find_all_assets(FindAllAssets),
-        visit_find_all_assets_definitions(FindAllAssetsDefinitions),
-        visit_find_all_block_headers(FindAllBlockHeaders),
-        visit_find_all_blocks(FindAllBlocks),
-        visit_find_all_domains(FindAllDomains),
-        visit_find_all_parameters(FindAllParameters),
-        visit_find_all_peers(FindAllPeers),
-        visit_find_executor_data_model(FindExecutorDataModel),
-        visit_find_all_role_ids(FindAllRoleIds),
-        visit_find_all_roles(FindAllRoles),
-        visit_find_all_transactions(FindAllTransactions),
-        visit_find_asset_by_id(FindAssetById),
-        visit_find_asset_definition_by_id(FindAssetDefinitionById),
-        visit_find_asset_definition_key_value_by_id_and_key(FindAssetDefinitionKeyValueByIdAndKey),
-        visit_find_asset_key_value_by_id_and_key(FindAssetKeyValueByIdAndKey),
-        visit_find_asset_quantity_by_id(FindAssetQuantityById),
-        visit_find_assets_by_account_id(FindAssetsByAccountId),
-        visit_find_assets_by_asset_definition_id(FindAssetsByAssetDefinitionId),
-        visit_find_assets_by_domain_id(FindAssetsByDomainId),
-        visit_find_assets_by_domain_id_and_asset_definition_id(FindAssetsByDomainIdAndAssetDefinitionId),
-        visit_find_assets_by_name(FindAssetsByName),
-        visit_find_block_header_by_hash(FindBlockHeaderByHash),
-        visit_find_domain_by_id(FindDomainById),
-        visit_find_domain_key_value_by_id_and_key(FindDomainKeyValueByIdAndKey),
+    iterable_query_visitors! {
+        visit_find_domains(FindDomains),
+        visit_find_accounts(FindAccounts),
+        visit_find_assets(FindAssets),
+        visit_find_assets_definitions(FindAssetsDefinitions),
+        visit_find_roles(FindRoles),
+        visit_find_role_ids(FindRoleIds),
         visit_find_permissions_by_account_id(FindPermissionsByAccountId),
-        visit_find_role_by_role_id(FindRoleByRoleId),
         visit_find_roles_by_account_id(FindRolesByAccountId),
-        visit_find_total_asset_quantity_by_asset_definition_id(FindTotalAssetQuantityByAssetDefinitionId),
-        visit_find_transaction_by_hash(FindTransactionByHash),
         visit_find_transactions_by_account_id(FindTransactionsByAccountId),
-        visit_find_trigger_by_id(FindTriggerById),
-        visit_find_trigger_key_value_by_id_and_key(FindTriggerKeyValueByIdAndKey),
-        visit_find_triggers_by_authority_id(FindTriggersByAuthorityId),
-        visit_find_triggers_by_authority_domain_id(FindTriggersByAuthorityDomainId),
+        visit_find_accounts_with_asset(FindAccountsWithAsset),
+        visit_find_peers(FindPeers),
+        visit_find_active_trigger_ids(FindActiveTriggerIds),
+        visit_find_transactions(FindTransactions),
+        visit_find_block_headers(FindBlockHeaders),
+        visit_find_blocks(FindBlocks),
+    }
+}
+
+pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, query: &AnyQueryBox) {
+    match query {
+        AnyQueryBox::Singular(query) => visitor.visit_singular_query(authority, query),
+        AnyQueryBox::Iterable(query) => visitor.visit_iter_query(authority, query),
     }
 }
 
@@ -427,45 +436,34 @@ leaf_visitors! {
     visit_log(&Log),
     visit_custom(&CustomInstruction),
 
-    // Query visitors
-    visit_find_account_by_id(&FindAccountById),
-    visit_find_account_key_value_by_id_and_key(&FindAccountKeyValueByIdAndKey),
-    visit_find_accounts_by_domain_id(&FindAccountsByDomainId),
-    visit_find_accounts_with_asset(&FindAccountsWithAsset),
-    visit_find_all_accounts(&FindAllAccounts),
-    visit_find_all_active_trigger_ids(&FindAllActiveTriggerIds),
-    visit_find_all_assets(&FindAllAssets),
-    visit_find_all_assets_definitions(&FindAllAssetsDefinitions),
-    visit_find_all_block_headers(&FindAllBlockHeaders),
-    visit_find_all_blocks(&FindAllBlocks),
-    visit_find_all_domains(&FindAllDomains),
-    visit_find_all_parameters(&FindAllParameters),
-    visit_find_all_peers(&FindAllPeers),
-    visit_find_executor_data_model(&FindExecutorDataModel),
-    visit_find_all_role_ids(&FindAllRoleIds),
-    visit_find_all_roles(&FindAllRoles),
-    visit_find_all_transactions(&FindAllTransactions),
-    visit_find_asset_by_id(&FindAssetById),
-    visit_find_asset_definition_by_id(&FindAssetDefinitionById),
-    visit_find_asset_definition_key_value_by_id_and_key(&FindAssetDefinitionKeyValueByIdAndKey),
-    visit_find_asset_key_value_by_id_and_key(&FindAssetKeyValueByIdAndKey),
+    // Singular Quert visitors
     visit_find_asset_quantity_by_id(&FindAssetQuantityById),
-    visit_find_assets_by_account_id(&FindAssetsByAccountId),
-    visit_find_assets_by_asset_definition_id(&FindAssetsByAssetDefinitionId),
-    visit_find_assets_by_domain_id(&FindAssetsByDomainId),
-    visit_find_assets_by_domain_id_and_asset_definition_id(&FindAssetsByDomainIdAndAssetDefinitionId),
-    visit_find_assets_by_name(&FindAssetsByName),
-    visit_find_block_header_by_hash(&FindBlockHeaderByHash),
-    visit_find_domain_by_id(&FindDomainById),
-    visit_find_domain_key_value_by_id_and_key(&FindDomainKeyValueByIdAndKey),
-    visit_find_permissions_by_account_id(&FindPermissionsByAccountId),
-    visit_find_role_by_role_id(&FindRoleByRoleId),
-    visit_find_roles_by_account_id(&FindRolesByAccountId),
+    visit_find_executor_data_model(&FindExecutorDataModel),
+    visit_find_parameters(&FindParameters),
     visit_find_total_asset_quantity_by_asset_definition_id(&FindTotalAssetQuantityByAssetDefinitionId),
-    visit_find_transaction_by_hash(&FindTransactionByHash),
-    visit_find_transactions_by_account_id(&FindTransactionsByAccountId),
     visit_find_trigger_by_id(&FindTriggerById),
-    visit_find_trigger_key_value_by_id_and_key(&FindTriggerKeyValueByIdAndKey),
-    visit_find_triggers_by_authority_id(&FindTriggersByAuthorityId),
-    visit_find_triggers_by_authority_domain_id(&FindTriggersByAuthorityDomainId),
+    visit_find_domain_metadata(&FindDomainMetadata),
+    visit_find_account_metadata(&FindAccountMetadata),
+    visit_find_asset_metadata(&FindAssetMetadata),
+    visit_find_asset_definition_metadata(&FindAssetDefinitionMetadata),
+    visit_find_trigger_metadata(&FindTriggerMetadata),
+    visit_find_transaction_by_hash(&FindTransactionByHash),
+    visit_find_block_header_by_hash(&FindBlockHeaderByHash),
+
+    // Iterable Query visitors
+    visit_find_domains(&QueryWithFilterFor<FindDomains>),
+    visit_find_accounts(&QueryWithFilterFor<FindAccounts>),
+    visit_find_assets(&QueryWithFilterFor<FindAssets>),
+    visit_find_assets_definitions(&QueryWithFilterFor<FindAssetsDefinitions>),
+    visit_find_roles(&QueryWithFilterFor<FindRoles>),
+    visit_find_role_ids(&QueryWithFilterFor<FindRoleIds>),
+    visit_find_permissions_by_account_id(&QueryWithFilterFor<FindPermissionsByAccountId>),
+    visit_find_roles_by_account_id(&QueryWithFilterFor<FindRolesByAccountId>),
+    visit_find_transactions_by_account_id(&QueryWithFilterFor<FindTransactionsByAccountId>),
+    visit_find_accounts_with_asset(&QueryWithFilterFor<FindAccountsWithAsset>),
+    visit_find_peers(&QueryWithFilterFor<FindPeers>),
+    visit_find_active_trigger_ids(&QueryWithFilterFor<FindActiveTriggerIds>),
+    visit_find_transactions(&QueryWithFilterFor<FindTransactions>),
+    visit_find_blocks(&QueryWithFilterFor<FindBlocks>),
+    visit_find_block_headers(&QueryWithFilterFor<FindBlockHeaders>),
 }
