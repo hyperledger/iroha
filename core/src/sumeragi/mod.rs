@@ -45,6 +45,7 @@ pub struct SumeragiHandle {
 impl SumeragiHandle {
     /// Deposit a sumeragi control flow network message.
     pub fn incoming_control_flow_message(&self, msg: ControlFlowMessage) {
+        trace!(ty = "ViewChangeProofChain", "Incoming message");
         if let Err(error) = self.control_message_sender.try_send(msg) {
             self.dropped_messages_metric.inc();
 
@@ -59,7 +60,19 @@ impl SumeragiHandle {
 
     /// Deposit a sumeragi network message.
     pub fn incoming_block_message(&self, msg: impl Into<BlockMessage>) {
-        if let Err(error) = self.message_sender.try_send(msg.into()) {
+        let msg = msg.into();
+        let (ty, block) = match &msg {
+            BlockMessage::BlockCommitted(BlockCommitted { hash, .. }) => ("BlockCommitted", *hash),
+            BlockMessage::BlockCreated(BlockCreated { block }) => ("BlockCreated", block.hash()),
+            BlockMessage::BlockSigned(BlockSigned { hash, .. }) => ("BlockSigned", *hash),
+            BlockMessage::BlockSyncUpdate(BlockSyncUpdate { block }) => {
+                trace!(ty="BlockSyncUpdate", block=%block.hash(), "Incoming message");
+                ("BlockSyncUpdate", block.hash())
+            }
+        };
+        trace!(ty, %block, "Incoming message");
+
+        if let Err(error) = self.message_sender.try_send(msg) {
             self.dropped_messages_metric.inc();
 
             error!(
