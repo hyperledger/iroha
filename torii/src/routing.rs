@@ -77,15 +77,8 @@ pub async fn handle_queries(
         .map_err(Into::into)
 }
 
-/// Health status
-#[derive(serde::Serialize)]
-#[non_exhaustive]
-pub enum Health {
-    Healthy,
-}
-
-pub async fn handle_health() -> Json<Health> {
-    Json(Health::Healthy)
+pub async fn handle_health() -> &'static str {
+    "Healthy"
 }
 
 #[iroha_futures::telemetry_future]
@@ -230,17 +223,15 @@ pub mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
-pub async fn handle_version(state: Arc<State>) -> Json<String> {
+pub async fn handle_version(state: Arc<State>) -> String {
     use iroha_version::Version;
 
     let state_view = state.view();
-    let string = state_view
+    state_view
         .latest_block()
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
         .version()
-        .to_string();
-
-    Json(string)
+        .to_string()
 }
 
 #[cfg(feature = "telemetry")]
