@@ -150,11 +150,10 @@ class _Peer:
         logging.info(f"Running peer {self.name}...")
 
         # FD never gets closed
-        stdout_file = open(self.peer_dir / "log.stdout", "w")
-        stderr_file = open(self.peer_dir / "log.stderr", "w")
+        log_file = open(self.peer_dir / "log.txt", "w")
         # These processes are created detached from the parent process already
         subprocess.Popen([self.name, "--config", self.config_path],
-                    executable=self.out_dir / "peers/irohad", stdout=stdout_file, stderr=stderr_file)
+                    executable=self.out_dir / "peers/irohad", stdout=log_file, stderr=log_file)
 
 def pos_int(arg):
     if int(arg) > 0:
