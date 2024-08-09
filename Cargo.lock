@@ -2870,10 +2870,12 @@ dependencies = [
  "assertables",
  "attohttpc",
  "base64 0.22.1",
+ "clap",
  "color-eyre",
  "criterion",
  "derive_more",
  "displaydoc",
+ "erased-serde",
  "error-stack",
  "executor_custom_data_model",
  "eyre",
@@ -2893,6 +2895,7 @@ dependencies = [
  "iroha_version",
  "iroha_wasm_builder",
  "irohad",
+ "json5",
  "nonzero_ext",
  "once_cell",
  "parity-scale-codec",
@@ -2900,6 +2903,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "supports-color 2.1.0",
  "tempfile",
  "test_network",
  "test_samples",
@@ -2912,25 +2916,6 @@ dependencies = [
  "trybuild",
  "tungstenite",
  "url",
-]
-
-[[package]]
-name = "iroha_client_cli"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "clap",
- "color-eyre",
- "erased-serde",
- "error-stack",
- "eyre",
- "iroha",
- "iroha_config_base",
- "iroha_primitives",
- "json5",
- "once_cell",
- "serde_json",
- "supports-color 2.1.0",
- "thiserror",
  "vergen",
 ]
 

@@ -47,6 +47,9 @@ tls-rustls-webpki-roots = [
     "tungstenite/rustls-tls-webpki-roots",
 ]
 
+# Used by the CLI.
+cli = ["clap", "json5", "erased-serde", "supports-color"]
+
 [dependencies]
 iroha_config = { workspace = true }
 iroha_config_base = { workspace = true }
@@ -82,6 +85,12 @@ futures-util = "0.3.30"
 toml = { workspace = true }
 nonzero_ext = { workspace = true }
 
+# CLI
+clap = { workspace = true, optional = true, features = ["derive"] }
+json5 = { workspace = true, optional = true }
+erased-serde = { version = "0.4.5", optional = true }
+supports-color = { workspace = true, optional = true }
+
 [dev-dependencies]
 # FIXME: These three activate `transparent_api` but client should never activate this feature.
 # Additionally there is a dependency on iroha_core in dev-dependencies in telemetry/derive
@@ -105,6 +114,16 @@ tracing-flame = "0.2.0"
 once_cell = { workspace = true }
 
 trybuild = { workspace = true }
+
+[build-dependencies]
+# CLI
+vergen = { version = "8.3.1", default-features = false }
+color-eyre = { version = "0.6.3" }
+
+[[bin]]
+name = "iroha"
+path = "src/bin/cli.rs"
+required-features = ["cli"]
 
 [[bench]]
 name = "torii"

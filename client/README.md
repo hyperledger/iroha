@@ -21,4 +21,4 @@ iroha = { git = "https://github.com/hyperledger/iroha", branch = "main" }
 
 ## Examples
 
-We highly recommend looking at the sample [`iroha`](../client_cli) implementation binary as well as our [tutorial](https://hyperledger.github.io/iroha-2-docs/guide/rust.html) for more examples and explanations.
+We highly recommend looking at the sample [`iroha`](../client/src/bin/cli.rs) implementation binary as well as our [tutorial](https://hyperledger.github.io/iroha-2-docs/guide/rust.html) for more examples and explanations.
