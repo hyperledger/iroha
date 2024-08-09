@@ -77,7 +77,9 @@ class Network:
                 logging.info(f"Error connecting to genesis peer: {e}. Sleeping 1 second...")
                 time.sleep(1)
         logging.critical(f"Genesis block wasn't created within {n_tries} seconds. Aborting...")
-        cleanup(self.out_dir)
+        cleanup(self.out_dir, True)
+        logging.critical(f"Test environment directory `{self.out_dir}` was left intact. "
+                         f"Inspect it or use `cleanup` subcommand to remove it.")
         sys.exit(2)
 
     def run(self):
@@ -241,7 +243,7 @@ def main(args: argparse.Namespace):
     if args.command == "setup":
         setup(args)
     elif args.command == "cleanup":
-        cleanup(args.out_dir)
+        cleanup(args.out_dir, False)
 
 def setup(args: argparse.Namespace):
     logging.info(f"Starting Iroha network with {args.n_peers} peers...")
@@ -254,11 +256,14 @@ def setup(args: argparse.Namespace):
 
     Network(args).run()
 
-def cleanup(out_dir: pathlib.Path):
+def cleanup(out_dir: pathlib.Path, keep_out_dir: bool):
     logging.info("Killing peer processes...")
     subprocess.run(["pkill", "-9", "iroha"])
-    logging.info(f"Cleaning up test directory `{out_dir}`...")
-    shutil.rmtree(out_dir)
+    if keep_out_dir:
+        logging.info(f"Leaving test directory `{out_dir}` as-is...")
+    else:
+        logging.info(f"Cleaning up test directory `{out_dir}`...")
+        shutil.rmtree(out_dir)
 
 
 
