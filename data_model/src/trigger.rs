@@ -1,6 +1,6 @@
 //! Structures traits and impls related to `Trigger`s.
 
-// If editing this file, consider updating `core/src/smartcontracts/isi/triggers/specialized.rs`
+// If editing this file, consider updating `iroha_core/src/smartcontracts/isi/triggers/specialized.rs`
 // It mirrors structures from this file.
 
 #[cfg(not(feature = "std"))]

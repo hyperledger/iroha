@@ -134,7 +134,7 @@ Iroha project mainly consists of the following crates:
 * [`iroha`](iroha) provides a library for building clients that communicate with peers.
 * [`irohad`](irohad) is the command-line application for deploying an Iroha peer. Contains the routing table and definitions of API endpoints.
 * [`iroha_cli`](iroha_cli) is the command-line client, a reference application using the client SDK.
-* [`iroha_core`](core) is the primary library used by all other crates, including the peer endpoint management.
+* [`iroha_core`](iroha_core) is the primary library used by all other crates, including the peer endpoint management.
 * [`iroha_config`](iroha_config) handles configuration and documentation generation for options and run-time changes.
 * [`iroha_crypto`](crypto) defines cryptographic aspects of Iroha.
 * [`kagami`](tools/kagami) is used to generate cryptographic keys, default genesis, configuration reference, and schema.

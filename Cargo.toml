@@ -14,7 +14,7 @@ keywords = ["blockchain", "crypto", "iroha", "ledger"]
 categories = ["cryptography::cryptocurrencies"]
 
 [workspace.dependencies]
-iroha_core = { version = "=2.0.0-rc.1.0 ", path = "core" }
+iroha_core = { version = "=2.0.0-rc.1.0 ", path = "iroha_core" }
 
 irohad = { version = "=2.0.0-rc.1.0", path = "irohad" }
 iroha_torii = { version = "=2.0.0-rc.1.0", path = "torii" }
@@ -47,7 +47,7 @@ iroha_smart_contract_utils = { version = "=2.0.0-rc.1.0", path = "smart_contract
 iroha_executor = { version = "=2.0.0-rc.1.0", path = "executor" }
 iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "executor/data_model" }
 
-test_network = { version = "=2.0.0-rc.1.0", path = "core/test_network" }
+test_network = { version = "=2.0.0-rc.1.0", path = "iroha_core/test_network" }
 test_samples = { version = "=2.0.0-rc.1.0", path = "test_samples" }
 
 proc-macro2 = "1.0.86"
@@ -199,8 +199,8 @@ members = [
     "iroha_cli",
     "iroha_config",
     "iroha_config/base",
-    "core",
-    "core/test_network",
+    "iroha_core",
+    "iroha_core/test_network",
     "crypto",
     "data_model",
     "genesis",
