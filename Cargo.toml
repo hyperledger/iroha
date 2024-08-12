@@ -35,7 +35,7 @@ iroha_logger = { version = "=2.0.0-rc.1.0", path = "iroha_logger" }
 iroha_crypto = { version = "=2.0.0-rc.1.0", path = "iroha_crypto", default-features = false }
 iroha_macro = { version = "=2.0.0-rc.1.0", path = "iroha_macro", default-features = false }
 iroha_futures = { version = "=2.0.0-rc.1.0", path = "iroha_futures" }
-iroha_genesis = { version = "=2.0.0-rc.1.0", path = "genesis" }
+iroha_genesis = { version = "=2.0.0-rc.1.0", path = "iroha_genesis" }
 iroha_ffi = { version = "=2.0.0-rc.1.0", path = "ffi" }
 iroha_version = { version = "=2.0.0-rc.1.0", path = "iroha_version", default-features = false }
 iroha_wasm_codec = { version = "=2.0.0-rc.1.0", path = "wasm_codec" }
@@ -203,7 +203,7 @@ members = [
     "iroha_core/test_network",
     "iroha_crypto",
     "iroha_data_model",
-    "genesis",
+    "iroha_genesis",
     "iroha_logger",
     "iroha_p2p",
     "iroha_futures",
