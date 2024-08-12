@@ -141,7 +141,7 @@ Iroha project mainly consists of the following crates:
 * [`iroha_data_model`](iroha_data_model) defines common data models in Iroha.
 * [`iroha_futures`](iroha_futures) is used for `async` programming.
 * [`iroha_logger`](iroha_logger) uses `tracing` to provide logging facilities.
-* [`iroha_macro`](macro) provides the convenience macros.
+* [`iroha_macro`](iroha_macro) provides the convenience macros.
 * [`iroha_p2p`](p2p) defines peer creation and handshake logic.
 * [`iroha_default_executor`](wasm_samples/default_executor) defines runtime validation logic.
 * [`iroha_telemetry`](telemetry) is used for monitoring and analysis of telemetry data.

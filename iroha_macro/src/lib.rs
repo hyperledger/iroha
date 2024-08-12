@@ -1,4 +1,5 @@
 //! Crate containing Iroha macros
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use iroha_derive::*;
