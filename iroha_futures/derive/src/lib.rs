@@ -1,4 +1,5 @@
-//! Crate with derive macros for futures
+//! Crate with derive macros for `iroha_futures`
+
 use iroha_macro_utils::Emitter;
 use manyhow::{emit, manyhow};
 use proc_macro2::TokenStream;

@@ -34,7 +34,7 @@ iroha_schema = { version = "=2.0.0-rc.1.0", path = "schema", default-features = 
 iroha_logger = { version = "=2.0.0-rc.1.0", path = "logger" }
 iroha_crypto = { version = "=2.0.0-rc.1.0", path = "iroha_crypto", default-features = false }
 iroha_macro = { version = "=2.0.0-rc.1.0", path = "macro", default-features = false }
-iroha_futures = { version = "=2.0.0-rc.1.0", path = "futures" }
+iroha_futures = { version = "=2.0.0-rc.1.0", path = "iroha_futures" }
 iroha_genesis = { version = "=2.0.0-rc.1.0", path = "genesis" }
 iroha_ffi = { version = "=2.0.0-rc.1.0", path = "ffi" }
 iroha_version = { version = "=2.0.0-rc.1.0", path = "version", default-features = false }
@@ -207,9 +207,8 @@ members = [
 
     "logger",
     "p2p",
-
-    "futures",
-    "futures/derive",
+    "iroha_futures",
+    "iroha_futures/derive",
 
     "primitives",
     "primitives/derive",
