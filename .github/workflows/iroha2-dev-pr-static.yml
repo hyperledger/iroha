@@ -69,8 +69,8 @@ jobs:
         run: |
           poetry lock --no-update
           poetry install
-      - name: Install dependencies using Poetry for torii/pytests
-        working-directory: torii/pytests
+      - name: Install dependencies using Poetry for iroha_torii/pytests
+        working-directory: iroha_torii/pytests
         run: |
           poetry lock --no-update
           poetry install
@@ -78,23 +78,23 @@ jobs:
         working-directory: iroha_cli/pytests
         run: |
           poetry run black --check .
-      - name: Check code formatting with Black in torii/pytests
-        working-directory: torii/pytests
+      - name: Check code formatting with Black in iroha_torii/pytests
+        working-directory: iroha_torii/pytests
         run: |
           poetry run black --check .
       - name: Run mypy (Type Checker) in iroha_cli/pytests
         working-directory: iroha_cli/pytests
         run: |
           poetry run mypy --explicit-package-bases --ignore-missing-imports .
-      - name: Run mypy (Type Checker) in torii/pytests
-        working-directory: torii/pytests
+      - name: Run mypy (Type Checker) in iroha_torii/pytests
+        working-directory: iroha_torii/pytests
         run: |
           poetry run mypy --explicit-package-bases --ignore-missing-imports .
       - name: Run flake8 (Linter) in iroha_cli/pytests
         working-directory: iroha_cli/pytests
         run: |
           poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
-      - name: Run flake8 (Linter) in torii/pytests
-        working-directory: torii/pytests
+      - name: Run flake8 (Linter) in iroha_torii/pytests
+        working-directory: iroha_torii/pytests
         run: |
           poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203

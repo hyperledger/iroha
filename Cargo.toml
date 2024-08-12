@@ -17,8 +17,8 @@ categories = ["cryptography::cryptocurrencies"]
 iroha_core = { version = "=2.0.0-rc.1.0 ", path = "iroha_core" }
 
 irohad = { version = "=2.0.0-rc.1.0", path = "irohad" }
-iroha_torii = { version = "=2.0.0-rc.1.0", path = "torii" }
-iroha_torii_const = { version = "=2.0.0-rc.1.0", path = "torii/const" }
+iroha_torii = { version = "=2.0.0-rc.1.0", path = "iroha_torii" }
+iroha_torii_const = { version = "=2.0.0-rc.1.0", path = "iroha_torii/const" }
 
 iroha = { version = "=2.0.0-rc.1.0", path = "iroha" }
 
@@ -234,9 +234,8 @@ members = [
     "tools/kura_inspector",
     "tools/parity_scale_cli",
     "tools/wasm_test_runner",
-
-    "torii",
-    "torii/const",
+    "iroha_torii",
+    "iroha_torii/const",
     "iroha_version",
     "iroha_version/derive",
 

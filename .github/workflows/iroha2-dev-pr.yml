@@ -237,10 +237,10 @@ jobs:
           echo 'export PATH="${{ env.POETRY_PATH }}:$PATH"' >> /etc/profile
           source /etc/profile
       - name: Install Torii API Dependencies
-        working-directory: torii/pytests
+        working-directory: iroha_torii/pytests
         run: ${{ env.POETRY_PATH }} install
       - name: Run Torii API Tests
-        working-directory: torii/pytests
+        working-directory: iroha_torii/pytests
         run: ${{ env.POETRY_PATH }} run pytest
       - name: Copy Client CLI Binary from Iroha Container
         if: always()
