@@ -222,9 +222,8 @@ members = [
     "smart_contract",
     "smart_contract/derive",
     "smart_contract/utils",
-
-    "trigger",
-    "trigger/derive",
+    "iroha_trigger",
+    "iroha_trigger/derive",
     "iroha_executor",
     "iroha_executor/derive",
     "iroha_executor/data_model",

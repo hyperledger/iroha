@@ -75,7 +75,7 @@ mod model {
     }
 
     /// Filter [`TriggerCompletedEvent`] by
-    /// 1. if `triger_id` is some filter based on trigger id
+    /// 1. if `trigger_id` is some filter based on trigger id
     /// 2. if `outcome_type` is some filter based on execution outcome (success/failure)
     /// 3. if both fields are none accept every event of this type
     #[derive(
