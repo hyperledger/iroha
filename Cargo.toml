@@ -44,8 +44,8 @@ iroha_wasm_builder = { version = "=2.0.0-rc.1.0", path = "wasm_builder" }
 iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "smart_contract" }
 iroha_smart_contract_utils = { version = "=2.0.0-rc.1.0", path = "smart_contract/utils" }
 
-iroha_executor = { version = "=2.0.0-rc.1.0", path = "smart_contract/executor" }
-iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "smart_contract/executor/data_model" }
+iroha_executor = { version = "=2.0.0-rc.1.0", path = "executor" }
+iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "executor/data_model" }
 
 test_network = { version = "=2.0.0-rc.1.0", path = "core/test_network" }
 test_samples = { version = "=2.0.0-rc.1.0", path = "test_samples" }
@@ -226,13 +226,13 @@ members = [
     "smart_contract/derive",
     "smart_contract/utils",
 
-    "smart_contract/trigger",
-    "smart_contract/trigger/derive",
+    "trigger",
+    "trigger/derive",
 
-    "smart_contract/executor",
-    "smart_contract/executor/derive",
-    "smart_contract/executor/data_model",
-    "smart_contract/executor/data_model/derive",
+    "executor",
+    "executor/derive",
+    "executor/data_model",
+    "executor/data_model/derive",
 
     "telemetry",
     "test_samples",
