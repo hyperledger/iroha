@@ -241,7 +241,6 @@ members = [
     "tools/kagami",
     "tools/kura_inspector",
     "tools/parity_scale_cli",
-    "tools/wasm_builder_cli",
     "tools/wasm_test_runner",
 
     "torii",

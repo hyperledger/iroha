@@ -29,7 +29,3 @@ serde_json.workspace = true
 iroha_config.workspace = true
 expect-test.workspace = true
 nonzero_ext.workspace = true
-
-[[bin]]
-name = "iroha_swarm"
-path = "src/bin/cli.rs"
