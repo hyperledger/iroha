@@ -6,8 +6,8 @@ use iroha::{
     data_model::{prelude::*, query::builder::SingleQueryError},
 };
 use iroha_executor_data_model::permission::account::CanSetKeyValueInAccount;
+use iroha_test_samples::ALICE_ID;
 use test_network::*;
-use test_samples::ALICE_ID;
 
 fn create_role_ids() -> [RoleId; 5] {
     [

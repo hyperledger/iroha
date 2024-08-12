@@ -1,7 +1,7 @@
 use eyre::Result;
 use iroha::{client, data_model::prelude::*};
+use iroha_test_samples::{gen_account_in, ALICE_ID};
 use test_network::*;
-use test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 fn must_execute_both_triggers() -> Result<()> {

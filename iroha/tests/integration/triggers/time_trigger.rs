@@ -13,8 +13,8 @@ use iroha::{
     },
 };
 use iroha_logger::info;
+use iroha_test_samples::{gen_account_in, ALICE_ID};
 use test_network::*;
-use test_samples::{gen_account_in, ALICE_ID};
 
 /// Default estimation of consensus duration.
 pub fn default_consensus_estimation() -> Duration {

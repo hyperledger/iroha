@@ -341,8 +341,8 @@ mod tests {
     use iroha_crypto::{Hash, KeyPair};
     use iroha_data_model::query::predicate::CompoundPredicate;
     use iroha_primitives::json::JsonString;
+    use iroha_test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use nonzero_ext::nonzero;
-    use test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use tokio::test;
 
     use super::*;

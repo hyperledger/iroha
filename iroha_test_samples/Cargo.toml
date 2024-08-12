@@ -1,5 +1,5 @@
 [package]
-name = "test_samples"
+name = "iroha_test_samples"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true

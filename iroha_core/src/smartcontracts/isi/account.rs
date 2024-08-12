@@ -459,7 +459,7 @@ pub mod isi {
     #[cfg(test)]
     mod test {
         use iroha_data_model::{prelude::AssetDefinition, ParseError};
-        use test_samples::gen_account_in;
+        use iroha_test_samples::gen_account_in;
 
         use crate::smartcontracts::isi::Registrable as _;
 

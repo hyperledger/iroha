@@ -11,12 +11,12 @@ use iroha::{
 use iroha_data_model::parameter::{Parameter, SmartContractParameter};
 use iroha_genesis::{GenesisBlock, GenesisBuilder};
 use iroha_primitives::unique_vec;
+use iroha_test_samples::gen_account_in;
 use irohad::samples::get_config;
 use test_network::{
     construct_executor, get_chain_id, get_key_pair, wait_for_genesis_committed_with_max_retries,
     Peer as TestPeer, PeerBuilder, TestClient, TestRuntime,
 };
-use test_samples::gen_account_in;
 use tokio::runtime::Runtime;
 
 fn generate_genesis(

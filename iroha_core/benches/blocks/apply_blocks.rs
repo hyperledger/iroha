@@ -3,7 +3,7 @@ use iroha_core::{
     block::CommittedBlock, prelude::*, state::State, sumeragi::network_topology::Topology,
 };
 use iroha_data_model::peer::PeerId;
-use test_samples::gen_account_in;
+use iroha_test_samples::gen_account_in;
 
 #[path = "./common.rs"]
 mod common;

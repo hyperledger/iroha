@@ -228,7 +228,7 @@ pub mod prelude {
 mod tests {
     use std::sync::Arc;
 
-    use test_samples::{
+    use iroha_test_samples::{
         gen_account_in, ALICE_ID, SAMPLE_GENESIS_ACCOUNT_ID, SAMPLE_GENESIS_ACCOUNT_KEYPAIR,
     };
     use tokio::test;

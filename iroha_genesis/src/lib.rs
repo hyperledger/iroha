@@ -392,7 +392,7 @@ impl Decode for ExecutorPath {
 
 #[cfg(test)]
 mod tests {
-    use test_samples::{ALICE_KEYPAIR, BOB_KEYPAIR};
+    use iroha_test_samples::{ALICE_KEYPAIR, BOB_KEYPAIR};
 
     use super::*;
 

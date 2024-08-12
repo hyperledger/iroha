@@ -7,9 +7,9 @@ use iroha::{
 use iroha_executor_data_model::permission::account::{
     CanRemoveKeyValueInAccount, CanSetKeyValueInAccount,
 };
+use iroha_test_samples::{gen_account_in, ALICE_ID};
 use serde_json::json;
 use test_network::*;
-use test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 fn register_empty_role() -> Result<()> {

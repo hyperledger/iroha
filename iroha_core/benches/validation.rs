@@ -12,7 +12,7 @@ use iroha_core::{
 use iroha_data_model::{
     account::AccountId, isi::InstructionBox, prelude::*, transaction::TransactionBuilder,
 };
-use test_samples::gen_account_in;
+use iroha_test_samples::gen_account_in;
 
 static STARTER_DOMAIN: LazyLock<DomainId> = LazyLock::new(|| "start".parse().unwrap());
 static STARTER_KEYPAIR: LazyLock<KeyPair> = LazyLock::new(KeyPair::random);

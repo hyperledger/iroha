@@ -13,8 +13,8 @@ use iroha::{
 };
 use iroha_config::parameters::actual::Root as Config;
 use iroha_executor_data_model::permission::asset::CanTransferUserAsset;
+use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 use test_network::*;
-use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 
 #[test]
 // This test is also covered at the UI level in the iroha_cli tests

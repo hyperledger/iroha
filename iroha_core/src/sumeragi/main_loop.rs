@@ -1360,8 +1360,8 @@ fn categorize_block_sync(
 mod tests {
     use iroha_data_model::{isi::InstructionBox, transaction::TransactionBuilder};
     use iroha_genesis::GENESIS_DOMAIN_ID;
+    use iroha_test_samples::gen_account_in;
     use nonzero_ext::nonzero;
-    use test_samples::gen_account_in;
     use tokio::test;
 
     use super::*;

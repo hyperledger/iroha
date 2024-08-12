@@ -3,8 +3,8 @@ use iroha::{
     client::{self, Client},
     data_model::prelude::*,
 };
+use iroha_test_samples::ALICE_ID;
 use test_network::*;
-use test_samples::ALICE_ID;
 
 #[test]
 fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {

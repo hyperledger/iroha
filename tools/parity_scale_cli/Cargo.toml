@@ -37,4 +37,4 @@ serde = { workspace = true }
 eyre = { workspace = true }
 
 [dev-dependencies]
-test_samples = { workspace = true }
+iroha_test_samples = { workspace = true }

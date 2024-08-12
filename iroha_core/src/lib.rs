@@ -131,7 +131,7 @@ mod tests {
     use std::cmp::Ordering;
 
     use iroha_data_model::role::RoleId;
-    use test_samples::gen_account_in;
+    use iroha_test_samples::gen_account_in;
 
     use crate::role::RoleIdWithOwner;
 

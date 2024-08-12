@@ -1109,7 +1109,7 @@ mod event {
 mod tests {
     use iroha_data_model::prelude::*;
     use iroha_genesis::GENESIS_DOMAIN_ID;
-    use test_samples::gen_account_in;
+    use iroha_test_samples::gen_account_in;
 
     use super::*;
     use crate::{

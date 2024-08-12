@@ -403,9 +403,9 @@ pub mod tests {
     use std::{sync::Arc, thread, time::Duration};
 
     use iroha_data_model::{parameter::TransactionParameters, prelude::*};
+    use iroha_test_samples::gen_account_in;
     use nonzero_ext::nonzero;
     use rand::Rng as _;
-    use test_samples::gen_account_in;
     use tokio::test;
 
     use super::*;

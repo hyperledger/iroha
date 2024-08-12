@@ -14,7 +14,7 @@ use iroha_core::{
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use iroha_futures::supervisor::ShutdownSignal;
-use test_samples::gen_account_in;
+use iroha_test_samples::gen_account_in;
 use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_executors(n_executors: u32) {

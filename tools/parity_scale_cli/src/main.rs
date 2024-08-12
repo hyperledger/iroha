@@ -304,7 +304,7 @@ fn list_types<W: io::Write>(map: &ConverterMap, writer: &mut W) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use iroha_data_model::prelude::*;
-    use test_samples::ALICE_ID;
+    use iroha_test_samples::ALICE_ID;
 
     use super::*;
 

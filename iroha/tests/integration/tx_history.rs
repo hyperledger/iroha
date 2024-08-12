@@ -6,9 +6,9 @@ use iroha::{
     data_model::{prelude::*, query::parameters::Pagination},
 };
 use iroha_config::parameters::actual::Root as Config;
+use iroha_test_samples::ALICE_ID;
 use nonzero_ext::nonzero;
 use test_network::*;
-use test_samples::ALICE_ID;
 
 #[ignore = "ignore, more in #2851"]
 #[test]

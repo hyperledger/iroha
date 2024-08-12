@@ -5,8 +5,7 @@ use iroha::{
         asset::AssetValue, isi::Instruction, prelude::*, query::builder::SingleQueryError,
     },
 };
-use test_network::*;
-use test_samples::{gen_account_in, ALICE_ID};
+use iroha_test_network::*;
 
 #[test]
 #[allow(clippy::too_many_lines)]

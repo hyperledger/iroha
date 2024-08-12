@@ -12,9 +12,9 @@ use iroha::{
 };
 use iroha_executor_data_model::permission::{domain::CanUnregisterDomain, Permission as _};
 use iroha_logger::info;
+use iroha_test_samples::{ALICE_ID, BOB_ID};
 use nonzero_ext::nonzero;
 use test_network::*;
-use test_samples::{ALICE_ID, BOB_ID};
 
 const ADMIN_PUBLIC_KEY_MULTIHASH: &str =
     "ed012076E5CA9698296AF9BE2CA45F525CB3BCFDEB7EE068BA56F973E9DD90564EF4FC";

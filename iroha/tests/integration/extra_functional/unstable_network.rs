@@ -8,10 +8,10 @@ use iroha::{
     },
 };
 use iroha_config::parameters::actual::Root as Config;
+use iroha_test_samples::ALICE_ID;
 use nonzero_ext::nonzero;
 use rand::seq::SliceRandom;
 use test_network::*;
-use test_samples::ALICE_ID;
 
 #[test]
 fn unstable_network_5_peers_1_fault() {

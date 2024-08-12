@@ -1,7 +1,7 @@
 use iroha::data_model::prelude::*;
 use iroha_primitives::numeric::numeric;
+use iroha_test_samples::gen_account_in;
 use test_network::*;
-use test_samples::gen_account_in;
 
 #[test]
 fn send_tx_with_different_chain_id() {

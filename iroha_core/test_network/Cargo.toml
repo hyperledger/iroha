@@ -21,7 +21,7 @@ iroha_logger.workspace = true
 iroha_genesis.workspace = true
 iroha_futures.workspace = true
 iroha_wasm_builder.workspace = true
-test_samples.workspace = true
+iroha_test_samples.workspace = true
 
 eyre.workspace = true
 rand.workspace = true

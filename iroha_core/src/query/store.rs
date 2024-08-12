@@ -323,8 +323,8 @@ mod tests {
         query::parameters::{FetchSize, Pagination, QueryParams, Sorting},
     };
     use iroha_primitives::json::JsonString;
+    use iroha_test_samples::ALICE_ID;
     use nonzero_ext::nonzero;
-    use test_samples::ALICE_ID;
 
     use super::*;
 

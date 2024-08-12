@@ -11,7 +11,7 @@ use iroha_executor_data_model::permission::{
     parameter::CanSetParameters,
 };
 use iroha_genesis::{GenesisBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
-use test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
+use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
 
 use crate::{Outcome, RunArgs};
 

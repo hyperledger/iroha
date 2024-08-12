@@ -791,9 +791,9 @@ mod tests {
         ChainId, Level,
     };
     use iroha_genesis::GenesisBuilder;
+    use iroha_test_samples::gen_account_in;
     use nonzero_ext::nonzero;
     use tempfile::TempDir;
-    use test_samples::gen_account_in;
 
     use super::*;
     use crate::{

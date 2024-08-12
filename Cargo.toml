@@ -48,7 +48,7 @@ iroha_executor = { version = "=2.0.0-rc.1.0", path = "iroha_executor" }
 iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "iroha_executor/data_model" }
 
 test_network = { version = "=2.0.0-rc.1.0", path = "iroha_core/test_network" }
-test_samples = { version = "=2.0.0-rc.1.0", path = "test_samples" }
+iroha_test_samples = { version = "=2.0.0-rc.1.0", path = "iroha_test_samples" }
 
 proc-macro2 = "1.0.86"
 syn = { version = "2.0.72", default-features = false }
@@ -226,7 +226,7 @@ members = [
     "iroha_executor/data_model",
     "iroha_executor/data_model/derive",
     "iroha_telemetry",
-    "test_samples",
+    "iroha_test_samples",
 
     "tools/swarm",
     "tools/kagami",

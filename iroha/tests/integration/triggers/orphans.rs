@@ -1,7 +1,7 @@
 use iroha::{client::Client, data_model::prelude::*};
 use iroha_data_model::query::trigger::FindTriggers;
-use test_network::{wait_for_genesis_committed, Peer, PeerBuilder};
-use test_samples::gen_account_in;
+use iroha_test_samples::gen_account_in;
+use iroha_test_network::{wait_for_genesis_committed, Peer, PeerBuilder};
 use tokio::runtime::Runtime;
 
 fn find_trigger(iroha: &Client, trigger_id: TriggerId) -> Option<TriggerId> {

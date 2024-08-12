@@ -2144,7 +2144,7 @@ mod tests {
     use core::num::NonZeroU64;
 
     use iroha_data_model::block::BlockPayload;
-    use test_samples::gen_account_in;
+    use iroha_test_samples::gen_account_in;
 
     use super::*;
     use crate::{

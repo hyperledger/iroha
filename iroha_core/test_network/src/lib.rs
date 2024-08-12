@@ -27,10 +27,10 @@ use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
     unique_vec::UniqueVec,
 };
+use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR, PEER_KEYPAIR, SAMPLE_GENESIS_ACCOUNT_KEYPAIR};
 use irohad::Iroha;
 use rand::{prelude::SliceRandom, thread_rng};
 use tempfile::TempDir;
-use test_samples::{ALICE_ID, ALICE_KEYPAIR, PEER_KEYPAIR, SAMPLE_GENESIS_ACCOUNT_KEYPAIR};
 use tokio::{
     runtime::{self, Runtime},
     time,

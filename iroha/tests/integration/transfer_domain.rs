@@ -14,8 +14,8 @@ use iroha_executor_data_model::permission::{
 };
 use iroha_genesis::GenesisBlock;
 use iroha_primitives::json::JsonString;
+use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID, SAMPLE_GENESIS_ACCOUNT_ID};
 use test_network::{Peer as TestPeer, *};
-use test_samples::{gen_account_in, ALICE_ID, BOB_ID, SAMPLE_GENESIS_ACCOUNT_ID};
 use tokio::runtime::Runtime;
 
 #[test]

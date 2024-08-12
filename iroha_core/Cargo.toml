@@ -69,7 +69,7 @@ indexmap = "2.2.6"
 
 [dev-dependencies]
 iroha_executor_data_model = { workspace = true }
-test_samples = { workspace = true }
+iroha_test_samples = { workspace = true }
 
 criterion = { workspace = true }
 hex = { workspace = true }
