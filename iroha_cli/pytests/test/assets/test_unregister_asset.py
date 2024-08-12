@@ -1,7 +1,7 @@
 import allure  # type: ignore
 import pytest
 
-from src.client_cli import client_cli, have, iroha
+from src.iroha_cli import iroha_cli, have, iroha
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -23,9 +23,9 @@ def test_unregister_asset(
     GIVEN_numeric_asset_for_account,
 ):
     with allure.step(
-        f'WHEN client_cli unregisters the asset "{GIVEN_numeric_asset_for_account.definition.name}"'
+        f'WHEN iroha_cli unregisters the asset "{GIVEN_numeric_asset_for_account.definition.name}"'
     ):
-        client_cli.unregister_asset(
+        iroha_cli.unregister_asset(
             asset=f"{GIVEN_numeric_asset_for_account.definition.name}#"
             f"{GIVEN_numeric_asset_for_account.account}@"
             f"{GIVEN_numeric_asset_for_account.definition.domain}"

@@ -1,16 +1,16 @@
 """
-This module contains the Iroha class, which is a subclass of ClientCli.
+This module contains the Iroha class, which is a subclass of IrohaCli.
 """
 
 import json
 from typing import Dict, List
 
-from src.client_cli.client_cli import ClientCli
+from src.iroha_cli.iroha_cli import IrohaCli
 
 
-class Iroha(ClientCli):
+class Iroha(IrohaCli):
     """
-    Iroha is a subclass of ClientCli that provides additional methods
+    Iroha is a subclass of IrohaCli that provides additional methods
     for interacting with the Iroha network.
     """
 

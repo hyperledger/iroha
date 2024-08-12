@@ -1,5 +1,5 @@
 """
-This module contains the ClientCli class, which is responsible for building and executing
+This module contains the IrohaCli class, which is responsible for building and executing
 commands for interacting with Iroha blockchain using the Iroha command-line client.
 """
 
@@ -13,10 +13,10 @@ import allure  # type: ignore
 
 from common.helpers import extract_hash, read_isi_from_json, write_isi_to_json
 from common.settings import BASE_DIR, CLIENT_CLI_PATH, PATH_CONFIG_CLIENT_CLI, ROOT_DIR
-from src.client_cli.configuration import Config
+from src.iroha_cli.configuration import Config
 
 
-class ClientCli:
+class IrohaCli:
     """
     A class to represent the Iroha client command line interface.
     """
@@ -38,13 +38,13 @@ class ClientCli:
 
     def __enter__(self):
         """
-        Called when entering a context managed by the ClientCli object.
+        Called when entering a context managed by the IrohaCli object.
         """
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """
-        Called when exiting a context managed by the ClientCli object.
+        Called when exiting a context managed by the IrohaCli object.
 
         :param exc_type: The type of exception raised within the context (if any).
         :param exc_val: The instance of the exception raised within the context (if any).
@@ -73,7 +73,7 @@ class ClientCli:
 
     def reset(self):
         """
-        Resets the stdout and stderr attributes of the ClientCli object.
+        Resets the stdout and stderr attributes of the IrohaCli object.
         """
         self.stdout = None
         self.stderr = None
@@ -83,8 +83,8 @@ class ClientCli:
         """
         Appends the 'register' command to the command list.
 
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         self.command.append("register")
         return self
@@ -93,8 +93,8 @@ class ClientCli:
         """
         Appends the 'mint' command to the command list.
 
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         self.command.append("mint")
         return self
@@ -103,8 +103,8 @@ class ClientCli:
         """
         Appends the 'list all' command to the command list.
 
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         self.command.append("list")
         self.command.append("all")
@@ -126,8 +126,8 @@ class ClientCli:
 
         :param domain: The domain to be queried.
         :type domain: str
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         self.command.insert(2, "domain")
         self.command.append("--id=" + domain)
@@ -142,8 +142,8 @@ class ClientCli:
         :type signatory: str
         :param domain: The domain of the account.
         :type domain: str
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         self.command.insert(2, "account")
         self.command.append("--id=" + signatory + "@" + domain)
@@ -160,8 +160,8 @@ class ClientCli:
         :type account: Account
         :param value_of_type: The value of the asset type, defaults to None.
         :type value_of_type: str, optional
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         self.command.insert(2, "asset")
         if asset_definition and account and value_of_type:
@@ -191,8 +191,8 @@ class ClientCli:
         :type target_account: str
         :param quantity: The quantity of the asset to be transferred.
         :type quantity: str
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         self.command.append("asset")
         self.command.append("transfer")
@@ -220,8 +220,8 @@ class ClientCli:
 
         :param quantity: The quantity of the asset to be burned.
         :type quantity: str
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         self.command.append("asset")
         self.command.append("burn")
@@ -249,8 +249,8 @@ class ClientCli:
         :type domain: str
         :param type_: The value type of the asset.
         :type type_: str
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         self.command.insert(2, "definition")
         self.command.insert(2, "asset")
@@ -348,8 +348,8 @@ class ClientCli:
 
         :param expected: The expected value.
         :type expected: str
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         return self
 
@@ -357,8 +357,8 @@ class ClientCli:
         """
         Executes the command and captures stdout and stderr.
 
-        :return: The current ClientCli object.
-        :rtype: ClientCli
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
         """
         self.config.randomise_torii_url()
         if command is None:

@@ -22,7 +22,7 @@ from common.helpers import (
 )
 from common.settings import PEERS_CONFIGS_PATH
 from models import Account, Asset, AssetDefinition, Domain
-from src.client_cli import client_cli, config
+from src.iroha_cli import iroha_cli, config
 
 
 # General fixtures
@@ -37,11 +37,11 @@ def before_all():
 
 @pytest.fixture(scope="function", autouse=True)
 def before_each():
-    """Fixture to set up and reset the client_cli state."""
+    """Fixture to set up and reset the iroha_cli state."""
     allure.dynamic.label("sdk", "Client CLI")
     allure.dynamic.label("owner", "astrokov")
     yield
-    client_cli.reset()
+    iroha_cli.reset()
 
 
 # Fixtures for creating objects (domains, accounts, asset definitions, assets)
@@ -50,7 +50,7 @@ def GIVEN_registered_domain():
     """Fixture to create and register a domain."""
     domain = Domain(fake_name())
     with allure.step(f"GIVEN a registered domain {domain.name}"):
-        client_cli.register().domain(domain.name)
+        iroha_cli.register().domain(domain.name)
     return domain
 
 
@@ -60,7 +60,7 @@ def GIVEN_registered_domain_with_uppercase_letter(GIVEN_registered_domain):
     domain = GIVEN_registered_domain
     domain.name = name_with_uppercase_letter(domain.name)
     with allure.step(f"GIVEN a registered domain {domain.name}"):
-        client_cli.register().domain(domain.name)
+        iroha_cli.register().domain(domain.name)
     return domain
 
 
@@ -71,7 +71,7 @@ def GIVEN_registered_account(GIVEN_registered_domain, GIVEN_public_key):
     with allure.step(
         f'GIVEN the account "{GIVEN_public_key}" in the "{GIVEN_registered_domain.name}" domain'
     ):
-        client_cli.register().account(
+        iroha_cli.register().account(
             signatory=account.signatory, domain=account.domain
         )
     return account
@@ -109,12 +109,12 @@ def GIVEN_currently_account_quantity_with_two_quantity_of_asset(
         f'GIVEN the asset_definition "{name}" '
         f'in the "{GIVEN_currently_authorized_account.domain}" domain'
     ):
-        client_cli.register().asset_definition(
+        iroha_cli.register().asset_definition(
             asset=asset.definition.name,
             domain=asset.definition.domain,
             type_=asset.definition.type_,
         )
-        client_cli.mint().asset(
+        iroha_cli.mint().asset(
             account=GIVEN_currently_authorized_account,
             asset_definition=asset.definition,
             value_of_type=asset.value,
@@ -140,7 +140,7 @@ def GIVEN_numeric_asset_for_account(
     with allure.step(
         f'GIVEN the asset_definition "{asset_def.name}" ' f'in the "{domain}" domain'
     ):
-        client_cli.register().asset_definition(
+        iroha_cli.register().asset_definition(
             asset=asset.definition.name,
             domain=asset.definition.domain,
             type_=asset.definition.type_,

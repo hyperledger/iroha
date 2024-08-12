@@ -20,7 +20,7 @@ The framework is organized into the following directories:
 
 - `common`: Contains common constants and helpers used throughout the framework.
 - `models`: Contains the data model classes for accounts, assets, and domains.
-- `src`: Contains the source code for the Iroha 2 Client CLI tests, including the `client_cli.py` and related utilities.
+- `src`: Contains the source code for the Iroha 2 Client CLI tests, including the `iroha_cli.py` and related utilities.
 - `test`: Contains the test suite for the framework, organized into subdirectories for different test categories (`accounts`, `assets`, `atomicity`, `domains`, and `roles`).
 
 The framework also includes the following configuration files in its root directory:
@@ -63,10 +63,10 @@ The test model has the following structure:
 
 2. Install and configure [Poetry](https://python-poetry.org/).\
 	 For details, see [Poetry Configuration](#poetry-configuration) below.
-3. Configure the tests by creating the following `.env` file in _this_ (`<repo root>/client_cli/pytests/`) directory:
+3. Configure the tests by creating the following `.env` file in _this_ (`<repo root>/iroha_cli/pytests/`) directory:
 
 	 ```shell
-     CLIENT_CLI_BINARY=/path/to/iroha_client_cli
+     CLIENT_CLI_BINARY=/path/to/iroha_cli
      CLIENT_CLI_CONFIG=/path/to/client.toml
 	 TORII_API_PORT_MIN=8080
 	 TORII_API_PORT_MAX=8083
@@ -129,7 +129,7 @@ This test framework uses [Poetry](https://python-poetry.org/) for dependency man
 To get started with Poetry, follow these steps:
 
 1. Install Poetry by following the [official installation guide](https://python-poetry.org/docs/#installation).
-2. Navigate to the `client_cli/pytests` directory in your terminal.
+2. Navigate to the `iroha_cli/pytests` directory in your terminal.
 3. Install the dependencies and set up a virtual environment using Poetry:
 
    ```bash
@@ -152,19 +152,19 @@ exit
 
 ### Tests Configuration
 
-Tests are configured via environment variables. These variables can be optionally defined in a `.env` file that must be created in _this_ (`<repo root>/client_cli/pytests/`) directory.
+Tests are configured via environment variables. These variables can be optionally defined in a `.env` file that must be created in _this_ (`<repo root>/iroha_cli/pytests/`) directory.
 
 The variables:
 
 - `CLIENT_CLI_DIR` — Specifies a path to a directory containing the `iroha` binary and its `client.toml` configuration file.\
-	Set to `/client_cli`, by default.
+	Set to `/iroha_cli`, by default.
 - `TORII_API_PORT_MIN`/`TORII_API_PORT_MAX` — This pair specifies the range of local ports through which the Iroha 2 peers are deployed. A randomly selected port from the specified range is used for each test.\
 	Set to `8080` and `8083` respectively, by default.
 
 **Example**:
 
 ```shell
-CLIENT_CLI_BINARY=/path/to/iroha_client_cli
+CLIENT_CLI_BINARY=/path/to/iroha_cli
 CLIENT_CLI_CONFIG=/path/to/client.toml
 TORII_API_PORT_MIN=8080
 TORII_API_PORT_MAX=8083

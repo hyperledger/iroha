@@ -21,7 +21,7 @@ updates:
 
   - package-ecosystem: "pip"
     target-branch: "main"
-    directory: "/client_cli/pytests/"
+    directory: "/iroha_cli/pytests/"
     schedule:
       interval: "daily"
     commit-message:

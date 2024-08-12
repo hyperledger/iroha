@@ -2,7 +2,7 @@ import allure  # type: ignore
 import pytest
 
 from common.consts import Stderr
-from src.client_cli import client_cli, have, iroha
+from src.iroha_cli import iroha_cli, have, iroha
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -22,7 +22,7 @@ def test_transfer_asset(
         f"of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}"
         f"to {GIVEN_registered_account.signatory}"
     ):
-        client_cli.transfer(
+        iroha_cli.transfer(
             asset=GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition,
             source_account=GIVEN_currently_authorized_account,
             target_account=GIVEN_registered_account,
@@ -55,7 +55,7 @@ def test_transfer_with_insufficient_funds(
         f"Quantity of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}"
         f"to {GIVEN_registered_account.signatory}"
     ):
-        client_cli.transfer(
+        iroha_cli.transfer(
             asset=GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition,
             source_account=GIVEN_currently_authorized_account,
             target_account=GIVEN_registered_account,
@@ -69,4 +69,4 @@ def test_transfer_with_insufficient_funds(
         f"of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}"
         f"AND {GIVEN_registered_account.signatory} does not receive any additional Quantity"
     ):
-        client_cli.should(have.error(Stderr.INSUFFICIENT_FUNDS.value))
+        iroha_cli.should(have.error(Stderr.INSUFFICIENT_FUNDS.value))

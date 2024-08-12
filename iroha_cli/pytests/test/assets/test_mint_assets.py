@@ -1,7 +1,7 @@
 import allure  # type: ignore
 import pytest
 
-from src.client_cli import client_cli, have, iroha
+from src.iroha_cli import iroha_cli, have, iroha
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -16,11 +16,11 @@ def test_mint_asset_for_account_in_same_domain(
     GIVEN_numeric_value,
 ):
     with allure.step(
-        f'WHEN client_cli mint "{GIVEN_numeric_value}" of '
+        f'WHEN iroha_cli mint "{GIVEN_numeric_value}" of '
         f'"{GIVEN_registered_asset_definition_with_numeric_type}" '
         f'for the "{GIVEN_registered_account}"'
     ):
-        client_cli.mint().asset(
+        iroha_cli.mint().asset(
             account=GIVEN_registered_account,
             asset_definition=GIVEN_registered_asset_definition_with_numeric_type,
             value_of_type=GIVEN_numeric_value,
@@ -48,11 +48,11 @@ def test_mint_asset_for_account_in_same_domain(
 @allure.label("sdk_test_id", "mint_asset_quantity_after_minting")
 def test_mint_asset_quantity_after_minting(GIVEN_minted_asset_quantity):
     with allure.step(
-        f'WHEN client_cli mint additional asset "{GIVEN_minted_asset_quantity.definition}" '
+        f'WHEN iroha_cli mint additional asset "{GIVEN_minted_asset_quantity.definition}" '
         f'for the "{GIVEN_minted_asset_quantity.account}" '
         f'with "{GIVEN_minted_asset_quantity.value}" quantity'
     ):
-        client_cli.mint().asset(
+        iroha_cli.mint().asset(
             account=GIVEN_minted_asset_quantity.account,
             asset_definition=GIVEN_minted_asset_quantity.definition,
             value_of_type="1",

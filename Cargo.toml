@@ -16,11 +16,11 @@ categories = ["cryptography::cryptocurrencies"]
 [workspace.dependencies]
 iroha_core = { version = "=2.0.0-rc.1.0 ", path = "core" }
 
-irohad = { version = "=2.0.0-rc.1.0", path = "cli" }
+irohad = { version = "=2.0.0-rc.1.0", path = "irohad" }
 iroha_torii = { version = "=2.0.0-rc.1.0", path = "torii" }
 iroha_torii_const = { version = "=2.0.0-rc.1.0", path = "torii/const" }
 
-iroha = { version = "=2.0.0-rc.1.0", path = "client" }
+iroha = { version = "=2.0.0-rc.1.0", path = "iroha" }
 
 iroha_macro_utils = { version = "=2.0.0-rc.1.0", path = "macro/utils" }
 iroha_telemetry = { version = "=2.0.0-rc.1.0", path = "telemetry" }
@@ -194,9 +194,9 @@ clippy.wildcard_dependencies = "deny"
 [workspace]
 resolver = "2"
 members = [
-    "cli",
-    "client",
-    "client_cli",
+    "irohad",
+    "iroha",
+    "iroha_cli",
     "config",
     "config/base",
     "core",

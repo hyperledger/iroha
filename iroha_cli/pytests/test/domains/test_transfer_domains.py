@@ -1,7 +1,7 @@
 import allure  # type: ignore
 import pytest
 
-from src.client_cli import client_cli, have, iroha
+from src.iroha_cli import iroha_cli, have, iroha
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -20,7 +20,7 @@ def test_transfer_domain(
         f"WHEN {GIVEN_currently_authorized_account} transfers domains "
         f"to {GIVEN_registered_account}"
     ):
-        client_cli.execute(
+        iroha_cli.execute(
             f"domain transfer "
             f"--from={GIVEN_currently_authorized_account} "
             f"--to={GIVEN_registered_account} "

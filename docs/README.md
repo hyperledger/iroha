@@ -20,4 +20,4 @@ Documentation for Iroha 2 tools:
 The following is useful for development:
 
 - [Hot reload Iroha in a Docker container](./source/guides/hot-reload.md)
-- [Benchmark your code](../client/benches/tps/README.md)
+- [Benchmark your code](../iroha/benches/tps/README.md)

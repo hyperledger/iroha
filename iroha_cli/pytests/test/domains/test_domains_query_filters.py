@@ -2,14 +2,14 @@ import json
 
 import allure  # type: ignore
 
-from src.client_cli import client_cli, iroha
+from src.iroha_cli import iroha_cli, iroha
 
 
 def test_filter_by_domain(GIVEN_registered_domain):
     def condition():
         domain_name = GIVEN_registered_domain.name
         with allure.step(
-            f'WHEN client_cli query domains filtered by name "{domain_name}"'
+            f'WHEN iroha_cli query domains filtered by name "{domain_name}"'
         ):
             domains = iroha.list_filter(
                 {"Atom": {"Id": {"Equals": domain_name}}}
@@ -24,4 +24,4 @@ def test_filter_by_domain(GIVEN_registered_domain):
             )
             return domains and all(domain == domain_name for domain in domains)
 
-    client_cli.wait_for(condition)
+    iroha_cli.wait_for(condition)

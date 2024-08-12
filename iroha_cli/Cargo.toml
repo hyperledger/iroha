@@ -1,5 +1,5 @@
 [package]
-name = "iroha_client_cli"
+name = "iroha_cli"
 
 edition.workspace = true
 version.workspace = true

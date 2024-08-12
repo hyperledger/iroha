@@ -121,7 +121,7 @@ Once you have built Iroha, you can instantiate the minimum viable network:
 docker compose up
 ```
 
-With the `docker-compose` instance running, use [Iroha Client CLI](./client_cli/README.md):
+With the `docker-compose` instance running, use [Iroha Client CLI](iroha_cli/README.md):
 
 ```bash
 cargo run --bin iroha -- --config ./defaults/client.toml
@@ -131,9 +131,9 @@ cargo run --bin iroha -- --config ./defaults/client.toml
 
 Iroha project mainly consists of the following crates:
 
-* [`iroha`](client) provides a library for building clients that communicate with peers.
-* [`irohad`](server cli) is the command-line application for deploying an Iroha peer. Contains the routing table and definitions of API endpoints.
-* [`iroha_client_cli`](client cli) is the reference implementation of a client.
+* [`iroha`](iroha) provides a library for building clients that communicate with peers.
+* [`irohad`](irohad) is the command-line application for deploying an Iroha peer. Contains the routing table and definitions of API endpoints.
+* [`iroha_cli`](iroha_cli) is the command-line client, a reference application using the client SDK.
 * [`iroha_core`](core) is the primary library used by all other crates, including the peer endpoint management.
 * [`iroha_config`](config) handles configuration and documentation generation for options and run-time changes.
 * [`iroha_crypto`](crypto) defines cryptographic aspects of Iroha.

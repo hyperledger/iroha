@@ -2,7 +2,7 @@ import json
 
 import allure  # type: ignore
 
-from src.client_cli import client_cli, iroha
+from src.iroha_cli import iroha_cli, iroha
 
 
 # using existing account to have at least one account in response
@@ -10,7 +10,7 @@ def test_filter_by_domain(GIVEN_registered_account):
     def condition():
         domain = GIVEN_registered_account.domain
         with allure.step(
-            f"WHEN client_cli query accounts " f'in the "{domain}" domain'
+            f"WHEN iroha_cli query accounts " f'in the "{domain}" domain'
         ):
             accounts = iroha.list_filter(
                 {"Atom": {"Id": {"DomainId": {"Equals": domain}}}}
@@ -23,7 +23,7 @@ def test_filter_by_domain(GIVEN_registered_account):
             )
             return accounts and all(account.endswith(domain) for account in accounts)
 
-    client_cli.wait_for(condition)
+    iroha_cli.wait_for(condition)
 
 
 def test_filter_by_account_id(GIVEN_registered_account):
@@ -32,7 +32,7 @@ def test_filter_by_account_id(GIVEN_registered_account):
             GIVEN_registered_account.signatory + "@" + GIVEN_registered_account.domain
         )
         with allure.step(
-            f'WHEN client_cli query accounts with account id "{account_id}"'
+            f'WHEN iroha_cli query accounts with account id "{account_id}"'
         ):
             accounts = iroha.list_filter(
                 {"Atom": {"Id": {"Equals": account_id}}}
@@ -45,4 +45,4 @@ def test_filter_by_account_id(GIVEN_registered_account):
             )
             return accounts and all(account == account_id for account in accounts)
 
-    client_cli.wait_for(condition)
+    iroha_cli.wait_for(condition)

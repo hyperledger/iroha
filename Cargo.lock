@@ -2927,7 +2927,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_client_cli"
+name = "iroha_cli"
 version = "2.0.0-rc.1.0"
 dependencies = [
  "clap",

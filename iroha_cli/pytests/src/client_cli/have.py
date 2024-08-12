@@ -6,7 +6,7 @@ import json
 
 import allure  # type: ignore
 
-from src.client_cli import client_cli, iroha, match
+from src.iroha_cli import iroha_cli, iroha, match
 
 
 def expected_in_actual(expected, actual) -> bool:
@@ -50,7 +50,7 @@ def domain(expected, owned_by=None):
 
         return True
 
-    return client_cli.wait_for(domain_in_domains)
+    return iroha_cli.wait_for(domain_in_domains)
 
 
 def account(expected):
@@ -65,7 +65,7 @@ def account(expected):
         accounts = iroha.list_filter({"Atom": {"Id": {"Equals": expected}}}).accounts()
         return expected_in_actual(expected, accounts)
 
-    return client_cli.wait_for(account_in_accounts)
+    return iroha_cli.wait_for(account_in_accounts)
 
 
 def asset_definition(expected):
@@ -82,7 +82,7 @@ def asset_definition(expected):
         ).asset_definitions()
         return expected_in_actual(expected, asset_definitions)
 
-    return client_cli.wait_for(asset_definition_in_asset_definitions)
+    return iroha_cli.wait_for(asset_definition_in_asset_definitions)
 
 
 def asset(expected):
@@ -97,7 +97,7 @@ def asset(expected):
         assets = iroha.list_filter({"Atom": {"Id": {"Equals": expected}}}).assets()
         return expected_in_actual(expected, assets)
 
-    return client_cli.wait_for(asset_in_assets)
+    return iroha_cli.wait_for(asset_in_assets)
 
 
 def asset_has_quantity(expected_asset_id, expected_quantity):
@@ -134,14 +134,14 @@ def asset_has_quantity(expected_asset_id, expected_quantity):
 
         return expected_quantity == str(actual_quantity)
 
-    return client_cli.wait_for(check_quantity)
+    return iroha_cli.wait_for(check_quantity)
 
 
 def error(expected):
     """
-    Check if the expected error is present in the client_cli stderr.
+    Check if the expected error is present in the iroha_cli stderr.
 
     :param expected: The expected error message.
     :return: True if the error is present, False otherwise.
     """
-    return match.client_cli_have_error(expected=expected, actual=client_cli.stderr)
+    return match.client_cli_have_error(expected=expected, actual=iroha_cli.stderr)
