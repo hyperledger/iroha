@@ -29,8 +29,8 @@ iroha_primitives = { version = "=2.0.0-rc.1.0", path = "iroha_primitives", defau
 iroha_data_model = { version = "=2.0.0-rc.1.0", path = "iroha_data_model", default-features = false }
 iroha_config = { version = "=2.0.0-rc.1.0", path = "iroha_config" }
 iroha_config_base = { version = "=2.0.0-rc.1.0", path = "iroha_config/base" }
-iroha_schema_gen = { version = "=2.0.0-rc.1.0", path = "schema/gen" }
-iroha_schema = { version = "=2.0.0-rc.1.0", path = "schema", default-features = false }
+iroha_schema_gen = { version = "=2.0.0-rc.1.0", path = "iroha_schema/gen" }
+iroha_schema = { version = "=2.0.0-rc.1.0", path = "iroha_schema", default-features = false }
 iroha_logger = { version = "=2.0.0-rc.1.0", path = "iroha_logger" }
 iroha_crypto = { version = "=2.0.0-rc.1.0", path = "iroha_crypto", default-features = false }
 iroha_macro = { version = "=2.0.0-rc.1.0", path = "iroha_macro", default-features = false }
@@ -213,10 +213,9 @@ members = [
     "iroha_primitives/numeric",
     "iroha_ffi",
     "iroha_ffi/derive",
-
-    "schema",
-    "schema/gen",
-    "schema/derive",
+    "iroha_schema",
+    "iroha_schema/gen",
+    "iroha_schema/derive",
     "iroha_smart_contract",
     "iroha_smart_contract/derive",
     "iroha_smart_contract/utils",
