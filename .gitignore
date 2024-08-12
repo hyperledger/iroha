@@ -4,7 +4,7 @@
 **/rusty-tags.vi
 /**/Cargo.lock
 
-config/__pycaсhe__
+iroha_config/__pycaсhe__
 **/__pycache__/*
 __pycache__/*
 build/*

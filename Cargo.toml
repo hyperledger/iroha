@@ -27,8 +27,8 @@ iroha_telemetry = { version = "=2.0.0-rc.1.0", path = "telemetry" }
 iroha_p2p = { version = "=2.0.0-rc.1.0", path = "p2p" }
 iroha_primitives = { version = "=2.0.0-rc.1.0", path = "primitives", default-features = false }
 iroha_data_model = { version = "=2.0.0-rc.1.0", path = "data_model", default-features = false }
-iroha_config = { version = "=2.0.0-rc.1.0", path = "config" }
-iroha_config_base = { version = "=2.0.0-rc.1.0", path = "config/base" }
+iroha_config = { version = "=2.0.0-rc.1.0", path = "iroha_config" }
+iroha_config_base = { version = "=2.0.0-rc.1.0", path = "iroha_config/base" }
 iroha_schema_gen = { version = "=2.0.0-rc.1.0", path = "schema/gen" }
 iroha_schema = { version = "=2.0.0-rc.1.0", path = "schema", default-features = false }
 iroha_logger = { version = "=2.0.0-rc.1.0", path = "logger" }
@@ -197,8 +197,8 @@ members = [
     "irohad",
     "iroha",
     "iroha_cli",
-    "config",
-    "config/base",
+    "iroha_config",
+    "iroha_config/base",
     "core",
     "core/test_network",
     "crypto",
