@@ -281,7 +281,7 @@ mod model {
     /// (because *Runtime Executor* actually does execution too) and other names
     /// (like *Verification* or *Execution*) are being discussed.
     ///
-    /// TODO: Move to `executor` module
+    /// TODO: Move to `iroha_executor` module
     #[derive(
         Debug,
         displaydoc::Display,
