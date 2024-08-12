@@ -26,7 +26,7 @@ iroha_macro_utils = { version = "=2.0.0-rc.1.0", path = "macro/utils" }
 iroha_telemetry = { version = "=2.0.0-rc.1.0", path = "telemetry" }
 iroha_p2p = { version = "=2.0.0-rc.1.0", path = "p2p" }
 iroha_primitives = { version = "=2.0.0-rc.1.0", path = "primitives", default-features = false }
-iroha_data_model = { version = "=2.0.0-rc.1.0", path = "data_model", default-features = false }
+iroha_data_model = { version = "=2.0.0-rc.1.0", path = "iroha_data_model", default-features = false }
 iroha_config = { version = "=2.0.0-rc.1.0", path = "iroha_config" }
 iroha_config_base = { version = "=2.0.0-rc.1.0", path = "iroha_config/base" }
 iroha_schema_gen = { version = "=2.0.0-rc.1.0", path = "schema/gen" }
@@ -202,7 +202,7 @@ members = [
     "iroha_core",
     "iroha_core/test_network",
     "iroha_crypto",
-    "data_model",
+    "iroha_data_model",
     "genesis",
 
     "logger",

@@ -44,7 +44,7 @@ iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "../smart_contract", 
 iroha_trigger = { version = "=2.0.0-rc.1.0", path = "../trigger", features = ["debug"] }
 iroha_executor = { version = "=2.0.0-rc.1.0", path = "../executor", features = ["debug"] }
 iroha_schema = { version = "=2.0.0-rc.1.0", path = "../schema" }
-iroha_data_model = { version = "=2.0.0-rc.1.0", path = "../data_model", default-features = false }
+iroha_data_model = { version = "=2.0.0-rc.1.0", path = "../iroha_data_model", default-features = false }
 iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "../executor/data_model" }
 
 parity-scale-codec = { version = "3.2.1", default-features = false }

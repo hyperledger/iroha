@@ -1,4 +1,4 @@
-//! A crate containing various derive macros for `data_model`
+//! A crate containing various derive macros for `iroha_data_model`
 mod enum_ref;
 mod event_set;
 mod has_origin;

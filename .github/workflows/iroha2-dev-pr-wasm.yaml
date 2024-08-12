@@ -4,10 +4,10 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'data_model/**.rs'
-      - 'data_model/**.yml'
-      - 'data_model/**.json'
-      - 'data_model/**.toml'
+      - '../../iroha_data_model/**.rs'
+      - '../../iroha_data_model/**.yml'
+      - '../../iroha_data_model/**.json'
+      - '../../iroha_data_model/**.toml'
 
       - 'smart_contract/**.rs'
       - 'smart_contract/**.yml'
