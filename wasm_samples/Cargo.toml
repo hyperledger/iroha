@@ -40,7 +40,7 @@ codegen-units = 1   # Further reduces binary size but increases compilation time
 [workspace.dependencies]
 executor_custom_data_model = { path = "executor_custom_data_model" }
 
-iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "../smart_contract", features = ["debug"] }
+iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "../iroha_smart_contract", features = ["debug"] }
 iroha_trigger = { version = "=2.0.0-rc.1.0", path = "../iroha_trigger", features = ["debug"] }
 iroha_executor = { version = "=2.0.0-rc.1.0", path = "../iroha_executor", features = ["debug"] }
 iroha_schema = { version = "=2.0.0-rc.1.0", path = "../schema" }
