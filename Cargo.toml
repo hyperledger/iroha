@@ -32,7 +32,7 @@ iroha_config_base = { version = "=2.0.0-rc.1.0", path = "iroha_config/base" }
 iroha_schema_gen = { version = "=2.0.0-rc.1.0", path = "schema/gen" }
 iroha_schema = { version = "=2.0.0-rc.1.0", path = "schema", default-features = false }
 iroha_logger = { version = "=2.0.0-rc.1.0", path = "logger" }
-iroha_crypto = { version = "=2.0.0-rc.1.0", path = "crypto", default-features = false }
+iroha_crypto = { version = "=2.0.0-rc.1.0", path = "iroha_crypto", default-features = false }
 iroha_macro = { version = "=2.0.0-rc.1.0", path = "macro", default-features = false }
 iroha_futures = { version = "=2.0.0-rc.1.0", path = "futures" }
 iroha_genesis = { version = "=2.0.0-rc.1.0", path = "genesis" }
@@ -201,7 +201,7 @@ members = [
     "iroha_config/base",
     "iroha_core",
     "iroha_core/test_network",
-    "crypto",
+    "iroha_crypto",
     "data_model",
     "genesis",
 
