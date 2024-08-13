@@ -54,7 +54,7 @@ jobs:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
       - name: Install iroha_wasm_test_runner
-        run: cargo install --path tools/wasm_test_runner
+        run: cargo install --path iroha_wasm_test_runner
       - name: Run smart contract tests on WebAssembly VM
         working-directory: iroha_smart_contract
         run: mold --run cargo test -p iroha_smart_contract -p iroha_smart_contract_utils --release --tests --target wasm32-unknown-unknown --no-fail-fast --quiet

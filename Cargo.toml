@@ -232,7 +232,7 @@ members = [
     "tools/kagami",
     "tools/kura_inspector",
     "tools/parity_scale_cli",
-    "tools/wasm_test_runner",
+    "iroha_wasm_test_runner",
     "iroha_torii",
     "iroha_torii/const",
     "iroha_version",

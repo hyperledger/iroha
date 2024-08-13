@@ -11,7 +11,7 @@ Check the [WASM section of our tutorial](https://hyperledger.github.io/iroha-2-d
 To be able to run tests compiled for `wasm32-unknown-unknown` target install `iroha_wasm_test_runner` from the root of the Iroha repository:
 
 ```bash
-cargo install --path tools/wasm_test_runner
+cargo install --path iroha_wasm_test_runner
 ```
 
 Then run tests:
