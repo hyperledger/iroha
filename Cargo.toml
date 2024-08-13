@@ -229,7 +229,7 @@ members = [
     "iroha_test_samples",
     "iroha_swarm",
     "iroha_kagami",
-    "tools/kura_inspector",
+    "kura_inspector",
     "tools/parity_scale_cli",
     "iroha_wasm_test_runner",
     "iroha_torii",
