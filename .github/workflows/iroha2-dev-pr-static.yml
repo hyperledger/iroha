@@ -8,7 +8,7 @@ on:
       - '**.json'
       - '**.toml'
       - '.github/workflows/iroha2-dev-pr-static.yml'
-      - '../../iroha_cli/pytests/**/*.py'
+      - 'iroha_cli/pytests/**/*.py'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
