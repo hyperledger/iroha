@@ -29,23 +29,23 @@ class Config:
         self.port_max = port_max
         self._envs = dict()
 
-    def load(self, path_config_client_cli):
+    def load(self, path_config_iroha_cli):
         """
         Load the configuration from the given config file.
 
-        :param path_config_client_cli: The path to the configuration file.
-        :type path_config_client_cli: str
+        :param path_config_iroha_cli: The path to the configuration file.
+        :type path_config_iroha_cli: str
         :raises IOError: If the file does not exist.
         """
-        if not os.path.exists(path_config_client_cli):
-            raise IOError(f"No config file found at {path_config_client_cli}")
+        if not os.path.exists(path_config_iroha_cli):
+            raise IOError(f"No config file found at {path_config_iroha_cli}")
 
-        if not os.path.isfile(path_config_client_cli):
-            raise IOError(f"The path is not a file: {path_config_client_cli}")
+        if not os.path.isfile(path_config_iroha_cli):
+            raise IOError(f"The path is not a file: {path_config_iroha_cli}")
 
-        with open(path_config_client_cli, "r", encoding="utf-8") as config_file:
+        with open(path_config_iroha_cli, "r", encoding="utf-8") as config_file:
             self._config = tomlkit.load(config_file)
-        self.file = path_config_client_cli
+        self.file = path_config_iroha_cli
 
     def generate_by_peers(self, peers_configs_dir):
         """

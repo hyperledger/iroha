@@ -144,4 +144,4 @@ def error(expected):
     :param expected: The expected error message.
     :return: True if the error is present, False otherwise.
     """
-    return match.client_cli_have_error(expected=expected, actual=iroha_cli.stderr)
+    return match.iroha_cli_have_error(expected=expected, actual=iroha_cli.stderr)

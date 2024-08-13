@@ -17,7 +17,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  CLIENT_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
+  IROHA_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
   DOCKER_COMPOSE_PATH: defaults
   TEST_DIR: "tmp/test"
   IROHA_BIN: "iroha"
@@ -256,8 +256,8 @@ jobs:
       - name: Run Client CLI Tests
         working-directory: iroha_cli/pytests
         env:
-          CLIENT_CLI_BINARY: ../../${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
-          CLIENT_CLI_CONFIG: ../../${{ env.TEST_DIR }}/client.toml
+          IROHA_CLI_BINARY: ../../${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
+          IROHA_CLI_CONFIG: ../../${{ env.TEST_DIR }}/client.toml
         run: ${{ env.POETRY_PATH }} run pytest
       - name: Wipe docker-compose.yml containers
         if: always()

@@ -49,7 +49,7 @@ def test_register_existing_domain_uppercase_with_uppercase_letter(
         f"WHEN iroha_cli registers an existing domain, "
         f'but with uppercase letter "{GIVEN_registered_domain_with_uppercase_letter.name}"'
     ):
-        client_cli.register().domain(GIVEN_registered_domain_with_uppercase_letter.name)
+        iroha_cli.register().domain(GIVEN_registered_domain_with_uppercase_letter.name)
     with allure.step(
         f'THEN Iroha should have the domain name "{GIVEN_registered_domain_with_uppercase_letter.name}"'
     ):
@@ -61,7 +61,7 @@ def test_register_one_letter_domain(GIVEN_random_character):
     with allure.step(
         f'WHEN iroha_cli registers the one letter domain "{GIVEN_random_character}"'
     ):
-        client_cli.register().domain(GIVEN_random_character)
+        iroha_cli.register().domain(GIVEN_random_character)
     with allure.step(f'THEN Iroha should have the domain "{GIVEN_random_character}"'):
         iroha.should(have.domain(GIVEN_random_character))
 
@@ -72,11 +72,11 @@ def test_register_domain_with_reserved_character(GIVEN_string_with_reserved_char
         f'WHEN iroha_cli registers a domain "'
         f'{GIVEN_string_with_reserved_character}" with reserved characters'
     ):
-        client_cli.register().domain(GIVEN_string_with_reserved_character)
+        iroha_cli.register().domain(GIVEN_string_with_reserved_character)
     with allure.step(
         f'THEN iroha_cli should has the domain error: "{Stderr.RESERVED_CHARACTER.value}"'
     ):
-        client_cli.should(have.error(Stderr.RESERVED_CHARACTER.value))
+        iroha_cli.should(have.error(Stderr.RESERVED_CHARACTER.value))
 
 
 @allure.label("sdk_test_id", "register_domain_with_whitespaces")
@@ -84,8 +84,8 @@ def test_register_domain_with_whitespaces(GIVEN_string_with_whitespaces):
     with allure.step(
         f'WHEN iroha_cli registers a domain "{GIVEN_string_with_whitespaces}" with whitespaces'
     ):
-        client_cli.register().domain(GIVEN_string_with_whitespaces)
+        iroha_cli.register().domain(GIVEN_string_with_whitespaces)
     with allure.step(
         f'THEN iroha_cli should has the domain error: "{Stderr.WHITESPACES.value}"'
     ):
-        client_cli.should(have.error(Stderr.WHITESPACES.value))
+        iroha_cli.should(have.error(Stderr.WHITESPACES.value))

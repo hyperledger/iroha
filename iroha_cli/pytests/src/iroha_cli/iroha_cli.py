@@ -12,7 +12,7 @@ from typing import Callable
 import allure  # type: ignore
 
 from common.helpers import extract_hash, read_isi_from_json, write_isi_to_json
-from common.settings import BASE_DIR, CLIENT_CLI_PATH, PATH_CONFIG_CLIENT_CLI, ROOT_DIR
+from common.settings import BASE_DIR, IROHA_CLI_PATH, PATH_CONFIG_IROHA_CLI, ROOT_DIR
 from src.iroha_cli.configuration import Config
 
 
@@ -21,8 +21,8 @@ class IrohaCli:
     A class to represent the Iroha client command line interface.
     """
 
-    BASE_PATH = CLIENT_CLI_PATH
-    BASE_FLAGS = ["--config=" + PATH_CONFIG_CLIENT_CLI]
+    BASE_PATH = IROHA_CLI_PATH
+    BASE_FLAGS = ["--config=" + PATH_CONFIG_IROHA_CLI]
 
     def __init__(self, config: Config):
         """

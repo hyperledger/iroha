@@ -5,7 +5,7 @@ This module provides helper functions for matching expected and actual values in
 import allure  # type: ignore
 
 
-def client_cli_have_error(expected: str, actual: str):
+def iroha_cli_have_error(expected: str, actual: str):
     """
     Checks if the command-line client has the expected error.
 

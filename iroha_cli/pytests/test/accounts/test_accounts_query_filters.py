@@ -9,9 +9,7 @@ from src.iroha_cli import iroha_cli, iroha
 def test_filter_by_domain(GIVEN_registered_account):
     def condition():
         domain = GIVEN_registered_account.domain
-        with allure.step(
-            f"WHEN iroha_cli query accounts " f'in the "{domain}" domain'
-        ):
+        with allure.step(f"WHEN iroha_cli query accounts " f'in the "{domain}" domain'):
             accounts = iroha.list_filter(
                 {"Atom": {"Id": {"DomainId": {"Equals": domain}}}}
             ).accounts()

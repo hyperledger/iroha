@@ -71,9 +71,7 @@ def GIVEN_registered_account(GIVEN_registered_domain, GIVEN_public_key):
     with allure.step(
         f'GIVEN the account "{GIVEN_public_key}" in the "{GIVEN_registered_domain.name}" domain'
     ):
-        iroha_cli.register().account(
-            signatory=account.signatory, domain=account.domain
-        )
+        iroha_cli.register().account(signatory=account.signatory, domain=account.domain)
     return account
 
 
@@ -145,7 +143,7 @@ def GIVEN_numeric_asset_for_account(
             domain=asset.definition.domain,
             type_=asset.definition.type_,
         )
-        client_cli.mint().asset(
+        iroha_cli.mint().asset(
             account=account,
             asset_definition=asset.definition,
             value_of_type=asset.value,
@@ -168,7 +166,7 @@ def GIVEN_registered_asset_definition_with_numeric_type(
         f'GIVEN the asset_definition "{GIVEN_fake_asset_name}" '
         f'in the "{GIVEN_registered_domain.name}" domain'
     ):
-        client_cli.register().asset_definition(
+        iroha_cli.register().asset_definition(
             asset=asset_def.name,
             domain=asset_def.domain,
             type_=asset_def.type_,
@@ -190,7 +188,7 @@ def GIVEN_minted_asset_quantity(
         definition=GIVEN_registered_asset_definition_with_numeric_type,
         value=GIVEN_numeric_value,
     )
-    client_cli.mint().asset(
+    iroha_cli.mint().asset(
         account=asset.account,
         asset_definition=asset.definition,
         value_of_type=asset.value,
@@ -212,7 +210,7 @@ def GIVEN_registered_asset_definition_with_store_type(
         f'GIVEN the asset_definition "{GIVEN_fake_asset_name}" '
         f'in the "{GIVEN_registered_domain.name}" domain'
     ):
-        client_cli.register().asset_definition(
+        iroha_cli.register().asset_definition(
             asset=asset_def.name,
             domain=asset_def.domain,
             type=asset_def.type,

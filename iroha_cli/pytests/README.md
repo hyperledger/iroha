@@ -66,8 +66,8 @@ The test model has the following structure:
 3. Configure the tests by creating the following `.env` file in _this_ (`<repo root>/iroha_cli/pytests/`) directory:
 
 	 ```shell
-     CLIENT_CLI_BINARY=/path/to/iroha_cli
-     CLIENT_CLI_CONFIG=/path/to/client.toml
+     IROHA_CLI_BINARY=/path/to/iroha_cli
+     IROHA_CLI_CONFIG=/path/to/client.toml
 	 TORII_API_PORT_MIN=8080
 	 TORII_API_PORT_MAX=8083
 	 ```
@@ -119,7 +119,7 @@ To do so, perform the following steps:
 4. Proceed with _Step 2_ of the [Using Test Suites](#using-test-suites) instructions.
 
 > [!NOTE]
-> Don't forget to specify the path to the directory created for the `iroha` binary and its `client.toml` configuration file (see Step 3) in the `CLIENT_CLI_DIR` variable of the `.env` file.
+> Don't forget to specify the path to the directory created for the `iroha` binary and its `client.toml` configuration file (see Step 3) in the `IROHA_CLI_DIR` variable of the `.env` file.
 > For details, see [Tests Configuration](#tests-configuration) below.
 
 ### Poetry Configuration
@@ -156,7 +156,7 @@ Tests are configured via environment variables. These variables can be optionall
 
 The variables:
 
-- `CLIENT_CLI_DIR` — Specifies a path to a directory containing the `iroha` binary and its `client.toml` configuration file.\
+- `IROHA_CLI_DIR` — Specifies a path to a directory containing the `iroha` binary and its `client.toml` configuration file.\
 	Set to `/iroha_cli`, by default.
 - `TORII_API_PORT_MIN`/`TORII_API_PORT_MAX` — This pair specifies the range of local ports through which the Iroha 2 peers are deployed. A randomly selected port from the specified range is used for each test.\
 	Set to `8080` and `8083` respectively, by default.
@@ -164,8 +164,8 @@ The variables:
 **Example**:
 
 ```shell
-CLIENT_CLI_BINARY=/path/to/iroha_cli
-CLIENT_CLI_CONFIG=/path/to/client.toml
+IROHA_CLI_BINARY=/path/to/iroha_cli
+IROHA_CLI_CONFIG=/path/to/client.toml
 TORII_API_PORT_MIN=8080
 TORII_API_PORT_MAX=8083
 ```

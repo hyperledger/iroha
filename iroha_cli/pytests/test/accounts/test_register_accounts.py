@@ -66,9 +66,9 @@ def test_register_account_with_invalid_character_in_key(
     with allure.step(
         "WHEN iroha_cli tries to register an account with invalid character in the key"
     ):
-        client_cli.register().account(
+        iroha_cli.register().account(
             signatory=GIVEN_key_with_invalid_character_in_key,
             domain=GIVEN_registered_domain.name,
         )
     with allure.step("THEN iroha_cli should have the error"):
-        client_cli.should(have.error(Stderr.INVALID_CHARACTER.value))
+        iroha_cli.should(have.error(Stderr.INVALID_CHARACTER.value))
