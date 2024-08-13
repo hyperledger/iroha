@@ -39,7 +39,7 @@ iroha_genesis = { version = "=2.0.0-rc.1.0", path = "iroha_genesis" }
 iroha_ffi = { version = "=2.0.0-rc.1.0", path = "iroha_ffi" }
 iroha_version = { version = "=2.0.0-rc.1.0", path = "iroha_version", default-features = false }
 iroha_wasm_codec = { version = "=2.0.0-rc.1.0", path = "wasm_codec" }
-iroha_wasm_builder = { version = "=2.0.0-rc.1.0", path = "wasm_builder" }
+iroha_wasm_builder = { version = "=2.0.0-rc.1.0", path = "iroha_wasm_builder" }
 
 iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "iroha_smart_contract" }
 iroha_smart_contract_utils = { version = "=2.0.0-rc.1.0", path = "iroha_smart_contract/utils" }
@@ -240,7 +240,7 @@ members = [
 
     "wasm_codec",
     "wasm_codec/derive",
-    "wasm_builder",
+    "iroha_wasm_builder",
 ]
 exclude = [
     "wasm_samples",
