@@ -227,9 +227,8 @@ members = [
     "iroha_executor/data_model/derive",
     "iroha_telemetry",
     "iroha_test_samples",
-
-    "tools/swarm",
-    "tools/kagami",
+    "iroha_swarm",
+    "iroha_kagami",
     "tools/kura_inspector",
     "tools/parity_scale_cli",
     "iroha_wasm_test_runner",

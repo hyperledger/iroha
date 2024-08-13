@@ -3284,6 +3284,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_kagami"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "clap",
+ "color-eyre",
+ "derive_more",
+ "iroha_config",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_executor_data_model",
+ "iroha_genesis",
+ "iroha_primitives",
+ "iroha_schema_gen",
+ "iroha_test_samples",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "iroha_logger"
 version = "2.0.0-rc.1.0"
 dependencies = [
@@ -3808,26 +3828,6 @@ dependencies = [
  "elliptic-curve",
  "once_cell",
  "sha2",
-]
-
-[[package]]
-name = "kagami"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "clap",
- "color-eyre",
- "derive_more",
- "iroha_config",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_executor_data_model",
- "iroha_genesis",
- "iroha_primitives",
- "iroha_schema_gen",
- "iroha_test_samples",
- "parity-scale-codec",
- "serde",
- "serde_json",
 ]
 
 [[package]]

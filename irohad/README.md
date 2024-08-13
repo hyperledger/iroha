@@ -44,7 +44,7 @@ To run the Iroha peer binary, you must [generate the keys](#generating-keys) and
 
 ### Generating Keys
 
-We highly recommend you to generate a new key pair for any non-testing deployment. We also recommend using the `Ed25519` algorithm. For convenience, you can use the provided [`kagami`](../tools/kagami/README.md) tool to generate key pairs. For example,
+We highly recommend you to generate a new key pair for any non-testing deployment. We also recommend using the `Ed25519` algorithm. For convenience, you can use the provided [`kagami`](../iroha_kagami/README.md) tool to generate key pairs. For example,
 
 <!-- TODO, update the links for the release version.  -->
 
@@ -68,7 +68,7 @@ cargo run --bin kagami -- crypto --json
 ```
 
 **NOTE**: The `kagami` binary can be run without `cargo` using the `<IROHA REPO ROOT>/target/release/kagami` binary.
-Refer to [generating key pairs with `kagami`](../tools/kagami#crypto) for more details.
+Refer to [generating key pairs with `kagami`](../iroha_kagami#crypto) for more details.
 
 ### Configuration file
 

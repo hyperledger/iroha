@@ -11,7 +11,7 @@ This is the main Iroha 2 documentation that you will find useful:
 
 Documentation for Iroha 2 tools:
 
-- [Kagami](../tools/kagami/README.md)
+- [Kagami](../iroha_kagami/README.md)
 - [Kura Inspector](../tools/kura_inspector/README.md)
 - [Parity Scale Decoder Tool](../tools/parity_scale_cli/README.md)
 
