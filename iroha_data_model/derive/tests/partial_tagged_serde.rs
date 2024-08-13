@@ -13,7 +13,7 @@ enum Value {
     Numeric(NumericValue),
 }
 
-// a simpler version of NumericValue than used in data_model
+// a simpler version of NumericValue than used in iroha_data_model
 // this one is always i32, but is still serialized as a string literal
 // NOTE: debug is actually required for `PartiallyTaggedDeserialize`!
 #[derive(Debug, PartialEq, Eq)]

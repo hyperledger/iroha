@@ -5,7 +5,7 @@ error[E0603]: struct `BlockPayload` is private
   |                              ^^^^^^^^^^^^ private struct
   |
 note: the struct `BlockPayload` is defined here
- --> $WORKSPACE/data_model/src/block.rs
+ --> $WORKSPACE/iroha_data_model/src/block.rs
   |
   | pub use self::model::*;
   |         ^^^^^^^^^^^
