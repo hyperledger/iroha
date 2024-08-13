@@ -595,7 +595,6 @@ impl Sumeragi {
                     block=%block_created.block.hash(),
                     "Block received"
                 );
-
                 if let Some(mut valid_block) = self.validate_block(
                     state,
                     &self.topology,
@@ -605,7 +604,6 @@ impl Sumeragi {
                 ) {
                     // NOTE: Up until this point it was unknown which block is expected to be received,
                     // therefore all the signatures (of any hash) were collected and will now be pruned
-
                     for signature in core::mem::take(voting_signatures) {
                         if let Err(error) =
                             valid_block.block.add_signature(signature, &self.topology)
@@ -827,6 +825,7 @@ impl Sumeragi {
     fn try_create_block<'state>(
         &mut self,
         state: &'state State,
+        genesis_account: &AccountId,
         voting_block: &mut Option<VotingBlock<'state>>,
     ) {
         assert_eq!(self.role(), Role::Leader);
@@ -839,7 +838,11 @@ impl Sumeragi {
             .max_transactions
             .try_into()
             .expect("INTERNAL BUG: transactions in block exceed usize::MAX");
-        let block_time = state.world.view().parameters.sumeragi.block_time();
+        let block_time = if self.topology.view_change_index() > 0 {
+            Duration::from_secs(0)
+        } else {
+            state.world.view().parameters.sumeragi.block_time()
+        };
         let tx_cache_full = self.transaction_cache.len() >= max_transactions.get();
         let deadline_reached = self.round_start_time.elapsed() > block_time;
         let tx_cache_non_empty = !self.transaction_cache.is_empty();
@@ -851,47 +854,57 @@ impl Sumeragi {
                 .map(|tx| tx.deref().clone())
                 .collect::<Vec<_>>();
 
-            let mut state_block = state.block();
-            let create_block_start_time = Instant::now();
-            let new_block = BlockBuilder::new(transactions)
-                .chain(self.topology.view_change_index(), &mut state_block)
-                .sign(self.key_pair.private_key())
-                .unpack(|e| self.send_event(e));
+            let pre_signed_block = BlockBuilder::new_unverified(
+                state.view().latest_block().as_deref(),
+                self.topology.view_change_index(),
+                transactions,
+                state
+                    .view()
+                    .world
+                    .parameters()
+                    .sumeragi
+                    .consensus_estimation(),
+            )
+            .sign(self.key_pair.private_key());
 
-            let created_in = create_block_start_time.elapsed();
-            let pipeline_time = state.world.view().parameters().sumeragi.pipeline_time();
-            if created_in > pipeline_time / 2 {
-                warn!(
-                    role=%self.role(),
-                    peer_id=%self.peer_id,
-                    "Creating block takes too much time. \
-                    This might prevent consensus from operating. \
-                    Consider increasing `commit_time` or decreasing `max_transactions_in_block`"
-                );
+            let block_created_msg = BlockCreated {
+                block: pre_signed_block,
+            };
+            if self.topology.is_consensus_required().is_some() {
+                self.broadcast_packet(block_created_msg.clone());
             }
 
-            if self.topology.is_consensus_required().is_some() {
-                info!(
-                    peer_id=%self.peer_id,
-                    block=%new_block.as_ref().hash(),
-                    view_change_index=%self.topology.view_change_index(),
-                    txns=%new_block.as_ref().transactions().len(),
-                    created_in_ms=%created_in.as_millis(),
-                    "Block created"
-                );
+            info!(
+                peer_id=%self.peer_id,
+                view_change_index=%self.topology.view_change_index(),
+                block_hash=%block_created_msg.block.hash(),
+                txns=%block_created_msg.block.transactions().len(),
+                "Block created"
+            );
 
-                let msg = BlockCreated::from(&new_block);
-                *voting_block = Some(VotingBlock::new(new_block, state_block));
-                self.broadcast_packet(msg);
+            let new_voting_block = self
+                .validate_block(
+                    state,
+                    &self.topology,
+                    genesis_account,
+                    block_created_msg,
+                    voting_block,
+                )
+                .expect("We just created this block ourselves, it has to be valid.");
+
+            if self.topology.is_consensus_required().is_some() {
+                *voting_block = Some(new_voting_block);
             } else {
-                let committed_block = new_block
+                let committed_block = new_voting_block
+                    .block
                     .commit(&self.topology)
                     .unpack(|e| self.send_event(e))
                     .expect("INTERNAL BUG: Leader failed to commit created block");
 
                 let msg = BlockCommitted::from(&committed_block);
                 self.broadcast_packet(msg);
-                self.commit_block(committed_block, state_block);
+                self.commit_block(committed_block, new_voting_block.state_block);
+                *voting_block = None;
             }
         }
     }
@@ -1009,7 +1022,6 @@ pub(crate) fn run(
         let _enter_for_sumeragi_cycle = span_for_sumeragi_cycle.enter();
 
         let state_view = state.view();
-
         sumeragi
             .transaction_cache
             // Checking if transactions are in the blockchain is costly
@@ -1167,7 +1179,7 @@ pub(crate) fn run(
             .set(sumeragi.topology.view_change_index() as u64);
 
         if sumeragi.role() == Role::Leader && voting_block.is_none() {
-            sumeragi.try_create_block(&state, &mut voting_block);
+            sumeragi.try_create_block(&state, &genesis_account, &mut voting_block);
         }
     }
 }
