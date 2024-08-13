@@ -74,13 +74,13 @@ These commands require `--type` argument. If data type is not known, [`scale-to-
 * Decode the `NewAccount` data type from the `samples/account.bin` binary:
 
   ```bash
-  ./target/debug/parity_scale_cli scale-to-json --input tools/parity_scale_cli/samples/account.bin --type NewAccount
+  ./target/debug/parity_scale_cli scale-to-json --input iroha_parity_scale_cli/samples/account.bin --type NewAccount
   ```
 
 * Encode the `NewAccount` data type from the `samples/account.json`:
 
   ```bash
-  ./target/debug/parity_scale_cli json-to-scale --input tools/parity_scale_cli/samples/account.json --output result.bin --type NewAccount
+  ./target/debug/parity_scale_cli json-to-scale --input iroha_parity_scale_cli/samples/account.json --output result.bin --type NewAccount
   ```
 
 ## `scale-to-rust`
@@ -109,11 +109,11 @@ Decode the data type from a given binary.
 * Decode the `NewAccount` data type from the `samples/account.bin` binary:
 
   ```bash
-  ./target/debug/parity_scale_cli scale-to-rust tools/parity_scale_cli/samples/account.bin --type NewAccount
+  ./target/debug/parity_scale_cli scale-to-rust iroha_parity_scale_cli/samples/account.bin --type NewAccount
   ```
 
 * Decode the `NewDomain` data type from the `samples/domain.bin` binary:
 
   ```bash
-  ./target/debug/parity_scale_cli scale-to-rust tools/parity_scale_cli/samples/domain.bin --type NewDomain
+  ./target/debug/parity_scale_cli scale-to-rust iroha_parity_scale_cli/samples/domain.bin --type NewDomain
   ```

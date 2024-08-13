@@ -1,5 +1,5 @@
 [package]
-name = "parity_scale_cli"
+name = "iroha_parity_scale_cli"
 
 edition.workspace = true
 version.workspace = true
@@ -38,3 +38,7 @@ eyre = { workspace = true }
 
 [dev-dependencies]
 iroha_test_samples = { workspace = true }
+
+[[bin]]
+name = "parity_scale_cli"
+path = "src/main.rs"
