@@ -36,9 +36,9 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/x86_64-linux-musl-native/bin/
 WORKDIR /iroha
 COPY . .
 RUN cargo build \
-    -p irohad \
-    -p iroha_cli \
-    -p iroha_kagami \
+    --bin irohad \
+    --bin iroha \
+    --bin kagami \
     --target x86_64-unknown-linux-musl \
     --profile deploy
 
