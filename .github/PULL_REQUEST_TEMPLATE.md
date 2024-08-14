@@ -1,33 +1,36 @@
-## Description
+<!-- Note: replace the instructions with your text -->
 
-<!-- Just describe what you did. -->
+## Context
 
-<!-- Skip if the title of the PR is self-explanatory -->
+- Describe the objective or issue this PR addresses, as well as the impact of the change.
+- Try to keep the description accessible to newcomers.
+- If you're resolving a specific issue, add "Fixes #issue_number" or "Closes #issue_number".
 
-### Linked issue
+### Solution
 
-<!-- Duplicate the main issue and add additional issues closed by this PR. -->
+- Describe the approach taken to achieve the objective / resolve the issue.
 
-Closes #{issue_number} <!-- Replace with an actual number,  -->
+### Migration Guide (optional)
 
-<!-- Link if e.g. JIRA issue or  from another repository -->
+- If this PR contains a breaking change relative to the `main` branch, provide an instruction on how affected parties might need to adapt to the change.
 
-### Benefits
+---
 
-<!-- EXAMPLE: users can't revoke their own right to revoke rights -->
+### Review notes (optional)
+
+- For complex PRs, try to provide some information on how to approach the review more effectively.
+- For example, is there a natural order in which the affected files should be reviewed?
 
 ### Checklist
 
-- [ ] I've read `CONTRIBUTING.md`
-- [ ] I've used the standard signed-off commit format (or will squash just before merging)
-- [ ] All applicable CI checks pass (or I promised to make them pass later)
-- [ ] (optional) I've written unit tests for the code changes
-- [ ] I replied to all comments after code review, marking all implemented changes with thumbs up
+- [ ] I've read [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+- [ ] (optional) I've written unit tests for the code changes.
+- [ ] All review comments have been resolved.
 
-<!-- HINT:  Add more points to checklist for large draft PRs-->
+<!-- Add more items if needed -->
 
 <!-- USEFUL LINKS 
- - https://www.secondstate.io/articles/dco
- - https://discord.gg/hyperledger (please ask us any questions)
- - https://t.me/hyperledgeriroha (if you prefer telegram)
+ - Commit sign-off: https://www.secondstate.io/articles/dco
+ - Telegram: https://t.me/hyperledgeriroha
+ - Discord: https://discord.com/channels/905194001349627914/905205848547155968
 -->
