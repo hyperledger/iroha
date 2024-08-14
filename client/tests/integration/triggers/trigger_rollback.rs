@@ -2,8 +2,8 @@ use std::str::FromStr as _;
 
 use eyre::Result;
 use iroha::{
-    client::QueryResult,
-    data_model::{prelude::*, query::asset::FindAllAssetsDefinitions, trigger::TriggerId},
+    client,
+    data_model::{prelude::*, trigger::TriggerId},
 };
 use test_network::*;
 use test_samples::ALICE_ID;
@@ -38,8 +38,9 @@ fn failed_trigger_revert() -> Result<()> {
     client.submit_blocking(call_trigger)?;
 
     //Then
-    let request = FindAllAssetsDefinitions;
-    let query_result = client.request(request)?.collect::<QueryResult<Vec<_>>>()?;
+    let query_result = client
+        .query(client::asset::all_definitions())
+        .execute_all()?;
     assert!(query_result
         .iter()
         .all(|asset_definition| asset_definition.id() != &asset_definition_id));

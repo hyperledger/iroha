@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use iroha::{
-    client::{self, QueryResult},
+    client,
     data_model::{
         account::{Account, AccountId},
         asset::{Asset, AssetDefinition},
@@ -58,17 +58,18 @@ fn simulate_transfer_store_asset() {
     );
 
     iroha
-        .submit_till(
-            transfer_asset,
-            client::asset::by_account_id(mouse_id.clone()),
-            |result| {
-                let assets = result.collect::<QueryResult<Vec<_>>>().unwrap();
-                assets.iter().any(|asset| {
-                    *asset.id().definition() == asset_definition_id
-                        && *asset.id().account() == mouse_id
-                })
-            },
-        )
+        .submit(transfer_asset)
+        .expect("Failed to transfer asset.");
+    iroha
+        .poll(|client| {
+            let assets = client
+                .query(client::asset::all())
+                .filter_with(|asset| asset.id.account.eq(mouse_id.clone()))
+                .execute_all()?;
+            Ok(assets.iter().any(|asset| {
+                *asset.id().definition() == asset_definition_id && *asset.id().account() == mouse_id
+            }))
+        })
         .expect("Test case failure.");
 }
 
@@ -116,19 +117,21 @@ fn simulate_transfer<T>(
         mouse_id.clone(),
     );
     iroha
-        .submit_till(
-            transfer_asset,
-            client::asset::by_account_id(mouse_id.clone()),
-            |result| {
-                let assets = result.collect::<QueryResult<Vec<_>>>().unwrap();
+        .submit(transfer_asset)
+        .expect("Failed to transfer asset.");
+    iroha
+        .poll(|client| {
+            let assets = client
+                .query(client::asset::all())
+                .filter_with(|asset| asset.id.account.eq(mouse_id.clone()))
+                .execute_all()?;
 
-                assets.iter().any(|asset| {
-                    *asset.id().definition() == asset_definition_id
-                        && *asset.value() == amount_to_transfer.clone().into()
-                        && *asset.id().account() == mouse_id
-                })
-            },
-        )
+            Ok(assets.iter().any(|asset| {
+                *asset.id().definition() == asset_definition_id
+                    && *asset.value() == amount_to_transfer.clone().into()
+                    && *asset.id().account() == mouse_id
+            }))
+        })
         .expect("Test case failure.");
 }
 

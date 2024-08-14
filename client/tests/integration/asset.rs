@@ -2,7 +2,7 @@ use std::{str::FromStr as _, thread};
 
 use eyre::Result;
 use iroha::{
-    client::{self, QueryResult},
+    client,
     crypto::KeyPair,
     data_model::{
         asset::{AssetId, AssetType, AssetValue},
@@ -39,13 +39,16 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
 
     // Registering an asset to an account which doesn't have one
     // should result in asset being created
-    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+    test_client.poll(move |client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id))
+            .execute_all()?;
 
-        assets.iter().any(|asset| {
+        Ok(assets.iter().any(|asset| {
             *asset.id().definition() == asset_definition_id
                 && *asset.value() == AssetValue::Numeric(Numeric::ZERO)
-        })
+        }))
     })?;
 
     // But registering an asset to account already having one should fail
@@ -72,23 +75,29 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
     test_client.submit_all([create_asset, register_asset])?;
 
     // Wait for asset to be registered
-    test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+    test_client.poll(|client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+            .execute_all()?;
 
-        assets
+        Ok(assets
             .iter()
-            .any(|asset| *asset.id().definition() == asset_definition_id)
+            .any(|asset| *asset.id().definition() == asset_definition_id))
     })?;
 
     test_client.submit(unregister_asset)?;
 
     // ... and check that it is removed after Unregister
-    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+    test_client.poll(|client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+            .execute_all()?;
 
-        assets
+        Ok(assets
             .iter()
-            .all(|asset| *asset.id().definition() != asset_definition_id)
+            .all(|asset| *asset.id().definition() != asset_definition_id))
     })?;
 
     Ok(())
@@ -116,13 +125,16 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata);
     test_client.submit_transaction(&tx)?;
-    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+    test_client.poll(|client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id))
+            .execute_all()?;
 
-        assets.iter().any(|asset| {
+        Ok(assets.iter().any(|asset| {
             *asset.id().definition() == asset_definition_id
                 && *asset.value() == AssetValue::Numeric(quantity)
-        })
+        }))
     })?;
     Ok(())
 }
@@ -147,13 +159,16 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata);
     test_client.submit_transaction(&tx)?;
-    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+    test_client.poll(|client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id))
+            .execute_all()?;
 
-        assets.iter().any(|asset| {
+        Ok(assets.iter().any(|asset| {
             *asset.id().definition() == asset_definition_id
                 && *asset.value() == AssetValue::Numeric(quantity)
-        })
+        }))
     })?;
     Ok(())
 }
@@ -179,13 +194,16 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata);
     test_client.submit_transaction(&tx)?;
-    test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+    test_client.poll(|client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+            .execute_all()?;
 
-        assets.iter().any(|asset| {
+        Ok(assets.iter().any(|asset| {
             *asset.id().definition() == asset_definition_id
                 && *asset.value() == AssetValue::Numeric(quantity)
-        })
+        }))
     })?;
 
     // Add some fractional part
@@ -198,13 +216,17 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let sum = quantity
         .checked_add(quantity2)
         .ok_or_else(|| eyre::eyre!("overflow"))?;
-    test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+    test_client.submit(mint)?;
+    test_client.poll(|client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id))
+            .execute_all()?;
 
-        assets.iter().any(|asset| {
+        Ok(assets.iter().any(|asset| {
             *asset.id().definition() == asset_definition_id
                 && *asset.value() == AssetValue::Numeric(sum)
-        })
+        }))
     })?;
     Ok(())
 }
@@ -236,9 +258,8 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     thread::sleep(pipeline_time * 4);
 
     let mut asset_definition_ids = test_client
-        .request(client::asset::all_definitions())
-        .expect("Failed to execute request.")
-        .collect::<QueryResult<Vec<_>>>()
+        .query(client::asset::all_definitions())
+        .execute_all()
         .expect("Failed to execute request.")
         .into_iter()
         .map(|asset| asset.id().clone());
@@ -314,7 +335,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let assert_balance = |asset_id: AssetId, expected: Numeric| {
         let got = test_client
-            .request(FindAssetQuantityById::new(asset_id))
+            .query_single(FindAssetQuantityById::new(asset_id))
             .expect("query should succeed");
         assert_eq!(got, expected);
     };
@@ -323,7 +344,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     assert_balance(buyer_eth.clone(), numeric!(200));
 
     let rate: u32 = test_client
-        .request(FindAssetQuantityById::new(rate))
+        .query_single(FindAssetQuantityById::new(rate))
         .expect("query should succeed")
         .try_into()
         .expect("numeric should be u32 originally");
@@ -336,7 +357,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let assert_purged = |asset_id: AssetId| {
         let _err = test_client
-            .request(FindAssetQuantityById::new(asset_id))
+            .query_single(FindAssetQuantityById::new(asset_id))
             .expect_err("query should fail, as zero assets are purged from accounts");
     };
     let seller_eth: AssetId = format!("eth#crypto#{}", &seller_id)
@@ -368,7 +389,9 @@ fn transfer_asset_definition() {
         .expect("Failed to submit transaction");
 
     let asset_definition = test_client
-        .request(FindAssetDefinitionById::new(asset_definition_id.clone()))
+        .query(client::asset::all_definitions())
+        .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
+        .execute_single()
         .expect("Failed to execute Iroha Query");
     assert_eq!(asset_definition.owned_by(), &alice_id);
 
@@ -381,7 +404,9 @@ fn transfer_asset_definition() {
         .expect("Failed to submit transaction");
 
     let asset_definition = test_client
-        .request(FindAssetDefinitionById::new(asset_definition_id))
+        .query(client::asset::all_definitions())
+        .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id))
+        .execute_single()
         .expect("Failed to execute Iroha Query");
     assert_eq!(asset_definition.owned_by(), &bob_id);
 }

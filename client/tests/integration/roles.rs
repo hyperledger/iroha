@@ -1,7 +1,7 @@
 use executor_custom_data_model::permissions::CanControlDomainLives;
 use eyre::Result;
 use iroha::{
-    client::{self, QueryResult},
+    client,
     data_model::{prelude::*, transaction::error::TransactionRejectionReason},
 };
 use iroha_executor_data_model::permission::account::{
@@ -76,8 +76,8 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
     // Making request to find Alice's roles
     let found_role_ids = test_client
-        .request(client::role::by_account_id(alice_id))?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .query(client::role::by_account_id(alice_id))
+        .execute_all()?;
     assert!(found_role_ids.contains(&role_id));
 
     Ok(())
@@ -108,8 +108,8 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     // Check that Mouse has root role
     let found_mouse_roles = test_client
-        .request(client::role::by_account_id(mouse_id.clone()))?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .query(client::role::by_account_id(mouse_id.clone()))
+        .execute_all()?;
     assert!(found_mouse_roles.contains(&role_id));
 
     // Unregister root role
@@ -118,8 +118,8 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     // Check that Mouse doesn't have the root role
     let found_mouse_roles = test_client
-        .request(client::role::by_account_id(mouse_id))?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .query(client::role::by_account_id(mouse_id.clone()))
+        .execute_all()?;
     assert!(!found_mouse_roles.contains(&role_id));
 
     Ok(())
@@ -180,7 +180,9 @@ fn role_permissions_are_deduplicated() {
         .expect("failed to register role");
 
     let role = test_client
-        .request(FindRoleByRoleId::new(role_id))
+        .query(client::role::all())
+        .filter_with(|role| role.id.eq(role_id))
+        .execute_single()
         .expect("failed to find role");
 
     // Permissions are unified so only one is left
@@ -238,14 +240,13 @@ fn grant_revoke_role_permissions() -> Result<()> {
 
     // Alice can't modify Mouse's metadata without proper permission
     assert!(!test_client
-        .request(FindPermissionsByAccountId::new(alice_id.clone()))?
-        .collect::<QueryResult<Vec<_>>>()?
+        .query(client::permission::by_account_id(alice_id.clone()))
+        .execute_all()?
         .iter()
         .any(|permission| {
             CanSetKeyValueInAccount::try_from(permission)
                 .is_ok_and(|permission| permission == can_set_key_value_in_mouse)
         }));
-
     let _ = test_client
         .submit_blocking(set_key_value.clone())
         .expect_err("shouldn't be able to modify metadata");
@@ -256,8 +257,8 @@ fn grant_revoke_role_permissions() -> Result<()> {
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&grant_role_permission_tx)?;
     assert!(test_client
-        .request(FindPermissionsByAccountId::new(alice_id.clone()))?
-        .collect::<QueryResult<Vec<_>>>()?
+        .query(client::permission::by_account_id(alice_id.clone()))
+        .execute_all()?
         .iter()
         .any(|permission| {
             CanSetKeyValueInAccount::try_from(permission)
@@ -271,8 +272,8 @@ fn grant_revoke_role_permissions() -> Result<()> {
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&revoke_role_permission_tx)?;
     assert!(!test_client
-        .request(FindPermissionsByAccountId::new(alice_id.clone()))?
-        .collect::<QueryResult<Vec<_>>>()?
+        .query(client::permission::by_account_id(alice_id.clone()))
+        .execute_all()?
         .iter()
         .any(|permission| {
             CanSetKeyValueInAccount::try_from(permission)

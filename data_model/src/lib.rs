@@ -11,14 +11,12 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 
-use derive_more::{Constructor, Display};
+use derive_more::Display;
 use iroha_crypto::PublicKey;
 use iroha_data_model_derive::{model, EnumRef};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
-use iroha_version::{declare_versioned, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
-use prelude::Executable;
 use serde::{Deserialize, Serialize};
 use strum::FromRepr;
 
@@ -115,47 +113,34 @@ mod seal {
         Log,
 
         // Boxed queries
-        QueryBox,
-        FindAllAccounts,
-        FindAccountById,
-        FindAccountKeyValueByIdAndKey,
-        FindAccountsByDomainId,
+        SingularQueryBox,
+        FindAccounts,
+        FindAccountMetadata,
         FindAccountsWithAsset,
-        FindAllAssets,
-        FindAllAssetsDefinitions,
-        FindAssetById,
-        FindAssetDefinitionById,
-        FindAssetsByName,
-        FindAssetsByAccountId,
-        FindAssetsByAssetDefinitionId,
-        FindAssetsByDomainId,
-        FindAssetsByDomainIdAndAssetDefinitionId,
+        FindAssets,
+        FindAssetsDefinitions,
         FindAssetQuantityById,
         FindTotalAssetQuantityByAssetDefinitionId,
-        FindAssetKeyValueByIdAndKey,
-        FindAssetDefinitionKeyValueByIdAndKey,
-        FindAllDomains,
-        FindDomainById,
-        FindDomainKeyValueByIdAndKey,
-        FindAllPeers,
-        FindAllBlocks,
-        FindAllBlockHeaders,
+        FindAssetMetadata,
+        FindAssetDefinitionMetadata,
+        FindDomains,
+        FindDomainMetadata,
+        FindPeers,
+        FindBlocks,
+        FindBlockHeaders,
         FindBlockHeaderByHash,
-        FindAllTransactions,
+        FindTransactions,
         FindTransactionsByAccountId,
         FindTransactionByHash,
         FindPermissionsByAccountId,
         FindExecutorDataModel,
-        FindAllActiveTriggerIds,
+        FindActiveTriggerIds,
         FindTriggerById,
-        FindTriggerKeyValueByIdAndKey,
-        FindTriggersByAuthorityId,
-        FindTriggersByAuthorityDomainId,
-        FindAllRoles,
-        FindAllRoleIds,
-        FindRoleByRoleId,
+        FindTriggerMetadata,
+        FindRoles,
+        FindRoleIds,
         FindRolesByAccountId,
-        FindAllParameters,
+        FindParameters,
     }
 }
 
@@ -209,8 +194,6 @@ impl<EXPECTED: core::fmt::Debug, GOT: core::fmt::Debug> std::error::Error
 #[model]
 #[allow(clippy::redundant_pub_crate)]
 mod model {
-    use getset::Getters;
-
     use super::*;
 
     /// Unique id of blockchain
@@ -283,52 +266,6 @@ mod model {
         Permission(permission::Permission),
         /// [`CustomParameter`](`parameter::CustomParameter`) variant.
         CustomParameterId(parameter::CustomParameterId),
-    }
-
-    /// Sized container for all possible entities.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        EnumRef,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[enum_ref(derive(Encode, FromVariant))]
-    #[ffi_type]
-    pub enum IdentifiableBox {
-        /// [`NewDomain`](`domain::NewDomain`) variant.
-        NewDomain(<domain::Domain as Registered>::With),
-        /// [`NewAccount`](`account::NewAccount`) variant.
-        NewAccount(<account::Account as Registered>::With),
-        /// [`NewAssetDefinition`](`asset::NewAssetDefinition`) variant.
-        NewAssetDefinition(<asset::AssetDefinition as Registered>::With),
-        /// [`NewRole`](`role::NewRole`) variant.
-        NewRole(<role::Role as Registered>::With),
-        /// [`Peer`](`peer::Peer`) variant.
-        Peer(peer::Peer),
-        /// [`Domain`](`domain::Domain`) variant.
-        Domain(domain::Domain),
-        /// [`Account`](`account::Account`) variant.
-        Account(account::Account),
-        /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
-        AssetDefinition(asset::AssetDefinition),
-        /// [`Asset`](`asset::Asset`) variant.
-        Asset(asset::Asset),
-        /// [`Trigger`](`trigger::Trigger`) variant.
-        Trigger(trigger::Trigger),
-        /// [`Role`](`role::Role`) variant.
-        Role(role::Role),
-        /// [`CustomParameter`](`parameter::CustomParameter`) variant.
-        CustomParameter(parameter::CustomParameter),
     }
 
     /// Operation validation failed.
@@ -426,21 +363,6 @@ mod model {
         /// Error
         ERROR,
     }
-
-    /// Batched response of a query sent to torii
-    #[derive(
-        Debug, Clone, Constructor, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
-    #[version_with_scale(version = 1, versioned_alias = "BatchedResponse")]
-    #[getset(get = "pub")]
-    #[must_use]
-    pub struct BatchedResponseV1<T> {
-        /// Current batch
-        pub batch: T,
-        /// Index of the next element in the result set. Client will use this value
-        /// in the next request to continue fetching results of the original query
-        pub cursor: crate::query::cursor::ForwardCursor,
-    }
 }
 
 macro_rules! impl_encode_as_id_box {
@@ -456,19 +378,6 @@ macro_rules! impl_encode_as_id_box {
     }
 }
 
-macro_rules! impl_encode_as_identifiable_box {
-    ($($ty:ty),+ $(,)?) => { $(
-        impl $ty {
-            /// [`Encode`] [`Self`] as [`IdentifiableBox`].
-            ///
-            /// Used to avoid an unnecessary clone
-            pub fn encode_as_identifiable_box(&self) -> Vec<u8> {
-                IdentifiableBoxRef::from(self).encode()
-            }
-        } )+
-    }
-}
-
 impl_encode_as_id_box! {
     peer::PeerId,
     domain::DomainId,
@@ -478,20 +387,6 @@ impl_encode_as_id_box! {
     trigger::TriggerId,
     permission::Permission,
     role::RoleId,
-}
-
-impl_encode_as_identifiable_box! {
-    peer::Peer,
-    domain::NewDomain,
-    account::NewAccount,
-    asset::NewAssetDefinition,
-    role::NewRole,
-    domain::Domain,
-    account::Account,
-    asset::AssetDefinition,
-    asset::Asset,
-    trigger::Trigger,
-    role::Role,
 }
 
 impl Decode for ChainId {
@@ -510,46 +405,6 @@ mod test {
     #[test]
     fn parse_level_from_str() {
         assert_eq!("INFO".parse::<Level>().unwrap(), Level::INFO);
-    }
-}
-
-// TODO: think of a way to `impl Identifiable for IdentifiableBox`.
-// The main problem is lifetimes and conversion cost.
-
-impl IdentifiableBox {
-    fn id_box(&self) -> IdBox {
-        match self {
-            IdentifiableBox::NewDomain(a) => a.id().clone().into(),
-            IdentifiableBox::NewAccount(a) => a.id().clone().into(),
-            IdentifiableBox::NewAssetDefinition(a) => a.id().clone().into(),
-            IdentifiableBox::NewRole(a) => a.id().clone().into(),
-            IdentifiableBox::Peer(a) => a.id().clone().into(),
-            IdentifiableBox::Domain(a) => a.id().clone().into(),
-            IdentifiableBox::Account(a) => a.id().clone().into(),
-            IdentifiableBox::AssetDefinition(a) => a.id().clone().into(),
-            IdentifiableBox::Asset(a) => a.id().clone().into(),
-            IdentifiableBox::Trigger(a) => a.id().clone().into(),
-            IdentifiableBox::Role(a) => a.id().clone().into(),
-            IdentifiableBox::CustomParameter(a) => a.id().clone().into(),
-        }
-    }
-}
-
-impl<'idbox> TryFrom<&'idbox IdentifiableBox> for &'idbox dyn HasMetadata {
-    type Error = ();
-
-    fn try_from(
-        v: &'idbox IdentifiableBox,
-    ) -> Result<&'idbox (dyn HasMetadata + 'idbox), Self::Error> {
-        match v {
-            IdentifiableBox::NewDomain(v) => Ok(v),
-            IdentifiableBox::NewAccount(v) => Ok(v),
-            IdentifiableBox::NewAssetDefinition(v) => Ok(v),
-            IdentifiableBox::Domain(v) => Ok(v),
-            IdentifiableBox::Account(v) => Ok(v),
-            IdentifiableBox::AssetDefinition(v) => Ok(v),
-            _ => Err(()),
-        }
     }
 }
 
@@ -579,18 +434,6 @@ pub trait Registered: Identifiable {
     /// would be empty, to save space you create a builder for it, and
     /// set `With` to the builder's type.
     type With;
-}
-
-declare_versioned!(
-    BatchedResponse<T: serde::Serialize + for<'de> serde::Deserialize<'de>> 1..2,
-    Debug, Clone, iroha_macro::FromVariant, IntoSchema
-);
-
-impl<T> From<BatchedResponse<T>> for (T, crate::query::cursor::ForwardCursor) {
-    fn from(source: BatchedResponse<T>) -> Self {
-        let BatchedResponse::V1(batch) = source;
-        (batch.batch, batch.cursor)
-    }
 }
 
 mod ffi {
@@ -646,6 +489,6 @@ pub mod prelude {
         executor::prelude::*, isi::prelude::*, metadata::prelude::*, name::prelude::*,
         parameter::prelude::*, peer::prelude::*, permission::prelude::*, query::prelude::*,
         role::prelude::*, transaction::prelude::*, trigger::prelude::*, ChainId, EnumTryAsError,
-        HasMetadata, IdBox, Identifiable, IdentifiableBox, ValidationFail,
+        HasMetadata, IdBox, Identifiable, ValidationFail,
     };
 }

@@ -2,7 +2,7 @@ use std::{str::FromStr, thread};
 
 use eyre::Result;
 use iroha::{
-    client::{self, Client, QueryResult},
+    client::{self, Client},
     data_model::prelude::*,
 };
 use iroha_config::parameters::actual::Root as Config;
@@ -47,8 +47,9 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         let assets = peer_clients
             .choose(&mut thread_rng())
             .unwrap()
-            .request(client::asset::by_account_id(account_id.clone()))?
-            .collect::<QueryResult<Vec<_>>>()?;
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+            .execute_all()?;
         let asset = assets
             .into_iter()
             .find(|asset| *asset.id().definition() == asset_definition_id)
@@ -76,8 +77,11 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         let removed_peer_client = Client::test(&removed_peer.api_address);
         wait_for_genesis_committed(&vec![removed_peer_client.clone()], 0);
 
-        removed_peer_client.poll_request(client::asset::by_account_id(account_id), |result| {
-            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+        removed_peer_client.poll(|client| {
+            let assets = client
+                .query(client::asset::all())
+                .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+                .execute_all()?;
             iroha_logger::error!(?assets);
 
             let account_asset = assets
@@ -85,7 +89,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
                 .find(|asset| *asset.id().definition() == asset_definition_id)
                 .expect("Asset not found");
 
-            AssetValue::Numeric(quantity) == *account_asset.value()
+            Ok(AssetValue::Numeric(quantity) == *account_asset.value())
         })?
     }
     Ok(())

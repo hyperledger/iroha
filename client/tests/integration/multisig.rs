@@ -3,14 +3,14 @@ use std::{collections::BTreeMap, str::FromStr};
 use executor_custom_data_model::multisig::{MultisigArgs, MultisigRegisterArgs};
 use eyre::Result;
 use iroha::{
-    client::{self, ClientQueryError},
+    client,
     crypto::KeyPair,
     data_model::{
         prelude::*,
         transaction::{TransactionBuilder, WasmSmartContract},
     },
 };
-use iroha_data_model::parameter::SmartContractParameter;
+use iroha_data_model::{parameter::SmartContractParameter, query::builder::SingleQueryError};
 use nonzero_ext::nonzero;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
@@ -85,14 +85,16 @@ fn mutlisig() -> Result<()> {
 
     // Check that multisig account exist
     let account = test_client
-        .request(client::account::by_id(multisig_account_id.clone()))
+        .query(client::account::all())
+        .filter_with(|account| account.id.eq(multisig_account_id.clone()))
+        .execute_single()
         .expect("multisig account should be created after the call to register multisig trigger");
 
     assert_eq!(account.id(), &multisig_account_id);
 
     // Check that multisig trigger exist
     let trigger = test_client
-        .request(client::trigger::by_id(multisig_trigger_id.clone()))
+        .query_single(client::trigger::by_id(multisig_trigger_id.clone()))
         .expect("multisig trigger should be created after the call to register multisig trigger");
 
     assert_eq!(trigger.id(), &multisig_trigger_id);
@@ -115,16 +117,11 @@ fn mutlisig() -> Result<()> {
 
     // Check that domain isn't created yet
     let err = test_client
-        .request(client::domain::by_id(domain_id.clone()))
+        .query(client::domain::all())
+        .filter_with(|domain| domain.id.eq(domain_id.clone()))
+        .execute_single()
         .expect_err("domain shouldn't be created before enough votes are collected");
-    assert!(matches!(
-        err,
-        ClientQueryError::Validation(iroha_data_model::ValidationFail::QueryFailed(
-            iroha_data_model::query::error::QueryExecutionFail::Find(
-                iroha_data_model::query::error::FindError::Domain(err_domain_id)
-            )
-        )) if domain_id == err_domain_id
-    ));
+    assert!(matches!(err, SingleQueryError::ExpectedOneGotNone));
 
     for (signatory, key_pair) in signatories_iter {
         let args = MultisigArgs::Vote(isi_hash);
@@ -138,7 +135,9 @@ fn mutlisig() -> Result<()> {
 
     // Check that new domain was created and multisig account is owner
     let domain = test_client
-        .request(client::domain::by_id(domain_id.clone()))
+        .query(client::domain::all())
+        .filter_with(|domain| domain.id.eq(domain_id.clone()))
+        .execute_single()
         .expect("domain should be created after enough votes are collected");
 
     assert_eq!(domain.owned_by(), &multisig_account_id);

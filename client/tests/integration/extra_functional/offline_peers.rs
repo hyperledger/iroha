@@ -1,6 +1,6 @@
 use eyre::Result;
 use iroha::{
-    client::{self, Client, QueryResult},
+    client::{self, Client},
     crypto::KeyPair,
     data_model::{
         peer::{Peer as DataModelPeer, PeerId},
@@ -27,8 +27,9 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
 
     //Then
     let assets = client
-        .request(client::asset::by_account_id(alice_id))?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(alice_id))
+        .execute_all()?;
     let asset = assets
         .iter()
         .find(|asset| *asset.id().definition() == roses)

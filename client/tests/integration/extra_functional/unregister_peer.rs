@@ -2,7 +2,7 @@ use std::thread;
 
 use eyre::Result;
 use iroha::{
-    client::{self, QueryResult},
+    client,
     data_model::{parameter::BlockParameter, prelude::*},
 };
 use iroha_config::parameters::actual::Root as Config;
@@ -71,19 +71,17 @@ fn check_assets(
     quantity: Numeric,
 ) {
     iroha
-        .poll_request_with_period(
-            client::asset::by_account_id(account_id.clone()),
-            Config::block_sync_gossip_time(),
-            15,
-            |result| {
-                let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+        .poll_with_period(Config::block_sync_gossip_time(), 15, |client| {
+            let assets = client
+                .query(client::asset::all())
+                .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+                .execute_all()?;
 
-                assets.iter().any(|asset| {
-                    asset.id().definition() == asset_definition_id
-                        && *asset.value() == AssetValue::Numeric(quantity)
-                })
-            },
-        )
+            Ok(assets.iter().any(|asset| {
+                asset.id().definition() == asset_definition_id
+                    && *asset.value() == AssetValue::Numeric(quantity)
+            }))
+        })
         .expect("Test case failure");
 }
 

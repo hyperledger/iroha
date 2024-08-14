@@ -5,7 +5,7 @@ use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;
-use crate::ValidQuery;
+use crate::ValidSingularQuery;
 
 impl Registrable for iroha_data_model::account::NewAccount {
     type Target = Account;
@@ -478,85 +478,73 @@ pub mod query {
 
     use eyre::Result;
     use iroha_data_model::{
-        account::Account, permission::Permission, query::error::QueryExecutionFail as Error,
+        account::Account,
+        permission::Permission,
+        query::{
+            error::QueryExecutionFail as Error,
+            predicate::{
+                predicate_atoms::{
+                    account::AccountPredicateBox, permission::PermissionPredicateBox,
+                    role::RoleIdPredicateBox,
+                },
+                CompoundPredicate,
+            },
+        },
     };
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::state::StateReadOnly;
+    use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
 
     impl ValidQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]
         fn execute<'state>(
-            &self,
+            self,
+            filter: CompoundPredicate<RoleIdPredicateBox>,
             state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = RoleId> + 'state>, Error> {
+        ) -> Result<impl Iterator<Item = RoleId> + 'state, Error> {
             let account_id = &self.id;
             state_ro.world().account(account_id)?;
-            Ok(Box::new(
-                state_ro.world().account_roles_iter(account_id).cloned(),
-            ))
+            Ok(state_ro
+                .world()
+                .account_roles_iter(account_id)
+                .filter(move |&role_id| filter.applies(role_id))
+                .cloned())
         }
     }
 
     impl ValidQuery for FindPermissionsByAccountId {
         #[metrics(+"find_permissions_by_account_id")]
         fn execute<'state>(
-            &self,
+            self,
+            filter: CompoundPredicate<PermissionPredicateBox>,
             state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Permission> + 'state>, Error> {
+        ) -> Result<impl Iterator<Item = Permission> + 'state, Error> {
             let account_id = &self.id;
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .account_permissions_iter(account_id)?
-                    .cloned(),
-            ))
-        }
-    }
-
-    impl ValidQuery for FindAllAccounts {
-        #[metrics(+"find_all_accounts")]
-        fn execute<'state>(
-            &self,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
-            Ok(Box::new(state_ro.world().accounts_iter().cloned()))
-        }
-    }
-
-    impl ValidQuery for FindAccountById {
-        #[metrics(+"find_account_by_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Account, Error> {
-            let id = &self.id;
-            iroha_logger::trace!(%id);
-            state_ro
+            Ok(state_ro
                 .world()
-                .domain(id.domain())
-                .map_err(|_| FindError::Domain(id.domain().clone()))?;
-            state_ro
-                .world()
-                .map_account(id, Clone::clone)
-                .map_err(Into::into)
+                .account_permissions_iter(account_id)?
+                .filter(move |&permission| filter.applies(permission))
+                .cloned())
         }
     }
 
-    impl ValidQuery for FindAccountsByDomainId {
-        #[metrics(+"find_accounts_by_domain_id")]
+    impl ValidQuery for FindAccounts {
+        #[metrics(+"find_accounts")]
         fn execute<'state>(
-            &self,
+            self,
+            filter: CompoundPredicate<AccountPredicateBox>,
             state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
-            let id = &self.domain;
-
-            iroha_logger::trace!(%id);
-            Ok(Box::new(
-                state_ro.world().accounts_in_domain_iter(id).cloned(),
-            ))
+        ) -> Result<impl Iterator<Item = Account> + 'state, Error> {
+            Ok(state_ro
+                .world()
+                .accounts_iter()
+                .filter(move |&account| filter.applies(account))
+                .cloned())
         }
     }
 
-    impl ValidQuery for FindAccountKeyValueByIdAndKey {
+    impl ValidSingularQuery for FindAccountMetadata {
         #[metrics(+"find_account_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
             let id = &self.id;
@@ -573,28 +561,28 @@ pub mod query {
     impl ValidQuery for FindAccountsWithAsset {
         #[metrics(+"find_accounts_with_asset")]
         fn execute<'state>(
-            &self,
+            self,
+            filter: CompoundPredicate<AccountPredicateBox>,
             state_ro: &'state impl StateReadOnly,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
+        ) -> std::result::Result<impl Iterator<Item = Account> + 'state, Error> {
             let asset_definition_id = self.asset_definition.clone();
             iroha_logger::trace!(%asset_definition_id);
 
-            Ok(Box::new(
-                state_ro
-                    .world()
-                    .accounts_iter()
-                    .filter(move |account| {
-                        state_ro
-                            .world()
-                            .assets()
-                            .get(&AssetId::new(
-                                asset_definition_id.clone(),
-                                account.id().clone(),
-                            ))
-                            .is_some()
-                    })
-                    .cloned(),
-            ))
+            Ok(state_ro
+                .world()
+                .accounts_iter()
+                .filter(move |account| {
+                    state_ro
+                        .world()
+                        .assets()
+                        .get(&AssetId::new(
+                            asset_definition_id.clone(),
+                            account.id().clone(),
+                        ))
+                        .is_some()
+                })
+                .filter(move |&account| filter.applies(account))
+                .cloned())
         }
     }
 }

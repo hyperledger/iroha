@@ -24,6 +24,8 @@ iroha_smart_contract_utils.workspace = true
 parity-scale-codec.workspace = true
 derive_more.workspace = true
 
+displaydoc.workspace = true
+
 getrandom = "0.2"
 
 [dev-dependencies]

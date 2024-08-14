@@ -8,7 +8,7 @@ extern crate panic_halt;
 use core::str::FromStr as _;
 
 use dlmalloc::GlobalDlmalloc;
-use iroha_trigger::prelude::*;
+use iroha_trigger::{prelude::*, smart_contract::query_single};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -22,10 +22,8 @@ fn main(id: TriggerId, owner: AccountId, _event: EventBox) {
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
     let rose_id = AssetId::new(rose_definition_id, owner);
 
-    let val: u32 = FindTriggerKeyValueByIdAndKey::new(id, "VAL".parse().unwrap())
-        .execute()
+    let val: u32 = query_single(FindTriggerMetadata::new(id, "VAL".parse().unwrap()))
         .dbg_unwrap()
-        .into_inner()
         .try_into_any()
         .dbg_unwrap();
 

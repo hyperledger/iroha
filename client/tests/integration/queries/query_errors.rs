@@ -1,10 +1,5 @@
-use iroha::{
-    client::{self, ClientQueryError},
-    data_model::{
-        prelude::*,
-        query::error::{FindError, QueryExecutionFail},
-    },
-};
+use iroha::client;
+use iroha_data_model::{prelude::QueryBuilderExt, query::builder::SingleQueryError};
 use test_samples::gen_account_in;
 
 #[test]
@@ -15,16 +10,13 @@ fn non_existent_account_is_specific_error() {
     // we cannot wait for genesis committment
 
     let err = client
-        .request(client::account::by_id(gen_account_in("regalia").0))
+        .query(client::account::all())
+        .filter_with(|account| account.id.eq(gen_account_in("regalia").0))
+        .execute_single()
         .expect_err("Should error");
 
     match err {
-        ClientQueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFail::Find(
-            err,
-        ))) => match err {
-            FindError::Domain(id) => assert_eq!(id.name.as_ref(), "regalia"),
-            x => panic!("FindError::Domain expected, got {x:?}"),
-        },
+        SingleQueryError::ExpectedOneGotNone => {}
         x => panic!("Unexpected error: {x:?}"),
-    };
+    }
 }

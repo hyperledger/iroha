@@ -1,11 +1,11 @@
-error[E0603]: struct `ClientQueryPayload` is private
- --> tests/ui_fail/transparent_api_private_item.rs:1:36
+error[E0603]: struct `BlockPayload` is private
+ --> tests/ui_fail/transparent_api_private_item.rs:1:30
   |
-1 | use iroha_data_model::query::http::ClientQueryPayload;
-  |                                    ^^^^^^^^^^^^^^^^^^ private struct
+1 | use iroha_data_model::block::BlockPayload;
+  |                              ^^^^^^^^^^^^ private struct
   |
-note: the struct `ClientQueryPayload` is defined here
- --> $WORKSPACE/data_model/src/query/mod.rs
+note: the struct `BlockPayload` is defined here
+ --> $WORKSPACE/data_model/src/block.rs
   |
-  |     pub use self::model::*;
-  |             ^^^^^^^^^^^
+  | pub use self::model::*;
+  |         ^^^^^^^^^^^

@@ -1,5 +1,6 @@
 use eyre::Result;
 use iroha::{
+    client,
     client::Client,
     data_model::{prelude::*, transaction::error::TransactionRejectionReason},
 };
@@ -338,7 +339,11 @@ fn domain_owner_transfer() -> Result<()> {
     let bob = Account::new(bob_id.clone());
     test_client.submit_blocking(Register::account(bob))?;
 
-    let domain = test_client.request(FindDomainById::new(kingdom_id.clone()))?;
+    let domain = test_client
+        .query(client::domain::all())
+        .filter_with(|domain| domain.id.eq(kingdom_id.clone()))
+        .execute_single()?;
+
     assert_eq!(domain.owned_by(), &alice_id);
 
     test_client
@@ -349,7 +354,10 @@ fn domain_owner_transfer() -> Result<()> {
         ))
         .expect("Failed to submit transaction");
 
-    let domain = test_client.request(FindDomainById::new(kingdom_id))?;
+    let domain = test_client
+        .query(client::domain::all())
+        .filter_with(|domain| domain.id.eq(kingdom_id.clone()))
+        .execute_single()?;
     assert_eq!(domain.owned_by(), &bob_id);
 
     Ok(())
@@ -383,7 +391,10 @@ fn not_allowed_to_transfer_other_user_domain() -> Result<()> {
     let client = Client::test(&peer.api_address);
     wait_for_genesis_committed(&[client.clone()], 0);
 
-    let domain = client.request(FindDomainById::new(foo_domain.clone()))?;
+    let domain = client
+        .query(client::domain::all())
+        .filter_with(|domain| domain.id.eq(foo_domain.clone()))
+        .execute_single()?;
     assert_eq!(domain.owned_by(), &user1);
 
     // Client authority is "alice@wonderlang".

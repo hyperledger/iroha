@@ -1,6 +1,6 @@
 use eyre::Result;
 use iroha::{
-    client::{Client, ClientQueryError},
+    client::{Client, QueryError},
     data_model::{
         asset::AssetValue,
         isi::Instruction,
@@ -77,7 +77,7 @@ fn find_asset_total_quantity() -> Result<()> {
         .collect::<Vec<_>>();
 
     // Assert that initial total quantity before any registrations and unregistrations is zero
-    let initial_total_asset_quantity = test_client.request(
+    let initial_total_asset_quantity = test_client.query_single(
         FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
     )?;
     assert!(initial_total_asset_quantity.is_zero());
@@ -91,7 +91,7 @@ fn find_asset_total_quantity() -> Result<()> {
     test_client.submit_all_blocking(register_assets)?;
 
     // Assert that total quantity is equal to number of registrations
-    let result = test_client.request(FindTotalAssetQuantityByAssetDefinitionId::new(
+    let result = test_client.query_single(FindTotalAssetQuantityByAssetDefinitionId::new(
         definition_id.clone(),
     ))?;
     assert_eq!(numeric!(5), result);
@@ -104,7 +104,7 @@ fn find_asset_total_quantity() -> Result<()> {
     test_client.submit_all_blocking(unregister_assets)?;
 
     // Assert that total asset quantity is zero after unregistering asset from all accounts
-    let total_asset_quantity = test_client.request(
+    let total_asset_quantity = test_client.query_single(
         FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
     )?;
     assert!(total_asset_quantity.is_zero());
@@ -113,12 +113,12 @@ fn find_asset_total_quantity() -> Result<()> {
     test_client.submit_blocking(Unregister::asset_definition(definition_id.clone()))?;
 
     // Assert that total asset quantity cleared with unregistering of asset definition
-    let result = test_client.request(FindTotalAssetQuantityByAssetDefinitionId::new(
+    let result = test_client.query_single(FindTotalAssetQuantityByAssetDefinitionId::new(
         definition_id,
     ));
     assert!(matches!(
         result,
-        Err(ClientQueryError::Validation(ValidationFail::QueryFailed(
+        Err(QueryError::Validation(ValidationFail::QueryFailed(
             QueryExecutionFail::Find(_)
         )))
     ));
@@ -157,7 +157,7 @@ where
         .collect::<Vec<_>>();
 
     // Assert that initial total quantity before any burns and mints is zero
-    let initial_total_asset_quantity = test_client.request(
+    let initial_total_asset_quantity = test_client.query_single(
         FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
     )?;
     assert!(initial_total_asset_quantity.is_zero());
@@ -184,7 +184,7 @@ where
     test_client.submit_all_blocking(burn_assets)?;
 
     // Assert that total asset quantity is equal to: `n_accounts * (initial_value + to_mint - to_burn)`
-    let total_asset_quantity = test_client.request(
+    let total_asset_quantity = test_client.query_single(
         FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
     )?;
     assert_eq!(expected_total_asset_quantity, total_asset_quantity);
@@ -197,7 +197,7 @@ where
     test_client.submit_all_blocking(unregister_assets)?;
 
     // Assert that total asset quantity is zero after unregistering asset from all accounts
-    let total_asset_quantity = test_client.request(
+    let total_asset_quantity = test_client.query_single(
         FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
     )?;
     assert!(total_asset_quantity.is_zero());
@@ -206,12 +206,12 @@ where
     test_client.submit_blocking(Unregister::asset_definition(definition_id.clone()))?;
 
     // Assert that total asset quantity cleared with unregistering of asset definition
-    let result = test_client.request(FindTotalAssetQuantityByAssetDefinitionId::new(
+    let result = test_client.query_single(FindTotalAssetQuantityByAssetDefinitionId::new(
         definition_id,
     ));
     assert!(matches!(
         result,
-        Err(ClientQueryError::Validation(ValidationFail::QueryFailed(
+        Err(QueryError::Validation(ValidationFail::QueryFailed(
             QueryExecutionFail::Find(_)
         )))
     ));

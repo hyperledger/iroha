@@ -1,3 +1,3 @@
-use iroha_data_model::query::http::ClientQueryPayload;
+use iroha_data_model::block::BlockPayload;
 
 fn main() {}

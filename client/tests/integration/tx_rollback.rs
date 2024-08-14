@@ -1,10 +1,7 @@
 use std::str::FromStr as _;
 
 use eyre::Result;
-use iroha::{
-    client::{self, QueryResult},
-    data_model::prelude::*,
-};
+use iroha::{client, data_model::prelude::*};
 use test_network::*;
 use test_samples::ALICE_ID;
 
@@ -24,15 +21,18 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
     );
     let _ = client.submit_all_blocking::<InstructionBox>([create_asset.into(), mint_asset.into()]);
 
-    //Then
-    let request = client::asset::by_account_id(account_id);
-    let query_result = client.request(request)?.collect::<QueryResult<Vec<_>>>()?;
+    //Then;
+    let query_result = client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(account_id))
+        .execute_all()?;
+
     assert!(query_result
         .iter()
         .all(|asset| *asset.id().definition() != wrong_asset_definition_id));
     let definition_query_result = client
-        .request(client::asset::all_definitions())?
-        .collect::<QueryResult<Vec<_>>>()?;
+        .query(client::asset::all_definitions())
+        .execute_all()?;
     assert!(definition_query_result
         .iter()
         .all(|asset| *asset.id() != wrong_asset_definition_id));

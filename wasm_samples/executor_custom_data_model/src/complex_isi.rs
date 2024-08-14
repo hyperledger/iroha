@@ -125,7 +125,7 @@ mod expression {
 
     use iroha_data_model::{
         isi::InstructionBox,
-        prelude::{Numeric, QueryBox},
+        prelude::{FindAssetQuantityById, FindTotalAssetQuantityByAssetDefinitionId, Numeric},
     };
     use iroha_schema::{IntoSchema, TypeId};
     use serde::{Deserialize, Serialize};
@@ -147,6 +147,25 @@ mod expression {
         }
     }
 
+    /// Represents all possible queries returning a numerical result.
+    #[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
+    pub enum NumericQuery {
+        FindAssetQuantityById(FindAssetQuantityById),
+        FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
+    }
+
+    impl From<FindAssetQuantityById> for NumericQuery {
+        fn from(value: FindAssetQuantityById) -> Self {
+            Self::FindAssetQuantityById(value)
+        }
+    }
+
+    impl From<FindTotalAssetQuantityByAssetDefinitionId> for NumericQuery {
+        fn from(value: FindTotalAssetQuantityByAssetDefinitionId) -> Self {
+            Self::FindTotalAssetQuantityByAssetDefinitionId(value)
+        }
+    }
+
     /// Represents all possible expressions.
     #[derive(Debug, Deserialize, Serialize, IntoSchema)]
     pub enum Expression {
@@ -155,7 +174,7 @@ mod expression {
         /// Greater expression.
         Greater(Greater),
         /// Query to Iroha state.
-        Query(QueryBox),
+        Query(NumericQuery),
     }
 
     /// Returns whether the `left` expression is greater than the `right`.
@@ -274,11 +293,12 @@ mod expression {
 mod evaluate {
     use alloc::string::ToString;
 
-    use iroha_data_model::{
-        isi::error::InstructionExecutionError, query::QueryBox, ValidationFail,
-    };
+    use iroha_data_model::{isi::error::InstructionExecutionError, ValidationFail};
 
-    use crate::complex_isi::expression::{EvaluatesTo, Expression, Greater, Value};
+    use crate::complex_isi::{
+        expression::{EvaluatesTo, Expression, Greater, Value},
+        NumericQuery,
+    };
 
     pub trait Evaluate {
         /// The resulting type of the expression.
@@ -290,7 +310,7 @@ mod evaluate {
 
     pub trait Context {
         /// Execute query against the current state of `Iroha`
-        fn query(&self, query: &QueryBox) -> Result<Value, ValidationFail>;
+        fn query(&self, query: &NumericQuery) -> Result<Value, ValidationFail>;
     }
 
     impl<V: TryFrom<Value>> Evaluate for EvaluatesTo<V>
@@ -329,7 +349,7 @@ mod evaluate {
         }
     }
 
-    impl Evaluate for QueryBox {
+    impl Evaluate for NumericQuery {
         type Value = Value;
 
         fn evaluate(&self, context: &impl Context) -> Result<Self::Value, ValidationFail> {

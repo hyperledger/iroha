@@ -1121,7 +1121,7 @@ pub mod parameter {
 
 pub mod role {
     use iroha_executor_data_model::permission::role::CanUnregisterAnyRole;
-    use iroha_smart_contract::{data_model::role::Role, ExecuteQueryOnHost as _};
+    use iroha_smart_contract::data_model::role::Role;
 
     use super::*;
 
@@ -1129,12 +1129,30 @@ pub mod role {
         ($executor:ident, $isi:ident, $authority:ident, $method:ident) => {
             let role_id = $isi.object();
 
-            let find_role_query_res = match FindRoleByRoleId::new(role_id.clone()).execute() {
-                Ok(res) => res.into_inner(),
-                Err(error) => {
-                    deny!($executor, error);
-                }
-            };
+            let find_role_query_res =
+                match crate::data_model::query::builder::QueryBuilderExt::execute_single(
+                    iroha_smart_contract::query(FindRoles)
+                        .filter_with(|role| role.id.eq(role_id.clone())),
+                ) {
+                    Ok(res) => res,
+                    Err(crate::data_model::query::builder::SingleQueryError::QueryError(error)) => {
+                        deny!($executor, error);
+                    }
+                    Err(
+                        crate::data_model::query::builder::SingleQueryError::ExpectedOneGotNone,
+                    ) => {
+                        // assuming that only a "not found" case is possible here
+                        $executor.deny($crate::data_model::ValidationFail::QueryFailed(
+                            $crate::data_model::query::error::QueryExecutionFail::Find(
+                                $crate::data_model::query::error::FindError::Role(role_id.clone()),
+                            ),
+                        ));
+                        return;
+                    }
+                    Err(_) => {
+                        unreachable!();
+                    }
+                };
             let role = Role::try_from(find_role_query_res).unwrap();
 
             let mut unknown_tokens = alloc::vec::Vec::new();

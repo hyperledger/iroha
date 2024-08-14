@@ -2,7 +2,7 @@ use std::thread;
 
 use eyre::Result;
 use iroha::{
-    client::{self, Client, QueryResult},
+    client::{self, Client},
     data_model::{parameter::BlockParameter, prelude::*},
 };
 use iroha_config::parameters::actual::Root as Config;
@@ -56,16 +56,16 @@ fn long_multiple_blocks_created() -> Result<()> {
 
     //Then
     let peer = network.peers().last().unwrap();
-    Client::test(&peer.api_address).poll_request(
-        client::asset::by_account_id(account_id),
-        |result| {
-            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+    Client::test(&peer.api_address).poll(|client| {
+        let assets = client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id))
+            .execute_all()?;
 
-            assets.iter().any(|asset| {
-                *asset.id().definition() == asset_definition_id
-                    && *asset.value() == AssetValue::Numeric(account_has_quantity)
-            })
-        },
-    )?;
+        Ok(assets.iter().any(|asset| {
+            *asset.id().definition() == asset_definition_id
+                && *asset.value() == AssetValue::Numeric(account_has_quantity)
+        }))
+    })?;
     Ok(())
 }

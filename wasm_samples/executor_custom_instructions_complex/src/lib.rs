@@ -12,12 +12,9 @@ extern crate panic_halt;
 
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::complex_isi::{
-    ConditionalExpr, CoreExpr, CustomInstructionExpr, Evaluate, Value,
+    ConditionalExpr, CoreExpr, CustomInstructionExpr, Evaluate, NumericQuery, Value,
 };
-use iroha_executor::{
-    data_model::{isi::CustomInstruction, query::QueryOutputBox},
-    prelude::*,
-};
+use iroha_executor::{data_model::isi::CustomInstruction, prelude::*};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -67,12 +64,17 @@ fn execute_if(isi: ConditionalExpr) -> Result<(), ValidationFail> {
 struct Context;
 
 impl executor_custom_data_model::complex_isi::Context for Context {
-    fn query(&self, query: &QueryBox) -> Result<Value, ValidationFail> {
-        // Note: supported only queries which return numeric result
-        match query.execute()?.into_inner() {
-            QueryOutputBox::Numeric(value) => Ok(Value::Numeric(value)),
-            _ => unimplemented!(),
-        }
+    fn query(&self, q: &NumericQuery) -> Result<Value, ValidationFail> {
+        let result = match q.clone() {
+            NumericQuery::FindAssetQuantityById(q) => {
+                iroha_executor::smart_contract::query_single(q)
+            }
+            NumericQuery::FindTotalAssetQuantityByAssetDefinitionId(q) => {
+                iroha_executor::smart_contract::query_single(q)
+            }
+        };
+
+        result.map(Value::Numeric)
     }
 }
 

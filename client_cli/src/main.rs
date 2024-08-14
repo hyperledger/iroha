@@ -10,11 +10,7 @@ use std::{
 use erased_serde::Serialize;
 use error_stack::{fmt::ColorMode, IntoReportCompat, ResultExt};
 use eyre::{eyre, Error, Result, WrapErr};
-use iroha::{
-    client::{Client, QueryResult},
-    config::Config,
-    data_model::prelude::*,
-};
+use iroha::{client::Client, config::Config, data_model::prelude::*};
 use iroha_primitives::{addr::SocketAddr, json::JsonString};
 use thiserror::Error;
 
@@ -252,19 +248,52 @@ fn submit(
 }
 
 mod filter {
-    use iroha::data_model::query::predicate::PredicateBox;
+    use iroha::data_model::query::predicate::{
+        predicate_atoms::{
+            account::AccountPredicateBox, asset::AssetPredicateBox, domain::DomainPredicateBox,
+        },
+        CompoundPredicate,
+    };
+    use serde::Deserialize;
 
     use super::*;
 
-    /// Filter for queries
+    /// Filter for domain queries
     #[derive(Clone, Debug, clap::Parser)]
-    pub struct Filter {
+    pub struct DomainFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_filter)]
-        pub predicate: PredicateBox,
+        #[clap(value_parser = parse_json5::<CompoundPredicate<DomainPredicateBox>>)]
+        pub predicate: CompoundPredicate<DomainPredicateBox>,
     }
 
-    fn parse_filter(s: &str) -> Result<PredicateBox, String> {
+    /// Filter for account queries
+    #[derive(Clone, Debug, clap::Parser)]
+    pub struct AccountFilter {
+        /// Predicate for filtering given as JSON5 string
+        #[clap(value_parser = parse_json5::<CompoundPredicate<AccountPredicateBox>>)]
+        pub predicate: CompoundPredicate<AccountPredicateBox>,
+    }
+
+    /// Filter for asset queries
+    #[derive(Clone, Debug, clap::Parser)]
+    pub struct AssetFilter {
+        /// Predicate for filtering given as JSON5 string
+        #[clap(value_parser = parse_json5::<CompoundPredicate<AssetPredicateBox>>)]
+        pub predicate: CompoundPredicate<AssetPredicateBox>,
+    }
+
+    /// Filter for asset definition queries
+    #[derive(Clone, Debug, clap::Parser)]
+    pub struct AssetDefinitionFilter {
+        /// Predicate for filtering given as JSON5 string
+        #[clap(value_parser = parse_json5::<CompoundPredicate<AssetDefinitionPredicateBox>>)]
+        pub predicate: CompoundPredicate<AssetDefinitionPredicateBox>,
+    }
+
+    fn parse_json5<T>(s: &str) -> Result<T, String>
+    where
+        T: for<'a> Deserialize<'a>,
+    {
         json5::from_str(s).map_err(|err| format!("Failed to deserialize filter from JSON5: {err}"))
     }
 }
@@ -394,24 +423,23 @@ mod domain {
         /// All domains
         All,
         /// Filter domains by given predicate
-        Filter(filter::Filter),
+        Filter(filter::DomainFilter),
     }
 
     impl RunArgs for List {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let vec = match self {
-                Self::All => client
-                    .request(client::domain::all())
-                    .wrap_err("Failed to get all domains"),
-                Self::Filter(filter) => client
-                    .build_query(client::domain::all())
-                    .with_filter(filter.predicate)
-                    .execute()
-                    .wrap_err("Failed to get filtered domains"),
-            }?;
-            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            let query = client.query(client::domain::all());
+
+            let query = match self {
+                List::All => query,
+                List::Filter(filter) => query.filter(filter.predicate),
+            };
+
+            let result = query.execute_all().wrap_err("Failed to get all accounts")?;
+            context.print_data(&result)?;
+
             Ok(())
         }
     }
@@ -571,24 +599,23 @@ mod account {
         /// All accounts
         All,
         /// Filter accounts by given predicate
-        Filter(filter::Filter),
+        Filter(filter::AccountFilter),
     }
 
     impl RunArgs for List {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let vec = match self {
-                Self::All => client
-                    .request(client::account::all())
-                    .wrap_err("Failed to get all accounts"),
-                Self::Filter(filter) => client
-                    .build_query(client::account::all())
-                    .with_filter(filter.predicate)
-                    .execute()
-                    .wrap_err("Failed to get filtered accounts"),
-            }?;
-            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            let query = client.query(client::account::all());
+
+            let query = match self {
+                List::All => query,
+                List::Filter(filter) => query.filter(filter.predicate),
+            };
+
+            let result = query.execute_all().wrap_err("Failed to get all accounts")?;
+            context.print_data(&result)?;
+
             Ok(())
         }
     }
@@ -649,9 +676,10 @@ mod account {
             let client = context.client_from_config();
             let find_all_permissions = FindPermissionsByAccountId::new(self.id);
             let permissions = client
-                .request(find_all_permissions)
+                .query(find_all_permissions)
+                .execute_all()
                 .wrap_err("Failed to get all account permissions")?;
-            context.print_data(&permissions.collect::<QueryResult<Vec<_>>>()?)?;
+            context.print_data(&permissions)?;
             Ok(())
         }
     }
@@ -764,24 +792,25 @@ mod asset {
             /// All asset definitions
             All,
             /// Filter asset definitions by given predicate
-            Filter(filter::Filter),
+            Filter(filter::AssetDefinitionFilter),
         }
 
         impl RunArgs for List {
             fn run(self, context: &mut dyn RunContext) -> Result<()> {
                 let client = context.client_from_config();
 
-                let vec = match self {
-                    Self::All => client
-                        .request(client::asset::all_definitions())
-                        .wrap_err("Failed to get all assets"),
-                    Self::Filter(filter) => client
-                        .build_query(client::asset::all_definitions())
-                        .with_filter(filter.predicate)
-                        .execute()
-                        .wrap_err("Failed to get filtered assets"),
-                }?;
-                context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+                let query = client.query(client::asset::all_definitions());
+
+                let query = match self {
+                    List::All => query,
+                    List::Filter(filter) => query.filter(filter.predicate),
+                };
+
+                let result = query
+                    .execute_all()
+                    .wrap_err("Failed to get all asset definitions")?;
+
+                context.print_data(&result)?;
                 Ok(())
             }
         }
@@ -882,7 +911,9 @@ mod asset {
             let Self { id: asset_id } = self;
             let iroha = context.client_from_config();
             let asset = iroha
-                .request(asset::by_id(asset_id))
+                .query(asset::all())
+                .filter_with(|asset| asset.id.eq(asset_id))
+                .execute_single()
                 .wrap_err("Failed to get asset.")?;
             context.print_data(&asset)?;
             Ok(())
@@ -895,24 +926,23 @@ mod asset {
         /// All assets
         All,
         /// Filter assets by given predicate
-        Filter(filter::Filter),
+        Filter(filter::AssetFilter),
     }
 
     impl RunArgs for List {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let vec = match self {
-                Self::All => client
-                    .request(client::asset::all())
-                    .wrap_err("Failed to get all assets"),
-                Self::Filter(filter) => client
-                    .build_query(client::asset::all())
-                    .with_filter(filter.predicate)
-                    .execute()
-                    .wrap_err("Failed to get filtered assets"),
-            }?;
-            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            let query = client.query(client::asset::all());
+
+            let query = match self {
+                List::All => query,
+                List::Filter(filter) => query.filter(filter.predicate),
+            };
+
+            let result = query.execute_all().wrap_err("Failed to get all accounts")?;
+            context.print_data(&result)?;
+
             Ok(())
         }
     }
@@ -975,9 +1005,9 @@ mod asset {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { id: asset_id, key } = self;
             let client = context.client_from_config();
-            let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key);
+            let find_key_value = FindAssetMetadata::new(asset_id, key);
             let asset = client
-                .request(find_key_value)
+                .query_single(find_key_value)
                 .wrap_err("Failed to get key-value")?;
             context.print_data(&asset)?;
             Ok(())
@@ -1099,7 +1129,7 @@ mod json {
     use std::io::{BufReader, Read as _};
 
     use clap::Subcommand;
-    use iroha::data_model::query::QueryBox;
+    use iroha::data_model::query::AnyQueryBox;
 
     use super::*;
 
@@ -1132,12 +1162,35 @@ mod json {
                 }
                 Variant::Query => {
                     let client = Client::new(context.configuration().clone());
-                    let query: QueryBox = json5::from_str(&string_content)?;
-                    let response = client
-                        .request(query)
-                        .and_then(core::convert::identity)
-                        .wrap_err("Failed to query response")?;
-                    context.print_data(&response)?;
+                    let query: AnyQueryBox = json5::from_str(&string_content)?;
+
+                    match query {
+                        AnyQueryBox::Singular(query) => {
+                            let result = client
+                                .query_single(query)
+                                .wrap_err("Failed to query response")?;
+
+                            context.print_data(&result)?;
+                        }
+                        AnyQueryBox::Iterable(query) => {
+                            // we can't really do type-erased iterable queries in a nice way right now...
+                            use iroha::data_model::query::builder::QueryExecutor;
+
+                            let (mut first_batch, mut continue_cursor) =
+                                client.start_query(query)?;
+
+                            while let Some(cursor) = continue_cursor {
+                                let (next_batch, next_continue_cursor) =
+                                    <Client as QueryExecutor>::continue_query(cursor)?;
+
+                                first_batch.extend(next_batch);
+                                continue_cursor = next_continue_cursor;
+                            }
+
+                            context.print_data(&first_batch)?;
+                        }
+                    }
+
                     Ok(())
                 }
             }

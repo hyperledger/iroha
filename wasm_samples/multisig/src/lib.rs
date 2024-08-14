@@ -10,7 +10,7 @@ use alloc::{collections::btree_set::BTreeSet, format, vec::Vec};
 
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::multisig::MultisigArgs;
-use iroha_trigger::{debug::dbg_panic, prelude::*};
+use iroha_trigger::{debug::dbg_panic, prelude::*, smart_contract::query_single};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -41,9 +41,11 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
 
     let (votes, instructions) = match args {
         MultisigArgs::Instructions(instructions) => {
-            FindTriggerKeyValueByIdAndKey::new(id.clone(), votes_metadata_key.clone())
-                .execute()
-                .expect_err("instructions are already submitted");
+            query_single(FindTriggerMetadata::new(
+                id.clone(),
+                votes_metadata_key.clone(),
+            ))
+            .expect_err("instructions are already submitted");
 
             let votes = BTreeSet::from([signatory.clone()]);
 
@@ -66,13 +68,13 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
             (votes, instructions)
         }
         MultisigArgs::Vote(_instructions_hash) => {
-            let mut votes: BTreeSet<AccountId> =
-                FindTriggerKeyValueByIdAndKey::new(id.clone(), votes_metadata_key.clone())
-                    .execute()
-                    .dbg_expect("instructions should be submitted first")
-                    .into_inner()
-                    .try_into_any()
-                    .dbg_unwrap();
+            let mut votes: BTreeSet<AccountId> = query_single(FindTriggerMetadata::new(
+                id.clone(),
+                votes_metadata_key.clone(),
+            ))
+            .dbg_expect("instructions should be submitted first")
+            .try_into_any()
+            .dbg_unwrap();
 
             votes.insert(signatory.clone());
 
@@ -84,25 +86,25 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
             .execute()
             .dbg_unwrap();
 
-            let instructions: Vec<InstructionBox> =
-                FindTriggerKeyValueByIdAndKey::new(id.clone(), instructions_metadata_key.clone())
-                    .execute()
-                    .dbg_unwrap()
-                    .into_inner()
-                    .try_into_any()
-                    .dbg_unwrap();
+            let instructions: Vec<InstructionBox> = query_single(FindTriggerMetadata::new(
+                id.clone(),
+                instructions_metadata_key.clone(),
+            ))
+            .dbg_unwrap()
+            .try_into_any()
+            .dbg_unwrap();
 
             (votes, instructions)
         }
     };
 
-    let signatories: BTreeSet<AccountId> =
-        FindTriggerKeyValueByIdAndKey::new(id.clone(), "signatories".parse().unwrap())
-            .execute()
-            .dbg_unwrap()
-            .into_inner()
-            .try_into_any()
-            .dbg_unwrap();
+    let signatories: BTreeSet<AccountId> = query_single(FindTriggerMetadata::new(
+        id.clone(),
+        "signatories".parse().unwrap(),
+    ))
+    .dbg_unwrap()
+    .try_into_any()
+    .dbg_unwrap();
 
     // Require N of N signatures
     if votes.is_superset(&signatories) {
