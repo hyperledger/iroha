@@ -354,11 +354,12 @@ impl Queue {
     /// Overview:
     /// 1. Transaction is added to queue using [`Queue::push`] method.
     /// 2. Transaction is moved to [`Sumeragi::transaction_cache`] using [`Queue::pop_from_queue`] method.
-    ///    (transaction is removed from [`Queue::tx_hashes`], but kept in [`Queue::accepted_tx`])
+    ///    Note that transaction is removed from [`Queue::tx_hashes`], but kept in [`Queue::accepted_tx`],
+    ///    this is needed to return `Error::IsInQueue` when adding same transaction twice.
     /// 3. When transaction is removed from [`Sumeragi::transaction_cache`]
     ///    (either because it was expired, or because transaction is commited to blockchain),
     ///    we should remove transaction from [`Queue::accepted_tx`].
-    pub fn remove_stale_transaction(&self, tx: &AcceptedTransaction) {
+    fn remove_stale_transaction(&self, tx: &AcceptedTransaction) {
         let removed = self.accepted_txs.remove(&tx.as_ref().hash());
         if removed.is_some() {
             self.decrease_per_user_tx_count(tx.as_ref().authority());
