@@ -2,7 +2,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{borrow::ToOwned, format, string::String, string::ToString, vec::Vec};
-use core::num::{NonZeroU32, NonZeroU64};
+use core::num::NonZeroU64;
 
 use derive_more::{Constructor, Display};
 use getset::Getters;
@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 use crate::name::Name;
 
 /// Default value for `fetch_size` parameter in queries.
-pub const DEFAULT_FETCH_SIZE: NonZeroU32 = nonzero!(100_u32);
+pub const DEFAULT_FETCH_SIZE: NonZeroU64 = nonzero!(100_u64);
 /// Max value for `fetch_size` parameter in queries.
-pub const MAX_FETCH_SIZE: NonZeroU32 = nonzero!(10_000_u32);
+pub const MAX_FETCH_SIZE: NonZeroU64 = nonzero!(10_000_u64);
 
 pub use self::model::*;
 
@@ -26,7 +26,6 @@ pub type QueryId = String;
 
 #[model]
 mod model {
-
     use super::*;
 
     /// Forward-only (a.k.a non-scrollable) cursor
@@ -56,22 +55,33 @@ mod model {
         Deserialize,
         Serialize,
         IntoSchema,
+        Constructor,
     )]
     #[display(
         fmt = "{}--{}",
-        "offset.map(NonZeroU64::get).unwrap_or(0)",
+        "offset",
         "limit.map_or(\".inf\".to_owned(), |n| n.to_string())"
     )]
     pub struct Pagination {
-        /// limit of indexing
-        pub limit: Option<NonZeroU32>,
         /// start of indexing
-        pub offset: Option<NonZeroU64>,
+        pub offset: u64,
+        /// limit of indexing
+        pub limit: Option<NonZeroU64>,
     }
 
     /// Struct for sorting requests
     #[derive(
-        Debug, Clone, Default, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Clone,
+        Default,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Constructor,
     )]
     pub struct Sorting {
         /// Sort query result using [`Name`] of the key in [`Asset`]'s metadata.
@@ -97,7 +107,7 @@ mod model {
         /// Inner value of a fetch size.
         ///
         /// If not specified then [`DEFAULT_FETCH_SIZE`] is used.
-        pub fetch_size: Option<NonZeroU32>,
+        pub fetch_size: Option<NonZeroU64>,
     }
 
     /// Parameters that can modify iterable query execution.

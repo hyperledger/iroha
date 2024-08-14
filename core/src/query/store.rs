@@ -311,7 +311,7 @@ mod tests {
         for i in 0..10_000 {
             let pagination = Pagination::default();
             let fetch_size = FetchSize {
-                fetch_size: Some(nonzero!(1_u32)),
+                fetch_size: Some(nonzero!(1_u64)),
             };
             let sorting = Sorting::default();
 

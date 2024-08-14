@@ -16,8 +16,8 @@ fn limits_should_work() -> Result<()> {
     let vec = client
         .query(asset::all_definitions())
         .with_pagination(Pagination {
-            limit: Some(nonzero!(7_u32)),
-            offset: Some(nonzero!(1_u64)),
+            limit: Some(nonzero!(7_u64)),
+            offset: 1,
         })
         .execute_all()?;
     assert_eq!(vec.len(), 7);
@@ -42,11 +42,11 @@ fn fetch_size_should_work() -> Result<()> {
         QueryWithFilter::new(asset::all_definitions(), CompoundPredicate::PASS).into(),
         QueryParams::new(
             Pagination {
-                limit: Some(nonzero!(7_u32)),
-                offset: Some(nonzero!(1_u64)),
+                limit: Some(nonzero!(7_u64)),
+                offset: 1,
             },
             Sorting::default(),
-            FetchSize::new(Some(nonzero!(3_u32))),
+            FetchSize::new(Some(nonzero!(3_u64))),
         ),
     );
     let (first_batch, _continue_cursor) = client.start_query(query)?;
