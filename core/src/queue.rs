@@ -1,6 +1,6 @@
 //! Module with queue actor
 use core::time::Duration;
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, ops::Deref, sync::Arc};
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
@@ -80,6 +80,27 @@ pub struct Failure {
     pub tx: AcceptedTransaction,
     /// Push failure reason
     pub err: Error,
+}
+
+/// Will remove transaction from the queue on drop.
+/// See [`Queue::remove_stale_transaction`] for details.
+pub struct TransactionGuard {
+    tx: AcceptedTransaction,
+    queue: Arc<Queue>,
+}
+
+impl Deref for TransactionGuard {
+    type Target = AcceptedTransaction;
+
+    fn deref(&self) -> &Self::Target {
+        &self.tx
+    }
+}
+
+impl Drop for TransactionGuard {
+    fn drop(&mut self) {
+        self.queue.remove_stale_transaction(&self.tx);
+    }
 }
 
 impl Queue {
@@ -238,10 +259,10 @@ impl Queue {
 
     /// Pop single transaction from the queue. Removes all transactions that fail the `tx_check`.
     fn pop_from_queue(
-        &self,
+        self: &Arc<Self>,
         state_view: &StateView,
         expired_transactions: &mut Vec<AcceptedTransaction>,
-    ) -> Option<AcceptedTransaction> {
+    ) -> Option<TransactionGuard> {
         loop {
             let hash = self.tx_hashes.pop()?;
 
@@ -266,7 +287,11 @@ impl Queue {
                 continue;
             }
 
-            return Some(tx.clone());
+            let guard = TransactionGuard {
+                tx: tx.clone(),
+                queue: Arc::clone(self),
+            };
+            return Some(guard);
         }
     }
 
@@ -280,16 +305,12 @@ impl Queue {
     /// BEWARE: Shouldn't be called in parallel with itself.
     #[cfg(test)]
     fn collect_transactions_for_block(
-        &self,
+        self: &Arc<Self>,
         state_view: &StateView,
         max_txs_in_block: NonZeroUsize,
-    ) -> Vec<AcceptedTransaction> {
+    ) -> Vec<TransactionGuard> {
         let mut transactions = Vec::with_capacity(max_txs_in_block.get());
         self.get_transactions_for_block(state_view, max_txs_in_block, &mut transactions);
-        for transaction in &transactions {
-            // pretend block was committed and transaction is in blockchain
-            self.remove_stale_transaction(transaction, false);
-        }
         transactions
     }
 
@@ -297,10 +318,10 @@ impl Queue {
     ///
     /// BEWARE: Shouldn't be called in parallel with itself.
     pub fn get_transactions_for_block(
-        &self,
+        self: &Arc<Self>,
         state_view: &StateView,
         max_txs_in_block: NonZeroUsize,
-        transactions: &mut Vec<AcceptedTransaction>,
+        transactions: &mut Vec<TransactionGuard>,
     ) {
         if transactions.len() >= max_txs_in_block.get() {
             return;
@@ -337,14 +358,12 @@ impl Queue {
     /// 3. When transaction is removed from [`Sumeragi::transaction_cache`]
     ///    (either because it was expired, or because transaction is commited to blockchain),
     ///    we should remove transaction from [`Queue::accepted_tx`].
-    ///
-    /// `is_expired` is passed as a small optimization to not again call `self.is_expired(tx)`.
-    pub fn remove_stale_transaction(&self, tx: &AcceptedTransaction, is_expired: bool) {
+    pub fn remove_stale_transaction(&self, tx: &AcceptedTransaction) {
         let removed = self.accepted_txs.remove(&tx.as_ref().hash());
         if removed.is_some() {
             self.decrease_per_user_tx_count(tx.as_ref().authority());
 
-            if is_expired {
+            if self.is_expired(tx) {
                 let event = TransactionEvent {
                     hash: tx.as_ref().hash(),
                     block_height: None,
@@ -538,6 +557,7 @@ pub mod tests {
             },
             &time_source,
         );
+        let queue = Arc::new(queue);
         for _ in 0..5 {
             queue
                 .push(accepted_tx_by_someone(&time_source), &state_view)
@@ -582,6 +602,7 @@ pub mod tests {
         let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
         let tx = accepted_tx_by_someone(&time_source);
         let queue = Queue::test(config_factory(), &time_source);
+        let queue = Arc::new(queue);
         queue.push(tx.clone(), &state.view()).unwrap();
         let mut state_block = state.block();
         state_block
@@ -614,6 +635,7 @@ pub mod tests {
             },
             &time_source,
         );
+        let queue = Arc::new(queue);
         for _ in 0..(max_txs_in_block.get() - 1) {
             queue
                 .push(accepted_tx_by_someone(&time_source), &state_view)
@@ -692,6 +714,7 @@ pub mod tests {
 
         let mut txs = Vec::new();
         time_handle.advance(Duration::from_millis(TTL_MS + 1));
+        let queue = Arc::new(queue);
         queue.get_transactions_for_block(&state_view, max_txs_in_block, &mut txs);
         let expired_tx_event = event_receiver.recv().await.unwrap();
         assert!(txs.is_empty());
@@ -844,6 +867,7 @@ pub mod tests {
             },
             &time_source,
         );
+        let queue = Arc::new(queue);
 
         // First push by Alice should be fine
         queue
