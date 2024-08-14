@@ -1698,9 +1698,9 @@ impl<C: wasmtime::AsContextMut> GetExport for (&wasmtime::Instance, C) {
 
 #[cfg(test)]
 mod tests {
+    use iroha_test_samples::gen_account_in;
     use nonzero_ext::nonzero;
     use parity_scale_codec::Encode;
-    use test_samples::gen_account_in;
     use tokio::test;
 
     use super::*;

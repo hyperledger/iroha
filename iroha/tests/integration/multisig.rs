@@ -12,9 +12,8 @@ use iroha::{
         transaction::{TransactionBuilder, WasmSmartContract},
     },
 };
+use iroha_test_network::*;
 use nonzero_ext::nonzero;
-use test_network::*;
-use test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 fn mutlisig() -> Result<()> {

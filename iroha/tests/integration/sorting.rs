@@ -9,10 +9,10 @@ use iroha::{
         query::predicate::predicate_atoms::asset::AssetPredicateBox,
     },
 };
+use iroha_test_network::*;
+use iroha_test_samples::ALICE_ID;
 use nonzero_ext::nonzero;
 use rand::{seq::SliceRandom, thread_rng};
-use test_network::*;
-use test_samples::ALICE_ID;
 
 #[test]
 #[ignore]

@@ -1097,7 +1097,7 @@ pub mod executor {
 #[cfg(test)]
 mod tests {
     use iroha_primitives::small::SmallStr;
-    use test_samples::gen_account_in;
+    use iroha_test_samples::gen_account_in;
 
     use super::*;
     use crate::config::{BasicAuth, Config};

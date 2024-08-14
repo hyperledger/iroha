@@ -2,7 +2,7 @@ use iroha::{
     client,
     data_model::{prelude::QueryBuilderExt, query::builder::SingleQueryError},
 };
-use test_samples::gen_account_in;
+use iroha_test_samples::gen_account_in;
 
 #[test]
 fn non_existent_account_is_specific_error() {

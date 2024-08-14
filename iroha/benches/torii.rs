@@ -9,11 +9,11 @@ use iroha::{
 };
 use iroha_genesis::GenesisBuilder;
 use iroha_primitives::unique_vec;
+use iroha_test_samples::gen_account_in;
 use irohad::samples::get_config;
 use test_network::{
     construct_executor, get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime,
 };
-use test_samples::gen_account_in;
 use tokio::runtime::Runtime;
 
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
