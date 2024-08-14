@@ -11,7 +11,7 @@ faker = "*"
 allure-python-commons = "*"
 cryptography = "*"
 python-dotenv = "*"
-tomlkit = "^0.13.0"
+tomlkit = "^0.13.2"
 
 [tool.poetry.dev-dependencies]
 pytest = "*"
