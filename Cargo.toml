@@ -230,7 +230,7 @@ members = [
     "iroha_swarm",
     "iroha_kagami",
     "kura_inspector",
-    "iroha_parity_scale_cli",
+    "iroha_codec",
     "iroha_wasm_test_runner",
     "iroha_torii",
     "iroha_torii/const",

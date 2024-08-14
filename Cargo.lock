@@ -2947,6 +2947,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_codec"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "clap",
+ "colored",
+ "eyre",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_executor_data_model",
+ "iroha_genesis",
+ "iroha_primitives",
+ "iroha_schema",
+ "iroha_schema_gen",
+ "iroha_test_samples",
+ "iroha_version",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "supports-color 2.1.0",
+]
+
+[[package]]
 name = "iroha_config"
 version = "2.0.0-rc.1.0"
 dependencies = [
@@ -3378,28 +3400,6 @@ dependencies = [
  "test_network",
  "thiserror",
  "tokio",
-]
-
-[[package]]
-name = "iroha_parity_scale_cli"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "clap",
- "colored",
- "eyre",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_executor_data_model",
- "iroha_genesis",
- "iroha_primitives",
- "iroha_schema",
- "iroha_schema_gen",
- "iroha_test_samples",
- "iroha_version",
- "parity-scale-codec",
- "serde",
- "serde_json",
- "supports-color 2.1.0",
 ]
 
 [[package]]

@@ -7,7 +7,7 @@ This tool helps you decode **Iroha 2** data types from binaries using [Parity Sc
 To build the tool, run:
 
 ```bash
-cargo build --bin parity_scale_cli
+cargo build --bin iroha_codec
 ```
 
 ## Usage
@@ -15,7 +15,7 @@ cargo build --bin parity_scale_cli
 Run Parity Scale Decoder Tool:
 
 ```bash
-parity_scale_cli <SUBCOMMAND>
+iroha_codec <SUBCOMMAND>
 ```
 
 ### Subcommands
@@ -33,7 +33,7 @@ parity_scale_cli <SUBCOMMAND>
 To list all supported data types, run from the project main directory:
 
 ```bash
-./target/debug/parity_scale_cli list-types
+./target/debug/iroha_codec list-types
 ```
 
 <details> <summary> Expand to see expected output</summary>
@@ -66,7 +66,7 @@ These commands require `--type` argument. If data type is not known, [`scale-to-
 * Decode the specified data type from a binary:
 
   ```bash
-  ./target/debug/parity_scale_cli scale-to-json --input <path_to_binary> --type <type>
+  ./target/debug/iroha_codec scale-to-json --input <path_to_binary> --type <type>
   ```
 
 ### `scale-to-json` and `json-to-scale` usage examples
@@ -74,13 +74,13 @@ These commands require `--type` argument. If data type is not known, [`scale-to-
 * Decode the `NewAccount` data type from the `samples/account.bin` binary:
 
   ```bash
-  ./target/debug/parity_scale_cli scale-to-json --input iroha_parity_scale_cli/samples/account.bin --type NewAccount
+  ./target/debug/iroha_codec scale-to-json --input iroha_codec/samples/account.bin --type NewAccount
   ```
 
 * Encode the `NewAccount` data type from the `samples/account.json`:
 
   ```bash
-  ./target/debug/parity_scale_cli json-to-scale --input iroha_parity_scale_cli/samples/account.json --output result.bin --type NewAccount
+  ./target/debug/iroha_codec json-to-scale --input iroha_codec/samples/account.json --output result.bin --type NewAccount
   ```
 
 ## `scale-to-rust`
@@ -95,13 +95,13 @@ Decode the data type from a given binary.
 * Decode the specified data type from a binary:
 
   ```bash
-  ./target/debug/parity_scale_cli scale-to-rust <path_to_binary> --type <type>
+  ./target/debug/iroha_codec scale-to-rust <path_to_binary> --type <type>
   ```
 
 * If you are not sure which data type is encoded in the binary, run the tool without the `--type` option:
 
   ```bash
-    ./target/debug/parity_scale_cli scale-to-rust <path_to_binary>
+    ./target/debug/iroha_codec scale-to-rust <path_to_binary>
   ```
 
 ### `scale-to-rust` usage examples
@@ -109,11 +109,11 @@ Decode the data type from a given binary.
 * Decode the `NewAccount` data type from the `samples/account.bin` binary:
 
   ```bash
-  ./target/debug/parity_scale_cli scale-to-rust iroha_parity_scale_cli/samples/account.bin --type NewAccount
+  ./target/debug/iroha_codec scale-to-rust iroha_codec/samples/account.bin --type NewAccount
   ```
 
 * Decode the `NewDomain` data type from the `samples/domain.bin` binary:
 
   ```bash
-  ./target/debug/parity_scale_cli scale-to-rust iroha_parity_scale_cli/samples/domain.bin --type NewDomain
+  ./target/debug/iroha_codec scale-to-rust iroha_codec/samples/domain.bin --type NewDomain
   ```
