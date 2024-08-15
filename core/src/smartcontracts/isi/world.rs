@@ -408,7 +408,7 @@ pub mod isi {
             // Also it's a cheap operation.
             let mut upgraded_executor = state_transaction.world.executor.clone();
             upgraded_executor
-                .migrate(raw_executor, state_transaction, authority)
+                .migrate(&raw_executor, state_transaction, authority)
                 .map_err(|migration_error| {
                     InvalidParameterError::Wasm(format!(
                         "{:?}",
