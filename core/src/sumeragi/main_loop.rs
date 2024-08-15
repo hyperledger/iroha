@@ -1,5 +1,5 @@
 //! The main event loop that powers sumeragi.
-use std::{collections::BTreeSet, sync::mpsc};
+use std::{collections::BTreeSet, ops::Deref, sync::mpsc};
 
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{block::*, events::pipeline::PipelineEventBox, peer::PeerId};
@@ -7,7 +7,7 @@ use iroha_p2p::UpdateTopology;
 use tracing::{span, Level};
 
 use super::{view_change::ProofBuilder, *};
-use crate::{block::*, sumeragi::tracing::instrument};
+use crate::{block::*, queue::TransactionGuard, sumeragi::tracing::instrument};
 
 /// `Sumeragi` is the implementation of the consensus.
 pub struct Sumeragi {
@@ -38,7 +38,7 @@ pub struct Sumeragi {
     /// other subsystems where we can. This way the performance of
     /// sumeragi is more dependent on the code that is internal to the
     /// subsystem.
-    pub transaction_cache: Vec<AcceptedTransaction>,
+    pub transaction_cache: Vec<TransactionGuard>,
     /// Metrics for reporting number of view changes in current round
     pub view_changes_metric: iroha_telemetry::metrics::ViewChangesGauge,
 
@@ -842,7 +842,11 @@ impl Sumeragi {
         let tx_cache_non_empty = !self.transaction_cache.is_empty();
 
         if tx_cache_full || (deadline_reached && tx_cache_non_empty) {
-            let transactions = self.transaction_cache.clone();
+            let transactions = self
+                .transaction_cache
+                .iter()
+                .map(|tx| tx.deref().clone())
+                .collect::<Vec<_>>();
 
             let mut state_block = state.block();
             let create_block_start_time = Instant::now();
