@@ -23,7 +23,7 @@ scale = ["parity-scale-codec/full"]
 json = ["serde", "serde_json"]
 
 [dependencies]
-iroha_version_derive = { path = "derive", default-features = false, optional = true }
+iroha_version_derive = { path = "../iroha_version_derive", default-features = false, optional = true }
 
 iroha_macro = { workspace = true }
 
