@@ -14,7 +14,7 @@ workspace = true
 debug = ["iroha_smart_contract/debug"]
 
 [dependencies]
-iroha_executor_derive = { path = "derive" }
+iroha_executor_derive = { path = "../iroha_executor_derive" }
 
 iroha_executor_data_model.workspace = true
 iroha_smart_contract_utils.workspace = true

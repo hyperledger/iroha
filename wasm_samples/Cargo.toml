@@ -45,7 +45,7 @@ iroha_trigger = { version = "=2.0.0-rc.1.0", path = "../iroha_trigger", features
 iroha_executor = { version = "=2.0.0-rc.1.0", path = "../iroha_executor", features = ["debug"] }
 iroha_schema = { version = "=2.0.0-rc.1.0", path = "../iroha_schema" }
 iroha_data_model = { version = "=2.0.0-rc.1.0", path = "../iroha_data_model", default-features = false }
-iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "../iroha_executor/data_model" }
+iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "../iroha_executor_data_model" }
 
 parity-scale-codec = { version = "3.2.1", default-features = false }
 anyhow = { version = "1.0.71", default-features = false }

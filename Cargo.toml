@@ -45,7 +45,7 @@ iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "iroha_smart_contract
 iroha_smart_contract_utils = { version = "=2.0.0-rc.1.0", path = "iroha_smart_contract/utils" }
 
 iroha_executor = { version = "=2.0.0-rc.1.0", path = "iroha_executor" }
-iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "iroha_executor/data_model" }
+iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "iroha_executor_data_model" }
 
 iroha_test_network = { version = "=2.0.0-rc.1.0", path = "iroha_test_network" }
 iroha_test_samples = { version = "=2.0.0-rc.1.0", path = "iroha_test_samples" }
@@ -222,9 +222,9 @@ members = [
     "iroha_trigger",
     "iroha_trigger/derive",
     "iroha_executor",
-    "iroha_executor/derive",
-    "iroha_executor/data_model",
-    "iroha_executor/data_model/derive",
+    "iroha_executor_derive",
+    "iroha_executor_data_model",
+    "iroha_executor_data_model_derive",
     "iroha_telemetry",
     "iroha_test_samples",
     "iroha_swarm",
