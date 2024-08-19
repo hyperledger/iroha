@@ -27,12 +27,12 @@ std = ["iroha_macro/std", "thiserror", "displaydoc/std", "iroha_numeric/std", "p
 ffi_export = ["std", "iroha_ffi", "iroha_numeric/ffi_export"]
 
 [dependencies]
-iroha_primitives_derive = { path = "derive" }
+iroha_primitives_derive = { path = "../iroha_primitives_derive" }
 
 iroha_macro = { workspace = true }
 iroha_schema = { workspace = true }
 iroha_ffi = { workspace = true, optional = true }
-iroha_numeric = { path = "./numeric", default-features = false }
+iroha_numeric = { path = "../iroha_numeric", default-features = false }
 
 parity-scale-codec = { workspace = true, features = ["derive"] }
 derive_more = { workspace = true, features = ["display", "from", "as_ref", "as_mut", "deref", "constructor", "into_iterator"] }
