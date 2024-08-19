@@ -18,7 +18,7 @@ dev-telemetry = []
 metric-instrumentation = []
 
 [dependencies]
-iroha_telemetry_derive = { path = "derive" }
+iroha_telemetry_derive = { path = "../iroha_telemetry_derive" }
 
 iroha_config = { workspace = true }
 iroha_logger = { workspace = true }
