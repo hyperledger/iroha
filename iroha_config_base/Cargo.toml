@@ -11,7 +11,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-iroha_config_base_derive = { path = "derive" }
+iroha_config_base_derive = { path = "../iroha_config_base_derive" }
 
 drop_bomb = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
