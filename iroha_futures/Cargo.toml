@@ -16,7 +16,7 @@ default = []
 telemetry = ["iroha_futures_derive/telemetry"]
 
 [dependencies]
-iroha_futures_derive = { path = "derive" }
+iroha_futures_derive = { path = "../iroha_futures_derive" }
 
 iroha_config = { workspace = true }
 iroha_logger = { workspace = true }

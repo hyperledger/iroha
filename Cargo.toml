@@ -207,7 +207,7 @@ members = [
     "iroha_logger",
     "iroha_p2p",
     "iroha_futures",
-    "iroha_futures/derive",
+    "iroha_futures_derive",
     "iroha_primitives",
     "iroha_primitives/derive",
     "iroha_primitives/numeric",
