@@ -267,6 +267,8 @@ where
 /// Deserialize [`Module`]. Accepts only output of [`Module::serialize`].
 #[allow(unsafe_code)]
 pub(crate) fn deserialize_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<Module> {
+    // SAFETY: `Module::deserialize` is safe when calling for bytes received from `Module::serialize`.
+    // We store serialization result on disk and then load it back so should be ok.
     unsafe { Module::deserialize(engine, bytes).map_err(Error::ModuleDeserialization) }
 }
 
