@@ -22,7 +22,7 @@ iroha_torii_const = { version = "=2.0.0-rc.1.0", path = "iroha_torii/const" }
 
 iroha = { version = "=2.0.0-rc.1.0", path = "iroha" }
 
-iroha_macro_utils = { version = "=2.0.0-rc.1.0", path = "iroha_macro/utils" }
+iroha_macro_utils = { version = "=2.0.0-rc.1.0", path = "iroha_macro_utils" }
 iroha_telemetry = { version = "=2.0.0-rc.1.0", path = "iroha_telemetry" }
 iroha_p2p = { version = "=2.0.0-rc.1.0", path = "iroha_p2p" }
 iroha_primitives = { version = "=2.0.0-rc.1.0", path = "iroha_primitives", default-features = false }
