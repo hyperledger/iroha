@@ -18,7 +18,7 @@ iroha_core = { version = "=2.0.0-rc.1.0 ", path = "iroha_core" }
 
 irohad = { version = "=2.0.0-rc.1.0", path = "irohad" }
 iroha_torii = { version = "=2.0.0-rc.1.0", path = "iroha_torii" }
-iroha_torii_const = { version = "=2.0.0-rc.1.0", path = "iroha_torii/const" }
+iroha_torii_const = { version = "=2.0.0-rc.1.0", path = "iroha_torii_const" }
 
 iroha = { version = "=2.0.0-rc.1.0", path = "iroha" }
 
@@ -233,7 +233,7 @@ members = [
     "iroha_codec",
     "iroha_wasm_test_runner",
     "iroha_torii",
-    "iroha_torii/const",
+    "iroha_torii_const",
     "iroha_version",
     "iroha_version/derive",
     "iroha_wasm_codec",
