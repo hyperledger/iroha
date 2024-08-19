@@ -10,7 +10,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-iroha_core_wasm_codec_derive = { path = "derive" }
+iroha_wasm_codec_derive = { path = "../iroha_wasm_codec_derive" }
 
 thiserror = { workspace = true }
 wasmtime = { workspace = true }

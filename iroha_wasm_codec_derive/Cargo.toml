@@ -1,5 +1,5 @@
 [package]
-name = "iroha_core_wasm_codec_derive"
+name = "iroha_wasm_codec_derive"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true

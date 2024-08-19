@@ -237,7 +237,7 @@ members = [
     "iroha_version",
     "iroha_version_derive",
     "iroha_wasm_codec",
-    "iroha_wasm_codec/derive",
+    "iroha_wasm_codec_derive",
     "iroha_wasm_builder",
 ]
 exclude = [

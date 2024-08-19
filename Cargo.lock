@@ -3721,10 +3721,22 @@ dependencies = [
 name = "iroha_wasm_codec"
 version = "2.0.0-rc.1.0"
 dependencies = [
- "iroha_core_wasm_codec_derive",
+ "iroha_wasm_codec_derive",
  "parity-scale-codec",
  "thiserror",
  "wasmtime",
+]
+
+[[package]]
+name = "iroha_wasm_codec_derive"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "iroha_macro_utils",
+ "manyhow",
+ "once_cell",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.72",
 ]
 
 [[package]]

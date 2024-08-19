@@ -1,6 +1,6 @@
 //! This crate provides utils for encoding/decoding objects between Iroha host and Wasm smart contracts.
 
-pub use iroha_core_wasm_codec_derive::{wrap, wrap_trait_fn};
+pub use iroha_wasm_codec_derive::{wrap, wrap_trait_fn};
 use parity_scale_codec::{DecodeAll, Encode, Error as ParityError};
 use wasmtime::Result;
 
