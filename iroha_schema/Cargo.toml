@@ -11,7 +11,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-iroha_schema_derive = { path = "derive" }
+iroha_schema_derive = { path = "../iroha_schema_derive" }
 
 serde = { workspace = true, features = ["derive", "alloc"] }
 
