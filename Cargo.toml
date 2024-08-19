@@ -212,7 +212,7 @@ members = [
     "iroha_primitives/derive",
     "iroha_primitives/numeric",
     "iroha_ffi",
-    "iroha_ffi/derive",
+    "iroha_ffi_derive",
     "iroha_schema",
     "iroha_schema/gen",
     "iroha_schema/derive",

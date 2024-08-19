@@ -18,7 +18,7 @@ workspace = true
 non_robust_ref_mut = []
 
 [dependencies]
-iroha_ffi_derive = { path = "derive" }
+iroha_ffi_derive = { path = "../iroha_ffi_derive" }
 
 derive_more = { workspace = true, features = ["display", "constructor"] }
 
