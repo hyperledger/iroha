@@ -4,7 +4,7 @@
 **/rusty-tags.vi
 /**/Cargo.lock
 
-iroha_config/__pycaсhe__
+crates/iroha_config/__pycaсhe__
 **/__pycache__/*
 __pycache__/*
 build/*
@@ -32,7 +32,7 @@ CMakeFiles/*
 cmake-build-debu/*
 cmake-build-debug/*
 external/*
-iroha_core/infra/protobuf
+crates/iroha_core/infra/protobuf
 include/generated/*
 .obsidian/
 .scannerwork/

@@ -121,7 +121,7 @@ Once you have built Iroha, you can instantiate the minimum viable network:
 docker compose up
 ```
 
-With the `docker-compose` instance running, use [Iroha Client CLI](iroha_cli/README.md):
+With the `docker-compose` instance running, use [Iroha Client CLI](crates/iroha_cli/README.md):
 
 ```bash
 cargo run --bin iroha -- --config ./defaults/client.toml
@@ -131,21 +131,21 @@ cargo run --bin iroha -- --config ./defaults/client.toml
 
 Iroha project mainly consists of the following crates:
 
-* [`iroha`](iroha) provides a library for building clients that communicate with peers.
-* [`irohad`](irohad) is the command-line application for deploying an Iroha peer. Contains the routing table and definitions of API endpoints.
-* [`iroha_cli`](iroha_cli) is the command-line client, a reference application using the client SDK.
-* [`iroha_core`](iroha_core) is the primary library used by all other crates, including the peer endpoint management.
-* [`iroha_config`](iroha_config) handles configuration and documentation generation for options and run-time changes.
-* [`iroha_crypto`](iroha_crypto) defines cryptographic aspects of Iroha.
-* [`kagami`](iroha_kagami) is used to generate cryptographic keys, default genesis, configuration reference, and schema.
-* [`iroha_data_model`](iroha_data_model) defines common data models in Iroha.
-* [`iroha_futures`](iroha_futures) is used for `async` programming.
-* [`iroha_logger`](iroha_logger) uses `tracing` to provide logging facilities.
-* [`iroha_macro`](iroha_macro) provides the convenience macros.
-* [`iroha_p2p`](iroha_p2p) defines peer creation and handshake logic.
+* [`iroha`](crates/iroha) provides a library for building clients that communicate with peers.
+* [`irohad`](crates/irohad) is the command-line application for deploying an Iroha peer. Contains the routing table and definitions of API endpoints.
+* [`iroha_cli`](crates/iroha_cli) is the command-line client, a reference application using the client SDK.
+* [`iroha_core`](crates/iroha_core) is the primary library used by all other crates, including the peer endpoint management.
+* [`iroha_config`](crates/iroha_config) handles configuration and documentation generation for options and run-time changes.
+* [`iroha_crypto`](crates/iroha_crypto) defines cryptographic aspects of Iroha.
+* [`kagami`](crates/iroha_kagami) is used to generate cryptographic keys, default genesis, configuration reference, and schema.
+* [`iroha_data_model`](crates/iroha_data_model) defines common data models in Iroha.
+* [`iroha_futures`](crates/iroha_futures) is used for `async` programming.
+* [`iroha_logger`](crates/iroha_logger) uses `tracing` to provide logging facilities.
+* [`iroha_macro`](crates/iroha_macro) provides the convenience macros.
+* [`iroha_p2p`](crates/iroha_p2p) defines peer creation and handshake logic.
 * [`iroha_default_executor`](wasm_samples/default_executor) defines runtime validation logic.
-* [`iroha_telemetry`](iroha_telemetry) is used for monitoring and analysis of telemetry data.
-* [`iroha_version`](iroha_version) provides message versioning for non-simultaneous system updates.
+* [`iroha_telemetry`](crates/iroha_telemetry) is used for monitoring and analysis of telemetry data.
+* [`iroha_version`](crates/iroha_version) provides message versioning for non-simultaneous system updates.
 
 ## Maintenance
 
