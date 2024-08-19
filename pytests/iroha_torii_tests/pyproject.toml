@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "iroha2-torii-api-tests"
+name = "iroha_torii_tests"
 version = "0.1.0"
 description = ""
 authors = ["alexstroke <111361420+astrokov7@users.noreply.github.com>"]

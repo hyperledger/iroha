@@ -4,7 +4,8 @@ on:
   pull_request:
     branches: [main, stable, lts]
     paths:
-      - '**/derive/**.rs'
+      - 'crates/*_derive/**.rs'
+      - 'crates/*_macro*/**.rs'
       - '**/tests/ui.rs'
       - '**/tests/ui_*/**'
       - 'rust-toolchain.toml'

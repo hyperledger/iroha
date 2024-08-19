@@ -21,7 +21,8 @@ updates:
 
   - package-ecosystem: "pip"
     target-branch: "main"
-    directory: "/iroha_cli/pytests/"
+    directories:
+      - /pytests/*
     schedule:
       interval: "daily"
     commit-message:
@@ -30,16 +31,9 @@ updates:
 
   - package-ecosystem: "cargo"
     target-branch: "main"
-    directory: "/"
-    schedule:
-      interval: "daily"
-    commit-message:
-      prefix: chore
-      include: scope
-
-  - package-ecosystem: "cargo"
-    target-branch: "main"
-    directory: "/wasm_samples/"
+    directories:
+      - /
+      - /wasm_samples
     schedule:
       interval: "daily"
     commit-message:

@@ -4,15 +4,25 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - '../../crates/iroha_data_model/**.rs'
-      - '../../crates/iroha_data_model/**.yml'
-      - '../../crates/iroha_data_model/**.json'
-      - '../../crates/iroha_data_model/**.toml'
+      - 'crates/iroha_data_model/**.rs'
+      - 'crates/iroha_data_model/**.yml'
+      - 'crates/iroha_data_model/**.json'
+      - 'crates/iroha_data_model/**.toml'
 
-      - '../../crates/iroha_smart_contract/**.rs'
-      - '../../crates/iroha_smart_contract/**.yml'
-      - '../../crates/iroha_smart_contract/**.json'
-      - '../../crates/iroha_smart_contract/**.toml'
+      - 'crates/iroha_smart_contract/**.rs'
+      - 'crates/iroha_smart_contract/**.yml'
+      - 'crates/iroha_smart_contract/**.json'
+      - 'crates/iroha_smart_contract/**.toml'
+
+      - 'crates/iroha_executor/**.rs'
+      - 'crates/iroha_executor/**.yml'
+      - 'crates/iroha_executor/**.json'
+      - 'crates/iroha_executor/**.toml'
+
+      - 'crates/iroha_trigger/**.rs'
+      - 'crates/iroha_trigger/**.yml'
+      - 'crates/iroha_trigger/**.json'
+      - 'crates/iroha_trigger/**.toml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

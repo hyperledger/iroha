@@ -2,13 +2,13 @@ name: I2::Dev::Static
 
 on:
   pull_request:
-    branches: [main]
+    branches: [ main ]
     paths:
       - '**.rs'
       - '**.json'
       - '**.toml'
       - '.github/workflows/iroha2-dev-pr-static.yml'
-      - '../../crates/iroha_cli/pytests/**/*.py'
+      - 'pytests/**.py'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -62,39 +62,25 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
+    strategy:
+      matrix:
+        suite: [ iroha_cli_tests, iroha_torii_tests ]
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies using Poetry for iroha_cli/pytests
-        working-directory: iroha_cli/pytests
+      - name: Install dependencies using Poetry for pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
         run: |
           poetry lock --no-update
           poetry install
-      - name: Install dependencies using Poetry for iroha_torii/pytests
-        working-directory: iroha_torii/pytests
-        run: |
-          poetry lock --no-update
-          poetry install
-      - name: Check code formatting with Black in iroha_cli/pytests
-        working-directory: iroha_cli/pytests
+      - name: Check code formatting with Black in pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
         run: |
           poetry run black --check .
-      - name: Check code formatting with Black in iroha_torii/pytests
-        working-directory: iroha_torii/pytests
-        run: |
-          poetry run black --check .
-      - name: Run mypy (Type Checker) in iroha_cli/pytests
-        working-directory: iroha_cli/pytests
+      - name: Run mypy (Type Checker) in pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
         run: |
           poetry run mypy --explicit-package-bases --ignore-missing-imports .
-      - name: Run mypy (Type Checker) in iroha_torii/pytests
-        working-directory: iroha_torii/pytests
-        run: |
-          poetry run mypy --explicit-package-bases --ignore-missing-imports .
-      - name: Run flake8 (Linter) in iroha_cli/pytests
-        working-directory: iroha_cli/pytests
-        run: |
-          poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
-      - name: Run flake8 (Linter) in iroha_torii/pytests
-        working-directory: iroha_torii/pytests
+      - name: Run flake8 (Linter) in pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
         run: |
           poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203

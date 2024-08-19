@@ -83,7 +83,7 @@ jobs:
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate lcov report
         if: always()
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/iroha_cli" --ignore "**/main.rs" -o lcov.info
+        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "crates/iroha_cli" --ignore "**/main.rs" -o lcov.info
       - name: Upload lcov report artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -230,18 +230,21 @@ jobs:
           docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml down
       - name: Run docker-compose.yml containers
         run: docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml up --wait || exit 1
+
       - name: Install Python and Poetry
         run: |
           yum install -y python${{ env.PYTHON_VERSION }} python${{ env.PYTHON_VERSION }}-devel
           curl -sSL https://install.python-poetry.org | python3 -
           echo 'export PATH="${{ env.POETRY_PATH }}:$PATH"' >> /etc/profile
           source /etc/profile
+
       - name: Install Torii API Dependencies
-        working-directory: iroha_torii/pytests
+        working-directory: pytests/iroha_torii_tests
         run: ${{ env.POETRY_PATH }} install
       - name: Run Torii API Tests
-        working-directory: iroha_torii/pytests
+        working-directory: pytests/iroha_torii_tests
         run: ${{ env.POETRY_PATH }} run pytest
+
       - name: Copy Client CLI Binary from Iroha Container
         if: always()
         run: |
@@ -251,14 +254,15 @@ jobs:
       - name: Make Binaries Executable
         run: chmod +x ${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
       - name: Install Client CLI Dependencies
-        working-directory: iroha_cli/pytests
+        working-directory: pytests/iroha_cli_tests
         run: ${{ env.POETRY_PATH }} install
       - name: Run Client CLI Tests
-        working-directory: iroha_cli/pytests
+        working-directory: pytests/iroha_cli_tests
         env:
           IROHA_CLI_BINARY: ../../${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
           IROHA_CLI_CONFIG: ../../${{ env.TEST_DIR }}/client.toml
         run: ${{ env.POETRY_PATH }} run pytest
+
       - name: Wipe docker-compose.yml containers
         if: always()
         run: docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml down

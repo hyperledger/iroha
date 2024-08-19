@@ -50,7 +50,7 @@ The test model has the following structure:
 > However, it is possible to run the tests in a custom environment, e.g., with Docker Compose.
 > For instructions on how to do so, see [Custom Test Environment with Docker Compose](#custom-test-environment-with-docker-compose).
 
-1. Set up a test environment using the [`test_env.py`](../../../scripts/test_env.py) script:
+1. Set up a test environment using the [`test_env.py`](../../scripts/test_env.py) script:
 
 	 ```shell
 	 # Must be executed from the repo root:
@@ -63,7 +63,7 @@ The test model has the following structure:
 
 2. Install and configure [Poetry](https://python-poetry.org/).\
 	 For details, see [Poetry Configuration](#poetry-configuration) below.
-3. Configure the tests by creating the following `.env` file in _this_ (`<repo root>/iroha_cli/pytests/`) directory:
+3. Configure the tests by creating the following `.env` file in _this_ (`<repo root>/pytests/iroha_cli/`) directory:
 
 	 ```shell
      IROHA_CLI_BINARY=/path/to/iroha_cli
@@ -88,7 +88,7 @@ The test model has the following structure:
 
 ### Custom Test Environment with Docker Compose
 
-By default, we provide the [`test_env.py`](../../../scripts/test_env.py) script to set up a test environment. This environment is composed of a running network of Iroha peers and an Iroha client configuration to interact with it.
+By default, we provide the [`test_env.py`](../../scripts/test_env.py) script to set up a test environment. This environment is composed of a running network of Iroha peers and an Iroha client configuration to interact with it.
 
 However, if for any reason this approach is inconvenient, it is possible to set up a custom network of Iroha peers using the provided Docker Compose configurations.
 
@@ -152,7 +152,7 @@ exit
 
 ### Tests Configuration
 
-Tests are configured via environment variables. These variables can be optionally defined in a `.env` file that must be created in _this_ (`<repo root>/iroha_cli/pytests/`) directory.
+Tests are configured via environment variables. These variables can be optionally defined in a `.env` file that must be created in _this_ (`<repo root>/pytests/iroha_cli/`) directory.
 
 The variables:
 
@@ -164,7 +164,7 @@ The variables:
 **Example**:
 
 ```shell
-IROHA_CLI_BINARY=/path/to/iroha_cli
+IROHA_CLI_BINARY=/path/to/iroha
 IROHA_CLI_CONFIG=/path/to/client.toml
 TORII_API_PORT_MIN=8080
 TORII_API_PORT_MAX=8083

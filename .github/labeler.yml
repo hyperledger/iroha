@@ -4,8 +4,8 @@ api-changes:
     - changed-files:
       - any-glob-to-any-file:
         - 'docs/source/references/schema.json'
-        - 'iroha_torii/src/**'
-        - 'iroha_torii/const/src/**'
+        - 'crates/iroha_torii/src/**'
+        - 'crates/iroha_torii_const/src/**'
 
 config-changes:
   - all:

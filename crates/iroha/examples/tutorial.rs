@@ -9,7 +9,7 @@ use iroha_primitives::numeric::Numeric;
 
 fn main() {
     // #region rust_config_load
-    let config = Config::load("../defaults/client.toml").unwrap();
+    let config = Config::load("../../defaults/client.toml").unwrap();
     // #endregion rust_config_load
 
     // Your code goes here…
