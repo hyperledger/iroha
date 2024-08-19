@@ -27,7 +27,7 @@ ffi_export = ["std", "iroha_ffi", "iroha_primitives/ffi_export", "iroha_crypto/f
 transparent_api = []
 
 [dependencies]
-iroha_data_model_derive = { path = "derive" }
+iroha_data_model_derive = { path = "../iroha_data_model_derive" }
 
 iroha_primitives = { workspace = true }
 iroha_crypto = { workspace = true }
