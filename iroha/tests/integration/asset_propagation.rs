@@ -8,7 +8,7 @@ use iroha::{
 use iroha_config::parameters::actual::Root as Config;
 use iroha_test_samples::gen_account_in;
 use nonzero_ext::nonzero;
-use test_network::*;
+use iroha_test_network::*;
 
 #[test]
 // This test is also covered at the UI level in the iroha_cli tests

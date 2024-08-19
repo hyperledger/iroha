@@ -90,7 +90,7 @@ irohad = { workspace = true }
 
 iroha_wasm_builder = { workspace = true }
 iroha_genesis = { workspace = true }
-test_network = { workspace = true }
+iroha_test_network = { workspace = true }
 executor_custom_data_model = { version = "=2.0.0-rc.1.0", path = "../wasm_samples/executor_custom_data_model" }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }

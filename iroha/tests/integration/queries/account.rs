@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use eyre::Result;
 use iroha::{client, data_model::prelude::*};
 use iroha_test_samples::{gen_account_in, ALICE_ID};
-use test_network::*;
+use iroha_test_network::*;
 
 #[test]
 fn find_accounts_with_asset() -> Result<()> {

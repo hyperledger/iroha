@@ -17,7 +17,7 @@ use iroha::{
 };
 use iroha_config::parameters::actual::Root as Config;
 use nonzero_ext::nonzero;
-use test_network::*;
+use iroha_test_network::*;
 
 // Needed to re-enable ignored tests.
 const PEER_COUNT: usize = 7;

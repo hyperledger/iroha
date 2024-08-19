@@ -15,7 +15,7 @@ use iroha_executor_data_model::permission::{
 };
 use iroha_genesis::GenesisBlock;
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID};
-use test_network::{PeerBuilder, *};
+use iroha_test_network::{PeerBuilder, *};
 
 #[test]
 fn genesis_transactions_are_validated_by_executor() {

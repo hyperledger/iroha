@@ -2902,6 +2902,7 @@ dependencies = [
  "iroha_logger",
  "iroha_primitives",
  "iroha_telemetry",
+ "iroha_test_network",
  "iroha_test_samples",
  "iroha_torii_const",
  "iroha_version",
@@ -2914,7 +2915,6 @@ dependencies = [
  "serde_json",
  "serde_with",
  "tempfile",
- "test_network",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
@@ -3395,9 +3395,9 @@ dependencies = [
  "iroha_futures",
  "iroha_logger",
  "iroha_primitives",
+ "iroha_test_network",
  "parity-scale-codec",
  "rand",
- "test_network",
  "thiserror",
  "tokio",
 ]
@@ -3570,6 +3570,32 @@ dependencies = [
  "quote",
  "syn 2.0.75",
  "trybuild",
+]
+
+[[package]]
+name = "iroha_test_network"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "eyre",
+ "futures",
+ "iroha",
+ "iroha_config",
+ "iroha_core",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_executor_data_model",
+ "iroha_genesis",
+ "iroha_logger",
+ "iroha_primitives",
+ "iroha_test_samples",
+ "iroha_wasm_builder",
+ "irohad",
+ "parity-scale-codec",
+ "rand",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "unique_port",
 ]
 
 [[package]]
@@ -5814,33 +5840,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bab24d30b911b2376f3a13cc2cd443142f0c81dda04c118693e35b3835757755"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "test_network"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "eyre",
- "futures",
- "iroha",
- "iroha_config",
- "iroha_core",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_executor_data_model",
- "iroha_futures",
- "iroha_genesis",
- "iroha_logger",
- "iroha_primitives",
- "iroha_test_samples",
- "iroha_wasm_builder",
- "irohad",
- "parity-scale-codec",
- "rand",
- "serde_json",
- "tempfile",
- "tokio",
- "unique_port",
 ]
 
 [[package]]

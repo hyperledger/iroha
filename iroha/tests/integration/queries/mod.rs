@@ -5,7 +5,7 @@ use iroha::{
         query::{error::QueryExecutionFail, parameters::MAX_FETCH_SIZE},
     },
 };
-use test_network::*;
+use iroha_test_network::*;
 
 mod account;
 mod asset;

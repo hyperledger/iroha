@@ -3,7 +3,7 @@ use std::{sync::mpsc, thread, time::Duration};
 use eyre::{eyre, Result, WrapErr};
 use iroha::data_model::prelude::*;
 use iroha_test_samples::ALICE_ID;
-use test_network::*;
+use iroha_test_network::*;
 
 #[test]
 fn trigger_completion_success_should_produce_event() -> Result<()> {

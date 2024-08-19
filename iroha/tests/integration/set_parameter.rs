@@ -8,7 +8,7 @@ use iroha::{
         prelude::*,
     },
 };
-use test_network::*;
+use iroha_test_network::*;
 
 #[test]
 fn can_change_parameter_value() -> Result<()> {

@@ -39,4 +39,4 @@ bytes = { workspace = true }
 
 [dev-dependencies]
 iroha_config_base = { workspace = true }
-test_network = { workspace = true }
+iroha_test_network = { workspace = true }

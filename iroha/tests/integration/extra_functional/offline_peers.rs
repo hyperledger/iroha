@@ -10,7 +10,7 @@ use iroha::{
 use iroha_config::parameters::actual::Root as Config;
 use iroha_primitives::addr::socket_addr;
 use iroha_test_samples::ALICE_ID;
-use test_network::*;
+use iroha_test_network::*;
 
 #[test]
 fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {

@@ -2,7 +2,7 @@ use eyre::Result;
 use iroha::{data_model::prelude::*, samples::get_status_json};
 use iroha_telemetry::metrics::Status;
 use iroha_test_samples::gen_account_in;
-use test_network::*;
+use iroha_test_network::*;
 
 fn status_eq_excluding_uptime_and_queue(lhs: &Status, rhs: &Status) -> bool {
     lhs.peers == rhs.peers

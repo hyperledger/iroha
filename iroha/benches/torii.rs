@@ -11,7 +11,7 @@ use iroha_genesis::GenesisBuilder;
 use iroha_primitives::unique_vec;
 use iroha_test_samples::gen_account_in;
 use irohad::samples::get_config;
-use test_network::{
+use iroha_test_network::{
     construct_executor, get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime,
 };
 use tokio::runtime::Runtime;
@@ -22,11 +22,11 @@ fn query_requests(criterion: &mut Criterion) {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
-    let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
+    let genesis_key_pair = get_key_pair(iroha_test_network::Signatory::Genesis);
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
-        get_key_pair(test_network::Signatory::Peer),
+        get_key_pair(iroha_test_network::Signatory::Peer),
         genesis_key_pair.public_key(),
     );
 
@@ -36,7 +36,7 @@ fn query_requests(criterion: &mut Criterion) {
     let topology = vec![peer.id.clone()];
     let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
-        .account(get_key_pair(test_network::Signatory::Alice).into_parts().0)
+        .account(get_key_pair(iroha_test_network::Signatory::Alice).into_parts().0)
         .finish_domain()
         .build_and_sign(chain_id, executor, topology, &genesis_key_pair);
 
@@ -65,7 +65,7 @@ fn query_requests(criterion: &mut Criterion) {
     );
     let client_config = iroha::samples::get_client_config(
         get_chain_id(),
-        get_key_pair(test_network::Signatory::Alice),
+        get_key_pair(iroha_test_network::Signatory::Alice),
         format!("http://{}", peer.api_address).parse().unwrap(),
     );
 
@@ -121,12 +121,12 @@ fn instruction_submits(criterion: &mut Criterion) {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
-    let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
+    let genesis_key_pair = get_key_pair(iroha_test_network::Signatory::Genesis);
     let topology = vec![peer.id.clone()];
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
-        get_key_pair(test_network::Signatory::Peer),
+        get_key_pair(iroha_test_network::Signatory::Peer),
         genesis_key_pair.public_key(),
     );
     let executor = construct_executor("../wasm_samples/default_executor")
@@ -148,7 +148,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
     let client_config = iroha::samples::get_client_config(
         get_chain_id(),
-        get_key_pair(test_network::Signatory::Alice),
+        get_key_pair(iroha_test_network::Signatory::Alice),
         format!("http://{}", peer.api_address).parse().unwrap(),
     );
     let iroha = Client::new(client_config);

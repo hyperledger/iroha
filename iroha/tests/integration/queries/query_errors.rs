@@ -6,7 +6,7 @@ use iroha_test_samples::gen_account_in;
 
 #[test]
 fn non_existent_account_is_specific_error() {
-    let (_rt, _peer, client) = <test_network::PeerBuilder>::new()
+    let (_rt, _peer, client) = <iroha_test_network::PeerBuilder>::new()
         .with_port(10_670)
         .start_with_runtime();
     // we cannot wait for genesis committment

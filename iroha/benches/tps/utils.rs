@@ -13,7 +13,7 @@ use iroha::{
 use iroha_test_samples::ALICE_ID;
 use nonzero_ext::nonzero;
 use serde::Deserialize;
-use test_network::*;
+use iroha_test_network::*;
 
 pub type Tps = f64;
 

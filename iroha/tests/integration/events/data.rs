@@ -7,7 +7,7 @@ use iroha_executor_data_model::permission::account::{
 };
 use iroha_test_samples::{ALICE_ID, BOB_ID};
 use parity_scale_codec::Encode as _;
-use test_network::*;
+use iroha_test_network::*;
 
 /// Return string containing exported memory, dummy allocator, and
 /// host function imports which you can embed into your wasm module.

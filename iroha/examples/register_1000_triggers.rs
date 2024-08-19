@@ -13,7 +13,7 @@ use iroha_genesis::{GenesisBlock, GenesisBuilder};
 use iroha_primitives::unique_vec;
 use iroha_test_samples::gen_account_in;
 use irohad::samples::get_config;
-use test_network::{
+use iroha_test_network::{
     construct_executor, get_chain_id, get_key_pair, wait_for_genesis_committed_with_max_retries,
     Peer as TestPeer, PeerBuilder, TestClient, TestRuntime,
 };
@@ -72,12 +72,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut peer: TestPeer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
-    let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
+    let genesis_key_pair = get_key_pair(iroha_test_network::Signatory::Genesis);
     let topology = vec![peer.id.clone()];
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
-        get_key_pair(test_network::Signatory::Peer),
+        get_key_pair(iroha_test_network::Signatory::Peer),
         genesis_key_pair.public_key(),
     );
 

@@ -8,7 +8,7 @@ use iroha::{
 use iroha_config::parameters::actual::Root as Config;
 use iroha_test_samples::gen_account_in;
 use nonzero_ext::nonzero;
-use test_network::*;
+use iroha_test_network::*;
 
 // Note the test is marked as `unstable`,  not the network.
 #[ignore = "ignore, more in #2851"]
@@ -104,7 +104,7 @@ fn mint(
 
 fn init() -> Result<(
     tokio::runtime::Runtime,
-    test_network::Network,
+    iroha_test_network::Network,
     iroha::client::Client,
     std::time::Duration,
     AccountId,

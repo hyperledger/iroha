@@ -1,5 +1,5 @@
 [package]
-name = "test_network"
+name = "iroha_test_network"
 
 edition.workspace = true
 version.workspace = true

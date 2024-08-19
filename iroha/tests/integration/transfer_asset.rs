@@ -9,7 +9,7 @@ use iroha::{
     },
 };
 use iroha_test_samples::{gen_account_in, ALICE_ID};
-use test_network::*;
+use iroha_test_network::*;
 
 #[test]
 // This test suite is also covered at the UI level in the iroha_cli tests

@@ -8,7 +8,7 @@ use iroha::{
 use iroha_genesis::{GenesisBlock, GenesisBuilder};
 use iroha_primitives::unique_vec;
 use irohad::samples::get_config;
-use test_network::{
+use iroha_test_network::{
     construct_executor, get_chain_id, get_key_pair, wait_for_genesis_committed, Peer as TestPeer,
     PeerBuilder, TestRuntime,
 };
@@ -22,7 +22,7 @@ fn generate_genesis(
 ) -> GenesisBlock {
     let mut builder = GenesisBuilder::default();
 
-    let signatory_alice = get_key_pair(test_network::Signatory::Alice).into_parts().0;
+    let signatory_alice = get_key_pair(iroha_test_network::Signatory::Alice).into_parts().0;
     for i in 0_u32..num_domains {
         builder = builder
             .domain(format!("wonderland-{i}").parse().expect("Valid"))
@@ -43,12 +43,12 @@ fn main_genesis() {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
-    let genesis_key_pair = get_key_pair(test_network::Signatory::Genesis);
+    let genesis_key_pair = get_key_pair(iroha_test_network::Signatory::Genesis);
     let topology = vec![peer.id.clone()];
     let configuration = get_config(
         unique_vec![peer.id.clone()],
         chain_id.clone(),
-        get_key_pair(test_network::Signatory::Peer),
+        get_key_pair(iroha_test_network::Signatory::Peer),
         genesis_key_pair.public_key(),
     );
     let rt = Runtime::test();

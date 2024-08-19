@@ -2,7 +2,7 @@ use iroha::data_model::{
     domain::{Domain, DomainId},
     isi::Register,
 };
-use test_network::{wait_for_genesis_committed, NetworkBuilder};
+use iroha_test_network::{wait_for_genesis_committed, NetworkBuilder};
 
 #[test]
 fn all_peers_submit_genesis() {

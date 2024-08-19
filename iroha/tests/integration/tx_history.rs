@@ -8,7 +8,7 @@ use iroha::{
 use iroha_config::parameters::actual::Root as Config;
 use iroha_test_samples::ALICE_ID;
 use nonzero_ext::nonzero;
-use test_network::*;
+use iroha_test_network::*;
 
 #[ignore = "ignore, more in #2851"]
 #[test]

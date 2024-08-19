@@ -4,7 +4,7 @@ use iroha::{
     data_model::{prelude::*, trigger::TriggerId},
 };
 use iroha_test_samples::ALICE_ID;
-use test_network::*;
+use iroha_test_network::*;
 
 #[test]
 fn failed_trigger_revert() -> Result<()> {

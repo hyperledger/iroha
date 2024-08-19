@@ -4,7 +4,7 @@ use iroha::{
     data_model::{isi::InstructionBox, prelude::*},
 };
 use iroha_test_samples::ALICE_ID;
-use test_network::*;
+use iroha_test_network::*;
 
 #[test]
 fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {

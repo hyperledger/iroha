@@ -3,7 +3,7 @@ use iroha::{
     client::QueryError,
     data_model::{prelude::*, query::error::QueryExecutionFail},
 };
-use test_network::*;
+use iroha_test_network::*;
 
 #[test]
 fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {

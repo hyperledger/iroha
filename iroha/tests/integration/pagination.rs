@@ -4,7 +4,7 @@ use iroha::{
     data_model::{asset::AssetDefinition, prelude::*},
 };
 use nonzero_ext::nonzero;
-use test_network::*;
+use iroha_test_network::*;
 
 #[test]
 fn limits_should_work() -> Result<()> {
