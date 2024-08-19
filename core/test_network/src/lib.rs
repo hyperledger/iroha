@@ -27,7 +27,7 @@ use iroha_primitives::{
     unique_vec::UniqueVec,
 };
 use irohad::Iroha;
-use rand::{prelude::SliceRandom, seq::IteratorRandom, thread_rng};
+use rand::{prelude::SliceRandom, thread_rng};
 use tempfile::TempDir;
 use test_samples::{ALICE_ID, ALICE_KEYPAIR, PEER_KEYPAIR, SAMPLE_GENESIS_ACCOUNT_KEYPAIR};
 use tokio::{
@@ -281,12 +281,7 @@ impl NetworkBuilder {
     /// Returns network and client for connecting to it.
     pub async fn create_with_client(self) -> (Network, Client) {
         let network = self.create().await;
-        let client = Client::test(
-            &Network::peers(&network)
-                .choose(&mut thread_rng())
-                .unwrap()
-                .api_address,
-        );
+        let client = Client::test(&network.first_peer.api_address);
         (network, client)
     }
 
@@ -306,10 +301,11 @@ enum PeerInfo {
 }
 
 impl Network {
-    /// Collect the freeze handles from all the peers in the network.
+    /// Collect the freeze handles from all non-genesis peers in the network.
     #[cfg(debug_assertions)]
     pub fn get_freeze_status_handles(&self) -> Vec<irohad::FreezeStatus> {
-        self.peers()
+        self.peers
+            .values()
             .filter_map(|peer| peer.irohad.as_ref())
             .map(|iroha| iroha.freeze_status())
             .cloned()
@@ -329,12 +325,7 @@ impl Network {
     /// Adds peer to network and waits for it to start block
     /// synchronization.
     pub async fn add_peer(&self) -> (Peer, Client) {
-        let client = Client::test(
-            &Network::peers(self)
-                .choose(&mut thread_rng())
-                .unwrap()
-                .api_address,
-        );
+        let client = Client::test(&self.first_peer.api_address);
 
         let mut config = Config::test();
         config.sumeragi.trusted_peers.value_mut().others =
@@ -378,7 +369,7 @@ impl Network {
 /// # Panics
 /// When unsuccessful after `MAX_RETRIES`.
 pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
-    const MAX_RETRIES: u32 = 40;
+    const MAX_RETRIES: u32 = 200;
     wait_for_genesis_committed_with_max_retries(clients, offline_peers, MAX_RETRIES)
 }
 
@@ -392,7 +383,7 @@ pub fn wait_for_genesis_committed_with_max_retries(
     offline_peers: u32,
     max_retries: u32,
 ) {
-    const POLL_PERIOD: Duration = Duration::from_millis(1000);
+    const POLL_PERIOD: Duration = Duration::from_millis(5000);
 
     for _ in 0..max_retries {
         let ready_peers = clients
