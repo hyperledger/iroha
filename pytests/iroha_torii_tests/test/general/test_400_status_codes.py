@@ -2,7 +2,7 @@ import allure
 import pytest
 import requests
 
-from common.settings import BASE_URL
+from ...common.settings import BASE_URL
 
 
 @pytest.fixture(scope="function", autouse=True)

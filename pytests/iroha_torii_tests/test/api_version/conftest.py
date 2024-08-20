@@ -1,11 +1,11 @@
-from test import GIVEN_api_up_and_running
+from .. import GIVEN_api_up_and_running
 
 import allure
 import pytest
 import requests
 
 
-from common.settings import BASE_URL
+from ...common.settings import BASE_URL
 
 
 @pytest.fixture(scope="module")

@@ -6,8 +6,8 @@ This module contains pytest fixtures for testing.
 import allure  # type: ignore
 import pytest
 
-from common.consts import ValueTypes
-from common.helpers import (
+from ..common.consts import ValueTypes
+from ..common.helpers import (
     fake_asset_name,
     fake_name,
     generate_public_key,
@@ -20,9 +20,9 @@ from common.helpers import (
     random,
     string,
 )
-from common.settings import PEERS_CONFIGS_PATH
-from models import Account, Asset, AssetDefinition, Domain
-from src.iroha_cli import iroha_cli, config
+from ..common.settings import PEERS_CONFIGS_PATH
+from ..models import Account, Asset, AssetDefinition, Domain
+from ..src.iroha_cli import iroha_cli, config
 
 
 # General fixtures

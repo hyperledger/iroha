@@ -1,4 +1,4 @@
-from test import (
+from .. import (
     GIVEN_129_length_name,
     GIVEN_currently_account_quantity_with_two_quantity_of_asset,
     GIVEN_currently_authorized_account,

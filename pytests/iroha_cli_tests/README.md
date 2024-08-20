@@ -63,7 +63,7 @@ The test model has the following structure:
 
 2. Install and configure [Poetry](https://python-poetry.org/).\
 	 For details, see [Poetry Configuration](#poetry-configuration) below.
-3. Configure the tests by creating the following `.env` file in _this_ (`<repo root>/pytests/iroha_cli/`) directory:
+3. Configure the tests by creating the following `.env` file in _this_ (`<repo root>/pytests/iroha_cli_tests/`) directory:
 
 	 ```shell
      IROHA_CLI_BINARY=/path/to/iroha_cli
@@ -129,7 +129,7 @@ This test framework uses [Poetry](https://python-poetry.org/) for dependency man
 To get started with Poetry, follow these steps:
 
 1. Install Poetry by following the [official installation guide](https://python-poetry.org/docs/#installation).
-2. Navigate to the `iroha_cli/pytests` directory in your terminal.
+2. Navigate to the `pytests/iroha_cli_tests` directory in your terminal.
 3. Install the dependencies and set up a virtual environment using Poetry:
 
    ```bash
@@ -152,7 +152,7 @@ exit
 
 ### Tests Configuration
 
-Tests are configured via environment variables. These variables can be optionally defined in a `.env` file that must be created in _this_ (`<repo root>/pytests/iroha_cli/`) directory.
+Tests are configured via environment variables. These variables can be optionally defined in a `.env` file that must be created in _this_ (`<repo root>/pytests/iroha_cli_tests/`) directory.
 
 The variables:
 

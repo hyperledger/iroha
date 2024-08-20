@@ -5,7 +5,7 @@ This module contains the Iroha class, which is a subclass of IrohaCli.
 import json
 from typing import Dict, List
 
-from src.iroha_cli.iroha_cli import IrohaCli
+from .iroha_cli import IrohaCli
 
 
 class Iroha(IrohaCli):

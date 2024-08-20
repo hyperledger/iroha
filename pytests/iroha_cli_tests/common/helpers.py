@@ -12,7 +12,7 @@ import string
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from common.consts import ReservedChars, fake
+from .consts import ReservedChars, fake
 
 
 def extract_hash(stdout):

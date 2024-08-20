@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+BASE_DIR = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 ROOT_DIR = os.environ.get("IROHA_CLI_DIR", BASE_DIR)
 
 PATH_CONFIG_IROHA_CLI = os.environ["IROHA_CLI_CONFIG"]

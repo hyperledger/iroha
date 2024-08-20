@@ -11,9 +11,9 @@ from typing import Callable
 
 import allure  # type: ignore
 
-from common.helpers import extract_hash, read_isi_from_json, write_isi_to_json
-from common.settings import BASE_DIR, IROHA_CLI_PATH, PATH_CONFIG_IROHA_CLI, ROOT_DIR
-from src.iroha_cli.configuration import Config
+from ...common.helpers import extract_hash, read_isi_from_json, write_isi_to_json
+from ...common.settings import BASE_DIR, IROHA_CLI_PATH, PATH_CONFIG_IROHA_CLI, ROOT_DIR
+from .configuration import Config
 
 
 class IrohaCli:

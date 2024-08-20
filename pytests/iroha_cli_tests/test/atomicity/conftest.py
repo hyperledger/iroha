@@ -1,4 +1,4 @@
-from test import before_all, before_each
+from .. import before_all, before_each
 
 import allure  # type: ignore
 import pytest

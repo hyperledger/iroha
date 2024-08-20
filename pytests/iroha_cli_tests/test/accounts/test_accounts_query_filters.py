@@ -2,7 +2,7 @@ import json
 
 import allure  # type: ignore
 
-from src.iroha_cli import iroha_cli, iroha
+from ...src.iroha_cli import iroha_cli, iroha
 
 
 # using existing account to have at least one account in response

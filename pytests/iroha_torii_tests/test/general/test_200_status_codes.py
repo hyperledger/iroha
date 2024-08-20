@@ -3,7 +3,7 @@ import pytest
 import requests
 import json
 
-from common.settings import BASE_URL
+from ...common.settings import BASE_URL
 
 
 @pytest.fixture(scope="function", autouse=True)

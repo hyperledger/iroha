@@ -6,7 +6,7 @@ import json
 
 import allure  # type: ignore
 
-from src.iroha_cli import iroha_cli, iroha, match
+from . import iroha_cli, iroha, match
 
 
 def expected_in_actual(expected, actual) -> bool:

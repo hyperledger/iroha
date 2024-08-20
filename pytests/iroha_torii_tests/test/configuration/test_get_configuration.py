@@ -8,7 +8,7 @@ import allure
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
 
-from common.settings import BASE_URL
+from ...common.settings import BASE_URL
 
 valid_log_levels = ["trace", "debug", "info", "warn", "error"]
 

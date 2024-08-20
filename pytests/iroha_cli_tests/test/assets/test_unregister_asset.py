@@ -1,7 +1,7 @@
 import allure  # type: ignore
 import pytest
 
-from src.iroha_cli import iroha_cli, have, iroha
+from ...src.iroha_cli import iroha_cli, have, iroha
 
 
 @pytest.fixture(scope="function", autouse=True)
