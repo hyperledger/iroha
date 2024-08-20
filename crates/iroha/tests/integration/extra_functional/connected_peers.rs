@@ -10,8 +10,8 @@ use iroha::{
 };
 use iroha_config::parameters::actual::Root as Config;
 use iroha_primitives::unique_vec;
-use rand::{seq::SliceRandom, thread_rng, Rng};
 use iroha_test_network::*;
+use rand::{seq::SliceRandom, thread_rng, Rng};
 use tokio::runtime::Runtime;
 
 #[ignore = "ignore, more in #2851"]

@@ -3,8 +3,8 @@ use iroha::{
     client::{asset, Client},
     data_model::{asset::AssetDefinition, prelude::*},
 };
-use nonzero_ext::nonzero;
 use iroha_test_network::*;
+use nonzero_ext::nonzero;
 
 #[test]
 fn limits_should_work() -> Result<()> {

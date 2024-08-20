@@ -12,9 +12,9 @@ use iroha::{
 };
 use iroha_executor_data_model::permission::{domain::CanUnregisterDomain, Permission as _};
 use iroha_logger::info;
+use iroha_test_network::*;
 use iroha_test_samples::{ALICE_ID, BOB_ID};
 use nonzero_ext::nonzero;
-use iroha_test_network::*;
 
 const ADMIN_PUBLIC_KEY_MULTIHASH: &str =
     "ed012076E5CA9698296AF9BE2CA45F525CB3BCFDEB7EE068BA56F973E9DD90564EF4FC";
@@ -95,7 +95,10 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
             .is_ok_and(|permission| permission == can_unregister_domain)
     }));
 
-    upgrade_executor(&client, "../../wasm_samples/executor_with_custom_permission")?;
+    upgrade_executor(
+        &client,
+        "../../wasm_samples/executor_with_custom_permission",
+    )?;
 
     // Check that `CanUnregisterDomain` doesn't exist
     let data_model = client.query_single(FindExecutorDataModel)?;
@@ -361,7 +364,11 @@ fn migration_should_cause_upgrade_event() {
         }
     });
 
-    upgrade_executor(&client, "../../wasm_samples/executor_with_custom_permission").unwrap();
+    upgrade_executor(
+        &client,
+        "../../wasm_samples/executor_with_custom_permission",
+    )
+    .unwrap();
 
     rt.block_on(async {
         tokio::time::timeout(core::time::Duration::from_secs(60), task)

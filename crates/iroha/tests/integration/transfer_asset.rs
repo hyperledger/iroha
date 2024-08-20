@@ -8,8 +8,8 @@ use iroha::{
         Registered,
     },
 };
-use iroha_test_samples::{gen_account_in, ALICE_ID};
 use iroha_test_network::*;
+use iroha_test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 // This test suite is also covered at the UI level in the iroha_cli tests

@@ -3,8 +3,8 @@ use iroha::{
     client,
     data_model::{prelude::*, trigger::TriggerId},
 };
-use iroha_test_samples::ALICE_ID;
 use iroha_test_network::*;
+use iroha_test_samples::ALICE_ID;
 
 #[test]
 fn failed_trigger_revert() -> Result<()> {

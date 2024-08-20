@@ -6,9 +6,9 @@ use iroha::{
     data_model::{parameter::BlockParameter, prelude::*},
 };
 use iroha_config::parameters::actual::Root as Config;
+use iroha_test_network::*;
 use iroha_test_samples::gen_account_in;
 use nonzero_ext::nonzero;
-use iroha_test_network::*;
 
 // Note the test is marked as `unstable`,  not the network.
 #[ignore = "ignore, more in #2851"]

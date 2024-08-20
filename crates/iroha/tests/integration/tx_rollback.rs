@@ -1,7 +1,7 @@
 use eyre::Result;
 use iroha::{client, data_model::prelude::*};
-use iroha_test_samples::ALICE_ID;
 use iroha_test_network::*;
+use iroha_test_samples::ALICE_ID;
 
 #[test]
 fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() -> Result<()> {

@@ -15,8 +15,8 @@ use iroha_data_model::query::{builder::SingleQueryError, trigger::FindTriggers};
 use iroha_executor_data_model::permission::trigger::CanRegisterUserTrigger;
 use iroha_genesis::GenesisBlock;
 use iroha_logger::info;
-use iroha_test_samples::ALICE_ID;
 use iroha_test_network::{Peer as TestPeer, *};
+use iroha_test_samples::ALICE_ID;
 use tokio::runtime::Runtime;
 
 const TRIGGER_NAME: &str = "mint_rose";

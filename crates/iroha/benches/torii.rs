@@ -9,11 +9,11 @@ use iroha::{
 };
 use iroha_genesis::GenesisBuilder;
 use iroha_primitives::unique_vec;
-use iroha_test_samples::gen_account_in;
-use irohad::samples::get_config;
 use iroha_test_network::{
     construct_executor, get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime,
 };
+use iroha_test_samples::gen_account_in;
+use irohad::samples::get_config;
 use tokio::runtime::Runtime;
 
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
@@ -36,7 +36,11 @@ fn query_requests(criterion: &mut Criterion) {
     let topology = vec![peer.id.clone()];
     let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
-        .account(get_key_pair(iroha_test_network::Signatory::Alice).into_parts().0)
+        .account(
+            get_key_pair(iroha_test_network::Signatory::Alice)
+                .into_parts()
+                .0,
+        )
         .finish_domain()
         .build_and_sign(chain_id, executor, topology, &genesis_key_pair);
 

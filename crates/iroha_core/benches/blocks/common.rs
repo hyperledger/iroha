@@ -207,8 +207,8 @@ pub fn build_state(rt: &tokio::runtime::Handle, account_id: &AccountId) -> State
         state_block.world.parameters.executor.memory = NonZeroU64::MAX;
 
         let mut state_transaction = state_block.transaction();
-        let path_to_executor =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../defaults/executor.wasm");
+        let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../defaults/executor.wasm");
         let wasm = std::fs::read(&path_to_executor)
             .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_executor.display()));
         let executor = Executor::new(WasmSmartContract::from_compiled(wasm));

@@ -7,11 +7,11 @@ use iroha::{
 };
 use iroha_genesis::{GenesisBlock, GenesisBuilder};
 use iroha_primitives::unique_vec;
-use irohad::samples::get_config;
 use iroha_test_network::{
     construct_executor, get_chain_id, get_key_pair, wait_for_genesis_committed, Peer as TestPeer,
     PeerBuilder, TestRuntime,
 };
+use irohad::samples::get_config;
 use tokio::runtime::Runtime;
 
 fn generate_genesis(
@@ -22,7 +22,9 @@ fn generate_genesis(
 ) -> GenesisBlock {
     let mut builder = GenesisBuilder::default();
 
-    let signatory_alice = get_key_pair(iroha_test_network::Signatory::Alice).into_parts().0;
+    let signatory_alice = get_key_pair(iroha_test_network::Signatory::Alice)
+        .into_parts()
+        .0;
     for i in 0_u32..num_domains {
         builder = builder
             .domain(format!("wonderland-{i}").parse().expect("Valid"))

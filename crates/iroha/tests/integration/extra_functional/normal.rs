@@ -2,8 +2,8 @@ use iroha::{
     client,
     data_model::{asset::AssetDefinitionId, parameter::BlockParameter, prelude::*},
 };
-use nonzero_ext::nonzero;
 use iroha_test_network::*;
+use nonzero_ext::nonzero;
 
 #[test]
 fn tranasctions_should_be_applied() {
