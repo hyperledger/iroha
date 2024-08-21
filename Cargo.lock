@@ -3530,6 +3530,7 @@ dependencies = [
  "error-stack",
  "eyre",
  "futures",
+ "http-body-util",
  "iroha_config",
  "iroha_core",
  "iroha_data_model",
@@ -3545,6 +3546,7 @@ dependencies = [
  "nonzero_ext",
  "parity-scale-codec",
  "pprof",
+ "pretty-error-debug",
  "serde",
  "serde_json",
  "thiserror",
@@ -4588,6 +4590,25 @@ name = "ppv-lite86"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
+
+[[package]]
+name = "pretty-error-debug"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a8f3888f1de6a9d977610972eab0014b663a3907ec153d77200252ad22e4bb0"
+dependencies = [
+ "pretty-error-debug-derive",
+]
+
+[[package]]
+name = "pretty-error-debug-derive"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "788992637e9c73f809f7bdc647572785efb06cb7c860105a4e55e9c7d6935d39"
+dependencies = [
+ "quote",
+ "syn 2.0.72",
+]
 
 [[package]]
 name = "proc-macro-crate"
