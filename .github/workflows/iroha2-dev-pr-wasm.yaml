@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - '.github/workflows/iroha2-dev-pr-wasm.yaml'
+
       - 'crates/iroha_data_model/**.rs'
       - 'crates/iroha_data_model/**.yml'
       - 'crates/iroha_data_model/**.json'
@@ -34,7 +36,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RUSTUP_TOOLCHAIN: nightly-2024-09-09
   DOCKER_COMPOSE_PATH: defaults
 
 jobs:
@@ -45,9 +46,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
       - name: Build iroha executor
-        run: cargo run --bin iroha_wasm_builder -- build ./wasm_samples/default_executor --optimize --out-file ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
+        run: mold --run cargo run --bin iroha_wasm_builder -- build ./wasm_samples/default_executor --optimize --out-file ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
       - name: Upload executor to reuse in other jobs
         uses: actions/upload-artifact@v4
         with:
@@ -57,19 +57,18 @@ jobs:
 
   tests:
     runs-on: ubuntu-latest
-    needs: build_executor
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
+    needs: build_executor
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Download executor.wasm file
+      - name: Download executor.wasm
         uses: actions/download-artifact@v4
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
       - name: Install iroha_wasm_test_runner
-        run: cargo install --path crates/iroha_wasm_test_runner
+        run: which iroha_wasm_test_runner || cargo install --path crates/iroha_wasm_test_runner
       - name: Run smart contract tests on WebAssembly VM
         working-directory: crates/iroha_smart_contract
         run: mold --run cargo test -p iroha_smart_contract -p iroha_smart_contract_utils --release --tests --target wasm32-unknown-unknown --no-fail-fast --quiet

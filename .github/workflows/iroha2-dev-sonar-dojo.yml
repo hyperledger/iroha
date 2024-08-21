@@ -20,6 +20,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: lints
+          pattern: report-*
           merge-multiple: true
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

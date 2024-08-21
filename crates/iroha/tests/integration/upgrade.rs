@@ -312,7 +312,7 @@ fn executor_custom_instructions_complex() -> Result<()> {
 
 #[test]
 fn migration_fail_should_not_cause_any_effects() {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_998).start_with_runtime();
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_980).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     let assert_domain_does_not_exist = |client: &Client, domain_id: &DomainId| {
@@ -345,7 +345,7 @@ fn migration_fail_should_not_cause_any_effects() {
 
 #[test]
 fn migration_should_cause_upgrade_event() {
-    let (rt, _peer, client) = <PeerBuilder>::new().with_port(10_996).start_with_runtime();
+    let (rt, _peer, client) = <PeerBuilder>::new().with_port(10_995).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     let events_client = client.clone();
