@@ -17,6 +17,7 @@ use iroha_data_model::{
     transaction::CommittedTransaction,
 };
 use iroha_telemetry::metrics;
+use nonzero_ext::nonzero;
 
 use super::*;
 use crate::smartcontracts::ValidQuery;
@@ -75,7 +76,7 @@ impl ValidQuery for FindTransactions {
         state_ro: &'state impl StateReadOnly,
     ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail> {
         Ok(state_ro
-            .all_blocks()
+            .all_blocks(nonzero!(1_usize))
             .flat_map(BlockTransactionIter::new)
             .map(|tx| TransactionQueryOutput {
                 block_hash: tx.block_hash(),
@@ -95,7 +96,7 @@ impl ValidQuery for FindTransactionsByAccountId {
         let account_id = self.account.clone();
 
         Ok(state_ro
-            .all_blocks()
+            .all_blocks(nonzero!(1_usize))
             .flat_map(BlockTransactionIter::new)
             .filter(move |tx| *tx.authority() == account_id)
             .map(|tx| TransactionQueryOutput {
