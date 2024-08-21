@@ -56,7 +56,7 @@ pub enum AcceptTransactionFail {
     SignatureVerification(#[source] SignatureVerificationFail),
     /// The genesis account can only sign transactions in the genesis block
     UnexpectedGenesisAccountSignature,
-    /// Chain id doesn't correspond to the id of current blockchain
+    /// Chain id doesn't correspond to the id of current blockchain: {0}
     ChainIdMismatch(Mismatch<ChainId>),
 }
 

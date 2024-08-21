@@ -54,3 +54,7 @@ parity-scale-codec = { workspace = true, features = ["derive"] }
 # TODO: switch to original crate once fix is merged (https://github.com/tikv/pprof-rs/pull/241)
 pprof = { git = " https://github.com/Erigara/pprof-rs", branch = "fix_pointer_align", optional = true, default-features = false, features = ["protobuf-codec", "frame-pointer", "cpp"] }
 nonzero_ext = { workspace = true }
+pretty-error-debug = "0.3.0"
+
+[dev-dependencies]
+http-body-util = "0.1.2"
