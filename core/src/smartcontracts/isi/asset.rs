@@ -439,11 +439,11 @@ pub mod query {
 
     impl ValidQuery for FindAssets {
         #[metrics(+"find_assets")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<AssetPredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<impl Iterator<Item = Asset> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Asset>, Error> {
             Ok(state_ro
                 .world()
                 .assets_iter()
@@ -453,11 +453,11 @@ pub mod query {
     }
     impl ValidQuery for FindAssetsDefinitions {
         #[metrics(+"find_asset_definitions")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<AssetDefinitionPredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<impl Iterator<Item = AssetDefinition> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = AssetDefinition>, Error> {
             Ok(state_ro
                 .world()
                 .asset_definitions_iter()

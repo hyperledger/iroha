@@ -28,7 +28,7 @@ use crate::{
     config::Config,
     crypto::{HashOf, KeyPair},
     data_model::{
-        block::SignedBlock,
+        block::{BlockHeader, SignedBlock},
         events::pipeline::{
             BlockEventFilter, BlockStatus, PipelineEventBox, PipelineEventFilterBox,
             TransactionEventFilter, TransactionStatus,
@@ -951,7 +951,7 @@ mod blocks_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = crate::data_model::block::SignedBlock;
+            type Event = SignedBlock;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 Ok(BlockMessage::decode_all(&mut message.as_slice()).map(Into::into)?)
@@ -1012,7 +1012,7 @@ pub mod block {
     }
 
     /// Construct a query to find block header by hash
-    pub fn header_by_hash(hash: HashOf<SignedBlock>) -> FindBlockHeaderByHash {
+    pub fn header_by_hash(hash: HashOf<BlockHeader>) -> FindBlockHeaderByHash {
         FindBlockHeaderByHash::new(hash)
     }
 }

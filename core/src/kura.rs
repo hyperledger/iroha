@@ -12,7 +12,7 @@ use std::{
 
 use iroha_config::{kura::InitMode, parameters::actual::Kura as Config};
 use iroha_crypto::{Hash, HashOf};
-use iroha_data_model::block::SignedBlock;
+use iroha_data_model::block::{BlockHeader, SignedBlock};
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use parity_scale_codec::DecodeAll;
@@ -35,7 +35,7 @@ pub struct Kura {
     block_store: Mutex<BlockStore>,
     /// The array of block hashes and a slot for an arc of the block. This is normally recovered from the index file.
     #[allow(clippy::type_complexity)]
-    block_data: Mutex<Vec<(HashOf<SignedBlock>, Option<Arc<SignedBlock>>)>>,
+    block_data: Mutex<Vec<(HashOf<BlockHeader>, Option<Arc<SignedBlock>>)>>,
     /// Path to file for plain text blocks.
     block_plain_text_path: Option<PathBuf>,
 }
@@ -134,7 +134,7 @@ impl Kura {
     fn init_fast_mode(
         block_store: &BlockStore,
         block_index_count: usize,
-    ) -> Result<Vec<HashOf<SignedBlock>>, Error> {
+    ) -> Result<Vec<HashOf<BlockHeader>>, Error> {
         let block_hashes_count = block_store
             .read_hashes_count()?
             .try_into()
@@ -149,7 +149,7 @@ impl Kura {
     fn init_strict_mode(
         block_store: &mut BlockStore,
         block_index_count: usize,
-    ) -> Result<Vec<HashOf<SignedBlock>>, Error> {
+    ) -> Result<Vec<HashOf<BlockHeader>>, Error> {
         let mut block_hashes = Vec::with_capacity(block_index_count);
 
         let mut block_indices = vec![BlockIndex::default(); block_index_count];
@@ -271,7 +271,7 @@ impl Kura {
     }
 
     /// Get the hash of the block at the provided height.
-    pub fn get_block_hash(&self, block_height: NonZeroUsize) -> Option<HashOf<SignedBlock>> {
+    pub fn get_block_hash(&self, block_height: NonZeroUsize) -> Option<HashOf<BlockHeader>> {
         let hash_data_guard = self.block_data.lock();
 
         let block_height = block_height.get();
@@ -284,7 +284,7 @@ impl Kura {
     }
 
     /// Search through blocks for the height of the block with the given hash.
-    pub fn get_block_height_by_hash(&self, hash: HashOf<SignedBlock>) -> Option<NonZeroUsize> {
+    pub fn get_block_height_by_hash(&self, hash: HashOf<BlockHeader>) -> Option<NonZeroUsize> {
         self.block_data
             .lock()
             .iter()
@@ -463,7 +463,7 @@ impl BlockStore {
         &self,
         start_block_height: u64,
         block_count: usize,
-    ) -> Result<Vec<HashOf<SignedBlock>>> {
+    ) -> Result<Vec<HashOf<BlockHeader>>> {
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         let mut hashes_file = std::fs::OpenOptions::new()
             .read(true)
@@ -497,7 +497,7 @@ impl BlockStore {
 
     /// Get the number of hashes in the hashes file, which is
     /// calculated as the size of the hashes file in bytes divided by
-    /// `size_of(HashOf<SignedBlock>)`.
+    /// `size_of(HashOf<BlockHeader>)`.
     ///
     /// # Errors
     /// IO Error.
@@ -631,7 +631,7 @@ impl BlockStore {
     ///
     /// # Errors
     /// IO Error.
-    pub fn write_block_hash(&mut self, block_height: u64, hash: HashOf<SignedBlock>) -> Result<()> {
+    pub fn write_block_hash(&mut self, block_height: u64, hash: HashOf<BlockHeader>) -> Result<()> {
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         let mut hashes_file = std::fs::OpenOptions::new()
             .write(true)
@@ -659,7 +659,7 @@ impl BlockStore {
     ///
     /// # Errors
     /// IO Error.
-    pub fn overwrite_block_hashes(&mut self, hashes: &[HashOf<SignedBlock>]) -> Result<()> {
+    pub fn overwrite_block_hashes(&mut self, hashes: &[HashOf<BlockHeader>]) -> Result<()> {
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         let hashes_file = std::fs::OpenOptions::new()
             .write(true)

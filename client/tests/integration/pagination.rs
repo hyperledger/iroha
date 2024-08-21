@@ -26,17 +26,17 @@ fn limits_should_work() -> Result<()> {
 
 #[test]
 fn fetch_size_should_work() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_120).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
-
-    register_assets(&client)?;
-
     // use the lower-level API to inspect the batch size
     use iroha_data_model::query::{
         builder::QueryExecutor as _,
         parameters::{FetchSize, QueryParams, Sorting},
         QueryWithFilter, QueryWithParams,
     };
+
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_120).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    register_assets(&client)?;
 
     let query = QueryWithParams::new(
         QueryWithFilter::new(asset::all_definitions(), CompoundPredicate::PASS).into(),

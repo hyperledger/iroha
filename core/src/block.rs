@@ -43,9 +43,9 @@ pub enum BlockValidationError {
     /// Mismatch between the actual and expected hashes of the previous block. Expected: {expected:?}, actual: {actual:?}
     PrevBlockHashMismatch {
         /// Expected value
-        expected: Option<HashOf<SignedBlock>>,
+        expected: Option<HashOf<BlockHeader>>,
         /// Actual value
-        actual: Option<HashOf<SignedBlock>>,
+        actual: Option<HashOf<BlockHeader>>,
     },
     /// Mismatch between the actual and expected height of the previous block. Expected: {expected}, actual: {actual}
     PrevBlockHeightMismatch {
@@ -146,7 +146,7 @@ mod pending {
 
         fn make_header(
             prev_height: usize,
-            prev_block_hash: Option<HashOf<SignedBlock>>,
+            prev_block_hash: Option<HashOf<BlockHeader>>,
             view_change_index: usize,
             transactions: &[CommittedTransaction],
             consensus_estimation: Duration,
@@ -1009,7 +1009,6 @@ mod event {
 
             let block_event = core::iter::once(BlockEvent {
                 header: self.as_ref().header().clone(),
-                hash: self.as_ref().hash(),
                 status: BlockStatus::Approved,
             });
 
@@ -1023,7 +1022,6 @@ mod event {
         fn produce_events(&self) -> impl Iterator<Item = PipelineEventBox> {
             let block_event = core::iter::once(BlockEvent {
                 header: self.as_ref().header().clone(),
-                hash: self.as_ref().hash(),
                 status: BlockStatus::Committed,
             });
 

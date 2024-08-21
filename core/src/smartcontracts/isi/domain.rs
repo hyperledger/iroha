@@ -405,11 +405,11 @@ pub mod query {
 
     impl ValidQuery for FindDomains {
         #[metrics(+"find_domains")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<DomainPredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> std::result::Result<impl Iterator<Item = Domain> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> std::result::Result<impl Iterator<Item = Domain>, Error> {
             Ok(state_ro
                 .world()
                 .domains_iter()

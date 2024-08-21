@@ -9,7 +9,10 @@ use std::{
 
 use iroha_config::parameters::actual::BlockSync as Config;
 use iroha_crypto::HashOf;
-use iroha_data_model::{block::SignedBlock, prelude::*};
+use iroha_data_model::{
+    block::{BlockHeader, SignedBlock},
+    prelude::*,
+};
 use iroha_logger::prelude::*;
 use iroha_macro::*;
 use iroha_p2p::Post;
@@ -50,7 +53,7 @@ pub struct BlockSynchronizer {
     gossip_size: NonZeroU32,
     network: IrohaNetwork,
     state: Arc<State>,
-    seen_blocks: BTreeSet<(NonZeroUsize, HashOf<SignedBlock>)>,
+    seen_blocks: BTreeSet<(NonZeroUsize, HashOf<BlockHeader>)>,
     latest_height: usize,
 }
 
@@ -161,20 +164,20 @@ pub mod message {
         /// Peer id
         pub peer_id: PeerId,
         /// Hash of second to latest block
-        pub prev_hash: Option<HashOf<SignedBlock>>,
+        pub prev_hash: Option<HashOf<BlockHeader>>,
         /// Hash of latest available block
-        pub latest_hash: Option<HashOf<SignedBlock>>,
+        pub latest_hash: Option<HashOf<BlockHeader>>,
         /// The block hashes already seen
-        pub seen_blocks: BTreeSet<HashOf<SignedBlock>>,
+        pub seen_blocks: BTreeSet<HashOf<BlockHeader>>,
     }
 
     impl GetBlocksAfter {
         /// Construct [`GetBlocksAfter`].
         pub const fn new(
             peer_id: PeerId,
-            prev_hash: Option<HashOf<SignedBlock>>,
-            latest_hash: Option<HashOf<SignedBlock>>,
-            seen_blocks: BTreeSet<HashOf<SignedBlock>>,
+            prev_hash: Option<HashOf<BlockHeader>>,
+            latest_hash: Option<HashOf<BlockHeader>>,
+            seen_blocks: BTreeSet<HashOf<BlockHeader>>,
         ) -> Self {
             Self {
                 peer_id,
@@ -304,9 +307,9 @@ pub mod message {
         #[derive(Decode)]
         struct GetBlocksAfterCandidate {
             peer: PeerId,
-            prev_hash: Option<HashOf<SignedBlock>>,
-            latest_hash: Option<HashOf<SignedBlock>>,
-            seen_blocks: BTreeSet<HashOf<SignedBlock>>,
+            prev_hash: Option<HashOf<BlockHeader>>,
+            latest_hash: Option<HashOf<BlockHeader>>,
+            seen_blocks: BTreeSet<HashOf<BlockHeader>>,
         }
 
         #[derive(Decode)]
