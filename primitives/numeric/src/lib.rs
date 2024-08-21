@@ -175,24 +175,73 @@ impl Numeric {
         self.inner.scale()
     }
 
-    /// Checked addition
-    ///
-    /// # Errors
-    /// In case of overflow
+    /// Checked addition. Computes `self + other`, returning `None` if overflow occurred
     pub fn checked_add(self, other: Self) -> Option<Self> {
         self.inner
             .checked_add(other.inner)
             .map(|inner| Self { inner })
     }
 
-    /// Checked subtraction
-    ///
-    /// # Errors
-    /// In case of overflow
+    /// Checked subtraction. Computes `self - other`, returning `None` if overflow occurred
     pub fn checked_sub(self, other: Self) -> Option<Self> {
         self.inner
             .checked_sub(other.inner)
             .and_then(|inner| inner.is_sign_positive().then_some(Self { inner }))
+    }
+
+    /// Checked multiplication. Computes `self * other`, returning `None` if overflow occurred
+    pub fn checked_mul(self, other: Self, spec: NumericSpec) -> Option<Self> {
+        self.inner
+            .checked_mul(other.inner)
+            .map(|inner| {
+                if let Some(scale) = spec.scale {
+                    return inner.round_dp(scale);
+                }
+
+                inner
+            })
+            .map(|inner| Self { inner })
+    }
+
+    /// Checked division. Computes `self / other`, returning `None` if overflow occurred.
+    pub fn checked_div(self, other: Self, spec: NumericSpec) -> Option<Self> {
+        self.inner
+            .checked_div(other.inner)
+            .map(|inner| {
+                if let Some(scale) = spec.scale {
+                    return inner.round_dp(scale);
+                }
+
+                inner
+            })
+            .map(|inner| Self { inner })
+    }
+
+    /// Checked remainder. Computes `self % other`, returning `None` if overflow occurred.
+    pub fn checked_rem(self, other: Self, spec: NumericSpec) -> Option<Self> {
+        self.inner
+            .checked_rem(other.inner)
+            .map(|inner| {
+                if let Some(scale) = spec.scale {
+                    return inner.round_dp(scale);
+                }
+
+                inner
+            })
+            .map(|inner| Self { inner })
+    }
+
+    /// Returns a new `Decimal` number rounded to the given spec.
+    /// Rounding follows “Bankers Rounding” rules. e.g. 6.5 -> 6, 7.5 -> 8
+    #[must_use]
+    pub fn round(&self, spec: NumericSpec) -> Self {
+        if let Some(scale) = spec.scale {
+            return Self {
+                inner: self.inner.round_dp(scale),
+            };
+        }
+
+        Self { inner: self.inner }
     }
 
     /// Convert [`Numeric`] to [`f64`] with possible loss in precision
@@ -215,6 +264,17 @@ impl From<u32> for Numeric {
 impl From<u64> for Numeric {
     fn from(value: u64) -> Self {
         Self::new(value.into(), 0)
+    }
+}
+
+impl TryFrom<f64> for Numeric {
+    type Error = TryFromNumericError;
+
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        value
+            .try_into()
+            .map_err(|_| TryFromNumericError)
+            .map(|inner| Self { inner })
     }
 }
 
