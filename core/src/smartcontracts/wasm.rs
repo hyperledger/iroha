@@ -14,12 +14,14 @@ use iroha_data_model::{
     prelude::*,
     query::{parameters::QueryId, AnyQueryBox, QueryOutput, QueryRequest, QueryResponse},
     smart_contract::payloads::{self, Validate},
+    transaction::base64_util::Base64Wrapper,
     Level as LogLevel, ValidationFail,
 };
 use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span};
 use iroha_wasm_codec::{self as codec, WasmUsize};
+use serde::Serialize;
 use wasmtime::{
     Caller, Config as WasmtimeConfig, Engine, Linker, Module, Store, StoreLimits,
     StoreLimitsBuilder, TypedFunc,
@@ -127,6 +129,8 @@ pub mod error {
         Finalization(#[source] crate::query::store::Error),
         /// Failed to load module
         ModuleLoading(#[source] WasmtimeError),
+        /// Failed to deserialize module
+        ModuleDeserialization(#[source] WasmtimeError),
         /// Module could not be instantiated
         Instantiation(#[from] InstantiationError),
         /// Export error
@@ -249,6 +253,23 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 // TODO: Probably we can do some checks here such as searching for entrypoint function
 pub fn load_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<wasmtime::Module> {
     Module::new(engine, bytes).map_err(Error::ModuleLoading)
+}
+
+pub(crate) fn serialize_module_base64<S>(module: &Module, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let bytes = module.serialize().map_err(serde::ser::Error::custom)?;
+    let wrapper = Base64Wrapper(bytes);
+    wrapper.serialize(serializer)
+}
+
+/// Deserialize [`Module`]. Accepts only output of [`Module::serialize`].
+#[allow(unsafe_code)]
+pub(crate) fn deserialize_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<Module> {
+    // SAFETY: `Module::deserialize` is safe when calling for bytes received from `Module::serialize`.
+    // We store serialization result on disk and then load it back so should be ok.
+    unsafe { Module::deserialize(engine, bytes).map_err(Error::ModuleDeserialization) }
 }
 
 /// Create [`Engine`] with a predefined configuration.

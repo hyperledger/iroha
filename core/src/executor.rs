@@ -6,7 +6,7 @@ use iroha_data_model::{
     executor as data_model_executor,
     isi::InstructionBox,
     query::{AnyQueryBox, QueryRequest},
-    transaction::{Executable, SignedTransaction},
+    transaction::{base64_util::Base64Wrapper, Executable, SignedTransaction},
     ValidationFail,
 };
 use iroha_logger::trace;
@@ -245,7 +245,7 @@ impl Executor {
     /// - Failed to execute entrypoint of the WASM blob.
     pub fn migrate(
         &mut self,
-        raw_executor: data_model_executor::Executor,
+        raw_executor: &data_model_executor::Executor,
         state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
     ) -> Result<(), wasm::error::Error> {
@@ -276,19 +276,21 @@ impl Executor {
 #[derive(DebugCustom, Clone, Serialize)]
 #[debug(fmt = "LoadedExecutor {{ module: <Module is truncated> }}")]
 pub struct LoadedExecutor {
-    #[serde(skip)]
+    #[serde(serialize_with = "wasm::serialize_module_base64")]
     module: wasmtime::Module,
-    raw_executor: data_model_executor::Executor,
 }
 
 impl LoadedExecutor {
+    fn new(module: wasmtime::Module) -> Self {
+        Self { module }
+    }
+
     fn load(
         engine: &wasmtime::Engine,
-        raw_executor: data_model_executor::Executor,
+        raw_executor: &data_model_executor::Executor,
     ) -> Result<Self, wasm::error::Error> {
         Ok(Self {
             module: wasm::load_module(engine, &raw_executor.wasm)?,
-            raw_executor,
         })
     }
 }
@@ -316,18 +318,20 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, LoadedExecutor> {
                 M: MapAccess<'de>,
             {
                 while let Some(key) = map.next_key::<String>()? {
-                    if key.as_str() == "raw_executor" {
-                        let executor: data_model_executor::Executor = map.next_value()?;
-                        return Ok(LoadedExecutor::load(self.loader.engine, executor).unwrap());
+                    if key.as_str() == "module" {
+                        let wrapper: Base64Wrapper = map.next_value()?;
+                        let module = wasm::deserialize_module(self.loader.engine, wrapper.0)
+                            .map_err(serde::de::Error::custom)?;
+                        return Ok(LoadedExecutor::new(module));
                     }
                 }
-                Err(serde::de::Error::missing_field("raw_executor"))
+                Err(serde::de::Error::missing_field("module"))
             }
         }
 
         deserializer.deserialize_struct(
             "LoadedExecutor",
-            &["raw_executor"],
+            &["module"],
             LoadedExecutorVisitor { loader: &self },
         )
     }
