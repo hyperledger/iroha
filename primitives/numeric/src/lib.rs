@@ -264,6 +264,12 @@ impl NumericSpec {
     pub const fn fractional(scale: u32) -> Self {
         Self { scale: Some(scale) }
     }
+
+    /// Get the scale
+    #[inline]
+    pub const fn scale(&self) -> Option<u32> {
+        self.scale
+    }
 }
 
 impl core::str::FromStr for Numeric {

@@ -40,6 +40,7 @@ ffi::ffi_item! {
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, getset::Getters)]
     #[cfg_attr(not(feature="ffi_import"), derive(derive_more::DebugCustom, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema))]
     #[cfg_attr(not(feature="ffi_import"), debug(fmt = "{{ {} }}", "hex::encode_upper(payload)"))]
+    #[serde(transparent)]
     pub struct Signature {
         #[serde_as(as = "serde_with::hex::Hex<serde_with::formats::Uppercase>")]
         payload: ConstVec<u8>
@@ -283,9 +284,7 @@ mod tests {
 
     #[test]
     fn signature_serialized_representation() {
-        let input = json!({
-            "payload": "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
-        });
+        let input = json!("3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4");
 
         let signature: Signature = serde_json::from_value(input.clone()).unwrap();
 

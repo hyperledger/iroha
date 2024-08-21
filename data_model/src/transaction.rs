@@ -11,7 +11,7 @@ use core::{
 use derive_more::{DebugCustom, Display};
 #[cfg(feature = "http")]
 pub use http::*;
-use iroha_crypto::SignatureOf;
+use iroha_crypto::{Signature, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -312,6 +312,13 @@ impl SignedTransactionV1 {
 impl AsRef<SignedTransaction> for CommittedTransaction {
     fn as_ref(&self) -> &SignedTransaction {
         &self.value
+    }
+}
+
+impl TransactionSignature {
+    /// Signature itself
+    pub fn payload(&self) -> &Signature {
+        &self.0
     }
 }
 

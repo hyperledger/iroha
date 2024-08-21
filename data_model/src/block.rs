@@ -9,7 +9,7 @@ use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
-use iroha_crypto::{HashOf, MerkleTree, PrivateKey, SignatureOf};
+use iroha_crypto::{HashOf, MerkleTree, PrivateKey, Signature, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -302,6 +302,18 @@ impl SignedBlock {
             payload,
         }
         .into()
+    }
+}
+
+impl BlockSignature {
+    /// Peer topology index
+    pub fn index(&self) -> u64 {
+        self.0
+    }
+
+    /// Signature itself
+    pub fn payload(&self) -> &Signature {
+        &self.1
     }
 }
 
