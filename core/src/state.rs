@@ -24,6 +24,7 @@ use iroha_data_model::{
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::{must_use::MustUse, numeric::Numeric, small::SmallVec};
+use nonzero_ext::nonzero;
 use parking_lot::Mutex;
 use range_bounds::*;
 use serde::{
@@ -1218,8 +1219,11 @@ pub trait StateReadOnly {
     }
 
     /// Load all blocks in the block chain from disc
-    fn all_blocks(&self) -> impl DoubleEndedIterator<Item = Arc<SignedBlock>> + '_ {
-        (1..=self.height()).map(|height| {
+    fn all_blocks(
+        &self,
+        start: NonZeroUsize,
+    ) -> impl DoubleEndedIterator<Item = Arc<SignedBlock>> + '_ {
+        (start.get()..=self.height()).map(|height| {
             NonZeroUsize::new(height)
                 .and_then(|height| self.kura().get_block_by_height(height))
                 .expect("INTERNAL BUG: Failed to load block")
@@ -1275,7 +1279,7 @@ pub trait StateReadOnly {
         } else {
             let opt = self
                 .kura()
-                .get_block_by_height(nonzero_ext::nonzero!(1_usize))
+                .get_block_by_height(nonzero!(1_usize))
                 .map(|genesis_block| genesis_block.header().creation_time());
 
             if opt.is_none() {
@@ -2235,8 +2239,7 @@ mod tests {
 
         assert_eq!(
             &state_block
-                .all_blocks()
-                .skip(7)
+                .all_blocks(nonzero!(8_usize))
                 .map(|block| block.header().height().get())
                 .collect::<Vec<_>>(),
             &[8, 9, 10]

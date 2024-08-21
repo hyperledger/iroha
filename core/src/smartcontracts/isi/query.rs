@@ -486,7 +486,10 @@ mod tests {
     async fn find_block_header_by_hash() -> Result<()> {
         let state = state_with_test_blocks_and_transactions(1, 1, 1)?;
         let state_view = state.view();
-        let block = state_view.all_blocks().last().expect("state is empty");
+        let block = state_view
+            .all_blocks(nonzero!(1_usize))
+            .last()
+            .expect("state is empty");
 
         assert_eq!(
             FindBlockHeaderByHash::new(block.hash()).execute(&state_view)?,

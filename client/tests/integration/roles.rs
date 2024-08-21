@@ -174,7 +174,6 @@ fn role_permissions_are_deduplicated() {
         .add_permission(allow_alice_to_transfer_rose_1)
         .add_permission(allow_alice_to_transfer_rose_2);
 
-    println!("KITA: {role:?}");
     test_client
         .submit_blocking(Register::role(role))
         .expect("failed to register role");

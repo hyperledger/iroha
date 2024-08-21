@@ -1028,7 +1028,7 @@ pub(crate) fn run(
             .retain(|tx| {
                 let expired = sumeragi.queue.is_expired(tx);
                 if expired {
-                    debug!(?tx, "Transaction expired")
+                    debug!(tx=%tx.as_ref().hash(), "Transaction expired")
                 }
                 expired
             });

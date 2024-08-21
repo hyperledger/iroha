@@ -284,11 +284,11 @@ impl Kura {
     }
 
     /// Search through blocks for the height of the block with the given hash.
-    pub fn get_block_height_by_hash(&self, hash: &HashOf<SignedBlock>) -> Option<NonZeroUsize> {
+    pub fn get_block_height_by_hash(&self, hash: HashOf<SignedBlock>) -> Option<NonZeroUsize> {
         self.block_data
             .lock()
             .iter()
-            .position(|(block_hash, _block_arc)| block_hash == hash)
+            .position(|(block_hash, _block_arc)| *block_hash == hash)
             .and_then(|idx| idx.checked_add(1))
             .and_then(NonZeroUsize::new)
     }
