@@ -220,7 +220,7 @@ impl Torii {
             )
             .route(
                 uri::BLOCKS_STREAM,
-                post({
+                get({
                     let kura = self.kura.clone();
                     move |ws: WebSocketUpgrade| {
                         core::future::ready(ws.on_upgrade(|ws| async move {
