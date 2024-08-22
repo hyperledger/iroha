@@ -335,6 +335,8 @@ mod candidate {
 
     impl SignedTransactionCandidate {
         fn validate(self) -> Result<SignedTransactionV1, &'static str> {
+            // We don't validate at WASM side because validation was already performed on host side,
+            // and host is a trusted entity. This gives about 50% performance boost, see #4995.
             #[cfg(not(target_family = "wasm"))]
             self.validate_instructions()?;
             #[cfg(not(target_family = "wasm"))]
