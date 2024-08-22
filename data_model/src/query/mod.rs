@@ -375,11 +375,13 @@ mod candidate {
 
     impl SignedQueryCandidate {
         fn validate(self) -> Result<SignedQueryV1, &'static str> {
-            let QuerySignature(signature) = &self.signature;
-
-            signature
-                .verify(&self.payload.authority.signatory, &self.payload)
-                .map_err(|_| "Query request signature is not valid")?;
+            #[cfg(not(target_family = "wasm"))]
+            {
+                let QuerySignature(signature) = &self.signature;
+                signature
+                    .verify(&self.payload.authority.signatory, &self.payload)
+                    .map_err(|_| "Query request signature is not valid")?;
+            }
 
             Ok(SignedQueryV1 {
                 payload: self.payload,
