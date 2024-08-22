@@ -328,7 +328,9 @@ mod candidate {
 
     impl SignedTransactionCandidate {
         fn validate(self) -> Result<SignedTransactionV1, &'static str> {
+            #[cfg(not(target_family = "wasm"))]
             self.validate_instructions()?;
+            #[cfg(not(target_family = "wasm"))]
             self.validate_signature()?;
 
             Ok(SignedTransactionV1 {
@@ -337,6 +339,7 @@ mod candidate {
             })
         }
 
+        #[cfg(not(target_family = "wasm"))]
         fn validate_instructions(&self) -> Result<(), &'static str> {
             if let Executable::Instructions(instructions) = &self.payload.instructions {
                 if instructions.is_empty() {
@@ -347,6 +350,7 @@ mod candidate {
             Ok(())
         }
 
+        #[cfg(not(target_family = "wasm"))]
         fn validate_signature(&self) -> Result<(), &'static str> {
             let TransactionSignature(signature) = &self.signature;
 

@@ -1,5 +1,14 @@
 //! Iroha Data Model contains structures for Domains, Peers, Accounts and Assets with simple,
 //! non-specific functions like serialization.
+//!
+//! ## Note about WASM and deserialization
+//! Some structs performs validation during deserialization.
+//! (e.g. [`transaction::candidate::SignedTransactionCandidate`]).
+//! However such validation was disabled when compiled to WASM,
+//! Validation at WASM side is not necessary,
+//! because validation was already performed on host side,
+//! and host is a trusted entity.
+//! This gives about 50% performance boost, see #4995.
 
 // Clippy bug
 #![allow(clippy::items_after_test_module)]

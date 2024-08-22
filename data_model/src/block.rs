@@ -309,15 +309,9 @@ impl SignedBlock {
 }
 
 mod candidate {
-    #[cfg(not(feature = "std"))]
-    use alloc::collections::BTreeSet;
-    #[cfg(feature = "std")]
-    use std::collections::BTreeSet;
-
     use parity_scale_codec::Input;
 
     use super::*;
-    use crate::isi::InstructionBox;
 
     #[derive(Decode, Deserialize)]
     struct SignedBlockCandidate {
@@ -327,10 +321,13 @@ mod candidate {
 
     impl SignedBlockCandidate {
         fn validate(self) -> Result<SignedBlockV1, &'static str> {
-            self.validate_signatures()?;
-            self.validate_header()?;
-            if self.payload.header.height.get() == 1 {
-                self.validate_genesis()?;
+            #[cfg(not(target_family = "wasm"))]
+            {
+                self.validate_signatures()?;
+                self.validate_header()?;
+                if self.payload.header.height.get() == 1 {
+                    self.validate_genesis()?;
+                }
             }
 
             Ok(SignedBlockV1 {
@@ -339,7 +336,10 @@ mod candidate {
             })
         }
 
+        #[cfg(not(target_family = "wasm"))]
         fn validate_genesis(&self) -> Result<(), &'static str> {
+            use crate::isi::InstructionBox;
+
             let transactions = self.payload.transactions.as_slice();
             for transaction in transactions {
                 if transaction.error.is_some() {
@@ -373,7 +373,13 @@ mod candidate {
             Ok(())
         }
 
+        #[cfg(not(target_family = "wasm"))]
         fn validate_signatures(&self) -> Result<(), &'static str> {
+            #[cfg(not(feature = "std"))]
+            use alloc::collections::BTreeSet;
+            #[cfg(feature = "std")]
+            use std::collections::BTreeSet;
+
             if self.signatures.is_empty() && self.payload.header.height.get() != 1 {
                 return Err("Block missing signatures");
             }
@@ -392,6 +398,7 @@ mod candidate {
             Ok(())
         }
 
+        #[cfg(not(target_family = "wasm"))]
         fn validate_header(&self) -> Result<(), &'static str> {
             let actual_txs_hash = self.payload.header.transactions_hash;
 
