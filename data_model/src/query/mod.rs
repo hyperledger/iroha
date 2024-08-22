@@ -375,7 +375,6 @@ mod candidate {
 
     impl SignedQueryCandidate {
         fn validate(self) -> Result<SignedQueryV1, &'static str> {
-            // See `SignedTransactionCandidate::validate`
             #[cfg(not(target_family = "wasm"))]
             {
                 let QuerySignature(signature) = &self.signature;

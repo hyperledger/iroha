@@ -105,9 +105,11 @@ impl<'de> Deserialize<'de> for Name {
     where
         D: serde::Deserializer<'de>,
     {
+        #[cfg(not(target_family = "wasm"))]
         use serde::de::Error as _;
 
         let candidate = ConstString::deserialize(deserializer)?;
+        #[cfg(not(target_family = "wasm"))]
         Self::validate_str(&candidate).map_err(D::Error::custom)?;
 
         Ok(Self(candidate))
@@ -116,9 +118,9 @@ impl<'de> Deserialize<'de> for Name {
 impl Decode for Name {
     fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
         let name = ConstString::decode(input)?;
-        Self::validate_str(&name)
-            .map(|()| Self(name))
-            .map_err(|error| error.reason.into())
+        #[cfg(not(target_family = "wasm"))]
+        Self::validate_str(&name).map_err(|error| parity_scale_codec::Error::from(error.reason))?;
+        Ok(Self(name))
     }
 }
 

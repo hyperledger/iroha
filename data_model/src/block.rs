@@ -330,7 +330,6 @@ mod candidate {
 
     impl SignedBlockCandidate {
         fn validate(self) -> Result<SignedBlockV1, &'static str> {
-            // See `SignedTransactionCandidate::validate`
             #[cfg(not(target_family = "wasm"))]
             {
                 self.validate_signatures()?;
