@@ -51,4 +51,4 @@ result
 /lcov.info
 **/test-smartcontracts/
 
-defaults/executor.wasm
+**/*.wasm

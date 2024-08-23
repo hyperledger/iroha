@@ -7,6 +7,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   DOCKER_COMPOSE_PATH: defaults
+  ARTIFACTS_DIR: tmp/artifacts
+  BIN_PATH: /usr/local/bin
 
 jobs:
   build_executor:
@@ -26,8 +28,10 @@ jobs:
           path: ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
           retention-days: 1
 
-  registry:
+  registry_save_build_artifacts:
     runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-04-18
     needs: build_executor
     steps:
       - uses: actions/checkout@v4
@@ -65,40 +69,19 @@ jobs:
           labels: commit=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  archive_binaries_and_schema:
-    runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Build
-        run: mold --run cargo build --release --verbose
-      - name: Archive iroha
-        uses: actions/upload-artifact@v3
-        with:
-          name: cargo-build-release
-          path: target/release/iroha
-      - name: Archive Iroha client CLI
-        uses: actions/upload-artifact@v3
-        with:
-          name: cargo-client-cli-build-release
-          path: target/release/iroha
-      - name: Archive kagami
-        uses: actions/upload-artifact@v3
-        with:
-          name: cargo-crypto-cli-build-release
-          path: target/release/kagami
-      - name: Generate schema
+      - name: Copy artifacts from iroha image
         run: |
-          mkdir -p target/schema
-          cargo run --bin kagami -- schema >target/schema/schema.json
-      - name: Archive schema
-        uses: actions/upload-artifact@v3
+          mkdir -p ${{ env.ARTIFACTS_DIR }}
+          docker run --rm --entrypoint cat hyperledger/iroha:dev ${{ env.BIN_PATH }}/iroha > ${{ env.ARTIFACTS_DIR }}/iroha
+          docker run --rm --entrypoint cat hyperledger/iroha:dev ${{ env.BIN_PATH }}/irohad > ${{ env.ARTIFACTS_DIR }}/irohad
+          docker run --rm --entrypoint cat hyperledger/iroha:dev ${{ env.BIN_PATH }}/kagami > ${{ env.ARTIFACTS_DIR }}/kagami
+      - name: Generate schema
+        run: cargo run --bin kagami -- schema > ${{ env.ARTIFACTS_DIR }}/schema.json
+      - name: Archieve artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: schema
-          path: target/schema
+          name: iroha_binaries_and_schema
+          path: ${{ env.ARTIFACTS_DIR }}
 
   telemetry:
     # FIXME #2646
@@ -148,7 +131,7 @@ jobs:
           github_token: ${{ secrets.github_token }}
         continue-on-error: true
       - name: Archive telemetry
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: telemetry
           path: target/telemetry
