@@ -18,26 +18,8 @@ env:
   DOCKER_COMPOSE_PATH: defaults
 
 jobs:
-  build_executor:
-    runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Build iroha executor
-        run: cargo run --bin iroha_wasm_builder -- build ./wasm_samples/default_executor --optimize --out-file ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
-      - name: Upload executor to reuse in other jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
-          retention-days: 1
-
   test:
     runs-on: ubuntu-latest
-    needs: build_executor
     container:
       image: hyperledger/iroha2-ci:nightly-2024-04-18
     timeout-minutes: 60
@@ -51,11 +33,6 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - name: Download executor.wasm file
-        uses: actions/download-artifact@v4
-        with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
           mold --run cargo test --test ui --${{ matrix.feature_flag }}
