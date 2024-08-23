@@ -77,7 +77,7 @@ jobs:
           docker run --rm --entrypoint cat hyperledger/iroha:dev ${{ env.BIN_PATH }}/kagami > ${{ env.ARTIFACTS_DIR }}/kagami
       - name: Generate schema
         run: cargo run --bin kagami -- schema > ${{ env.ARTIFACTS_DIR }}/schema.json
-      - name: Archieve artifacts
+      - name: Archive artifacts
         uses: actions/upload-artifact@v4
         with:
           name: iroha_binaries_and_schema

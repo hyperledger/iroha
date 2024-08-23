@@ -15,7 +15,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  DOCKER_COMPOSE_PATH: defaults
 
 jobs:
   test:
