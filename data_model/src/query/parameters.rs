@@ -63,10 +63,10 @@ mod model {
         "limit.map_or(\".inf\".to_owned(), |n| n.to_string())"
     )]
     pub struct Pagination {
-        /// start of indexing
-        pub offset: u64,
         /// limit of indexing
         pub limit: Option<NonZeroU64>,
+        /// start of indexing
+        pub offset: u64,
     }
 
     /// Struct for sorting requests

@@ -2756,12 +2756,12 @@
   "Pagination": {
     "Struct": [
       {
-        "name": "offset",
-        "type": "u64"
-      },
-      {
         "name": "limit",
         "type": "Option<NonZero<u64>>"
+      },
+      {
+        "name": "offset",
+        "type": "u64"
       }
     ]
   },
