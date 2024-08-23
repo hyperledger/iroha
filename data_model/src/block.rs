@@ -58,7 +58,7 @@ mod model {
         pub height: NonZeroU64,
         /// Hash of the previous block in the chain.
         #[getset(get_copy = "pub")]
-        pub prev_block_hash: Option<HashOf<SignedBlock>>,
+        pub prev_block_hash: Option<HashOf<BlockHeader>>,
         /// Hash of merkle tree root of transactions' hashes.
         #[getset(get_copy = "pub")]
         pub transactions_hash: HashOf<MerkleTree<SignedTransaction>>,
@@ -153,6 +153,12 @@ impl BlockHeader {
     pub const fn consensus_estimation(&self) -> Duration {
         Duration::from_millis(self.consensus_estimation_ms)
     }
+
+    /// Calculate block hash
+    #[inline]
+    pub fn hash(&self) -> HashOf<BlockHeader> {
+        iroha_crypto::HashOf::new(&self)
+    }
 }
 
 impl BlockPayload {
@@ -170,10 +176,8 @@ impl BlockPayload {
 }
 
 impl SignedBlockV1 {
-    fn hash(&self) -> iroha_crypto::HashOf<SignedBlock> {
-        iroha_crypto::HashOf::from_untyped_unchecked(
-            iroha_crypto::HashOf::new(&self.payload.header).into(),
-        )
+    fn hash(&self) -> iroha_crypto::HashOf<BlockHeader> {
+        self.payload.header.hash()
     }
 }
 
@@ -210,7 +214,7 @@ impl SignedBlock {
 
     /// Calculate block hash
     #[inline]
-    pub fn hash(&self) -> HashOf<Self> {
+    pub fn hash(&self) -> HashOf<BlockHeader> {
         let SignedBlock::V1(block) = self;
         block.hash()
     }

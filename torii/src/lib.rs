@@ -412,15 +412,15 @@ mod tests {
     async fn error_response_contains_details() {
         let err = Error::AcceptTransaction(iroha_core::tx::AcceptTransactionFail::ChainIdMismatch(
             iroha_data_model::isi::error::Mismatch {
-                expected: "123".try_into().unwrap(),
-                actual: "321".try_into().unwrap(),
+                expected: "123".into(),
+                actual: "321".into(),
             },
         ));
         let response = err.into_response();
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let text = String::from_utf8(body.iter().map(|x| *x).collect())
-            .expect("to be a valid UTF8 string");
+        let text =
+            String::from_utf8(body.iter().copied().collect()).expect("to be a valid UTF8 string");
         assert_eq!(text, "Failed to accept transaction\n\nCaused by:\n    Chain id doesn't correspond to the id of current blockchain: Expected ChainId(\"123\"), actual ChainId(\"321\")");
     }
 }

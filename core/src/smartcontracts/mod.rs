@@ -44,11 +44,11 @@ where
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute<'state>(
+    fn execute(
         self,
         filter: CompoundPredicate<<Self::Item as HasPredicateBox>::PredicateBoxType>,
-        state_ro: &'state impl StateReadOnly,
-    ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail>;
+        state_ro: &impl StateReadOnly,
+    ) -> Result<impl Iterator<Item = Self::Item>, QueryExecutionFail>;
 }
 
 /// This trait defines how an Iroha Singular query is executed.

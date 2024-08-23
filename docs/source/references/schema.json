@@ -631,10 +631,6 @@
         "type": "BlockHeader"
       },
       {
-        "name": "hash",
-        "type": "HashOf<SignedBlock>"
-      },
-      {
         "name": "status",
         "type": "BlockStatus"
       }
@@ -660,7 +656,7 @@
       },
       {
         "name": "prev_block_hash",
-        "type": "Option<HashOf<SignedBlock>>"
+        "type": "Option<HashOf<BlockHeader>>"
       },
       {
         "name": "transactions_hash",
@@ -1879,7 +1875,7 @@
     "Struct": [
       {
         "name": "hash",
-        "type": "HashOf<SignedBlock>"
+        "type": "HashOf<BlockHeader>"
       }
     ]
   },
@@ -1928,7 +1924,7 @@
       {
         "tag": "Block",
         "discriminant": 5,
-        "type": "HashOf<SignedBlock>"
+        "type": "HashOf<BlockHeader>"
       },
       {
         "tag": "Transaction",
@@ -2096,8 +2092,8 @@
     ]
   },
   "Hash": "Array<u8, 32>",
+  "HashOf<BlockHeader>": "Hash",
   "HashOf<MerkleTree<SignedTransaction>>": "Hash",
-  "HashOf<SignedBlock>": "Hash",
   "HashOf<SignedTransaction>": "Hash",
   "IdBox": {
     "Enum": [
@@ -2706,8 +2702,8 @@
   "Option<ForwardCursor>": {
     "Option": "ForwardCursor"
   },
-  "Option<HashOf<SignedBlock>>": {
-    "Option": "HashOf<SignedBlock>"
+  "Option<HashOf<BlockHeader>>": {
+    "Option": "HashOf<BlockHeader>"
   },
   "Option<HashOf<SignedTransaction>>": {
     "Option": "HashOf<SignedTransaction>"
@@ -4404,7 +4400,7 @@
     "Struct": [
       {
         "name": "block_hash",
-        "type": "HashOf<SignedBlock>"
+        "type": "HashOf<BlockHeader>"
       },
       {
         "name": "transaction",

@@ -498,11 +498,11 @@ pub mod query {
 
     impl ValidQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<RoleIdPredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<impl Iterator<Item = RoleId> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = RoleId>, Error> {
             let account_id = &self.id;
             state_ro.world().account(account_id)?;
             Ok(state_ro
@@ -515,11 +515,11 @@ pub mod query {
 
     impl ValidQuery for FindPermissionsByAccountId {
         #[metrics(+"find_permissions_by_account_id")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<PermissionPredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<impl Iterator<Item = Permission> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Permission>, Error> {
             let account_id = &self.id;
             Ok(state_ro
                 .world()
@@ -531,11 +531,11 @@ pub mod query {
 
     impl ValidQuery for FindAccounts {
         #[metrics(+"find_accounts")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<AccountPredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<impl Iterator<Item = Account> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Account>, Error> {
             Ok(state_ro
                 .world()
                 .accounts_iter()
@@ -560,11 +560,11 @@ pub mod query {
 
     impl ValidQuery for FindAccountsWithAsset {
         #[metrics(+"find_accounts_with_asset")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<AccountPredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> std::result::Result<impl Iterator<Item = Account> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> std::result::Result<impl Iterator<Item = Account>, Error> {
             let asset_definition_id = self.asset_definition.clone();
             iroha_logger::trace!(%asset_definition_id);
 

@@ -339,11 +339,11 @@ pub mod query {
 
     impl ValidQuery for FindActiveTriggerIds {
         #[metrics(+"find_active_triggers")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<TriggerIdPredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<impl Iterator<Item = TriggerId> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = TriggerId>, Error> {
             Ok(state_ro
                 .world()
                 .triggers()

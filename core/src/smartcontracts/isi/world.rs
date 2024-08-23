@@ -474,11 +474,11 @@ pub mod query {
 
     impl ValidQuery for FindRoles {
         #[metrics(+"find_roles")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<RolePredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<impl Iterator<Item = Self::Item> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             Ok(state_ro
                 .world()
                 .roles()
@@ -491,11 +491,11 @@ pub mod query {
 
     impl ValidQuery for FindRoleIds {
         #[metrics(+"find_role_ids")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<RoleIdPredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<impl Iterator<Item = Self::Item> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             Ok(state_ro
                 .world()
                 .roles()
@@ -509,11 +509,11 @@ pub mod query {
 
     impl ValidQuery for FindPeers {
         #[metrics(+"find_peers")]
-        fn execute<'state>(
+        fn execute(
             self,
             filter: CompoundPredicate<PeerPredicateBox>,
-            state_ro: &'state impl StateReadOnly,
-        ) -> Result<impl Iterator<Item = Self::Item> + 'state, Error> {
+            state_ro: &impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             Ok(state_ro
                 .world()
                 .peers()
