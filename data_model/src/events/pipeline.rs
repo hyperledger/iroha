@@ -12,10 +12,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{
-    block::{BlockHeader, SignedBlock},
-    transaction::SignedTransaction,
-};
+use crate::{block::BlockHeader, transaction::SignedTransaction};
 
 #[model]
 mod model {
@@ -61,7 +58,6 @@ mod model {
     #[getset(get = "pub")]
     pub struct BlockEvent {
         pub header: BlockHeader,
-        pub hash: HashOf<SignedBlock>,
         pub status: BlockStatus,
     }
 
@@ -391,7 +387,6 @@ mod tests {
             .into(),
             BlockEvent {
                 header: BlockHeader::dummy(nonzero!(7_u64)),
-                hash: HashOf::from_untyped_unchecked(Hash::prehashed([7_u8; Hash::LENGTH])),
                 status: BlockStatus::Committed,
             }
             .into(),
@@ -440,7 +435,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![BlockEvent {
                 status: BlockStatus::Committed,
-                hash: HashOf::from_untyped_unchecked(Hash::prehashed([7_u8; Hash::LENGTH])),
                 header: BlockHeader::dummy(nonzero!(7_u64)),
             }
             .into()],

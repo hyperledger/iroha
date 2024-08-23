@@ -5,7 +5,7 @@ use std::sync::Arc;
 use eyre::Result;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
-    block::SignedBlock,
+    block::{BlockHeader, SignedBlock},
     prelude::*,
     query::{
         error::{FindError, QueryExecutionFail},
@@ -43,7 +43,7 @@ impl Iterator for BlockTransactionIter {
 }
 
 impl BlockTransactionRef {
-    fn block_hash(&self) -> HashOf<SignedBlock> {
+    fn block_hash(&self) -> HashOf<BlockHeader> {
         self.0.hash()
     }
 

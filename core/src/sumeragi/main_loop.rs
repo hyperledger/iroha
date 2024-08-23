@@ -120,7 +120,7 @@ impl Sumeragi {
 
     fn receive_network_packet(
         &self,
-        latest_block: HashOf<SignedBlock>,
+        latest_block: HashOf<BlockHeader>,
         view_change_proof_chain: &mut ProofChain,
     ) -> (Option<BlockMessage>, bool) {
         const MAX_CONTROL_MSG_IN_A_ROW: usize = 25;
@@ -157,7 +157,7 @@ impl Sumeragi {
 
     fn receive_block_message_network_packet(
         &self,
-        latest_block: HashOf<SignedBlock>,
+        latest_block: HashOf<BlockHeader>,
         view_change_proof_chain: &ProofChain,
     ) -> Option<BlockMessage> {
         let current_view_change_index =
@@ -421,7 +421,7 @@ impl Sumeragi {
 
     fn prune_view_change_proofs_and_calculate_current_index(
         &self,
-        latest_block: HashOf<SignedBlock>,
+        latest_block: HashOf<BlockHeader>,
         view_change_proof_chain: &mut ProofChain,
     ) -> usize {
         view_change_proof_chain.prune(latest_block);
