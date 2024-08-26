@@ -13,7 +13,7 @@ use iroha_data_model::{
 };
 use iroha_logger::trace;
 use serde::{
-    de::{DeserializeSeed, MapAccess, VariantAccess, Visitor},
+    de::{DeserializeSeed, VariantAccess, Visitor},
     Deserialize, Deserializer, Serialize,
 };
 
@@ -304,35 +304,15 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, LoadedExecutor> {
     where
         D: serde::Deserializer<'de>,
     {
-        struct LoadedExecutorVisitor<'l> {
-            loader: &'l WasmSeed<'l, LoadedExecutor>,
+        // a copy of `LoadedExecutor` without the `module` field
+        #[derive(Deserialize)]
+        struct LoadedExecutor {
+            raw_executor: data_model_executor::Executor,
         }
 
-        impl<'de> Visitor<'de> for LoadedExecutorVisitor<'_> {
-            type Value = LoadedExecutor;
+        let executor = LoadedExecutor::deserialize(deserializer)?;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("struct LoadedExecutor")
-            }
-
-            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
-            where
-                M: MapAccess<'de>,
-            {
-                while let Some(key) = map.next_key::<String>()? {
-                    if key.as_str() == "raw_executor" {
-                        let executor: data_model_executor::Executor = map.next_value()?;
-                        return Ok(LoadedExecutor::load(self.loader.engine, executor).unwrap());
-                    }
-                }
-                Err(serde::de::Error::missing_field("raw_executor"))
-            }
-        }
-
-        deserializer.deserialize_struct(
-            "LoadedExecutor",
-            &["raw_executor"],
-            LoadedExecutorVisitor { loader: &self },
-        )
+        self::LoadedExecutor::load(self.engine, executor.raw_executor)
+            .map_err(serde::de::Error::custom)
     }
 }
