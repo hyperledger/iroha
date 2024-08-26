@@ -427,17 +427,6 @@ mod base64 {
     }
 }
 
-/// Internal module for use in `iroha_core`
-#[cfg(feature = "transparent_api")]
-pub mod base64_util {
-    use serde::{Deserialize, Serialize};
-
-    /// Wrapper for `Vec<u8>` which can be serialized and deserialized as base64
-    #[derive(Deserialize, Serialize)]
-    #[serde(transparent)]
-    pub struct Base64Wrapper(#[serde(with = "super::base64")] pub Vec<u8>);
-}
-
 pub mod error {
     //! Module containing errors that can occur in transaction lifecycle
     pub use self::model::*;
