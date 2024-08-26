@@ -351,7 +351,7 @@ types!(
     SetKeyValueBox,
     SetParameter,
     Signature,
-    SignatureOf<BlockPayload>,
+    SignatureOf<BlockHeader>,
     SignatureOf<ClientQueryPayload>,
     SignatureOf<TransactionPayload>,
     SignedBlock,
