@@ -720,7 +720,7 @@
   "BlockSignature": {
     "Tuple": [
       "u64",
-      "SignatureOf<BlockPayload>"
+      "SignatureOf<BlockHeader>"
     ]
   },
   "BlockStatus": {
@@ -3943,7 +3943,7 @@
       }
     ]
   },
-  "SignatureOf<BlockPayload>": "Signature",
+  "SignatureOf<BlockHeader>": "Signature",
   "SignatureOf<QueryRequestWithAuthority>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
   "SignedBlock": {

@@ -384,7 +384,7 @@ types!(
     SetKeyValue<Trigger>,
     SetParameter,
     Signature,
-    SignatureOf<BlockPayload>,
+    SignatureOf<BlockHeader>,
     SignatureOf<QueryRequestWithAuthority>,
     SignatureOf<TransactionPayload>,
     SignedBlock,

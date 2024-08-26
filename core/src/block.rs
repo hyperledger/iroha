@@ -295,7 +295,7 @@ mod valid {
             };
 
             leader_signature
-                .verify(topology.leader().public_key(), block.payload())
+                .verify(topology.leader().public_key(), &block.payload().header)
                 .map_err(|_err| SignatureVerificationError::LeaderMissing)?;
             Ok(())
         }
@@ -332,7 +332,7 @@ mod valid {
                         .ok_or(SignatureVerificationError::UnknownSignatory)?;
 
                     signature
-                        .verify(signatory.public_key(), block.payload())
+                        .verify(signatory.public_key(), &block.payload().header)
                         .map_err(|_err| SignatureVerificationError::UnknownSignature)?;
 
                     Ok(())
@@ -386,7 +386,7 @@ mod valid {
             };
 
             proxy_tail_signature
-                .verify(topology.proxy_tail().public_key(), block.payload())
+                .verify(topology.proxy_tail().public_key(), &block.payload().header)
                 .map_err(|_err| SignatureVerificationError::ProxyTailMissing)?;
 
             Ok(())
@@ -772,7 +772,7 @@ mod valid {
         };
         signature
             .1
-            .verify(&genesis_account.signatory, block.payload())
+            .verify(&genesis_account.signatory, &block.payload().header)
             .map_err(|_| InvalidGenesisError::InvalidSignature)?;
 
         let transactions = block.payload().transactions.as_slice();
@@ -811,7 +811,10 @@ mod valid {
                 .skip(1)
                 .filter(|(i, _)| *i != 4) // Skip proxy tail
                 .map(|(i, key_pair)| {
-                    BlockSignature(i as u64, SignatureOf::new(key_pair.private_key(), &payload))
+                    BlockSignature(
+                        i as u64,
+                        SignatureOf::new(key_pair.private_key(), &payload.header),
+                    )
                 })
                 .try_for_each(|signature| block.add_signature(signature, &topology))
                 .expect("Failed to add signatures");
@@ -879,7 +882,10 @@ mod valid {
                 .skip(1)
                 .filter(|(i, _)| *i != 4) // Skip proxy tail
                 .map(|(i, key_pair)| {
-                    BlockSignature(i as u64, SignatureOf::new(key_pair.private_key(), &payload))
+                    BlockSignature(
+                        i as u64,
+                        SignatureOf::new(key_pair.private_key(), &payload.header),
+                    )
                 })
                 .try_for_each(|signature| block.add_signature(signature, &topology))
                 .expect("Failed to add signatures");

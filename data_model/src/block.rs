@@ -113,7 +113,7 @@ mod model {
         /// Index of the peer in the topology
         pub u64,
         /// Payload
-        pub SignatureOf<BlockPayload>,
+        pub SignatureOf<BlockHeader>,
     );
 
     /// Signed block
@@ -165,7 +165,10 @@ impl BlockPayload {
     /// Create new signed block, using `key_pair` to sign `payload`
     #[cfg(feature = "transparent_api")]
     pub fn sign(self, private_key: &iroha_crypto::PrivateKey) -> SignedBlock {
-        let signatures = vec![BlockSignature(0, SignatureOf::new(private_key, &self))];
+        let signatures = vec![BlockSignature(
+            0,
+            SignatureOf::new(private_key, &self.header),
+        )];
 
         SignedBlockV1 {
             signatures,
@@ -236,7 +239,7 @@ impl SignedBlock {
             ));
         }
 
-        signature.1.verify(public_key, self.payload())?;
+        signature.1.verify(public_key, &self.payload().header)?;
 
         let SignedBlock::V1(block) = self;
         block.signatures.push(signature);
@@ -261,7 +264,7 @@ impl SignedBlock {
 
         block.signatures.push(BlockSignature(
             signatory as u64,
-            SignatureOf::new(private_key, &block.payload),
+            SignatureOf::new(private_key, &block.payload.header),
         ));
     }
 
@@ -300,7 +303,7 @@ impl SignedBlock {
             transactions,
         };
 
-        let signature = BlockSignature(0, SignatureOf::new(genesis_private_key, &payload));
+        let signature = BlockSignature(0, SignatureOf::new(genesis_private_key, &payload.header));
         SignedBlockV1 {
             signatures: vec![signature],
             payload,
