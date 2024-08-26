@@ -41,7 +41,7 @@ fn main(owner: AccountId) {
             QueryParams::new(
                 Default::default(),
                 Default::default(),
-                FetchSize::new(Some(nonzero!(1_u32))),
+                FetchSize::new(Some(nonzero!(1_u64))),
             ),
         ))
         .dbg_unwrap();

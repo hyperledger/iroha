@@ -1,9 +1,6 @@
 //! Module with cursor-based pagination functional like [`Batched`].
 
-use std::{
-    fmt::Debug,
-    num::{NonZeroU32, NonZeroU64},
-};
+use std::{fmt::Debug, num::NonZeroU64};
 
 use derive_more::Display;
 use iroha_data_model::query::QueryOutputBatchBox;
@@ -19,7 +16,7 @@ trait BatchedTrait {
 
 struct BatchedInner<I> {
     iter: I,
-    batch_size: NonZeroU32,
+    batch_size: NonZeroU64,
     cursor: Option<u64>,
 }
 
@@ -101,7 +98,7 @@ impl Debug for QueryBatchedErasedIterator {
 
 impl QueryBatchedErasedIterator {
     /// Creates a new batched iterator. Boxes the inner iterator to erase its type.
-    pub fn new<I>(iter: I, batch_size: NonZeroU32) -> Self
+    pub fn new<I>(iter: I, batch_size: NonZeroU64) -> Self
     where
         I: Iterator + Send + Sync + 'static,
         QueryOutputBatchBox: From<Vec<I::Item>>,

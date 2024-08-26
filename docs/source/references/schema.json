@@ -1811,7 +1811,7 @@
     "Struct": [
       {
         "name": "fetch_size",
-        "type": "Option<NonZero<u32>>"
+        "type": "Option<NonZero<u64>>"
       }
     ]
   },
@@ -2757,11 +2757,11 @@
     "Struct": [
       {
         "name": "limit",
-        "type": "Option<NonZero<u32>>"
+        "type": "Option<NonZero<u64>>"
       },
       {
         "name": "offset",
-        "type": "Option<NonZero<u64>>"
+        "type": "u64"
       }
     ]
   },
