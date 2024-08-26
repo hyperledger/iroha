@@ -37,26 +37,32 @@ ENV  USER=iroha
 ENV  UID=1001
 ENV  GID=1001
 
-RUN  set -ex && \
-     apt-get update -y && \
-     apt-get install -y curl ca-certificates jq && \
-     addgroup --gid $GID $USER && \
-     adduser \
-     --disabled-password \
-     --gecos "" \
-     --home /app \
-     --ingroup "$USER" \
-     --no-create-home \
-     --uid "$UID" \
-     "$USER" && \
-     mkdir -p $CONFIG_DIR && \
-     mkdir -p $STORAGE && \
-     mkdir -p $WASM_DIRECTORY && \
-     chown $USER:$USER $STORAGE && \
-     chown $USER:$USER $WASM_DIRECTORY
+RUN <<EOT
+  set -ex
+  apt-get update -y && \
+    apt-get install -y curl ca-certificates jq
+  addgroup --gid $GID $USER &&
+  adduser \
+    --disabled-password \
+    --gecos "" \
+    --home /app \
+    --ingroup "$USER" \
+    --no-create-home \
+    --uid "$UID" \
+    "$USER"
+  mkdir -p $CONFIG_DIR
+  mkdir -p $STORAGE
+  mkdir -p $WASM_DIRECTORY
+  chown $USER:$USER $STORAGE
+  chown $USER:$USER $WASM_DIRECTORY
+  chown $USER:$USER $CONFIG_DIR
+EOT
 
 COPY --from=builder $TARGET_DIR/irohad $BIN_PATH
 COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
 COPY --from=builder $TARGET_DIR/kagami $BIN_PATH
+COPY defaults/genesis.json $CONFIG_DIR
+COPY defaults/executor.wasm $CONFIG_DIR
+COPY defaults/client.toml $CONFIG_DIR
 USER $USER
 CMD ["irohad"]

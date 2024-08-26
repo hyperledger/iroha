@@ -36,12 +36,30 @@ impl serde::Serialize for super::PortMapping {
     }
 }
 
+impl serde::Serialize for super::HostFile<'_> {
+    fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        ser.serialize_str(&format!("{}{}", self.0.as_ref().display(), self.1))
+    }
+}
+
+impl serde::Serialize for super::ContainerFile<'_> {
+    fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        ser.serialize_str(&format!("{}{}", self.0, self.1))
+    }
+}
+
 impl serde::Serialize for super::PathMapping<'_> {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        ser.serialize_str(&format!("{}:{}", self.0 .0.as_ref().display(), self.1 .0))
+        ser.serialize_str(&format!("{}:{}:ro", self.0, self.1))
     }
 }
 
