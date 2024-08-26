@@ -43,9 +43,9 @@ pub enum BlockValidationError {
     /// Mismatch between the actual and expected hashes of the previous block. Expected: {expected:?}, actual: {actual:?}
     PrevBlockHashMismatch {
         /// Expected value
-        expected: Option<HashOf<SignedBlock>>,
+        expected: Option<HashOf<BlockHeader>>,
         /// Actual value
-        actual: Option<HashOf<SignedBlock>>,
+        actual: Option<HashOf<BlockHeader>>,
     },
     /// Mismatch between the actual and expected height of the previous block. Expected: {expected}, actual: {actual}
     PrevBlockHeightMismatch {
@@ -146,7 +146,7 @@ mod pending {
 
         fn make_header(
             prev_height: usize,
-            prev_block_hash: Option<HashOf<SignedBlock>>,
+            prev_block_hash: Option<HashOf<BlockHeader>>,
             view_change_index: usize,
             transactions: &[CommittedTransaction],
             consensus_estimation: Duration,
@@ -295,7 +295,7 @@ mod valid {
             };
 
             leader_signature
-                .verify(topology.leader().public_key(), block.payload())
+                .verify(topology.leader().public_key(), &block.payload().header)
                 .map_err(|_err| SignatureVerificationError::LeaderMissing)?;
             Ok(())
         }
@@ -332,7 +332,7 @@ mod valid {
                         .ok_or(SignatureVerificationError::UnknownSignatory)?;
 
                     signature
-                        .verify(signatory.public_key(), block.payload())
+                        .verify(signatory.public_key(), &block.payload().header)
                         .map_err(|_err| SignatureVerificationError::UnknownSignature)?;
 
                     Ok(())
@@ -386,7 +386,7 @@ mod valid {
             };
 
             proxy_tail_signature
-                .verify(topology.proxy_tail().public_key(), block.payload())
+                .verify(topology.proxy_tail().public_key(), &block.payload().header)
                 .map_err(|_err| SignatureVerificationError::ProxyTailMissing)?;
 
             Ok(())
@@ -772,7 +772,7 @@ mod valid {
         };
         signature
             .1
-            .verify(&genesis_account.signatory, block.payload())
+            .verify(&genesis_account.signatory, &block.payload().header)
             .map_err(|_| InvalidGenesisError::InvalidSignature)?;
 
         let transactions = block.payload().transactions.as_slice();
@@ -811,7 +811,10 @@ mod valid {
                 .skip(1)
                 .filter(|(i, _)| *i != 4) // Skip proxy tail
                 .map(|(i, key_pair)| {
-                    BlockSignature(i as u64, SignatureOf::new(key_pair.private_key(), &payload))
+                    BlockSignature(
+                        i as u64,
+                        SignatureOf::new(key_pair.private_key(), &payload.header),
+                    )
                 })
                 .try_for_each(|signature| block.add_signature(signature, &topology))
                 .expect("Failed to add signatures");
@@ -879,7 +882,10 @@ mod valid {
                 .skip(1)
                 .filter(|(i, _)| *i != 4) // Skip proxy tail
                 .map(|(i, key_pair)| {
-                    BlockSignature(i as u64, SignatureOf::new(key_pair.private_key(), &payload))
+                    BlockSignature(
+                        i as u64,
+                        SignatureOf::new(key_pair.private_key(), &payload.header),
+                    )
                 })
                 .try_for_each(|signature| block.add_signature(signature, &topology))
                 .expect("Failed to add signatures");
@@ -1009,7 +1015,6 @@ mod event {
 
             let block_event = core::iter::once(BlockEvent {
                 header: self.as_ref().header().clone(),
-                hash: self.as_ref().hash(),
                 status: BlockStatus::Approved,
             });
 
@@ -1023,7 +1028,6 @@ mod event {
         fn produce_events(&self) -> impl Iterator<Item = PipelineEventBox> {
             let block_event = core::iter::once(BlockEvent {
                 header: self.as_ref().header().clone(),
-                hash: self.as_ref().hash(),
                 status: BlockStatus::Committed,
             });
 

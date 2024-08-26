@@ -7,7 +7,7 @@ use eyre::Result;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     account::AccountId,
-    block::SignedBlock,
+    block::{BlockHeader, SignedBlock},
     events::{
         pipeline::BlockEvent,
         time::TimeEvent,
@@ -209,7 +209,7 @@ pub struct State {
     pub world: World,
     /// Blockchain.
     // TODO: Cell is redundant here since block_hashes is very easy to rollback by just popping the last element
-    pub block_hashes: Cell<Vec<HashOf<SignedBlock>>>,
+    pub block_hashes: Cell<Vec<HashOf<BlockHeader>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: Storage<HashOf<SignedTransaction>, NonZeroUsize>,
     /// Topology used to commit latest block
@@ -240,7 +240,7 @@ pub struct StateBlock<'state> {
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: WorldBlock<'state>,
     /// Blockchain.
-    pub block_hashes: CellBlock<'state, Vec<HashOf<SignedBlock>>>,
+    pub block_hashes: CellBlock<'state, Vec<HashOf<BlockHeader>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: StorageBlock<'state, HashOf<SignedTransaction>, NonZeroUsize>,
     /// Topology used to commit latest block
@@ -266,7 +266,7 @@ pub struct StateTransaction<'block, 'state> {
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: WorldTransaction<'block, 'state>,
     /// Blockchain.
-    pub block_hashes: CellTransaction<'block, 'state, Vec<HashOf<SignedBlock>>>,
+    pub block_hashes: CellTransaction<'block, 'state, Vec<HashOf<BlockHeader>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: StorageTransaction<'block, 'state, HashOf<SignedTransaction>, NonZeroUsize>,
     /// Topology used to commit latest block
@@ -290,7 +290,7 @@ pub struct StateView<'state> {
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: WorldView<'state>,
     /// Blockchain.
-    pub block_hashes: CellView<'state, Vec<HashOf<SignedBlock>>>,
+    pub block_hashes: CellView<'state, Vec<HashOf<BlockHeader>>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: StorageView<'state, HashOf<SignedTransaction>, NonZeroUsize>,
     /// Topology used to commit latest block
@@ -1191,7 +1191,7 @@ impl State {
 #[allow(missing_docs)]
 pub trait StateReadOnly {
     fn world(&self) -> &impl WorldReadOnly;
-    fn block_hashes(&self) -> &[HashOf<SignedBlock>];
+    fn block_hashes(&self) -> &[HashOf<BlockHeader>];
     fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, NonZeroUsize>;
     fn commit_topology(&self) -> &[PeerId];
     fn prev_commit_topology(&self) -> &[PeerId];
@@ -1209,12 +1209,12 @@ pub trait StateReadOnly {
     }
 
     /// Return the hash of the latest block
-    fn latest_block_hash(&self) -> Option<HashOf<SignedBlock>> {
+    fn latest_block_hash(&self) -> Option<HashOf<BlockHeader>> {
         self.block_hashes().iter().nth_back(0).copied()
     }
 
     /// Return the hash of the block one before the latest block
-    fn prev_block_hash(&self) -> Option<HashOf<SignedBlock>> {
+    fn prev_block_hash(&self) -> Option<HashOf<BlockHeader>> {
         self.block_hashes().iter().nth_back(1).copied()
     }
 
@@ -1233,8 +1233,8 @@ pub trait StateReadOnly {
     /// Return a vector of blockchain blocks after the block with the given `hash`
     fn block_hashes_after_hash(
         &self,
-        hash: Option<HashOf<SignedBlock>>,
-    ) -> Vec<HashOf<SignedBlock>> {
+        hash: Option<HashOf<BlockHeader>>,
+    ) -> Vec<HashOf<BlockHeader>> {
         hash.map_or_else(
             || self.block_hashes().to_vec(),
             |block_hash| {
@@ -1249,7 +1249,7 @@ pub trait StateReadOnly {
     }
 
     /// Return an iterator over blockchain block hashes starting with the block of the given `height`
-    fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<SignedBlock>> {
+    fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<BlockHeader>> {
         self.block_hashes()
             .iter()
             .skip(height.saturating_sub(1))
@@ -1308,7 +1308,7 @@ macro_rules! impl_state_ro {
             fn world(&self) -> &impl WorldReadOnly {
                 &self.world
             }
-            fn block_hashes(&self) -> &[HashOf<SignedBlock>] {
+            fn block_hashes(&self) -> &[HashOf<BlockHeader>] {
                 &self.block_hashes
             }
             fn transactions(&self) -> &impl StorageReadOnly<HashOf<SignedTransaction>, NonZeroUsize> {
@@ -1477,7 +1477,6 @@ impl<'state> StateBlock<'state> {
         self.world.events_buffer.push(
             BlockEvent {
                 header: block.as_ref().header().clone(),
-                hash: block.as_ref().hash(),
                 status: BlockStatus::Applied,
             }
             .into(),

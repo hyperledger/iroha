@@ -58,7 +58,7 @@ mod model {
         pub height: NonZeroU64,
         /// Hash of the previous block in the chain.
         #[getset(get_copy = "pub")]
-        pub prev_block_hash: Option<HashOf<SignedBlock>>,
+        pub prev_block_hash: Option<HashOf<BlockHeader>>,
         /// Hash of merkle tree root of transactions' hashes.
         #[getset(get_copy = "pub")]
         pub transactions_hash: HashOf<MerkleTree<SignedTransaction>>,
@@ -113,7 +113,7 @@ mod model {
         /// Index of the peer in the topology
         pub u64,
         /// Payload
-        pub SignatureOf<BlockPayload>,
+        pub SignatureOf<BlockHeader>,
     );
 
     /// Signed block
@@ -153,13 +153,22 @@ impl BlockHeader {
     pub const fn consensus_estimation(&self) -> Duration {
         Duration::from_millis(self.consensus_estimation_ms)
     }
+
+    /// Calculate block hash
+    #[inline]
+    pub fn hash(&self) -> HashOf<BlockHeader> {
+        iroha_crypto::HashOf::new(&self)
+    }
 }
 
 impl BlockPayload {
     /// Create new signed block, using `key_pair` to sign `payload`
     #[cfg(feature = "transparent_api")]
     pub fn sign(self, private_key: &iroha_crypto::PrivateKey) -> SignedBlock {
-        let signatures = vec![BlockSignature(0, SignatureOf::new(private_key, &self))];
+        let signatures = vec![BlockSignature(
+            0,
+            SignatureOf::new(private_key, &self.header),
+        )];
 
         SignedBlockV1 {
             signatures,
@@ -170,10 +179,8 @@ impl BlockPayload {
 }
 
 impl SignedBlockV1 {
-    fn hash(&self) -> iroha_crypto::HashOf<SignedBlock> {
-        iroha_crypto::HashOf::from_untyped_unchecked(
-            iroha_crypto::HashOf::new(&self.payload.header).into(),
-        )
+    fn hash(&self) -> iroha_crypto::HashOf<BlockHeader> {
+        self.payload.header.hash()
     }
 }
 
@@ -210,7 +217,7 @@ impl SignedBlock {
 
     /// Calculate block hash
     #[inline]
-    pub fn hash(&self) -> HashOf<Self> {
+    pub fn hash(&self) -> HashOf<BlockHeader> {
         let SignedBlock::V1(block) = self;
         block.hash()
     }
@@ -232,7 +239,7 @@ impl SignedBlock {
             ));
         }
 
-        signature.1.verify(public_key, self.payload())?;
+        signature.1.verify(public_key, &self.payload().header)?;
 
         let SignedBlock::V1(block) = self;
         block.signatures.push(signature);
@@ -257,7 +264,7 @@ impl SignedBlock {
 
         block.signatures.push(BlockSignature(
             signatory as u64,
-            SignatureOf::new(private_key, &block.payload),
+            SignatureOf::new(private_key, &block.payload.header),
         ));
     }
 
@@ -296,7 +303,7 @@ impl SignedBlock {
             transactions,
         };
 
-        let signature = BlockSignature(0, SignatureOf::new(genesis_private_key, &payload));
+        let signature = BlockSignature(0, SignatureOf::new(genesis_private_key, &payload.header));
         SignedBlockV1 {
             signatures: vec![signature],
             payload,

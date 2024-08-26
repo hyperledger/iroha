@@ -19,11 +19,11 @@ use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
 
 impl ValidQuery for FindBlocks {
     #[metrics(+"find_blocks")]
-    fn execute<'state>(
+    fn execute(
         self,
         filter: CompoundPredicate<SignedBlockPredicateBox>,
-        state_ro: &'state impl StateReadOnly,
-    ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail> {
+        state_ro: &impl StateReadOnly,
+    ) -> Result<impl Iterator<Item = Self::Item>, QueryExecutionFail> {
         Ok(state_ro
             .all_blocks(nonzero!(1_usize))
             .rev()
@@ -34,11 +34,11 @@ impl ValidQuery for FindBlocks {
 
 impl ValidQuery for FindBlockHeaders {
     #[metrics(+"find_block_headers")]
-    fn execute<'state>(
+    fn execute(
         self,
         filter: CompoundPredicate<BlockHeaderPredicateBox>,
-        state_ro: &'state impl StateReadOnly,
-    ) -> Result<impl Iterator<Item = Self::Item> + 'state, QueryExecutionFail> {
+        state_ro: &impl StateReadOnly,
+    ) -> Result<impl Iterator<Item = Self::Item>, QueryExecutionFail> {
         Ok(state_ro
             .all_blocks(nonzero!(1_usize))
             .rev()

@@ -4,7 +4,7 @@
 use eyre::Result;
 use indexmap::IndexSet;
 use iroha_crypto::{HashOf, PublicKey, SignatureOf};
-use iroha_data_model::block::SignedBlock;
+use iroha_data_model::block::BlockHeader;
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
@@ -25,7 +25,7 @@ pub enum Error {
 #[derive(Debug, Clone, Decode, Encode)]
 struct ViewChangeProofPayload {
     /// Hash of the latest committed block.
-    latest_block: HashOf<SignedBlock>,
+    latest_block: HashOf<BlockHeader>,
     /// Within a round, what is the index of the view change this proof is trying to prove.
     view_change_index: u32,
 }
@@ -43,7 +43,7 @@ pub struct ProofBuilder(SignedViewChangeProof);
 
 impl ProofBuilder {
     /// Constructor from index.
-    pub fn new(latest_block: HashOf<SignedBlock>, view_change_index: usize) -> Self {
+    pub fn new(latest_block: HashOf<BlockHeader>, view_change_index: usize) -> Self {
         let view_change_index = view_change_index
             .try_into()
             .expect("INTERNAL BUG: Blockchain height should fit into usize");
@@ -109,7 +109,7 @@ impl ProofChain {
     pub fn verify_with_state(
         &self,
         topology: &Topology,
-        latest_block: HashOf<SignedBlock>,
+        latest_block: HashOf<BlockHeader>,
     ) -> usize {
         self.0
             .iter()
@@ -125,7 +125,7 @@ impl ProofChain {
     }
 
     /// Remove invalid proofs from the chain.
-    pub fn prune(&mut self, latest_block: HashOf<SignedBlock>) {
+    pub fn prune(&mut self, latest_block: HashOf<BlockHeader>) {
         let valid_count = self
             .0
             .iter()
@@ -147,7 +147,7 @@ impl ProofChain {
         &mut self,
         new_proof: SignedViewChangeProof,
         topology: &Topology,
-        latest_block: HashOf<SignedBlock>,
+        latest_block: HashOf<BlockHeader>,
     ) -> Result<(), Error> {
         if new_proof.payload.latest_block != latest_block {
             return Err(Error::BlockHashMismatch);
@@ -175,7 +175,7 @@ impl ProofChain {
         &mut self,
         mut other: Self,
         topology: &Topology,
-        latest_block: HashOf<SignedBlock>,
+        latest_block: HashOf<BlockHeader>,
     ) -> Result<(), Error> {
         other.prune(latest_block);
 

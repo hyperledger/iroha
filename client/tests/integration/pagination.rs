@@ -16,8 +16,8 @@ fn limits_should_work() -> Result<()> {
     let vec = client
         .query(asset::all_definitions())
         .with_pagination(Pagination {
-            limit: Some(nonzero!(7_u32)),
-            offset: Some(nonzero!(1_u64)),
+            limit: Some(nonzero!(7_u64)),
+            offset: 1,
         })
         .execute_all()?;
     assert_eq!(vec.len(), 7);
@@ -26,11 +26,6 @@ fn limits_should_work() -> Result<()> {
 
 #[test]
 fn fetch_size_should_work() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_120).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
-
-    register_assets(&client)?;
-
     // use the lower-level API to inspect the batch size
     use iroha_data_model::query::{
         builder::QueryExecutor as _,
@@ -38,15 +33,20 @@ fn fetch_size_should_work() -> Result<()> {
         QueryWithFilter, QueryWithParams,
     };
 
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_120).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    register_assets(&client)?;
+
     let query = QueryWithParams::new(
         QueryWithFilter::new(asset::all_definitions(), CompoundPredicate::PASS).into(),
         QueryParams::new(
             Pagination {
-                limit: Some(nonzero!(7_u32)),
-                offset: Some(nonzero!(1_u64)),
+                limit: Some(nonzero!(7_u64)),
+                offset: 1,
             },
             Sorting::default(),
-            FetchSize::new(Some(nonzero!(3_u32))),
+            FetchSize::new(Some(nonzero!(3_u64))),
         ),
     );
     let (first_batch, _continue_cursor) = client.start_query(query)?;

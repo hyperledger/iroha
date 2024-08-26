@@ -63,7 +63,6 @@ mod model {
     use iroha_crypto::HashOf;
 
     use super::*;
-    use crate::block::SignedBlock;
 
     /// An iterable query bundled with a filter
     ///
@@ -246,7 +245,7 @@ mod model {
     #[ffi_type]
     pub struct TransactionQueryOutput {
         /// The hash of the block to which `tx` belongs to
-        pub block_hash: HashOf<SignedBlock>,
+        pub block_hash: HashOf<BlockHeader>,
         /// Transaction
         #[getset(skip)]
         pub transaction: CommittedTransaction,
@@ -634,7 +633,7 @@ pub mod role {
         #[derive(Display)]
         #[display(fmt = "Find all roles for `{id}` account")]
         #[repr(transparent)]
-        // SAFETY: `FindRolesByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
+        // SAFETY: `FindRolesByAccountId` has no trap representation in `AccountId`
         #[ffi_type(unsafe {robust})]
         pub struct FindRolesByAccountId {
             /// `Id` of an account to find.
@@ -664,7 +663,7 @@ pub mod permission {
         #[derive(Display)]
         #[display(fmt = "Find permission tokens specified for `{id}` account")]
         #[repr(transparent)]
-        // SAFETY: `FindPermissionsByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
+        // SAFETY: `FindPermissionsByAccountId` has no trap representation in `AccountId`
         #[ffi_type(unsafe {robust})]
         pub struct FindPermissionsByAccountId {
             /// `Id` of an account to find.
@@ -713,7 +712,7 @@ pub mod account {
         #[derive(Display)]
         #[display(fmt = "Find accounts with `{asset_definition}` asset")]
         #[repr(transparent)]
-        // SAFETY: `FindAccountsWithAsset` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
+        // SAFETY: `FindAccountsWithAsset` has no trap representation in `AssetDefinitionId`
         #[ffi_type(unsafe {robust})]
         pub struct FindAccountsWithAsset {
             /// `Id` of the definition of the asset which should be stored in founded accounts.
@@ -758,7 +757,7 @@ pub mod asset {
         #[derive(Display)]
         #[display(fmt = "Find quantity of the `{id}` asset")]
         #[repr(transparent)]
-        // SAFETY: `FindAssetQuantityById` has no trap representation in `EvaluatesTo<AssetId>`
+        // SAFETY: `FindAssetQuantityById` has no trap representation in `AssetId`
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetQuantityById {
             /// `Id` of an [`Asset`] to find quantity of.
@@ -771,7 +770,7 @@ pub mod asset {
         #[derive(Display)]
         #[display(fmt = "Find total quantity of the `{id}` asset")]
         #[repr(transparent)]
-        // SAFETY: `FindTotalAssetQuantityByAssetDefinitionId` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
+        // SAFETY: `FindTotalAssetQuantityByAssetDefinitionId` has no trap representation in `AssetDefinitionId`
         #[ffi_type(unsafe {robust})]
         pub struct FindTotalAssetQuantityByAssetDefinitionId {
             /// `Id` of an [`Asset`] to find quantity of.
@@ -921,7 +920,7 @@ pub mod trigger {
         #[derive(Display)]
         #[display(fmt = "Find `{id}` trigger")]
         #[repr(transparent)]
-        // SAFETY: `FindTriggerById` has no trap representation in `EvaluatesTo<TriggerId>`
+        // SAFETY: `FindTriggerById` has no trap representation in `TriggerId`
         #[ffi_type(unsafe {robust})]
         pub struct FindTriggerById {
             /// The Identification of the trigger to be found.
@@ -971,7 +970,7 @@ pub mod transaction {
         #[derive(Display)]
         #[display(fmt = "Find all transactions for `{account}` account")]
         #[repr(transparent)]
-        // SAFETY: `FindTransactionsByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
+        // SAFETY: `FindTransactionsByAccountId` has no trap representation in `AccountId`
         #[ffi_type(unsafe {robust})]
         pub struct FindTransactionsByAccountId {
             /// Signer's [`AccountId`] under which transactions should be found.
@@ -983,7 +982,7 @@ pub mod transaction {
         #[derive(Copy, Display)]
         #[display(fmt = "Find transaction with `{hash}` hash")]
         #[repr(transparent)]
-        // SAFETY: `FindTransactionByHash` has no trap representation in `EvaluatesTo<HashOf<SignedTransaction>>`
+        // SAFETY: `FindTransactionByHash` has no trap representation in `HashOf<SignedTransaction>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTransactionByHash {
             /// Transaction hash.
@@ -1008,7 +1007,7 @@ pub mod block {
     use derive_more::Display;
     use iroha_crypto::HashOf;
 
-    use super::SignedBlock;
+    use super::BlockHeader;
 
     queries! {
         /// [`FindBlocks`] Iroha Query lists all blocks sorted by
@@ -1029,11 +1028,11 @@ pub mod block {
         #[derive(Copy, Display)]
         #[display(fmt = "Find block header with `{hash}` hash")]
         #[repr(transparent)]
-        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<HashOf<SignedBlock>>`
+        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `HashOf<BlockHeader>`
         #[ffi_type(unsafe {robust})]
         pub struct FindBlockHeaderByHash {
             /// Block hash.
-            pub hash: HashOf<SignedBlock>,
+            pub hash: HashOf<BlockHeader>,
         }
     }
 
@@ -1127,7 +1126,7 @@ pub mod error {
             /// Failed to find metadata key: `{0}`
             MetadataKey(Name),
             /// Block with hash `{0}` not found
-            Block(HashOf<SignedBlock>),
+            Block(HashOf<BlockHeader>),
             /// Transaction with hash `{0}` not found
             Transaction(HashOf<SignedTransaction>),
             /// Peer with id `{0}` not found

@@ -23,13 +23,15 @@ pub struct Paginated<I: Iterator>(core::iter::Take<core::iter::Skip<I>>);
 impl<I: Iterator> Paginated<I> {
     fn new(pagination: Pagination, iter: I) -> Self {
         Self(
-            iter.skip(pagination.offset.map_or_else(
-                || 0,
-                |start| start.get().try_into().expect("U64 should fit into usize"),
-            ))
+            iter.skip(
+                pagination
+                    .offset
+                    .try_into()
+                    .expect("u64 should fit into usize"),
+            )
             .take(pagination.limit.map_or_else(
                 || usize::MAX,
-                |limit| limit.get().try_into().expect("U32 should fit into usize"),
+                |limit| limit.get().try_into().expect("u64 should fit into usize"),
             )),
         )
     }
@@ -57,7 +59,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: None,
-                    offset: None
+                    offset: 0
                 })
                 .collect::<Vec<_>>(),
             vec![1_i32, 2_i32, 3_i32]
@@ -71,7 +73,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: None,
-                    offset: Some(nonzero!(1_u64))
+                    offset: 1
                 })
                 .collect::<Vec<_>>(),
             vec![2_i32, 3_i32]
@@ -81,7 +83,7 @@ mod tests {
                 .into_iter()
                 .paginate(Pagination {
                     limit: None,
-                    offset: Some(nonzero!(3_u64))
+                    offset: 3
                 })
                 .collect::<Vec<_>>(),
             Vec::<i32>::new()
@@ -94,8 +96,8 @@ mod tests {
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
                 .paginate(Pagination {
-                    limit: Some(nonzero!(2_u32)),
-                    offset: None
+                    limit: Some(nonzero!(2_u64)),
+                    offset: 0
                 })
                 .collect::<Vec<_>>(),
             vec![1_i32, 2_i32]
@@ -104,8 +106,8 @@ mod tests {
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
                 .paginate(Pagination {
-                    limit: Some(nonzero!(4_u32)),
-                    offset: None
+                    limit: Some(nonzero!(4_u64)),
+                    offset: 0
                 })
                 .collect::<Vec<_>>(),
             vec![1_i32, 2_i32, 3_i32]
@@ -118,8 +120,8 @@ mod tests {
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
                 .paginate(Pagination {
-                    limit: Some(nonzero!(1_u32)),
-                    offset: Some(nonzero!(1_u64)),
+                    limit: Some(nonzero!(1_u64)),
+                    offset: 1,
                 })
                 .collect::<Vec<_>>(),
             vec![2_i32]
