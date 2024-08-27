@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use eyre::Result;
 use iroha::{
@@ -31,14 +31,6 @@ pub fn default_consensus_estimation() -> Duration {
         .map_or_else(|| unreachable!(), |x| x)
 }
 
-fn curr_time() -> core::time::Duration {
-    use std::time::SystemTime;
-
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-}
-
 /// Macro to abort compilation, if `e` isn't `true`
 macro_rules! const_assert {
     ($e:expr) => {
@@ -61,7 +53,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_775).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
-    let start_time = curr_time();
+    let start_time = SystemTime::now();
 
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
@@ -94,8 +86,12 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     )?;
     std::thread::sleep(default_consensus_estimation());
 
-    let finish_time = curr_time();
-    let average_count = finish_time.saturating_sub(start_time).as_millis() / PERIOD.as_millis();
+    let finish_time = SystemTime::now();
+    let average_count = finish_time
+        .duration_since(start_time)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_millis()
+        / PERIOD.as_millis();
 
     let actual_value = get_asset_value(&mut test_client, asset_id);
     let expected_value = prev_value
@@ -131,7 +127,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
         id: asset_id.clone(),
     })?;
 
-    let start_time = curr_time();
+    let start_time = SystemTime::now();
     // Create trigger with schedule which is in the future to the new block but within block estimation time
     let schedule = TimeSchedule::starting_at(start_time + Duration::from_secs(3));
     let instruction = Mint::asset_numeric(1_u32, asset_id.clone());
@@ -257,7 +253,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     // Registering trigger
     // Offset into the future to be able to register trigger
     let offset = Duration::from_secs(10);
-    let start_time = curr_time() + offset;
+    let start_time = SystemTime::now() + offset;
     let schedule = TimeSchedule::starting_at(start_time).with_period(TRIGGER_PERIOD);
 
     let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));

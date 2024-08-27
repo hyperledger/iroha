@@ -1,4 +1,4 @@
-use std::{str::FromStr as _, thread};
+use std::{str::FromStr as _, thread, time::SystemTime};
 
 use eyre::Result;
 use iroha::{
@@ -60,7 +60,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
         .execute_all()?;
     assert_eq!(transactions.len(), 50);
 
-    let mut prev_creation_time = core::time::Duration::from_millis(0);
+    let mut prev_creation_time = SystemTime::UNIX_EPOCH;
     transactions
         .iter()
         .map(AsRef::as_ref)

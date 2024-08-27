@@ -7,6 +7,8 @@ use core::{
     num::{NonZeroU32, NonZeroU64},
     time::Duration,
 };
+#[cfg(feature = "std")]
+use std::time::SystemTime;
 
 use derive_more::{DebugCustom, Display};
 #[cfg(feature = "http")]
@@ -250,11 +252,12 @@ impl SignedTransaction {
         &tx.payload.metadata
     }
 
-    /// Creation timestamp as [`core::time::Duration`]
+    /// Creation timestamp
     #[inline]
-    pub fn creation_time(&self) -> Duration {
+    #[cfg(feature = "std")]
+    pub fn creation_time(&self) -> SystemTime {
         let SignedTransaction::V1(tx) = self;
-        Duration::from_millis(tx.payload.creation_time_ms)
+        SystemTime::UNIX_EPOCH + Duration::from_millis(tx.payload.creation_time_ms)
     }
 
     /// If transaction is not committed by this time it will be dropped.
@@ -724,8 +727,13 @@ mod http {
         }
 
         /// Set creation time of transaction
-        pub fn set_creation_time(&mut self, value: Duration) -> &mut Self {
-            self.payload.creation_time_ms = u64::try_from(value.as_millis())
+        #[cfg(feature = "std")]
+        pub fn set_creation_time(&mut self, value: SystemTime) -> &mut Self {
+            self.payload.creation_time_ms = value
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("INTERNAL BUG: Failed to get the current system time")
+                .as_millis()
+                .try_into()
                 .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
             self
         }

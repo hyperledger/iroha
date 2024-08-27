@@ -1,6 +1,6 @@
 //! Module with queue actor
 use core::time::Duration;
-use std::{num::NonZeroUsize, ops::Deref, sync::Arc};
+use std::{num::NonZeroUsize, ops::Deref, sync::Arc, time::SystemTime};
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
@@ -133,8 +133,8 @@ impl Queue {
             |tx_time_to_live| core::cmp::min(self.tx_time_to_live, tx_time_to_live),
         );
 
-        let curr_time = self.time_source.get_unix_time();
-        curr_time.saturating_sub(tx_creation_time) > time_limit
+        let curr_time = SystemTime::UNIX_EPOCH + self.time_source.get_unix_time();
+        curr_time > tx_creation_time + time_limit
     }
 
     /// Returns all pending transactions.

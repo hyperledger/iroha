@@ -114,13 +114,13 @@ impl MetricsReporter {
 
         #[allow(clippy::cast_possible_truncation)]
         if let Some(timestamp) = state_view.genesis_timestamp() {
-            let curr_time = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap();
+            let curr_time = SystemTime::now();
 
             // this will overflow in 584942417years.
             self.metrics.uptime_since_genesis_ms.set(
-                (curr_time - timestamp)
+                curr_time
+                    .duration_since(timestamp)
+                    .expect("Failed to get the current system time")
                     .as_millis()
                     .try_into()
                     .expect("Timestamp should fit into u64"),
