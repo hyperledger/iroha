@@ -297,7 +297,6 @@ mod tests {
         query::parameters::{FetchSize, Pagination, QueryParams, Sorting},
     };
     use nonzero_ext::nonzero;
-    
     use test_samples::ALICE_ID;
 
     use super::*;

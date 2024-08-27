@@ -306,7 +306,6 @@ mod tests {
     use std::str::FromStr as _;
 
     use iroha_data_model::{ipfs::IpfsPath, prelude::*};
-    
     use test_samples::ALICE_ID;
 
     use super::*;

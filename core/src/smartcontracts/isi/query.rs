@@ -364,7 +364,6 @@ mod tests {
     };
     use iroha_primitives::json::JsonValue;
     use nonzero_ext::nonzero;
-    
     use test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use tokio::test;
 
