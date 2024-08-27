@@ -22,11 +22,12 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
         client.build_transaction(WasmSmartContract::from_compiled(wasm), Metadata::default());
     client.submit_transaction_blocking(&transaction)?;
 
-    let metadata_value: JsonString = client.query_single(FindAccountMetadata::new(
-        client.account.clone(),
-        Name::from_str("cursor").unwrap(),
-    ))?;
-    let asset_cursor = metadata_value.try_into_any()?;
+    let asset_cursor = client
+        .query_single(FindAccountMetadata::new(
+            client.account.clone(),
+            Name::from_str("cursor").unwrap(),
+        ))?
+        .try_into_any()?;
 
     // here we are breaking the abstraction preventing us from using a cursor we pulled from the metadata
     let err = client

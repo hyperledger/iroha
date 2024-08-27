@@ -15,172 +15,174 @@ use std::{
 };
 
 use derive_more::Display;
-use iroha_schema::IntoSchema;
+use iroha_schema::{IntoSchema, Metadata, TypeId};
 use parity_scale_codec::{Decode, Encode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
-/// A valid `JsonString` that consists of valid String of Json type
-#[derive(Debug, Display, Clone, PartialOrd, PartialEq, Ord, Eq, IntoSchema, Encode, Decode)]
-#[display(fmt = "{_0}")]
-pub struct JsonString(String);
+/// A newtype of [`serde_json::Value`] with the following features:
+///
+/// - Delegates [`Serialize`]/[`Deserialize`] to the [`Value`] itself
+/// - Delegates [`Encode`]/[`Decode`] to the JSON-serialized string of [`Value`]
+/// - Delegates [`PartialOrd`]/[`Ord`]/[`PartialEq`]/[`Eq`] to the JSON-serialized string of [`Value`]
+///
+/// It is a core type in the schema, i.e. SDKs should handle it as a special case.
+///
+/// It **should not be** wrapped into [`Option`], as its [`None`] value overlaps with [`Value::Null`] in JSON (both are `null`).
+/// Use [`JsonValueWrap`]  with [`Option`] instead.
+#[derive(Debug, Display, Clone, Serialize, TypeId)]
+#[display(fmt = "{value}")]
+#[serde(transparent)]
+pub struct JsonValue {
+    value: Value,
+    #[serde(skip)]
+    stringified: String,
+}
 
-impl JsonString {
-    /// Constructs [`JsonString`]
-    /// # Errors
-    ///
-    /// - Serialization can fail if T's implementation of Serialize decides to fail,
-    /// - or if T contains a map with non-string keys.
-    // Todo: Doesn't remove extra spaces in if `&str` is an object
-    pub fn new<T: Serialize>(payload: T) -> Self {
-        candidate::JsonCandidate::new(payload).try_into().unwrap()
+impl JsonValue {
+    /// Construct from [`serde_json::Value`]
+    pub fn from_value(value: Value) -> Self {
+        let string = value.to_string();
+        Self {
+            value,
+            stringified: string,
+        }
     }
 
-    /// Tries cast [`JsonString`] to any value.
+    /// Construct from a JSON string, ensuring it is a valid JSON.
     ///
-    /// # Errors
-    /// - if invalid representation of `T`
-    pub fn try_into_any<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
-        serde_json::from_str(&self.0)
+    /// While this method parses the string into [`Value`], it **guarantees** that
+    /// the original string is used for encoding, ord/eq impls, and is returned from [`Self::as_str`].
+    pub fn from_string(raw: impl Into<String>) -> serde_json::Result<Self> {
+        let stringified = raw.into();
+        let value = serde_json::from_str(&stringified)?;
+        Ok(Self { value, stringified })
     }
 
-    /// Create without checking whether the input is a valid JSON string.
-    ///
-    /// The caller must guarantee that the value is valid.
-    pub fn from_string_unchecked(value: String) -> Self {
-        Self(value)
+    /// Borrow the value itself
+    pub fn get(&self) -> &Value {
+        &self.value
     }
 
-    /// Getter for [`JsonString`]
-    pub fn get(&self) -> &String {
-        &self.0
+    /// Consume the container and own the actual [`Value`].
+    pub fn into_value(self) -> Value {
+        self.value
+    }
+
+    /// Essentially a chaining shortcut for [`serde_json::from_value`].
+    pub fn try_into_any<T: DeserializeOwned>(self) -> serde_json::Result<T> {
+        serde_json::from_value(self.value)
+    }
+
+    /// Borrow the string representation of the value
+    pub fn as_str(&self) -> &str {
+        &self.stringified
     }
 }
 
-const JSON_EXPECTED_HINT: &str = "expected either a string with valid JSON (e.g. `\"null\"` or `\"42\"`) \
-                                  or an object with inlined JSON value (i.e. `{{ \"__inline__\": ... }}`)";
-
-impl<'de> serde::de::Deserialize<'de> for JsonString {
+// Note: need a custom impl so that `stringified` is filled on deserialization
+impl<'de> Deserialize<'de> for JsonValue {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Candidate {
-            String(String),
-            Inline {
-                #[serde(rename = "__inline__")]
-                inline: Value,
-            },
-        }
+        let value = Value::deserialize(deserializer)?;
+        Ok(Self::from_value(value))
+    }
+}
 
-        let candidate = Candidate::deserialize(deserializer)
-            .map_err(|_err| serde::de::Error::custom(JSON_EXPECTED_HINT))?;
+impl IntoSchema for JsonValue {
+    fn type_name() -> iroha_schema::Ident {
+        Self::id()
+    }
 
-        match candidate {
-            Candidate::String(x) => {
-                let value: Value = serde_json::from_str(&x).map_err(|_err| {
-                    serde::de::Error::custom(format!(
-                        "string is not a valid JSON - {}",
-                        JSON_EXPECTED_HINT
-                    ))
-                })?;
-                Ok(Self(value.to_string()))
-            }
-            Candidate::Inline { inline } => Ok(Self(inline.to_string())),
+    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::JsonValue);
         }
     }
 }
 
-impl serde::ser::Serialize for JsonString {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.0)
-    }
-}
-
-impl From<&Value> for JsonString {
-    fn from(value: &Value) -> Self {
-        JsonString(value.to_string())
-    }
-}
-
-impl From<Value> for JsonString {
-    fn from(value: Value) -> Self {
-        JsonString(value.to_string())
-    }
-}
-
-impl From<u32> for JsonString {
-    fn from(value: u32) -> Self {
-        JsonString::new(value)
-    }
-}
-
-impl From<u64> for JsonString {
-    fn from(value: u64) -> Self {
-        JsonString::new(value)
-    }
-}
-
-impl From<f64> for JsonString {
-    fn from(value: f64) -> Self {
-        JsonString::new(value)
-    }
-}
-
-impl From<bool> for JsonString {
-    fn from(value: bool) -> Self {
-        JsonString::new(value)
-    }
-}
-
-impl<T: Into<JsonString> + Serialize> From<Vec<T>> for JsonString {
-    fn from(value: Vec<T>) -> Self {
-        JsonString::new(value)
-    }
-}
-
-impl Default for JsonString {
+/// [`Value::Null`]
+impl Default for JsonValue {
     fn default() -> Self {
-        // NOTE: empty string isn't valid JSON
-        Self("null".to_string())
+        Self::from_value(Value::Null)
     }
 }
 
-impl AsRef<str> for JsonString {
-    fn as_ref(&self) -> &str {
-        &self.0
+impl<T> From<T> for JsonValue
+where
+    T: Into<Value>,
+{
+    fn from(value: T) -> Self {
+        Self::from_value(value.into())
     }
 }
 
-mod candidate {
-    use super::*;
-
-    /// A candidate for a valid `JsonString`.
-    /// Is used for generalizing ser/de any types to `JsonString` and vise versa
-    #[derive(Serialize, Deserialize, Clone)]
-    pub(super) struct JsonCandidate<T>(T);
-
-    impl<T: Serialize> JsonCandidate<T> {
-        pub(super) fn new(value: T) -> Self {
-            JsonCandidate(value)
-        }
+impl Encode for JsonValue {
+    fn encode_to<T: parity_scale_codec::Output + ?Sized>(&self, dest: &mut T) {
+        self.stringified.encode_to(dest)
     }
 
-    impl<T: Serialize> TryFrom<JsonCandidate<T>> for JsonString {
-        type Error = serde_json::Error;
-        fn try_from(value: JsonCandidate<T>) -> Result<Self, Self::Error> {
-            Ok(JsonString(serde_json::to_string(&value.0)?))
-        }
+    fn size_hint(&self) -> usize {
+        self.stringified.size_hint()
     }
+}
+
+impl Decode for JsonValue {
+    fn decode<I: parity_scale_codec::Input>(
+        input: &mut I,
+    ) -> Result<Self, parity_scale_codec::Error> {
+        let string = String::decode(input)?;
+        let value = serde_json::from_str(&string).map_err(|_err| {
+            parity_scale_codec::Error::from(
+                "Could not decode `JsonValue`: string is not a valid JSON",
+            )
+        })?;
+        Ok(Self {
+            value,
+            stringified: string,
+        })
+    }
+}
+
+impl PartialEq for JsonValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.stringified.eq(&other.stringified)
+    }
+}
+
+impl Eq for JsonValue {}
+
+impl PartialOrd for JsonValue {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.stringified.partial_cmp(&other.stringified)
+    }
+}
+
+impl Ord for JsonValue {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.stringified.cmp(&other.stringified)
+    }
+}
+
+/// A wrapper around [`JsonValue`] to workaround issues with ambiguous serialisation of `Option<JsonValue>`.
+///
+/// The ambiguity comes from the fact that both `None` and `Some(null)` are serialised as `null`. To solve it, use
+/// `Option<JsonValueWrap>`, so that the difference is clear: `null` vs `{ "value": null }`
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, PartialOrd, Ord, IntoSchema,
+)]
+pub struct JsonValueWrap {
+    /// The wrapped value
+    pub value: JsonValue,
 }
 
 #[cfg(test)]
 mod tests {
+    use core::cmp::Ordering;
+
+    use parity_scale_codec::DecodeAll;
     use serde_json::json;
 
     use super::*;
@@ -193,91 +195,93 @@ mod tests {
             (json!(55.23), "55.23"),
             (json!("i am data"), "\"i am data\""),
         ] {
-            let actual = JsonString::new(value.clone()).encode();
-            let actual_str =
-                String::decode(&mut actual.as_slice()).expect("should be encoded as a string");
+            let expected_encoded_str = as_str.encode();
+
+            let value_encoded = JsonValue::from_value(value.clone()).encode();
             assert_eq!(
-                actual_str, as_str,
-                "expected value {value:?} to be encoded as string `{as_str}`"
+                value_encoded, expected_encoded_str,
+                "value {value:?} is not encoded as `{as_str}`"
             );
+
+            let value_decoded = JsonValue::decode(&mut expected_encoded_str.as_slice())
+                .expect("should decode fine");
+            assert_eq!(value_decoded, JsonValue::from_value(value));
         }
     }
 
     #[test]
-    fn as_string_in_json() {
-        for (value, as_str) in [
-            (json!([1, 5, 2]), "[1,5,2]"),
-            (json!(null), "null"),
-            (json!(55.23), "55.23"),
-            (json!("i am data"), "\\\"i am data\\\""),
+    fn as_value_in_json() {
+        for input in [
+            json!([1, 5, 2]),
+            json!(null),
+            json!(55.23),
+            json!("i am data"),
         ] {
-            let actual = serde_json::to_string(&JsonString::from(value.clone())).unwrap();
-            assert_eq!(
-                actual,
-                format!("\"{as_str}\""),
-                "expected value {value:?} to be encoded as string \"{as_str}\""
-            );
+            let value = JsonValue::from_value(input.clone());
+            let value_str = serde_json::to_string(&value).unwrap();
+            assert_eq!(value_str, input.to_string());
         }
     }
 
     #[test]
-    fn inline_and_option_in_json() {
-        #[derive(Debug, Deserialize, PartialEq)]
-        struct Test {
-            as_str: JsonString,
-            as_inline: JsonString,
-            as_opt_none: Option<JsonString>,
-            as_opt_some_str: Option<JsonString>,
-            as_opt_some_inline: Option<JsonString>,
-        }
+    fn sorts_values_by_their_str_impls() {
+        let input = vec![
+            json!("Jack"),
+            json!("Brown"),
+            json!(412),
+            json!(null),
+            json!(["foo"]),
+        ];
 
-        let value: Test = serde_json::from_value(json!({
-            "as_str": "null",
-            "as_inline": { "__inline__": null },
-            "as_opt_none": null,
-            "as_opt_some_str": "null",
-            "as_opt_some_inline": { "__inline__": ["foo", "bar"] }
-        }))
-        .expect("input is valid, should parse");
+        let mut values: Vec<_> = input.into_iter().map(JsonValue::from_value).collect();
+        values.sort();
 
+        let values: Vec<_> = values.into_iter().map(|x| x.get().clone()).collect();
         assert_eq!(
-            value,
-            Test {
-                as_str: JsonString::new(json!(null)),
-                as_inline: JsonString::new(json!(null)),
-                as_opt_none: None,
-                as_opt_some_str: Some(JsonString::new(json!(null))),
-                as_opt_some_inline: Some(JsonString::new(json!(["foo", "bar"]))),
-            }
-        )
+            values,
+            vec![
+                json!("Brown"),
+                json!("Jack"),
+                json!(412),
+                json!(["foo"]),
+                json!(null),
+            ]
+        );
     }
 
     #[test]
-    fn when_json_input_is_not_valid() {
-        for invalid in [
-            json!("i am not a valid json"),
-            json!(42),
-            json!([1, 2, 3]),
-            json!({ "a": 1, "b": 2}),
-        ] {
-            #[derive(Deserialize, Debug)]
-            struct Test {
-                _json: JsonString,
-            }
+    fn when_decoded_from_invalid_json_string() {
+        let invalid_input = "i am not JSON".encode();
 
-            let err = serde_json::from_value::<Test>(json!({ "json": invalid }))
-                .expect_err("the input is invalid");
-            assert!(format!("{err}").contains("expected either a string with valid JSON (e.g. `\"null\"` or `\"42\"`) \
-                                        or an object with inlined JSON value (i.e. `{{ \"__inline__\": ... }}`)"));
-        }
+        let _err = JsonValue::decode(&mut invalid_input.as_slice())
+            .expect_err("string is not a valid JSON");
     }
 
     #[test]
-    fn str_into_json_string_does_not_parse_it() {
-        let value = JsonString::from("i am data");
-        assert_eq!(
-            serde_json::to_string(&value).unwrap(),
-            "\"\\\"i am data\\\"\""
-        )
+    fn when_constructed_from_str_original_string_is_preserved_for_encoding() {
+        let source = "[1,    2, 3]";
+
+        let value = JsonValue::from_string(source).expect("input is a valid json");
+        let whitespace_differ = JsonValue::from_string("[1, 2,     3]").expect("also a valid json");
+
+        assert_eq!(value.as_str(), source);
+        assert_eq!(value.get(), &json!([1, 2, 3]));
+        assert_ne!(value, whitespace_differ);
+        assert_ne!(value.cmp(&whitespace_differ), Ordering::Equal);
+    }
+
+    #[test]
+    fn serialize_deserialize_encode_decode() {
+        let value = JsonValue::from_value(json!({ "foo": ["bar", false, 1234, null]}));
+
+        let serialized = serde_json::to_string(&value).unwrap();
+        assert_eq!(serialized, "{\"foo\":[\"bar\",false,1234,null]}");
+
+        let deserialized: JsonValue = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, value);
+
+        let encoded = deserialized.encode();
+        let decoded = JsonValue::decode_all(&mut encoded.as_slice()).unwrap();
+        assert_eq!(decoded, value);
     }
 }

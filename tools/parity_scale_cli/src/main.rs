@@ -306,6 +306,7 @@ mod tests {
     use std::str::FromStr as _;
 
     use iroha_data_model::{ipfs::IpfsPath, prelude::*};
+    
     use test_samples::ALICE_ID;
 
     use super::*;
@@ -313,10 +314,7 @@ mod tests {
     #[test]
     fn decode_account_sample() {
         let mut metadata = Metadata::default();
-        metadata.insert(
-            "hat".parse().expect("Valid"),
-            "white".parse::<JsonString>().expect("Valid"),
-        );
+        metadata.insert("hat".parse().expect("Valid"), "white");
         let account = Account::new(ALICE_ID.clone()).with_metadata(metadata);
 
         decode_sample("account.bin", String::from("NewAccount"), &account);

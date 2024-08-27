@@ -22,7 +22,7 @@ pub fn impl_derive_permission(input: &syn::DeriveInput) -> TokenStream {
                     return Err(Self::Error::UnknownIdent(value.name().to_owned()));
                 }
 
-                serde_json::from_str::<Self>(value.payload().as_ref()).map_err(Self::Error::Deserialize)
+                serde_json::from_value::<Self>(value.payload().get().clone()).map_err(Self::Error::Deserialize)
             }
         }
 

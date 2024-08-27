@@ -155,7 +155,7 @@ types!(
     Box<CompoundPredicate<TriggerIdPredicateBox>>,
     Box<TransactionRejectionReason>,
     BTreeMap<CustomParameterId, CustomParameter>,
-    BTreeMap<Name, JsonString>,
+    BTreeMap<Name, JsonValue>,
     BTreeSet<Permission>,
     BTreeSet<String>,
     BurnBox,
@@ -277,7 +277,8 @@ types!(
     QueryWithFilter<FindRolesByAccountId, RoleIdPredicateBox>,
     QueryWithFilter<FindTransactionsByAccountId, TransactionQueryOutputPredicateBox>,
     QueryWithParams,
-    JsonString,
+    JsonValue,
+    JsonValueWrap,
     Level,
     Log,
     MathError,
@@ -313,7 +314,7 @@ types!(
     Option<HashOf<BlockHeader>>,
     Option<HashOf<SignedTransaction>>,
     Option<IpfsPath>,
-    Option<JsonString>,
+    Option<JsonValueWrap>,
     Option<Name>,
     Option<NonZeroU32>,
     Option<NonZeroU64>,
@@ -545,7 +546,7 @@ pub mod complete_data_model {
         addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
         const_vec::ConstVec,
         conststr::ConstString,
-        json::JsonString,
+        json::{JsonValue, JsonValueWrap},
     };
     pub use iroha_schema::Compact;
 }
@@ -734,5 +735,17 @@ mod tests {
         let mut schemas = super::build_schemas();
         <Vec<PublicKey>>::update_schema_map(&mut schemas);
         <BTreeSet<SignedTransactionV1>>::update_schema_map(&mut schemas);
+    }
+
+    #[test]
+    fn no_option_json_value() {
+        let map = super::build_schemas();
+
+        if map
+            .into_iter()
+            .any(|(_, (id, _))| id == "Option<JsonValue>")
+        {
+            panic!("Using `Option<JsonValue>` is not allowed. Use `Option<JsonValueWrap>` instead");
+        }
     }
 }

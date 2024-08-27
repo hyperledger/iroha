@@ -20,6 +20,7 @@ use iroha_smart_contract::{
 };
 use nonzero_ext::nonzero;
 use parity_scale_codec::{Decode, DecodeAll, Encode};
+use serde_json::json;
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -50,11 +51,7 @@ fn main(owner: AccountId) {
     let asset_cursor =
         SmartContractQueryCursor::decode_all(&mut &cursor.dbg_unwrap().encode()[..]).dbg_unwrap();
 
-    SetKeyValue::account(
-        owner,
-        "cursor".parse().unwrap(),
-        JsonString::new(asset_cursor.cursor),
-    )
-    .execute()
-    .dbg_expect("Failed to save cursor to the owner's metadata");
+    SetKeyValue::account(owner, "cursor".parse().unwrap(), json!(asset_cursor.cursor))
+        .execute()
+        .dbg_expect("Failed to save cursor to the owner's metadata");
 }

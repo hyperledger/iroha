@@ -6,7 +6,7 @@ use alloc::{format, string::String, vec::Vec};
 use iroha_data_model::{
     asset::AssetDefinitionId,
     isi::{CustomInstruction, Instruction, InstructionBox},
-    prelude::{JsonString, Numeric},
+    prelude::{JsonValue, Numeric},
 };
 use iroha_schema::IntoSchema;
 use serde::{Deserialize, Serialize};
@@ -53,10 +53,10 @@ impl From<CustomInstructionBox> for InstructionBox {
     }
 }
 
-impl TryFrom<&JsonString> for CustomInstructionBox {
+impl TryFrom<&JsonValue> for CustomInstructionBox {
     type Error = serde_json::Error;
 
-    fn try_from(payload: &JsonString) -> serde_json::Result<Self> {
-        serde_json::from_str::<Self>(payload.as_ref())
+    fn try_from(payload: &JsonValue) -> serde_json::Result<Self> {
+        serde_json::from_value(payload.get().clone())
     }
 }

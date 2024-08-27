@@ -12,6 +12,7 @@ use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::multisig::MultisigRegisterArgs;
 use iroha_executor_data_model::permission::trigger::CanExecuteUserTrigger;
 use iroha_trigger::{debug::dbg_panic, prelude::*};
+use serde_json::json;
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -27,6 +28,7 @@ fn main(_id: TriggerId, _owner: AccountId, event: EventBox) {
         EventBox::ExecuteTrigger(event) => event
             .args()
             .dbg_expect("trigger expect args")
+            .clone()
             .try_into_any()
             .dbg_expect("failed to parse args"),
         _ => dbg_panic("Only work as by call trigger"),
@@ -81,7 +83,7 @@ fn main(_id: TriggerId, _owner: AccountId, event: EventBox) {
     SetKeyValue::trigger(
         trigger_id,
         "signatories".parse().unwrap(),
-        JsonString::new(&args.signatories),
+        json!(&args.signatories),
     )
     .execute()
     .dbg_unwrap();

@@ -47,7 +47,7 @@ fn correct_pagination_assets_after_creating_new_one() {
             AssetDefinitionId::from_str(&format!("xor{i}#wonderland")).expect("Valid");
         let asset_definition = AssetDefinition::store(asset_definition_id.clone());
         let mut asset_metadata = Metadata::default();
-        asset_metadata.insert(sort_by_metadata_key.clone(), i as u32);
+        asset_metadata.insert(sort_by_metadata_key.clone(), i);
         let asset = Asset::new(
             AssetId::new(asset_definition_id, account_id.clone()),
             AssetValue::Store(asset_metadata),

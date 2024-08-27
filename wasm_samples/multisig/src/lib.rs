@@ -11,6 +11,7 @@ use alloc::{collections::btree_set::BTreeSet, format, vec::Vec};
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::multisig::MultisigArgs;
 use iroha_trigger::{debug::dbg_panic, prelude::*, smart_contract::query_single};
+use serde_json::json;
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -24,6 +25,7 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
             event
                 .args()
                 .dbg_expect("trigger expect args")
+                .clone()
                 .try_into_any()
                 .dbg_expect("failed to parse arguments"),
             event.authority().clone(),
@@ -52,18 +54,14 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
             SetKeyValue::trigger(
                 id.clone(),
                 instructions_metadata_key.clone(),
-                JsonString::new(&instructions),
+                json!(&instructions),
             )
             .execute()
             .dbg_unwrap();
 
-            SetKeyValue::trigger(
-                id.clone(),
-                votes_metadata_key.clone(),
-                JsonString::new(&votes),
-            )
-            .execute()
-            .dbg_unwrap();
+            SetKeyValue::trigger(id.clone(), votes_metadata_key.clone(), json!(&votes))
+                .execute()
+                .dbg_unwrap();
 
             (votes, instructions)
         }
@@ -78,13 +76,9 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
 
             votes.insert(signatory.clone());
 
-            SetKeyValue::trigger(
-                id.clone(),
-                votes_metadata_key.clone(),
-                JsonString::new(&votes),
-            )
-            .execute()
-            .dbg_unwrap();
+            SetKeyValue::trigger(id.clone(), votes_metadata_key.clone(), json!(&votes))
+                .execute()
+                .dbg_unwrap();
 
             let instructions: Vec<InstructionBox> = query_single(FindTriggerMetadata::new(
                 id.clone(),

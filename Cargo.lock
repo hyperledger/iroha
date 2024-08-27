@@ -3430,6 +3430,7 @@ dependencies = [
  "iroha_smart_contract_derive",
  "iroha_smart_contract_utils",
  "parity-scale-codec",
+ "serde_json",
  "test_samples",
  "trybuild",
  "webassembly-test",

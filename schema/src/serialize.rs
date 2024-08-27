@@ -239,6 +239,7 @@ impl Serialize for WithContext<'_, '_, Metadata> {
                 match self.data {
                     Metadata::String => serializer.serialize_str(self.type_name(TypeId::of::<String>())),
                     Metadata::Bool => serializer.serialize_str(self.type_name(TypeId::of::<bool>())),
+                    Metadata::JsonValue => serializer.serialize_str("JsonValue"),
                     Metadata::Option(type_id) => {
                         let mut map = serializer.serialize_map(Some(1))?;
                         map.serialize_entry("Option", self.type_name(*type_id))?;
@@ -281,6 +282,7 @@ impl PartialEq for WithContext<'_, '_, Metadata> {
                 match self.data {
                     Metadata::String => matches!(other.data, Metadata::String),
                     Metadata::Bool => matches!(other.data, Metadata::Bool),
+                    Metadata::JsonValue => matches!(other.data, Metadata::JsonValue),
                     Metadata::Int(self_meta) => {
                         if let Metadata::Int(other_meta) = other.data {
                             return self_meta == other_meta

@@ -22,6 +22,7 @@ iroha_data_model.workspace = true
 iroha_smart_contract_utils.workspace = true
 
 parity-scale-codec.workspace = true
+serde_json.workspace = true
 derive_more.workspace = true
 
 displaydoc.workspace = true

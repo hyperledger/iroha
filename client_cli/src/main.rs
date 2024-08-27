@@ -11,7 +11,7 @@ use erased_serde::Serialize;
 use error_stack::{fmt::ColorMode, IntoReportCompat, ResultExt};
 use eyre::{eyre, Error, Result, WrapErr};
 use iroha::{client::Client, config::Config, data_model::prelude::*};
-use iroha_primitives::{addr::SocketAddr, json::JsonString};
+use iroha_primitives::addr::SocketAddr;
 use thiserror::Error;
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
@@ -49,25 +49,29 @@ impl MetadataArgs {
 
 /// Re-usable clap `--value <MetadataValue>` (`-v`) argument.
 /// Should be combined with `#[command(flatten)]` attr.
-#[derive(clap::Args, Debug, Clone, PartialEq, Eq)]
+#[derive(clap::Args, Debug, Clone)]
 pub struct MetadataValueArg {
-    /// Wrapper around `MetadataValue` to accept possible values and fallback to json.
+    /// Value in metadata key-value map, JSON
     ///
-    /// The following types are supported:
-    /// Numbers: decimal with optional point
-    /// Booleans: false/true
-    /// Objects: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
-    #[arg(short, long)]
-    value: JsonString,
+    /// Examples:
+    ///
+    /// - `--value false`
+    /// - `--value 42`
+    /// - `--value '"i am a string"'`
+    /// - `--value '[1, 2, 3]'`
+    #[arg(short, long, value_name("JSON VALUE"))]
+    value: JsonArg,
 }
 
-impl FromStr for MetadataValueArg {
-    type Err = Error;
+#[derive(Clone, Debug)]
+struct JsonArg(serde_json::Value);
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(MetadataValueArg {
-            value: JsonString::from_str(s)?,
-        })
+impl FromStr for JsonArg {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let value = serde_json::from_str(s)?;
+        Ok(Self(value))
     }
 }
 
@@ -514,7 +518,7 @@ mod domain {
                     key,
                     value: MetadataValueArg { value },
                 } = self;
-                let set_key_value = SetKeyValue::domain(id, key, value);
+                let set_key_value = SetKeyValue::domain(id, key, value.0);
                 submit([set_key_value], Metadata::default(), context)
                     .wrap_err("Failed to submit Set instruction")
             }
@@ -967,7 +971,7 @@ mod asset {
                 value: MetadataValueArg { value },
             } = self;
 
-            let set = iroha::data_model::isi::SetKeyValue::asset(asset_id, key, value);
+            let set = iroha::data_model::isi::SetKeyValue::asset(asset_id, key, value.0);
             submit([set], Metadata::default(), context)?;
             Ok(())
         }
@@ -1199,30 +1203,34 @@ mod json {
 }
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use clap::Parser;
+    use serde_json::json;
 
     use super::*;
 
     #[test]
-    fn parse_value_arg_cases() {
-        macro_rules! case {
-            ($input:expr, $expected:expr) => {
-                let MetadataValueArg { value } =
-                    MetadataValueArg::from_str($input).expect("should not fail with valid input");
-                assert_eq!(value, $expected);
-            };
+    fn parse_metadata_value_arg() {
+        #[derive(Parser)]
+        struct Args {
+            #[command(flatten)]
+            value: MetadataValueArg,
         }
 
-        // Boolean values
-        case!("true", JsonString::new(true));
-        case!("false", JsonString::new(false));
+        for (as_str, as_value) in [
+            ("null", json!(null)),
+            ("false", json!(false)),
+            ("\"i am arg\"", json!("i am arg")),
+            ("[3,2,1]", json!([3, 2, 1])),
+        ] {
+            let Args {
+                value:
+                    MetadataValueArg {
+                        value: JsonArg(value),
+                    },
+            } = Args::try_parse_from(["whatever", "--value", as_str])
+                .expect("should parse input fine");
 
-        // Numeric values
-        case!("\"123\"", JsonString::new(numeric!(123)));
-        case!("\"123.0\"", JsonString::new(numeric!(123.0)));
-
-        // JSON Value
-        let json_str = r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#;
-        case!(json_str, serde_json::from_str(json_str).unwrap());
+            assert_eq!(value, as_value);
+        }
     }
 }

@@ -80,7 +80,8 @@ fn mutlisig() -> Result<()> {
             .map(Register::account),
     )?;
 
-    let call_trigger = ExecuteTrigger::new(multisig_register_trigger_id).with_args(&args);
+    let call_trigger = ExecuteTrigger::new(multisig_register_trigger_id)
+        .with_args(serde_json::to_value(&args).unwrap());
     test_client.submit_blocking(call_trigger)?;
 
     // Check that multisig account exist
@@ -107,7 +108,8 @@ fn mutlisig() -> Result<()> {
 
     if let Some((signatory, key_pair)) = signatories_iter.next() {
         let args = MultisigArgs::Instructions(isi);
-        let call_trigger = ExecuteTrigger::new(multisig_trigger_id.clone()).with_args(&args);
+        let call_trigger = ExecuteTrigger::new(multisig_trigger_id.clone())
+            .with_args(serde_json::to_value(&args).unwrap());
         test_client.submit_transaction_blocking(
             &TransactionBuilder::new(test_client.chain.clone(), signatory)
                 .with_instructions([call_trigger])
@@ -125,7 +127,8 @@ fn mutlisig() -> Result<()> {
 
     for (signatory, key_pair) in signatories_iter {
         let args = MultisigArgs::Vote(isi_hash);
-        let call_trigger = ExecuteTrigger::new(multisig_trigger_id.clone()).with_args(&args);
+        let call_trigger = ExecuteTrigger::new(multisig_trigger_id.clone())
+            .with_args(serde_json::to_value(&args).unwrap());
         test_client.submit_transaction_blocking(
             &TransactionBuilder::new(test_client.chain.clone(), signatory)
                 .with_instructions([call_trigger])

@@ -132,6 +132,8 @@ pub enum Metadata {
     String,
     /// Bool
     Bool,
+    /// JsonValue
+    JsonValue,
     /// Number with fixed decimal precision
     FixedPoint(FixedMeta),
     /// Array

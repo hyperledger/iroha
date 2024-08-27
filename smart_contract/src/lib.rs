@@ -252,6 +252,7 @@ mod host {
 pub mod prelude {
     pub use iroha_smart_contract_derive::main;
     pub use iroha_smart_contract_utils::debug::DebugUnwrapExt;
+    pub use serde_json;
 
     pub use crate::{data_model::prelude::*, ExecuteOnHost};
 }

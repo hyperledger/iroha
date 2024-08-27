@@ -259,7 +259,7 @@ fn permissions_differ_not_only_by_names() {
         .submit_blocking(SetKeyValue::asset(
             mouse_hat_id,
             Name::from_str("color").expect("Valid"),
-            "red".parse::<JsonString>().expect("Valid"),
+            "red",
         ))
         .expect("Failed to modify Mouse's hats");
 
@@ -268,7 +268,7 @@ fn permissions_differ_not_only_by_names() {
     let set_shoes_color = SetKeyValue::asset(
         mouse_shoes_id.clone(),
         Name::from_str("color").expect("Valid"),
-        "yellow".parse::<JsonString>().expect("Valid"),
+        "yellow",
     );
     let _err = client
         .submit_blocking(set_shoes_color.clone())
@@ -316,11 +316,12 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
         .expect("Failed to register mouse");
 
     // Allow alice to mint mouse asset and mint initial value
-    let value_json = JsonString::from_string_unchecked(format!(
+    let value_json = JsonValue::from_string(format!(
         // NOTE: Permissions is created explicitly as a json string to introduce additional whitespace
         // This way, if the executor compares permissions just as JSON strings, the test will fail
         r##"{{ "asset"   :   "xor#wonderland#{mouse_id}" }}"##
-    ));
+    ))
+    .expect("input is a valid JSON");
 
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_mouse_asset = Grant::account_permission(
@@ -336,11 +337,7 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
         .expect("Failed to grant permission to alice.");
 
     // Check that alice can indeed mint mouse asset
-    let set_key_value = SetKeyValue::asset(
-        mouse_asset,
-        Name::from_str("color")?,
-        "red".parse::<JsonString>().expect("Valid"),
-    );
+    let set_key_value = SetKeyValue::asset(mouse_asset, Name::from_str("color")?, "red");
     iroha
         .submit_blocking(set_key_value)
         .expect("Failed to mint asset for mouse.");

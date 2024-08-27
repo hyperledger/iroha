@@ -67,11 +67,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     test_client.submit_transaction_blocking(&grant_role_tx)?;
 
     // Alice modifies Mouse's metadata
-    let set_key_value = SetKeyValue::account(
-        mouse_id,
-        "key".parse::<Name>()?,
-        "value".parse::<JsonString>()?,
-    );
+    let set_key_value = SetKeyValue::account(mouse_id, "key".parse::<Name>()?, "value");
     test_client.submit_blocking(set_key_value)?;
 
     // Making request to find Alice's roles
@@ -224,11 +220,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&grant_role_tx)?;
 
-    let set_key_value = SetKeyValue::account(
-        mouse_id.clone(),
-        "key".parse()?,
-        "value".parse::<JsonString>()?,
-    );
+    let set_key_value = SetKeyValue::account(mouse_id.clone(), "key".parse()?, "value");
     let can_set_key_value_in_mouse = CanSetKeyValueInAccount {
         account: mouse_id.clone(),
     };

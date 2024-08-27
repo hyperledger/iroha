@@ -14,6 +14,7 @@ use iroha::{
 use iroha_executor_data_model::permission::trigger::CanRegisterUserTrigger;
 use iroha_genesis::GenesisBlock;
 use iroha_logger::info;
+use serde_json::json;
 use test_network::{Peer as TestPeer, *};
 use test_samples::ALICE_ID;
 use tokio::runtime::Runtime;
@@ -458,11 +459,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
 
     // Executing trigger
     test_client
-        .submit_blocking(SetKeyValue::trigger(
-            trigger_id.clone(),
-            "VAL".parse()?,
-            1_u32,
-        ))
+        .submit_blocking(SetKeyValue::trigger(trigger_id.clone(), "VAL".parse()?, 1))
         .unwrap();
     let call_trigger = ExecuteTrigger::new(trigger_id);
     test_client.submit_blocking(call_trigger)?;
@@ -685,7 +682,7 @@ fn call_execute_trigger_with_args() -> Result<()> {
     test_client.submit_blocking(Register::trigger(trigger))?;
 
     let args: MintRoseArgs = MintRoseArgs { val: 42 };
-    let call_trigger = ExecuteTrigger::new(trigger_id).with_args(&args);
+    let call_trigger = ExecuteTrigger::new(trigger_id).with_args(json!(args));
     test_client.submit_blocking(call_trigger)?;
 
     let new_value = get_asset_value(&mut test_client, asset_id);

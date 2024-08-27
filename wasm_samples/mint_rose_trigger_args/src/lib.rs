@@ -27,6 +27,7 @@ fn main(_id: TriggerId, owner: AccountId, event: EventBox) {
         EventBox::ExecuteTrigger(event) => event
             .args()
             .dbg_expect("Trigger expect parameters")
+            .clone()
             .try_into_any()
             .dbg_expect("Failed to parse args"),
         _ => dbg_panic("Only work as by call trigger"),

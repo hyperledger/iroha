@@ -203,11 +203,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
         prev_value = new_value;
 
         // ISI just to create a new block
-        let sample_isi = SetKeyValue::account(
-            account_id.clone(),
-            "key".parse::<Name>()?,
-            "value".parse::<JsonString>()?,
-        );
+        let sample_isi = SetKeyValue::account(account_id.clone(), "key".parse::<Name>()?, "value");
         test_client.submit(sample_isi)?;
     }
 
@@ -343,11 +339,7 @@ fn submit_sample_isi_on_every_block_commit(
     for _ in block_committed_event_listener.take(times) {
         std::thread::sleep(timeout);
         // ISI just to create a new block
-        let sample_isi = SetKeyValue::account(
-            account_id.clone(),
-            "key".parse::<Name>()?,
-            JsonString::new("value"),
-        );
+        let sample_isi = SetKeyValue::account(account_id.clone(), "key".parse::<Name>()?, "value");
         test_client.submit(sample_isi)?;
     }
 

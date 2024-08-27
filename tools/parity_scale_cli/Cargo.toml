@@ -24,7 +24,7 @@ clap = { workspace = true, features = ["derive", "cargo", "env", "string"] }
 eyre = { workspace = true }
 parity-scale-codec = { workspace = true }
 colored = "2.1.0"
-serde_json = { workspace = true, features = ["std"]}
+serde_json = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 supports-color = { workspace = true }
 
@@ -32,7 +32,7 @@ supports-color = { workspace = true }
 iroha_data_model = { workspace = true }
 
 parity-scale-codec = { workspace = true }
-serde_json = { workspace = true, features = ["std"]}
+serde_json = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 eyre = { workspace = true }
 

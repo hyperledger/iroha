@@ -25,7 +25,7 @@ pub mod isi {
         query::error::FindError,
         Level,
     };
-    use iroha_primitives::{json::JsonString, unique_vec::PushResult};
+    use iroha_primitives::{json::JsonValue, unique_vec::PushResult};
 
     use super::*;
 
@@ -360,7 +360,7 @@ pub mod isi {
 
                                     CustomParameter {
                                         id: next.id.clone(),
-                                        payload: JsonString::default(),
+                                        payload: JsonValue::default(),
                                     }
                                 });
 

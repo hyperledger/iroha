@@ -6,7 +6,7 @@ use core::{num::NonZeroU64, time::Duration};
 use std::collections::btree_map;
 
 use iroha_data_model_derive::model;
-use iroha_primitives::json::JsonString;
+use iroha_primitives::json::JsonValue;
 use nonzero_ext::nonzero;
 
 pub use self::model::*;
@@ -218,7 +218,7 @@ mod model {
         ///
         /// It is JSON-encoded, and its structure must correspond to the structure of
         /// the type defined in [`crate::executor::ExecutorDataModel`].
-        pub payload: JsonString,
+        pub payload: JsonValue,
     }
 
     /// Set of all current blockchain parameter values
@@ -463,7 +463,7 @@ impl CustomParameterId {
 
 impl CustomParameter {
     /// Constructor
-    pub fn new(id: CustomParameterId, payload: impl Into<JsonString>) -> Self {
+    pub fn new(id: CustomParameterId, payload: impl Into<JsonValue>) -> Self {
         Self {
             id,
             payload: payload.into(),
@@ -472,7 +472,7 @@ impl CustomParameter {
 
     /// Getter
     // TODO: derive with getset once FFI impl is fixed
-    pub fn payload(&self) -> &JsonString {
+    pub fn payload(&self) -> &JsonValue {
         &self.payload
     }
 }

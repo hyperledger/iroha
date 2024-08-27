@@ -9,7 +9,7 @@ use derive_more::Constructor;
 use iroha_crypto::{PublicKey, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
-use iroha_primitives::{json::JsonString, numeric::Numeric};
+use iroha_primitives::{json::JsonValue, numeric::Numeric};
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
 use parameters::{ForwardCursor, QueryParams, MAX_FETCH_SIZE};
@@ -155,7 +155,7 @@ mod model {
     pub enum SingularQueryOutputBox {
         Numeric(Numeric),
         ExecutorDataModel(crate::executor::ExecutorDataModel),
-        JsonString(JsonString),
+        JsonValue(JsonValue),
         Trigger(crate::trigger::Trigger),
         Parameters(Parameters),
         Transaction(TransactionQueryOutput),
@@ -565,15 +565,15 @@ impl_iter_queries! {
 }
 
 impl_singular_queries! {
-    FindAccountMetadata => JsonString,
+    FindAccountMetadata => JsonValue,
     FindAssetQuantityById => Numeric,
     FindTotalAssetQuantityByAssetDefinitionId => Numeric,
-    FindAssetMetadata => JsonString,
-    FindAssetDefinitionMetadata => JsonString,
-    FindDomainMetadata => JsonString,
+    FindAssetMetadata => JsonValue,
+    FindAssetDefinitionMetadata => JsonValue,
+    FindDomainMetadata => JsonValue,
     FindParameters => crate::parameter::Parameters,
     FindTriggerById => crate::trigger::Trigger,
-    FindTriggerMetadata => JsonString,
+    FindTriggerMetadata => JsonValue,
     FindTransactionByHash => TransactionQueryOutput,
     FindBlockHeaderByHash => crate::block::BlockHeader,
     FindExecutorDataModel => crate::executor::ExecutorDataModel,
