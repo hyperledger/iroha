@@ -29,14 +29,19 @@ pub async fn handle_transaction(
     chain_id: Arc<ChainId>,
     queue: Arc<Queue>,
     state: Arc<State>,
-    transaction: SignedTransaction,
+    tx: SignedTransaction,
 ) -> Result<()> {
-    let state_view = state.view();
-    let transaction_limits = state_view.world().parameters().transaction;
-    let transaction = AcceptedTransaction::accept(transaction, &chain_id, transaction_limits)
+    let (max_clock_drift, tx_limits) = {
+        let state_view = state.world.view();
+        let params = state_view.parameters();
+        (params.sumeragi.max_clock_drift(), params.transaction)
+    };
+
+    let accepted_tx = AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits)
         .map_err(Error::AcceptTransaction)?;
+
     queue
-        .push(transaction, &state_view)
+        .push(accepted_tx, state.view())
         .map_err(|queue::Failure { tx, err }| {
             iroha_logger::warn!(
                 tx_hash=%tx.as_ref().hash(), ?err,

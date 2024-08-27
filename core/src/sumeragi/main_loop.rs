@@ -127,19 +127,21 @@ impl Sumeragi {
 
         let mut should_sleep = true;
         for _ in 0..MAX_CONTROL_MSG_IN_A_ROW {
-            if let Ok(msg) = self.control_message_receiver
+            if let Ok(msg) = self
+                .control_message_receiver
                 .try_recv()
                 .map_err(|recv_error| {
                     assert!(
                         recv_error != mpsc::TryRecvError::Disconnected,
-                        "Sumeragi control message pump disconnected. This is not a recoverable error."
+                        "INTERNAL ERROR: Sumeragi control message pump disconnected"
                     )
-                }) {
+                })
+            {
                 should_sleep = false;
                 if let Err(error) = view_change_proof_chain.merge(
                     msg.view_change_proofs,
                     &self.topology,
-                    latest_block
+                    latest_block,
                 ) {
                     trace!(%error, "Failed to add proofs into view change proof chain")
                 }
@@ -170,7 +172,7 @@ impl Sumeragi {
                 .map_err(|recv_error| {
                     assert!(
                         recv_error != mpsc::TryRecvError::Disconnected,
-                        "Sumeragi message pump disconnected. This is not a recoverable error."
+                        "INTERNAL ERROR: Sumeragi message pump disconnected"
                     )
                 })
                 .ok()?;
@@ -1406,14 +1408,19 @@ mod tests {
         // Creating an instruction
         let fail_isi = Unregister::domain("dummy".parse().unwrap());
 
+        let (max_clock_drift, tx_limits) = {
+            let state_view = state.world.view();
+            let params = state_view.parameters();
+            (params.sumeragi().max_clock_drift(), params.transaction)
+        };
         let mut state_block = state.block();
+
         // Making two transactions that have the same instruction
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_isi])
             .sign(alice_keypair.private_key());
         let tx =
-            AcceptedTransaction::accept(tx, chain_id, state_block.transaction_executor().limits)
-                .expect("Valid");
+            AcceptedTransaction::accept(tx, chain_id, max_clock_drift, tx_limits).expect("Valid");
 
         // NOTE: imitate peer registration in the genesis block
         let peers = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
@@ -1426,9 +1433,8 @@ mod tests {
                     .map(InstructionBox::from),
             )
             .sign(alice_keypair.private_key());
-        let peers =
-            AcceptedTransaction::accept(peers, chain_id, state_block.transaction_executor().limits)
-                .expect("Valid");
+        let peers = AcceptedTransaction::accept(peers, chain_id, max_clock_drift, tx_limits)
+            .expect("Valid");
 
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![peers, tx.clone(), tx])
@@ -1457,23 +1463,15 @@ mod tests {
             let tx1 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
                 .with_instructions([create_asset_definition1])
                 .sign(alice_keypair.private_key());
-            let tx1 = AcceptedTransaction::accept(
-                tx1,
-                chain_id,
-                state_block.transaction_executor().limits,
-            )
-            .map(Into::into)
-            .expect("Valid");
+            let tx1 = AcceptedTransaction::accept(tx1, chain_id, max_clock_drift, tx_limits)
+                .map(Into::into)
+                .expect("Valid");
             let tx2 = TransactionBuilder::new(chain_id.clone(), alice_id)
                 .with_instructions([create_asset_definition2])
                 .sign(alice_keypair.private_key());
-            let tx2 = AcceptedTransaction::accept(
-                tx2,
-                chain_id,
-                state_block.transaction_executor().limits,
-            )
-            .map(Into::into)
-            .expect("Valid");
+            let tx2 = AcceptedTransaction::accept(tx2, chain_id, max_clock_drift, tx_limits)
+                .map(Into::into)
+                .expect("Valid");
 
             // Creating a block of two identical transactions and validating it
             BlockBuilder::new(vec![tx1, tx2])

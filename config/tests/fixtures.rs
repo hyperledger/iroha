@@ -181,12 +181,11 @@ fn minimal_config_snapshot() {
                 capacity: 65536,
                 capacity_per_user: 65536,
                 transaction_time_to_live: 86400s,
-                future_threshold: 1s,
             },
             snapshot: Snapshot {
                 mode: ReadWrite,
                 create_every_ms: DurationMs(
-                    60s,
+                    600s,
                 ),
                 store_dir: WithOrigin {
                     value: "./storage/snapshot",

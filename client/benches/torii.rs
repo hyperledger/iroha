@@ -38,7 +38,7 @@ fn query_requests(criterion: &mut Criterion) {
         .domain("wonderland".parse().expect("Valid"))
         .account(get_key_pair(test_network::Signatory::Alice).into_parts().0)
         .finish_domain()
-        .build_and_sign(executor, chain_id, &genesis_key_pair, topology);
+        .build_and_sign(chain_id, executor, topology, &genesis_key_pair);
 
     let builder = PeerBuilder::new()
         .with_config(configuration)
@@ -135,7 +135,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         .domain("wonderland".parse().expect("Valid"))
         .account(configuration.common.key_pair.public_key().clone())
         .finish_domain()
-        .build_and_sign(executor, chain_id, &genesis_key_pair, topology);
+        .build_and_sign(chain_id, executor, topology, &genesis_key_pair);
     let builder = PeerBuilder::new()
         .with_config(configuration)
         .with_genesis(genesis);

@@ -808,7 +808,7 @@ mod tests {
         smartcontracts::Registrable,
         state::State,
         sumeragi::network_topology::Topology,
-        StateReadOnly, World,
+        World,
     };
 
     fn indices<const N: usize>(value: [(u64, u64); N]) -> [BlockIndex; N] {
@@ -1001,33 +1001,10 @@ mod tests {
             let _logger = iroha_logger::test_logger();
         }
 
-        let temp_dir = TempDir::new().unwrap();
-
-        let [block_genesis, block, block_soft_fork, block_next] =
-            create_blocks(&rt).try_into().unwrap();
-
         // Create kura and write some blocks
-        {
-            let (kura, block_count) = Kura::new(&Config {
-                init_mode: InitMode::Strict,
-                store_dir: iroha_config::base::WithOrigin::inline(
-                    temp_dir.path().to_str().unwrap().into(),
-                ),
-                debug_output_new_blocks: false,
-            })
-            .unwrap();
-            // Starting with empty block store
-            assert_eq!(block_count.0, 0);
-
-            let _handle = Kura::start(kura.clone());
-
-            kura.store_block(block_genesis.clone());
-            kura.store_block(block);
-            // Add wait so that previous block is written to the block store
-            thread::sleep(Duration::from_secs(1));
-            kura.replace_top_block(block_soft_fork.clone());
-            kura.store_block(block_next.clone());
-        }
+        let temp_dir = TempDir::new().unwrap();
+        let [block_genesis, _block, block_soft_fork, block_next] =
+            create_blocks(&rt, &temp_dir).try_into().unwrap();
 
         // Reinitialize kura and check that correct blocks are loaded
         {
@@ -1058,7 +1035,7 @@ mod tests {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn create_blocks(rt: &tokio::runtime::Runtime) -> Vec<CommittedBlock> {
+    fn create_blocks(rt: &tokio::runtime::Runtime, temp_dir: &TempDir) -> Vec<CommittedBlock> {
         let mut blocks = Vec::new();
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
@@ -1081,9 +1058,23 @@ mod tests {
             let _rt_guard = rt.enter();
             live_query_store.start()
         };
+
+        let (kura, block_count) = Kura::new(&Config {
+            init_mode: InitMode::Strict,
+            store_dir: iroha_config::base::WithOrigin::inline(
+                temp_dir.path().to_str().unwrap().into(),
+            ),
+            debug_output_new_blocks: false,
+        })
+        .unwrap();
+        // Starting with empty block store
+        assert_eq!(block_count.0, 0);
+
+        let _handle = Kura::start(kura.clone());
+
         let state = State::new(
             World::with([domain, genesis_domain], [account, genesis_account], []),
-            Kura::blank_kura_for_testing(),
+            Arc::clone(&kura),
             live_query_store,
         );
 
@@ -1092,10 +1083,10 @@ mod tests {
             Executor::new(WasmSmartContract::from_compiled(executor_blob))
         };
         let genesis = GenesisBuilder::default().build_and_sign(
-            executor,
             chain_id.clone(),
-            &genesis_key_pair,
+            executor,
             topology.as_ref().to_owned(),
+            &genesis_key_pair,
         );
 
         {
@@ -1115,9 +1106,14 @@ mod tests {
             let _events =
                 state_block.apply_without_execution(&block_genesis, topology.as_ref().to_owned());
             state_block.commit();
-            blocks.push(block_genesis);
+            blocks.push(block_genesis.clone());
+            kura.store_block(block_genesis);
         }
 
+        let (max_clock_drift, tx_limits) = {
+            let params = state.view().world.parameters;
+            (params.sumeragi().max_clock_drift(), params.transaction)
+        };
         let tx1 = TransactionBuilder::new(chain_id.clone(), account_id.clone())
             .with_instructions([Log::new(Level::INFO, "msg1".to_string())])
             .sign(account_keypair.private_key());
@@ -1125,18 +1121,10 @@ mod tests {
         let tx2 = TransactionBuilder::new(chain_id.clone(), account_id)
             .with_instructions([Log::new(Level::INFO, "msg2".to_string())])
             .sign(account_keypair.private_key());
-        let tx1 = crate::AcceptedTransaction::accept(
-            tx1,
-            &chain_id,
-            state.view().transaction_executor().limits,
-        )
-        .unwrap();
-        let tx2 = crate::AcceptedTransaction::accept(
-            tx2,
-            &chain_id,
-            state.view().transaction_executor().limits,
-        )
-        .unwrap();
+        let tx1 =
+            crate::AcceptedTransaction::accept(tx1, &chain_id, max_clock_drift, tx_limits).unwrap();
+        let tx2 =
+            crate::AcceptedTransaction::accept(tx2, &chain_id, max_clock_drift, tx_limits).unwrap();
 
         {
             let mut state_block = state.block();
@@ -1149,8 +1137,11 @@ mod tests {
                 .unwrap();
             let _events = state_block.apply_without_execution(&block, topology.as_ref().to_owned());
             state_block.commit();
-            blocks.push(block);
+            blocks.push(block.clone());
+            kura.store_block(block);
         }
+        // Add wait so that previous block is written to the block store
+        thread::sleep(Duration::from_secs(1));
 
         {
             let mut state_block = state.block_and_revert();
@@ -1164,7 +1155,8 @@ mod tests {
             let _events =
                 state_block.apply_without_execution(&block_soft_fork, topology.as_ref().to_owned());
             state_block.commit();
-            blocks.push(block_soft_fork);
+            blocks.push(block_soft_fork.clone());
+            kura.replace_top_block(block_soft_fork);
         }
 
         {
@@ -1179,7 +1171,8 @@ mod tests {
             let _events =
                 state_block.apply_without_execution(&block_next, topology.as_ref().to_owned());
             state_block.commit();
-            blocks.push(block_next);
+            blocks.push(block_next.clone());
+            kura.store_block(block_next);
         }
 
         blocks

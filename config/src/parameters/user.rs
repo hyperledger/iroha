@@ -324,9 +324,6 @@ pub struct Queue {
     /// The transaction will be dropped after this time if it is still in the queue.
     #[config(default = "defaults::queue::TRANSACTION_TIME_TO_LIVE.into()")]
     pub transaction_time_to_live_ms: DurationMs,
-    /// The threshold to determine if a transaction has been tampered to have a future timestamp.
-    #[config(default = "defaults::queue::FUTURE_THRESHOLD.into()")]
-    pub future_threshold_ms: DurationMs,
 }
 
 impl Queue {
@@ -335,13 +332,11 @@ impl Queue {
             capacity,
             capacity_per_user,
             transaction_time_to_live_ms: transaction_time_to_live,
-            future_threshold_ms: future_threshold,
         } = self;
         actual::Queue {
             capacity,
             capacity_per_user,
             transaction_time_to_live: transaction_time_to_live.0,
-            future_threshold: future_threshold.0,
         }
     }
 }

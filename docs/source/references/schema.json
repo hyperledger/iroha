@@ -4258,6 +4258,11 @@
         "tag": "CommitTimeMs",
         "discriminant": 1,
         "type": "u64"
+      },
+      {
+        "tag": "MaxClockDriftMs",
+        "discriminant": 2,
+        "type": "u64"
       }
     ]
   },
@@ -4269,6 +4274,10 @@
       },
       {
         "name": "commit_time_ms",
+        "type": "u64"
+      },
+      {
+        "name": "max_clock_drift_ms",
         "type": "u64"
       }
     ]

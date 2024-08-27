@@ -124,8 +124,7 @@ pub fn apply_query_postprocessing<I>(
     }: &QueryParams,
 ) -> Result<QueryBatchedErasedIterator, Error>
 where
-    I: Iterator,
-    I::Item: SortableQueryOutput + Send + Sync + 'static,
+    I: Iterator<Item: SortableQueryOutput + Send + Sync + 'static>,
     QueryOutputBatchBox: From<Vec<I::Item>>,
 {
     // validate the fetch (aka batch) size
@@ -358,10 +357,7 @@ mod tests {
     use std::str::FromStr as _;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{
-        parameter::TransactionParameters,
-        query::{error::FindError, predicate::CompoundPredicate},
-    };
+    use iroha_data_model::query::{error::FindError, predicate::CompoundPredicate};
     use iroha_primitives::json::JsonString;
     use nonzero_ext::nonzero;
     use test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
@@ -429,30 +425,25 @@ mod tests {
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_domains(), kura.clone(), query_handle);
         {
+            let (max_clock_drift, tx_limits) = {
+                let state_view = state.world.view();
+                let params = state_view.parameters();
+                (params.sumeragi().max_clock_drift(), params.transaction)
+            };
+
             let mut state_block = state.block();
-            let limits = TransactionParameters {
-                max_instructions: nonzero!(1000_u64),
-                smart_contract_size: nonzero!(1024_u64),
-            };
-            let huge_limits = TransactionParameters {
-                max_instructions: nonzero!(1000_u64),
-                smart_contract_size: nonzero!(1024_u64),
-            };
-
-            state_block.world.parameters.transaction = limits;
-
             let valid_tx = {
                 let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                     .with_instructions::<InstructionBox>([])
                     .sign(ALICE_KEYPAIR.private_key());
-                AcceptedTransaction::accept(tx, &chain_id, limits)?
+                AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits)?
             };
             let invalid_tx = {
                 let fail_isi = Unregister::domain("dummy".parse().unwrap());
                 let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                     .with_instructions([fail_isi.clone(), fail_isi])
                     .sign(ALICE_KEYPAIR.private_key());
-                AcceptedTransaction::accept(tx, &chain_id, huge_limits)?
+                AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits)?
             };
 
             let mut transactions = vec![valid_tx; valid_tx_per_block];
@@ -602,14 +593,18 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = State::new(world_with_test_domains(), kura.clone(), query_handle);
+        let (max_clock_drift, tx_limits) = {
+            let state_view = state.world.view();
+            let params = state_view.parameters();
+            (params.sumeragi().max_clock_drift(), params.transaction)
+        };
 
         let mut state_block = state.block();
         let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
             .with_instructions::<InstructionBox>([])
             .sign(ALICE_KEYPAIR.private_key());
 
-        let tx_limits = state_block.transaction_executor().limits;
-        let va_tx = AcceptedTransaction::accept(tx, &chain_id, tx_limits)?;
+        let va_tx = AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits)?;
 
         let (peer_public_key, _) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);

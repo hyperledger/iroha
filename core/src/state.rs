@@ -56,7 +56,6 @@ use crate::{
         },
         wasm, Execute,
     },
-    tx::TransactionExecutor,
     PeersIds,
 };
 
@@ -1200,6 +1199,18 @@ pub trait StateReadOnly {
     fn query_handle(&self) -> &LiveQueryStoreHandle;
     fn new_tx_amounts(&self) -> &Mutex<Vec<f64>>;
 
+    /// Get a reference to the block one before the latest block.
+    /// Returns None if at least 2 blocks are not committed.
+    ///
+    /// If you only need hash of the latest block prefer using [`Self::prev_block_hash`].
+    #[inline]
+    fn prev_block(&self) -> Option<Arc<SignedBlock>> {
+        self.height()
+            .checked_sub(1)
+            .and_then(NonZeroUsize::new)
+            .and_then(|height| self.kura().get_block_by_height(height))
+    }
+
     /// Get a reference to the latest block. Returns none if genesis is not committed.
     ///
     /// If you only need hash of the latest block prefer using [`Self::latest_block_hash`]
@@ -1213,7 +1224,8 @@ pub trait StateReadOnly {
         self.block_hashes().iter().nth_back(0).copied()
     }
 
-    /// Return the hash of the block one before the latest block
+    /// Return the hash of the block one before the latest block.
+    /// Returns None if at least 2 blocks are not committed.
     fn prev_block_hash(&self) -> Option<HashOf<BlockHeader>> {
         self.block_hashes().iter().nth_back(1).copied()
     }
@@ -1294,11 +1306,6 @@ pub trait StateReadOnly {
     #[inline]
     fn has_transaction(&self, hash: HashOf<SignedTransaction>) -> bool {
         self.transactions().get(&hash).is_some()
-    }
-
-    /// Get transaction executor
-    fn transaction_executor(&self) -> TransactionExecutor {
-        TransactionExecutor::new(self.world().parameters().transaction)
     }
 }
 

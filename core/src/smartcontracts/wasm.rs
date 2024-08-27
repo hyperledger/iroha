@@ -815,10 +815,7 @@ where
         let authority = state.authority();
 
         let state_ro = state.state.state();
-        let state_ro = state_ro.borrow();
-
-        let live_query_store = state_ro.query_handle();
-
+        let live_query_store = state_ro.borrow().query_handle();
         let response = query.execute(live_query_store, state_ro, authority)?;
 
         // store the output cursor if there is one
