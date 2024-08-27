@@ -1,4 +1,4 @@
-use std::thread;
+use std::time::Duration;
 
 use iroha::{
     client,
@@ -8,6 +8,7 @@ use iroha::{
     },
 };
 use iroha_config::parameters::actual::Root as Config;
+use iroha_data_model::transaction::TransactionBuilder;
 use nonzero_ext::nonzero;
 use rand::seq::SliceRandom;
 use test_network::*;
@@ -57,19 +58,20 @@ fn unstable_network(
     {
         configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
     }
-    let (_rt, network, iroha) = NetworkBuilder::new(n_peers + n_offline_peers, Some(port))
+    let (rt, network, iroha) = NetworkBuilder::new(n_peers + n_offline_peers, Some(port))
         .with_config(configuration)
         // Note: it is strange that we have `n_offline_peers` but don't set it as offline
         .with_offline_peers(0)
         .create_with_runtime();
-    wait_for_genesis_committed(&network.clients(), n_offline_peers);
+    rt.block_on(wait_for_genesis_committed_events(
+        &network.clients(),
+        n_offline_peers,
+    ));
     iroha
         .submit_blocking(SetParameter::new(Parameter::Block(
             BlockParameter::MaxTransactions(nonzero!(5_u64)),
         )))
         .unwrap();
-
-    let pipeline_time = Config::pipeline_time();
 
     let account_id = ALICE_ID.clone();
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
@@ -96,23 +98,28 @@ fn unstable_network(
             quantity,
             AssetId::new(asset_definition_id.clone(), account_id.clone()),
         );
-        iroha.submit(mint_asset).expect("Failed to create asset.");
-        account_has_quantity = account_has_quantity.checked_add(quantity).unwrap();
-        thread::sleep(pipeline_time);
 
+        let mut tx = TransactionBuilder::new(iroha.chain.clone(), iroha.account.clone())
+            .with_instructions([mint_asset]);
+        // Set ttl to max to prevent the case when transaction got expired before end up in the block
+        tx.set_ttl(Duration::from_millis(u64::MAX));
+        let tx = tx.sign(iroha.key_pair.private_key());
         iroha
-            .poll_with_period(Config::pipeline_time(), 4, |client| {
-                let assets = client
-                    .query(client::asset::all())
-                    .filter_with(|asset| asset.id.account.eq(account_id.clone()))
-                    .execute_all()?;
+            .submit_transaction_blocking(&tx)
+            .expect("Failed to mint asset.");
 
-                Ok(assets.iter().any(|asset| {
-                    *asset.id().definition() == asset_definition_id
-                        && *asset.value() == AssetValue::Numeric(account_has_quantity)
-                }))
-            })
-            .expect("Test case failure.");
+        account_has_quantity = account_has_quantity.checked_add(quantity).unwrap();
+
+        let assets = iroha
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+            .execute_all()
+            .expect("failed to query assets");
+
+        assert!(assets.iter().any(|asset| {
+            *asset.id().definition() == asset_definition_id
+                && *asset.value() == AssetValue::Numeric(account_has_quantity)
+        }));
 
         // Return all peers to normal function.
         for f in &freezers {
