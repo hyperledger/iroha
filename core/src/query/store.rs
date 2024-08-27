@@ -189,7 +189,7 @@ impl LiveQueryStore {
         &self,
         query_id: QueryId,
         cursor: NonZeroU64,
-    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>)> {
+    ) -> Result<(QueryOutputBatchBox, u64, Option<NonZeroU64>)> {
         trace!(%query_id, "Advancing existing query");
         let QueryInfo {
             mut live_query,
@@ -197,10 +197,11 @@ impl LiveQueryStore {
             ..
         } = self.remove(&query_id).ok_or(UnknownCursor)?;
         let (next_batch, next_cursor) = live_query.next_batch(cursor.get())?;
+        let remaining = live_query.remaining();
         if next_cursor.is_some() {
             self.insert(query_id, live_query, authority);
         }
-        Ok((next_batch, next_cursor))
+        Ok((next_batch, remaining, next_cursor))
     }
 
     fn check_capacity(&self, authority: &AccountId) -> Result<()> {
@@ -248,12 +249,20 @@ impl LiveQueryStoreHandle {
         let curr_cursor = 0;
         let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
 
+        // NOTE: we are checking remaining items _after_ the first batch is taken
+        let remaining_items = live_query.remaining();
+
         // if the cursor is `None` - the query has ended, we can remove it from the store
         if next_cursor.is_some() {
             self.store
                 .insert_new_query(query_id.clone(), live_query, authority.clone())?;
         }
-        Ok(Self::construct_query_response(batch, query_id, next_cursor))
+        Ok(Self::construct_query_response(
+            batch,
+            remaining_items,
+            query_id,
+            next_cursor,
+        ))
     }
 
     /// Retrieve next batch of query output using `cursor`.
@@ -265,9 +274,15 @@ impl LiveQueryStoreHandle {
         &self,
         ForwardCursor { query, cursor }: ForwardCursor,
     ) -> Result<QueryOutput> {
-        let (batch, next_cursor) = self.store.get_query_next_batch(query.clone(), cursor)?;
+        let (batch, remaining, next_cursor) =
+            self.store.get_query_next_batch(query.clone(), cursor)?;
 
-        Ok(Self::construct_query_response(batch, query, next_cursor))
+        Ok(Self::construct_query_response(
+            batch,
+            remaining,
+            query,
+            next_cursor,
+        ))
     }
 
     /// Remove query from the storage if there is any.
@@ -277,11 +292,13 @@ impl LiveQueryStoreHandle {
 
     fn construct_query_response(
         batch: QueryOutputBatchBox,
+        remaining_items: u64,
         query_id: QueryId,
         cursor: Option<NonZeroU64>,
     ) -> QueryOutput {
         QueryOutput::new(
             batch,
+            remaining_items,
             cursor.map(|cursor| ForwardCursor {
                 query: query_id,
                 cursor,

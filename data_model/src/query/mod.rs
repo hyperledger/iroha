@@ -166,6 +166,8 @@ mod model {
     pub struct QueryOutput {
         /// A single batch of results
         pub batch: QueryOutputBatchBox,
+        /// The number of items in the query remaining to be fetched after this batch
+        pub remaining_items: u64,
         /// If not `None`, contains a cursor that can be used to fetch the next batch of results. Otherwise the current batch is the last one.
         pub continue_cursor: Option<ForwardCursor>,
     }
@@ -308,9 +310,14 @@ impl SingularQuery for SingularQueryBox {
 
 impl QueryOutput {
     /// Create a new [`QueryOutput`] from the iroha response parts.
-    pub fn new(batch: QueryOutputBatchBox, continue_cursor: Option<ForwardCursor>) -> Self {
+    pub fn new(
+        batch: QueryOutputBatchBox,
+        remaining_items: u64,
+        continue_cursor: Option<ForwardCursor>,
+    ) -> Self {
         Self {
             batch,
+            remaining_items,
             continue_cursor,
         }
     }

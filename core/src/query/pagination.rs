@@ -45,6 +45,12 @@ impl<I: Iterator> Iterator for Paginated<I> {
     }
 }
 
+impl<I: ExactSizeIterator> ExactSizeIterator for Paginated<I> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use iroha_data_model::query::parameters::Pagination;

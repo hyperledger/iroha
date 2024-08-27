@@ -3079,6 +3079,10 @@
         "type": "QueryOutputBatchBox"
       },
       {
+        "name": "remaining_items",
+        "type": "u64"
+      },
+      {
         "name": "continue_cursor",
         "type": "Option<ForwardCursor>"
       }
