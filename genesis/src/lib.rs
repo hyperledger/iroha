@@ -259,10 +259,10 @@ impl GenesisBuilder {
     /// Finish building, sign, and produce a [`GenesisBlock`].
     pub fn build_and_sign(
         self,
-        executor_blob: Executor,
         chain_id: ChainId,
-        genesis_key_pair: &KeyPair,
+        executor_blob: Executor,
         topology: Vec<PeerId>,
+        genesis_key_pair: &KeyPair,
     ) -> GenesisBlock {
         build_and_sign_genesis(
             self.instructions,
@@ -361,7 +361,7 @@ mod tests {
             .domain("wonderland".parse()?)
             .account(alice_public_key)
             .finish_domain()
-            .build_and_sign(dummy_executor(), chain_id, &genesis_key_pair, vec![]);
+            .build_and_sign(chain_id, dummy_executor(), vec![], &genesis_key_pair);
         Ok(())
     }
 
@@ -396,10 +396,10 @@ mod tests {
 
         // In real cases executor should be constructed from a wasm blob
         let finished_genesis = genesis_builder.build_and_sign(
-            dummy_executor(),
             ChainId::from("00000000-0000-0000-0000-000000000000"),
-            &KeyPair::random(),
+            dummy_executor(),
             vec![],
+            &KeyPair::random(),
         );
 
         let transactions = &finished_genesis.0.transactions().collect::<Vec<_>>();

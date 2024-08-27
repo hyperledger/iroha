@@ -1013,21 +1013,19 @@ mod tests {
             "ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
                 .parse()
                 .expect("Public key not in mulithash format"),
-            PrivateKey::from_hex(
-                Algorithm::Ed25519,
-                "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC",
-            )
-            .expect("Private key not hex encoded"),
+            "80262093CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC"
+                .parse()
+                .expect("Private key not in mulithash format"),
         )
         .unwrap();
 
         KeyPair::new("ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
             .parse()
             .expect("Public key not in multihash format"),
-                                PrivateKey::from_hex(
-            Algorithm::BlsNormal,
-            "1ca347641228c3b79aa43839dedc85fa51c0e8b9b6a00f6b0d6b0423e902973f",
-        ).expect("Private key not hex encoded")).unwrap();
+            "8926201ca347641228c3b79aa43839dedc85fa51c0e8b9b6a00f6b0d6b0423e902973f"
+            .parse()
+            .expect("Private key not in multihash format")
+        ).unwrap();
     }
 
     #[test]
@@ -1074,21 +1072,19 @@ mod tests {
             "ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
                 .parse()
                 .expect("Public key not in mulithash format"),
-            PrivateKey::from_hex(
-                Algorithm::Ed25519,
-                "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A",
-            )
-            .expect("Private key not valid"),
+            "8026203A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A"
+                .parse()
+                .expect("Public key not in mulithash format"),
         )
         .unwrap_err();
 
         KeyPair::new("ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
             .parse()
             .expect("Public key not in mulithash format"),
-                                PrivateKey::from_hex(
-            Algorithm::BlsNormal,
-            "CC176E44C41AA144FD1BEE4E0BCD2EF43F06D0C7BC2988E89A799951D240E503",
-        ).expect("Private key not valid")).unwrap_err();
+            "892620CC176E44C41AA144FD1BEE4E0BCD2EF43F06D0C7BC2988E89A799951D240E503"
+            .parse()
+            .expect("Private key not in mulithash format"),
+            ).unwrap_err();
     }
 
     #[test]

@@ -8,6 +8,8 @@
 //! This is also where the actual execution of instructions, as well
 //! as various forms of validation are performed.
 
+use std::time::{Duration, SystemTime};
+
 use eyre::Result;
 use iroha_crypto::SignatureOf;
 pub use iroha_data_model::prelude::*;
@@ -58,19 +60,16 @@ pub enum AcceptTransactionFail {
     UnexpectedGenesisAccountSignature,
     /// Chain id doesn't correspond to the id of current blockchain: {0}
     ChainIdMismatch(Mismatch<ChainId>),
+    /// Transaction creation time is in the future
+    TransactionInTheFuture,
 }
 
 impl AcceptedTransaction {
-    /// Accept genesis transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
-    ///
-    /// # Errors
-    ///
-    /// - if transaction chain id doesn't match
-    pub fn accept_genesis(
-        tx: SignedTransaction,
+    fn validate(
+        tx: &SignedTransaction,
         expected_chain_id: &ChainId,
-        genesis_account: &AccountId,
-    ) -> Result<Self, AcceptTransactionFail> {
+        max_clock_drift: Duration,
+    ) -> Result<(), AcceptTransactionFail> {
         let actual_chain_id = tx.chain();
 
         if expected_chain_id != actual_chain_id {
@@ -79,6 +78,28 @@ impl AcceptedTransaction {
                 actual: actual_chain_id.clone(),
             }));
         }
+
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap();
+        if tx.creation_time().saturating_sub(now) > max_clock_drift {
+            return Err(AcceptTransactionFail::TransactionInTheFuture);
+        }
+
+        Ok(())
+    }
+    /// Accept genesis transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
+    ///
+    /// # Errors
+    ///
+    /// - if transaction chain id doesn't match
+    pub fn accept_genesis(
+        tx: SignedTransaction,
+        expected_chain_id: &ChainId,
+        max_clock_drift: Duration,
+        genesis_account: &AccountId,
+    ) -> Result<Self, AcceptTransactionFail> {
+        Self::validate(&tx, expected_chain_id, max_clock_drift)?;
 
         if genesis_account != tx.authority() {
             return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
@@ -95,16 +116,10 @@ impl AcceptedTransaction {
     pub fn accept(
         tx: SignedTransaction,
         expected_chain_id: &ChainId,
+        max_clock_drift: Duration,
         limits: TransactionParameters,
     ) -> Result<Self, AcceptTransactionFail> {
-        let actual_chain_id = tx.chain();
-
-        if expected_chain_id != actual_chain_id {
-            return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
-                expected: expected_chain_id.clone(),
-                actual: actual_chain_id.clone(),
-            }));
-        }
+        Self::validate(&tx, expected_chain_id, max_clock_drift)?;
 
         if *iroha_genesis::GENESIS_DOMAIN_ID == *tx.authority().domain() {
             return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
@@ -178,23 +193,7 @@ impl AsRef<SignedTransaction> for AcceptedTransaction {
     }
 }
 
-/// Used to validate transaction and thus move transaction lifecycle forward
-///
-/// Validation is skipped for genesis.
-#[derive(Clone, Copy)]
-pub struct TransactionExecutor {
-    /// [`TransactionParameters`] field
-    pub limits: TransactionParameters,
-}
-
-impl TransactionExecutor {
-    /// Construct [`TransactionExecutor`]
-    pub fn new(transaction_limits: TransactionParameters) -> Self {
-        Self {
-            limits: transaction_limits,
-        }
-    }
-
+impl StateBlock<'_> {
     /// Move transaction lifecycle forward by checking if the
     /// instructions can be applied to the [`StateBlock`].
     ///
@@ -203,12 +202,11 @@ impl TransactionExecutor {
     /// # Errors
     /// Fails if validation of instruction fails (e.g. permissions mismatch).
     pub fn validate(
-        &self,
+        &mut self,
         tx: AcceptedTransaction,
-        state_block: &mut StateBlock<'_>,
     ) -> Result<SignedTransaction, (SignedTransaction, TransactionRejectionReason)> {
-        let mut state_transaction = state_block.transaction();
-        if let Err(rejection_reason) = self.validate_internal(tx.clone(), &mut state_transaction) {
+        let mut state_transaction = self.transaction();
+        if let Err(rejection_reason) = Self::validate_internal(tx.clone(), &mut state_transaction) {
             return Err((tx.0, rejection_reason));
         }
         state_transaction.apply();
@@ -217,7 +215,6 @@ impl TransactionExecutor {
     }
 
     fn validate_internal(
-        &self,
         tx: AcceptedTransaction,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), TransactionRejectionReason> {
@@ -233,7 +230,7 @@ impl TransactionExecutor {
         Self::validate_with_runtime_executor(tx.clone(), state_transaction)?;
 
         if let (authority, Executable::Wasm(bytes)) = tx.into() {
-            self.validate_wasm(authority, state_transaction, bytes)?
+            Self::validate_wasm(authority, state_transaction, bytes)?
         }
 
         debug!("Validation successful");
@@ -241,7 +238,6 @@ impl TransactionExecutor {
     }
 
     fn validate_wasm(
-        &self,
         authority: AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
         wasm: WasmSmartContract,
@@ -255,7 +251,11 @@ impl TransactionExecutor {
                     state_transaction,
                     authority,
                     wasm,
-                    self.limits.max_instructions,
+                    state_transaction
+                        .world
+                        .parameters
+                        .transaction
+                        .max_instructions,
                 )
             })
             .map_err(|error| WasmExecutionFail {

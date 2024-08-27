@@ -37,7 +37,7 @@ pub struct Queue {
     /// The queue for transactions
     tx_hashes: ArrayQueue<HashOf<SignedTransaction>>,
     /// [`AcceptedTransaction`]s addressed by `Hash`
-    accepted_txs: DashMap<HashOf<SignedTransaction>, AcceptedTransaction>,
+    txs: DashMap<HashOf<SignedTransaction>, AcceptedTransaction>,
     /// Amount of transactions per user in the queue
     txs_per_user: DashMap<AccountId, usize>,
     /// The maximum number of transactions in the queue
@@ -50,9 +50,6 @@ pub struct Queue {
     time_source: TimeSource,
     /// Length of time after which transactions are dropped.
     pub tx_time_to_live: Duration,
-    /// A point in time that is considered `Future` we cannot use
-    /// current time, because of network time synchronisation issues
-    future_threshold: Duration,
 }
 
 /// Queue push error
@@ -61,8 +58,6 @@ pub struct Queue {
 pub enum Error {
     /// Queue is full
     Full,
-    /// Transaction is regarded to have been tampered to have a future timestamp
-    InFuture,
     /// Transaction expired
     Expired,
     /// Transaction is already applied
@@ -110,20 +105,18 @@ impl Queue {
             capacity,
             capacity_per_user,
             transaction_time_to_live,
-            future_threshold,
         }: Config,
         events_sender: EventsSender,
     ) -> Self {
         Self {
             events_sender,
             tx_hashes: ArrayQueue::new(capacity.get()),
-            accepted_txs: DashMap::new(),
+            txs: DashMap::new(),
             txs_per_user: DashMap::new(),
             capacity,
             capacity_per_user,
             time_source: TimeSource::new_system(),
             tx_time_to_live: transaction_time_to_live,
-            future_threshold,
         }
     }
 
@@ -144,19 +137,12 @@ impl Queue {
         curr_time.saturating_sub(tx_creation_time) > time_limit
     }
 
-    /// If `true`, this transaction is regarded to have been tampered to have a future timestamp.
-    fn is_in_future(&self, tx: &AcceptedTransaction) -> bool {
-        let tx_timestamp = tx.as_ref().creation_time();
-        let curr_time = self.time_source.get_unix_time();
-        tx_timestamp.saturating_sub(curr_time) > self.future_threshold
-    }
-
     /// Returns all pending transactions.
     pub fn all_transactions<'state>(
         &'state self,
         state_view: &'state StateView,
     ) -> impl Iterator<Item = AcceptedTransaction> + 'state {
-        self.accepted_txs.iter().filter_map(|tx| {
+        self.txs.iter().filter_map(|tx| {
             if self.is_pending(tx.value(), state_view) {
                 return Some(tx.value().clone());
             }
@@ -171,7 +157,7 @@ impl Queue {
         n: u32,
         state_view: &StateView,
     ) -> Vec<AcceptedTransaction> {
-        self.accepted_txs
+        self.txs
             .iter()
             .filter(|e| self.is_pending(e.value(), state_view))
             .map(|e| e.value().clone())
@@ -182,9 +168,7 @@ impl Queue {
     }
 
     fn check_tx(&self, tx: &AcceptedTransaction, state_view: &StateView) -> Result<(), Error> {
-        if self.is_in_future(tx) {
-            Err(Error::InFuture)
-        } else if self.is_expired(tx) {
+        if self.is_expired(tx) {
             Err(Error::Expired)
         } else if tx.is_in_blockchain(state_view) {
             Err(Error::InBlockchain)
@@ -197,16 +181,17 @@ impl Queue {
     ///
     /// # Errors
     /// See [`enum@Error`]
-    pub fn push(&self, tx: AcceptedTransaction, state_view: &StateView) -> Result<(), Failure> {
-        trace!(?tx, "Pushing to the queue");
-        if let Err(err) = self.check_tx(&tx, state_view) {
+    pub fn push(&self, tx: AcceptedTransaction, state_view: StateView) -> Result<(), Failure> {
+        trace!(tx=%tx.as_ref().hash(), "Pushing to the queue");
+        if let Err(err) = self.check_tx(&tx, &state_view) {
             return Err(Failure { tx, err });
         }
+        drop(state_view);
 
         // Get `txs_len` before entry to avoid deadlock
-        let txs_len = self.accepted_txs.len();
+        let txs_len = self.txs.len();
         let hash = tx.as_ref().hash();
-        let entry = match self.accepted_txs.entry(hash) {
+        let entry = match self.txs.entry(hash) {
             Entry::Occupied(_) => {
                 return Err(Failure {
                     tx,
@@ -236,7 +221,7 @@ impl Queue {
         self.tx_hashes.push(hash).map_err(|err_hash| {
             warn!("Queue is full");
             let (_, err_tx) = self
-                .accepted_txs
+                .txs
                 .remove(&err_hash)
                 .expect("Inserted just before match");
             self.decrease_per_user_tx_count(err_tx.as_ref().authority());
@@ -266,7 +251,7 @@ impl Queue {
         loop {
             let hash = self.tx_hashes.pop()?;
 
-            let entry = match self.accepted_txs.entry(hash) {
+            let entry = match self.txs.entry(hash) {
                 Entry::Occupied(entry) => entry,
                 // FIXME: Reachable under high load. Investigate, see if it's a problem.
                 // As practice shows this code is not `unreachable!()`.
@@ -297,7 +282,7 @@ impl Queue {
 
     /// Return the number of transactions in the queue.
     pub fn tx_len(&self) -> usize {
-        self.accepted_txs.len()
+        self.txs.len()
     }
 
     /// Gets transactions till they fill whole block or till the end of queue.
@@ -360,7 +345,7 @@ impl Queue {
     ///    (either because it was expired, or because transaction is commited to blockchain),
     ///    we should remove transaction from [`Queue::accepted_tx`].
     fn remove_stale_transaction(&self, tx: &AcceptedTransaction) {
-        let removed = self.accepted_txs.remove(&tx.as_ref().hash());
+        let removed = self.txs.remove(&tx.as_ref().hash());
         if removed.is_some() {
             self.decrease_per_user_tx_count(tx.as_ref().authority());
 
@@ -436,13 +421,12 @@ pub mod tests {
             Self {
                 events_sender: tokio::sync::broadcast::Sender::new(1),
                 tx_hashes: ArrayQueue::new(cfg.capacity.get()),
-                accepted_txs: DashMap::new(),
+                txs: DashMap::new(),
                 txs_per_user: DashMap::new(),
                 capacity: cfg.capacity,
                 capacity_per_user: cfg.capacity_per_user,
                 time_source: time_source.clone(),
                 tx_time_to_live: cfg.transaction_time_to_live,
-                future_threshold: cfg.future_threshold,
             }
         }
     }
@@ -466,11 +450,12 @@ pub mod tests {
             TransactionBuilder::new_with_time_source(chain_id.clone(), account_id, time_source)
                 .with_instructions(instructions)
                 .sign(key_pair.private_key());
-        let limits = TransactionParameters {
+        let tx_limits = TransactionParameters {
             max_instructions: nonzero!(4096_u64),
             smart_contract_size: nonzero!(1024_u64),
         };
-        AcceptedTransaction::accept(tx, &chain_id, limits).expect("Failed to accept Transaction.")
+        AcceptedTransaction::accept(tx, &chain_id, Duration::from_millis(10), tx_limits)
+            .expect("Failed to accept Transaction.")
     }
 
     pub fn world_with_test_domains() -> World {
@@ -494,14 +479,13 @@ pub mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
-        let state_view = state.view();
 
         let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
 
         let queue = Queue::test(config_factory(), &time_source);
 
         queue
-            .push(accepted_tx_by_someone(&time_source), &state_view)
+            .push(accepted_tx_by_someone(&time_source), state.view())
             .expect("Failed to push tx into queue");
     }
 
@@ -512,7 +496,6 @@ pub mod tests {
         let kura: Arc<Kura> = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
-        let state_view = state.view();
 
         let (time_handle, time_source) = TimeSource::new_mock(Duration::default());
 
@@ -527,13 +510,13 @@ pub mod tests {
 
         for _ in 0..capacity.get() {
             queue
-                .push(accepted_tx_by_someone(&time_source), &state_view)
+                .push(accepted_tx_by_someone(&time_source), state.view())
                 .expect("Failed to push tx into queue");
             time_handle.advance(Duration::from_millis(10));
         }
 
         assert!(matches!(
-            queue.push(accepted_tx_by_someone(&time_source), &state_view),
+            queue.push(accepted_tx_by_someone(&time_source), state.view()),
             Err(Failure {
                 err: Error::Full,
                 ..
@@ -547,7 +530,6 @@ pub mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
-        let state_view = state.view();
 
         let (time_handle, time_source) = TimeSource::new_mock(Duration::default());
 
@@ -561,12 +543,12 @@ pub mod tests {
         let queue = Arc::new(queue);
         for _ in 0..5 {
             queue
-                .push(accepted_tx_by_someone(&time_source), &state_view)
+                .push(accepted_tx_by_someone(&time_source), state.view())
                 .expect("Failed to push tx into queue");
             time_handle.advance(Duration::from_millis(10));
         }
 
-        let available = queue.collect_transactions_for_block(&state_view, max_txs_in_block);
+        let available = queue.collect_transactions_for_block(&state.view(), max_txs_in_block);
         assert_eq!(available.len(), max_txs_in_block.get());
     }
 
@@ -582,16 +564,15 @@ pub mod tests {
             .transactions
             .insert(tx.as_ref().hash(), nonzero!(1_usize));
         state_block.commit();
-        let state_view = state.view();
         let queue = Queue::test(config_factory(), &time_source);
         assert!(matches!(
-            queue.push(tx, &state_view),
+            queue.push(tx, state.view()),
             Err(Failure {
                 err: Error::InBlockchain,
                 ..
             })
         ));
-        assert_eq!(queue.accepted_txs.len(), 0);
+        assert_eq!(queue.txs.len(), 0);
     }
 
     #[test]
@@ -604,7 +585,7 @@ pub mod tests {
         let tx = accepted_tx_by_someone(&time_source);
         let queue = Queue::test(config_factory(), &time_source);
         let queue = Arc::new(queue);
-        queue.push(tx.clone(), &state.view()).unwrap();
+        queue.push(tx.clone(), state.view()).unwrap();
         let mut state_block = state.block();
         state_block
             .transactions
@@ -616,7 +597,7 @@ pub mod tests {
                 .len(),
             0
         );
-        assert_eq!(queue.accepted_txs.len(), 0);
+        assert_eq!(queue.txs.len(), 0);
     }
 
     #[test]
@@ -625,7 +606,6 @@ pub mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
-        let state_view = state.view();
 
         let (time_handle, time_source) = TimeSource::new_mock(Duration::default());
 
@@ -639,29 +619,29 @@ pub mod tests {
         let queue = Arc::new(queue);
         for _ in 0..(max_txs_in_block.get() - 1) {
             queue
-                .push(accepted_tx_by_someone(&time_source), &state_view)
+                .push(accepted_tx_by_someone(&time_source), state.view())
                 .expect("Failed to push tx into queue");
             time_handle.advance(Duration::from_millis(100));
         }
 
         queue
-            .push(accepted_tx_by_someone(&time_source), &state_view)
+            .push(accepted_tx_by_someone(&time_source), state.view())
             .expect("Failed to push tx into queue");
         time_handle.advance(Duration::from_millis(101));
         assert_eq!(
             queue
-                .collect_transactions_for_block(&state_view, max_txs_in_block)
+                .collect_transactions_for_block(&state.view(), max_txs_in_block)
                 .len(),
             1
         );
 
         queue
-            .push(accepted_tx_by_someone(&time_source), &state_view)
+            .push(accepted_tx_by_someone(&time_source), state.view())
             .expect("Failed to push tx into queue");
         time_handle.advance(Duration::from_millis(210));
         assert_eq!(
             queue
-                .collect_transactions_for_block(&state_view, max_txs_in_block)
+                .collect_transactions_for_block(&state.view(), max_txs_in_block)
                 .len(),
             0
         );
@@ -678,7 +658,11 @@ pub mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
-        let state_view = state.view();
+        let (max_clock_drift, tx_limits) = {
+            let state_view = state.world.view();
+            let params = state_view.parameters();
+            (params.sumeragi().max_clock_drift(), params.transaction)
+        };
 
         let (time_handle, time_source) = TimeSource::new_mock(Duration::default());
         let mut queue = Queue::test(config_factory(), &time_source);
@@ -691,15 +675,11 @@ pub mod tests {
                 .with_instructions(instructions);
         tx.set_ttl(Duration::from_millis(TTL_MS));
         let tx = tx.sign(alice_keypair.private_key());
-        let limits = TransactionParameters {
-            max_instructions: nonzero!(4096_u64),
-            smart_contract_size: nonzero!(1024_u64),
-        };
         let tx_hash = tx.hash();
-        let tx = AcceptedTransaction::accept(tx, &chain_id, limits)
+        let tx = AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits)
             .expect("Failed to accept Transaction.");
         queue
-            .push(tx.clone(), &state_view)
+            .push(tx.clone(), state.view())
             .expect("Failed to push tx into queue");
         let queued_tx_event = event_receiver.recv().await.unwrap();
 
@@ -716,7 +696,7 @@ pub mod tests {
         let mut txs = Vec::new();
         time_handle.advance(Duration::from_millis(TTL_MS + 1));
         let queue = Arc::new(queue);
-        queue.get_transactions_for_block(&state_view, max_txs_in_block, &mut txs);
+        queue.get_transactions_for_block(&state.view(), max_txs_in_block, &mut txs);
         let expired_tx_event = event_receiver.recv().await.unwrap();
         assert!(txs.is_empty());
 
@@ -760,7 +740,7 @@ pub mod tests {
             thread::spawn(move || {
                 while start_time.elapsed() < run_for {
                     let tx = accepted_tx_by_someone(&time_source);
-                    match queue_arc_clone.push(tx, &state.view()) {
+                    match queue_arc_clone.push(tx, state.view()) {
                         Ok(())
                         | Err(Failure {
                             err: Error::Full | Error::MaximumTransactionsPerUser,
@@ -800,46 +780,10 @@ pub mod tests {
         // Validate the queue state.
         let array_queue: Vec<_> = core::iter::from_fn(|| queue.tx_hashes.pop()).collect();
 
-        assert_eq!(array_queue.len(), queue.accepted_txs.len());
+        assert_eq!(array_queue.len(), queue.txs.len());
         for tx in array_queue {
-            assert!(queue.accepted_txs.contains_key(&tx));
+            assert!(queue.txs.contains_key(&tx));
         }
-    }
-
-    #[test]
-    async fn push_tx_in_future() {
-        let future_threshold = Duration::from_secs(1);
-
-        let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
-        let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
-        let state_view = state.view();
-
-        let (time_handle, time_source) = TimeSource::new_mock(Duration::default());
-        let queue = Queue::test(
-            Config {
-                future_threshold,
-                ..Config::default()
-            },
-            &time_source,
-        );
-
-        let tx = accepted_tx_by_someone(&time_source);
-        assert!(queue.push(tx.clone(), &state_view).is_ok());
-
-        // create the same tx but with timestamp in the future
-        time_handle.advance(future_threshold * 2);
-        let tx = accepted_tx_by_someone(&time_source);
-        time_handle.rewind(future_threshold * 2);
-
-        assert!(matches!(
-            queue.push(tx, &state_view),
-            Err(Failure {
-                err: Error::InFuture,
-                ..
-            })
-        ));
-        assert_eq!(queue.accepted_txs.len(), 1);
     }
 
     #[test]
@@ -864,7 +808,6 @@ pub mod tests {
                 transaction_time_to_live: Duration::from_secs(100),
                 capacity: 100.try_into().unwrap(),
                 capacity_per_user: 1.try_into().unwrap(),
-                ..Config::default()
             },
             &time_source,
         );
@@ -874,14 +817,14 @@ pub mod tests {
         queue
             .push(
                 accepted_tx_by(alice_id.clone(), &alice_keypair, &time_source),
-                &state.view(),
+                state.view(),
             )
             .expect("Failed to push tx into queue");
 
         // Second push by Alice excide limit and will be rejected
         let result = queue.push(
             accepted_tx_by(alice_id.clone(), &alice_keypair, &time_source),
-            &state.view(),
+            state.view(),
         );
         assert!(
             matches!(
@@ -898,7 +841,7 @@ pub mod tests {
         queue
             .push(
                 accepted_tx_by(bob_id.clone(), &bob_keypair, &time_source),
-                &state.view(),
+                state.view(),
             )
             .expect("Failed to push tx into queue");
 
@@ -920,14 +863,14 @@ pub mod tests {
         queue
             .push(
                 accepted_tx_by(alice_id, &alice_keypair, &time_source),
-                &state.view(),
+                state.view(),
             )
             .expect("Failed to push tx into queue");
 
         queue
             .push(
                 accepted_tx_by(bob_id, &bob_keypair, &time_source),
-                &state.view(),
+                state.view(),
             )
             .expect("Failed to push tx into queue");
     }

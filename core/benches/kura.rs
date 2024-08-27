@@ -14,13 +14,22 @@ use iroha_core::{
     sumeragi::network_topology::Topology,
 };
 use iroha_crypto::KeyPair;
-use iroha_data_model::{parameter::TransactionParameters, prelude::*};
-use nonzero_ext::nonzero;
+use iroha_data_model::prelude::*;
 use test_samples::gen_account_in;
 use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_executors(n_executors: u32) {
+    let dir = tempfile::tempdir().expect("Could not create tempfile.");
+    let cfg = Config {
+        init_mode: iroha_config::kura::InitMode::Strict,
+        debug_output_new_blocks: false,
+        store_dir: WithOrigin::inline(dir.path().to_path_buf()),
+    };
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
+    let (kura, _) = iroha_core::kura::Kura::new(&cfg).unwrap();
+    let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
+    let query_handle = LiveQueryStore::test().start();
+    let state = State::new(World::new(), kura, query_handle);
 
     let (alice_id, alice_keypair) = gen_account_in("test");
     let (bob_id, _bob_keypair) = gen_account_in("test");
@@ -30,23 +39,13 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
         .with_instructions([transfer])
         .sign(alice_keypair.private_key());
-    let txn_limits = TransactionParameters {
-        max_instructions: nonzero!(4096_u64),
-        smart_contract_size: nonzero!(1_u64),
+    let (max_clock_drift, tx_limits) = {
+        let state_view = state.world.view();
+        let params = state_view.parameters();
+        (params.sumeragi().max_clock_drift(), params.transaction)
     };
-    let tx = AcceptedTransaction::accept(tx, &chain_id, txn_limits)
+    let tx = AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits)
         .expect("Failed to accept Transaction.");
-    let dir = tempfile::tempdir().expect("Could not create tempfile.");
-    let cfg = Config {
-        init_mode: iroha_config::kura::InitMode::Strict,
-        debug_output_new_blocks: false,
-        store_dir: WithOrigin::inline(dir.path().to_path_buf()),
-    };
-    let (kura, _) = iroha_core::kura::Kura::new(&cfg).unwrap();
-    let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
-
-    let query_handle = LiveQueryStore::test().start();
-    let state = State::new(World::new(), kura, query_handle);
     let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
     let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
     let topology = Topology::new(vec![peer_id]);

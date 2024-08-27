@@ -376,6 +376,7 @@ pub mod isi {
             }
 
             set_parameter!(
+                Sumeragi(sumeragi.max_clock_drift_ms) => SumeragiParameter::MaxClockDriftMs,
                 Sumeragi(sumeragi.block_time_ms) => SumeragiParameter::BlockTimeMs,
                 Sumeragi(sumeragi.commit_time_ms) => SumeragiParameter::CommitTimeMs,
 

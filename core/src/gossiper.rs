@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     queue::Queue, state::State, tx::AcceptedTransaction, IrohaNetwork, NetworkMessage,
-    StateReadOnly, WorldReadOnly,
+    WorldReadOnly,
 };
 
 /// [`Gossiper`] actor handle.
@@ -108,12 +108,15 @@ impl TransactionGossiper {
     fn handle_transaction_gossip(&self, TransactionGossip { txs }: TransactionGossip) {
         iroha_logger::trace!(size = txs.len(), "Received new transaction gossip");
 
-        let state_view = self.state.view();
         for tx in txs {
-            let transaction_limits = state_view.world().parameters().transaction;
+            let (max_clock_drift, tx_limits) = {
+                let state_view = self.state.world.view();
+                let params = state_view.parameters();
+                (params.sumeragi().max_clock_drift(), params.transaction)
+            };
 
-            match AcceptedTransaction::accept(tx, &self.chain_id, transaction_limits) {
-                Ok(tx) => match self.queue.push(tx, &state_view) {
+            match AcceptedTransaction::accept(tx, &self.chain_id, max_clock_drift, tx_limits) {
+                Ok(tx) => match self.queue.push(tx, self.state.view()) {
                     Ok(()) => {}
                     Err(crate::queue::Failure {
                         tx,

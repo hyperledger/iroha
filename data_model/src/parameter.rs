@@ -64,7 +64,7 @@ mod model {
         Serialize,
         IntoSchema,
     )]
-    #[display(fmt = "{block_time_ms},{commit_time_ms}_SL")]
+    #[display(fmt = "{block_time_ms},{commit_time_ms}{max_clock_drift_ms}_SL")]
     pub struct SumeragiParameters {
         /// Maximal amount of time (in milliseconds) a peer will wait before forcing creation of a new block.
         ///
@@ -75,6 +75,12 @@ mod model {
         ///
         /// If this period expires the block will request a view change
         pub commit_time_ms: u64,
+        /// Maximal allowed random deviation from the nominal rate
+        ///
+        /// # Warning
+        ///
+        /// This value should be kept as low as possible to not affect soundness of the consensus
+        pub max_clock_drift_ms: u64,
     }
 
     /// Single Sumeragi parameter
@@ -98,6 +104,7 @@ mod model {
     pub enum SumeragiParameter {
         BlockTimeMs(u64),
         CommitTimeMs(u64),
+        MaxClockDriftMs(u64),
     }
 
     /// Limits that a block must obey to be accepted.
@@ -300,6 +307,15 @@ impl core::fmt::Display for Parameter {
 }
 
 impl SumeragiParameters {
+    /// Maximal allowed random deviation from the nominal rate
+    ///
+    /// # Warning
+    ///
+    /// This value should be kept as low as possible to not affect soundness of the consensus
+    pub fn max_clock_drift(&self) -> Duration {
+        Duration::from_millis(self.max_clock_drift_ms)
+    }
+
     /// Maximal amount of time (in milliseconds) a peer will wait before forcing creation of a new block.
     ///
     /// A block is created if this limit or [`BlockParameters::max_transactions`] limit is reached,
@@ -330,12 +346,14 @@ impl SumeragiParameters {
 
 impl Default for SumeragiParameters {
     fn default() -> Self {
-        pub const DEFAULT_BLOCK_TIME: u64 = 2_000;
-        pub const DEFAULT_COMMIT_TIME: u64 = 4_000;
+        pub const DEFAULT_BLOCK_TIME_MS: u64 = 2_000;
+        pub const DEFAULT_COMMIT_TIME_MS: u64 = 4_000;
+        pub const DEFAULT_MAX_CLOCK_DRIFT_MS: u64 = 1_000;
 
         Self {
-            block_time_ms: DEFAULT_BLOCK_TIME,
-            commit_time_ms: DEFAULT_COMMIT_TIME,
+            block_time_ms: DEFAULT_BLOCK_TIME_MS,
+            commit_time_ms: DEFAULT_COMMIT_TIME_MS,
+            max_clock_drift_ms: DEFAULT_MAX_CLOCK_DRIFT_MS,
         }
     }
 }
@@ -389,13 +407,17 @@ impl Parameters {
 
 impl SumeragiParameters {
     /// Construct [`Self`]
-    pub fn new(block_time: Duration, commit_time: Duration) -> Self {
+    pub fn new(block_time: Duration, commit_time: Duration, max_clock_drift: Duration) -> Self {
         Self {
             block_time_ms: block_time
                 .as_millis()
                 .try_into()
                 .expect("INTERNAL BUG: Time should fit into u64"),
             commit_time_ms: commit_time
+                .as_millis()
+                .try_into()
+                .expect("INTERNAL BUG: Time should fit into u64"),
+            max_clock_drift_ms: max_clock_drift
                 .as_millis()
                 .try_into()
                 .expect("INTERNAL BUG: Time should fit into u64"),
@@ -407,6 +429,7 @@ impl SumeragiParameters {
         [
             SumeragiParameter::BlockTimeMs(self.block_time_ms),
             SumeragiParameter::CommitTimeMs(self.commit_time_ms),
+            SumeragiParameter::MaxClockDriftMs(self.max_clock_drift_ms),
         ]
         .into_iter()
     }

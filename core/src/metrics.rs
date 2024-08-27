@@ -116,7 +116,7 @@ impl MetricsReporter {
         if let Some(timestamp) = state_view.genesis_timestamp() {
             let curr_time = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get the current system time");
+                .unwrap();
 
             // this will overflow in 584942417years.
             self.metrics.uptime_since_genesis_ms.set(

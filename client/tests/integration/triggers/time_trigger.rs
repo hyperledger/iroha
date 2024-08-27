@@ -36,7 +36,7 @@ fn curr_time() -> core::time::Duration {
 
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("Failed to get the current system time")
+        .unwrap()
 }
 
 /// Macro to abort compilation, if `e` isn't `true`

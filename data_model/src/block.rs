@@ -5,16 +5,15 @@
 //! starts from `PendingBlock`.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
-use iroha_crypto::{HashOf, MerkleTree, PrivateKey, SignatureOf};
+use iroha_crypto::{HashOf, MerkleTree, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, version_with_scale};
-use nonzero_ext::nonzero;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -73,18 +72,7 @@ mod model {
     }
 
     #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
     #[display(fmt = "({header})")]
     #[allow(missing_docs)]
@@ -271,18 +259,26 @@ impl SignedBlock {
     }
 
     /// Creates genesis block signed with genesis private key (and not signed by any peer)
+    #[cfg(feature = "std")]
     pub fn genesis(
         genesis_transactions: Vec<SignedTransaction>,
-        genesis_private_key: &PrivateKey,
+        genesis_private_key: &iroha_crypto::PrivateKey,
     ) -> SignedBlock {
+        use std::time::SystemTime;
+
+        use nonzero_ext::nonzero;
+
         let transactions_hash = genesis_transactions
             .iter()
             .map(SignedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
             .expect("Tree is not empty");
-        let first_transaction = &genesis_transactions[0];
-        let creation_time_ms = u64::try_from(first_transaction.creation_time().as_millis())
+        let creation_time_ms = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            .try_into()
             .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
         let header = BlockHeader {
             height: nonzero!(1_u64),
@@ -315,6 +311,18 @@ impl SignedBlock {
     }
 }
 
+impl BlockSignature {
+    /// Peer topology index
+    pub fn index(&self) -> u64 {
+        self.0
+    }
+
+    /// Signature itself
+    pub fn payload(&self) -> &SignatureOf<BlockHeader> {
+        &self.1
+    }
+}
+
 mod candidate {
     use parity_scale_codec::Input;
 
@@ -326,12 +334,61 @@ mod candidate {
         payload: BlockPayload,
     }
 
+    #[derive(Decode, Deserialize)]
+    struct BlockPayloadCandidate {
+        header: BlockHeader,
+        transactions: Vec<CommittedTransaction>,
+        event_recommendations: Vec<EventBox>,
+    }
+
+    impl BlockPayloadCandidate {
+        fn validate(self) -> Result<BlockPayload, &'static str> {
+            #[cfg(not(target_family = "wasm"))]
+            {
+                self.validate_header()?;
+            }
+
+            Ok(BlockPayload {
+                header: self.header,
+                transactions: self.transactions,
+                event_recommendations: self.event_recommendations,
+            })
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        fn validate_header(&self) -> Result<(), &'static str> {
+            let actual_txs_hash = self.header.transactions_hash;
+
+            let expected_txs_hash = self
+                .transactions
+                .iter()
+                .map(|value| value.as_ref().hash())
+                .collect::<MerkleTree<_>>()
+                .hash()
+                .ok_or("Block is empty")?;
+
+            if expected_txs_hash != actual_txs_hash {
+                return Err("Transactions' hash incorrect");
+            }
+
+            self.transactions.iter().try_for_each(|tx| {
+                if tx.value.creation_time() >= self.header.creation_time() {
+                    return Err("Transaction creation time is ahead of block creation time");
+                }
+
+                Ok(())
+            })?;
+
+            Ok(())
+        }
+    }
+
     impl SignedBlockCandidate {
         fn validate(self) -> Result<SignedBlockV1, &'static str> {
             #[cfg(not(target_family = "wasm"))]
             {
                 self.validate_signatures()?;
-                self.validate_header()?;
+
                 if self.payload.header.height.get() == 1 {
                     self.validate_genesis()?;
                 }
@@ -341,6 +398,31 @@ mod candidate {
                 signatures: self.signatures,
                 payload: self.payload,
             })
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        fn validate_signatures(&self) -> Result<(), &'static str> {
+            #[cfg(not(feature = "std"))]
+            use alloc::collections::BTreeSet;
+            #[cfg(feature = "std")]
+            use std::collections::BTreeSet;
+
+            if self.signatures.is_empty() && self.payload.header.height.get() != 1 {
+                return Err("Block missing signatures");
+            }
+
+            self.signatures
+                .iter()
+                .map(|signature| signature.0)
+                .try_fold(BTreeSet::new(), |mut acc, elem| {
+                    if !acc.insert(elem) {
+                        return Err("Duplicate signature in block");
+                    }
+
+                    Ok(acc)
+                })?;
+
+            Ok(())
         }
 
         #[cfg(not(target_family = "wasm"))]
@@ -379,51 +461,26 @@ mod candidate {
 
             Ok(())
         }
+    }
 
-        #[cfg(not(target_family = "wasm"))]
-        fn validate_signatures(&self) -> Result<(), &'static str> {
-            #[cfg(not(feature = "std"))]
-            use alloc::collections::BTreeSet;
-            #[cfg(feature = "std")]
-            use std::collections::BTreeSet;
-
-            if self.signatures.is_empty() && self.payload.header.height.get() != 1 {
-                return Err("Block missing signatures");
-            }
-
-            self.signatures
-                .iter()
-                .map(|signature| signature.0)
-                .try_fold(BTreeSet::new(), |mut acc, elem| {
-                    if !acc.insert(elem) {
-                        return Err("Duplicate signature in block");
-                    }
-
-                    Ok(acc)
-                })?;
-
-            Ok(())
+    impl Decode for super::BlockPayload {
+        fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+            BlockPayloadCandidate::decode(input)?
+                .validate()
+                .map_err(Into::into)
         }
+    }
 
-        #[cfg(not(target_family = "wasm"))]
-        fn validate_header(&self) -> Result<(), &'static str> {
-            let actual_txs_hash = self.payload.header.transactions_hash;
+    impl<'de> Deserialize<'de> for super::BlockPayload {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            use serde::de::Error as _;
 
-            let expected_txs_hash = self
-                .payload
-                .transactions
-                .iter()
-                .map(|value| value.as_ref().hash())
-                .collect::<MerkleTree<_>>()
-                .hash()
-                .ok_or("Block is empty")?;
-
-            if expected_txs_hash != actual_txs_hash {
-                return Err("Transactions' hash incorrect. Expected: {expected_txs_hash:?}, actual: {actual_txs_hash:?}");
-            }
-            // TODO: Validate Event recommendations somehow?
-
-            Ok(())
+            BlockPayloadCandidate::deserialize(deserializer)?
+                .validate()
+                .map_err(D::Error::custom)
         }
     }
 
@@ -434,6 +491,7 @@ mod candidate {
                 .map_err(Into::into)
         }
     }
+
     impl<'de> Deserialize<'de> for SignedBlockV1 {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where

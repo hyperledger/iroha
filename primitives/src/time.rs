@@ -51,7 +51,7 @@ impl TimeSource {
         match &self.0 {
             TimeSourceInner::SystemTime => SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get the current system time"),
+                .unwrap(),
             TimeSourceInner::MockTime(time) => *time.lock(),
         }
     }

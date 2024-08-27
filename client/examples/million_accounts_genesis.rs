@@ -35,7 +35,7 @@ fn generate_genesis(
     }
 
     let executor = construct_executor("../default_executor").expect("Failed to construct executor");
-    builder.build_and_sign(executor, chain_id, genesis_key_pair, topology)
+    builder.build_and_sign(chain_id, executor, topology, genesis_key_pair)
 }
 
 fn main_genesis() {

@@ -7,13 +7,10 @@ use iroha_core::{
     query::store::LiveQueryStore,
     smartcontracts::{isi::Registrable as _, Execute},
     state::{State, World},
-    tx::TransactionExecutor,
 };
 use iroha_data_model::{
-    account::AccountId, isi::InstructionBox, parameter::TransactionParameters, prelude::*,
-    transaction::TransactionBuilder,
+    account::AccountId, isi::InstructionBox, prelude::*, transaction::TransactionBuilder,
 };
-use nonzero_ext::nonzero;
 use once_cell::sync::Lazy;
 use test_samples::gen_account_in;
 
@@ -21,9 +18,6 @@ static STARTER_DOMAIN: Lazy<DomainId> = Lazy::new(|| "start".parse().unwrap());
 static STARTER_KEYPAIR: Lazy<KeyPair> = Lazy::new(KeyPair::random);
 static STARTER_ID: Lazy<AccountId> =
     Lazy::new(|| AccountId::new(STARTER_DOMAIN.clone(), STARTER_KEYPAIR.public_key().clone()));
-
-const TRANSACTION_LIMITS: TransactionParameters =
-    TransactionParameters::new(nonzero!(4096_u64), nonzero!(1_u64));
 
 fn build_test_transaction(chain_id: ChainId) -> TransactionBuilder {
     let domain_id: DomainId = "domain".parse().unwrap();
@@ -75,13 +69,24 @@ fn build_test_and_transient_state() -> State {
 
 fn accept_transaction(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
+    let state = build_test_and_transient_state();
+    let (max_clock_drift, tx_limits) = {
+        let state_view = state.world.view();
+        let params = state_view.parameters();
+        (params.sumeragi().max_clock_drift(), params.transaction)
+    };
 
     let transaction = build_test_transaction(chain_id.clone()).sign(STARTER_KEYPAIR.private_key());
     let mut success_count = 0;
     let mut failures_count = 0;
     let _ = criterion.bench_function("accept", |b| {
         b.iter(|| {
-            match AcceptedTransaction::accept(transaction.clone(), &chain_id, TRANSACTION_LIMITS) {
+            match AcceptedTransaction::accept(
+                transaction.clone(),
+                &chain_id,
+                max_clock_drift,
+                tx_limits,
+            ) {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
             }
@@ -111,21 +116,26 @@ fn sign_transaction(criterion: &mut Criterion) {
 
 fn validate_transaction(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
+    let state = build_test_and_transient_state();
+    let (max_clock_drift, tx_limits) = {
+        let state_view = state.world.view();
+        let params = state_view.parameters();
+        (params.sumeragi().max_clock_drift(), params.transaction)
+    };
 
     let transaction = AcceptedTransaction::accept(
         build_test_transaction(chain_id.clone()).sign(STARTER_KEYPAIR.private_key()),
         &chain_id,
-        TRANSACTION_LIMITS,
+        max_clock_drift,
+        tx_limits,
     )
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failure_count = 0;
-    let state = build_test_and_transient_state();
     let _ = criterion.bench_function("validate", move |b| {
-        let transaction_executor = TransactionExecutor::new(TRANSACTION_LIMITS);
         b.iter(|| {
             let mut state_block = state.block();
-            match transaction_executor.validate(transaction.clone(), &mut state_block) {
+            match state_block.validate(transaction.clone()) {
                 Ok(_) => success_count += 1,
                 Err(_) => failure_count += 1,
             }
@@ -136,16 +146,22 @@ fn validate_transaction(criterion: &mut Criterion) {
 
 fn sign_blocks(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
+    let kura = iroha_core::kura::Kura::blank_kura_for_testing();
+    let query_handle = LiveQueryStore::test().start();
+    let state = State::new(World::new(), kura, query_handle);
+    let (max_clock_drift, tx_limits) = {
+        let state_view = state.world.view();
+        let params = state_view.parameters();
+        (params.sumeragi().max_clock_drift(), params.transaction)
+    };
 
     let transaction = AcceptedTransaction::accept(
         build_test_transaction(chain_id.clone()).sign(STARTER_KEYPAIR.private_key()),
         &chain_id,
-        TRANSACTION_LIMITS,
+        max_clock_drift,
+        tx_limits,
     )
     .expect("Failed to accept transaction.");
-    let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::test().start();
-    let state = State::new(World::new(), kura, query_handle);
     let (_, peer_private_key) = KeyPair::random().into_parts();
 
     let mut count = 0;
