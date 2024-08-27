@@ -1,6 +1,7 @@
 {
   "chain": "00000000-0000-0000-0000-000000000000",
   "executor": "./executor.wasm",
+  "topology": [],
   "parameters": {
     "sumeragi": {
       "block_time_ms": 2000,
@@ -24,6 +25,23 @@
     }
   },
   "instructions": [
+    {
+      "Register": {
+        "Domain": {
+          "id": "system",
+          "logo": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "Register": {
+        "Account": {
+          "id": "ed01201F677E0900C2F633391310D12D155112DF65EDF9DC800D13797CEE5DAF47B890@system",
+          "metadata": {}
+        }
+      }
+    },
     {
       "Register": {
         "Domain": {
@@ -149,7 +167,63 @@
           "destination": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
         }
       }
+    },
+    {
+      "Grant": {
+        "Permission": {
+          "object": {
+            "name": "CanRegisterAnyTrigger",
+            "payload": null
+          },
+          "destination": "ed01201F677E0900C2F633391310D12D155112DF65EDF9DC800D13797CEE5DAF47B890@system"
+        }
+      }
+    },
+    {
+      "Grant": {
+        "Permission": {
+          "object": {
+            "name": "CanUnregisterAnyTrigger",
+            "payload": null
+          },
+          "destination": "ed01201F677E0900C2F633391310D12D155112DF65EDF9DC800D13797CEE5DAF47B890@system"
+        }
+      }
     }
   ],
-  "topology": []
+  "wasm_triggers": [
+    {
+      "id": "multisig_domains",
+      "action": {
+        "executable": "multisig_domains",
+        "repeats": "Indefinitely",
+        "authority": "ed01201F677E0900C2F633391310D12D155112DF65EDF9DC800D13797CEE5DAF47B890@system",
+        "filter": {
+          "Data": {
+            "Domain": {
+              "id_matcher": null,
+              "event_set": [
+                "Created",
+                "OwnerChanged"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "multisig_accounts_wonderland",
+      "action": {
+        "executable": "multisig_accounts",
+        "repeats": "Indefinitely",
+        "authority": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland",
+        "filter": {
+          "ExecuteTrigger": {
+            "trigger_id": "multisig_accounts_wonderland",
+            "authority": null
+          }
+        }
+      }
+    }
+  ]
 }

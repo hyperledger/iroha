@@ -23,8 +23,9 @@ members = [
     "executor_custom_data_model",
     "query_assets_and_save_cursor",
     "smart_contract_can_filter_queries",
-    "multisig_register",
-    "multisig",
+    "multisig_accounts",
+    "multisig_domains",
+    "multisig_transactions",
 ]
 
 [profile.dev]

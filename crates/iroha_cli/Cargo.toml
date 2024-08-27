@@ -30,6 +30,7 @@ path = "src/main.rs"
 iroha = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_config_base = { workspace = true }
+executor_custom_data_model = { version = "=2.0.0-rc.1.0", path = "../../wasm_samples/executor_custom_data_model" }
 
 thiserror = { workspace = true }
 error-stack = { workspace = true, features = ["eyre"] }

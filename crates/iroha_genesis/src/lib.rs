@@ -8,12 +8,14 @@ use std::{
     sync::LazyLock,
 };
 
+use derive_more::Constructor;
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     block::SignedBlock, isi::Instruction, parameter::Parameter, peer::Peer, prelude::*,
 };
 use iroha_schema::IntoSchema;
+use iroha_test_samples::load_sample_wasm;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -39,12 +41,13 @@ pub struct RawGenesisTransaction {
     chain: ChainId,
     /// Path to the [`Executor`] file
     executor: ExecutorPath,
+    /// Initial topology
+    topology: Vec<PeerId>,
     /// Parameters
     #[serde(skip_serializing_if = "Option::is_none")]
     parameters: Option<Parameters>,
     instructions: Vec<InstructionBox>,
-    /// Initial topology
-    topology: Vec<PeerId>,
+    wasm_triggers: Vec<GenesisWasmTrigger>,
 }
 
 /// Path to [`Executor`] file
@@ -108,31 +111,34 @@ impl RawGenesisTransaction {
             .parameters
             .map_or(Vec::new(), |parameters| parameters.parameters().collect());
         let genesis = build_and_sign_genesis(
-            self.instructions,
-            executor,
             self.chain,
-            genesis_key_pair,
+            executor,
             self.topology,
             parameters,
+            self.instructions,
+            self.wasm_triggers,
+            genesis_key_pair,
         );
         Ok(genesis)
     }
 }
 
 fn build_and_sign_genesis(
-    instructions: Vec<InstructionBox>,
-    executor: Executor,
     chain_id: ChainId,
-    genesis_key_pair: &KeyPair,
+    executor: Executor,
     topology: Vec<PeerId>,
     parameters: Vec<Parameter>,
+    instructions: Vec<InstructionBox>,
+    wasm_triggers: Vec<GenesisWasmTrigger>,
+    genesis_key_pair: &KeyPair,
 ) -> GenesisBlock {
     let transactions = build_transactions(
-        instructions,
-        executor,
-        parameters,
-        topology,
         chain_id,
+        executor,
+        topology,
+        parameters,
+        instructions,
+        wasm_triggers,
         genesis_key_pair,
     );
     let block = SignedBlock::genesis(transactions, genesis_key_pair.private_key());
@@ -140,11 +146,12 @@ fn build_and_sign_genesis(
 }
 
 fn build_transactions(
-    instructions: Vec<InstructionBox>,
-    executor: Executor,
-    parameters: Vec<Parameter>,
-    topology: Vec<PeerId>,
     chain_id: ChainId,
+    executor: Executor,
+    topology: Vec<PeerId>,
+    parameters: Vec<Parameter>,
+    instructions: Vec<InstructionBox>,
+    wasm_triggers: Vec<GenesisWasmTrigger>,
     genesis_key_pair: &KeyPair,
 ) -> Vec<SignedTransaction> {
     let upgrade_isi = Upgrade::new(executor).into();
@@ -177,8 +184,22 @@ fn build_transactions(
         transactions.push(parameters);
     }
     if !instructions.is_empty() {
-        let transaction_instructions = build_transaction(instructions, chain_id, genesis_key_pair);
+        let transaction_instructions =
+            build_transaction(instructions, chain_id.clone(), genesis_key_pair);
         transactions.push(transaction_instructions);
+    }
+    if !wasm_triggers.is_empty() {
+        let register_wasm_triggers = build_transaction(
+            wasm_triggers
+                .into_iter()
+                .map(Into::into)
+                .map(Register::trigger)
+                .map(InstructionBox::from)
+                .collect(),
+            chain_id,
+            genesis_key_pair,
+        );
+        transactions.push(register_wasm_triggers);
     }
     transactions
 }
@@ -210,8 +231,9 @@ fn get_executor(file: &Path) -> Result<Executor> {
 #[must_use]
 #[derive(Default)]
 pub struct GenesisBuilder {
-    instructions: Vec<InstructionBox>,
     parameters: Vec<Parameter>,
+    instructions: Vec<InstructionBox>,
+    wasm_triggers: Vec<GenesisWasmTrigger>,
 }
 
 /// `Domain` subsection of the [`GenesisBuilder`]. Makes
@@ -219,8 +241,9 @@ pub struct GenesisBuilder {
 /// provide a `DomainId`.
 #[must_use]
 pub struct GenesisDomainBuilder {
-    instructions: Vec<InstructionBox>,
     parameters: Vec<Parameter>,
+    instructions: Vec<InstructionBox>,
+    wasm_triggers: Vec<GenesisWasmTrigger>,
     domain_id: DomainId,
 }
 
@@ -242,8 +265,9 @@ impl GenesisBuilder {
         let new_domain = Domain::new(domain_id.clone()).with_metadata(metadata);
         self.instructions.push(Register::domain(new_domain).into());
         GenesisDomainBuilder {
-            instructions: self.instructions,
             parameters: self.parameters,
+            instructions: self.instructions,
+            wasm_triggers: self.wasm_triggers,
             domain_id,
         }
     }
@@ -260,6 +284,12 @@ impl GenesisBuilder {
         self
     }
 
+    /// Add wasm trigger to the end of registration list
+    pub fn append_wasm_trigger(mut self, wasm_trigger: GenesisWasmTrigger) -> Self {
+        self.wasm_triggers.push(wasm_trigger);
+        self
+    }
+
     /// Finish building, sign, and produce a [`GenesisBlock`].
     pub fn build_and_sign(
         self,
@@ -269,12 +299,13 @@ impl GenesisBuilder {
         genesis_key_pair: &KeyPair,
     ) -> GenesisBlock {
         build_and_sign_genesis(
-            self.instructions,
-            executor_blob,
             chain_id,
-            genesis_key_pair,
+            executor_blob,
             topology,
             self.parameters,
+            self.instructions,
+            self.wasm_triggers,
+            genesis_key_pair,
         )
     }
 
@@ -286,11 +317,12 @@ impl GenesisBuilder {
         topology: Vec<PeerId>,
     ) -> RawGenesisTransaction {
         RawGenesisTransaction {
-            instructions: self.instructions,
-            executor: ExecutorPath(executor_file),
-            parameters: convert_parameters(self.parameters),
             chain: chain_id,
+            executor: ExecutorPath(executor_file),
             topology,
+            parameters: convert_parameters(self.parameters),
+            instructions: self.instructions,
+            wasm_triggers: self.wasm_triggers,
         }
     }
 }
@@ -300,8 +332,9 @@ impl GenesisDomainBuilder {
     /// genesis block building.
     pub fn finish_domain(self) -> GenesisBuilder {
         GenesisBuilder {
-            instructions: self.instructions,
             parameters: self.parameters,
+            instructions: self.instructions,
+            wasm_triggers: self.wasm_triggers,
         }
     }
 
@@ -353,6 +386,53 @@ impl Decode for ExecutorPath {
         input: &mut I,
     ) -> std::result::Result<Self, parity_scale_codec::Error> {
         String::decode(input).map(PathBuf::from).map(ExecutorPath)
+    }
+}
+
+/// For readability of [`RawGenesisTransaction`], briefly denotes a trigger with wasm executable registered in genesis
+#[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, Encode, Decode, Constructor)]
+pub struct GenesisWasmTrigger {
+    id: TriggerId,
+    action: GenesisWasmAction,
+}
+
+/// For readability of [`GenesisWasmTrigger`], briefly denotes an action with wasm executable
+#[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, Encode, Decode)]
+pub struct GenesisWasmAction {
+    /// Expected to be converted by [`iroha_test_samples::load_sample_wasm`]
+    executable: String,
+    repeats: Repeats,
+    authority: AccountId,
+    filter: EventFilterBox,
+}
+
+impl GenesisWasmAction {
+    /// Construct [`GenesisWasmAction`]
+    pub fn new(
+        executable: impl ToString,
+        repeats: impl Into<Repeats>,
+        authority: AccountId,
+        filter: impl Into<EventFilterBox>,
+    ) -> Self {
+        Self {
+            executable: executable.to_string(),
+            repeats: repeats.into(),
+            authority,
+            filter: filter.into(),
+        }
+    }
+}
+
+impl From<GenesisWasmTrigger> for Trigger {
+    fn from(src: GenesisWasmTrigger) -> Self {
+        Trigger::new(src.id, src.action.into())
+    }
+}
+
+impl From<GenesisWasmAction> for Action {
+    fn from(src: GenesisWasmAction) -> Self {
+        let executable = load_sample_wasm(src.executable);
+        Action::new(executable, src.repeats, src.authority, src.filter)
     }
 }
 
