@@ -412,6 +412,44 @@ pub fn wait_for_genesis_committed_with_max_retries(
     );
 }
 
+/// Wait for genesis indefinitely through block stream.
+// TODO: wait is the point of passing offline peers here, instead pass only online peers
+pub async fn wait_for_genesis_committed_events(clients: &[Client], offline_peers: u32) {
+    let mut handles = clients
+        .iter()
+        .cloned()
+        .map(|client| {
+            tokio::spawn(async move {
+                let mut blocks = client
+                    .listen_for_blocks_async(core::num::NonZeroU64::MIN)
+                    .await
+                    .expect("failed to start listening for blocks");
+                let _block = blocks
+                    .next()
+                    .await
+                    .expect("failed to receive genesis block");
+            })
+        })
+        .collect::<FuturesUnordered<_>>();
+
+    let mut completed = 0;
+    let mut failed = 0;
+    while let Some(result) = handles.next().await {
+        if let Err(error) = result {
+            iroha_logger::error!(%error, "client failed to wait for genesis block");
+            failed += 1;
+        } else {
+            completed += 1;
+        }
+        if failed > offline_peers {
+            panic!("more than offline_peers failed to wait for genesis there is no point in waiting further");
+        }
+        if completed > clients.len() - offline_peers as usize {
+            break;
+        }
+    }
+}
+
 /// Peer structure
 pub struct Peer {
     /// The id of the peer
