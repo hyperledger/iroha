@@ -36,7 +36,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DOCKER_COMPOSE_PATH: defaults
+  DEFAULTS_DIR: defaults
 
 jobs:
   build_executor:
@@ -46,13 +46,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Build iroha executor
-        run: mold --run cargo run --bin iroha_wasm_builder -- build ./wasm_samples/default_executor --optimize --out-file ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
+      - name: Build wasm libs
+        run: mold --run cargo run --bin iroha_wasm_builder -- build ./wasm/libs/default_executor --optimize --out-file ${{ env.DEFAULTS_DIR }}/executor.wasm
       - name: Upload executor to reuse in other jobs
         uses: actions/upload-artifact@v4
         with:
           name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
+          path: ${{ env.DEFAULTS_DIR }}/executor.wasm
           retention-days: 1
 
   tests:
@@ -66,7 +66,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}
+          path: ${{ env.DEFAULTS_DIR }}
       - name: Install iroha_wasm_test_runner
         run: which iroha_wasm_test_runner || cargo install --path crates/iroha_wasm_test_runner
       - name: Run smart contract tests on WebAssembly VM

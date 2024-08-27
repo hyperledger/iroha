@@ -9,17 +9,22 @@ use iroha_data_model::{isi::InstructionBox, parameter::Parameters, prelude::*};
 use iroha_executor_data_model::permission::{
     domain::CanRegisterDomain, parameter::CanSetParameters,
 };
-use iroha_genesis::{GenesisBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
+use iroha_genesis::{
+    GenesisBuilder, GenesisWasmAction, GenesisWasmTrigger, RawGenesisTransaction, GENESIS_DOMAIN_ID,
+};
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
 
 use crate::{Outcome, RunArgs};
 
-/// Generate the genesis block that is used in tests
+/// Generate a genesis configuration and standard-output in JSON format
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
-    /// Specifies the `executor_file` <PATH> that will be inserted into the genesis JSON as-is.
+    /// Relative path from the directory of output file to the executor.wasm file
     #[clap(long, value_name = "PATH")]
-    executor_path_in_genesis: PathBuf,
+    executor: PathBuf,
+    /// Relative path from the directory of output file to the directory that contains *.wasm libraries
+    #[clap(long, value_name = "PATH")]
+    wasm_dir: PathBuf,
     #[clap(long, value_name = "MULTI_HASH")]
     genesis_public_key: PublicKey,
     #[clap(subcommand)]
@@ -54,13 +59,14 @@ pub enum Mode {
 impl<T: Write> RunArgs<T> for Args {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
         let Self {
-            executor_path_in_genesis,
+            executor,
+            wasm_dir,
             genesis_public_key,
             mode,
         } = self;
 
         let chain = ChainId::from("00000000-0000-0000-0000-000000000000");
-        let builder = GenesisBuilder::new(chain, executor_path_in_genesis.into());
+        let builder = GenesisBuilder::new(chain, executor, wasm_dir).install_libs();
         let genesis = match mode.unwrap_or_default() {
             Mode::Default => generate_default(builder, genesis_public_key),
             Mode::Synthetic {
@@ -127,9 +133,8 @@ pub fn generate_default(
     );
 
     let parameters = Parameters::default();
-    let parameters = parameters.parameters();
 
-    for parameter in parameters {
+    for parameter in parameters.parameters() {
         builder = builder.append_parameter(parameter);
     }
 
@@ -145,6 +150,24 @@ pub fn generate_default(
     for isi in instructions {
         builder = builder.append_instruction(isi);
     }
+
+    // Manually register a multisig accounts registry for wonderland whose creation in genesis does not trigger the initializer
+    let multisig_accounts_registry_for_wonderland = {
+        let domain_owner = ALICE_ID.clone();
+        let registry_id = "multisig_accounts_wonderland".parse::<TriggerId>().unwrap();
+
+        GenesisWasmTrigger::new(
+            registry_id.clone(),
+            GenesisWasmAction::new(
+                "multisig_accounts.wasm",
+                Repeats::Indefinitely,
+                domain_owner,
+                ExecuteTriggerEventFilter::new().for_trigger(registry_id),
+            ),
+        )
+    };
+
+    builder = builder.append_wasm_trigger(multisig_accounts_registry_for_wonderland);
 
     Ok(builder.build_raw())
 }

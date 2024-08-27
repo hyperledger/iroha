@@ -1,5 +1,5 @@
 //! Example of one custom instruction.
-//! See `wasm_samples/executor_custom_instructions_simple`.
+//! See `wasm/samples/executor_custom_instructions_simple`.
 
 use alloc::{format, string::String, vec::Vec};
 

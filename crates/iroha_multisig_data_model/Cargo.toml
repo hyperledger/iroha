@@ -1,0 +1,19 @@
+[package]
+name = "iroha_multisig_data_model"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_data_model.workspace = true
+iroha_schema.workspace = true
+
+parity-scale-codec = { workspace = true, features = ["derive"] }
+serde.workspace = true
+serde_json.workspace = true
