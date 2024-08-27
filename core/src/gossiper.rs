@@ -4,7 +4,7 @@ use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use iroha_config::parameters::actual::TransactionGossiper as Config;
 use iroha_data_model::{transaction::SignedTransaction, ChainId};
-use iroha_futures::supervisor::{Child, OnShutdown};
+use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
@@ -47,12 +47,12 @@ pub struct TransactionGossiper {
 
 impl TransactionGossiper {
     /// Start [`Self`] actor.
-    pub fn start(self) -> (TransactionGossiperHandle, Child) {
+    pub fn start(self, shutdown_signal: ShutdownSignal) -> (TransactionGossiperHandle, Child) {
         let (message_sender, message_receiver) = mpsc::channel(1);
         (
             TransactionGossiperHandle { message_sender },
             Child::new(
-                tokio::task::spawn(self.run(message_receiver)),
+                tokio::task::spawn(self.run(message_receiver, shutdown_signal)),
                 OnShutdown::Abort,
             ),
         )
@@ -79,7 +79,11 @@ impl TransactionGossiper {
         }
     }
 
-    async fn run(self, mut message_receiver: mpsc::Receiver<TransactionGossip>) {
+    async fn run(
+        self,
+        mut message_receiver: mpsc::Receiver<TransactionGossip>,
+        shutdown_signal: ShutdownSignal,
+    ) {
         let mut gossip_period = tokio::time::interval(self.gossip_period);
         loop {
             tokio::select! {
@@ -87,7 +91,7 @@ impl TransactionGossiper {
                 Some(transaction_gossip) = message_receiver.recv() => {
                     self.handle_transaction_gossip(transaction_gossip);
                 }
-                else => {
+                () = shutdown_signal.receive() => {
                     iroha_logger::info!("Shutting down transactions gossiper");
                     break;
                 },

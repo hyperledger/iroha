@@ -276,7 +276,7 @@ impl Iroha {
             network.clone(),
             Arc::clone(&state),
         )
-        .start();
+        .start(supervisor.shutdown_signal());
         supervisor.monitor(child);
 
         let (tx_gossiper, child) = TransactionGossiper::from_config(
@@ -286,7 +286,7 @@ impl Iroha {
             Arc::clone(&queue),
             Arc::clone(&state),
         )
-        .start();
+        .start(supervisor.shutdown_signal());
         supervisor.monitor(child);
 
         #[cfg(debug_assertions)]

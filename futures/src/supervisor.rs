@@ -160,7 +160,8 @@ impl SupervisorMonitor {
                         ChildExitResult::Ok
                     }
                     Err(err) if err.is_panic() => {
-                        // we could use `err.into_panic()`, but it prints just `Any { .. }`
+                        // we could call `err.into_panic()` and downcast `Any` to `String`,
+                        // but the panic message was most probably already printed
                         iroha_logger::error!("Child panicked");
                         ChildExitResult::Panic
                     }
