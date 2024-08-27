@@ -21,8 +21,9 @@ impl ValidQuery for FindAllBlocks {
     ) -> Result<Box<dyn Iterator<Item = SignedBlock> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
             state_ro
-            .all_blocks(nonzero!(1_usize))
-            .rev().map(|block| (*block).clone()),
+                .all_blocks(nonzero!(1_usize))
+                .rev()
+                .map(|block| (*block).clone()),
         ))
     }
 }

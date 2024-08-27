@@ -1140,7 +1140,7 @@ mod tests {
 
         {
             let mut state_block = state.block();
-            let block = BlockBuilder::new(vec![tx1.clone()])
+            let block = BlockBuilder::new(vec![tx1.clone()], vec![])
                 .chain(0, &mut state_block)
                 .sign(&leader_private_key)
                 .unpack(|_| {})
@@ -1154,7 +1154,7 @@ mod tests {
 
         {
             let mut state_block = state.block_and_revert();
-            let block_soft_fork = BlockBuilder::new(vec![tx1])
+            let block_soft_fork = BlockBuilder::new(vec![tx1], vec![])
                 .chain(1, &mut state_block)
                 .sign(&leader_private_key)
                 .unpack(|_| {})
@@ -1169,7 +1169,7 @@ mod tests {
 
         {
             let mut state_block: crate::state::StateBlock = state.block();
-            let block_next = BlockBuilder::new(vec![tx2])
+            let block_next = BlockBuilder::new(vec![tx2], vec![])
                 .chain(0, &mut state_block)
                 .sign(&leader_private_key)
                 .unpack(|_| {})

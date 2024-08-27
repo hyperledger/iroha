@@ -1163,7 +1163,7 @@ pub mod block {
     use iroha_crypto::HashOf;
     use parity_scale_codec::{Decode, Encode};
 
-    use super::{Query, BlockHeader};
+    use super::{BlockHeader, Query};
 
     queries! {
         /// [`FindAllBlocks`] Iroha Query lists all blocks sorted by
