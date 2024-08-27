@@ -1,17 +1,19 @@
 //! Structures and impls related to *runtime* `Executor`s processing.
 
+use std::sync::Arc;
+
 use derive_more::DebugCustom;
 use iroha_data_model::{
     account::AccountId,
     executor as data_model_executor,
     isi::InstructionBox,
     query::{AnyQueryBox, QueryRequest},
-    transaction::{base64_util::Base64Wrapper, Executable, SignedTransaction},
+    transaction::{Executable, SignedTransaction},
     ValidationFail,
 };
 use iroha_logger::trace;
 use serde::{
-    de::{DeserializeSeed, MapAccess, VariantAccess, Visitor},
+    de::{DeserializeSeed, VariantAccess, Visitor},
     Deserialize, Deserializer, Serialize,
 };
 
@@ -245,7 +247,7 @@ impl Executor {
     /// - Failed to execute entrypoint of the WASM blob.
     pub fn migrate(
         &mut self,
-        raw_executor: &data_model_executor::Executor,
+        raw_executor: data_model_executor::Executor,
         state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
     ) -> Result<(), wasm::error::Error> {
@@ -276,21 +278,21 @@ impl Executor {
 #[derive(DebugCustom, Clone, Serialize)]
 #[debug(fmt = "LoadedExecutor {{ module: <Module is truncated> }}")]
 pub struct LoadedExecutor {
-    #[serde(serialize_with = "wasm::serialize_module_base64")]
+    #[serde(skip)]
     module: wasmtime::Module,
+    /// Arc is needed so cloning of executor will be fast.
+    /// See [`crate::tx::TransactionExecutor::validate_with_runtime_executor`].
+    raw_executor: Arc<data_model_executor::Executor>,
 }
 
 impl LoadedExecutor {
-    fn new(module: wasmtime::Module) -> Self {
-        Self { module }
-    }
-
     fn load(
         engine: &wasmtime::Engine,
-        raw_executor: &data_model_executor::Executor,
+        raw_executor: data_model_executor::Executor,
     ) -> Result<Self, wasm::error::Error> {
         Ok(Self {
             module: wasm::load_module(engine, &raw_executor.wasm)?,
+            raw_executor: Arc::new(raw_executor),
         })
     }
 }
@@ -302,37 +304,15 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, LoadedExecutor> {
     where
         D: serde::Deserializer<'de>,
     {
-        struct LoadedExecutorVisitor<'l> {
-            loader: &'l WasmSeed<'l, LoadedExecutor>,
+        // a copy of `LoadedExecutor` without the `module` field
+        #[derive(Deserialize)]
+        struct LoadedExecutor {
+            raw_executor: data_model_executor::Executor,
         }
 
-        impl<'de> Visitor<'de> for LoadedExecutorVisitor<'_> {
-            type Value = LoadedExecutor;
+        let executor = LoadedExecutor::deserialize(deserializer)?;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("struct LoadedExecutor")
-            }
-
-            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
-            where
-                M: MapAccess<'de>,
-            {
-                while let Some(key) = map.next_key::<String>()? {
-                    if key.as_str() == "module" {
-                        let wrapper: Base64Wrapper = map.next_value()?;
-                        let module = wasm::deserialize_module(self.loader.engine, wrapper.0)
-                            .map_err(serde::de::Error::custom)?;
-                        return Ok(LoadedExecutor::new(module));
-                    }
-                }
-                Err(serde::de::Error::missing_field("module"))
-            }
-        }
-
-        deserializer.deserialize_struct(
-            "LoadedExecutor",
-            &["module"],
-            LoadedExecutorVisitor { loader: &self },
-        )
+        self::LoadedExecutor::load(self.engine, executor.raw_executor)
+            .map_err(serde::de::Error::custom)
     }
 }
