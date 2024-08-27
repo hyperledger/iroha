@@ -63,7 +63,7 @@ fn unstable_network(
         // Note: it is strange that we have `n_offline_peers` but don't set it as offline
         .with_offline_peers(0)
         .create_with_runtime();
-    rt.block_on(wait_for_genesis_committed_events(
+    rt.block_on(wait_for_genesis_committed_async(
         &network.clients(),
         n_offline_peers,
     ));

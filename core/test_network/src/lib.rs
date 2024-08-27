@@ -414,7 +414,7 @@ pub fn wait_for_genesis_committed_with_max_retries(
 
 /// Wait for genesis indefinitely through block stream.
 // TODO: wait is the point of passing offline peers here, instead pass only online peers
-pub async fn wait_for_genesis_committed_events(clients: &[Client], offline_peers: u32) {
+pub async fn wait_for_genesis_committed_async(clients: &[Client], offline_peers: u32) {
     let mut handles = clients
         .iter()
         .cloned()
