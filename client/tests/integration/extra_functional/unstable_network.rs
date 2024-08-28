@@ -8,7 +8,6 @@ use iroha::{
     },
 };
 use iroha_config::parameters::actual::Root as Config;
-use iroha_data_model::transaction::TransactionBuilder;
 use nonzero_ext::nonzero;
 use rand::seq::SliceRandom;
 use test_network::*;
@@ -58,7 +57,7 @@ fn unstable_network(
     {
         configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
     }
-    let (rt, network, iroha) = NetworkBuilder::new(n_peers + n_offline_peers, Some(port))
+    let (rt, network, mut iroha) = NetworkBuilder::new(n_peers + n_offline_peers, Some(port))
         .with_config(configuration)
         // Note: it is strange that we have `n_offline_peers` but don't set it as offline
         .with_offline_peers(0)
@@ -67,6 +66,8 @@ fn unstable_network(
         &network.clients(),
         n_offline_peers,
     ));
+    // Set ttl to max to prevent the case when transaction got expired before end up in the block
+    iroha.transaction_ttl = Some(Duration::from_millis(u64::MAX));
     iroha
         .submit_blocking(SetParameter::new(Parameter::Block(
             BlockParameter::MaxTransactions(nonzero!(5_u64)),
@@ -98,14 +99,8 @@ fn unstable_network(
             quantity,
             AssetId::new(asset_definition_id.clone(), account_id.clone()),
         );
-
-        let mut tx = TransactionBuilder::new(iroha.chain.clone(), iroha.account.clone())
-            .with_instructions([mint_asset]);
-        // Set ttl to max to prevent the case when transaction got expired before end up in the block
-        tx.set_ttl(Duration::from_millis(u64::MAX));
-        let tx = tx.sign(iroha.key_pair.private_key());
         iroha
-            .submit_transaction_blocking(&tx)
+            .submit_blocking(mint_asset)
             .expect("Failed to mint asset.");
 
         account_has_quantity = account_has_quantity.checked_add(quantity).unwrap();
