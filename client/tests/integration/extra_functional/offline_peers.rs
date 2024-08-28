@@ -7,7 +7,6 @@ use iroha::{
         prelude::*,
     },
 };
-use iroha_config::parameters::actual::Root as Config;
 use iroha_primitives::addr::socket_addr;
 use test_network::*;
 use test_samples::ALICE_ID;
@@ -44,10 +43,9 @@ fn register_offline_peer() -> Result<()> {
 
     let (rt, network, client) = Network::start_test_with_runtime(n_peers, Some(11_160));
     rt.block_on(wait_for_genesis_committed_async(&network.clients()));
-    let pipeline_time = Config::pipeline_time();
     let peer_clients = Network::clients(&network);
 
-    check_status(&peer_clients, 1);
+    check_status(&rt, &peer_clients, 1);
 
     let address = socket_addr!(128.0.0.2:8085);
     let key_pair = KeyPair::random();
@@ -57,21 +55,26 @@ fn register_offline_peer() -> Result<()> {
 
     // Wait for some time to allow peers to connect
     client.submit_blocking(register_peer)?;
-    std::thread::sleep(pipeline_time * 2);
 
     // Make sure status hasn't change
-    check_status(&peer_clients, 2);
+    check_status(&rt, &peer_clients, 2);
 
     Ok(())
 }
 
-fn check_status(peer_clients: &[Client], expected_blocks: u64) {
+/// Wait for certain amount of blocks and check number of connected peers
+fn check_status(rt: &tokio::runtime::Runtime, peer_clients: &[Client], expected_blocks: usize) {
     let n_peers = peer_clients.len() as u64;
+
+    rt.block_on(wait_for_blocks_committed_async(
+        peer_clients,
+        expected_blocks,
+    ));
 
     for peer_client in peer_clients {
         let status = peer_client.get_status().unwrap();
 
         assert_eq!(status.peers, n_peers - 1);
-        assert_eq!(status.blocks, expected_blocks);
+        assert_eq!(status.blocks, expected_blocks as u64);
     }
 }
