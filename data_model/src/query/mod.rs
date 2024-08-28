@@ -323,8 +323,8 @@ impl QueryOutput {
     }
 
     /// Split this [`QueryOutput`] into its constituent parts.
-    pub fn into_parts(self) -> (QueryOutputBatchBox, Option<ForwardCursor>) {
-        (self.batch, self.continue_cursor)
+    pub fn into_parts(self) -> (QueryOutputBatchBox, u64, Option<ForwardCursor>) {
+        (self.batch, self.remaining_items, self.continue_cursor)
     }
 }
 

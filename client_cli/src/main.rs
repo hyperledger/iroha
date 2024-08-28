@@ -1176,11 +1176,11 @@ mod json {
                             // we can't really do type-erased iterable queries in a nice way right now...
                             use iroha::data_model::query::builder::QueryExecutor;
 
-                            let (mut first_batch, mut continue_cursor) =
+                            let (mut first_batch, _remaining_items, mut continue_cursor) =
                                 client.start_query(query)?;
 
                             while let Some(cursor) = continue_cursor {
-                                let (next_batch, next_continue_cursor) =
+                                let (next_batch, _remaining_items, next_continue_cursor) =
                                     <Client as QueryExecutor>::continue_query(cursor)?;
 
                                 first_batch.extend(next_batch);

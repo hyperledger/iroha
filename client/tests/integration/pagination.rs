@@ -25,6 +25,33 @@ fn limits_should_work() -> Result<()> {
 }
 
 #[test]
+fn reported_length_should_be_accurate() -> Result<()> {
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_170).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    register_assets(&client)?;
+
+    let mut iter = client
+        .query(asset::all_definitions())
+        .with_pagination(Pagination {
+            limit: Some(nonzero!(7_u64)),
+            offset: 1,
+        })
+        .with_fetch_size(FetchSize::new(Some(nonzero!(3_u64))))
+        .execute()?;
+
+    assert_eq!(iter.len(), 7);
+
+    for _ in 0..4 {
+        iter.next().unwrap().unwrap();
+    }
+
+    assert_eq!(iter.len(), 3);
+
+    Ok(())
+}
+
+#[test]
 fn fetch_size_should_work() -> Result<()> {
     // use the lower-level API to inspect the batch size
     use iroha_data_model::query::{
@@ -49,9 +76,10 @@ fn fetch_size_should_work() -> Result<()> {
             FetchSize::new(Some(nonzero!(3_u64))),
         ),
     );
-    let (first_batch, _continue_cursor) = client.start_query(query)?;
+    let (first_batch, remaining_items, _continue_cursor) = client.start_query(query)?;
 
     assert_eq!(first_batch.len(), 3);
+    assert_eq!(remaining_items, 4);
 
     Ok(())
 }

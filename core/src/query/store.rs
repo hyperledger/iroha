@@ -347,7 +347,7 @@ mod tests {
             )
             .unwrap();
 
-            let (batch, mut current_cursor) = query_store_handle
+            let (batch, _remaining_items, mut current_cursor) = query_store_handle
                 .handle_iter_start(query_output, &ALICE_ID)
                 .unwrap()
                 .into_parts();
@@ -359,7 +359,7 @@ mod tests {
                 let Ok(batched) = query_store_handle.handle_iter_continue(cursor) else {
                     break;
                 };
-                let (batch, cursor) = batched.into_parts();
+                let (batch, _remaining_items, cursor) = batched.into_parts();
                 counter += batch.len();
 
                 current_cursor = cursor;

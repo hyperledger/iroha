@@ -159,7 +159,7 @@ impl QueryExecutor for Client {
     fn start_query(
         &self,
         query: QueryWithParams,
-    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
         let request_head = self.get_query_request_head();
 
         let request = QueryRequest::Start(query);
@@ -167,19 +167,19 @@ impl QueryExecutor for Client {
         let response = request_head.assemble(request).build()?.send()?;
         let response = decode_iterable_query_response(&response)?;
 
-        let (batch, cursor) = response.into_parts();
+        let (batch, remaining_items, cursor) = response.into_parts();
 
         let cursor = cursor.map(|cursor| QueryCursor {
             request_head,
             cursor,
         });
 
-        Ok((batch, cursor))
+        Ok((batch, remaining_items, cursor))
     }
 
     fn continue_query(
         cursor: Self::Cursor,
-    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
         let QueryCursor {
             request_head,
             cursor,
@@ -190,14 +190,14 @@ impl QueryExecutor for Client {
         let response = request_head.assemble(request).build()?.send()?;
         let response = decode_iterable_query_response(&response)?;
 
-        let (batch, cursor) = response.into_parts();
+        let (batch, remaining_items, cursor) = response.into_parts();
 
         let cursor = cursor.map(|cursor| QueryCursor {
             request_head,
             cursor,
         });
 
-        Ok((batch, cursor))
+        Ok((batch, remaining_items, cursor))
     }
 }
 
