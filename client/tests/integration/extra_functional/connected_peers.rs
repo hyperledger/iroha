@@ -9,11 +9,10 @@ use iroha::{
     },
 };
 use iroha_config::parameters::actual::Root as Config;
-use iroha_data_model::{domain::Domain, transaction::TransactionBuilder};
+use iroha_data_model::domain::Domain;
 use iroha_primitives::unique_vec;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
-use tokio::runtime::Runtime;
 
 #[ignore = "ignore, more in #2851"]
 #[test]
@@ -28,7 +27,9 @@ fn connected_peers_with_f_1_0_1() -> Result<()> {
 
 #[test]
 fn register_new_peer() -> Result<()> {
-    let (rt, network, _) = Network::start_test_with_runtime(4, Some(11_180));
+    let (rt, network, mut iroha) = Network::start_test_with_runtime(4, Some(11_180));
+    iroha.transaction_ttl = Some(Duration::from_millis(u64::MAX));
+    iroha.transaction_status_timeout = Duration::from_millis(u64::MAX);
     rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
 
     let mut peer_clients: Vec<_> = Network::peers(&network)
@@ -41,7 +42,6 @@ fn register_new_peer() -> Result<()> {
     let mut configuration = Config::test();
     configuration.sumeragi.trusted_peers.value_mut().others =
         unique_vec![peer_clients.choose(&mut thread_rng()).unwrap().0.id.clone()];
-    let rt = Runtime::test();
     let new_peer = rt.block_on(
         PeerBuilder::new()
             .with_config(configuration)
@@ -49,26 +49,17 @@ fn register_new_peer() -> Result<()> {
             .with_port(11_225)
             .start(),
     );
-    let new_peer_client = Client::test(&new_peer.api_address);
+    let mut new_peer_client = Client::test(&new_peer.api_address);
+    new_peer_client.transaction_ttl = Some(Duration::from_millis(u64::MAX));
+    new_peer_client.transaction_status_timeout = Duration::from_millis(u64::MAX);
 
     let register_peer = Register::peer(DataModelPeer::new(new_peer.id.clone()));
-    peer_clients
-        .choose(&mut thread_rng())
-        .unwrap()
-        .1
-        .submit_blocking(register_peer)?;
+    iroha.submit_blocking(register_peer)?;
 
     // Submit transaction through a new peer and wait for response to check that it is functioning properly
-    let instructions = [Register::domain(Domain::new("dummy".parse().unwrap()))];
-    let mut tx = TransactionBuilder::new(
-        new_peer_client.chain.clone(),
-        new_peer_client.account.clone(),
-    )
-    .with_instructions(instructions);
-    tx.set_ttl(Duration::from_millis(u64::MAX));
-    let tx = new_peer_client.sign_transaction(tx);
+    let isi = Register::domain(Domain::new("dummy".parse().unwrap()));
     new_peer_client
-        .submit_transaction_blocking(&tx)
+        .submit_blocking(isi)
         .expect("failed to submit transaction through new peer");
 
     peer_clients.push((&new_peer, new_peer_client));
@@ -82,12 +73,14 @@ fn register_new_peer() -> Result<()> {
 fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     let n_peers = 3 * faults + 1;
 
-    let (rt, network, _) = Network::start_test_with_runtime(
+    let (rt, network, mut iroha) = Network::start_test_with_runtime(
         (n_peers)
             .try_into()
             .wrap_err("`faults` argument `u64` value too high, cannot convert to `u32`")?,
         start_port,
     );
+    iroha.transaction_ttl = Some(Duration::from_millis(u64::MAX));
+    iroha.transaction_status_timeout = Duration::from_millis(u64::MAX);
     rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
     let pipeline_time = Config::pipeline_time();
 
@@ -98,16 +91,12 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     check_status(&peer_clients, 1);
 
     // Unregister a peer: committed with f = `faults` then `status.peers` decrements
-    let removed_peer_idx = rand::thread_rng().gen_range(0..peer_clients.len());
-    let (removed_peer, _) = &peer_clients[removed_peer_idx];
+    let removed_peer_idx = rand::thread_rng().gen_range(1..peer_clients.len());
+    let (removed_peer, mut removed_peer_client) = peer_clients.remove(removed_peer_idx);
+    removed_peer_client.transaction_ttl = Some(Duration::from_millis(u64::MAX));
+    removed_peer_client.transaction_status_timeout = Duration::from_millis(u64::MAX);
     let unregister_peer = Unregister::peer(removed_peer.id.clone());
-    peer_clients
-        .choose(&mut thread_rng())
-        .unwrap()
-        .1
-        .submit_blocking(unregister_peer)?;
-    thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to connect
-    let (removed_peer, removed_peer_client) = peer_clients.remove(removed_peer_idx);
+    iroha.submit_blocking(unregister_peer)?;
 
     thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to disconnect
 
@@ -119,15 +108,16 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
 
     // Re-register the peer: committed with f = `faults` - 1 then `status.peers` increments
     let register_peer = Register::peer(DataModelPeer::new(removed_peer.id.clone()));
-    peer_clients
-        .choose(&mut thread_rng())
-        .unwrap()
-        .1
-        .submit_blocking(register_peer)?;
-    peer_clients.insert(removed_peer_idx, (removed_peer, removed_peer_client));
-    thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to connect
+    iroha.submit_blocking(register_peer)?;
 
-    check_status(&peer_clients, 3);
+    // Submit transaction by reconnected peer to check if it's functioning
+    removed_peer_client
+        .submit_blocking(Register::domain(Domain::new("dummy".parse().unwrap())))
+        .wrap_err("reconnected peer failed to submit transaction")?;
+
+    peer_clients.push((removed_peer, removed_peer_client));
+
+    check_status(&peer_clients, 4);
 
     Ok(())
 }
