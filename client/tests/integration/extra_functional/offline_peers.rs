@@ -18,7 +18,7 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
     let (rt, network, client) = NetworkBuilder::new(4, Some(10_560))
         .with_offline_peers(1)
         .create_with_runtime();
-    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 1));
+    rt.block_on(wait_for_genesis_committed_async(&network.online_clients()));
 
     //When
     let alice_id = ALICE_ID.clone();
@@ -43,7 +43,7 @@ fn register_offline_peer() -> Result<()> {
     let n_peers = 4;
 
     let (rt, network, client) = Network::start_test_with_runtime(n_peers, Some(11_160));
-    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
+    rt.block_on(wait_for_genesis_committed_async(&network.clients()));
     let pipeline_time = Config::pipeline_time();
     let peer_clients = Network::clients(&network);
 

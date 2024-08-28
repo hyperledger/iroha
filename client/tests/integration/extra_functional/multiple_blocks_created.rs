@@ -17,7 +17,7 @@ const N_BLOCKS: usize = 510;
 fn long_multiple_blocks_created() -> Result<()> {
     // Given
     let (rt, network, client) = Network::start_test_with_runtime(4, Some(10_965));
-    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
+    rt.block_on(wait_for_genesis_committed_async(&network.clients()));
     let pipeline_time = Config::pipeline_time();
 
     client.submit_blocking(SetParameter::new(Parameter::Block(

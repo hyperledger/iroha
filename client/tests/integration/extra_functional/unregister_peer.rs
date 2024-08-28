@@ -16,7 +16,7 @@ use test_samples::gen_account_in;
 fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given a network
     let (rt, network, genesis_client, pipeline_time, account_id, asset_definition_id) = init()?;
-    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
+    rt.block_on(wait_for_genesis_committed_async(&network.clients()));
 
     // When assets are minted
     mint(

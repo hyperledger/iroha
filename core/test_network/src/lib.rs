@@ -44,6 +44,8 @@ pub struct Network {
     ///
     /// [`BTreeMap`] is used in order to have deterministic order of peers.
     pub peers: BTreeMap<PeerId, Peer>,
+    /// Information about peer status
+    peer_infos: BTreeMap<PeerId, PeerInfo>,
 }
 
 /// Get a standardized blockchain id
@@ -223,6 +225,11 @@ impl NetworkBuilder {
         time::sleep(Duration::from_millis(500) * (self.n_peers + 1)).await;
 
         assert_eq!(peer_infos[0], PeerInfo::Online { is_genesis: true });
+        let peer_infos = peers
+            .iter()
+            .map(|peer| peer.id.clone())
+            .zip(peer_infos)
+            .collect();
         let first_peer = peers.remove(0);
         let other_peers = peers
             .into_iter()
@@ -231,6 +238,7 @@ impl NetworkBuilder {
         Network {
             first_peer,
             peers: other_peers,
+            peer_infos,
         }
     }
 
@@ -354,6 +362,14 @@ impl Network {
             .collect()
     }
 
+    /// Get clients of online peers
+    pub fn online_clients(&self) -> Vec<Client> {
+        self.peers()
+            .filter(|peer| matches!(self.peer_infos.get(&peer.id), Some(PeerInfo::Online { .. })))
+            .map(|peer| Client::test(&peer.api_address))
+            .collect()
+    }
+
     /// Get peer by its Id.
     pub fn peer_by_id(&self, id: &PeerId) -> Option<&Peer> {
         self.peers.get(id).or(if self.first_peer.id == *id {
@@ -413,8 +429,12 @@ pub fn wait_for_genesis_committed_with_max_retries(
 }
 
 /// Wait for genesis indefinitely through block stream.
-// TODO: wait is the point of passing offline peers here, instead pass only online peers
-pub async fn wait_for_genesis_committed_async(clients: &[Client], offline_peers: u32) {
+pub async fn wait_for_genesis_committed_async(clients: &[Client]) {
+    wait_for_blocks_committed_async(clients, 1).await;
+}
+
+/// Wait for n blocks committed indefinitely through block stream.
+pub async fn wait_for_blocks_committed_async(clients: &[Client], n: usize) {
     let mut handles = clients
         .iter()
         .cloned()
@@ -424,29 +444,19 @@ pub async fn wait_for_genesis_committed_async(clients: &[Client], offline_peers:
                     .listen_for_blocks_async(core::num::NonZeroU64::MIN)
                     .await
                     .expect("failed to start listening for blocks");
-                let _block = blocks
-                    .next()
-                    .await
-                    .expect("failed to receive genesis block");
+                for _ in 0..n {
+                    let _block = blocks
+                        .next()
+                        .await
+                        .expect("block stream exhausted")
+                        .expect("failed to receive block");
+                }
             })
         })
         .collect::<FuturesUnordered<_>>();
 
-    let mut completed = 0;
-    let mut failed = 0;
     while let Some(result) = handles.next().await {
-        if let Err(error) = result {
-            iroha_logger::error!(%error, "client failed to wait for genesis block");
-            failed += 1;
-        } else {
-            completed += 1;
-        }
-        if failed > offline_peers {
-            panic!("more than offline_peers failed to wait for genesis there is no point in waiting further");
-        }
-        if completed > clients.len() - offline_peers as usize {
-            break;
-        }
+        result.expect("client failed to wait for blocks");
     }
 }
 

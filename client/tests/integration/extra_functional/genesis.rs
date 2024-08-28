@@ -23,7 +23,7 @@ fn multiple_genesis_peers(n_peers: u32, n_genesis_peers: u32, port: u16) {
     let (rt, network, client) = NetworkBuilder::new(n_peers, Some(port))
         .with_genesis_peers(n_genesis_peers)
         .create_with_runtime();
-    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
+    rt.block_on(wait_for_genesis_committed_async(&network.clients()));
 
     let domain_id: DomainId = "foo".parse().expect("Valid");
     let create_domain = Register::domain(Domain::new(domain_id));

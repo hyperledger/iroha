@@ -30,7 +30,7 @@ fn register_new_peer() -> Result<()> {
     let (rt, network, mut iroha) = Network::start_test_with_runtime(4, Some(11_180));
     iroha.transaction_ttl = Some(Duration::from_millis(u64::MAX));
     iroha.transaction_status_timeout = Duration::from_millis(u64::MAX);
-    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
+    rt.block_on(wait_for_genesis_committed_async(&network.clients()));
 
     let mut peer_clients: Vec<_> = Network::peers(&network)
         .zip(Network::clients(&network))
@@ -81,7 +81,7 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     );
     iroha.transaction_ttl = Some(Duration::from_millis(u64::MAX));
     iroha.transaction_status_timeout = Duration::from_millis(u64::MAX);
-    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
+    rt.block_on(wait_for_genesis_committed_async(&network.clients()));
     let pipeline_time = Config::pipeline_time();
 
     let mut peer_clients: Vec<_> = Network::peers(&network)
