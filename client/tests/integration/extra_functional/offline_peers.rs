@@ -15,10 +15,10 @@ use test_samples::ALICE_ID;
 #[test]
 fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
     // Given
-    let (_rt, network, client) = NetworkBuilder::new(4, Some(10_560))
+    let (rt, network, client) = NetworkBuilder::new(4, Some(10_560))
         .with_offline_peers(1)
         .create_with_runtime();
-    wait_for_genesis_committed(&network.clients(), 1);
+    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 1));
 
     //When
     let alice_id = ALICE_ID.clone();
@@ -42,8 +42,8 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
 fn register_offline_peer() -> Result<()> {
     let n_peers = 4;
 
-    let (_rt, network, client) = Network::start_test_with_runtime(n_peers, Some(11_160));
-    wait_for_genesis_committed(&network.clients(), 0);
+    let (rt, network, client) = Network::start_test_with_runtime(n_peers, Some(11_160));
+    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
     let pipeline_time = Config::pipeline_time();
     let peer_clients = Network::clients(&network);
 

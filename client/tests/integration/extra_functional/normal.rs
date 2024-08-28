@@ -7,8 +7,8 @@ use test_network::*;
 
 #[test]
 fn tranasctions_should_be_applied() {
-    let (_rt, network, iroha) = NetworkBuilder::new(4, Some(11_300)).create_with_runtime();
-    wait_for_genesis_committed(&network.clients(), 0);
+    let (rt, network, iroha) = NetworkBuilder::new(4, Some(11_300)).create_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
     iroha
         .submit_blocking(SetParameter::new(Parameter::Block(
             BlockParameter::MaxTransactions(nonzero!(1_u64)),

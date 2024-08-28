@@ -27,8 +27,8 @@ fn connected_peers_with_f_1_0_1() -> Result<()> {
 
 #[test]
 fn register_new_peer() -> Result<()> {
-    let (_rt, network, _) = Network::start_test_with_runtime(4, Some(11_180));
-    wait_for_genesis_committed(&network.clients(), 0);
+    let (rt, network, _) = Network::start_test_with_runtime(4, Some(11_180));
+    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
     let pipeline_time = Config::pipeline_time();
 
     let mut peer_clients: Vec<_> = Network::peers(&network)
@@ -68,13 +68,13 @@ fn register_new_peer() -> Result<()> {
 fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     let n_peers = 3 * faults + 1;
 
-    let (_rt, network, _) = Network::start_test_with_runtime(
+    let (rt, network, _) = Network::start_test_with_runtime(
         (n_peers)
             .try_into()
             .wrap_err("`faults` argument `u64` value too high, cannot convert to `u32`")?,
         start_port,
     );
-    wait_for_genesis_committed(&network.clients(), 0);
+    rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
     let pipeline_time = Config::pipeline_time();
 
     let mut peer_clients: Vec<_> = Network::peers(&network)

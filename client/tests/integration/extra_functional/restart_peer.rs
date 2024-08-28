@@ -20,8 +20,8 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     let mut removed_peer = {
         let n_peers = 4;
 
-        let (_rt, network, _) = Network::start_test_with_runtime(n_peers, Some(11_205));
-        wait_for_genesis_committed(&network.clients(), 0);
+        let (rt, network, _) = Network::start_test_with_runtime(n_peers, Some(11_205));
+        rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
         let pipeline_time = Config::pipeline_time();
         let peer_clients = Network::clients(&network);
 
@@ -75,7 +75,10 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
                 .start_with_peer(&mut removed_peer),
         );
         let removed_peer_client = Client::test(&removed_peer.api_address);
-        wait_for_genesis_committed(&vec![removed_peer_client.clone()], 0);
+        rt.block_on(wait_for_genesis_committed_async(
+            &vec![removed_peer_client.clone()],
+            0,
+        ));
 
         removed_peer_client.poll(|client| {
             let assets = client
