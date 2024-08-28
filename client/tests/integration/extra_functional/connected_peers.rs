@@ -1,4 +1,4 @@
-use std::thread;
+use std::{thread, time::Duration};
 
 use eyre::{Context, Result};
 use iroha::{
@@ -9,6 +9,7 @@ use iroha::{
     },
 };
 use iroha_config::parameters::actual::Root as Config;
+use iroha_data_model::{domain::Domain, transaction::TransactionBuilder};
 use iroha_primitives::unique_vec;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
@@ -29,7 +30,6 @@ fn connected_peers_with_f_1_0_1() -> Result<()> {
 fn register_new_peer() -> Result<()> {
     let (rt, network, _) = Network::start_test_with_runtime(4, Some(11_180));
     rt.block_on(wait_for_genesis_committed_async(&network.clients(), 0));
-    let pipeline_time = Config::pipeline_time();
 
     let mut peer_clients: Vec<_> = Network::peers(&network)
         .zip(Network::clients(&network))
@@ -49,6 +49,7 @@ fn register_new_peer() -> Result<()> {
             .with_port(11_225)
             .start(),
     );
+    let new_peer_client = Client::test(&new_peer.api_address);
 
     let register_peer = Register::peer(DataModelPeer::new(new_peer.id.clone()));
     peer_clients
@@ -56,10 +57,23 @@ fn register_new_peer() -> Result<()> {
         .unwrap()
         .1
         .submit_blocking(register_peer)?;
-    peer_clients.push((&new_peer, Client::test(&new_peer.api_address)));
-    thread::sleep(pipeline_time * 2 * 20); // Wait for some time to allow peers to connect
 
-    check_status(&peer_clients, 2);
+    // Submit transaction through a new peer and wait for response to check that it is functioning properly
+    let instructions = [Register::domain(Domain::new("dummy".parse().unwrap()))];
+    let mut tx = TransactionBuilder::new(
+        new_peer_client.chain.clone(),
+        new_peer_client.account.clone(),
+    )
+    .with_instructions(instructions);
+    tx.set_ttl(Duration::from_millis(u64::MAX));
+    let tx = new_peer_client.sign_transaction(tx);
+    new_peer_client
+        .submit_transaction_blocking(&tx)
+        .expect("failed to submit transaction through new peer");
+
+    peer_clients.push((&new_peer, new_peer_client));
+
+    check_status(&peer_clients, 3);
 
     Ok(())
 }
