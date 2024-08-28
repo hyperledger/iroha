@@ -68,6 +68,7 @@ fn unstable_network(
     ));
     // Set ttl to max to prevent the case when transaction got expired before end up in the block
     iroha.transaction_ttl = Some(Duration::from_millis(u64::MAX));
+    iroha.transaction_status_timeout = Duration::from_millis(u64::MAX);
     iroha
         .submit_blocking(SetParameter::new(Parameter::Block(
             BlockParameter::MaxTransactions(nonzero!(5_u64)),
