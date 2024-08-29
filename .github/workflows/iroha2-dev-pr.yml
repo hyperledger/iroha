@@ -126,7 +126,7 @@ jobs:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
       - name: Run tests
-        run: mold --run cargo test --no-default-features --no-fail-fast -p iroha extra_functional
+        run: mold --run cargo test --no-default-features --no-fail-fast -p iroha extra_functional -- --test-threads=1
 
   # Run the job to check that the docker containers are properly buildable
   pr-generator-build:

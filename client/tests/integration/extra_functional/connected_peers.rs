@@ -57,7 +57,7 @@ fn register_new_peer() -> Result<()> {
         .1
         .submit_blocking(register_peer)?;
     peer_clients.push((&new_peer, Client::test(&new_peer.api_address)));
-    thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to connect
+    thread::sleep(pipeline_time * 2 * 20); // Wait for some time to allow peers to connect
 
     check_status(&peer_clients, 2);
 

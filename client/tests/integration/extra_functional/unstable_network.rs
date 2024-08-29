@@ -82,11 +82,7 @@ fn unstable_network(
     let mut account_has_quantity = Numeric::ZERO;
 
     let mut rng = rand::thread_rng();
-    let freezers = {
-        let mut freezers = network.get_freeze_status_handles();
-        freezers.remove(0); // remove genesis peer
-        freezers
-    };
+    let freezers = network.get_freeze_status_handles();
 
     //When
     for _i in 0..n_transactions {
