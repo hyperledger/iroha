@@ -1,58 +1,28 @@
 {
   "chain": "00000000-0000-0000-0000-000000000000",
   "executor": "./executor.wasm",
-  "parameters": [
-    {
-      "Sumeragi": {
-        "BlockTimeMs": 2000
-      }
+  "parameters": {
+    "sumeragi": {
+      "block_time_ms": 2000,
+      "commit_time_ms": 4000,
+      "max_clock_drift_ms": 1000
     },
-    {
-      "Sumeragi": {
-        "CommitTimeMs": 4000
-      }
+    "block": {
+      "max_transactions": 512
     },
-    {
-      "Sumeragi": {
-        "MaxClockDriftMs": 1000
-      }
+    "transaction": {
+      "max_instructions": 4096,
+      "smart_contract_size": 4194304
     },
-    {
-      "Block": {
-        "MaxTransactions": 512
-      }
+    "executor": {
+      "fuel": 55000000,
+      "memory": 55000000
     },
-    {
-      "Transaction": {
-        "MaxInstructions": 4096
-      }
-    },
-    {
-      "Transaction": {
-        "SmartContractSize": 4194304
-      }
-    },
-    {
-      "Executor": {
-        "Fuel": 55000000
-      }
-    },
-    {
-      "Executor": {
-        "Memory": 55000000
-      }
-    },
-    {
-      "SmartContract": {
-        "Fuel": 55000000
-      }
-    },
-    {
-      "SmartContract": {
-        "Memory": 55000000
-      }
+    "smart_contract": {
+      "fuel": 55000000,
+      "memory": 55000000
     }
-  ],
+  },
   "instructions": [
     {
       "Register": {

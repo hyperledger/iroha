@@ -315,6 +315,7 @@ types!(
     Option<NonZeroU32>,
     Option<NonZeroU64>,
     Option<Option<NonZeroU64>>,
+    Option<Parameters>,
     Option<PeerId>,
     Option<RoleId>,
     Option<TimeInterval>,

@@ -7,7 +7,6 @@ use std::collections::btree_map;
 
 use iroha_data_model_derive::model;
 use iroha_primitives::json::JsonString;
-use nonzero_ext::nonzero;
 
 pub use self::model::*;
 use crate::{name::Name, Identifiable};
@@ -17,6 +16,11 @@ pub(crate) type CustomParameters = btree_map::BTreeMap<CustomParameterId, Custom
 
 #[model]
 mod model {
+    #[cfg(not(feature = "std"))]
+    use alloc::collections::BTreeMap;
+    #[cfg(feature = "std")]
+    use std::collections::BTreeMap;
+
     use derive_more::{Constructor, Display, FromStr};
     use getset::{CopyGetters, Getters};
     use iroha_data_model_derive::IdEqOrdHash;
@@ -70,16 +74,19 @@ mod model {
         ///
         /// A block is created if this limit or [`BlockParameters::max_transactions`] limit is reached,
         /// whichever comes first. Regardless of the limits, an empty block is never created.
+        #[serde(default = "defaults::sumeragi::default_block_time_ms")]
         pub block_time_ms: u64,
         /// Time (in milliseconds) a peer will wait for a block to be committed.
         ///
         /// If this period expires the block will request a view change
+        #[serde(default = "defaults::sumeragi::default_commit_time_ms")]
         pub commit_time_ms: u64,
         /// Maximal allowed random deviation from the nominal rate
         ///
         /// # Warning
         ///
         /// This value should be kept as low as possible to not affect soundness of the consensus
+        #[serde(default = "defaults::sumeragi::default_max_clock_drift_ms")]
         pub max_clock_drift_ms: u64,
     }
 
@@ -129,6 +136,7 @@ mod model {
         ///
         /// A block is created if this limit is reached or [`SumeragiParameters::block_time_ms`] has expired,
         /// whichever comes first. Regardless of the limits, an empty block is never created.
+        #[serde(default = "defaults::block::max_transactions")]
         pub max_transactions: NonZeroU64,
     }
 
@@ -161,8 +169,10 @@ mod model {
     #[getset(get_copy = "pub")]
     pub struct TransactionParameters {
         /// Maximum number of instructions per transaction
+        #[serde(default = "defaults::transaction::max_instructions")]
         pub max_instructions: NonZeroU64,
         /// Maximum size of wasm binary in bytes
+        #[serde(default = "defaults::transaction::smart_contract_size")]
         pub smart_contract_size: NonZeroU64,
     }
 
@@ -196,8 +206,10 @@ mod model {
     #[getset(get_copy = "pub")]
     pub struct SmartContractParameters {
         /// Maximum amount of fuel that a smart contract can consume
+        #[serde(default = "defaults::smart_contract::fuel")]
         pub fuel: NonZeroU64,
         /// Maximum amount of memory that a smart contract can use
+        #[serde(default = "defaults::smart_contract::memory")]
         pub memory: NonZeroU64,
     }
 
@@ -248,21 +260,28 @@ mod model {
     pub struct Parameters {
         /// Sumeragi parameters
         #[getset(get_copy = "pub")]
+        #[serde(default)]
         pub sumeragi: SumeragiParameters,
         /// Block parameters
         #[getset(get_copy = "pub")]
+        #[serde(default)]
         pub block: BlockParameters,
         /// Transaction parameters
         #[getset(get_copy = "pub")]
+        #[serde(default)]
         pub transaction: TransactionParameters,
         /// Executor parameters
         #[getset(get_copy = "pub")]
+        #[serde(default)]
         pub executor: SmartContractParameters,
         /// Smart contract parameters
         #[getset(get_copy = "pub")]
+        #[serde(default)]
         pub smart_contract: SmartContractParameters,
         /// Collection of blockchain specific parameters
         #[getset(get = "pub")]
+        #[serde(default)]
+        #[serde(skip_serializing_if = "BTreeMap::is_empty")]
         pub custom: CustomParameters,
     }
 
@@ -344,45 +363,86 @@ impl SumeragiParameters {
     }
 }
 
+mod defaults {
+    pub mod sumeragi {
+        pub fn default_block_time_ms() -> u64 {
+            2_000
+        }
+        pub fn default_commit_time_ms() -> u64 {
+            4_000
+        }
+        pub fn default_max_clock_drift_ms() -> u64 {
+            1_000
+        }
+    }
+
+    pub mod block {
+        use core::num::NonZeroU64;
+
+        use nonzero_ext::nonzero;
+
+        /// Default value for [`Parameters::MaxTransactionsInBlock`]
+        pub fn default_transactions_in_block() -> NonZeroU64 {
+            nonzero!(2_u64.pow(9))
+        }
+    }
+
+    pub mod transaction {
+        use core::num::NonZeroU64;
+
+        use nonzero_ext::nonzero;
+
+        pub fn default_instruction_number() -> NonZeroU64 {
+            nonzero!(2_u64.pow(12))
+        }
+        pub fn default_smart_contract_size() -> NonZeroU64 {
+            nonzero!(4 * 2_u64.pow(20))
+        }
+    }
+
+    pub mod smart_contract {
+        use core::num::NonZeroU64;
+
+        use nonzero_ext::nonzero;
+
+        pub fn default_fuel() -> NonZeroU64 {
+            nonzero!(55_000_000_u64)
+        }
+        pub fn default_memory() -> NonZeroU64 {
+            nonzero!(55_000_000_u64)
+        }
+    }
+}
+
 impl Default for SumeragiParameters {
     fn default() -> Self {
-        pub const DEFAULT_BLOCK_TIME_MS: u64 = 2_000;
-        pub const DEFAULT_COMMIT_TIME_MS: u64 = 4_000;
-        pub const DEFAULT_MAX_CLOCK_DRIFT_MS: u64 = 1_000;
-
+        use defaults::sumeragi::*;
         Self {
-            block_time_ms: DEFAULT_BLOCK_TIME_MS,
-            commit_time_ms: DEFAULT_COMMIT_TIME_MS,
-            max_clock_drift_ms: DEFAULT_MAX_CLOCK_DRIFT_MS,
+            block_time_ms: default_block_time_ms(),
+            commit_time_ms: default_commit_time_ms(),
+            max_clock_drift_ms: default_max_clock_drift_ms(),
         }
     }
 }
 impl Default for BlockParameters {
     fn default() -> Self {
-        /// Default value for [`Parameters::MaxTransactionsInBlock`]
-        pub const DEFAULT_TRANSACTIONS_IN_BLOCK: NonZeroU64 = nonzero!(2_u64.pow(9));
-
-        Self::new(DEFAULT_TRANSACTIONS_IN_BLOCK)
+        Self::new(defaults::block::default_transactions_in_block())
     }
 }
 
 impl Default for TransactionParameters {
     fn default() -> Self {
-        const DEFAULT_INSTRUCTION_NUMBER: NonZeroU64 = nonzero!(2_u64.pow(12));
-        const DEFAULT_SMART_CONTRACT_SIZE: NonZeroU64 = nonzero!(4 * 2_u64.pow(20));
-
-        Self::new(DEFAULT_INSTRUCTION_NUMBER, DEFAULT_SMART_CONTRACT_SIZE)
+        use defaults::transaction::*;
+        Self::new(default_instruction_number(), default_smart_contract_size())
     }
 }
 
 impl Default for SmartContractParameters {
     fn default() -> Self {
-        const DEFAULT_FUEL: NonZeroU64 = nonzero!(55_000_000_u64);
-        const DEFAULT_MEMORY: NonZeroU64 = nonzero!(55_000_000_u64);
-
+        use defaults::smart_contract::*;
         Self {
-            fuel: DEFAULT_FUEL,
-            memory: DEFAULT_MEMORY,
+            fuel: default_fuel(),
+            memory: default_memory(),
         }
     }
 }

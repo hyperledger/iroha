@@ -2727,6 +2727,9 @@
   "Option<Option<NonZero<u64>>>": {
     "Option": "Option<NonZero<u64>>"
   },
+  "Option<Parameters>": {
+    "Option": "Parameters"
+  },
   "Option<PeerId>": {
     "Option": "PeerId"
   },
@@ -3411,7 +3414,7 @@
       },
       {
         "name": "parameters",
-        "type": "Vec<Parameter>"
+        "type": "Option<Parameters>"
       },
       {
         "name": "instructions",
