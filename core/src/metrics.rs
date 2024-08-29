@@ -4,8 +4,8 @@ use std::{num::NonZeroUsize, sync::Arc, time::SystemTime};
 
 use eyre::{Result, WrapErr as _};
 use iroha_telemetry::metrics::Metrics;
+use mv::storage::StorageReadOnly;
 use parking_lot::Mutex;
-use storage::storage::StorageReadOnly;
 
 use crate::{
     kura::Kura,

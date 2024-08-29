@@ -19,16 +19,16 @@ use iroha_data_model::{
     query::error::FindError,
     transaction::WasmSmartContract,
 };
-use serde::{
-    de::{DeserializeSeed, MapAccess, Visitor},
-    Deserialize, Serialize,
-};
-use storage::{
+use mv::{
     cell::{Block as CellBlock, Cell, Transaction as CellTransaction, View as CellView},
     storage::{
         Block as StorageBlock, Storage, StorageReadOnly, Transaction as StorageTransaction,
         View as StorageView,
     },
+};
+use serde::{
+    de::{DeserializeSeed, MapAccess, Visitor},
+    Deserialize, Serialize,
 };
 use thiserror::Error;
 
@@ -207,11 +207,10 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                             ids = Some(map.next_value()?);
                         }
                         "contracts" => {
-                            contracts =
-                                Some(map.next_value_seed(storage::serde::StorageSeeded {
-                                    kseed: PhantomData,
-                                    vseed: self.loader.cast::<WasmSmartContractEntry>(),
-                                })?);
+                            contracts = Some(map.next_value_seed(mv::serde::StorageSeeded {
+                                kseed: PhantomData,
+                                vseed: self.loader.cast::<WasmSmartContractEntry>(),
+                            })?);
                         }
                         "matched_ids" => {
                             matched_ids = Some(map.next_value()?);
@@ -710,7 +709,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     /// # Errors
     ///
     /// Return [`Err`] if failed to preload wasm trigger
-    fn add_to<F: TriggeringEventFilter + storage::Value>(
+    fn add_to<F: TriggeringEventFilter + mv::Value>(
         &mut self,
         engine: &wasmtime::Engine,
         trigger: SpecializedTrigger<F>,
@@ -872,7 +871,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     /// Note that this function doesn't remove the trigger from [`Set::ids`].
     ///
     /// Returns `true` if trigger was removed and `false` otherwise.
-    fn remove_from<F: storage::Value + EventFilter>(
+    fn remove_from<F: mv::Value + EventFilter>(
         contracts: &mut WasmSmartContractMapTransaction<'block, 'set>,
         triggers: &mut StorageTransaction<'block, 'set, TriggerId, LoadedAction<F>>,
         trigger_id: TriggerId,
@@ -936,7 +935,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     }
 
     /// Remove actions with zero execution count from `triggers`
-    fn remove_zeros<F: storage::Value + EventFilter>(
+    fn remove_zeros<F: mv::Value + EventFilter>(
         ids: &mut StorageTransaction<'block, 'set, TriggerId, TriggeringEventType>,
         contracts: &mut WasmSmartContractMapTransaction<'block, 'set>,
         triggers: &mut StorageTransaction<'block, 'set, TriggerId, LoadedAction<F>>,
