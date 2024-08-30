@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [2.0.0-pre-rc.22.2] - 2024-08-30
+
+### Added
+
+- bounded discrete time (#4928)
+- add missing mathematical operations to `Numeric` (#4976)
+
+### Changed
+
+- sign only block's header, not the whole payload (#5000)
+- use `HashOf<BlockHeader>` as the type of the block hash (#4998)
+- Don't validate transactions inside WASM (#4995)
+
+### Fixed
+
+- remove expired transaction from cache (#4922)
+- Serialize WASM code for snapshots (#5009)
+- correctly handle `replace_top_block` (#4870)
+- validate block sync messages (#4965)
+- prevent redundant blocksync block messages (#4909)
+- use `GET` for blocks stream (#4990)
+- Improve queue transactions handling (#4947)
+- display more error details (#4973)
+- prevent deadlock on simultaneous sending large message (#4948)
+
 ## [2.0.0-pre-rc.22.1] - 2024-07-30
 
 ### Fixed
