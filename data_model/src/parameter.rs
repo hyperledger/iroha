@@ -365,13 +365,13 @@ impl SumeragiParameters {
 
 mod defaults {
     pub mod sumeragi {
-        pub fn default_block_time_ms() -> u64 {
+        pub const fn default_block_time_ms() -> u64 {
             2_000
         }
-        pub fn default_commit_time_ms() -> u64 {
+        pub const fn default_commit_time_ms() -> u64 {
             4_000
         }
-        pub fn default_max_clock_drift_ms() -> u64 {
+        pub const fn default_max_clock_drift_ms() -> u64 {
             1_000
         }
     }
@@ -382,7 +382,7 @@ mod defaults {
         use nonzero_ext::nonzero;
 
         /// Default value for [`Parameters::MaxTransactionsInBlock`]
-        pub fn default_transactions_in_block() -> NonZeroU64 {
+        pub const fn default_transactions_in_block() -> NonZeroU64 {
             nonzero!(2_u64.pow(9))
         }
     }
@@ -392,10 +392,10 @@ mod defaults {
 
         use nonzero_ext::nonzero;
 
-        pub fn default_instruction_number() -> NonZeroU64 {
+        pub const fn default_instruction_number() -> NonZeroU64 {
             nonzero!(2_u64.pow(12))
         }
-        pub fn default_smart_contract_size() -> NonZeroU64 {
+        pub const fn default_smart_contract_size() -> NonZeroU64 {
             nonzero!(4 * 2_u64.pow(20))
         }
     }
@@ -405,10 +405,10 @@ mod defaults {
 
         use nonzero_ext::nonzero;
 
-        pub fn default_fuel() -> NonZeroU64 {
+        pub const fn default_fuel() -> NonZeroU64 {
             nonzero!(55_000_000_u64)
         }
-        pub fn default_memory() -> NonZeroU64 {
+        pub const fn default_memory() -> NonZeroU64 {
             nonzero!(55_000_000_u64)
         }
     }
