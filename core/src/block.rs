@@ -283,7 +283,7 @@ mod valid {
     use commit::CommittedBlock;
     use indexmap::IndexMap;
     use iroha_data_model::{account::AccountId, events::pipeline::PipelineEventBox, ChainId};
-    use storage::storage::StorageReadOnly;
+    use mv::storage::StorageReadOnly;
 
     use super::*;
     use crate::{state::StateBlock, sumeragi::network_topology::Role};

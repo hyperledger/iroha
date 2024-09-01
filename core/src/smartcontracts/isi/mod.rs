@@ -16,7 +16,7 @@ use iroha_data_model::{
     prelude::*,
 };
 use iroha_logger::prelude::*;
-use storage::storage::StorageReadOnly;
+use mv::storage::StorageReadOnly;
 
 use super::Execute;
 use crate::{

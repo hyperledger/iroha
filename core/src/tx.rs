@@ -20,7 +20,7 @@ use iroha_data_model::{
 };
 use iroha_logger::{debug, error};
 use iroha_macro::FromVariant;
-use storage::storage::StorageReadOnly;
+use mv::storage::StorageReadOnly;
 
 use crate::{
     smartcontracts::wasm,

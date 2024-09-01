@@ -24,19 +24,19 @@ use iroha_data_model::{
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::{must_use::MustUse, numeric::Numeric, small::SmallVec};
+use mv::{
+    cell::{Block as CellBlock, Cell, Transaction as CellTransaction, View as CellView},
+    storage::{
+        Block as StorageBlock, RangeIter, Storage, StorageReadOnly,
+        Transaction as StorageTransaction, View as StorageView,
+    },
+};
 use nonzero_ext::nonzero;
 use parking_lot::Mutex;
 use range_bounds::*;
 use serde::{
     de::{DeserializeSeed, MapAccess, Visitor},
     Deserializer, Serialize,
-};
-use storage::{
-    cell::{Block as CellBlock, Cell, Transaction as CellTransaction, View as CellView},
-    storage::{
-        Block as StorageBlock, RangeIter, Storage, StorageReadOnly,
-        Transaction as StorageTransaction, View as StorageView,
-    },
 };
 
 use crate::{
@@ -1871,7 +1871,7 @@ mod range_bounds {
 }
 
 pub(crate) mod deserialize {
-    use storage::serde::CellSeeded;
+    use mv::serde::CellSeeded;
 
     use super::*;
 

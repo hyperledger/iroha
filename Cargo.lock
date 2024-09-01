@@ -910,8 +910,9 @@ dependencies = [
 
 [[package]]
 name = "concread"
-version = "0.5.2"
-source = "git+https://github.com/Erigara/concread.git?rev=bd80db2e85ed179f41aeabc6629e4eb3ec987ed9#bd80db2e85ed179f41aeabc6629e4eb3ec987ed9"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cba00cef522c2597dfbb0a8d1b0ac8ac2b99714f50cc354cda71da63164da0be"
 dependencies = [
  "ahash 0.8.11",
  "arc-swap",
@@ -3024,6 +3025,7 @@ dependencies = [
  "iroha_telemetry",
  "iroha_version",
  "iroha_wasm_codec",
+ "mv",
  "nonzero_ext",
  "once_cell",
  "parity-scale-codec",
@@ -3031,7 +3033,6 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
- "storage",
  "tempfile",
  "test_samples",
  "thiserror",
@@ -4102,6 +4103,16 @@ dependencies = [
  "mime",
  "spin",
  "version_check",
+]
+
+[[package]]
+name = "mv"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "043dac58686a287d11266132477331e8afdc83bd5880dbfeeba8adef565f9303"
+dependencies = [
+ "concread",
+ "serde",
 ]
 
 [[package]]
@@ -5583,15 +5594,6 @@ dependencies = [
  "log",
  "termcolor",
  "thread_local",
-]
-
-[[package]]
-name = "storage"
-version = "0.1.0"
-source = "git+https://github.com/Erigara/storage.git?rev=cf82588d20494a1c1613ea2f4faa1e66bd827b5c#cf82588d20494a1c1613ea2f4faa1e66bd827b5c"
-dependencies = [
- "concread",
- "serde",
 ]
 
 [[package]]
