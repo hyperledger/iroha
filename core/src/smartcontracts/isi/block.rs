@@ -1,14 +1,10 @@
 //! This module contains trait implementations related to block queries
 use eyre::Result;
-use iroha_data_model::{
-    block::BlockHeader,
-    query::{
-        block::FindBlockHeaderByHash,
-        error::{FindError, QueryExecutionFail},
-        predicate::{
-            predicate_atoms::block::{BlockHeaderPredicateBox, SignedBlockPredicateBox},
-            CompoundPredicate,
-        },
+use iroha_data_model::query::{
+    error::QueryExecutionFail,
+    predicate::{
+        predicate_atoms::block::{BlockHeaderPredicateBox, SignedBlockPredicateBox},
+        CompoundPredicate,
     },
 };
 use iroha_telemetry::metrics;
@@ -44,20 +40,5 @@ impl ValidQuery for FindBlockHeaders {
             .rev()
             .filter(move |block| filter.applies(block.header()))
             .map(|block| block.header().clone()))
-    }
-}
-
-impl ValidSingularQuery for FindBlockHeaderByHash {
-    #[metrics(+"find_block_header")]
-    fn execute(&self, state_ro: &impl StateReadOnly) -> Result<BlockHeader, QueryExecutionFail> {
-        let hash = self.hash;
-
-        let block = state_ro
-            .kura()
-            .get_block_height_by_hash(hash)
-            .and_then(|height| state_ro.kura().get_block_by_height(height))
-            .ok_or_else(|| QueryExecutionFail::Find(FindError::Block(hash)))?;
-
-        Ok(block.header().clone())
     }
 }

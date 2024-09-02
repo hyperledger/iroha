@@ -28,7 +28,7 @@ use crate::{
     config::Config,
     crypto::{HashOf, KeyPair},
     data_model::{
-        block::{BlockHeader, SignedBlock},
+        block::SignedBlock,
         events::pipeline::{
             BlockEventFilter, BlockStatus, PipelineEventBox, PipelineEventFilterBox,
             TransactionEventFilter, TransactionStatus,
@@ -1010,11 +1010,6 @@ pub mod block {
     pub const fn all_headers() -> FindBlockHeaders {
         FindBlockHeaders
     }
-
-    /// Construct a query to find block header by hash
-    pub fn header_by_hash(hash: HashOf<BlockHeader>) -> FindBlockHeaderByHash {
-        FindBlockHeaderByHash::new(hash)
-    }
 }
 
 pub mod domain {
@@ -1035,16 +1030,6 @@ pub mod transaction {
     /// Construct a query to find all transactions
     pub fn all() -> FindTransactions {
         FindTransactions
-    }
-
-    /// Construct a query to retrieve transactions for account
-    pub fn by_account_id(account_id: AccountId) -> FindTransactionsByAccountId {
-        FindTransactionsByAccountId::new(account_id)
-    }
-
-    /// Construct a query to retrieve transaction by hash
-    pub fn by_hash(hash: HashOf<SignedTransaction>) -> FindTransactionByHash {
-        FindTransactionByHash::new(hash)
     }
 }
 

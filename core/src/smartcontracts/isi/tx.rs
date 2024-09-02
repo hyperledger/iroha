@@ -8,7 +8,7 @@ use iroha_data_model::{
     block::{BlockHeader, SignedBlock},
     prelude::*,
     query::{
-        error::{FindError, QueryExecutionFail},
+        error::QueryExecutionFail,
         predicate::{
             predicate_atoms::block::TransactionQueryOutputPredicateBox, CompoundPredicate,
         },
@@ -51,14 +51,6 @@ impl BlockTransactionRef {
         self.0.hash()
     }
 
-    fn authority(&self) -> &AccountId {
-        self.0
-            .transactions()
-            .nth(self.1)
-            .expect("The transaction is not found")
-            .as_ref()
-            .authority()
-    }
     fn value(&self) -> CommittedTransaction {
         self.0
             .transactions()
@@ -83,56 +75,5 @@ impl ValidQuery for FindTransactions {
                 transaction: tx.value(),
             })
             .filter(move |tx| filter.applies(tx)))
-    }
-}
-
-impl ValidQuery for FindTransactionsByAccountId {
-    #[metrics(+"find_transactions_by_account_id")]
-    fn execute(
-        self,
-        filter: CompoundPredicate<TransactionQueryOutputPredicateBox>,
-        state_ro: &impl StateReadOnly,
-    ) -> Result<impl Iterator<Item = Self::Item>, QueryExecutionFail> {
-        let account_id = self.account.clone();
-
-        Ok(state_ro
-            .all_blocks(nonzero!(1_usize))
-            .flat_map(BlockTransactionIter::new)
-            .filter(move |tx| *tx.authority() == account_id)
-            .map(|tx| TransactionQueryOutput {
-                block_hash: tx.block_hash(),
-                transaction: tx.value(),
-            })
-            .filter(move |tx| filter.applies(tx)))
-    }
-}
-
-impl ValidSingularQuery for FindTransactionByHash {
-    #[metrics(+"find_transaction_by_hash")]
-    fn execute(
-        &self,
-        state_ro: &impl StateReadOnly,
-    ) -> Result<TransactionQueryOutput, QueryExecutionFail> {
-        let tx_hash = self.hash;
-
-        iroha_logger::trace!(%tx_hash);
-        if !state_ro.has_transaction(tx_hash) {
-            return Err(FindError::Transaction(tx_hash).into());
-        };
-        let block = state_ro
-            .block_with_tx(&tx_hash)
-            .ok_or_else(|| FindError::Transaction(tx_hash))?;
-
-        let block_hash = block.hash();
-
-        let mut transactions = block.transactions();
-        transactions
-            .find(|transaction| transaction.value.hash() == tx_hash)
-            .cloned()
-            .map(|transaction| TransactionQueryOutput {
-                block_hash,
-                transaction,
-            })
-            .ok_or_else(|| FindError::Transaction(tx_hash).into())
     }
 }

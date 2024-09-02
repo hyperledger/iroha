@@ -59,8 +59,6 @@ pub trait Visit {
         visit_find_asset_metadata(&FindAssetMetadata),
         visit_find_asset_definition_metadata(&FindAssetDefinitionMetadata),
         visit_find_trigger_metadata(&FindTriggerMetadata),
-        visit_find_transaction_by_hash(&FindTransactionByHash),
-        visit_find_block_header_by_hash(&FindBlockHeaderByHash),
 
         // Visit IterableQueryBox
         visit_find_domains(&QueryWithFilterFor<FindDomains>),
@@ -71,7 +69,6 @@ pub trait Visit {
         visit_find_role_ids(&QueryWithFilterFor<FindRoleIds>),
         visit_find_permissions_by_account_id(&QueryWithFilterFor<FindPermissionsByAccountId>),
         visit_find_roles_by_account_id(&QueryWithFilterFor<FindRolesByAccountId>),
-        visit_find_transactions_by_account_id(&QueryWithFilterFor<FindTransactionsByAccountId>),
         visit_find_accounts_with_asset(&QueryWithFilterFor<FindAccountsWithAsset>),
         visit_find_peers(&QueryWithFilterFor<FindPeers>),
         visit_find_active_trigger_ids(&QueryWithFilterFor<FindActiveTriggerIds>),
@@ -176,8 +173,6 @@ pub fn visit_singular_query<V: Visit + ?Sized>(
         visit_find_asset_metadata(FindAssetMetadata),
         visit_find_asset_definition_metadata(FindAssetDefinitionMetadata),
         visit_find_trigger_metadata(FindTriggerMetadata),
-        visit_find_transaction_by_hash(FindTransactionByHash),
-        visit_find_block_header_by_hash(FindBlockHeaderByHash),
     }
 }
 
@@ -203,7 +198,6 @@ pub fn visit_iter_query<V: Visit + ?Sized>(
         visit_find_role_ids(FindRoleIds),
         visit_find_permissions_by_account_id(FindPermissionsByAccountId),
         visit_find_roles_by_account_id(FindRolesByAccountId),
-        visit_find_transactions_by_account_id(FindTransactionsByAccountId),
         visit_find_accounts_with_asset(FindAccountsWithAsset),
         visit_find_peers(FindPeers),
         visit_find_active_trigger_ids(FindActiveTriggerIds),
@@ -444,8 +438,6 @@ leaf_visitors! {
     visit_find_asset_metadata(&FindAssetMetadata),
     visit_find_asset_definition_metadata(&FindAssetDefinitionMetadata),
     visit_find_trigger_metadata(&FindTriggerMetadata),
-    visit_find_transaction_by_hash(&FindTransactionByHash),
-    visit_find_block_header_by_hash(&FindBlockHeaderByHash),
 
     // Iterable Query visitors
     visit_find_domains(&QueryWithFilterFor<FindDomains>),
@@ -456,7 +448,6 @@ leaf_visitors! {
     visit_find_role_ids(&QueryWithFilterFor<FindRoleIds>),
     visit_find_permissions_by_account_id(&QueryWithFilterFor<FindPermissionsByAccountId>),
     visit_find_roles_by_account_id(&QueryWithFilterFor<FindRolesByAccountId>),
-    visit_find_transactions_by_account_id(&QueryWithFilterFor<FindTransactionsByAccountId>),
     visit_find_accounts_with_asset(&QueryWithFilterFor<FindAccountsWithAsset>),
     visit_find_peers(&QueryWithFilterFor<FindPeers>),
     visit_find_active_trigger_ids(&QueryWithFilterFor<FindActiveTriggerIds>),

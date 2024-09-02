@@ -95,7 +95,6 @@ mod model {
         FindRoleIds(QueryWithFilterFor<FindRoleIds>),
         FindPermissionsByAccountId(QueryWithFilterFor<FindPermissionsByAccountId>),
         FindRolesByAccountId(QueryWithFilterFor<FindRolesByAccountId>),
-        FindTransactionsByAccountId(QueryWithFilterFor<FindTransactionsByAccountId>),
         FindAccountsWithAsset(QueryWithFilterFor<FindAccountsWithAsset>),
 
         FindPeers(QueryWithFilterFor<FindPeers>),
@@ -142,9 +141,6 @@ mod model {
         FindAssetMetadata(FindAssetMetadata),
         FindAssetDefinitionMetadata(FindAssetDefinitionMetadata),
         FindTriggerMetadata(FindTriggerMetadata),
-
-        FindTransactionByHash(FindTransactionByHash),
-        FindBlockHeaderByHash(FindBlockHeaderByHash),
     }
 
     /// An enum of all possible singular query outputs
@@ -564,7 +560,6 @@ impl_iter_queries! {
     FindPeers => crate::peer::Peer,
     FindActiveTriggerIds => crate::trigger::TriggerId,
     FindTransactions => TransactionQueryOutput,
-    FindTransactionsByAccountId => TransactionQueryOutput,
     FindAccountsWithAsset => crate::account::Account,
     FindBlockHeaders => crate::block::BlockHeader,
     FindBlocks => SignedBlock,
@@ -579,8 +574,6 @@ impl_singular_queries! {
     FindParameters => crate::parameter::Parameters,
     FindTriggerById => crate::trigger::Trigger,
     FindTriggerMetadata => JsonString,
-    FindTransactionByHash => TransactionQueryOutput,
-    FindBlockHeaderByHash => crate::block::BlockHeader,
     FindExecutorDataModel => crate::executor::ExecutorDataModel,
 }
 
@@ -946,9 +939,6 @@ pub mod transaction {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use iroha_crypto::HashOf;
-
-    use crate::{account::AccountId, transaction::SignedTransaction};
 
     queries! {
         /// [`FindTransactions`] Iroha Query lists all transactions included in a blockchain
@@ -956,35 +946,11 @@ pub mod transaction {
         #[display(fmt = "Find all transactions")]
         #[ffi_type]
         pub struct FindTransactions;
-
-        /// [`FindTransactionsByAccountId`] Iroha Query finds all transactions included in a blockchain
-        /// for the account
-        #[derive(Display)]
-        #[display(fmt = "Find all transactions for `{account}` account")]
-        #[repr(transparent)]
-        // SAFETY: `FindTransactionsByAccountId` has no trap representation in `AccountId`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindTransactionsByAccountId {
-            /// Signer's [`AccountId`] under which transactions should be found.
-            pub account: AccountId,
-        }
-
-        /// [`FindTransactionByHash`] Iroha Query finds a transaction (if any)
-        /// with corresponding hash value
-        #[derive(Copy, Display)]
-        #[display(fmt = "Find transaction with `{hash}` hash")]
-        #[repr(transparent)]
-        // SAFETY: `FindTransactionByHash` has no trap representation in `HashOf<SignedTransaction>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindTransactionByHash {
-            /// Transaction hash.
-            pub hash: HashOf<SignedTransaction>,
-        }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindTransactionByHash, FindTransactions, FindTransactionsByAccountId};
+        pub use super::FindTransactions;
     }
 }
 
@@ -997,9 +963,6 @@ pub mod block {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use iroha_crypto::HashOf;
-
-    use super::BlockHeader;
 
     queries! {
         /// [`FindBlocks`] Iroha Query lists all blocks sorted by
@@ -1015,22 +978,11 @@ pub mod block {
         #[display(fmt = "Find all block headers")]
         #[ffi_type]
         pub struct FindBlockHeaders;
-
-        /// [`FindBlockHeaderByHash`] Iroha Query finds block header by block hash
-        #[derive(Copy, Display)]
-        #[display(fmt = "Find block header with `{hash}` hash")]
-        #[repr(transparent)]
-        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `HashOf<BlockHeader>`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindBlockHeaderByHash {
-            /// Block hash.
-            pub hash: HashOf<BlockHeader>,
-        }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindBlockHeaderByHash, FindBlockHeaders, FindBlocks};
+        pub use super::{FindBlockHeaders, FindBlocks};
     }
 }
 
