@@ -532,4 +532,34 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn genesis_parameters_deserialization() {
+        fn test(parameters: &str) {
+            let genesis_json = format!(
+                r#"{{
+              "parameters": {},
+              "chain": "0",
+              "executor": "./executor.wasm",
+              "topology": [],
+              "instructions": []
+            }}"#,
+                parameters
+            );
+            let _genesis: RawGenesisTransaction =
+                serde_json::from_str(&genesis_json).expect("Failed to deserialize");
+        }
+
+        // Empty parameters
+        test("{}");
+        test(
+            r#"{"sumeragi": {}, "block": {}, "transaction": {}, "executor": {}, "smart_contract": {}}"#,
+        );
+
+        // Inner value missing
+        test(r#"{"sumeragi": {"block_time_ms": 2000}}"#);
+        test(r#"{"transaction": {"max_instructions": 4096}}"#);
+        test(r#"{"executor": {"fuel": 55000000}}"#);
+        test(r#"{"smart_contract": {"fuel": 55000000}}"#);
+    }
 }

@@ -74,19 +74,19 @@ mod model {
         ///
         /// A block is created if this limit or [`BlockParameters::max_transactions`] limit is reached,
         /// whichever comes first. Regardless of the limits, an empty block is never created.
-        #[serde(default = "defaults::sumeragi::default_block_time_ms")]
+        #[serde(default = "defaults::sumeragi::block_time_ms")]
         pub block_time_ms: u64,
         /// Time (in milliseconds) a peer will wait for a block to be committed.
         ///
         /// If this period expires the block will request a view change
-        #[serde(default = "defaults::sumeragi::default_commit_time_ms")]
+        #[serde(default = "defaults::sumeragi::commit_time_ms")]
         pub commit_time_ms: u64,
         /// Maximal allowed random deviation from the nominal rate
         ///
         /// # Warning
         ///
         /// This value should be kept as low as possible to not affect soundness of the consensus
-        #[serde(default = "defaults::sumeragi::default_max_clock_drift_ms")]
+        #[serde(default = "defaults::sumeragi::max_clock_drift_ms")]
         pub max_clock_drift_ms: u64,
     }
 
@@ -136,7 +136,6 @@ mod model {
         ///
         /// A block is created if this limit is reached or [`SumeragiParameters::block_time_ms`] has expired,
         /// whichever comes first. Regardless of the limits, an empty block is never created.
-        #[serde(default = "defaults::block::max_transactions")]
         pub max_transactions: NonZeroU64,
     }
 
@@ -169,10 +168,8 @@ mod model {
     #[getset(get_copy = "pub")]
     pub struct TransactionParameters {
         /// Maximum number of instructions per transaction
-        #[serde(default = "defaults::transaction::max_instructions")]
         pub max_instructions: NonZeroU64,
         /// Maximum size of wasm binary in bytes
-        #[serde(default = "defaults::transaction::smart_contract_size")]
         pub smart_contract_size: NonZeroU64,
     }
 
@@ -206,10 +203,8 @@ mod model {
     #[getset(get_copy = "pub")]
     pub struct SmartContractParameters {
         /// Maximum amount of fuel that a smart contract can consume
-        #[serde(default = "defaults::smart_contract::fuel")]
         pub fuel: NonZeroU64,
         /// Maximum amount of memory that a smart contract can use
-        #[serde(default = "defaults::smart_contract::memory")]
         pub memory: NonZeroU64,
     }
 
@@ -365,13 +360,13 @@ impl SumeragiParameters {
 
 mod defaults {
     pub mod sumeragi {
-        pub const fn default_block_time_ms() -> u64 {
+        pub const fn block_time_ms() -> u64 {
             2_000
         }
-        pub const fn default_commit_time_ms() -> u64 {
+        pub const fn commit_time_ms() -> u64 {
             4_000
         }
-        pub const fn default_max_clock_drift_ms() -> u64 {
+        pub const fn max_clock_drift_ms() -> u64 {
             1_000
         }
     }
@@ -382,7 +377,7 @@ mod defaults {
         use nonzero_ext::nonzero;
 
         /// Default value for [`Parameters::MaxTransactionsInBlock`]
-        pub const fn default_transactions_in_block() -> NonZeroU64 {
+        pub const fn max_transactions() -> NonZeroU64 {
             nonzero!(2_u64.pow(9))
         }
     }
@@ -392,10 +387,10 @@ mod defaults {
 
         use nonzero_ext::nonzero;
 
-        pub const fn default_instruction_number() -> NonZeroU64 {
+        pub const fn max_instructions() -> NonZeroU64 {
             nonzero!(2_u64.pow(12))
         }
-        pub const fn default_smart_contract_size() -> NonZeroU64 {
+        pub const fn smart_contract_size() -> NonZeroU64 {
             nonzero!(4 * 2_u64.pow(20))
         }
     }
@@ -405,10 +400,10 @@ mod defaults {
 
         use nonzero_ext::nonzero;
 
-        pub const fn default_fuel() -> NonZeroU64 {
+        pub const fn fuel() -> NonZeroU64 {
             nonzero!(55_000_000_u64)
         }
-        pub const fn default_memory() -> NonZeroU64 {
+        pub const fn memory() -> NonZeroU64 {
             nonzero!(55_000_000_u64)
         }
     }
@@ -418,22 +413,22 @@ impl Default for SumeragiParameters {
     fn default() -> Self {
         use defaults::sumeragi::*;
         Self {
-            block_time_ms: default_block_time_ms(),
-            commit_time_ms: default_commit_time_ms(),
-            max_clock_drift_ms: default_max_clock_drift_ms(),
+            block_time_ms: block_time_ms(),
+            commit_time_ms: commit_time_ms(),
+            max_clock_drift_ms: max_clock_drift_ms(),
         }
     }
 }
 impl Default for BlockParameters {
     fn default() -> Self {
-        Self::new(defaults::block::default_transactions_in_block())
+        Self::new(defaults::block::max_transactions())
     }
 }
 
 impl Default for TransactionParameters {
     fn default() -> Self {
         use defaults::transaction::*;
-        Self::new(default_instruction_number(), default_smart_contract_size())
+        Self::new(max_instructions(), smart_contract_size())
     }
 }
 
@@ -441,8 +436,8 @@ impl Default for SmartContractParameters {
     fn default() -> Self {
         use defaults::smart_contract::*;
         Self {
-            fuel: default_fuel(),
-            memory: default_memory(),
+            fuel: fuel(),
+            memory: memory(),
         }
     }
 }
@@ -576,7 +571,9 @@ mod candidate {
 
     #[derive(Decode, Deserialize)]
     struct TransactionParametersCandidate {
+        #[serde(default = "defaults::transaction::max_instructions")]
         max_instructions: NonZeroU64,
+        #[serde(default = "defaults::transaction::smart_contract_size")]
         smart_contract_size: NonZeroU64,
     }
 
@@ -587,6 +584,7 @@ mod candidate {
 
     #[derive(Decode, Deserialize)]
     struct BlockParametersCandidate {
+        #[serde(default = "super::defaults::block::max_transactions")]
         max_transactions: NonZeroU64,
     }
 
@@ -598,7 +596,9 @@ mod candidate {
 
     #[derive(Decode, Deserialize)]
     struct SmartContractParametersCandidate {
+        #[serde(default = "super::defaults::smart_contract::fuel")]
         fuel: NonZeroU64,
+        #[serde(default = "super::defaults::smart_contract::memory")]
         memory: NonZeroU64,
     }
 
