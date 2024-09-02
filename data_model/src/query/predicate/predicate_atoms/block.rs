@@ -189,3 +189,68 @@ pub mod prelude {
         TransactionHashPredicateBox, TransactionQueryOutputPredicateBox,
     };
 }
+
+#[cfg(test)]
+mod test {
+    use iroha_crypto::{Hash, HashOf};
+
+    use crate::{
+        prelude::{
+            BlockHeaderPredicateBox, CompoundPredicate, SignedBlockPredicateBox,
+            TransactionQueryOutputPredicateBox,
+        },
+        query::predicate::predicate_atoms::block::{
+            BlockHashPredicateBox, CommittedTransactionPredicateBox, SignedTransactionPredicateBox,
+            TransactionErrorPredicateBox, TransactionHashPredicateBox,
+        },
+    };
+
+    #[test]
+    fn transaction_smoke() {
+        let hash = Hash::prehashed([0; 32]);
+
+        let predicate = TransactionQueryOutputPredicateBox::build(|tx| {
+            tx.block_hash.eq(HashOf::from_untyped_unchecked(hash))
+                & tx.transaction.error.is_some()
+                & tx.transaction
+                    .value
+                    .hash
+                    .eq(HashOf::from_untyped_unchecked(hash))
+        });
+
+        assert_eq!(
+            predicate,
+            CompoundPredicate::And(vec![
+                CompoundPredicate::Atom(TransactionQueryOutputPredicateBox::BlockHash(
+                    BlockHashPredicateBox::Equals(HashOf::from_untyped_unchecked(hash))
+                )),
+                CompoundPredicate::Atom(TransactionQueryOutputPredicateBox::Transaction(
+                    CommittedTransactionPredicateBox::Error(TransactionErrorPredicateBox::IsSome)
+                )),
+                CompoundPredicate::Atom(TransactionQueryOutputPredicateBox::Transaction(
+                    CommittedTransactionPredicateBox::Value(SignedTransactionPredicateBox::Hash(
+                        TransactionHashPredicateBox::Equals(HashOf::from_untyped_unchecked(hash))
+                    ))
+                )),
+            ])
+        );
+    }
+
+    #[test]
+    fn block_smoke() {
+        let hash = Hash::prehashed([0; 32]);
+
+        let predicate = SignedBlockPredicateBox::build(|block| {
+            block.header.hash.eq(HashOf::from_untyped_unchecked(hash))
+        });
+
+        assert_eq!(
+            predicate,
+            CompoundPredicate::Atom(SignedBlockPredicateBox::Header(
+                BlockHeaderPredicateBox::Hash(BlockHashPredicateBox::Equals(
+                    HashOf::from_untyped_unchecked(hash)
+                ))
+            ))
+        );
+    }
+}

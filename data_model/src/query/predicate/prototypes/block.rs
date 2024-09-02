@@ -126,7 +126,7 @@ pub struct CommittedTransactionPrototype<Projector> {
     /// Build a predicate on the signed transaction inside
     pub value: SignedTransactionPrototype<CommittedTransactionValueProjector<Projector>>,
     /// Build a predicate on the transaction error
-    pub error: TransactionHashPrototype<CommittedTransactionErrorProjector<Projector>>,
+    pub error: TransactionErrorPrototype<CommittedTransactionErrorProjector<Projector>>,
 }
 
 impl_prototype!(CommittedTransactionPrototype: CommittedTransactionPredicateBox);
