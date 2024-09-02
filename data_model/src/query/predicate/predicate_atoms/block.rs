@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::impl_predicate_box;
 use crate::{
     block::{BlockHeader, SignedBlock},
-    prelude::TransactionRejectionReason,
+    prelude::{AccountIdPredicateBox, TransactionRejectionReason},
     query::{
         predicate::{
             predicate_ast_extensions::AstPredicateExt as _,
@@ -102,6 +102,8 @@ pub enum SignedTransactionPredicateBox {
     // projections
     /// Checks if a predicate applies to the hash of the signed transaction.
     Hash(TransactionHashPredicateBox),
+    /// Checks if a predicate applies to the authority of the signed transaction.
+    Authority(AccountIdPredicateBox),
 }
 
 impl_predicate_box!(SignedTransaction: SignedTransactionPredicateBox);
@@ -110,6 +112,9 @@ impl EvaluatePredicate<SignedTransaction> for SignedTransactionPredicateBox {
     fn applies(&self, input: &SignedTransaction) -> bool {
         match self {
             SignedTransactionPredicateBox::Hash(hash) => hash.applies(&input.hash()),
+            SignedTransactionPredicateBox::Authority(authority) => {
+                authority.applies(input.authority())
+            }
         }
     }
 }
@@ -195,9 +200,10 @@ mod test {
     use iroha_crypto::{Hash, HashOf};
 
     use crate::{
+        account::AccountId,
         prelude::{
-            BlockHeaderPredicateBox, CompoundPredicate, SignedBlockPredicateBox,
-            TransactionQueryOutputPredicateBox,
+            AccountIdPredicateBox, BlockHeaderPredicateBox, CompoundPredicate,
+            SignedBlockPredicateBox, TransactionQueryOutputPredicateBox,
         },
         query::predicate::predicate_atoms::block::{
             BlockHashPredicateBox, CommittedTransactionPredicateBox, SignedTransactionPredicateBox,
@@ -208,10 +214,15 @@ mod test {
     #[test]
     fn transaction_smoke() {
         let hash = Hash::prehashed([0; 32]);
+        let account_id: AccountId =
+            "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+                .parse()
+                .unwrap();
 
         let predicate = TransactionQueryOutputPredicateBox::build(|tx| {
             tx.block_hash.eq(HashOf::from_untyped_unchecked(hash))
                 & tx.transaction.error.is_some()
+                & tx.transaction.value.authority.eq(account_id.clone())
                 & tx.transaction
                     .value
                     .hash
@@ -226,6 +237,13 @@ mod test {
                 )),
                 CompoundPredicate::Atom(TransactionQueryOutputPredicateBox::Transaction(
                     CommittedTransactionPredicateBox::Error(TransactionErrorPredicateBox::IsSome)
+                )),
+                CompoundPredicate::Atom(TransactionQueryOutputPredicateBox::Transaction(
+                    CommittedTransactionPredicateBox::Value(
+                        SignedTransactionPredicateBox::Authority(AccountIdPredicateBox::Equals(
+                            account_id.clone()
+                        ))
+                    )
                 )),
                 CompoundPredicate::Atom(TransactionQueryOutputPredicateBox::Transaction(
                     CommittedTransactionPredicateBox::Value(SignedTransactionPredicateBox::Hash(

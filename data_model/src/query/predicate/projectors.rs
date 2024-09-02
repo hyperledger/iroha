@@ -211,6 +211,7 @@ proj!(SignedBlockHeaderProjector(SignedBlockHeaderProjection): BlockHeaderPredic
 
 // projections on SignedTransaction
 proj!(SignedTransactionHashProjector(SignedTransactionHashProjection): TransactionHashPredicateBox => SignedTransactionPredicateBox::Hash);
+proj!(SignedTransactionAuthorityProjector(SignedTransactionAuthorityProjection): AccountIdPredicateBox => SignedTransactionPredicateBox::Authority);
 
 // projections on CommittedTransaction
 proj!(CommittedTransactionValueProjector(CommittedTransactionValueProjection): SignedTransactionPredicateBox => CommittedTransactionPredicateBox::Value);

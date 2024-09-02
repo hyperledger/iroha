@@ -18,9 +18,10 @@ use crate::{
         projectors::{
             BlockHeaderHashProjector, CommittedTransactionErrorProjector,
             CommittedTransactionValueProjector, ObjectProjector, SignedBlockHeaderProjector,
-            SignedTransactionHashProjector, TransactionQueryOutputBlockHashProjector,
-            TransactionQueryOutputTransactionProjector,
+            SignedTransactionAuthorityProjector, SignedTransactionHashProjector,
+            TransactionQueryOutputBlockHashProjector, TransactionQueryOutputTransactionProjector,
         },
+        prototypes::account::AccountIdPrototype,
         AstPredicate, HasPrototype,
     },
     transaction::SignedTransaction,
@@ -91,6 +92,8 @@ where
 pub struct SignedTransactionPrototype<Projector> {
     /// Build a predicate on hash of this [`SignedTransaction`]
     pub hash: TransactionHashPrototype<SignedTransactionHashProjector<Projector>>,
+    /// Build a predicate on the transaction authority
+    pub authority: AccountIdPrototype<SignedTransactionAuthorityProjector<Projector>>,
 }
 
 impl_prototype!(SignedTransactionPrototype: SignedTransactionPredicateBox);
