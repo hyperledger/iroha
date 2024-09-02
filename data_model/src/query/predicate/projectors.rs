@@ -8,7 +8,9 @@ use core::marker::PhantomData;
 
 use super::{AstPredicate, CompoundPredicate};
 use crate::{
-    prelude::{BlockHeaderPredicateBox, SignedBlockPredicateBox},
+    prelude::{
+        BlockHeaderPredicateBox, SignedBlockPredicateBox, TransactionQueryOutputPredicateBox,
+    },
     query::predicate::{
         predicate_atoms::{
             account::{AccountIdPredicateBox, AccountPredicateBox},
@@ -16,7 +18,11 @@ use crate::{
                 AssetDefinitionIdPredicateBox, AssetDefinitionPredicateBox, AssetIdPredicateBox,
                 AssetPredicateBox, AssetValuePredicateBox,
             },
-            block::BlockHashPredicateBox,
+            block::{
+                BlockHashPredicateBox, CommittedTransactionPredicateBox,
+                SignedTransactionPredicateBox, TransactionErrorPredicateBox,
+                TransactionHashPredicateBox,
+            },
             domain::{DomainIdPredicateBox, DomainPredicateBox},
             role::{RoleIdPredicateBox, RolePredicateBox},
             trigger::{TriggerIdPredicateBox, TriggerPredicateBox},
@@ -202,3 +208,14 @@ proj!(BlockHeaderHashProjector(BlockHeaderHashProjection): BlockHashPredicateBox
 
 // projections on SignedBlock
 proj!(SignedBlockHeaderProjector(SignedBlockHeaderProjection): BlockHeaderPredicateBox => SignedBlockPredicateBox::Header);
+
+// projections on SignedTransaction
+proj!(SignedTransactionHashProjector(SignedTransactionHashProjection): TransactionHashPredicateBox => SignedTransactionPredicateBox::Hash);
+
+// projections on CommittedTransaction
+proj!(CommittedTransactionValueProjector(CommittedTransactionValueProjection): SignedTransactionPredicateBox => CommittedTransactionPredicateBox::Value);
+proj!(CommittedTransactionErrorProjector(CommittedTransactionErrorProjection): TransactionErrorPredicateBox => CommittedTransactionPredicateBox::Error);
+
+// projections on TransactionQueryOutput
+proj!(TransactionQueryOutputTransactionProjector(TransactionQueryOutputTransactionProjection): CommittedTransactionPredicateBox => TransactionQueryOutputPredicateBox::Transaction);
+proj!(TransactionQueryOutputBlockHashProjector(TransactionQueryOutputBlockHashProjection): BlockHashPredicateBox => TransactionQueryOutputPredicateBox::BlockHash);

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::impl_predicate_box;
 use crate::{
     block::{BlockHeader, SignedBlock},
+    prelude::TransactionRejectionReason,
     query::{
         predicate::{
             predicate_ast_extensions::AstPredicateExt as _,
@@ -20,6 +21,7 @@ use crate::{
         },
         TransactionQueryOutput,
     },
+    transaction::{CommittedTransaction, SignedTransaction},
 };
 
 /// A predicate that can be applied to a [`HashOf<BlockHeader>`]
@@ -76,23 +78,114 @@ impl EvaluatePredicate<SignedBlock> for SignedBlockPredicateBox {
     }
 }
 
+/// A predicate that can be applied to a [`HashOf<SignedTransaction>`].
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub enum TransactionHashPredicateBox {
+    // object-specific predicates
+    /// Checks if the input is equal to the expected value.
+    Equals(HashOf<SignedTransaction>),
+}
+
+impl_predicate_box!(HashOf<SignedTransaction>: TransactionHashPredicateBox);
+
+impl EvaluatePredicate<HashOf<SignedTransaction>> for TransactionHashPredicateBox {
+    fn applies(&self, input: &HashOf<SignedTransaction>) -> bool {
+        match self {
+            TransactionHashPredicateBox::Equals(hash) => input == hash,
+        }
+    }
+}
+
+/// A predicate that can be applied to a [`SignedTransaction`]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub enum SignedTransactionPredicateBox {
+    // projections
+    /// Checks if a predicate applies to the hash of the signed transaction.
+    Hash(TransactionHashPredicateBox),
+}
+
+impl_predicate_box!(SignedTransaction: SignedTransactionPredicateBox);
+
+impl EvaluatePredicate<SignedTransaction> for SignedTransactionPredicateBox {
+    fn applies(&self, input: &SignedTransaction) -> bool {
+        match self {
+            SignedTransactionPredicateBox::Hash(hash) => hash.applies(&input.hash()),
+        }
+    }
+}
+
+// TODO: maybe we would want to have a generic `Option` predicate box & predicate
+/// A predicate that can be applied to an [`Option<TransactionRejectionReason>`]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub enum TransactionErrorPredicateBox {
+    // object-specific predicates
+    /// Checks if there was an error while applying the transaction.
+    IsSome,
+}
+
+impl_predicate_box!(Option<TransactionRejectionReason>: TransactionErrorPredicateBox);
+
+impl EvaluatePredicate<Option<TransactionRejectionReason>> for TransactionErrorPredicateBox {
+    fn applies(&self, input: &Option<TransactionRejectionReason>) -> bool {
+        match self {
+            TransactionErrorPredicateBox::IsSome => input.is_some(),
+        }
+    }
+}
+
+/// A predicate that can be applied to a [`CommittedTransaction`]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub enum CommittedTransactionPredicateBox {
+    // projections
+    /// Checks if a predicate applies to the signed transaction inside.
+    Value(SignedTransactionPredicateBox),
+    /// Checks if a predicate applies to the error of the transaction.
+    Error(TransactionErrorPredicateBox),
+}
+
+impl_predicate_box!(CommittedTransaction: CommittedTransactionPredicateBox);
+
+impl EvaluatePredicate<CommittedTransaction> for CommittedTransactionPredicateBox {
+    fn applies(&self, input: &CommittedTransaction) -> bool {
+        match self {
+            CommittedTransactionPredicateBox::Value(signed_transaction) => {
+                signed_transaction.applies(&input.value)
+            }
+            CommittedTransactionPredicateBox::Error(error) => error.applies(&input.error),
+        }
+    }
+}
+
 /// A predicate that can be applied to a [`TransactionQueryOutput`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum TransactionQueryOutputPredicateBox {
-    // nothing here yet
+    // projections
+    /// Checks if a predicate applies to the committed transaction inside.
+    Transaction(CommittedTransactionPredicateBox),
+    /// Checks if a predicate applies to the hash of the block the transaction was included in.
+    BlockHash(BlockHashPredicateBox),
 }
 
 impl_predicate_box!(TransactionQueryOutput: TransactionQueryOutputPredicateBox);
 
 impl EvaluatePredicate<TransactionQueryOutput> for TransactionQueryOutputPredicateBox {
-    fn applies(&self, _input: &TransactionQueryOutput) -> bool {
-        match *self {}
+    fn applies(&self, input: &TransactionQueryOutput) -> bool {
+        match self {
+            TransactionQueryOutputPredicateBox::Transaction(committed_transaction) => {
+                committed_transaction.applies(&input.transaction)
+            }
+            TransactionQueryOutputPredicateBox::BlockHash(block_hash) => {
+                block_hash.applies(&input.block_hash)
+            }
+        }
     }
 }
 
 pub mod prelude {
     //! Re-export all predicate boxes for a glob import `(::*)`
     pub use super::{
-        BlockHashPredicateBox, BlockHeaderPredicateBox, SignedBlockPredicateBox, TransactionQueryOutputPredicateBox,
+        BlockHashPredicateBox, BlockHeaderPredicateBox, CommittedTransactionPredicateBox,
+        SignedBlockPredicateBox, SignedTransactionPredicateBox, TransactionErrorPredicateBox,
+        TransactionHashPredicateBox, TransactionQueryOutputPredicateBox,
     };
 }
