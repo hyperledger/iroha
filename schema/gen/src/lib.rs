@@ -131,6 +131,7 @@ types!(
     AssetValuePredicateBox,
     BlockEvent,
     BlockEventFilter,
+    BlockHashPredicateBox,
     BlockHeader,
     BlockHeaderPredicateBox,
     BlockMessage,

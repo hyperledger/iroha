@@ -7,19 +7,23 @@
 use core::marker::PhantomData;
 
 use super::{AstPredicate, CompoundPredicate};
-use crate::query::predicate::{
-    predicate_atoms::{
-        account::{AccountIdPredicateBox, AccountPredicateBox},
-        asset::{
-            AssetDefinitionIdPredicateBox, AssetDefinitionPredicateBox, AssetIdPredicateBox,
-            AssetPredicateBox, AssetValuePredicateBox,
+use crate::{
+    prelude::{BlockHeaderPredicateBox, SignedBlockPredicateBox},
+    query::predicate::{
+        predicate_atoms::{
+            account::{AccountIdPredicateBox, AccountPredicateBox},
+            asset::{
+                AssetDefinitionIdPredicateBox, AssetDefinitionPredicateBox, AssetIdPredicateBox,
+                AssetPredicateBox, AssetValuePredicateBox,
+            },
+            block::BlockHashPredicateBox,
+            domain::{DomainIdPredicateBox, DomainPredicateBox},
+            role::{RoleIdPredicateBox, RolePredicateBox},
+            trigger::{TriggerIdPredicateBox, TriggerPredicateBox},
+            MetadataPredicateBox, PublicKeyPredicateBox, StringPredicateBox,
         },
-        domain::{DomainIdPredicateBox, DomainPredicateBox},
-        role::{RoleIdPredicateBox, RolePredicateBox},
-        trigger::{TriggerIdPredicateBox, TriggerPredicateBox},
-        MetadataPredicateBox, PublicKeyPredicateBox, StringPredicateBox,
+        predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
     },
-    predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
 };
 
 /// Describes how to convert `AstPredicate<Input>` to `AstPredicate<Output>` by wrapping them in some projection predicate combinator.
@@ -166,7 +170,7 @@ proj!(AssetDefinitionIdNameProjector(AssetDefinitionIdNameProjection): StringPre
 proj!(AssetIdDefinitionIdProjector(AssetIdDefinitionIdProjection): AssetDefinitionIdPredicateBox => AssetIdPredicateBox::DefinitionId);
 proj!(AssetIdAccountIdProjector(AssetIdAccountIdProjection): AccountIdPredicateBox => AssetIdPredicateBox::AccountId);
 
-// projections in AssetDefinition
+// projections on AssetDefinition
 proj!(AssetDefinitionIdProjector(AssetDefinitionIdProjection): AssetDefinitionIdPredicateBox => AssetDefinitionPredicateBox::Id);
 proj!(AssetDefinitionMetadataProjector(AssetDefinitionMetadataProjection): MetadataPredicateBox => AssetDefinitionPredicateBox::Metadata);
 
@@ -187,8 +191,14 @@ proj!(RoleIdNameProjector(RoleIdNameProjection): StringPredicateBox => RoleIdPre
 // projections on Role
 proj!(RoleIdProjector(RoleIdProjection): RoleIdPredicateBox => RolePredicateBox::Id);
 
-// projections in TriggerId
+// projections on TriggerId
 proj!(TriggerIdNameProjector(TriggerIdNameProjection): StringPredicateBox => TriggerIdPredicateBox::Name);
 
-// projections in Trigger
+// projections on Trigger
 proj!(TriggerIdProjector(TriggerIdProjection): TriggerIdPredicateBox => TriggerPredicateBox::Id);
+
+// projections on BlockHeader
+proj!(BlockHeaderHashProjector(BlockHeaderHashProjection): BlockHashPredicateBox => BlockHeaderPredicateBox::Hash);
+
+// projections on SignedBlock
+proj!(SignedBlockHeaderProjector(SignedBlockHeaderProjection): BlockHeaderPredicateBox => SignedBlockPredicateBox::Header);

@@ -2,19 +2,47 @@
 
 use core::marker::PhantomData;
 
+use iroha_crypto::HashOf;
+
 use super::impl_prototype;
-use crate::query::predicate::{
-    predicate_atoms::block::{
-        BlockHeaderPredicateBox, SignedBlockPredicateBox, TransactionQueryOutputPredicateBox,
+use crate::{
+    block::BlockHeader,
+    query::predicate::{
+        predicate_atoms::block::{
+            BlockHashPredicateBox, BlockHeaderPredicateBox, SignedBlockPredicateBox,
+            TransactionQueryOutputPredicateBox,
+        },
+        projectors::{BlockHeaderHashProjector, ObjectProjector, SignedBlockHeaderProjector},
+        AstPredicate, HasPrototype,
     },
-    projectors::ObjectProjector,
-    AstPredicate, HasPrototype,
 };
+
+/// A prototype of [`HashOf<BlockHeader>`] for predicate construction.
+#[derive(Default, Copy, Clone)]
+pub struct BlockHashPrototype<Projector> {
+    phantom: PhantomData<Projector>,
+}
+
+impl_prototype!(BlockHashPrototype: BlockHashPredicateBox);
+
+impl<Projector> BlockHashPrototype<Projector>
+where
+    Projector: ObjectProjector<Input = BlockHashPredicateBox>,
+{
+    /// Creates a predicate that checks if the hash equals the expected value.
+    pub fn eq(
+        &self,
+        expected: HashOf<BlockHeader>,
+    ) -> Projector::ProjectedPredicate<BlockHashPredicateBox> {
+        Projector::project_predicate(BlockHashPredicateBox::Equals(expected))
+    }
+}
 
 /// A prototype of [`crate::block::BlockHeader`] for predicate construction.
 #[derive(Default, Copy, Clone)]
 pub struct BlockHeaderPrototype<Projector> {
-    phantom: PhantomData<Projector>,
+    /// Build a predicate on hash of this [`crate::block::BlockHeader`]
+    pub hash: BlockHashPrototype<BlockHeaderHashProjector<Projector>>,
 }
 
 impl_prototype!(BlockHeaderPrototype: BlockHeaderPredicateBox);
@@ -22,7 +50,8 @@ impl_prototype!(BlockHeaderPrototype: BlockHeaderPredicateBox);
 /// A prototype of [`crate::block::SignedBlock`] for predicate construction.
 #[derive(Default, Copy, Clone)]
 pub struct SignedBlockPrototype<Projector> {
-    phantom: PhantomData<Projector>,
+    /// Build a predicate on header of this [`crate::block::SignedBlock`]
+    pub header: BlockHeaderPrototype<SignedBlockHeaderProjector<Projector>>,
 }
 
 impl_prototype!(SignedBlockPrototype: SignedBlockPredicateBox);
