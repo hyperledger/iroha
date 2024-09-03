@@ -14,7 +14,10 @@ use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::complex_isi::{
     ConditionalExpr, CoreExpr, CustomInstructionExpr, Evaluate, NumericQuery, Value,
 };
-use iroha_executor::{data_model::isi::CustomInstruction, prelude::*};
+use iroha_executor::{
+    data_model::{isi::CustomInstruction, query::builder::SingleQueryError},
+    prelude::*,
+};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -69,8 +72,17 @@ impl executor_custom_data_model::complex_isi::Context for Context {
             NumericQuery::FindAssetQuantityById(q) => {
                 iroha_executor::smart_contract::query_single(q)
             }
-            NumericQuery::FindTotalAssetQuantityByAssetDefinitionId(q) => {
-                iroha_executor::smart_contract::query_single(q)
+            NumericQuery::FindTotalAssetQuantityByAssetDefinitionId(asset_definition_id) => {
+                let asset_definition =
+                    iroha_executor::smart_contract::query(FindAssetsDefinitions::new())
+                        .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id))
+                        .execute_single()
+                        .map_err(|e| match e {
+                            SingleQueryError::QueryError(e) => e,
+                            _ => unreachable!(),
+                        })?;
+
+                Ok(*asset_definition.total_quantity())
             }
         };
 

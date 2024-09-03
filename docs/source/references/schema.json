@@ -295,6 +295,10 @@
       {
         "name": "owned_by",
         "type": "AccountId"
+      },
+      {
+        "name": "total_quantity",
+        "type": "Numeric"
       }
     ]
   },
@@ -1976,14 +1980,6 @@
       {
         "name": "id",
         "type": "AccountId"
-      }
-    ]
-  },
-  "FindTotalAssetQuantityByAssetDefinitionId": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "AssetDefinitionId"
       }
     ]
   },
@@ -4030,48 +4026,43 @@
         "type": "FindParameters"
       },
       {
-        "tag": "FindTotalAssetQuantityByAssetDefinitionId",
-        "discriminant": 3,
-        "type": "FindTotalAssetQuantityByAssetDefinitionId"
-      },
-      {
         "tag": "FindTriggerById",
-        "discriminant": 4,
+        "discriminant": 3,
         "type": "FindTriggerById"
       },
       {
         "tag": "FindDomainMetadata",
-        "discriminant": 5,
+        "discriminant": 4,
         "type": "FindDomainMetadata"
       },
       {
         "tag": "FindAccountMetadata",
-        "discriminant": 6,
+        "discriminant": 5,
         "type": "FindAccountMetadata"
       },
       {
         "tag": "FindAssetMetadata",
-        "discriminant": 7,
+        "discriminant": 6,
         "type": "FindAssetMetadata"
       },
       {
         "tag": "FindAssetDefinitionMetadata",
-        "discriminant": 8,
+        "discriminant": 7,
         "type": "FindAssetDefinitionMetadata"
       },
       {
         "tag": "FindTriggerMetadata",
-        "discriminant": 9,
+        "discriminant": 8,
         "type": "FindTriggerMetadata"
       },
       {
         "tag": "FindTransactionByHash",
-        "discriminant": 10,
+        "discriminant": 9,
         "type": "FindTransactionByHash"
       },
       {
         "tag": "FindBlockHeaderByHash",
-        "discriminant": 11,
+        "discriminant": 10,
         "type": "FindBlockHeaderByHash"
       }
     ]

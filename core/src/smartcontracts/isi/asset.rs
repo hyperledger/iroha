@@ -493,16 +493,6 @@ pub mod query {
         }
     }
 
-    impl ValidSingularQuery for FindTotalAssetQuantityByAssetDefinitionId {
-        #[metrics(+"find_total_asset_quantity_by_asset_definition_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Numeric, Error> {
-            let id = &self.id;
-            iroha_logger::trace!(%id);
-            let asset_value = state_ro.world().asset_total_amount(id)?;
-            Ok(asset_value)
-        }
-    }
-
     impl ValidSingularQuery for FindAssetMetadata {
         #[metrics(+"find_asset_key_value_by_id_and_key")]
         fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {

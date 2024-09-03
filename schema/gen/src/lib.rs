@@ -233,7 +233,6 @@ types!(
     FindExecutorDataModel,
     FindPermissionsByAccountId,
     FindRolesByAccountId,
-    FindTotalAssetQuantityByAssetDefinitionId,
     FindTransactionByHash,
     FindTransactionsByAccountId,
     FindTriggerById,
