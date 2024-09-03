@@ -73,8 +73,6 @@ pub struct World {
     pub(crate) accounts: Storage<AccountId, Account>,
     /// Registered asset definitions.
     pub(crate) asset_definitions: Storage<AssetDefinitionId, AssetDefinition>,
-    /// Registered asset definition total amounts.
-    pub(crate) asset_total_quantities: Storage<AssetDefinitionId, Numeric>,
     /// Registered assets.
     pub(crate) assets: Storage<AssetId, Asset>,
     /// Roles. [`Role`] pairs.
@@ -103,8 +101,6 @@ pub struct WorldBlock<'world> {
     pub(crate) accounts: StorageBlock<'world, AccountId, Account>,
     /// Registered asset definitions.
     pub(crate) asset_definitions: StorageBlock<'world, AssetDefinitionId, AssetDefinition>,
-    /// Registered asset definition total amounts.
-    pub(crate) asset_total_quantities: StorageBlock<'world, AssetDefinitionId, Numeric>,
     /// Registered assets.
     pub(crate) assets: StorageBlock<'world, AssetId, Asset>,
     /// Roles. [`Role`] pairs.
@@ -138,9 +134,6 @@ pub struct WorldTransaction<'block, 'world> {
     /// Registered asset definitions.
     pub(crate) asset_definitions:
         StorageTransaction<'block, 'world, AssetDefinitionId, AssetDefinition>,
-    /// Registered asset definition total amounts.
-    pub(crate) asset_total_quantities:
-        StorageTransaction<'block, 'world, AssetDefinitionId, Numeric>,
     /// Registered assets.
     pub(crate) assets: StorageTransaction<'block, 'world, AssetId, Asset>,
     /// Roles. [`Role`] pairs.
@@ -181,8 +174,6 @@ pub struct WorldView<'world> {
     pub(crate) accounts: StorageView<'world, AccountId, Account>,
     /// Registered asset definitions.
     pub(crate) asset_definitions: StorageView<'world, AssetDefinitionId, AssetDefinition>,
-    /// Registered asset definition total amounts.
-    pub(crate) asset_total_quantities: StorageView<'world, AssetDefinitionId, Numeric>,
     /// Registered assets.
     pub(crate) assets: StorageView<'world, AssetId, Asset>,
     /// Roles. [`Role`] pairs.
@@ -367,7 +358,6 @@ impl World {
             domains: self.domains.block(),
             accounts: self.accounts.block(),
             asset_definitions: self.asset_definitions.block(),
-            asset_total_quantities: self.asset_total_quantities.block(),
             assets: self.assets.block(),
             roles: self.roles.block(),
             account_permissions: self.account_permissions.block(),
@@ -389,7 +379,6 @@ impl World {
             domains: self.domains.block_and_revert(),
             accounts: self.accounts.block_and_revert(),
             asset_definitions: self.asset_definitions.block_and_revert(),
-            asset_total_quantities: self.asset_total_quantities.block_and_revert(),
             assets: self.assets.block_and_revert(),
             roles: self.roles.block_and_revert(),
             account_permissions: self.account_permissions.block_and_revert(),
@@ -411,7 +400,6 @@ impl World {
             domains: self.domains.view(),
             accounts: self.accounts.view(),
             asset_definitions: self.asset_definitions.view(),
-            asset_total_quantities: self.asset_total_quantities.view(),
             assets: self.assets.view(),
             roles: self.roles.view(),
             account_permissions: self.account_permissions.view(),
@@ -433,7 +421,6 @@ pub trait WorldReadOnly {
     fn domains(&self) -> &impl StorageReadOnly<DomainId, Domain>;
     fn accounts(&self) -> &impl StorageReadOnly<AccountId, Account>;
     fn asset_definitions(&self) -> &impl StorageReadOnly<AssetDefinitionId, AssetDefinition>;
-    fn asset_total_quantities(&self) -> &impl StorageReadOnly<AssetDefinitionId, Numeric>;
     fn assets(&self) -> &impl StorageReadOnly<AssetId, Asset>;
     fn roles(&self) -> &impl StorageReadOnly<RoleId, Role>;
     fn account_permissions(&self) -> &impl StorageReadOnly<AccountId, Permissions>;
@@ -666,10 +653,7 @@ pub trait WorldReadOnly {
     /// # Errors
     /// - Asset definition not found
     fn asset_total_amount(&self, definition_id: &AssetDefinitionId) -> Result<Numeric, FindError> {
-        self.asset_total_quantities()
-            .get(definition_id)
-            .ok_or_else(|| FindError::AssetDefinition(definition_id.clone()))
-            .copied()
+        Ok(self.asset_definition(definition_id)?.total_quantity)
     }
 
     /// Get an immutable iterator over the [`PeerId`]s.
@@ -701,9 +685,6 @@ macro_rules! impl_world_ro {
             }
             fn asset_definitions(&self) -> &impl StorageReadOnly<AssetDefinitionId, AssetDefinition> {
                 &self.asset_definitions
-            }
-            fn asset_total_quantities(&self) -> &impl StorageReadOnly<AssetDefinitionId, Numeric> {
-                &self.asset_total_quantities
             }
             fn assets(&self) -> &impl StorageReadOnly<AssetId, Asset> {
                 &self.assets
@@ -749,7 +730,6 @@ impl<'world> WorldBlock<'world> {
             domains: self.domains.transaction(),
             accounts: self.accounts.transaction(),
             asset_definitions: self.asset_definitions.transaction(),
-            asset_total_quantities: self.asset_total_quantities.transaction(),
             assets: self.assets.transaction(),
             roles: self.roles.transaction(),
             account_permissions: self.account_permissions.transaction(),
@@ -773,7 +753,6 @@ impl<'world> WorldBlock<'world> {
             domains,
             accounts,
             asset_definitions,
-            asset_total_quantities,
             assets,
             roles,
             account_permissions,
@@ -792,7 +771,6 @@ impl<'world> WorldBlock<'world> {
         account_permissions.commit();
         roles.commit();
         assets.commit();
-        asset_total_quantities.commit();
         asset_definitions.commit();
         accounts.commit();
         domains.commit();
@@ -811,7 +789,6 @@ impl WorldTransaction<'_, '_> {
             domains,
             accounts,
             asset_definitions,
-            asset_total_quantities,
             assets,
             roles,
             account_permissions,
@@ -829,7 +806,6 @@ impl WorldTransaction<'_, '_> {
         account_permissions.apply();
         roles.apply();
         assets.apply();
-        asset_total_quantities.apply();
         asset_definitions.apply();
         accounts.apply();
         domains.apply();
@@ -967,10 +943,8 @@ impl WorldTransaction<'_, '_> {
         increment: Numeric,
     ) -> Result<(), Error> {
         let asset_total_amount: &mut Numeric =
-            self.asset_total_quantities.get_mut(definition_id).expect(
-                "INTERNAL BUG: Asset total amount not found. \
-                Insert initial total amount on `Register<AssetDefinition>`",
-            );
+            &mut self.asset_definition_mut(definition_id)?.total_quantity;
+
         *asset_total_amount = asset_total_amount
             .checked_add(increment)
             .ok_or(MathError::Overflow)?;
@@ -999,10 +973,8 @@ impl WorldTransaction<'_, '_> {
         decrement: Numeric,
     ) -> Result<(), Error> {
         let asset_total_amount: &mut Numeric =
-            self.asset_total_quantities.get_mut(definition_id).expect(
-                "INTERNAL BUG: Asset total amount not found. \
-                Insert initial total amount on `Register<AssetDefinition>`",
-            );
+            &mut self.asset_definition_mut(definition_id)?.total_quantity;
+
         *asset_total_amount = asset_total_amount
             .checked_sub(decrement)
             .ok_or(MathError::NotEnoughQuantity)?;
@@ -1967,7 +1939,6 @@ pub(crate) mod deserialize {
                     let mut domains = None;
                     let mut accounts = None;
                     let mut asset_definitions = None;
-                    let mut asset_total_quantities = None;
                     let mut assets = None;
                     let mut roles = None;
                     let mut account_permissions = None;
@@ -1992,9 +1963,6 @@ pub(crate) mod deserialize {
                             }
                             "asset_definitions" => {
                                 asset_definitions = Some(map.next_value()?);
-                            }
-                            "asset_total_quantities" => {
-                                asset_total_quantities = Some(map.next_value()?);
                             }
                             "assets" => {
                                 assets = Some(map.next_value()?);
@@ -2036,9 +2004,6 @@ pub(crate) mod deserialize {
                             .ok_or_else(|| serde::de::Error::missing_field("accounts"))?,
                         asset_definitions: asset_definitions
                             .ok_or_else(|| serde::de::Error::missing_field("asset_definitions"))?,
-                        asset_total_quantities: asset_total_quantities.ok_or_else(|| {
-                            serde::de::Error::missing_field("asset_total_quantities")
-                        })?,
                         assets: assets.ok_or_else(|| serde::de::Error::missing_field("assets"))?,
                         roles: roles.ok_or_else(|| serde::de::Error::missing_field("roles"))?,
                         account_permissions: account_permissions.ok_or_else(|| {

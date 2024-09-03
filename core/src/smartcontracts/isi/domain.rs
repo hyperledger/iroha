@@ -156,11 +156,6 @@ pub mod isi {
 
             state_transaction
                 .world
-                .asset_total_quantities
-                .insert(asset_definition_id.clone(), Numeric::ZERO);
-
-            state_transaction
-                .world
                 .asset_definitions
                 .insert(asset_definition_id.clone(), asset_definition.clone());
 
@@ -219,11 +214,6 @@ pub mod isi {
             let _ = state_transaction
                 .world
                 .domain(&asset_definition_id.domain)?;
-
-            state_transaction
-                .world
-                .asset_total_quantities
-                .remove(asset_definition_id.clone());
 
             events.push(DataEvent::from(AssetDefinitionEvent::Deleted(
                 asset_definition_id,

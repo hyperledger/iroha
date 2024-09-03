@@ -23,6 +23,7 @@ impl Registrable for NewAssetDefinition {
             logo: self.logo,
             metadata: self.metadata,
             owned_by: authority.clone(),
+            total_quantity: Numeric::ZERO,
         }
     }
 }
