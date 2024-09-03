@@ -169,10 +169,6 @@ pub mod isi {
                     .world
                     .asset_definitions
                     .remove(asset_definition_id.clone());
-                state_transaction
-                    .world
-                    .asset_total_quantities
-                    .remove(asset_definition_id);
             }
 
             if state_transaction

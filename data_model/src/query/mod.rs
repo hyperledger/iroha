@@ -135,7 +135,6 @@ mod model {
         FindAssetQuantityById(FindAssetQuantityById),
         FindExecutorDataModel(FindExecutorDataModel),
         FindParameters(FindParameters),
-        FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
         FindTriggerById(FindTriggerById),
 
         FindDomainMetadata(FindDomainMetadata),
@@ -567,7 +566,6 @@ impl_iter_queries! {
 impl_singular_queries! {
     FindAccountMetadata => JsonString,
     FindAssetQuantityById => Numeric,
-    FindTotalAssetQuantityByAssetDefinitionId => Numeric,
     FindAssetMetadata => JsonString,
     FindAssetDefinitionMetadata => JsonString,
     FindDomainMetadata => JsonString,
@@ -764,19 +762,6 @@ pub mod asset {
             pub id: AssetId,
         }
 
-        /// [`FindTotalAssetQuantityByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and finds total [`Asset::quantity`]
-        /// if [`AssetDefinitionId`] is presented in Iroha Peer.
-        /// In case of `Store` asset value type total quantity is sum of assets through all accounts with provided [`AssetDefinitionId`].
-        #[derive(Display)]
-        #[display(fmt = "Find total quantity of the `{id}` asset")]
-        #[repr(transparent)]
-        // SAFETY: `FindTotalAssetQuantityByAssetDefinitionId` has no trap representation in `AssetDefinitionId`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindTotalAssetQuantityByAssetDefinitionId {
-            /// `Id` of an [`Asset`] to find quantity of.
-            pub id: AssetDefinitionId,
-        }
-
         /// [`FindAssetMetadata`] Iroha Query gets [`AssetId`] and key as input and finds [`MetadataValue`]
         /// of the key-value pair stored in this asset.
         #[derive(Display)]
@@ -806,7 +791,7 @@ pub mod asset {
     pub mod prelude {
         pub use super::{
             FindAssetDefinitionMetadata, FindAssetMetadata, FindAssetQuantityById, FindAssets,
-            FindAssetsDefinitions, FindTotalAssetQuantityByAssetDefinitionId,
+            FindAssetsDefinitions,
         };
     }
 }

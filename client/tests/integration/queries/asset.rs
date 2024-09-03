@@ -1,13 +1,9 @@
 use eyre::Result;
 use iroha::{
     client::{Client, QueryError},
-    data_model::{
-        asset::AssetValue,
-        isi::Instruction,
-        prelude::*,
-        query::{asset::FindTotalAssetQuantityByAssetDefinitionId, error::QueryExecutionFail},
-    },
+    data_model::{asset::AssetValue, isi::Instruction, prelude::*},
 };
+use iroha_data_model::query::builder::SingleQueryError;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
 
@@ -76,10 +72,17 @@ fn find_asset_total_quantity() -> Result<()> {
         .map(|account_id| AssetId::new(definition_id.clone(), account_id))
         .collect::<Vec<_>>();
 
+    let get_quantity = || -> Result<Numeric, SingleQueryError<QueryError>> {
+        Ok(test_client
+            .query(FindAssetsDefinitions::new())
+            .filter_with(|asset_definition| asset_definition.id.eq(definition_id.clone()))
+            .execute_single()?
+            .total_quantity)
+    };
+
     // Assert that initial total quantity before any registrations and unregistrations is zero
-    let initial_total_asset_quantity = test_client.query_single(
-        FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
-    )?;
+    let initial_total_asset_quantity = get_quantity()?;
+
     assert!(initial_total_asset_quantity.is_zero());
 
     let register_assets = asset_ids
@@ -91,9 +94,7 @@ fn find_asset_total_quantity() -> Result<()> {
     test_client.submit_all_blocking(register_assets)?;
 
     // Assert that total quantity is equal to number of registrations
-    let result = test_client.query_single(FindTotalAssetQuantityByAssetDefinitionId::new(
-        definition_id.clone(),
-    ))?;
+    let result = get_quantity()?;
     assert_eq!(numeric!(5), result);
 
     let unregister_assets = asset_ids
@@ -104,24 +105,15 @@ fn find_asset_total_quantity() -> Result<()> {
     test_client.submit_all_blocking(unregister_assets)?;
 
     // Assert that total asset quantity is zero after unregistering asset from all accounts
-    let total_asset_quantity = test_client.query_single(
-        FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
-    )?;
+    let total_asset_quantity = get_quantity()?;
     assert!(total_asset_quantity.is_zero());
 
     // Unregister asset definition
     test_client.submit_blocking(Unregister::asset_definition(definition_id.clone()))?;
 
     // Assert that total asset quantity cleared with unregistering of asset definition
-    let result = test_client.query_single(FindTotalAssetQuantityByAssetDefinitionId::new(
-        definition_id,
-    ));
-    assert!(matches!(
-        result,
-        Err(QueryError::Validation(ValidationFail::QueryFailed(
-            QueryExecutionFail::Find(_)
-        )))
-    ));
+    let result = get_quantity();
+    assert!(matches!(result, Err(SingleQueryError::ExpectedOneGotNone)));
 
     Ok(())
 }
@@ -156,10 +148,16 @@ where
         .map(|account_id| AssetId::new(definition_id.clone(), account_id))
         .collect::<Vec<_>>();
 
+    let get_quantity = || -> Result<Numeric, SingleQueryError<QueryError>> {
+        Ok(test_client
+            .query(FindAssetsDefinitions::new())
+            .filter_with(|asset_definition| asset_definition.id.eq(definition_id.clone()))
+            .execute_single()?
+            .total_quantity)
+    };
+
     // Assert that initial total quantity before any burns and mints is zero
-    let initial_total_asset_quantity = test_client.query_single(
-        FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
-    )?;
+    let initial_total_asset_quantity = get_quantity()?;
     assert!(initial_total_asset_quantity.is_zero());
 
     let register_assets = asset_ids
@@ -184,9 +182,7 @@ where
     test_client.submit_all_blocking(burn_assets)?;
 
     // Assert that total asset quantity is equal to: `n_accounts * (initial_value + to_mint - to_burn)`
-    let total_asset_quantity = test_client.query_single(
-        FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
-    )?;
+    let total_asset_quantity = get_quantity()?;
     assert_eq!(expected_total_asset_quantity, total_asset_quantity);
 
     let unregister_assets = asset_ids
@@ -197,24 +193,15 @@ where
     test_client.submit_all_blocking(unregister_assets)?;
 
     // Assert that total asset quantity is zero after unregistering asset from all accounts
-    let total_asset_quantity = test_client.query_single(
-        FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
-    )?;
+    let total_asset_quantity = get_quantity()?;
     assert!(total_asset_quantity.is_zero());
 
     // Unregister asset definition
     test_client.submit_blocking(Unregister::asset_definition(definition_id.clone()))?;
 
     // Assert that total asset quantity cleared with unregistering of asset definition
-    let result = test_client.query_single(FindTotalAssetQuantityByAssetDefinitionId::new(
-        definition_id,
-    ));
-    assert!(matches!(
-        result,
-        Err(QueryError::Validation(ValidationFail::QueryFailed(
-            QueryExecutionFail::Find(_)
-        )))
-    ));
+    let result = get_quantity();
+    assert!(matches!(result, Err(SingleQueryError::ExpectedOneGotNone)));
 
     Ok(())
 }

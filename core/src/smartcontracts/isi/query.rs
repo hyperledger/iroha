@@ -245,9 +245,6 @@ impl ValidQueryRequest {
                     SingularQueryBox::FindParameters(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
-                    SingularQueryBox::FindTotalAssetQuantityByAssetDefinitionId(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
                     SingularQueryBox::FindTriggerById(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }

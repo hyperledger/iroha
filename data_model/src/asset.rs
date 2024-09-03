@@ -127,6 +127,11 @@ mod model {
         /// The account that owns this asset. Usually the [`Account`] that registered it.
         #[getset(get = "pub")]
         pub owned_by: AccountId,
+        /// The total amount of this asset in existence.
+        ///
+        /// For numeric assets - it is the sum of all asset values. For store assets - it is the count of all assets.
+        #[getset(get = "pub")]
+        pub total_quantity: Numeric,
     }
 
     /// Asset represents some sort of commodity or value.

@@ -124,8 +124,9 @@ mod expression {
     use core::marker::PhantomData;
 
     use iroha_data_model::{
+        asset::AssetDefinitionId,
         isi::InstructionBox,
-        prelude::{FindAssetQuantityById, FindTotalAssetQuantityByAssetDefinitionId, Numeric},
+        prelude::{FindAssetQuantityById, Numeric},
     };
     use iroha_schema::{IntoSchema, TypeId};
     use serde::{Deserialize, Serialize};
@@ -151,18 +152,12 @@ mod expression {
     #[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
     pub enum NumericQuery {
         FindAssetQuantityById(FindAssetQuantityById),
-        FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
+        FindTotalAssetQuantityByAssetDefinitionId(AssetDefinitionId),
     }
 
     impl From<FindAssetQuantityById> for NumericQuery {
         fn from(value: FindAssetQuantityById) -> Self {
             Self::FindAssetQuantityById(value)
-        }
-    }
-
-    impl From<FindTotalAssetQuantityByAssetDefinitionId> for NumericQuery {
-        fn from(value: FindTotalAssetQuantityByAssetDefinitionId) -> Self {
-            Self::FindTotalAssetQuantityByAssetDefinitionId(value)
         }
     }
 

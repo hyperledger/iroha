@@ -129,7 +129,6 @@ mod seal {
         FindAssets,
         FindAssetsDefinitions,
         FindAssetQuantityById,
-        FindTotalAssetQuantityByAssetDefinitionId,
         FindAssetMetadata,
         FindAssetDefinitionMetadata,
         FindDomains,
