@@ -136,7 +136,7 @@ impl QueryBatchedErasedIterator {
 
     /// Returns the number of remaining elements in the iterator.
     ///
-    /// NOTE: this is not a safety guarantee, same as it relies on [`ExactSizeIterator::len`].
+    /// You should not rely on the reported amount being correct for safety, same as [`ExactSizeIterator::len`].
     pub fn remaining(&self) -> u64 {
         self.inner.remaining()
     }
