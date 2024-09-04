@@ -12,6 +12,7 @@ trait BatchedTrait {
         &mut self,
         cursor: u64,
     ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor>;
+    fn remaining(&self) -> u64;
 }
 
 struct BatchedInner<I> {
@@ -22,7 +23,7 @@ struct BatchedInner<I> {
 
 impl<I> BatchedTrait for BatchedInner<I>
 where
-    I: Iterator,
+    I: ExactSizeIterator,
     QueryOutputBatchBox: From<Vec<I::Item>>,
 {
     fn next_batch(
@@ -76,6 +77,10 @@ where
                 .map(|cursor| NonZeroU64::new(cursor).expect("Cursor is never 0")),
         ))
     }
+
+    fn remaining(&self) -> u64 {
+        self.iter.len() as u64
+    }
 }
 
 /// Unknown cursor error.
@@ -100,7 +105,7 @@ impl QueryBatchedErasedIterator {
     /// Creates a new batched iterator. Boxes the inner iterator to erase its type.
     pub fn new<I>(iter: I, batch_size: NonZeroU64) -> Self
     where
-        I: Iterator + Send + Sync + 'static,
+        I: ExactSizeIterator + Send + Sync + 'static,
         QueryOutputBatchBox: From<Vec<I::Item>>,
     {
         Self {
@@ -127,5 +132,12 @@ impl QueryBatchedErasedIterator {
         cursor: u64,
     ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor> {
         self.inner.next_batch(cursor)
+    }
+
+    /// Returns the number of remaining elements in the iterator.
+    ///
+    /// You should not rely on the reported amount being correct for safety, same as [`ExactSizeIterator::len`].
+    pub fn remaining(&self) -> u64 {
+        self.inner.remaining()
     }
 }

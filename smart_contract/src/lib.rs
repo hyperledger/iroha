@@ -149,28 +149,36 @@ impl QueryExecutor for SmartContractQueryExecutor {
     fn start_query(
         &self,
         query: QueryWithParams,
-    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) = execute_query(&QueryRequest::Start(query))? else {
             dbg_panic("BUG: iroha returned unexpected type in iterable query");
         };
 
-        let (batch, cursor) = output.into_parts();
+        let (batch, remaining_items, cursor) = output.into_parts();
 
-        Ok((batch, cursor.map(|cursor| QueryCursor { cursor })))
+        Ok((
+            batch,
+            remaining_items,
+            cursor.map(|cursor| QueryCursor { cursor }),
+        ))
     }
 
     fn continue_query(
         cursor: Self::Cursor,
-    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) =
             execute_query(&QueryRequest::Continue(cursor.cursor))?
         else {
             dbg_panic("BUG: iroha returned unexpected type in iterable query");
         };
 
-        let (batch, cursor) = output.into_parts();
+        let (batch, remaining_items, cursor) = output.into_parts();
 
-        Ok((batch, cursor.map(|cursor| QueryCursor { cursor })))
+        Ok((
+            batch,
+            remaining_items,
+            cursor.map(|cursor| QueryCursor { cursor }),
+        ))
     }
 }
 

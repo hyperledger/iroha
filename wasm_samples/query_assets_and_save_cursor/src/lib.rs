@@ -35,7 +35,7 @@ fn main(owner: AccountId) {
         pub cursor: ForwardCursor,
     }
 
-    let (_batch, cursor) = SmartContractQueryExecutor
+    let (_batch, _remaining_items, cursor) = SmartContractQueryExecutor
         .start_query(QueryWithParams::new(
             QueryWithFilter::new(FindAssets, CompoundPredicate::PASS).into(),
             QueryParams::new(

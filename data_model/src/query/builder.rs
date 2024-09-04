@@ -34,7 +34,7 @@ pub trait QueryExecutor {
         query: SingularQueryBox,
     ) -> Result<SingularQueryOutputBox, Self::Error>;
 
-    /// Starts an iterable query and returns the first batch of results.
+    /// Starts an iterable query and returns the first batch of results, the remaining number of results and a cursor to continue the query.
     ///
     /// # Errors
     ///
@@ -42,22 +42,23 @@ pub trait QueryExecutor {
     fn start_query(
         &self,
         query: QueryWithParams,
-    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
+    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error>;
 
-    /// Continues an iterable query from the given cursor and returns the next batch of results.
+    /// Continues an iterable query from the given cursor and returns the next batch of results, the remaining number of results and a cursor to continue the query.
     ///
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
     fn continue_query(
         cursor: Self::Cursor,
-    ) -> Result<(QueryOutputBatchBox, Option<Self::Cursor>), Self::Error>;
+    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error>;
 }
 
 /// An iterator over results of an iterable query.
 #[derive(Debug)]
 pub struct QueryIterator<E: QueryExecutor, T> {
     current_batch_iter: vec::IntoIter<T>,
+    remaining_items: u64,
     continue_cursor: Option<E::Cursor>,
 }
 
@@ -73,12 +74,14 @@ where
     /// Returns an error if the type of the batch does not match the expected type `T`.
     pub fn new(
         first_batch: QueryOutputBatchBox,
+        remaining_items: u64,
         continue_cursor: Option<E::Cursor>,
     ) -> Result<Self, <Vec<T> as TryFrom<QueryOutputBatchBox>>::Error> {
         let batch: Vec<T> = first_batch.try_into()?;
 
         Ok(Self {
             current_batch_iter: batch.into_iter(),
+            remaining_items,
             continue_cursor,
         })
     }
@@ -102,7 +105,7 @@ where
         let cursor = self.continue_cursor.take()?;
 
         // get a next batch from iroha
-        let (batch, cursor) = match E::continue_query(cursor) {
+        let (batch, remaining_items, cursor) = match E::continue_query(cursor) {
             Ok(r) => r,
             Err(e) => return Some(Err(e)),
         };
@@ -115,8 +118,20 @@ where
             .expect("BUG: iroha returned unexpected type in iterable query");
 
         self.current_batch_iter = batch.into_iter();
+        self.remaining_items = remaining_items;
 
         self.next()
+    }
+}
+
+impl<E, T> ExactSizeIterator for QueryIterator<E, T>
+where
+    E: QueryExecutor,
+    Vec<T>: TryFrom<QueryOutputBatchBox>,
+    <Vec<T> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
+{
+    fn len(&self) -> usize {
+        self.current_batch_iter.len() + self.remaining_items as usize
     }
 }
 
@@ -256,9 +271,10 @@ where
             },
         };
 
-        let (first_batch, continue_cursor) = self.query_executor.start_query(query)?;
+        let (first_batch, remaining_items, continue_cursor) =
+            self.query_executor.start_query(query)?;
 
-        let iterator = QueryIterator::<E, Q::Item>::new(first_batch, continue_cursor)
+        let iterator = QueryIterator::<E, Q::Item>::new(first_batch, remaining_items, continue_cursor)
             .expect(
                 "INTERNAL BUG: iroha returned unexpected type in iterable query. Is there a schema mismatch?",
             );
