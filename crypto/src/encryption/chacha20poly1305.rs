@@ -104,10 +104,12 @@ mod tests {
         let mut ciphertext = res.unwrap();
 
         let aad = b"decrypt should succeed".to_vec();
+        // decrypt should fail because if mismatched aad
         cipher.decrypt_easy(&aad, &ciphertext).unwrap_err();
 
         let aad = b"decrypt should fail".to_vec();
-        ciphertext[0] ^= ciphertext[1];
+        ciphertext[0] ^= 0x01;
+        // decrypt should fail because of tampered ciphertext
         cipher.decrypt_easy(&aad, &ciphertext).unwrap_err();
     }
 
