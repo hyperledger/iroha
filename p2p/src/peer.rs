@@ -261,7 +261,7 @@ mod run {
                         idle_interval.reset();
                         ping_interval.reset();
                     }
-                    result = message_sender.send() => {
+                    result = message_sender.send(), if message_sender.ready() => {
                         if let Err(error) = result {
                             iroha_logger::error!(%error, "Failed to send message to peer.");
                             break;
@@ -426,6 +426,11 @@ mod run {
                 self.queue.advance(n);
             }
             Ok(())
+        }
+
+        /// Check if message sender has data ready to be sent.
+        fn ready(&self) -> bool {
+            !self.queue.is_empty()
         }
     }
 
