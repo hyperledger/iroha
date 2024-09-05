@@ -138,12 +138,12 @@ impl Sumeragi {
                 })
             {
                 should_sleep = false;
-                if let Err(error) = view_change_proof_chain.merge(
-                    msg.view_change_proofs,
+                if let Err(error) = view_change_proof_chain.insert_proof(
+                    msg.view_change_proof,
                     &self.topology,
                     latest_block,
                 ) {
-                    trace!(%error, "Failed to add proofs into view change proof chain")
+                    trace!(%error, "Failed to add proof into view change proof chain")
                 }
             } else {
                 break;
@@ -1135,8 +1135,28 @@ pub(crate) fn run(
                     .unwrap_or_else(|err| error!("{err}"));
             }
 
-            let msg = ControlFlowMessage::new(view_change_proof_chain.clone());
-            sumeragi.broadcast_control_flow_packet(msg);
+            // If exist broadcast latest verified proof in case some peers missed it.
+            // Proof doesn't exist in case view_change_index == 0.
+            if let Some(latest_verified_proof) =
+                view_change_index
+                    .checked_sub(1)
+                    .and_then(|view_change_index| {
+                        view_change_proof_chain.get_proof_for_view_change(view_change_index)
+                    })
+            {
+                let msg = ControlFlowMessage::new(latest_verified_proof);
+                sumeragi.broadcast_control_flow_packet(msg);
+            }
+
+            // If exist broadcast proof for current view change index.
+            // Proof might not exist for example when view_change_time is up,
+            // but there is no transactions in the queue so there is nothing to complain about.
+            if let Some(proof_for_current_view_change_index) =
+                view_change_proof_chain.get_proof_for_view_change(view_change_index)
+            {
+                let msg = ControlFlowMessage::new(proof_for_current_view_change_index);
+                sumeragi.broadcast_control_flow_packet(msg);
+            }
 
             // NOTE: View change must be periodically suggested until it is accepted.
             // Must be initialized to pipeline time but can increase by chosen amount
