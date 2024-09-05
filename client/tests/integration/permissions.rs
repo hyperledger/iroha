@@ -73,8 +73,8 @@ fn get_assets(iroha: &Client, id: &AccountId) -> Vec<Asset> {
 fn permissions_disallow_asset_transfer() {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[iroha.clone()]));
 
     // Given
     let alice_id = ALICE_ID.clone();
@@ -177,8 +177,8 @@ fn permissions_disallow_asset_burn() {
 #[test]
 #[ignore = "ignore, more in #2851"]
 fn account_can_query_only_its_own_domain() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_740).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (rt, _peer, client) = <PeerBuilder>::new().with_port(10_740).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[client.clone()]));
 
     // Given
     let domain_id: DomainId = "wonderland".parse()?;
@@ -299,8 +299,8 @@ fn permissions_differ_not_only_by_names() {
 fn stored_vs_granted_permission_payload() -> Result<()> {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[iroha.clone()]));
 
     // Given
     let alice_id = ALICE_ID.clone();
@@ -351,8 +351,8 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
 #[test]
 #[allow(deprecated)]
 fn permissions_are_unified() {
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_230).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_230).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[iroha.clone()]));
 
     // Given
     let alice_id = ALICE_ID.clone();
@@ -378,8 +378,8 @@ fn permissions_are_unified() {
 
 #[test]
 fn associated_permissions_removed_on_unregister() {
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_240).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_240).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[iroha.clone()]));
 
     let bob_id = BOB_ID.clone();
     let kingdom_id: DomainId = "kingdom".parse().expect("Valid");
@@ -430,8 +430,8 @@ fn associated_permissions_removed_on_unregister() {
 
 #[test]
 fn associated_permissions_removed_from_role_on_unregister() {
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_255).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_255).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[iroha.clone()]));
 
     let role_id: RoleId = "role".parse().expect("Valid");
     let kingdom_id: DomainId = "kingdom".parse().expect("Valid");

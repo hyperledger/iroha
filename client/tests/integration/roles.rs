@@ -13,8 +13,8 @@ use test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 fn register_empty_role() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_695).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_695).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let role_id = "root".parse().expect("Valid");
     let register_role = Register::role(Role::new(role_id));
@@ -37,8 +37,8 @@ fn register_empty_role() -> Result<()> {
 fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_700).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_700).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let alice_id = ALICE_ID.clone();
     let (mouse_id, mouse_keypair) = gen_account_in("wonderland");
@@ -85,8 +85,8 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
 #[test]
 fn unregistered_role_removed_from_account() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_705).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_705).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let role_id: RoleId = "root".parse().expect("Valid");
     let alice_id = ALICE_ID.clone();
@@ -127,8 +127,8 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
 #[test]
 fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_025).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_025).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let role_id = "ACCESS_TO_ACCOUNT_METADATA".parse()?;
     let role = Role::new(role_id).add_permission(CanControlDomainLives);
@@ -155,8 +155,8 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
 // so that they don't get deduplicated eagerly but rather in the executor
 // This way, if the executor compares permissions just as JSON strings, the test will fail
 fn role_permissions_are_deduplicated() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_235).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_235).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let allow_alice_to_transfer_rose_1 = Permission::new(
         "CanTransferUserAsset".parse().unwrap(),
@@ -196,8 +196,8 @@ fn role_permissions_are_deduplicated() {
 fn grant_revoke_role_permissions() -> Result<()> {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_245).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_245).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let alice_id = ALICE_ID.clone();
     let (mouse_id, mouse_keypair) = gen_account_in("wonderland");

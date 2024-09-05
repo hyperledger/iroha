@@ -2,7 +2,7 @@ use iroha::{
     client::{trigger, Client},
     data_model::prelude::*,
 };
-use test_network::{wait_for_genesis_committed, Peer, PeerBuilder};
+use test_network::{wait_for_genesis_committed_async, Peer, PeerBuilder};
 use test_samples::gen_account_in;
 use tokio::runtime::Runtime;
 
@@ -17,7 +17,7 @@ fn set_up_trigger(
     port: u16,
 ) -> eyre::Result<(Runtime, Peer, Client, DomainId, AccountId, TriggerId)> {
     let (rt, peer, iroha) = <PeerBuilder>::new().with_port(port).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    rt.block_on(wait_for_genesis_committed_async(&[iroha.clone()]));
 
     let failand: DomainId = "failand".parse()?;
     let create_failand = Register::domain(Domain::new(failand.clone()));

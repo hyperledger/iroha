@@ -9,8 +9,8 @@ use test_network::*;
 
 #[test]
 fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_140).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (rt, _peer, client) = <PeerBuilder>::new().with_port(11_140).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[client.clone()]));
 
     let wasm = iroha_wasm_builder::Builder::new("../wasm_samples/query_assets_and_save_cursor")
         .show_output()
@@ -45,8 +45,8 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
 
 #[test]
 fn smart_contract_can_filter_queries() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_260).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (rt, _peer, client) = <PeerBuilder>::new().with_port(11_260).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[client.clone()]));
 
     let wasm =
         iroha_wasm_builder::Builder::new("../wasm_samples/smart_contract_can_filter_queries")

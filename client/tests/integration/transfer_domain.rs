@@ -22,8 +22,8 @@ use tokio::runtime::Runtime;
 fn domain_owner_domain_permissions() -> Result<()> {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_080).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_080).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let kingdom_id: DomainId = "kingdom".parse()?;
     let (bob_id, bob_keypair) = gen_account_in("kingdom");
@@ -96,8 +96,8 @@ fn domain_owner_domain_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_account_permissions() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_075).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_075).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let kingdom_id: DomainId = "kingdom".parse()?;
     let (mad_hatter_id, _mad_hatter_keypair) = gen_account_in("kingdom");
@@ -138,8 +138,8 @@ fn domain_owner_account_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_asset_definition_permissions() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_085).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_085).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
     let kingdom_id: DomainId = "kingdom".parse()?;
@@ -205,8 +205,8 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
 fn domain_owner_asset_permissions() -> Result<()> {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_090).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_090).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let alice_id = ALICE_ID.clone();
     let kingdom_id: DomainId = "kingdom".parse()?;
@@ -269,8 +269,8 @@ fn domain_owner_asset_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_trigger_permissions() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_095).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_095).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let alice_id = ALICE_ID.clone();
     let kingdom_id: DomainId = "kingdom".parse()?;
@@ -325,8 +325,8 @@ fn domain_owner_trigger_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_transfer() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_100).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_100).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let alice_id = ALICE_ID.clone();
     let kingdom_id: DomainId = "kingdom".parse()?;
@@ -389,7 +389,7 @@ fn not_allowed_to_transfer_other_user_domain() -> Result<()> {
     let builder = PeerBuilder::new().with_genesis(genesis).with_port(11_110);
     rt.block_on(builder.start_with_peer(&mut peer));
     let client = Client::test(&peer.api_address);
-    wait_for_genesis_committed(&[client.clone()], 0);
+    rt.block_on(wait_for_genesis_committed_async(&[client.clone()]));
 
     let domain = client
         .query(client::domain::all())

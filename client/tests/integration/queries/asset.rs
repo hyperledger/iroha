@@ -10,8 +10,8 @@ use test_samples::{gen_account_in, ALICE_ID};
 #[test]
 #[allow(clippy::too_many_lines)]
 fn find_asset_total_quantity() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_765).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_765).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     // Register new domain
     let domain_id: DomainId = "looking_glass".parse()?;

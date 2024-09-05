@@ -5,8 +5,8 @@ use test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 fn must_execute_both_triggers() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_650).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_650).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let account_id = ALICE_ID.clone();
     let asset_definition_id = "rose#wonderland".parse()?;

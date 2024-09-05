@@ -59,8 +59,8 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     assert!(PERIOD.as_millis() < default_consensus_estimation().as_millis());
     const_assert!(ACCEPTABLE_ERROR_PERCENT <= 100);
 
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_775).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_775).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
     let start_time = curr_time();
 
     // Start listening BEFORE submitting any transaction not to miss any block committed event
@@ -116,8 +116,8 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
 
 #[test]
 fn mint_asset_after_3_sec() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_665).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_665).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
     // Sleep to certainly bypass time interval analyzed by genesis
     std::thread::sleep(default_consensus_estimation());
 
@@ -173,8 +173,8 @@ fn mint_asset_after_3_sec() -> Result<()> {
 fn pre_commit_trigger_should_be_executed() -> Result<()> {
     const CHECKS_COUNT: usize = 5;
 
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_600).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_600).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse().expect("Valid");
     let account_id = ALICE_ID.clone();
@@ -229,8 +229,8 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
 
     info!("WASM size is {} bytes", wasm.len());
 
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let alice_id = ALICE_ID.clone();
 

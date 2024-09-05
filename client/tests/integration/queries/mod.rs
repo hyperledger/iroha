@@ -13,8 +13,8 @@ mod smart_contract;
 
 #[test]
 fn too_big_fetch_size_is_not_allowed() {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_130).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (rt, _peer, client) = <PeerBuilder>::new().with_port(11_130).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[client.clone()]));
 
     let err = client
         .query(client::asset::all())

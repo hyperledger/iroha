@@ -7,8 +7,8 @@ use test_samples::ALICE_ID;
 
 #[test]
 fn trigger_completion_success_should_produce_event() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_050).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_050).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -53,8 +53,8 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
 
 #[test]
 fn trigger_completion_failure_should_produce_event() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_055).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_055).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let account_id = ALICE_ID.clone();
     let trigger_id = TriggerId::from_str("fail_box")?;

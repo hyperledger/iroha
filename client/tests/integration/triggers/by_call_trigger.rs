@@ -22,8 +22,8 @@ const TRIGGER_NAME: &str = "mint_rose";
 
 #[test]
 fn call_execute_trigger() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_005).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_005).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -46,8 +46,8 @@ fn call_execute_trigger() -> Result<()> {
 
 #[test]
 fn execute_trigger_should_produce_event() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_010).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_010).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -82,8 +82,8 @@ fn execute_trigger_should_produce_event() -> Result<()> {
 
 #[test]
 fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_015).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_015).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -109,8 +109,8 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
 
 #[test]
 fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_020).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_020).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -166,8 +166,8 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
 
 #[test]
 fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_025).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_025).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -226,8 +226,8 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
 
 #[test]
 fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_030).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_030).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -274,8 +274,8 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
 #[test]
 fn only_account_with_permission_can_register_trigger() -> Result<()> {
     // Building a configuration
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_035).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_035).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let domain_id = ALICE_ID.domain().clone();
     let alice_account_id = ALICE_ID.clone();
@@ -346,8 +346,8 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
 
 #[test]
 fn unregister_trigger() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_040).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_040).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let account_id = ALICE_ID.clone();
 
@@ -450,7 +450,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     let builder = PeerBuilder::new().with_genesis(genesis).with_port(10_045);
     rt.block_on(builder.start_with_peer(&mut peer));
     let mut test_client = Client::test(&peer.api_address);
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id);
@@ -476,8 +476,8 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
 
 #[test]
 fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_085).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_085).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -536,8 +536,8 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
 
 #[test]
 fn trigger_burn_repetitions() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_070).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_070).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -572,8 +572,8 @@ fn trigger_burn_repetitions() -> Result<()> {
 #[test]
 fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_original_wasm_loss(
 ) -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_105).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_105).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let account_id = ALICE_ID.clone();
     let first_trigger_id = TriggerId::from_str("mint_rose_1")?;
@@ -655,8 +655,8 @@ fn build_register_trigger_isi(
 
 #[test]
 fn call_execute_trigger_with_args() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(11_265).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(11_265).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();

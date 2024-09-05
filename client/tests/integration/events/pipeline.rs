@@ -51,10 +51,10 @@ fn test_with_instruction_and_status_and_port(
     should_be: &TransactionStatus,
     port: u16,
 ) -> Result<()> {
-    let (_rt, network, client) =
+    let (rt, network, client) =
         Network::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), Some(port));
     let clients = network.clients();
-    wait_for_genesis_committed(&clients, 0);
+    rt.block_on(wait_for_genesis_committed_async(&clients));
     let pipeline_time = Config::pipeline_time();
 
     client.submit_blocking(SetParameter::new(Parameter::Block(
@@ -106,8 +106,8 @@ impl Checker {
 
 #[test]
 fn applied_block_must_be_available_in_kura() {
-    let (_rt, peer, client) = <PeerBuilder>::new().with_port(11_040).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (rt, peer, client) = <PeerBuilder>::new().with_port(11_040).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[client.clone()]));
 
     let event_filter = BlockEventFilter::default().for_status(BlockStatus::Applied);
     let mut event_iter = client

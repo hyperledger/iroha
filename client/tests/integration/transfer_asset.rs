@@ -30,8 +30,8 @@ fn simulate_transfer_numeric() {
 
 #[test]
 fn simulate_transfer_store_asset() {
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_145).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_145).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[iroha.clone()]));
     let (alice_id, mouse_id) = generate_two_ids();
     let create_mouse = create_mouse(mouse_id.clone());
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().unwrap();
@@ -85,10 +85,10 @@ fn simulate_transfer<T>(
     Mint<T, Asset>: Instruction,
     Transfer<Asset, T, Account>: Instruction,
 {
-    let (_rt, _peer, iroha) = <PeerBuilder>::new()
+    let (rt, _peer, iroha) = <PeerBuilder>::new()
         .with_port(port_number)
         .start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    rt.block_on(wait_for_genesis_committed_async(&[iroha.clone()]));
 
     let (alice_id, mouse_id) = generate_two_ids();
     let create_mouse = create_mouse(mouse_id.clone());

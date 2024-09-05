@@ -134,8 +134,8 @@ fn transaction_execution_should_produce_events(
     executable: impl Into<Executable>,
     port: u16,
 ) -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(port).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (rt, _peer, client) = <PeerBuilder>::new().with_port(port).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[client.clone()]));
 
     // spawn event reporter
     let listener = client.clone();
@@ -178,8 +178,8 @@ fn transaction_execution_should_produce_events(
 #[test]
 #[allow(clippy::too_many_lines)]
 fn produce_multiple_events() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_645).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (rt, _peer, client) = <PeerBuilder>::new().with_port(10_645).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[client.clone()]));
 
     // Spawn event reporter
     let listener = client.clone();

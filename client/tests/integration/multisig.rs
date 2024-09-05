@@ -17,8 +17,8 @@ use test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 fn mutlisig() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_400).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_400).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     test_client.submit_all_blocking([
         SetParameter::new(Parameter::SmartContract(SmartContractParameter::Fuel(

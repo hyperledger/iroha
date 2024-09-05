@@ -8,8 +8,8 @@ use test_samples::ALICE_ID;
 
 #[test]
 fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_770).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_770).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();

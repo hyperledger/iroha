@@ -10,8 +10,8 @@ use test_samples::ALICE_ID;
 
 #[test]
 fn failed_trigger_revert() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_150).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (rt, _peer, client) = <PeerBuilder>::new().with_port(11_150).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[client.clone()]));
 
     //When
     let trigger_id = TriggerId::from_str("trigger")?;

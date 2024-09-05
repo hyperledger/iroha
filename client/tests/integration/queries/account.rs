@@ -7,8 +7,8 @@ use test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 fn find_accounts_with_asset() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_760).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_760).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     // Registering new asset definition
     let definition_id = AssetDefinitionId::from_str("test_coin#wonderland").expect("Valid");

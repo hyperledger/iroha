@@ -13,8 +13,8 @@ use test_samples::ALICE_ID;
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_715).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (rt, _peer, client) = <PeerBuilder>::new().with_port(10_715).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![client.clone()]));
 
     let pipeline_time = Config::pipeline_time();
 

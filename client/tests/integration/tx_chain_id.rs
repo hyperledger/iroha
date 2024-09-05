@@ -5,8 +5,8 @@ use test_samples::gen_account_in;
 
 #[test]
 fn send_tx_with_different_chain_id() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_250).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_250).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
     // Given
     let (sender_id, sender_keypair) = gen_account_in("wonderland");
     let (receiver_id, _receiver_keypair) = gen_account_in("wonderland");

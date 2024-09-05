@@ -12,8 +12,8 @@ use test_network::*;
 
 #[test]
 fn can_change_parameter_value() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_135).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_135).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&vec![test_client.clone()]));
 
     let old_params: Parameters = test_client.query_single(client::parameter::all())?;
     assert_eq!(

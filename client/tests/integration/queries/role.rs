@@ -19,8 +19,8 @@ fn create_role_ids() -> [RoleId; 5] {
 
 #[test]
 fn find_roles() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_525).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_525).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let role_ids = create_role_ids();
 
@@ -51,8 +51,8 @@ fn find_roles() -> Result<()> {
 
 #[test]
 fn find_role_ids() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_530).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_530).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let role_ids = create_role_ids();
 
@@ -77,8 +77,8 @@ fn find_role_ids() -> Result<()> {
 
 #[test]
 fn find_role_by_id() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_535).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_535).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let role_id: RoleId = "root".parse().expect("Valid");
     let new_role = Role::new(role_id.clone());
@@ -100,8 +100,8 @@ fn find_role_by_id() -> Result<()> {
 
 #[test]
 fn find_unregistered_role_by_id() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_540).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_540).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let role_id: RoleId = "root".parse().expect("Valid");
 
@@ -120,8 +120,8 @@ fn find_unregistered_role_by_id() {
 
 #[test]
 fn find_roles_by_account_id() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_545).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_545).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let role_ids = create_role_ids();
     let alice_id = ALICE_ID.clone();

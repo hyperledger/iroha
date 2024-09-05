@@ -20,8 +20,8 @@ use test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 // This test is also covered at the UI level in the iroha_cli tests
 // in test_register_asset_definitions.py
 fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_620).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_620).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -59,8 +59,8 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
 
 #[test]
 fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_555).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_555).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -107,8 +107,8 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
 // This test is also covered at the UI level in the iroha_cli tests
 // in test_mint_assets.py
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_000).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_000).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -141,8 +141,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
 
 #[test]
 fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_510).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_510).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -175,8 +175,8 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
 
 #[test]
 fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_515).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_515).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -235,8 +235,8 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
 // This test is also covered at the UI level in the iroha_cli tests
 // in test_register_asset_definitions.py
 fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_520).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_520).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
     let pipeline_time = Config::pipeline_time();
 
     // Given
@@ -281,8 +281,8 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
 #[allow(clippy::expect_fun_call)]
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_675).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_675).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let (dex_id, _dex_keypair) = gen_account_in("exchange");
     let (seller_id, seller_keypair) = gen_account_in("company");
@@ -375,8 +375,8 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
 #[test]
 fn transfer_asset_definition() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_060).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_060).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let alice_id = ALICE_ID.clone();
     let bob_id = BOB_ID.clone();
@@ -413,8 +413,8 @@ fn transfer_asset_definition() {
 
 #[test]
 fn fail_if_dont_satisfy_spec() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_125).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_125).start_with_runtime();
+    rt.block_on(wait_for_genesis_committed_async(&[test_client.clone()]));
 
     let alice_id = ALICE_ID.clone();
     let bob_id = BOB_ID.clone();
