@@ -26,6 +26,7 @@
 - [ ] I've read [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 - [ ] (optional) I've written unit tests for the code changes.
 - [ ] All review comments have been resolved.
+- [ ] All CI checks pass.
 
 <!-- Add more items if needed -->
 
