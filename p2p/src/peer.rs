@@ -261,6 +261,11 @@ mod run {
                         idle_interval.reset();
                         ping_interval.reset();
                     }
+                    // `message_sender.send()` is safe to be cancelled, it won't advance the queue or write anything if another branch completes first.
+                    // 
+                    // We need to conditionally disable it in case there is no data is to be sent, otherwise `message_sender.send()` will complete immediately
+                    //
+                    // The only source of data to be sent is other branches of this loop, so we do not need any async waiting mechanism for waiting for readiness.
                     result = message_sender.send(), if message_sender.ready() => {
                         if let Err(error) = result {
                             iroha_logger::error!(%error, "Failed to send message to peer.");
