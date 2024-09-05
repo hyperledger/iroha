@@ -263,12 +263,6 @@ impl ValidQueryRequest {
                     SingularQueryBox::FindTriggerMetadata(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
-                    SingularQueryBox::FindTransactionByHash(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
-                    SingularQueryBox::FindBlockHeaderByHash(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
                 };
 
                 Ok(QueryResponse::Singular(output))
@@ -305,10 +299,6 @@ impl ValidQueryRequest {
                         &iter_query.params,
                     )?,
                     QueryBox::FindRolesByAccountId(q) => apply_query_postprocessing(
-                        ValidQuery::execute(q.query, q.predicate, state)?,
-                        &iter_query.params,
-                    )?,
-                    QueryBox::FindTransactionsByAccountId(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
@@ -353,8 +343,8 @@ impl ValidQueryRequest {
 mod tests {
     use std::str::FromStr as _;
 
-    use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::query::{error::FindError, predicate::CompoundPredicate};
+    use iroha_crypto::{Hash, KeyPair};
+    use iroha_data_model::query::predicate::CompoundPredicate;
     use iroha_primitives::json::JsonString;
     use nonzero_ext::nonzero;
     use test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
@@ -545,14 +535,30 @@ mod tests {
             .expect("state is empty");
 
         assert_eq!(
-            FindBlockHeaderByHash::new(block.hash()).execute(&state_view)?,
+            FindBlockHeaders::new()
+                .execute(
+                    BlockHeaderPredicateBox::build(|header| header.hash.eq(block.hash())),
+                    &state_view,
+                )
+                .expect("Query execution should not fail")
+                .next()
+                .expect("Query should return a block header"),
             *block.header()
         );
-
         assert!(
-            FindBlockHeaderByHash::new(HashOf::from_untyped_unchecked(Hash::new([42])))
-                .execute(&state_view)
-                .is_err()
+            FindBlockHeaders::new()
+                .execute(
+                    BlockHeaderPredicateBox::build(|header| {
+                        header
+                            .hash
+                            .eq(HashOf::from_untyped_unchecked(Hash::new([42])))
+                    }),
+                    &state_view,
+                )
+                .expect("Query execution should not fail")
+                .next()
+                .is_none(),
+            "Block header should not be found"
         );
 
         Ok(())
@@ -624,14 +630,29 @@ mod tests {
             .with_instructions([Unregister::account(gen_account_in("domain").0)])
             .sign(ALICE_KEYPAIR.private_key());
         let wrong_hash = unapplied_tx.hash();
-        let not_found = FindTransactionByHash::new(wrong_hash).execute(&state_view);
-        assert!(matches!(
-            not_found,
-            Err(Error::Find(FindError::Transaction(_)))
-        ));
 
-        let found_accepted =
-            FindTransactionByHash::new(va_tx.as_ref().hash()).execute(&state_view)?;
+        let not_found = FindTransactions::new()
+            .execute(
+                TransactionQueryOutputPredicateBox::build(|tx| {
+                    tx.transaction.value.hash.eq(wrong_hash)
+                }),
+                &state_view,
+            )
+            .expect("Query execution should not fail")
+            .next();
+        assert_eq!(not_found, None, "Transaction should not be found");
+
+        let found_accepted = FindTransactions::new()
+            .execute(
+                TransactionQueryOutputPredicateBox::build(|tx| {
+                    tx.transaction.value.hash.eq(va_tx.as_ref().hash())
+                }),
+                &state_view,
+            )
+            .expect("Query execution should not fail")
+            .next()
+            .expect("Query should return a transaction");
+
         if found_accepted.transaction.error.is_none() {
             assert_eq!(
                 va_tx.as_ref().hash(),

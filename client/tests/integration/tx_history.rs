@@ -52,7 +52,8 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     thread::sleep(pipeline_time * 5);
 
     let transactions = client
-        .query(transaction::by_account_id(account_id.clone()))
+        .query(transaction::all())
+        .filter_with(|tx| tx.transaction.value.authority.eq(account_id.clone()))
         .with_pagination(Pagination {
             limit: Some(nonzero!(50_u64)),
             offset: 1,

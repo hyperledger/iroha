@@ -652,6 +652,15 @@
       }
     ]
   },
+  "BlockHashPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Equals",
+        "discriminant": 0,
+        "type": "HashOf<BlockHeader>"
+      }
+    ]
+  },
   "BlockHeader": {
     "Struct": [
       {
@@ -681,7 +690,13 @@
     ]
   },
   "BlockHeaderPredicateBox": {
-    "Enum": []
+    "Enum": [
+      {
+        "tag": "Hash",
+        "discriminant": 0,
+        "type": "BlockHashPredicateBox"
+      }
+    ]
   },
   "BlockMessage": "SignedBlock",
   "BlockParameter": {
@@ -1033,6 +1048,20 @@
       {
         "name": "error",
         "type": "Option<TransactionRejectionReason>"
+      }
+    ]
+  },
+  "CommittedTransactionPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Value",
+        "discriminant": 0,
+        "type": "SignedTransactionPredicateBox"
+      },
+      {
+        "tag": "Error",
+        "discriminant": 1,
+        "type": "TransactionErrorPredicateBox"
       }
     ]
   },
@@ -1875,14 +1904,6 @@
   },
   "FindAssets": null,
   "FindAssetsDefinitions": null,
-  "FindBlockHeaderByHash": {
-    "Struct": [
-      {
-        "name": "hash",
-        "type": "HashOf<BlockHeader>"
-      }
-    ]
-  },
   "FindBlockHeaders": null,
   "FindBlocks": null,
   "FindDomainMetadata": {
@@ -1983,23 +2004,7 @@
       }
     ]
   },
-  "FindTransactionByHash": {
-    "Struct": [
-      {
-        "name": "hash",
-        "type": "HashOf<SignedTransaction>"
-      }
-    ]
-  },
   "FindTransactions": null,
-  "FindTransactionsByAccountId": {
-    "Struct": [
-      {
-        "name": "account",
-        "type": "AccountId"
-      }
-    ]
-  },
   "FindTriggerById": {
     "Struct": [
       {
@@ -3006,38 +3011,33 @@
         "type": "QueryWithFilter<FindRolesByAccountId, RoleIdPredicateBox>"
       },
       {
-        "tag": "FindTransactionsByAccountId",
-        "discriminant": 8,
-        "type": "QueryWithFilter<FindTransactionsByAccountId, TransactionQueryOutputPredicateBox>"
-      },
-      {
         "tag": "FindAccountsWithAsset",
-        "discriminant": 9,
+        "discriminant": 8,
         "type": "QueryWithFilter<FindAccountsWithAsset, AccountPredicateBox>"
       },
       {
         "tag": "FindPeers",
-        "discriminant": 10,
+        "discriminant": 9,
         "type": "QueryWithFilter<FindPeers, PeerPredicateBox>"
       },
       {
         "tag": "FindActiveTriggerIds",
-        "discriminant": 11,
+        "discriminant": 10,
         "type": "QueryWithFilter<FindActiveTriggerIds, TriggerIdPredicateBox>"
       },
       {
         "tag": "FindTransactions",
-        "discriminant": 12,
+        "discriminant": 11,
         "type": "QueryWithFilter<FindTransactions, TransactionQueryOutputPredicateBox>"
       },
       {
         "tag": "FindBlocks",
-        "discriminant": 13,
+        "discriminant": 12,
         "type": "QueryWithFilter<FindBlocks, SignedBlockPredicateBox>"
       },
       {
         "tag": "FindBlockHeaders",
-        "discriminant": 14,
+        "discriminant": 13,
         "type": "QueryWithFilter<FindBlockHeaders, BlockHeaderPredicateBox>"
       }
     ]
@@ -3380,18 +3380,6 @@
       {
         "name": "query",
         "type": "FindTransactions"
-      },
-      {
-        "name": "predicate",
-        "type": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
-      }
-    ]
-  },
-  "QueryWithFilter<FindTransactionsByAccountId, TransactionQueryOutputPredicateBox>": {
-    "Struct": [
-      {
-        "name": "query",
-        "type": "FindTransactionsByAccountId"
       },
       {
         "name": "predicate",
@@ -3956,7 +3944,13 @@
     ]
   },
   "SignedBlockPredicateBox": {
-    "Enum": []
+    "Enum": [
+      {
+        "tag": "Header",
+        "discriminant": 0,
+        "type": "BlockHeaderPredicateBox"
+      }
+    ]
   },
   "SignedBlockV1": {
     "Struct": [
@@ -3997,6 +3991,20 @@
         "tag": "V1",
         "discriminant": 1,
         "type": "SignedTransactionV1"
+      }
+    ]
+  },
+  "SignedTransactionPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Hash",
+        "discriminant": 0,
+        "type": "TransactionHashPredicateBox"
+      },
+      {
+        "tag": "Authority",
+        "discriminant": 1,
+        "type": "AccountIdPredicateBox"
       }
     ]
   },
@@ -4058,16 +4066,6 @@
         "tag": "FindTriggerMetadata",
         "discriminant": 8,
         "type": "FindTriggerMetadata"
-      },
-      {
-        "tag": "FindTransactionByHash",
-        "discriminant": 9,
-        "type": "FindTransactionByHash"
-      },
-      {
-        "tag": "FindBlockHeaderByHash",
-        "discriminant": 10,
-        "type": "FindBlockHeaderByHash"
       }
     ]
   },
@@ -4302,6 +4300,14 @@
       }
     ]
   },
+  "TransactionErrorPredicateBox": {
+    "Enum": [
+      {
+        "tag": "IsSome",
+        "discriminant": 0
+      }
+    ]
+  },
   "TransactionEvent": {
     "Struct": [
       {
@@ -4331,6 +4337,15 @@
       {
         "name": "status",
         "type": "Option<TransactionStatus>"
+      }
+    ]
+  },
+  "TransactionHashPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Equals",
+        "discriminant": 0,
+        "type": "HashOf<SignedTransaction>"
       }
     ]
   },
@@ -4413,7 +4428,18 @@
     ]
   },
   "TransactionQueryOutputPredicateBox": {
-    "Enum": []
+    "Enum": [
+      {
+        "tag": "Transaction",
+        "discriminant": 0,
+        "type": "CommittedTransactionPredicateBox"
+      },
+      {
+        "tag": "BlockHash",
+        "discriminant": 1,
+        "type": "BlockHashPredicateBox"
+      }
+    ]
   },
   "TransactionRejectionReason": {
     "Enum": [
