@@ -47,8 +47,6 @@ pub async fn start_file_output(
             )
         })?;
 
-    // Serde doesn't support async Read Write traits.
-    // So let synchronous code be here.
     let join_handle = task::spawn(async move {
         while let Some(item) = stream.next().await {
             if let Err(error) = write_telemetry(&mut file, &item).await {
@@ -61,8 +59,11 @@ pub async fn start_file_output(
 }
 
 async fn write_telemetry(file: &mut File, item: &FuturePollTelemetry) -> Result<()> {
+    // Serde doesn't support async Read Write traits.
+    // So let synchronous code be here.
     let mut json =
         serde_json::to_string(&item).wrap_err("failed to serialize telemetry to JSON")?;
+
     json.push('\n');
     file.write_all(json.as_bytes())
         .await

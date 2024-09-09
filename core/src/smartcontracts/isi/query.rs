@@ -409,7 +409,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_domains(), kura.clone(), query_handle);
         {
             let (max_clock_drift, tx_limits) = {
@@ -471,7 +471,7 @@ mod tests {
     #[test]
     async fn asset_store() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_asset_with_metadata(), kura, query_handle);
 
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
@@ -485,7 +485,7 @@ mod tests {
     #[test]
     async fn account_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_account_with_metadata()?, kura, query_handle);
 
         let bytes = FindAccountMetadata::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
@@ -594,7 +594,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_domains(), kura.clone(), query_handle);
         let (max_clock_drift, tx_limits) = {
             let state_view = state.world.view();
@@ -674,7 +674,7 @@ mod tests {
             let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
-            let query_handle = LiveQueryStore::test().start();
+            let query_handle = LiveQueryStore::start_test();
             State::new(
                 World::with([domain], [account], [asset_definition]),
                 kura,

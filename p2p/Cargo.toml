@@ -14,12 +14,21 @@ workspace = true
 [dependencies]
 iroha_logger = { workspace = true }
 iroha_crypto = { workspace = true, default-features = true }
-iroha_data_model = { workspace = true, default-features = true, features = ["transparent_api"] }
+iroha_data_model = { workspace = true, default-features = true, features = [
+    "transparent_api",
+] }
 iroha_primitives = { workspace = true }
 iroha_config = { workspace = true }
+iroha_futures = { workspace = true }
 
 rand = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-util", "net", "time"] }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+    "io-util",
+    "net",
+    "time",
+] }
 futures = { workspace = true, features = ["alloc"] }
 async-trait = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["derive"] }

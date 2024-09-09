@@ -16,10 +16,11 @@ use iroha_data_model::{
         QueryOutput, QueryOutputBatchBox,
     },
 };
+use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use iroha_logger::{trace, warn};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 
 use super::cursor::{QueryBatchedErasedIterator, UnknownCursor};
 
@@ -74,7 +75,7 @@ pub struct LiveQueryStore {
     capacity_per_user: NonZeroUsize,
     // Queries older then this time will be automatically removed from the store
     idle_time: Duration,
-    notify_shutdown: Arc<Notify>,
+    shutdown_signal: ShutdownSignal,
 }
 
 #[derive(Debug)]
@@ -86,14 +87,14 @@ struct QueryInfo {
 
 impl LiveQueryStore {
     /// Construct [`LiveQueryStore`] from configuration.
-    pub fn from_config(cfg: Config, notify_shutdown: Arc<Notify>) -> Self {
+    pub fn from_config(cfg: Config, shutdown_signal: ShutdownSignal) -> Self {
         Self {
             queries: DashMap::new(),
             queries_per_user: DashMap::new(),
             idle_time: cfg.idle_time,
             capacity: cfg.capacity,
             capacity_per_user: cfg.capacity_per_user,
-            notify_shutdown,
+            shutdown_signal,
         }
     }
 
@@ -101,22 +102,30 @@ impl LiveQueryStore {
     /// Default configuration will be used.
     ///
     /// Not marked as `#[cfg(test)]` because it is used in benches as well.
-    pub fn test() -> Self {
-        let notify_shutdown = Arc::new(Notify::new());
-        Self::from_config(Config::default(), notify_shutdown)
+    pub fn start_test() -> LiveQueryStoreHandle {
+        Self::from_config(Config::default(), ShutdownSignal::new())
+            .start()
+            .0
     }
 
     /// Start [`LiveQueryStore`]. Requires a [`tokio::runtime::Runtime`] being run
     /// as it will create new [`tokio::task`] and detach it.
     ///
     /// Returns a handle to interact with the service.
-    pub fn start(self) -> LiveQueryStoreHandle {
+    pub fn start(self) -> (LiveQueryStoreHandle, Child) {
         let store = Arc::new(self);
-        Arc::clone(&store).spawn_pruning_task();
-        LiveQueryStoreHandle { store }
+        let handle = Arc::clone(&store).spawn_pruning_task();
+        (
+            LiveQueryStoreHandle { store },
+            Child::new(
+                handle,
+                // should shutdown immediately anyway
+                OnShutdown::Wait(Duration::from_millis(5000)),
+            ),
+        )
     }
 
-    fn spawn_pruning_task(self: Arc<Self>) {
+    fn spawn_pruning_task(self: Arc<Self>) -> JoinHandle<()> {
         let mut idle_interval = tokio::time::interval(self.idle_time);
         tokio::task::spawn(async move {
             loop {
@@ -131,14 +140,14 @@ impl LiveQueryStore {
                             }
                         });
                     }
-                    () = self.notify_shutdown.notified() => {
+                    () = self.shutdown_signal.receive() => {
                         iroha_logger::info!("LiveQueryStore is being shut down.");
                         break;
                     }
                     else => break,
                 }
             }
-        });
+        })
     }
 
     fn insert(
@@ -321,9 +330,8 @@ mod tests {
 
     #[test]
     fn query_message_order_preserved() {
-        let query_store = LiveQueryStore::test();
         let threaded_rt = tokio::runtime::Runtime::new().unwrap();
-        let query_store_handle = threaded_rt.block_on(async { query_store.start() });
+        let query_handle = threaded_rt.block_on(async { LiveQueryStore::start_test() });
 
         for i in 0..10_000 {
             let pagination = Pagination::default();
@@ -347,7 +355,7 @@ mod tests {
             )
             .unwrap();
 
-            let (batch, _remaining_items, mut current_cursor) = query_store_handle
+            let (batch, _remaining_items, mut current_cursor) = query_handle
                 .handle_iter_start(query_output, &ALICE_ID)
                 .unwrap()
                 .into_parts();
@@ -356,7 +364,7 @@ mod tests {
             counter += batch.len();
 
             while let Some(cursor) = current_cursor {
-                let Ok(batched) = query_store_handle.handle_iter_continue(cursor) else {
+                let Ok(batched) = query_handle.handle_iter_continue(cursor) else {
                     break;
                 };
                 let (batch, _remaining_items, cursor) = batched.into_parts();

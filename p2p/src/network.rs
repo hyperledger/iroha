@@ -10,6 +10,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_config::parameters::actual::Network as Config;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::PeerId;
+use iroha_futures::supervisor::{Child, OnShutdown};
 use iroha_logger::prelude::*;
 use iroha_primitives::addr::SocketAddr;
 use parity_scale_codec::Encode as _;
@@ -75,7 +76,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             address: listen_addr,
             idle_timeout,
         }: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<(Self, Child), Error> {
         // TODO: enhance the error by reporting the origin of `listen_addr`
         let listener = TcpListener::bind(listen_addr.value().to_socket_addrs()?.as_slice()).await?;
         iroha_logger::info!("Network bound to listener");
@@ -108,15 +109,18 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             _key_exchange: core::marker::PhantomData::<K>,
             _encryptor: core::marker::PhantomData::<E>,
         };
-        tokio::task::spawn(network.run());
-        Ok(Self {
-            subscribe_to_peers_messages_sender,
-            online_peers_receiver,
-            update_topology_sender,
-            network_message_sender,
-            _key_exchange: core::marker::PhantomData,
-            _encryptor: core::marker::PhantomData,
-        })
+        let child = Child::new(tokio::task::spawn(network.run()), OnShutdown::Abort);
+        Ok((
+            Self {
+                subscribe_to_peers_messages_sender,
+                online_peers_receiver,
+                update_topology_sender,
+                network_message_sender,
+                _key_exchange: core::marker::PhantomData,
+                _encryptor: core::marker::PhantomData,
+            },
+            child,
+        ))
     }
 
     /// Subscribe to messages received from other peers in the network

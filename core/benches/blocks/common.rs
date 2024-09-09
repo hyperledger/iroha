@@ -185,7 +185,7 @@ pub fn build_state(rt: &tokio::runtime::Handle, account_id: &AccountId) -> State
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let query_handle = {
         let _guard = rt.enter();
-        LiveQueryStore::test().start()
+        LiveQueryStore::start_test()
     };
     let domain = Domain::new(account_id.domain().clone()).build(account_id);
     let state = State::new(

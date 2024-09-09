@@ -4,6 +4,7 @@ use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use iroha_config::parameters::actual::TransactionGossiper as Config;
 use iroha_data_model::{transaction::SignedTransaction, ChainId};
+use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
@@ -46,10 +47,15 @@ pub struct TransactionGossiper {
 
 impl TransactionGossiper {
     /// Start [`Self`] actor.
-    pub fn start(self) -> TransactionGossiperHandle {
+    pub fn start(self, shutdown_signal: ShutdownSignal) -> (TransactionGossiperHandle, Child) {
         let (message_sender, message_receiver) = mpsc::channel(1);
-        tokio::task::spawn(self.run(message_receiver));
-        TransactionGossiperHandle { message_sender }
+        (
+            TransactionGossiperHandle { message_sender },
+            Child::new(
+                tokio::task::spawn(self.run(message_receiver, shutdown_signal)),
+                OnShutdown::Abort,
+            ),
+        )
     }
 
     /// Construct [`Self`] from configuration
@@ -73,18 +79,22 @@ impl TransactionGossiper {
         }
     }
 
-    async fn run(self, mut message_receiver: mpsc::Receiver<TransactionGossip>) {
+    async fn run(
+        self,
+        mut message_receiver: mpsc::Receiver<TransactionGossip>,
+        shutdown_signal: ShutdownSignal,
+    ) {
         let mut gossip_period = tokio::time::interval(self.gossip_period);
         loop {
             tokio::select! {
                 _ = gossip_period.tick() => self.gossip_transactions(),
-                transaction_gossip = message_receiver.recv() => {
-                    let Some(transaction_gossip) = transaction_gossip else {
-                        iroha_logger::info!("All handler to Gossiper are dropped. Shutting down...");
-                        break;
-                    };
+                Some(transaction_gossip) = message_receiver.recv() => {
                     self.handle_transaction_gossip(transaction_gossip);
                 }
+                () = shutdown_signal.receive() => {
+                    iroha_logger::info!("Shutting down transactions gossiper");
+                    break;
+                },
             }
             tokio::task::yield_now().await;
         }

@@ -2169,7 +2169,7 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(World::default(), kura, query_handle);
         let mut state_block = state.block();
 
@@ -2195,7 +2195,7 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::test().start();
+        let query_handle = LiveQueryStore::start_test();
         let state = State::new(World::default(), kura.clone(), query_handle);
         let mut state_block = state.block();
 
