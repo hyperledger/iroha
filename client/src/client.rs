@@ -1041,11 +1041,6 @@ pub mod trigger {
     pub fn all_ids() -> FindActiveTriggerIds {
         FindActiveTriggerIds
     }
-
-    /// Construct a query to get a trigger by its id
-    pub fn by_id(trigger_id: TriggerId) -> FindTriggerById {
-        FindTriggerById::new(trigger_id)
-    }
 }
 
 pub mod permission {

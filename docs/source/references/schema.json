@@ -1359,6 +1359,30 @@
       }
     ]
   },
+  "CompoundPredicate<TriggerPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "TriggerPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<TriggerPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<TriggerPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<TriggerPredicateBox>>"
+      }
+    ]
+  },
   "ConfigurationEvent": {
     "Enum": [
       {
@@ -2005,14 +2029,6 @@
     ]
   },
   "FindTransactions": null,
-  "FindTriggerById": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "TriggerId"
-      }
-    ]
-  },
   "FindTriggerMetadata": {
     "Struct": [
       {
@@ -2025,6 +2041,7 @@
       }
     ]
   },
+  "FindTriggers": null,
   "ForwardCursor": {
     "Struct": [
       {
@@ -3029,18 +3046,23 @@
         "type": "QueryWithFilter<FindActiveTriggerIds, TriggerIdPredicateBox>"
       },
       {
-        "tag": "FindTransactions",
+        "tag": "FindTriggers",
         "discriminant": 11,
+        "type": "QueryWithFilter<FindTriggers, TriggerPredicateBox>"
+      },
+      {
+        "tag": "FindTransactions",
+        "discriminant": 12,
         "type": "QueryWithFilter<FindTransactions, TransactionQueryOutputPredicateBox>"
       },
       {
         "tag": "FindBlocks",
-        "discriminant": 12,
+        "discriminant": 13,
         "type": "QueryWithFilter<FindBlocks, SignedBlockPredicateBox>"
       },
       {
         "tag": "FindBlockHeaders",
-        "discriminant": 13,
+        "discriminant": 14,
         "type": "QueryWithFilter<FindBlockHeaders, BlockHeaderPredicateBox>"
       }
     ]
@@ -3149,13 +3171,18 @@
         "type": "Vec<TriggerId>"
       },
       {
-        "tag": "Block",
+        "tag": "Trigger",
         "discriminant": 11,
+        "type": "Vec<Trigger>"
+      },
+      {
+        "tag": "Block",
+        "discriminant": 12,
         "type": "Vec<SignedBlock>"
       },
       {
         "tag": "BlockHeader",
-        "discriminant": 12,
+        "discriminant": 13,
         "type": "Vec<BlockHeader>"
       }
     ]
@@ -3387,6 +3414,18 @@
       {
         "name": "predicate",
         "type": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
+      }
+    ]
+  },
+  "QueryWithFilter<FindTriggers, TriggerPredicateBox>": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "FindTriggers"
+      },
+      {
+        "name": "predicate",
+        "type": "CompoundPredicate<TriggerPredicateBox>"
       }
     ]
   },
@@ -4041,33 +4080,28 @@
         "type": "FindParameters"
       },
       {
-        "tag": "FindTriggerById",
-        "discriminant": 3,
-        "type": "FindTriggerById"
-      },
-      {
         "tag": "FindDomainMetadata",
-        "discriminant": 4,
+        "discriminant": 3,
         "type": "FindDomainMetadata"
       },
       {
         "tag": "FindAccountMetadata",
-        "discriminant": 5,
+        "discriminant": 4,
         "type": "FindAccountMetadata"
       },
       {
         "tag": "FindAssetMetadata",
-        "discriminant": 6,
+        "discriminant": 5,
         "type": "FindAssetMetadata"
       },
       {
         "tag": "FindAssetDefinitionMetadata",
-        "discriminant": 7,
+        "discriminant": 6,
         "type": "FindAssetDefinitionMetadata"
       },
       {
         "tag": "FindTriggerMetadata",
-        "discriminant": 8,
+        "discriminant": 7,
         "type": "FindTriggerMetadata"
       }
     ]
@@ -4750,6 +4784,15 @@
       }
     ]
   },
+  "TriggerPredicateBox": {
+    "Enum": [
+      {
+        "tag": "Id",
+        "discriminant": 0,
+        "type": "TriggerIdPredicateBox"
+      }
+    ]
+  },
   "TypeError": {
     "Enum": [
       {
@@ -4948,6 +4991,9 @@
   "Vec<CompoundPredicate<TriggerIdPredicateBox>>": {
     "Vec": "CompoundPredicate<TriggerIdPredicateBox>"
   },
+  "Vec<CompoundPredicate<TriggerPredicateBox>>": {
+    "Vec": "CompoundPredicate<TriggerPredicateBox>"
+  },
   "Vec<Domain>": {
     "Vec": "Domain"
   },
@@ -4980,6 +5026,9 @@
   },
   "Vec<TransactionQueryOutput>": {
     "Vec": "TransactionQueryOutput"
+  },
+  "Vec<Trigger>": {
+    "Vec": "Trigger"
   },
   "Vec<TriggerId>": {
     "Vec": "TriggerId"
