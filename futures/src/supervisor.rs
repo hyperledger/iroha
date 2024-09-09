@@ -103,7 +103,7 @@ impl Supervisor {
             return Ok(());
         }
 
-        SupervisorMonitor::new(self.shutdown_signal)
+        LoopBuilder::new(self.shutdown_signal)
             .monitor(self.children)
             .into_loop()
             .run()
@@ -111,7 +111,7 @@ impl Supervisor {
     }
 }
 
-struct SupervisorMonitor {
+struct LoopBuilder {
     set: JoinSet<()>,
     shutdown_signal: ShutdownSignal,
     exit: (
@@ -120,7 +120,7 @@ struct SupervisorMonitor {
     ),
 }
 
-impl SupervisorMonitor {
+impl LoopBuilder {
     fn new(shutdown_signal: ShutdownSignal) -> Self {
         Self {
             set: JoinSet::new(),
