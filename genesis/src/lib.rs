@@ -40,8 +40,8 @@ pub struct RawGenesisTransaction {
     /// Path to the [`Executor`] file
     executor: ExecutorPath,
     /// Parameters
-    #[serde(default)]
-    parameters: Vec<Parameter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parameters: Option<Parameters>,
     instructions: Vec<InstructionBox>,
     /// Initial topology
     topology: Vec<PeerId>,
@@ -104,13 +104,16 @@ impl RawGenesisTransaction {
     /// If executor couldn't be read from provided path
     pub fn build_and_sign(self, genesis_key_pair: &KeyPair) -> Result<GenesisBlock> {
         let executor = get_executor(&self.executor.0)?;
+        let parameters = self
+            .parameters
+            .map_or(Vec::new(), |parameters| parameters.parameters().collect());
         let genesis = build_and_sign_genesis(
             self.instructions,
             executor,
             self.chain,
             genesis_key_pair,
             self.topology,
-            self.parameters,
+            parameters,
         );
         Ok(genesis)
     }
@@ -284,7 +287,7 @@ impl GenesisBuilder {
         RawGenesisTransaction {
             instructions: self.instructions,
             executor: ExecutorPath(executor_file),
-            parameters: self.parameters,
+            parameters: convert_parameters(self.parameters),
             chain: chain_id,
             topology,
         }
@@ -322,6 +325,51 @@ impl GenesisDomainBuilder {
             .push(Register::asset_definition(asset_definition).into());
         self
     }
+}
+
+fn convert_parameters(parameters: Vec<Parameter>) -> Option<Parameters> {
+    if parameters.is_empty() {
+        return None;
+    }
+    let mut result = Parameters::default();
+    for parameter in parameters.into_iter() {
+        apply_parameter(&mut result, parameter);
+    }
+    Some(result)
+}
+
+fn apply_parameter(parameters: &mut Parameters, parameter: Parameter) {
+    macro_rules! apply_parameter {
+        ($($container:ident($param:ident.$field:ident) => $single:ident::$variant:ident),* $(,)?) => {
+            match parameter {
+                $(
+                Parameter::$container(iroha_data_model::parameter::$single::$variant(next)) => {
+                    parameters.$param.$field = next;
+                }
+                )*
+                Parameter::Custom(next) => {
+                    parameters.custom.insert(next.id.clone(), next);
+                }
+            }
+        };
+    }
+
+    apply_parameter!(
+        Sumeragi(sumeragi.max_clock_drift_ms) => SumeragiParameter::MaxClockDriftMs,
+        Sumeragi(sumeragi.block_time_ms) => SumeragiParameter::BlockTimeMs,
+        Sumeragi(sumeragi.commit_time_ms) => SumeragiParameter::CommitTimeMs,
+
+        Block(block.max_transactions) => BlockParameter::MaxTransactions,
+
+        Transaction(transaction.max_instructions) => TransactionParameter::MaxInstructions,
+        Transaction(transaction.smart_contract_size) => TransactionParameter::SmartContractSize,
+
+        SmartContract(smart_contract.fuel) => SmartContractParameter::Fuel,
+        SmartContract(smart_contract.memory) => SmartContractParameter::Memory,
+
+        Executor(executor.fuel) => SmartContractParameter::Fuel,
+        Executor(executor.memory) => SmartContractParameter::Memory,
+    );
 }
 
 impl Encode for ExecutorPath {
@@ -483,5 +531,35 @@ mod tests {
                 .into()
             );
         }
+    }
+
+    #[test]
+    fn genesis_parameters_deserialization() {
+        fn test(parameters: &str) {
+            let genesis_json = format!(
+                r#"{{
+              "parameters": {},
+              "chain": "0",
+              "executor": "./executor.wasm",
+              "topology": [],
+              "instructions": []
+            }}"#,
+                parameters
+            );
+            let _genesis: RawGenesisTransaction =
+                serde_json::from_str(&genesis_json).expect("Failed to deserialize");
+        }
+
+        // Empty parameters
+        test("{}");
+        test(
+            r#"{"sumeragi": {}, "block": {}, "transaction": {}, "executor": {}, "smart_contract": {}}"#,
+        );
+
+        // Inner value missing
+        test(r#"{"sumeragi": {"block_time_ms": 2000}}"#);
+        test(r#"{"transaction": {"max_instructions": 4096}}"#);
+        test(r#"{"executor": {"fuel": 55000000}}"#);
+        test(r#"{"smart_contract": {"fuel": 55000000}}"#);
     }
 }
