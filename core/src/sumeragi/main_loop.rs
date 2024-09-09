@@ -338,7 +338,7 @@ impl Sumeragi {
         let prev_role = self.role();
 
         self.topology
-            .block_committed(block.as_ref(), state_block.world.peers().cloned());
+            .block_committed(state_block.world.peers().cloned());
 
         let state_events =
             state_block.apply_without_execution(&block, self.topology.as_ref().to_owned());
