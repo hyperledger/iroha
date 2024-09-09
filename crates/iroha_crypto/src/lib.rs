@@ -38,6 +38,8 @@ pub use hash::*;
 use iroha_macro::ffi_impl_opaque;
 use iroha_primitives::const_vec::ConstVec;
 use iroha_schema::{Declaration, IntoSchema, MetaMap, Metadata, NamedFieldsMeta, TypeId};
+#[cfg(target_family = "wasm")]
+use lazy::PublicKeyLazy;
 pub use merkle::MerkleTree;
 #[cfg(not(feature = "ffi_import"))]
 use parity_scale_codec::{Decode, Encode};
@@ -248,7 +250,7 @@ impl From<PrivateKey> for KeyPair {
 impl From<(ed25519::PublicKey, ed25519::PrivateKey)> for KeyPair {
     fn from((public_key, private_key): (ed25519::PublicKey, ed25519::PrivateKey)) -> Self {
         Self {
-            public_key: PublicKey(Box::new(PublicKeyInner::Ed25519(public_key))),
+            public_key: PublicKey::new(PublicKeyInner::Ed25519(public_key)),
             private_key: PrivateKey(Box::new(Secret::new(PrivateKeyInner::Ed25519(private_key)))),
         }
     }
@@ -257,7 +259,7 @@ impl From<(ed25519::PublicKey, ed25519::PrivateKey)> for KeyPair {
 impl From<(secp256k1::PublicKey, secp256k1::PrivateKey)> for KeyPair {
     fn from((public_key, private_key): (secp256k1::PublicKey, secp256k1::PrivateKey)) -> Self {
         Self {
-            public_key: PublicKey(Box::new(PublicKeyInner::Secp256k1(public_key))),
+            public_key: PublicKey::new(PublicKeyInner::Secp256k1(public_key)),
             private_key: PrivateKey(Box::new(Secret::new(PrivateKeyInner::Secp256k1(
                 private_key,
             )))),
@@ -270,7 +272,7 @@ impl From<(bls::BlsNormalPublicKey, bls::BlsNormalPrivateKey)> for KeyPair {
         (public_key, private_key): (bls::BlsNormalPublicKey, bls::BlsNormalPrivateKey),
     ) -> Self {
         Self {
-            public_key: PublicKey(Box::new(PublicKeyInner::BlsNormal(public_key))),
+            public_key: PublicKey::new(PublicKeyInner::BlsNormal(public_key)),
             private_key: PrivateKey(Box::new(Secret::new(PrivateKeyInner::BlsNormal(
                 private_key,
             )))),
@@ -281,7 +283,7 @@ impl From<(bls::BlsNormalPublicKey, bls::BlsNormalPrivateKey)> for KeyPair {
 impl From<(bls::BlsSmallPublicKey, bls::BlsSmallPrivateKey)> for KeyPair {
     fn from((public_key, private_key): (bls::BlsSmallPublicKey, bls::BlsSmallPrivateKey)) -> Self {
         Self {
-            public_key: PublicKey(Box::new(PublicKeyInner::BlsSmall(public_key))),
+            public_key: PublicKey::new(PublicKeyInner::BlsSmall(public_key)),
             private_key: PrivateKey(Box::new(Secret::new(PrivateKeyInner::BlsSmall(
                 private_key,
             )))),
@@ -310,10 +312,6 @@ impl<'de> Deserialize<'de> for KeyPair {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-#[cfg_attr(
-    not(feature = "ffi_import"),
-    derive(DeserializeFromStr, SerializeDisplay)
-)]
 #[allow(missing_docs, variant_size_differences)]
 enum PublicKeyInner {
     Ed25519(ed25519::PublicKey),
@@ -322,46 +320,24 @@ enum PublicKeyInner {
     BlsSmall(bls::BlsSmallPublicKey),
 }
 
-#[cfg(not(feature = "ffi_import"))]
-impl fmt::Debug for PublicKeyInner {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple(self.algorithm().as_static_str())
-            .field(&self.normalize())
-            .finish()
-    }
-}
-
-#[cfg(not(feature = "ffi_import"))]
-impl fmt::Display for PublicKeyInner {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.normalize())
-    }
-}
-
-#[cfg(not(feature = "ffi_import"))]
-impl FromStr for PublicKeyInner {
-    type Err = ParseError;
-
-    fn from_str(key: &str) -> Result<Self, Self::Err> {
-        let bytes = hex_decode(key)?;
-
-        let (algorithm, payload) = multihash::decode_public_key(&bytes)?;
-        PublicKey::from_bytes(algorithm, &payload).map(|key| *key.0)
-    }
-}
-
-#[cfg(not(feature = "ffi_import"))]
 impl PublicKeyInner {
-    fn normalize(&self) -> String {
-        let (algorithm, payload) = self.to_raw();
-        let bytes = multihash::encode_public_key(algorithm, &payload)
-            .expect("Failed to convert multihash to bytes.");
-
-        multihash::multihash_to_hex_string(&bytes)
+    fn from_bytes(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
+        match algorithm {
+            Algorithm::Ed25519 => {
+                ed25519::Ed25519Sha512::parse_public_key(payload).map(PublicKeyInner::Ed25519)
+            }
+            Algorithm::Secp256k1 => secp256k1::EcdsaSecp256k1Sha256::parse_public_key(payload)
+                .map(PublicKeyInner::Secp256k1),
+            Algorithm::BlsNormal => {
+                bls::BlsNormal::parse_public_key(payload).map(PublicKeyInner::BlsNormal)
+            }
+            Algorithm::BlsSmall => {
+                bls::BlsSmall::parse_public_key(payload).map(PublicKeyInner::BlsSmall)
+            }
+        }
     }
-}
 
-impl PublicKeyInner {
+    #[cfg(not(target_family = "wasm"))]
     fn to_raw(&self) -> (Algorithm, Vec<u8>) {
         (self.algorithm(), self.payload())
     }
@@ -388,6 +364,76 @@ impl PublicKeyInner {
     }
 }
 
+/// `PublicKey` will be lazily deserialized inside WASM.
+/// This is needed for performance reasons, since `PublicKeyInner::from_bytes` is quite slow.
+/// However inside WASM in most cases `PublicKey` is used only for comparisons (==).
+/// See https://github.com/hyperledger/iroha/issues/5038 for details.
+#[cfg(target_family = "wasm")]
+mod lazy {
+    use alloc::{boxed::Box, vec::Vec};
+    use core::{borrow::Borrow, cell::OnceCell};
+
+    use crate::{Algorithm, PublicKeyInner};
+
+    #[derive(Clone, Eq)]
+    pub struct PublicKeyLazy {
+        algorithm: Algorithm,
+        payload: Vec<u8>,
+        inner: OnceCell<Box<PublicKeyInner>>,
+    }
+
+    impl PublicKeyLazy {
+        pub fn new(inner: PublicKeyInner) -> Self {
+            Self {
+                algorithm: inner.algorithm(),
+                payload: inner.payload(),
+                inner: OnceCell::from(Box::new(inner)),
+            }
+        }
+
+        pub fn new_lazy(algorithm: Algorithm, payload: Vec<u8>) -> Self {
+            Self {
+                algorithm,
+                payload,
+                inner: OnceCell::new(),
+            }
+        }
+
+        fn get_inner(&self) -> &PublicKeyInner {
+            self.inner.get_or_init(|| {
+                let inner = PublicKeyInner::from_bytes(self.algorithm, &self.payload)
+                    .expect("Public key deserialization at WASM side must not fail because data received from host side");
+                Box::new(inner)
+            })
+        }
+
+        pub fn algorithm(&self) -> Algorithm {
+            self.algorithm
+        }
+
+        pub fn to_raw(&self) -> (Algorithm, Vec<u8>) {
+            (self.algorithm, self.payload.clone())
+        }
+    }
+
+    impl Borrow<PublicKeyInner> for PublicKeyLazy {
+        fn borrow(&self) -> &PublicKeyInner {
+            self.get_inner()
+        }
+    }
+
+    impl PartialEq for PublicKeyLazy {
+        fn eq(&self, other: &Self) -> bool {
+            self.algorithm == other.algorithm && self.payload == other.payload
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+type PublicKeyInnerType = Box<PublicKeyInner>;
+#[cfg(target_family = "wasm")]
+type PublicKeyInnerType = PublicKeyLazy;
+
 ffi::ffi_item! {
     /// Public key used in signatures.
     ///
@@ -409,37 +455,36 @@ ffi::ffi_item! {
     ///     "ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
     /// );
     /// ```
-    #[derive(Debug, Clone, PartialEq, Eq, TypeId)]
-    #[cfg_attr(not(feature="ffi_import"), derive(Deserialize, Serialize, derive_more::Display))]
-    #[cfg_attr(not(feature="ffi_import"), display(fmt = "{_0}"))]
+    #[derive(Clone, PartialEq, Eq, TypeId)]
+    #[cfg_attr(not(feature="ffi_import"), derive(DeserializeFromStr, SerializeDisplay))]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
     #[allow(missing_docs)]
-    pub struct PublicKey(Box<PublicKeyInner>);
+    pub struct PublicKey(PublicKeyInnerType);
 }
 
 #[ffi_impl_opaque]
 impl PublicKey {
+    #[cfg(not(target_family = "wasm"))]
+    fn new(inner: PublicKeyInner) -> Self {
+        Self(Box::new(inner))
+    }
+    #[cfg(target_family = "wasm")]
+    fn new(inner: PublicKeyInner) -> Self {
+        Self(PublicKeyLazy::new(inner))
+    }
+
     /// Creates a new public key from raw bytes received from elsewhere
     ///
     /// # Errors
     ///
     /// Fails if public key parsing fails
     pub fn from_bytes(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
-        match algorithm {
-            Algorithm::Ed25519 => {
-                ed25519::Ed25519Sha512::parse_public_key(payload).map(PublicKeyInner::Ed25519)
-            }
-            Algorithm::Secp256k1 => secp256k1::EcdsaSecp256k1Sha256::parse_public_key(payload)
-                .map(PublicKeyInner::Secp256k1),
-            Algorithm::BlsNormal => {
-                bls::BlsNormal::parse_public_key(payload).map(PublicKeyInner::BlsNormal)
-            }
-            Algorithm::BlsSmall => {
-                bls::BlsSmall::parse_public_key(payload).map(PublicKeyInner::BlsSmall)
-            }
-        }
-        .map(Box::new)
-        .map(PublicKey)
+        #[cfg(not(target_family = "wasm"))]
+        let inner = Box::new(PublicKeyInner::from_bytes(algorithm, payload)?);
+        #[cfg(target_family = "wasm")]
+        let inner = PublicKeyLazy::new_lazy(algorithm, payload.to_vec());
+
+        Ok(Self(inner))
     }
 
     /// Extracts raw bytes from the public key, copying the payload.
@@ -469,6 +514,17 @@ impl PublicKey {
 }
 
 #[cfg(not(feature = "ffi_import"))]
+impl PublicKey {
+    fn normalize(&self) -> String {
+        let (algorithm, payload) = self.to_bytes();
+        let bytes = multihash::encode_public_key(algorithm, &payload)
+            .expect("Failed to convert multihash to bytes.");
+
+        multihash::multihash_to_hex_string(&bytes)
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
 impl core::hash::Hash for PublicKey {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         (self.to_bytes()).hash(state)
@@ -484,6 +540,48 @@ impl PartialOrd for PublicKey {
 impl Ord for PublicKey {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.to_bytes().cmp(&other.to_bytes())
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl fmt::Debug for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // This could be simplified using `f.field_with` when `debug_closure_helpers` feature become stable
+        struct Helper {
+            algorithm: Algorithm,
+            normalized: String,
+        }
+        impl fmt::Debug for Helper {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_tuple(self.algorithm.as_static_str())
+                    .field(&self.normalized)
+                    .finish()
+            }
+        }
+
+        let helper = Helper {
+            algorithm: self.algorithm(),
+            normalized: self.normalize(),
+        };
+        f.debug_tuple("PublicKey").field(&helper).finish()
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl fmt::Display for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.normalize())
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl FromStr for PublicKey {
+    type Err = ParseError;
+
+    fn from_str(key: &str) -> Result<Self, Self::Err> {
+        let bytes = hex_decode(key)?;
+        let (algorithm, payload) = multihash::decode_public_key(&bytes)?;
+        Self::from_bytes(algorithm, &payload)
     }
 }
 
@@ -544,14 +642,6 @@ impl IntoSchema for PublicKey {
     }
 }
 
-impl FromStr for PublicKey {
-    type Err = ParseError;
-
-    fn from_str(key: &str) -> Result<Self, Self::Err> {
-        key.parse().map(Box::new).map(Self)
-    }
-}
-
 // TODO: Enable in ffi_import
 #[cfg(not(feature = "ffi_import"))]
 impl From<PrivateKey> for PublicKey {
@@ -577,7 +667,7 @@ impl From<PrivateKey> for PublicKey {
             (BlsSmall, bls::BlsSmall)
         );
 
-        Self(Box::new(inner))
+        Self::new(inner)
     }
 }
 
