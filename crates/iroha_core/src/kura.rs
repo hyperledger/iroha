@@ -1072,7 +1072,7 @@ mod tests {
         );
 
         let executor = {
-            let executor_blob = std::fs::read("../defaults/executor.wasm").unwrap();
+            let executor_blob = std::fs::read("../../defaults/executor.wasm").unwrap();
             Executor::new(WasmSmartContract::from_compiled(executor_blob))
         };
         let genesis = GenesisBuilder::default().build_and_sign(
