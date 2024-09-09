@@ -13,7 +13,7 @@ jobs:
   sonarqube-defectdojo:
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
+      image: hyperledger/iroha2-ci:nightly-2024-09-09
     steps:
       - uses: actions/checkout@v4
       - name: Download clippy and lcov artifact reports

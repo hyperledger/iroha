@@ -14,7 +14,7 @@ jobs:
   build_executor:
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
+      image: hyperledger/iroha2-ci:nightly-2024-09-09
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +31,7 @@ jobs:
   registry_save_build_artifacts:
     runs-on: [self-hosted, Linux, iroha2]
     container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
+      image: hyperledger/iroha2-ci:nightly-2024-09-09
     needs: build_executor
     steps:
       - uses: actions/checkout@v4
@@ -88,7 +88,7 @@ jobs:
     if: false
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-ci:nightly-2024-04-18
+      image: hyperledger/iroha2-ci:nightly-2024-09-09
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
