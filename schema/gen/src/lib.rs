@@ -10,6 +10,14 @@ use iroha_schema::prelude::*;
 
 macro_rules! types {
     ($($t:ty),+ $(,)?) => {
+        // use all the types in a type position, so that IDE can resolve them
+        const _: () = {
+            use complete_data_model::*;
+            $(
+                let _resolve_my_type_pls: $t;
+            )+
+        };
+
         /// Apply `callback` to all types in the schema.
         #[macro_export]
         macro_rules! map_all_schema_types {
