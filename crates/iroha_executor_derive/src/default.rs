@@ -47,47 +47,44 @@ pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn::DeriveInput) 
     } = &input;
     check_required_fields(data, emitter);
 
-    let (custom_idents, custom_args) = custom_field_idents_and_fn_args(data);
+    let custom_idents = custom_field_idents(data);
 
     let mut entrypoint_fns: Vec<syn::ItemFn> = vec![
         parse_quote! {
             #[::iroha_executor::prelude::entrypoint]
-            pub fn validate_instruction(
-                authority: ::iroha_executor::prelude::AccountId,
-                instruction: ::iroha_executor::prelude::InstructionBox,
-                block_height: u64,
-                #(#custom_args),*
-            ) -> ::iroha_executor::prelude::Result {
-                let mut executor = #ident::new(block_height, #(#custom_idents),*);
-                executor.visit_instruction(&authority, &instruction);
-                ::core::mem::forget(instruction);
-                executor.verdict
-            }
-        },
-        parse_quote! {
-            #[::iroha_executor::prelude::entrypoint]
-            pub fn validate_transaction(
-                authority: ::iroha_executor::prelude::AccountId,
+            pub fn execute_transaction(
                 transaction: ::iroha_executor::prelude::SignedTransaction,
-                block_height: u64,
-                #(#custom_args),*
+                host: ::iroha_executor::prelude::Iroha,
+                context: ::iroha_executor::prelude::Context,
             ) -> ::iroha_executor::prelude::Result {
-                let mut executor = #ident::new(block_height, #(#custom_idents),*);
-                executor.visit_transaction(&authority, &transaction);
+                let mut executor = #ident {host, context, verdict: Ok(()), #(#custom_idents),*};
+                executor.visit_transaction(&transaction);
                 ::core::mem::forget(transaction);
                 executor.verdict
             }
         },
         parse_quote! {
             #[::iroha_executor::prelude::entrypoint]
-            pub fn validate_query(
-                authority: ::iroha_executor::prelude::AccountId,
-                query: ::iroha_executor::data_model::query::AnyQueryBox,
-                block_height: u64,
-                #(#custom_args),*
+            pub fn execute_instruction(
+                instruction: ::iroha_executor::prelude::InstructionBox,
+                host: ::iroha_executor::prelude::Iroha,
+                context: ::iroha_executor::prelude::Context,
             ) -> ::iroha_executor::prelude::Result {
-                let mut executor = #ident::new(block_height, #(#custom_idents),*);
-                executor.visit_query(&authority, &query);
+                let mut executor = #ident {host, context, verdict: Ok(()), #(#custom_idents),*};
+                executor.visit_instruction(&instruction);
+                ::core::mem::forget(instruction);
+                executor.verdict
+            }
+        },
+        parse_quote! {
+            #[::iroha_executor::prelude::entrypoint]
+            pub fn validate_query(
+                query: ::iroha_executor::data_model::query::AnyQueryBox,
+                host: ::iroha_executor::prelude::Iroha,
+                context: ::iroha_executor::prelude::Context,
+            ) -> ::iroha_executor::prelude::Result {
+                let mut executor = #ident {host, context, verdict: Ok(()), #(#custom_idents),*};
+                executor.visit_query(&query);
                 ::core::mem::forget(query);
                 executor.verdict
             }
@@ -165,9 +162,7 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn::DeriveInput) -> Tok
         let mut sig: syn::Signature =
             syn::parse_str(item).expect("Function names and operation signatures should be valid");
         let recv_arg: syn::Receiver = parse_quote!(&mut self);
-        let auth_arg: syn::FnArg = parse_quote!(authority: &AccountId);
         sig.inputs.insert(0, recv_arg.into());
-        sig.inputs.insert(1, auth_arg);
         sig
     })
     .collect();
@@ -193,12 +188,12 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn::DeriveInput) -> Tok
             let curr_fn_name = &visit_sig.ident;
             let local_override_fn = quote! {
                 #visit_sig {
-                    #curr_fn_name(self, authority, operation)
+                    #curr_fn_name(self, operation)
                 }
             };
             let default_override_fn = quote! {
                 #visit_sig {
-                    ::iroha_executor::default::#curr_fn_name(self, authority, operation)
+                    ::iroha_executor::default::#curr_fn_name(self, operation)
                 }
             };
             if let Some(fns_to_exclude) = custom {
@@ -224,20 +219,24 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn::DeriveInput) -> Tok
     }
 }
 
-pub fn impl_derive_validate(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream2 {
+pub fn impl_derive_execute(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream2 {
     let Some(input) = emitter.handle(ExecutorDeriveInput::from_derive_input(input)) else {
         return quote!();
     };
     let ExecutorDeriveInput { ident, data, .. } = &input;
     check_required_fields(data, emitter);
     quote! {
-        impl ::iroha_executor::Validate for #ident {
-            fn verdict(&self) -> &::iroha_executor::prelude::Result {
-                &self.verdict
+        impl ::iroha_executor::Execute for #ident {
+            fn host(&self) -> &::iroha_executor::smart_contract::Iroha {
+                &self.host
             }
 
-            fn block_height(&self) -> u64 {
-                self.block_height
+            fn context(&self) -> &::iroha_executor::prelude::Context {
+                &self.context
+            }
+
+            fn verdict(&self) -> &::iroha_executor::prelude::Result {
+                &self.verdict
             }
 
             fn deny(&mut self, reason: ::iroha_executor::prelude::ValidationFail) {
@@ -247,34 +246,12 @@ pub fn impl_derive_validate(emitter: &mut Emitter, input: &syn::DeriveInput) -> 
     }
 }
 
-pub fn impl_derive_constructor(emitter: &mut Emitter, input: &syn::DeriveInput) -> TokenStream2 {
-    let Some(input) = emitter.handle(ExecutorDeriveInput::from_derive_input(input)) else {
-        return quote!();
-    };
-    let ExecutorDeriveInput { ident, data, .. } = &input;
-
-    check_required_fields(data, emitter);
-
-    let (custom_idents, custom_args) = custom_field_idents_and_fn_args(data);
-
-    // Returning an inherent impl is okay here as there can be multiple
-    quote! {
-        impl #ident {
-            pub fn new(block_height: u64, #(#custom_args),*) -> Self {
-                Self {
-                    verdict: Ok(()),
-                    block_height,
-                    #(#custom_idents),*
-                }
-            }
-        }
-
-    }
-}
-
 fn check_required_fields(ast: &ExecutorData, emitter: &mut Emitter) {
-    let required_fields: syn::FieldsNamed =
-        parse_quote!({ verdict: ::iroha_executor::prelude::Result, block_height: u64 });
+    let required_fields: syn::FieldsNamed = parse_quote!({
+        host: ::iroha_executor::prelude::Iroha,
+        context: iroha_executor::prelude::Context,
+        verdict: ::iroha_executor::prelude::Result,
+    });
     let struct_fields = ast
         .as_ref()
         .take_struct()
@@ -323,8 +300,8 @@ fn check_type_equivalence(full_ty: &syn::Type, given_ty: &syn::Type) -> bool {
 
 /// Processes an `Executor` by draining it of default fields and returning the idents of the
 /// custom fields and the corresponding function arguments for use in the constructor
-fn custom_field_idents_and_fn_args(ast: &ExecutorData) -> (Vec<&Ident>, Vec<syn::FnArg>) {
-    let required_idents: Vec<Ident> = ["verdict", "block_height"]
+fn custom_field_idents(ast: &ExecutorData) -> Vec<&Ident> {
+    let required_idents: Vec<Ident> = ["host", "context", "verdict"]
         .iter()
         .map(|s| Ident::new(s, Span::call_site()))
         .collect();
@@ -349,14 +326,5 @@ fn custom_field_idents_and_fn_args(ast: &ExecutorData) -> (Vec<&Ident>, Vec<syn:
                 .expect("BUG: Struct should have named fields")
         })
         .collect::<Vec<_>>();
-    let custom_args = custom_fields
-        .iter()
-        .map(|field| {
-            let ident = &field.ident;
-            let ty = &field.ty;
-            let field_arg: syn::FnArg = parse_quote!(#ident: #ty);
-            field_arg
-        })
-        .collect::<Vec<_>>();
-    (custom_idents, custom_args)
+    custom_idents
 }

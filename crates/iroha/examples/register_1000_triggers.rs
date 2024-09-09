@@ -6,9 +6,12 @@ use std::num::NonZeroU64;
 use iroha::{
     client::Client,
     crypto::KeyPair,
-    data_model::{prelude::*, trigger::TriggerId},
+    data_model::{
+        parameter::{Parameter, SmartContractParameter},
+        prelude::*,
+        trigger::TriggerId,
+    },
 };
-use iroha_data_model::parameter::{Parameter, SmartContractParameter};
 use iroha_genesis::{GenesisBlock, GenesisBuilder};
 use iroha_primitives::unique_vec;
 use iroha_test_network::{

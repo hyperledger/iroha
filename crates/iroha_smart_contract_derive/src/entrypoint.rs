@@ -6,7 +6,6 @@ use iroha_macro_utils::Emitter;
 use manyhow::emit;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::parse_quote;
 
 mod export {
     pub const SMART_CONTRACT_MAIN: &str = "_iroha_smart_contract_main";
@@ -18,7 +17,7 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
         attrs,
         vis,
         sig,
-        mut block,
+        block,
     } = item;
 
     if sig.output != syn::ReturnType::Default {
@@ -29,14 +28,6 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
     }
 
     let fn_name = &sig.ident;
-
-    block.stmts.insert(
-        0,
-        parse_quote!(
-            use ::iroha_smart_contract::{debug::DebugExpectExt as _, ExecuteOnHost as _};
-        ),
-    );
-
     let main_fn_name = syn::Ident::new(export::SMART_CONTRACT_MAIN, proc_macro2::Span::call_site());
 
     quote! {
@@ -44,8 +35,9 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn #main_fn_name() {
-            let payload = ::iroha_smart_contract::get_smart_contract_payload();
-            #fn_name(payload.owner)
+            let host = ::iroha_smart_contract::Iroha;
+            let context = ::iroha_smart_contract::get_smart_contract_context();
+            #fn_name(host, context)
         }
 
         // NOTE: Host objects are always passed by value to wasm

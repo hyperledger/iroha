@@ -1063,7 +1063,7 @@ mod event {
             let tx_events = self.as_ref().transactions().map(move |tx| {
                 let status = tx.error.as_ref().map_or_else(
                     || TransactionStatus::Approved,
-                    |error| TransactionStatus::Rejected(error.clone().into()),
+                    |error| TransactionStatus::Rejected(error.clone()),
                 );
 
                 TransactionEvent {

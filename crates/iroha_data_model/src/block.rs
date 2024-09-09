@@ -303,7 +303,7 @@ impl SignedBlock {
 
         let latest_txn_time = genesis_transactions
             .iter()
-            .map(|tx| tx.creation_time())
+            .map(super::transaction::SignedTransaction::creation_time)
             .max()
             .expect("INTERNAL BUG: Block empty");
         let now = SystemTime::now()

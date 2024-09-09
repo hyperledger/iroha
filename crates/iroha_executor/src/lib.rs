@@ -15,7 +15,7 @@ pub use iroha_smart_contract as smart_contract;
 pub use iroha_smart_contract_utils::{debug, encode_with_length_prefix};
 #[cfg(not(test))]
 use iroha_smart_contract_utils::{decode_with_length_prefix_from_raw, encode_and_execute};
-pub use smart_contract::{data_model, stub_getrandom};
+pub use smart_contract::{data_model, stub_getrandom, Iroha};
 
 pub mod default;
 pub mod permission;
@@ -30,36 +30,36 @@ pub mod log {
     pub use iroha_smart_contract_utils::{debug, error, event, info, log::*, trace, warn};
 }
 
-/// Get payload for `validate_transaction()` entrypoint.
+/// Get context for `validate_transaction()` entrypoint.
 #[cfg(not(test))]
-pub fn decode_validate_transaction_payload(
-    payload: *const u8,
+pub fn decode_execute_transaction_context(
+    context: *const u8,
 ) -> payloads::Validate<SignedTransaction> {
-    // Safety: ownership of the provided payload is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(payload) }
+    // Safety: ownership of the provided context is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(context) }
 }
 
-/// Get payload for `validate_instruction()` entrypoint.
+/// Get context for `validate_instruction()` entrypoint.
 #[cfg(not(test))]
-pub fn decode_validate_instruction_payload(
-    payload: *const u8,
+pub fn decode_execute_instruction_context(
+    context: *const u8,
 ) -> payloads::Validate<InstructionBox> {
-    // Safety: ownership of the provided payload is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(payload) }
+    // Safety: ownership of the provided context is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(context) }
 }
 
-/// Get payload for `validate_query()` entrypoint.
+/// Get context for `validate_query()` entrypoint.
 #[cfg(not(test))]
-pub fn decode_validate_query_payload(payload: *const u8) -> payloads::Validate<AnyQueryBox> {
-    // Safety: ownership of the provided payload is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(payload) }
+pub fn decode_validate_query_context(context: *const u8) -> payloads::Validate<AnyQueryBox> {
+    // Safety: ownership of the provided context is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(context) }
 }
 
-/// Get payload for `migrate()` entrypoint.
+/// Get context for `migrate()` entrypoint.
 #[cfg(not(test))]
-pub fn decode_migrate_payload(payload: *const u8) -> payloads::Migrate {
-    // Safety: ownership of the provided payload is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(payload) }
+pub fn decode_migrate_context(context: *const u8) -> payloads::ExecutorContext {
+    // Safety: ownership of the provided context is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(context) }
 }
 
 /// Set new [`ExecutorDataModel`].
@@ -98,12 +98,8 @@ macro_rules! execute {
             unreachable!("Executor already denied");
         }
 
-        {
-            use $crate::smart_contract::ExecuteOnHost as _;
-
-            if let Err(err) = $isi.execute() {
-                $executor.deny(err);
-            }
+        if let Err(err) = $executor.host().submit($isi) {
+            $executor.deny(err);
         }
 
         return;
@@ -211,35 +207,36 @@ impl DataModelBuilder {
 
     /// Set the data model of the executor via [`set_data_model`]
     #[cfg(not(test))]
-    pub fn build_and_set(self) {
-        use iroha_smart_contract::query;
-
-        use crate::smart_contract::ExecuteOnHost as _;
-
-        let all_accounts = query(FindAccounts::new()).execute().unwrap();
-        let all_roles = query(FindRoles::new()).execute().unwrap();
+    pub fn build_and_set(self, host: &Iroha) {
+        let all_accounts = host.query(FindAccounts::new()).execute().unwrap();
+        let all_roles = host.query(FindRoles::new()).execute().unwrap();
 
         for role in all_roles.into_iter().map(|role| role.unwrap()) {
             for permission in role.permissions() {
                 if !self.permissions.contains(permission.name()) {
-                    Revoke::role_permission(permission.clone(), role.id().clone())
-                        .execute()
-                        .unwrap();
+                    host.submit(&Revoke::role_permission(
+                        permission.clone(),
+                        role.id().clone(),
+                    ))
+                    .unwrap();
                 }
             }
         }
 
         for account in all_accounts.into_iter().map(|account| account.unwrap()) {
-            let account_permissions = query(FindPermissionsByAccountId::new(account.id().clone()))
+            let account_permissions = host
+                .query(FindPermissionsByAccountId::new(account.id().clone()))
                 .execute()
                 .unwrap()
                 .into_iter();
 
             for permission in account_permissions.map(|permission| permission.unwrap()) {
                 if !self.permissions.contains(permission.name()) {
-                    Revoke::account_permission(permission, account.id().clone())
-                        .execute()
-                        .unwrap();
+                    host.submit(&Revoke::account_permission(
+                        permission,
+                        account.id().clone(),
+                    ))
+                    .unwrap();
                 }
             }
         }
@@ -259,12 +256,17 @@ impl DataModelBuilder {
 }
 
 /// Executor of Iroha operations
-pub trait Validate {
+pub trait Execute {
+    /// Handle to the host environment.
+    fn host(&self) -> &Iroha;
+
+    /// Context of the execution.
+    ///
+    /// Represents the current state of the world
+    fn context(&self) -> &prelude::Context;
+
     /// Executor verdict.
     fn verdict(&self) -> &Result;
-
-    /// Current block height.
-    fn block_height(&self) -> u64;
 
     /// Set executor verdict to deny
     fn deny(&mut self, reason: ValidationFail);
@@ -275,13 +277,14 @@ pub mod prelude {
 
     pub use alloc::vec::Vec;
 
-    pub use iroha_executor_derive::{
-        entrypoint, Constructor, Validate, ValidateEntrypoints, Visit,
-    };
+    pub use iroha_executor_derive::{entrypoint, Entrypoints, Execute, Visit};
     pub use iroha_smart_contract::prelude::*;
 
     pub use super::{
-        data_model::{executor::Result, visit::Visit, ValidationFail},
-        deny, execute, DataModelBuilder, Validate,
+        data_model::{
+            executor::Result, smart_contract::payloads::ExecutorContext as Context, visit::Visit,
+            ValidationFail,
+        },
+        deny, execute, DataModelBuilder, Execute,
     };
 }

@@ -230,8 +230,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit<I: Instruction>(&self, instruction: I) -> Result<HashOf<SignedTransaction>> {
-        let isi = instruction.into();
+    pub fn submit<I: Instruction>(&self, isi: I) -> Result<HashOf<SignedTransaction>> {
         self.submit_all([isi])
     }
 

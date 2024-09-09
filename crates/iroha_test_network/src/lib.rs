@@ -14,7 +14,7 @@ pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair};
 use iroha_data_model::{asset::AssetDefinitionId, isi::InstructionBox, ChainId};
 use iroha_executor_data_model::permission::{
-    asset::CanMintAssetsWithDefinition, domain::CanUnregisterDomain, executor::CanUpgradeExecutor,
+    asset::CanMintAssetWithDefinition, domain::CanUnregisterDomain, executor::CanUpgradeExecutor,
     peer::CanManagePeers, role::CanManageRoles,
 };
 use iroha_futures::supervisor::ShutdownSignal;
@@ -97,7 +97,7 @@ impl TestGenesis for GenesisBlock {
         let rose_definition_id = "rose#wonderland".parse::<AssetDefinitionId>().unwrap();
 
         let grant_modify_rose_permission = Grant::account_permission(
-            CanMintAssetsWithDefinition {
+            CanMintAssetWithDefinition {
                 asset_definition: rose_definition_id.clone(),
             },
             ALICE_ID.clone(),

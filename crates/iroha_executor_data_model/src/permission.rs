@@ -121,19 +121,19 @@ pub mod asset {
     }
 
     permission! {
-        pub struct CanMintAssetsWithDefinition {
+        pub struct CanMintAssetWithDefinition {
             pub asset_definition: AssetDefinitionId,
         }
     }
 
     permission! {
-        pub struct CanBurnAssetsWithDefinition {
+        pub struct CanBurnAssetWithDefinition {
             pub asset_definition: AssetDefinitionId,
         }
     }
 
     permission! {
-        pub struct CanTransferAssetsWithDefinition {
+        pub struct CanTransferAssetWithDefinition {
             pub asset_definition: AssetDefinitionId,
         }
     }

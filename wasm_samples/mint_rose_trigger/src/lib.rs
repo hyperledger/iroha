@@ -6,7 +6,7 @@
 extern crate panic_halt;
 
 use dlmalloc::GlobalDlmalloc;
-use iroha_trigger::{prelude::*, smart_contract::query_single};
+use iroha_trigger::{debug::DebugExpectExt as _, prelude::*};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -15,16 +15,15 @@ getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 
 /// Mint 1 rose for owner
 #[iroha_trigger::main]
-fn main(id: TriggerId, owner: AccountId, _event: EventBox) {
-    let rose_definition_id = "rose#wonderland".parse().unwrap();
-    let rose_id = AssetId::new(rose_definition_id, owner);
+fn main(host: Iroha, context: Context) {
+    let rose_id = AssetId::new("rose#wonderland".parse().unwrap(), context.authority);
 
-    let val: u32 = query_single(FindTriggerMetadata::new(id, "VAL".parse().unwrap()))
+    let val: u32 = host
+        .query_single(FindTriggerMetadata::new(context.id, "VAL".parse().unwrap()))
         .dbg_unwrap()
         .try_into_any()
         .dbg_unwrap();
 
-    Mint::asset_numeric(val, rose_id)
-        .execute()
+    host.submit(&Mint::asset_numeric(val, rose_id))
         .dbg_expect("Failed to mint rose");
 }

@@ -15,8 +15,8 @@ use iroha_smart_contract::{
         predicate::CompoundPredicate,
         QueryWithFilter, QueryWithParams,
     },
+    debug::DebugExpectExt as _,
     prelude::*,
-    SmartContractQueryExecutor,
 };
 use nonzero_ext::nonzero;
 use parity_scale_codec::{Decode, DecodeAll, Encode};
@@ -29,13 +29,13 @@ getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
 /// Execute [`FindAssets`] and save cursor to the owner's metadata.
 /// NOTE: DON'T TAKE THIS AS AN EXAMPLE, THIS IS ONLY FOR TESTING INTERNALS OF IROHA
 #[iroha_smart_contract::main]
-fn main(owner: AccountId) {
+fn main(host: Iroha, context: Context) {
     #[derive(Clone, Debug, Decode)]
     pub struct SmartContractQueryCursor {
         pub cursor: ForwardCursor,
     }
 
-    let (_batch, _remaining_items, cursor) = SmartContractQueryExecutor
+    let (_batch, _remaining_items, cursor) = host
         .start_query(QueryWithParams::new(
             QueryWithFilter::new(FindAssets, CompoundPredicate::PASS).into(),
             QueryParams::new(
@@ -50,11 +50,10 @@ fn main(owner: AccountId) {
     let asset_cursor =
         SmartContractQueryCursor::decode_all(&mut &cursor.dbg_unwrap().encode()[..]).dbg_unwrap();
 
-    SetKeyValue::account(
-        owner,
+    host.submit(&SetKeyValue::account(
+        context.authority,
         "cursor".parse().unwrap(),
         JsonString::new(asset_cursor.cursor),
-    )
-    .execute()
+    ))
     .dbg_expect("Failed to save cursor to the owner's metadata");
 }

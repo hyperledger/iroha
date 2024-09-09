@@ -1,4 +1,4 @@
-//! Definition of Iroha default executor and accompanying validation functions
+//! Definition of Iroha default executor and accompanying execute functions
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
 use alloc::format;
@@ -41,7 +41,7 @@ pub use trigger::{
 use crate::{
     deny, execute,
     permission::{AnyPermission, ExecutorPermission as _},
-    Validate,
+    Execute,
 };
 
 // NOTE: If any new `visit_..` functions are introduced in this module, one should
@@ -49,81 +49,75 @@ use crate::{
 // `iroha_executor::derive::default::impl_derive_visit` function
 // signature list.
 
-/// Default validation for [`SignedTransaction`].
+/// Execute [`SignedTransaction`].
+///
+/// Transaction is executed following successful validation.
 ///
 /// # Warning
 ///
-/// Each instruction is executed in sequence following successful validation.
 /// [`Executable::Wasm`] is not executed because it is validated on the host side.
-pub fn visit_transaction<V: Validate + Visit + ?Sized>(
+pub fn visit_transaction<V: Execute + Visit + ?Sized>(
     executor: &mut V,
-    authority: &AccountId,
     transaction: &SignedTransaction,
 ) {
     match transaction.instructions() {
-        Executable::Wasm(wasm) => executor.visit_wasm(authority, wasm),
+        Executable::Wasm(wasm) => executor.visit_wasm(wasm),
         Executable::Instructions(instructions) => {
             for isi in instructions {
                 if executor.verdict().is_ok() {
-                    executor.visit_instruction(authority, isi);
+                    executor.visit_instruction(isi);
                 }
             }
         }
     }
 }
 
-/// Default validation for [`InstructionBox`].
-///
-/// # Warning
+/// Execute [`InstructionBox`].
 ///
 /// Instruction is executed following successful validation
-pub fn visit_instruction<V: Validate + Visit + ?Sized>(
-    executor: &mut V,
-    authority: &AccountId,
-    isi: &InstructionBox,
-) {
+pub fn visit_instruction<V: Execute + Visit + ?Sized>(executor: &mut V, isi: &InstructionBox) {
     match isi {
         InstructionBox::SetParameter(isi) => {
-            executor.visit_set_parameter(authority, isi);
+            executor.visit_set_parameter(isi);
         }
         InstructionBox::Log(isi) => {
-            executor.visit_log(authority, isi);
+            executor.visit_log(isi);
         }
         InstructionBox::ExecuteTrigger(isi) => {
-            executor.visit_execute_trigger(authority, isi);
+            executor.visit_execute_trigger(isi);
         }
         InstructionBox::Burn(isi) => {
-            executor.visit_burn(authority, isi);
+            executor.visit_burn(isi);
         }
         InstructionBox::Grant(isi) => {
-            executor.visit_grant(authority, isi);
+            executor.visit_grant(isi);
         }
         InstructionBox::Mint(isi) => {
-            executor.visit_mint(authority, isi);
+            executor.visit_mint(isi);
         }
         InstructionBox::Register(isi) => {
-            executor.visit_register(authority, isi);
+            executor.visit_register(isi);
         }
         InstructionBox::RemoveKeyValue(isi) => {
-            executor.visit_remove_key_value(authority, isi);
+            executor.visit_remove_key_value(isi);
         }
         InstructionBox::Revoke(isi) => {
-            executor.visit_revoke(authority, isi);
+            executor.visit_revoke(isi);
         }
         InstructionBox::SetKeyValue(isi) => {
-            executor.visit_set_key_value(authority, isi);
+            executor.visit_set_key_value(isi);
         }
         InstructionBox::Transfer(isi) => {
-            executor.visit_transfer(authority, isi);
+            executor.visit_transfer(isi);
         }
         InstructionBox::Unregister(isi) => {
-            executor.visit_unregister(authority, isi);
+            executor.visit_unregister(isi);
         }
         InstructionBox::Upgrade(isi) => {
-            executor.visit_upgrade(authority, isi);
+            executor.visit_upgrade(isi);
         }
         InstructionBox::Custom(isi) => {
-            executor.visit_custom(authority, isi);
+            executor.visit_custom(isi);
         }
     }
 }
@@ -133,30 +127,28 @@ pub mod peer {
 
     use super::*;
 
-    pub fn visit_register_peer<V: Validate + Visit + ?Sized>(
+    pub fn visit_register_peer<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Register<Peer>,
     ) {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        if CanManagePeers.is_owned_by(authority) {
+        if CanManagePeers.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
         deny!(executor, "Can't register peer");
     }
 
-    pub fn visit_unregister_peer<V: Validate + Visit + ?Sized>(
+    pub fn visit_unregister_peer<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Unregister<Peer>,
     ) {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        if CanManagePeers.is_owned_by(authority) {
+        if CanManagePeers.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
@@ -175,30 +167,28 @@ pub mod domain {
         account::is_account_owner, accounts_permissions, domain::is_domain_owner, roles_permissions,
     };
 
-    pub fn visit_register_domain<V: Validate + Visit + ?Sized>(
+    pub fn visit_register_domain<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Register<Domain>,
     ) {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        if CanRegisterDomain.is_owned_by(authority) {
+        if CanRegisterDomain.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
         deny!(executor, "Can't register domain");
     }
 
-    pub fn visit_unregister_domain<V: Validate + Visit + ?Sized>(
+    pub fn visit_unregister_domain<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Unregister<Domain>,
     ) {
         let domain_id = isi.object();
 
         if is_genesis(executor)
-            || match is_domain_owner(domain_id, authority) {
+            || match is_domain_owner(domain_id, &executor.context().authority, executor.host()) {
                 Err(err) => deny!(executor, err),
                 Ok(is_domain_owner) => is_domain_owner,
             }
@@ -206,23 +196,30 @@ pub mod domain {
                 let can_unregister_domain_token = CanUnregisterDomain {
                     domain: domain_id.clone(),
                 };
-                can_unregister_domain_token.is_owned_by(authority)
+                can_unregister_domain_token
+                    .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            use iroha_smart_contract::ExecuteOnHost as _;
-
-            for (owner_id, permission) in accounts_permissions() {
+            let mut err = None;
+            for (owner_id, permission) in accounts_permissions(executor.host()) {
                 if is_permission_domain_associated(&permission, domain_id) {
-                    let isi = Revoke::account_permission(permission, owner_id.clone());
-                    if let Err(err) = isi.execute() {
-                        deny!(executor, err);
+                    let isi = &Revoke::account_permission(permission, owner_id.clone());
+
+                    if let Err(error) = executor.host().submit(isi) {
+                        err = Some(error);
+                        break;
                     }
                 }
             }
-            for (role_id, permission) in roles_permissions() {
+            if let Some(err) = err {
+                deny!(executor, err);
+            }
+
+            for (role_id, permission) in roles_permissions(executor.host()) {
                 if is_permission_domain_associated(&permission, domain_id) {
-                    let isi = Revoke::role_permission(permission, role_id.clone());
-                    if let Err(err) = isi.execute() {
+                    let isi = &Revoke::role_permission(permission, role_id.clone());
+
+                    if let Err(err) = executor.host().submit(isi) {
                         deny!(executor, err);
                     }
                 }
@@ -232,9 +229,8 @@ pub mod domain {
         deny!(executor, "Can't unregister domain");
     }
 
-    pub fn visit_transfer_domain<V: Validate + Visit + ?Sized>(
+    pub fn visit_transfer_domain<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Transfer<Account, DomainId, Account>,
     ) {
         let source_id = isi.source();
@@ -243,12 +239,12 @@ pub mod domain {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_account_owner(source_id, authority) {
+        match is_account_owner(source_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        match is_domain_owner(domain_id, authority) {
+        match is_domain_owner(domain_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -257,9 +253,8 @@ pub mod domain {
         deny!(executor, "Can't transfer domain of another account");
     }
 
-    pub fn visit_set_domain_key_value<V: Validate + Visit + ?Sized>(
+    pub fn visit_set_domain_key_value<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &SetKeyValue<Domain>,
     ) {
         let domain_id = isi.object();
@@ -267,7 +262,7 @@ pub mod domain {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_domain_owner(domain_id, authority) {
+        match is_domain_owner(domain_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -275,16 +270,17 @@ pub mod domain {
         let can_set_key_value_in_domain_token = CanModifyDomainMetadata {
             domain: domain_id.clone(),
         };
-        if can_set_key_value_in_domain_token.is_owned_by(authority) {
+        if can_set_key_value_in_domain_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
         deny!(executor, "Can't set key value in domain metadata");
     }
 
-    pub fn visit_remove_domain_key_value<V: Validate + Visit + ?Sized>(
+    pub fn visit_remove_domain_key_value<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &RemoveKeyValue<Domain>,
     ) {
         let domain_id = isi.object();
@@ -292,7 +288,7 @@ pub mod domain {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_domain_owner(domain_id, authority) {
+        match is_domain_owner(domain_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -300,7 +296,9 @@ pub mod domain {
         let can_remove_key_value_in_domain_token = CanModifyDomainMetadata {
             domain: domain_id.clone(),
         };
-        if can_remove_key_value_in_domain_token.is_owned_by(authority) {
+        if can_remove_key_value_in_domain_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -331,13 +329,13 @@ pub mod domain {
             AnyPermission::CanUnregisterAssetWithDefinition(permission) => {
                 permission.asset_definition.domain() == domain_id
             }
-            AnyPermission::CanMintAssetsWithDefinition(permission) => {
+            AnyPermission::CanMintAssetWithDefinition(permission) => {
                 permission.asset_definition.domain() == domain_id
             }
-            AnyPermission::CanBurnAssetsWithDefinition(permission) => {
+            AnyPermission::CanBurnAssetWithDefinition(permission) => {
                 permission.asset_definition.domain() == domain_id
             }
-            AnyPermission::CanTransferAssetsWithDefinition(permission) => {
+            AnyPermission::CanTransferAssetWithDefinition(permission) => {
                 permission.asset_definition.domain() == domain_id
             }
             AnyPermission::CanRegisterAsset(permission) => permission.owner.domain() == domain_id,
@@ -391,14 +389,17 @@ pub mod account {
     use super::*;
     use crate::permission::{account::is_account_owner, accounts_permissions, roles_permissions};
 
-    pub fn visit_register_account<V: Validate + Visit + ?Sized>(
+    pub fn visit_register_account<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Register<Account>,
     ) {
         let domain_id = isi.object().id().domain();
 
-        match crate::permission::domain::is_domain_owner(domain_id, authority) {
+        match crate::permission::domain::is_domain_owner(
+            domain_id,
+            &executor.context().authority,
+            executor.host(),
+        ) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -407,7 +408,9 @@ pub mod account {
         let can_register_account_in_domain = CanRegisterAccount {
             domain: domain_id.clone(),
         };
-        if can_register_account_in_domain.is_owned_by(authority) {
+        if can_register_account_in_domain
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -417,15 +420,14 @@ pub mod account {
         );
     }
 
-    pub fn visit_unregister_account<V: Validate + Visit + ?Sized>(
+    pub fn visit_unregister_account<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Unregister<Account>,
     ) {
         let account_id = isi.object();
 
         if is_genesis(executor)
-            || match is_account_owner(account_id, authority) {
+            || match is_account_owner(account_id, &executor.context().authority, executor.host()) {
                 Err(err) => deny!(executor, err),
                 Ok(is_account_owner) => is_account_owner,
             }
@@ -433,23 +435,30 @@ pub mod account {
                 let can_unregister_user_account = CanUnregisterAccount {
                     account: account_id.clone(),
                 };
-                can_unregister_user_account.is_owned_by(authority)
+                can_unregister_user_account
+                    .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            use iroha_smart_contract::ExecuteOnHost as _;
-
-            for (owner_id, permission) in accounts_permissions() {
+            let mut err = None;
+            for (owner_id, permission) in accounts_permissions(executor.host()) {
                 if is_permission_account_associated(&permission, account_id) {
-                    let isi = Revoke::account_permission(permission, owner_id.clone());
-                    if let Err(err) = isi.execute() {
-                        deny!(executor, err);
+                    let isi = &Revoke::account_permission(permission, owner_id.clone());
+
+                    if let Err(error) = executor.host().submit(isi) {
+                        err = Some(error);
+                        break;
                     }
                 }
             }
-            for (role_id, permission) in roles_permissions() {
+            if let Some(err) = err {
+                deny!(executor, err);
+            }
+
+            for (role_id, permission) in roles_permissions(executor.host()) {
                 if is_permission_account_associated(&permission, account_id) {
-                    let isi = Revoke::role_permission(permission, role_id.clone());
-                    if let Err(err) = isi.execute() {
+                    let isi = &Revoke::role_permission(permission, role_id.clone());
+
+                    if let Err(err) = executor.host().submit(isi) {
                         deny!(executor, err);
                     }
                 }
@@ -459,9 +468,8 @@ pub mod account {
         deny!(executor, "Can't unregister another account");
     }
 
-    pub fn visit_set_account_key_value<V: Validate + Visit + ?Sized>(
+    pub fn visit_set_account_key_value<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &SetKeyValue<Account>,
     ) {
         let account_id = isi.object();
@@ -469,7 +477,7 @@ pub mod account {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_account_owner(account_id, authority) {
+        match is_account_owner(account_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -477,7 +485,9 @@ pub mod account {
         let can_set_key_value_in_user_account_token = CanModifyAccountMetadata {
             account: account_id.clone(),
         };
-        if can_set_key_value_in_user_account_token.is_owned_by(authority) {
+        if can_set_key_value_in_user_account_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -487,9 +497,8 @@ pub mod account {
         );
     }
 
-    pub fn visit_remove_account_key_value<V: Validate + Visit + ?Sized>(
+    pub fn visit_remove_account_key_value<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &RemoveKeyValue<Account>,
     ) {
         let account_id = isi.object();
@@ -497,7 +506,7 @@ pub mod account {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_account_owner(account_id, authority) {
+        match is_account_owner(account_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -505,7 +514,9 @@ pub mod account {
         let can_remove_key_value_in_user_account_token = CanModifyAccountMetadata {
             account: account_id.clone(),
         };
-        if can_remove_key_value_in_user_account_token.is_owned_by(authority) {
+        if can_remove_key_value_in_user_account_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -549,9 +560,9 @@ pub mod account {
             | AnyPermission::CanModifyAssetDefinitionMetadata(_)
             | AnyPermission::CanRegisterAssetWithDefinition(_)
             | AnyPermission::CanUnregisterAssetWithDefinition(_)
-            | AnyPermission::CanMintAssetsWithDefinition(_)
-            | AnyPermission::CanBurnAssetsWithDefinition(_)
-            | AnyPermission::CanTransferAssetsWithDefinition(_)
+            | AnyPermission::CanMintAssetWithDefinition(_)
+            | AnyPermission::CanBurnAssetWithDefinition(_)
+            | AnyPermission::CanTransferAssetWithDefinition(_)
             | AnyPermission::CanSetParameters(_)
             | AnyPermission::CanManageRoles(_)
             | AnyPermission::CanUpgradeExecutor(_) => false,
@@ -571,14 +582,17 @@ pub mod asset_definition {
         asset_definition::is_asset_definition_owner, roles_permissions,
     };
 
-    pub fn visit_register_asset_definition<V: Validate + Visit + ?Sized>(
+    pub fn visit_register_asset_definition<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Register<AssetDefinition>,
     ) {
         let domain_id = isi.object().id().domain();
 
-        match crate::permission::domain::is_domain_owner(domain_id, authority) {
+        match crate::permission::domain::is_domain_owner(
+            domain_id,
+            &executor.context().authority,
+            executor.host(),
+        ) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -587,7 +601,9 @@ pub mod asset_definition {
         let can_register_asset_definition_in_domain_token = CanRegisterAssetDefinition {
             domain: domain_id.clone(),
         };
-        if can_register_asset_definition_in_domain_token.is_owned_by(authority) {
+        if can_register_asset_definition_in_domain_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -597,15 +613,18 @@ pub mod asset_definition {
         );
     }
 
-    pub fn visit_unregister_asset_definition<V: Validate + Visit + ?Sized>(
+    pub fn visit_unregister_asset_definition<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Unregister<AssetDefinition>,
     ) {
         let asset_definition_id = isi.object();
 
         if is_genesis(executor)
-            || match is_asset_definition_owner(asset_definition_id, authority) {
+            || match is_asset_definition_owner(
+                asset_definition_id,
+                &executor.context().authority,
+                executor.host(),
+            ) {
                 Err(err) => deny!(executor, err),
                 Ok(is_asset_definition_owner) => is_asset_definition_owner,
             }
@@ -613,23 +632,30 @@ pub mod asset_definition {
                 let can_unregister_asset_definition_token = CanUnregisterAssetDefinition {
                     asset_definition: asset_definition_id.clone(),
                 };
-                can_unregister_asset_definition_token.is_owned_by(authority)
+                can_unregister_asset_definition_token
+                    .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            use iroha_smart_contract::ExecuteOnHost as _;
-
-            for (owner_id, permission) in accounts_permissions() {
+            let mut err = None;
+            for (owner_id, permission) in accounts_permissions(executor.host()) {
                 if is_permission_asset_definition_associated(&permission, asset_definition_id) {
-                    let isi = Revoke::account_permission(permission, owner_id.clone());
-                    if let Err(err) = isi.execute() {
-                        deny!(executor, err);
+                    let isi = &Revoke::account_permission(permission, owner_id.clone());
+
+                    if let Err(error) = executor.host().submit(isi) {
+                        err = Some(error);
+                        break;
                     }
                 }
             }
-            for (role_id, permission) in roles_permissions() {
+            if let Some(err) = err {
+                deny!(executor, err);
+            }
+
+            for (role_id, permission) in roles_permissions(executor.host()) {
                 if is_permission_asset_definition_associated(&permission, asset_definition_id) {
-                    let isi = Revoke::role_permission(permission, role_id.clone());
-                    if let Err(err) = isi.execute() {
+                    let isi = &Revoke::role_permission(permission, role_id.clone());
+
+                    if let Err(err) = executor.host().submit(isi) {
                         deny!(executor, err);
                     }
                 }
@@ -642,9 +668,8 @@ pub mod asset_definition {
         );
     }
 
-    pub fn visit_transfer_asset_definition<V: Validate + Visit + ?Sized>(
+    pub fn visit_transfer_asset_definition<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Transfer<Account, AssetDefinitionId, Account>,
     ) {
         let source_id = isi.source();
@@ -653,12 +678,16 @@ pub mod asset_definition {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_account_owner(source_id, authority) {
+        match is_account_owner(source_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        match is_asset_definition_owner(asset_definition_id, authority) {
+        match is_asset_definition_owner(
+            asset_definition_id,
+            &executor.context().authority,
+            executor.host(),
+        ) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -670,9 +699,8 @@ pub mod asset_definition {
         );
     }
 
-    pub fn visit_set_asset_definition_key_value<V: Validate + Visit + ?Sized>(
+    pub fn visit_set_asset_definition_key_value<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &SetKeyValue<AssetDefinition>,
     ) {
         let asset_definition_id = isi.object();
@@ -680,7 +708,11 @@ pub mod asset_definition {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_definition_owner(asset_definition_id, authority) {
+        match is_asset_definition_owner(
+            asset_definition_id,
+            &executor.context().authority,
+            executor.host(),
+        ) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -688,7 +720,9 @@ pub mod asset_definition {
         let can_set_key_value_in_asset_definition_token = CanModifyAssetDefinitionMetadata {
             asset_definition: asset_definition_id.clone(),
         };
-        if can_set_key_value_in_asset_definition_token.is_owned_by(authority) {
+        if can_set_key_value_in_asset_definition_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -698,9 +732,8 @@ pub mod asset_definition {
         );
     }
 
-    pub fn visit_remove_asset_definition_key_value<V: Validate + Visit + ?Sized>(
+    pub fn visit_remove_asset_definition_key_value<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &RemoveKeyValue<AssetDefinition>,
     ) {
         let asset_definition_id = isi.object();
@@ -708,7 +741,11 @@ pub mod asset_definition {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_definition_owner(asset_definition_id, authority) {
+        match is_asset_definition_owner(
+            asset_definition_id,
+            &executor.context().authority,
+            executor.host(),
+        ) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -716,7 +753,9 @@ pub mod asset_definition {
         let can_remove_key_value_in_asset_definition_token = CanModifyAssetDefinitionMetadata {
             asset_definition: asset_definition_id.clone(),
         };
-        if can_remove_key_value_in_asset_definition_token.is_owned_by(authority) {
+        if can_remove_key_value_in_asset_definition_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -746,13 +785,13 @@ pub mod asset_definition {
             AnyPermission::CanUnregisterAssetWithDefinition(permission) => {
                 &permission.asset_definition == asset_definition_id
             }
-            AnyPermission::CanMintAssetsWithDefinition(permission) => {
+            AnyPermission::CanMintAssetWithDefinition(permission) => {
                 &permission.asset_definition == asset_definition_id
             }
-            AnyPermission::CanBurnAssetsWithDefinition(permission) => {
+            AnyPermission::CanBurnAssetWithDefinition(permission) => {
                 &permission.asset_definition == asset_definition_id
             }
-            AnyPermission::CanTransferAssetsWithDefinition(permission) => {
+            AnyPermission::CanTransferAssetWithDefinition(permission) => {
                 &permission.asset_definition == asset_definition_id
             }
             AnyPermission::CanUnregisterAsset(permission) => {
@@ -793,9 +832,9 @@ pub mod asset_definition {
 
 pub mod asset {
     use iroha_executor_data_model::permission::asset::{
-        CanBurnAsset, CanBurnAssetsWithDefinition, CanMintAsset, CanMintAssetsWithDefinition,
+        CanBurnAsset, CanBurnAssetWithDefinition, CanMintAsset, CanMintAssetWithDefinition,
         CanModifyAssetMetadata, CanRegisterAsset, CanRegisterAssetWithDefinition, CanTransferAsset,
-        CanTransferAssetsWithDefinition, CanUnregisterAsset, CanUnregisterAssetWithDefinition,
+        CanTransferAssetWithDefinition, CanUnregisterAsset, CanUnregisterAssetWithDefinition,
     };
     use iroha_smart_contract::data_model::{
         asset::AssetValue, isi::BuiltInInstruction, metadata::Metadata,
@@ -805,9 +844,8 @@ pub mod asset {
     use super::*;
     use crate::permission::{asset::is_asset_owner, asset_definition::is_asset_definition_owner};
 
-    pub fn visit_register_asset<V: Validate + Visit + ?Sized>(
+    pub fn visit_register_asset<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Register<Asset>,
     ) {
         let asset = isi.object();
@@ -815,7 +853,11 @@ pub mod asset {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_definition_owner(asset.id().definition(), authority) {
+        match is_asset_definition_owner(
+            asset.id().definition(),
+            &executor.context().authority,
+            executor.host(),
+        ) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -823,13 +865,16 @@ pub mod asset {
         let can_register_assets_with_definition_token = CanRegisterAssetWithDefinition {
             asset_definition: asset.id().definition().clone(),
         };
-        if can_register_assets_with_definition_token.is_owned_by(authority) {
+        if can_register_assets_with_definition_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
         let can_register_user_asset_token = CanRegisterAsset {
             owner: asset.id().account().clone(),
         };
-        if can_register_user_asset_token.is_owned_by(authority) {
+        if can_register_user_asset_token.is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -839,9 +884,8 @@ pub mod asset {
         );
     }
 
-    pub fn visit_unregister_asset<V: Validate + Visit + ?Sized>(
+    pub fn visit_unregister_asset<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Unregister<Asset>,
     ) {
         let asset_id = isi.object();
@@ -849,12 +893,16 @@ pub mod asset {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_owner(asset_id, authority) {
+        match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        match is_asset_definition_owner(asset_id.definition(), authority) {
+        match is_asset_definition_owner(
+            asset_id.definition(),
+            &executor.context().authority,
+            executor.host(),
+        ) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -862,22 +910,26 @@ pub mod asset {
         let can_unregister_assets_with_definition_token = CanUnregisterAssetWithDefinition {
             asset_definition: asset_id.definition().clone(),
         };
-        if can_unregister_assets_with_definition_token.is_owned_by(authority) {
+        if can_unregister_assets_with_definition_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
         let can_unregister_user_asset_token = CanUnregisterAsset {
             asset: asset_id.clone(),
         };
-        if can_unregister_user_asset_token.is_owned_by(authority) {
+        if can_unregister_user_asset_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
         deny!(executor, "Can't unregister asset from another account");
     }
 
-    fn validate_mint_asset<V, Q>(executor: &mut V, authority: &AccountId, isi: &Mint<Q, Asset>)
+    fn execute_mint_asset<V, Q>(executor: &mut V, isi: &Mint<Q, Asset>)
     where
-        V: Validate + Visit + ?Sized,
+        V: Execute + Visit + ?Sized,
         Q: Into<AssetValue>,
         Mint<Q, Asset>: BuiltInInstruction + Encode,
     {
@@ -885,21 +937,27 @@ pub mod asset {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_definition_owner(asset_id.definition(), authority) {
+        match is_asset_definition_owner(
+            asset_id.definition(),
+            &executor.context().authority,
+            executor.host(),
+        ) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        let can_mint_assets_with_definition_token = CanMintAssetsWithDefinition {
+        let can_mint_assets_with_definition_token = CanMintAssetWithDefinition {
             asset_definition: asset_id.definition().clone(),
         };
-        if can_mint_assets_with_definition_token.is_owned_by(authority) {
+        if can_mint_assets_with_definition_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
         let can_mint_user_asset_token = CanMintAsset {
             asset: asset_id.clone(),
         };
-        if can_mint_user_asset_token.is_owned_by(authority) {
+        if can_mint_user_asset_token.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
@@ -909,17 +967,16 @@ pub mod asset {
         );
     }
 
-    pub fn visit_mint_asset_numeric<V: Validate + Visit + ?Sized>(
+    pub fn visit_mint_asset_numeric<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Mint<Numeric, Asset>,
     ) {
-        validate_mint_asset(executor, authority, isi);
+        execute_mint_asset(executor, isi);
     }
 
-    fn validate_burn_asset<V, Q>(executor: &mut V, authority: &AccountId, isi: &Burn<Q, Asset>)
+    fn execute_burn_asset<V, Q>(executor: &mut V, isi: &Burn<Q, Asset>)
     where
-        V: Validate + Visit + ?Sized,
+        V: Execute + Visit + ?Sized,
         Q: Into<AssetValue>,
         Burn<Q, Asset>: BuiltInInstruction + Encode,
     {
@@ -927,41 +984,48 @@ pub mod asset {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_definition_owner(asset_id.definition(), authority) {
+        match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        let can_burn_assets_with_definition_token = CanBurnAssetsWithDefinition {
+        match is_asset_definition_owner(
+            asset_id.definition(),
+            &executor.context().authority,
+            executor.host(),
+        ) {
+            Err(err) => deny!(executor, err),
+            Ok(true) => execute!(executor, isi),
+            Ok(false) => {}
+        }
+        let can_burn_assets_with_definition_token = CanBurnAssetWithDefinition {
             asset_definition: asset_id.definition().clone(),
         };
-        if can_burn_assets_with_definition_token.is_owned_by(authority) {
+        if can_burn_assets_with_definition_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
         let can_burn_user_asset_token = CanBurnAsset {
             asset: asset_id.clone(),
         };
-        if can_burn_user_asset_token.is_owned_by(authority) {
+        if can_burn_user_asset_token.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
         deny!(executor, "Can't burn assets from another account");
     }
 
-    pub fn visit_burn_asset_numeric<V: Validate + Visit + ?Sized>(
+    pub fn visit_burn_asset_numeric<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Burn<Numeric, Asset>,
     ) {
-        validate_burn_asset(executor, authority, isi);
+        execute_burn_asset(executor, isi);
     }
 
-    fn validate_transfer_asset<V, Q>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Transfer<Asset, Q, Account>,
-    ) where
-        V: Validate + Visit + ?Sized,
+    fn execute_transfer_asset<V, Q>(executor: &mut V, isi: &Transfer<Asset, Q, Account>)
+    where
+        V: Execute + Visit + ?Sized,
         Q: Into<AssetValue>,
         Transfer<Asset, Q, Account>: BuiltInInstruction + Encode,
     {
@@ -969,51 +1033,55 @@ pub mod asset {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_owner(asset_id, authority) {
+        match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        match is_asset_definition_owner(asset_id.definition(), authority) {
+        match is_asset_definition_owner(
+            asset_id.definition(),
+            &executor.context().authority,
+            executor.host(),
+        ) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        let can_transfer_assets_with_definition_token = CanTransferAssetsWithDefinition {
+        let can_transfer_assets_with_definition_token = CanTransferAssetWithDefinition {
             asset_definition: asset_id.definition().clone(),
         };
-        if can_transfer_assets_with_definition_token.is_owned_by(authority) {
+        if can_transfer_assets_with_definition_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
         let can_transfer_user_asset_token = CanTransferAsset {
             asset: asset_id.clone(),
         };
-        if can_transfer_user_asset_token.is_owned_by(authority) {
+        if can_transfer_user_asset_token.is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
         deny!(executor, "Can't transfer assets of another account");
     }
 
-    pub fn visit_transfer_asset_numeric<V: Validate + Visit + ?Sized>(
+    pub fn visit_transfer_asset_numeric<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Transfer<Asset, Numeric, Account>,
     ) {
-        validate_transfer_asset(executor, authority, isi);
+        execute_transfer_asset(executor, isi);
     }
 
-    pub fn visit_transfer_asset_store<V: Validate + Visit + ?Sized>(
+    pub fn visit_transfer_asset_store<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Transfer<Asset, Metadata, Account>,
     ) {
-        validate_transfer_asset(executor, authority, isi);
+        execute_transfer_asset(executor, isi);
     }
 
-    pub fn visit_set_asset_key_value<V: Validate + Visit + ?Sized>(
+    pub fn visit_set_asset_key_value<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &SetKeyValue<Asset>,
     ) {
         let asset_id = isi.object();
@@ -1021,7 +1089,7 @@ pub mod asset {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_owner(asset_id, authority) {
+        match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -1030,7 +1098,9 @@ pub mod asset {
         let can_set_key_value_in_user_asset_token = CanModifyAssetMetadata {
             asset: asset_id.clone(),
         };
-        if can_set_key_value_in_user_asset_token.is_owned_by(authority) {
+        if can_set_key_value_in_user_asset_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -1040,9 +1110,8 @@ pub mod asset {
         );
     }
 
-    pub fn visit_remove_asset_key_value<V: Validate + Visit + ?Sized>(
+    pub fn visit_remove_asset_key_value<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &RemoveKeyValue<Asset>,
     ) {
         let asset_id = isi.object();
@@ -1050,7 +1119,7 @@ pub mod asset {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_asset_owner(asset_id, authority) {
+        match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -1058,7 +1127,9 @@ pub mod asset {
         let can_remove_key_value_in_user_asset_token = CanModifyAssetMetadata {
             asset: asset_id.clone(),
         };
-        if can_remove_key_value_in_user_asset_token.is_owned_by(authority) {
+        if can_remove_key_value_in_user_asset_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -1074,15 +1145,11 @@ pub mod parameter {
 
     use super::*;
 
-    pub fn visit_set_parameter<V: Validate + Visit + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &SetParameter,
-    ) {
+    pub fn visit_set_parameter<V: Execute + Visit + ?Sized>(executor: &mut V, isi: &SetParameter) {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        if CanSetParameters.is_owned_by(authority) {
+        if CanSetParameters.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
@@ -1095,16 +1162,16 @@ pub mod parameter {
 
 pub mod role {
     use iroha_executor_data_model::permission::role::CanManageRoles;
-    use iroha_smart_contract::data_model::role::Role;
+    use iroha_smart_contract::{data_model::role::Role, Iroha};
 
     use super::*;
 
-    macro_rules! impl_validate_grant_revoke_account_role {
-        ($executor:ident, $isi:ident, $authority:ident) => {
+    macro_rules! impl_execute_grant_revoke_account_role {
+        ($executor:ident, $isi:ident) => {
             let role_id = $isi.object();
 
             if is_genesis($executor)
-                || find_account_roles($authority.clone())
+                || find_account_roles($executor.context().authority.clone(), $executor.host())
                     .any(|authority_role_id| authority_role_id == *role_id)
             {
                 execute!($executor, $isi)
@@ -1114,14 +1181,14 @@ pub mod role {
         };
     }
 
-    macro_rules! impl_validate_grant_revoke_role_permission {
-        ($executor:ident, $isi:ident, $authority:ident, $method:ident, $isi_type:ty) => {
+    macro_rules! impl_execute_grant_revoke_role_permission {
+        ($executor:ident, $isi:ident, $method:ident, $isi_type:ty) => {
             let role_id = $isi.destination().clone();
             let permission = $isi.object();
 
             if let Ok(any_permission) = AnyPermission::try_from(permission) {
                 if !is_genesis($executor) {
-                    if !find_account_roles($authority.clone())
+                    if !find_account_roles($executor.context().authority.clone(), $executor.host())
                         .any(|authority_role_id| authority_role_id == role_id)
                     {
                         deny!($executor, "Can't modify role");
@@ -1129,14 +1196,15 @@ pub mod role {
 
                     if let Err(error) = crate::permission::ValidateGrantRevoke::$method(
                         &any_permission,
-                        $authority,
-                        $executor.block_height(),
+                        &$executor.context().authority,
+                        $executor.context(),
+                        $executor.host(),
                     ) {
                         deny!($executor, error);
                     }
                 }
 
-                let isi = <$isi_type>::role_permission(any_permission, role_id);
+                let isi = &<$isi_type>::role_permission(any_permission, role_id);
                 execute!($executor, isi);
             }
 
@@ -1147,22 +1215,19 @@ pub mod role {
         };
     }
 
-    fn find_account_roles(account_id: AccountId) -> impl Iterator<Item = RoleId> {
-        use iroha_smart_contract_utils::debug::DebugExpectExt as _;
+    fn find_account_roles(account_id: AccountId, host: &Iroha) -> impl Iterator<Item = RoleId> {
+        use iroha_smart_contract::debug::DebugExpectExt as _;
 
-        iroha_smart_contract::query(FindRolesByAccountId::new(account_id))
+        host.query(FindRolesByAccountId::new(account_id))
             .execute()
             .dbg_expect("INTERNAL BUG: `FindRolesByAccountId` must never fail")
             .map(|role| role.dbg_expect("Failed to get role from cursor"))
     }
 
-    pub fn visit_register_role<V: Validate + Visit + ?Sized>(
+    pub fn visit_register_role<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Register<Role>,
     ) {
-        use crate::smart_contract::ExecuteOnHost as _;
-
         let role = isi.object();
         let mut new_role = Role::new(role.id().clone(), role.grant_to().clone());
 
@@ -1174,7 +1239,8 @@ pub mod role {
                     if let Err(error) = crate::permission::ValidateGrantRevoke::validate_grant(
                         &any_permission,
                         role.grant_to(),
-                        executor.block_height(),
+                        executor.context(),
+                        executor.host(),
                     ) {
                         deny!(executor, error);
                     }
@@ -1189,11 +1255,13 @@ pub mod role {
             }
         }
 
-        let isi = Register::role(new_role);
-        if is_genesis(executor) || CanManageRoles.is_owned_by(authority) {
-            let grant_role = Grant::account_role(role.id().clone(), role.grant_to().clone());
+        if is_genesis(executor)
+            || CanManageRoles.is_owned_by(&executor.context().authority, executor.host())
+        {
+            let grant_role = &Grant::account_role(role.id().clone(), role.grant_to().clone());
 
-            if let Err(err) = isi.execute() {
+            let isi = &Register::role(new_role);
+            if let Err(err) = executor.host().submit(isi) {
                 executor.deny(err);
             }
 
@@ -1203,51 +1271,46 @@ pub mod role {
         deny!(executor, "Can't register role");
     }
 
-    pub fn visit_unregister_role<V: Validate + Visit + ?Sized>(
+    pub fn visit_unregister_role<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Unregister<Role>,
     ) {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        if CanManageRoles.is_owned_by(authority) {
+        if CanManageRoles.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
         deny!(executor, "Can't unregister role");
     }
 
-    pub fn visit_grant_account_role<V: Validate + Visit + ?Sized>(
+    pub fn visit_grant_account_role<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Grant<RoleId, Account>,
     ) {
-        impl_validate_grant_revoke_account_role!(executor, isi, authority);
+        impl_execute_grant_revoke_account_role!(executor, isi);
     }
 
-    pub fn visit_revoke_account_role<V: Validate + Visit + ?Sized>(
+    pub fn visit_revoke_account_role<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Revoke<RoleId, Account>,
     ) {
-        impl_validate_grant_revoke_account_role!(executor, isi, authority);
+        impl_execute_grant_revoke_account_role!(executor, isi);
     }
 
-    pub fn visit_grant_role_permission<V: Validate + Visit + ?Sized>(
+    pub fn visit_grant_role_permission<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Grant<Permission, Role>,
     ) {
-        impl_validate_grant_revoke_role_permission!(executor, isi, authority, validate_grant, Grant<Permission, Role>);
+        impl_execute_grant_revoke_role_permission!(executor, isi, validate_grant, Grant<Permission, Role>);
     }
 
-    pub fn visit_revoke_role_permission<V: Validate + Visit + ?Sized>(
+    pub fn visit_revoke_role_permission<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Revoke<Permission, Role>,
     ) {
-        impl_validate_grant_revoke_role_permission!(executor, isi, authority, validate_revoke, Revoke<Permission, Role>);
+        impl_execute_grant_revoke_role_permission!(executor, isi, validate_revoke, Revoke<Permission, Role>);
     }
 }
 
@@ -1263,16 +1326,19 @@ pub mod trigger {
         accounts_permissions, domain::is_domain_owner, roles_permissions, trigger::is_trigger_owner,
     };
 
-    pub fn visit_register_trigger<V: Validate + Visit + ?Sized>(
+    pub fn visit_register_trigger<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Register<Trigger>,
     ) {
         let trigger = isi.object();
 
         if is_genesis(executor)
             || {
-                match is_domain_owner(trigger.action().authority().domain(), authority) {
+                match is_domain_owner(
+                    trigger.action().authority().domain(),
+                    &executor.context().authority,
+                    executor.host(),
+                ) {
                     Err(err) => deny!(executor, err),
                     Ok(is_domain_owner) => is_domain_owner,
                 }
@@ -1281,7 +1347,8 @@ pub mod trigger {
                 let can_register_user_trigger_token = CanRegisterTrigger {
                     authority: isi.object().action().authority().clone(),
                 };
-                can_register_user_trigger_token.is_owned_by(authority)
+                can_register_user_trigger_token
+                    .is_owned_by(&executor.context().authority, executor.host())
             }
         {
             execute!(executor, isi)
@@ -1289,15 +1356,14 @@ pub mod trigger {
         deny!(executor, "Can't register trigger owned by another account");
     }
 
-    pub fn visit_unregister_trigger<V: Validate + Visit + ?Sized>(
+    pub fn visit_unregister_trigger<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Unregister<Trigger>,
     ) {
         let trigger_id = isi.object();
 
         if is_genesis(executor)
-            || match is_trigger_owner(trigger_id, authority) {
+            || match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
                 Err(err) => deny!(executor, err),
                 Ok(is_trigger_owner) => is_trigger_owner,
             }
@@ -1305,27 +1371,34 @@ pub mod trigger {
                 let can_unregister_user_trigger_token = CanUnregisterTrigger {
                     trigger: trigger_id.clone(),
                 };
-                can_unregister_user_trigger_token.is_owned_by(authority)
+                can_unregister_user_trigger_token
+                    .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            use iroha_smart_contract::ExecuteOnHost as _;
+            let mut err = None;
+            for (owner_id, permission) in accounts_permissions(executor.host()) {
+                if is_permission_trigger_associated(&permission, trigger_id) {
+                    let isi = &Revoke::account_permission(permission, owner_id.clone());
 
-            for (owner_id, permission) in accounts_permissions() {
+                    if let Err(error) = executor.host().submit(isi) {
+                        err = Some(error);
+                        break;
+                    }
+                }
+            }
+            if let Some(err) = err {
+                deny!(executor, err);
+            }
+
+            for (role_id, permission) in roles_permissions(executor.host()) {
                 if is_permission_trigger_associated(&permission, trigger_id) {
-                    let isi = Revoke::account_permission(permission, owner_id.clone());
-                    if let Err(err) = isi.execute() {
+                    let isi = &Revoke::role_permission(permission, role_id.clone());
+                    if let Err(err) = executor.host().submit(isi) {
                         deny!(executor, err);
                     }
                 }
             }
-            for (role_id, permission) in roles_permissions() {
-                if is_permission_trigger_associated(&permission, trigger_id) {
-                    let isi = Revoke::role_permission(permission, role_id.clone());
-                    if let Err(err) = isi.execute() {
-                        deny!(executor, err);
-                    }
-                }
-            }
+
             execute!(executor, isi);
         }
         deny!(
@@ -1334,9 +1407,8 @@ pub mod trigger {
         );
     }
 
-    pub fn visit_mint_trigger_repetitions<V: Validate + Visit + ?Sized>(
+    pub fn visit_mint_trigger_repetitions<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Mint<u32, Trigger>,
     ) {
         let trigger_id = isi.destination();
@@ -1344,7 +1416,7 @@ pub mod trigger {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_trigger_owner(trigger_id, authority) {
+        match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -1352,7 +1424,7 @@ pub mod trigger {
         let can_mint_user_trigger_token = CanModifyTrigger {
             trigger: trigger_id.clone(),
         };
-        if can_mint_user_trigger_token.is_owned_by(authority) {
+        if can_mint_user_trigger_token.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
@@ -1362,9 +1434,8 @@ pub mod trigger {
         );
     }
 
-    pub fn visit_burn_trigger_repetitions<V: Validate + Visit + ?Sized>(
+    pub fn visit_burn_trigger_repetitions<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Burn<u32, Trigger>,
     ) {
         let trigger_id = isi.destination();
@@ -1372,7 +1443,7 @@ pub mod trigger {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_trigger_owner(trigger_id, authority) {
+        match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -1380,7 +1451,7 @@ pub mod trigger {
         let can_mint_user_trigger_token = CanModifyTrigger {
             trigger: trigger_id.clone(),
         };
-        if can_mint_user_trigger_token.is_owned_by(authority) {
+        if can_mint_user_trigger_token.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
@@ -1390,9 +1461,8 @@ pub mod trigger {
         );
     }
 
-    pub fn visit_execute_trigger<V: Validate + Visit + ?Sized>(
+    pub fn visit_execute_trigger<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &ExecuteTrigger,
     ) {
         let trigger_id = isi.trigger();
@@ -1400,7 +1470,7 @@ pub mod trigger {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_trigger_owner(trigger_id, authority) {
+        match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -1408,16 +1478,15 @@ pub mod trigger {
         let can_execute_trigger_token = CanExecuteTrigger {
             trigger: trigger_id.clone(),
         };
-        if can_execute_trigger_token.is_owned_by(authority) {
+        if can_execute_trigger_token.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
         deny!(executor, "Can't execute trigger owned by another account");
     }
 
-    pub fn visit_set_trigger_key_value<V: Validate + Visit + ?Sized>(
+    pub fn visit_set_trigger_key_value<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &SetKeyValue<Trigger>,
     ) {
         let trigger_id = isi.object();
@@ -1425,7 +1494,7 @@ pub mod trigger {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_trigger_owner(trigger_id, authority) {
+        match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -1433,7 +1502,9 @@ pub mod trigger {
         let can_set_key_value_in_user_trigger_token = CanModifyTriggerMetadata {
             trigger: trigger_id.clone(),
         };
-        if can_set_key_value_in_user_trigger_token.is_owned_by(authority) {
+        if can_set_key_value_in_user_trigger_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -1443,9 +1514,8 @@ pub mod trigger {
         );
     }
 
-    pub fn visit_remove_trigger_key_value<V: Validate + Visit + ?Sized>(
+    pub fn visit_remove_trigger_key_value<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &RemoveKeyValue<Trigger>,
     ) {
         let trigger_id = isi.object();
@@ -1453,7 +1523,7 @@ pub mod trigger {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_trigger_owner(trigger_id, authority) {
+        match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -1461,7 +1531,9 @@ pub mod trigger {
         let can_remove_key_value_in_trigger_token = CanModifyTriggerMetadata {
             trigger: trigger_id.clone(),
         };
-        if can_remove_key_value_in_trigger_token.is_owned_by(authority) {
+        if can_remove_key_value_in_trigger_token
+            .is_owned_by(&executor.context().authority, executor.host())
+        {
             execute!(executor, isi);
         }
 
@@ -1497,9 +1569,9 @@ pub mod trigger {
             | AnyPermission::CanUnregisterAssetWithDefinition(_)
             | AnyPermission::CanRegisterAsset(_)
             | AnyPermission::CanUnregisterAsset(_)
-            | AnyPermission::CanMintAssetsWithDefinition(_)
-            | AnyPermission::CanBurnAssetsWithDefinition(_)
-            | AnyPermission::CanTransferAssetsWithDefinition(_)
+            | AnyPermission::CanMintAssetWithDefinition(_)
+            | AnyPermission::CanBurnAssetWithDefinition(_)
+            | AnyPermission::CanTransferAssetWithDefinition(_)
             | AnyPermission::CanModifyAssetMetadata(_)
             | AnyPermission::CanMintAsset(_)
             | AnyPermission::CanBurnAsset(_)
@@ -1514,8 +1586,8 @@ pub mod trigger {
 pub mod permission {
     use super::*;
 
-    macro_rules! impl_validate {
-        ($executor:ident, $authority:ident, $isi:ident, $method:ident, $isi_type:ty) => {
+    macro_rules! impl_execute {
+        ($executor:ident, $isi:ident, $method:ident, $isi_type:ty) => {
             let account_id = $isi.destination().clone();
             let permission = $isi.object();
 
@@ -1523,14 +1595,15 @@ pub mod permission {
                 if !is_genesis($executor) {
                     if let Err(error) = crate::permission::ValidateGrantRevoke::$method(
                         &any_permission,
-                        $authority,
-                        $executor.block_height(),
+                        &$executor.context().authority,
+                        $executor.context(),
+                        $executor.host(),
                     ) {
                         deny!($executor, error);
                     }
                 }
 
-                let isi = <$isi_type>::account_permission(any_permission, account_id);
+                let isi = &<$isi_type>::account_permission(any_permission, account_id);
                 execute!($executor, isi);
             }
 
@@ -1541,32 +1614,18 @@ pub mod permission {
         };
     }
 
-    pub fn visit_grant_account_permission<V: Validate + Visit + ?Sized>(
+    pub fn visit_grant_account_permission<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Grant<Permission, Account>,
     ) {
-        impl_validate!(
-            executor,
-            authority,
-            isi,
-            validate_grant,
-            Grant<Permission, Account>
-        );
+        impl_execute!(executor, isi, validate_grant, Grant<Permission, Account>);
     }
 
-    pub fn visit_revoke_account_permission<V: Validate + Visit + ?Sized>(
+    pub fn visit_revoke_account_permission<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        authority: &AccountId,
         isi: &Revoke<Permission, Account>,
     ) {
-        impl_validate!(
-            executor,
-            authority,
-            isi,
-            validate_revoke,
-            Revoke<Permission, Account>
-        );
+        impl_execute!(executor, isi, validate_revoke, Revoke<Permission, Account>);
     }
 }
 
@@ -1575,15 +1634,11 @@ pub mod executor {
 
     use super::*;
 
-    pub fn visit_upgrade<V: Validate + Visit + ?Sized>(
-        executor: &mut V,
-        authority: &AccountId,
-        isi: &Upgrade,
-    ) {
+    pub fn visit_upgrade<V: Execute + Visit + ?Sized>(executor: &mut V, isi: &Upgrade) {
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        if CanUpgradeExecutor.is_owned_by(authority) {
+        if CanUpgradeExecutor.is_owned_by(&executor.context().authority, executor.host()) {
             execute!(executor, isi);
         }
 
@@ -1594,11 +1649,7 @@ pub mod executor {
 pub mod log {
     use super::*;
 
-    pub fn visit_log<V: Validate + Visit + ?Sized>(
-        executor: &mut V,
-        _authority: &AccountId,
-        isi: &Log,
-    ) {
+    pub fn visit_log<V: Execute + Visit + ?Sized>(executor: &mut V, isi: &Log) {
         execute!(executor, isi)
     }
 }
@@ -1606,11 +1657,7 @@ pub mod log {
 pub mod custom {
     use super::*;
 
-    pub fn visit_custom<V: Validate + ?Sized>(
-        executor: &mut V,
-        _authority: &AccountId,
-        _isi: &CustomInstruction,
-    ) {
+    pub fn visit_custom<V: Execute + ?Sized>(executor: &mut V, _isi: &CustomInstruction) {
         deny!(
             executor,
             "Custom instructions should be handled in custom executor"
@@ -1618,6 +1665,6 @@ pub mod custom {
     }
 }
 
-fn is_genesis<V: Validate + Visit + ?Sized>(executor: &V) -> bool {
-    executor.block_height() == 0
+fn is_genesis<V: Execute + Visit + ?Sized>(executor: &V) -> bool {
+    executor.context().block_height == 0
 }

@@ -1,5 +1,7 @@
-use iroha::{client::Client, data_model::prelude::*};
-use iroha_data_model::query::trigger::FindTriggers;
+use iroha::{
+    client::Client,
+    data_model::{prelude::*, query::trigger::FindTriggers},
+};
 use iroha_test_network::{wait_for_genesis_committed, Peer, PeerBuilder};
 use iroha_test_samples::gen_account_in;
 use tokio::runtime::Runtime;
@@ -7,7 +9,7 @@ use tokio::runtime::Runtime;
 fn find_trigger(iroha: &Client, trigger_id: TriggerId) -> Option<TriggerId> {
     iroha
         .query(FindTriggers::new())
-        .filter_with(|trigger| trigger.id.eq(trigger_id.clone()))
+        .filter_with(|trigger| trigger.id.eq(trigger_id))
         .execute_single()
         .ok()
         .map(|trigger| trigger.id)

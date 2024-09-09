@@ -3,11 +3,15 @@
 use alloc::{borrow::ToOwned as _, vec::Vec};
 
 use iroha_executor_data_model::permission::Permission;
-use iroha_smart_contract::{
-    data_model::{executor::Result, permission::Permission as PermissionObject, prelude::*},
-    query,
+
+use crate::{
+    prelude::Context,
+    smart_contract::{
+        data_model::{executor::Result, permission::Permission as PermissionObject, prelude::*},
+        debug::DebugExpectExt as _,
+        Iroha,
+    },
 };
-use iroha_smart_contract_utils::debug::DebugExpectExt as _;
 
 /// Declare permission types of current module. Use it with a full path to the permission.
 /// Used to iterate over tokens to validate `Grant` and `Revoke` instructions.
@@ -60,15 +64,15 @@ macro_rules! declare_permissions {
         }
 
         impl ValidateGrantRevoke for AnyPermission {
-            fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+            fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
                 match self { $(
-                    AnyPermission::$token_ty(permission) => permission.validate_grant(authority, block_height), )*
+                    AnyPermission::$token_ty(permission) => permission.validate_grant(authority, context, host), )*
                 }
             }
 
-            fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+            fn validate_revoke(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
                 match self { $(
-                    AnyPermission::$token_ty(permission) => permission.validate_revoke(authority, block_height), )*
+                    AnyPermission::$token_ty(permission) => permission.validate_revoke(authority, context, host), )*
                 }
             }
         }
@@ -100,9 +104,9 @@ declare_permissions! {
 
     iroha_executor_data_model::permission::asset::{CanRegisterAssetWithDefinition},
     iroha_executor_data_model::permission::asset::{CanUnregisterAssetWithDefinition},
-    iroha_executor_data_model::permission::asset::{CanMintAssetsWithDefinition},
-    iroha_executor_data_model::permission::asset::{CanBurnAssetsWithDefinition},
-    iroha_executor_data_model::permission::asset::{CanTransferAssetsWithDefinition},
+    iroha_executor_data_model::permission::asset::{CanMintAssetWithDefinition},
+    iroha_executor_data_model::permission::asset::{CanBurnAssetWithDefinition},
+    iroha_executor_data_model::permission::asset::{CanTransferAssetWithDefinition},
     iroha_executor_data_model::permission::asset::{CanRegisterAsset},
     iroha_executor_data_model::permission::asset::{CanUnregisterAsset},
     iroha_executor_data_model::permission::asset::{CanMintAsset},
@@ -125,11 +129,12 @@ declare_permissions! {
 /// Trait that enables using permissions on the blockchain
 pub trait ExecutorPermission: Permission + PartialEq {
     /// Check if the account owns this permission
-    fn is_owned_by(&self, account_id: &AccountId) -> bool
+    fn is_owned_by(&self, authority: &AccountId, host: &Iroha) -> bool
     where
         for<'a> Self: TryFrom<&'a crate::data_model::permission::Permission>,
     {
-        if query(FindPermissionsByAccountId::new(account_id.clone()))
+        if host
+            .query(FindPermissionsByAccountId::new(authority.clone()))
             .execute()
             .expect("INTERNAL BUG: `FindPermissionsByAccountId` must never fail")
             .map(|res| res.dbg_expect("Failed to get permission from cursor"))
@@ -140,7 +145,8 @@ pub trait ExecutorPermission: Permission + PartialEq {
         }
 
         // build a big OR predicate over all roles we are interested in
-        let role_predicate = query(FindRolesByAccountId::new(account_id.clone()))
+        let role_predicate = host
+            .query(FindRolesByAccountId::new(authority.clone()))
             .execute()
             .expect("INTERNAL BUG: `FindRolesByAccountId` must never fail")
             .map(|role_id| role_id.dbg_expect("Failed to get role from cursor"))
@@ -149,7 +155,7 @@ pub trait ExecutorPermission: Permission + PartialEq {
             });
 
         // check if any of the roles have the permission we need
-        query(FindRoles)
+        host.query(FindRoles)
             .filter(role_predicate)
             .execute()
             .expect("INTERNAL BUG: `FindRoles` must never fail")
@@ -168,17 +174,15 @@ impl<T: Permission + PartialEq> ExecutorPermission for T {}
 /// Provides a function to check validity of [`Grant`] and [`Revoke`]
 /// instructions containing implementing permission.
 pub(super) trait ValidateGrantRevoke {
-    #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result;
+    fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result;
 
-    #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result;
+    fn validate_revoke(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result;
 }
 
 /// Predicate-like trait used for pass conditions to identify if [`Grant`] or [`Revoke`] should be allowed.
 pub(crate) trait PassCondition {
     #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate(&self, authority: &AccountId, block_height: u64) -> Result;
+    fn validate(&self, authority: &AccountId, host: &Iroha, context: &Context) -> Result;
 }
 
 mod executor {
@@ -187,11 +191,16 @@ mod executor {
     use super::*;
 
     impl ValidateGrantRevoke for CanUpgradeExecutor {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            OnlyGenesis::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            OnlyGenesis::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            OnlyGenesis::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            OnlyGenesis::from(self).validate(authority, host, context)
         }
     }
 }
@@ -202,11 +211,16 @@ mod peer {
     use super::*;
 
     impl ValidateGrantRevoke for CanManagePeers {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            OnlyGenesis::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            OnlyGenesis::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            OnlyGenesis::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            OnlyGenesis::from(self).validate(authority, host, context)
         }
     }
 }
@@ -217,11 +231,16 @@ mod role {
     use super::*;
 
     impl ValidateGrantRevoke for CanManageRoles {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            OnlyGenesis::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            OnlyGenesis::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            OnlyGenesis::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            OnlyGenesis::from(self).validate(authority, host, context)
         }
     }
 }
@@ -233,8 +252,13 @@ mod parameter {
     use super::*;
 
     impl ValidateGrantRevoke for CanSetParameters {
-        fn validate_grant(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if CanSetParameters.is_owned_by(authority) {
+        fn validate_grant(
+            &self,
+            authority: &AccountId,
+            _context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            if CanSetParameters.is_owned_by(authority, host) {
                 return Ok(());
             }
 
@@ -244,8 +268,13 @@ mod parameter {
             ))
         }
 
-        fn validate_revoke(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if CanSetParameters.is_owned_by(authority) {
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            _context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            if CanSetParameters.is_owned_by(authority, host) {
                 return Ok(());
             }
 
@@ -261,9 +290,9 @@ pub mod asset {
     //! Module with pass conditions for asset related tokens
 
     use iroha_executor_data_model::permission::asset::{
-        CanBurnAsset, CanBurnAssetsWithDefinition, CanMintAsset, CanMintAssetsWithDefinition,
+        CanBurnAsset, CanBurnAssetWithDefinition, CanMintAsset, CanMintAssetWithDefinition,
         CanModifyAssetMetadata, CanRegisterAsset, CanRegisterAssetWithDefinition, CanTransferAsset,
-        CanTransferAssetsWithDefinition, CanUnregisterAsset, CanUnregisterAssetWithDefinition,
+        CanTransferAssetWithDefinition, CanUnregisterAsset, CanUnregisterAssetWithDefinition,
     };
 
     use super::*;
@@ -277,8 +306,8 @@ pub mod asset {
     /// # Errors
     ///
     /// Fails if `is_account_owner` fails
-    pub fn is_asset_owner(asset_id: &AssetId, authority: &AccountId) -> Result<bool> {
-        crate::permission::account::is_account_owner(asset_id.account(), authority)
+    pub fn is_asset_owner(asset_id: &AssetId, authority: &AccountId, host: &Iroha) -> Result<bool> {
+        crate::permission::account::is_account_owner(asset_id.account(), authority, host)
     }
 
     /// Pass condition that checks if `authority` is the owner of asset.
@@ -289,8 +318,8 @@ pub mod asset {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_asset_owner(self.asset, authority)? {
+        fn validate(&self, authority: &AccountId, host: &Iroha, _context: &Context) -> Result {
+            if is_asset_owner(self.asset, authority, host)? {
                 return Ok(());
             }
 
@@ -301,101 +330,156 @@ pub mod asset {
     }
 
     impl ValidateGrantRevoke for CanRegisterAssetWithDefinition {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanUnregisterAssetWithDefinition {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
-        }
-    }
-
-    impl ValidateGrantRevoke for CanMintAssetsWithDefinition {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
-        }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, host, context)
         }
     }
 
-    impl ValidateGrantRevoke for CanBurnAssetsWithDefinition {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
+    impl ValidateGrantRevoke for CanMintAssetWithDefinition {
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, host, context)
         }
     }
 
-    impl ValidateGrantRevoke for CanTransferAssetsWithDefinition {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
+    impl ValidateGrantRevoke for CanBurnAssetWithDefinition {
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, host, context)
+        }
+    }
+
+    impl ValidateGrantRevoke for CanTransferAssetWithDefinition {
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, host, context)
+        }
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            super::asset_definition::Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanRegisterAsset {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::account::Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            super::account::Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::account::Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            super::account::Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanUnregisterAsset {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanMintAsset {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanBurnAsset {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanTransferAsset {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanModifyAssetMetadata {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
@@ -432,15 +516,15 @@ pub mod asset_definition {
     use iroha_executor_data_model::permission::asset_definition::{
         CanModifyAssetDefinitionMetadata, CanRegisterAssetDefinition, CanUnregisterAssetDefinition,
     };
-    use iroha_smart_contract::data_model::{
-        isi::error::InstructionExecutionError,
-        query::{
-            builder::{QueryBuilderExt, SingleQueryError},
-            error::FindError,
-        },
-    };
 
     use super::*;
+    use crate::smart_contract::{
+        data_model::{
+            isi::error::InstructionExecutionError,
+            query::{builder::SingleQueryError, error::FindError},
+        },
+        Iroha,
+    };
 
     /// Check if `authority` is the owner of asset definition
 
@@ -454,8 +538,10 @@ pub mod asset_definition {
     pub fn is_asset_definition_owner(
         asset_definition_id: &AssetDefinitionId,
         authority: &AccountId,
+        host: &Iroha,
     ) -> Result<bool> {
-        let asset_definition = query(FindAssetsDefinitions)
+        let asset_definition = host
+            .query(FindAssetsDefinitions)
             .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
             .execute_single()
             .map_err(|e| match e {
@@ -471,7 +557,11 @@ pub mod asset_definition {
         if asset_definition.owned_by() == authority {
             Ok(true)
         } else {
-            crate::permission::domain::is_domain_owner(asset_definition_id.domain(), authority)
+            crate::permission::domain::is_domain_owner(
+                asset_definition_id.domain(),
+                authority,
+                host,
+            )
         }
     }
 
@@ -483,8 +573,8 @@ pub mod asset_definition {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_asset_definition_owner(self.asset_definition, authority)? {
+        fn validate(&self, authority: &AccountId, host: &Iroha, _context: &Context) -> Result {
+            if is_asset_definition_owner(self.asset_definition, authority, host)? {
                 return Ok(());
             }
 
@@ -495,29 +585,44 @@ pub mod asset_definition {
     }
 
     impl ValidateGrantRevoke for CanRegisterAssetDefinition {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::domain::Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            super::domain::Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::domain::Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            super::domain::Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanUnregisterAssetDefinition {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanModifyAssetDefinitionMetadata {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
@@ -536,9 +641,9 @@ pub mod asset_definition {
         CanModifyAssetDefinitionMetadata,
         iroha_executor_data_model::permission::asset::CanRegisterAssetWithDefinition,
         iroha_executor_data_model::permission::asset::CanUnregisterAssetWithDefinition,
-        iroha_executor_data_model::permission::asset::CanMintAssetsWithDefinition,
-        iroha_executor_data_model::permission::asset::CanBurnAssetsWithDefinition,
-        iroha_executor_data_model::permission::asset::CanTransferAssetsWithDefinition,
+        iroha_executor_data_model::permission::asset::CanMintAssetWithDefinition,
+        iroha_executor_data_model::permission::asset::CanBurnAssetWithDefinition,
+        iroha_executor_data_model::permission::asset::CanTransferAssetWithDefinition,
     );
 }
 
@@ -560,11 +665,15 @@ pub mod account {
     /// # Errors
     ///
     /// Fails if `is_domain_owner` fails
-    pub fn is_account_owner(account_id: &AccountId, authority: &AccountId) -> Result<bool> {
+    pub fn is_account_owner(
+        account_id: &AccountId,
+        authority: &AccountId,
+        host: &Iroha,
+    ) -> Result<bool> {
         if account_id == authority {
             Ok(true)
         } else {
-            crate::permission::domain::is_domain_owner(account_id.domain(), authority)
+            crate::permission::domain::is_domain_owner(account_id.domain(), authority, host)
         }
     }
 
@@ -576,8 +685,8 @@ pub mod account {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_account_owner(self.account, authority)? {
+        fn validate(&self, authority: &AccountId, host: &Iroha, _context: &Context) -> Result {
+            if is_account_owner(self.account, authority, host)? {
                 return Ok(());
             }
 
@@ -588,29 +697,44 @@ pub mod account {
     }
 
     impl ValidateGrantRevoke for CanRegisterAccount {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::domain::Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            super::domain::Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::domain::Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            super::domain::Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanUnregisterAccount {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanModifyAccountMetadata {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
@@ -652,15 +776,19 @@ pub mod trigger {
     /// # Errors
     /// - `FindTrigger` fails
     /// - `is_domain_owner` fails
-    pub fn is_trigger_owner(trigger_id: &TriggerId, authority: &AccountId) -> Result<bool> {
-        let trigger = find_trigger(trigger_id)?;
+    pub fn is_trigger_owner(
+        trigger_id: &TriggerId,
+        authority: &AccountId,
+        host: &Iroha,
+    ) -> Result<bool> {
+        let trigger = find_trigger(trigger_id, host)?;
 
         Ok(trigger.action().authority() == authority
-            || is_domain_owner(trigger.action().authority().domain(), authority)?)
+            || is_domain_owner(trigger.action().authority().domain(), authority, host)?)
     }
     /// Returns the trigger.
-    fn find_trigger(trigger_id: &TriggerId) -> Result<Trigger> {
-        query(FindTriggers::new())
+    pub(crate) fn find_trigger(trigger_id: &TriggerId, host: &Iroha) -> Result<Trigger> {
+        host.query(FindTriggers::new())
             .filter_with(|trigger| trigger.id.eq(trigger_id.clone()))
             .execute_single()
             .map_err(|e| match e {
@@ -680,8 +808,8 @@ pub mod trigger {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_trigger_owner(self.trigger, authority)? {
+        fn validate(&self, authority: &AccountId, host: &Iroha, _context: &Context) -> Result {
+            if is_trigger_owner(self.trigger, authority, host)? {
                 return Ok(());
             }
 
@@ -692,47 +820,72 @@ pub mod trigger {
     }
 
     impl ValidateGrantRevoke for CanRegisterTrigger {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::account::Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            super::account::Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::account::Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            super::account::Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanExecuteTrigger {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanUnregisterTrigger {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanModifyTrigger {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanModifyTriggerMetadata {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
@@ -769,10 +922,7 @@ pub mod domain {
     };
     use iroha_smart_contract::data_model::{
         isi::error::InstructionExecutionError,
-        query::{
-            builder::{QueryBuilderExt, SingleQueryError},
-            error::FindError,
-        },
+        query::{builder::SingleQueryError, error::FindError},
     };
 
     use super::*;
@@ -781,8 +931,12 @@ pub mod domain {
     ///
     /// # Errors
     /// Fails if query fails
-    pub fn is_domain_owner(domain_id: &DomainId, authority: &AccountId) -> Result<bool> {
-        query(FindDomains)
+    pub fn is_domain_owner(
+        domain_id: &DomainId,
+        authority: &AccountId,
+        host: &Iroha,
+    ) -> Result<bool> {
+        host.query(FindDomains)
             .filter_with(|domain| domain.id.eq(domain_id.clone()))
             .execute_single()
             .map(|domain| domain.owned_by() == authority)
@@ -806,8 +960,8 @@ pub mod domain {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_domain_owner(self.domain, authority)? {
+        fn validate(&self, authority: &AccountId, host: &Iroha, _context: &Context) -> Result {
+            if is_domain_owner(self.domain, authority, host)? {
                 return Ok(());
             }
 
@@ -818,29 +972,43 @@ pub mod domain {
     }
 
     impl ValidateGrantRevoke for CanRegisterDomain {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            OnlyGenesis::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            OnlyGenesis::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            OnlyGenesis::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            OnlyGenesis::from(self).validate(authority, host, context)
         }
     }
-
     impl ValidateGrantRevoke for CanUnregisterDomain {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
     impl ValidateGrantRevoke for CanModifyDomainMetadata {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
+        fn validate_revoke(
+            &self,
+            authority: &AccountId,
+            context: &Context,
+            host: &Iroha,
+        ) -> Result {
+            Owner::from(self).validate(authority, host, context)
         }
     }
 
@@ -869,8 +1037,8 @@ pub mod domain {
 pub(crate) struct OnlyGenesis;
 
 impl PassCondition for OnlyGenesis {
-    fn validate(&self, _: &AccountId, block_height: u64) -> Result {
-        if block_height == 0 {
+    fn validate(&self, _authority: &AccountId, _host: &Iroha, context: &Context) -> Result {
+        if context.block_height == 0 {
             Ok(())
         } else {
             Err(ValidationFail::NotPermitted(
@@ -887,13 +1055,15 @@ impl<T: Permission> From<&T> for OnlyGenesis {
 }
 
 /// Iterator over all accounts and theirs permission tokens
-pub(crate) fn accounts_permissions() -> impl Iterator<Item = (AccountId, PermissionObject)> {
-    query(FindAccounts)
+pub(crate) fn accounts_permissions(
+    host: &Iroha,
+) -> impl Iterator<Item = (AccountId, PermissionObject)> + '_ {
+    host.query(FindAccounts)
         .execute()
         .dbg_expect("INTERNAL BUG: `FindAllAccounts` must never fail")
         .map(|account| account.dbg_expect("Failed to get account from cursor"))
         .flat_map(|account| {
-            query(FindPermissionsByAccountId::new(account.id().clone()))
+            host.query(FindPermissionsByAccountId::new(account.id().clone()))
                 .execute()
                 .dbg_expect("INTERNAL BUG: `FindPermissionsByAccountId` must never fail")
                 .map(|permission| permission.dbg_expect("Failed to get permission from cursor"))
@@ -902,8 +1072,8 @@ pub(crate) fn accounts_permissions() -> impl Iterator<Item = (AccountId, Permiss
 }
 
 /// Iterator over all roles and theirs permission tokens
-pub(crate) fn roles_permissions() -> impl Iterator<Item = (RoleId, PermissionObject)> {
-    query(FindRoles)
+pub(crate) fn roles_permissions(host: &Iroha) -> impl Iterator<Item = (RoleId, PermissionObject)> {
+    host.query(FindRoles)
         .execute()
         .dbg_expect("INTERNAL BUG: `FindAllRoles` must never fail")
         .map(|role| role.dbg_expect("Failed to get role from cursor"))

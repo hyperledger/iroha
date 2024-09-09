@@ -14,15 +14,16 @@ static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 
-/// Executor that replaces some of [`Validate`]'s methods with sensible defaults
+/// Executor that replaces some of [`Execute`]'s methods with sensible defaults
 ///
 /// # Warning
 ///
 /// The defaults are not guaranteed to be stable.
-#[derive(Debug, Clone, Constructor, Visit, Validate, ValidateEntrypoints)]
-pub struct Executor {
+#[derive(Debug, Clone, Visit, Execute, Entrypoints)]
+struct Executor {
+    host: Iroha,
+    context: Context,
     verdict: Result,
-    block_height: u64,
 }
 
 impl Executor {
@@ -46,7 +47,7 @@ impl Executor {
 /// If `migrate()` entrypoint fails then the whole `Upgrade` instruction
 /// will be denied and previous executor will stay unchanged.
 #[entrypoint]
-fn migrate(block_height: u64) {
-    Executor::ensure_genesis(block_height);
-    DataModelBuilder::with_default_permissions().build_and_set();
+fn migrate(host: Iroha, context: Context) {
+    Executor::ensure_genesis(context.block_height);
+    DataModelBuilder::with_default_permissions().build_and_set(&host);
 }
