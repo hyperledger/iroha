@@ -28,7 +28,7 @@ impl<T: ?Sized> WithContext<'_, '_, T> {
             .0
             .get(&type_id)
             .unwrap_or_else(|| panic!("Failed to find type id `{:?}`", type_id))
-            .0
+            .type_name
     }
 }
 
@@ -315,7 +315,12 @@ impl Serialize for MetaMap {
         let mut duplicates = BTreeMap::new();
 
         let mut sorted_map = BTreeMap::new();
-        for (type_name, schema) in self.0.values() {
+        for MetaMapEntry {
+            type_name,
+            metadata: schema,
+            ..
+        } in self.0.values()
+        {
             if let Some(duplicate) = sorted_map.insert(type_name, schema) {
                 // NOTE: It's ok to serialize two types to the same name if they
                 // are represented by the same schema, i.e. for transparent types

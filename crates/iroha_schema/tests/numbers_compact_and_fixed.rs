@@ -34,29 +34,50 @@ fn compact() {
     let expected = vec![
         (
             TypeId::of::<iroha_schema::Compact<u128>>(),
-            ("Compact<u128>".to_owned(), Int(IntMode::Compact)),
+            MetaMapEntry {
+                type_id: "Compact<u128>".to_owned(),
+                type_name: "Compact<u128>".to_owned(),
+                metadata: Int(Compact),
+            },
         ),
         (
             TypeId::of::<iroha_schema::Compact<u16>>(),
-            ("Compact<u16>".to_owned(), Int(IntMode::Compact)),
+            MetaMapEntry {
+                type_id: "Compact<u16>".to_owned(),
+                type_name: "Compact<u16>".to_owned(),
+                metadata: Int(Compact),
+            },
         ),
         (
             TypeId::of::<iroha_schema::Compact<u32>>(),
-            ("Compact<u32>".to_owned(), Int(IntMode::Compact)),
+            MetaMapEntry {
+                type_id: "Compact<u32>".to_owned(),
+                type_name: "Compact<u32>".to_owned(),
+                metadata: Int(Compact),
+            },
         ),
         (
             TypeId::of::<iroha_schema::Compact<u64>>(),
-            ("Compact<u64>".to_owned(), Int(IntMode::Compact)),
+            MetaMapEntry {
+                type_id: "Compact<u64>".to_owned(),
+                type_name: "Compact<u64>".to_owned(),
+                metadata: Int(Compact),
+            },
         ),
         (
             TypeId::of::<iroha_schema::Compact<u8>>(),
-            ("Compact<u8>".to_owned(), Int(IntMode::Compact)),
+            MetaMapEntry {
+                type_id: "Compact<u8>".to_owned(),
+                type_name: "Compact<u8>".to_owned(),
+                metadata: Int(Compact),
+            },
         ),
         (
             TypeId::of::<Foo>(),
-            (
-                "Foo".to_owned(),
-                Struct(NamedFieldsMeta {
+            MetaMapEntry {
+                type_id: "Foo".to_owned(),
+                type_name: "Foo".to_owned(),
+                metadata: Struct(NamedFieldsMeta {
                     declarations: vec![
                         Declaration {
                             name: "u8_compact".to_owned(),
@@ -100,13 +121,48 @@ fn compact() {
                         },
                     ],
                 }),
-            ),
+            },
         ),
-        (TypeId::of::<u128>(), ("u128".to_owned(), Int(FixedWidth))),
-        (TypeId::of::<u16>(), ("u16".to_owned(), Int(FixedWidth))),
-        (TypeId::of::<u32>(), ("u32".to_owned(), Int(FixedWidth))),
-        (TypeId::of::<u64>(), ("u64".to_owned(), Int(FixedWidth))),
-        (TypeId::of::<u8>(), ("u8".to_owned(), Int(FixedWidth))),
+        (
+            TypeId::of::<u128>(),
+            MetaMapEntry {
+                type_id: "u128".to_owned(),
+                type_name: "u128".to_owned(),
+                metadata: Int(FixedWidth),
+            },
+        ),
+        (
+            TypeId::of::<u16>(),
+            MetaMapEntry {
+                type_id: "u16".to_owned(),
+                type_name: "u16".to_owned(),
+                metadata: Int(FixedWidth),
+            },
+        ),
+        (
+            TypeId::of::<u32>(),
+            MetaMapEntry {
+                type_id: "u32".to_owned(),
+                type_name: "u32".to_owned(),
+                metadata: Int(FixedWidth),
+            },
+        ),
+        (
+            TypeId::of::<u64>(),
+            MetaMapEntry {
+                type_id: "u64".to_owned(),
+                type_name: "u64".to_owned(),
+                metadata: Int(FixedWidth),
+            },
+        ),
+        (
+            TypeId::of::<u8>(),
+            MetaMapEntry {
+                type_id: "u8".to_owned(),
+                type_name: "u8".to_owned(),
+                metadata: Int(FixedWidth),
+            },
+        ),
     ]
     .into_iter()
     .collect::<BTreeMap<_, _>>();

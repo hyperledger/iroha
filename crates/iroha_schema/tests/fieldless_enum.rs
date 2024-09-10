@@ -16,9 +16,10 @@ fn discriminant() {
 
     let expected_meta = vec![(
         core::any::TypeId::of::<Foo>(),
-        (
-            "Foo".to_owned(),
-            Metadata::Enum(EnumMeta {
+        MetaMapEntry {
+            type_id: "Foo".to_owned(),
+            type_name: "Foo".to_owned(),
+            metadata: Metadata::Enum(EnumMeta {
                 variants: vec![
                     EnumVariant {
                         tag: "A".to_owned(),
@@ -42,7 +43,7 @@ fn discriminant() {
                     },
                 ],
             }),
-        ),
+        },
     )]
     .into_iter()
     .collect::<BTreeMap<_, _>>();

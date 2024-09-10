@@ -24,12 +24,23 @@ use core::{
 pub use iroha_schema_derive::*;
 use serde::Serialize;
 
+/// An entry in the schema map
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MetaMapEntry {
+    /// A unique identifier of the type
+    pub type_id: String,
+    /// The name under which the type is exposed in the schema
+    pub type_name: String,
+    /// Details about the type representation
+    pub metadata: Metadata,
+}
+
 /// Helper struct for building a full schema
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct MetaMap(pub(crate) btree_map::BTreeMap<core::any::TypeId, (String, Metadata)>);
+pub struct MetaMap(pub(crate) btree_map::BTreeMap<core::any::TypeId, MetaMapEntry>);
 
-impl PartialEq<btree_map::BTreeMap<core::any::TypeId, (String, Metadata)>> for MetaMap {
-    fn eq(&self, other: &btree_map::BTreeMap<core::any::TypeId, (String, Metadata)>) -> bool {
+impl PartialEq<btree_map::BTreeMap<core::any::TypeId, MetaMapEntry>> for MetaMap {
+    fn eq(&self, other: &btree_map::BTreeMap<core::any::TypeId, MetaMapEntry>) -> bool {
         self.0.eq(other)
     }
 }
@@ -53,20 +64,26 @@ impl MetaMap {
         self.0.remove(&Self::key::<K>()).is_some()
     }
     /// Insert a key-value pair into the map.
-    pub fn insert<K: IntoSchema>(&mut self, v: Metadata) -> bool {
+    pub fn insert<K: IntoSchema>(&mut self, metadata: Metadata) -> bool {
         self.0
-            .insert(Self::key::<K>(), (K::type_name(), v))
+            .insert(Self::key::<K>(), {
+                MetaMapEntry {
+                    type_id: K::id(),
+                    type_name: K::type_name(),
+                    metadata,
+                }
+            })
             .is_none()
     }
     /// Return a reference to the value corresponding to the [`core::any::TypeId`] of the schema type
     pub fn get<K: 'static>(&self) -> Option<&Metadata> {
-        self.0.get(&Self::key::<K>()).map(|(_, schema)| schema)
+        self.0.get(&Self::key::<K>()).map(|value| &value.metadata)
     }
 }
 
 impl IntoIterator for MetaMap {
-    type Item = (core::any::TypeId, (String, Metadata));
-    type IntoIter = btree_map::IntoIter<core::any::TypeId, (String, Metadata)>;
+    type Item = (core::any::TypeId, MetaMapEntry);
+    type IntoIter = btree_map::IntoIter<core::any::TypeId, MetaMapEntry>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
