@@ -3,10 +3,7 @@
 use derive_more::Display;
 use indexmap::IndexSet;
 use iroha_crypto::PublicKey;
-use iroha_data_model::{
-    block::{BlockSignature, SignedBlock},
-    prelude::PeerId,
-};
+use iroha_data_model::{block::BlockSignature, prelude::PeerId};
 
 /// The ordering of the peers which defines their roles in the current round of consensus.
 ///
@@ -203,30 +200,8 @@ impl Topology {
         self.0[..rotate_at].rotate_left(1);
     }
 
-    /// Pull peers up in the topology to the top of the a set while preserving local order.
-    fn lift_up_peers(&mut self, to_lift_up: impl IntoIterator<Item = usize>) {
-        let to_lift_up = IndexSet::<usize>::from_iter(to_lift_up);
-
-        to_lift_up.iter().for_each(|&idx| {
-            assert!(idx < self.0.len(), "Unknown block signature");
-        });
-
-        let mut topology = self.0.drain(..).enumerate().collect::<Vec<_>>();
-        topology.sort_by_key(|(signatory_idx, _)| !to_lift_up.contains(signatory_idx));
-        self.0 = topology.into_iter().map(|(_, peer)| peer).collect();
-    }
-
     /// Rotate topology after a block has been committed
-    pub fn block_committed(
-        &mut self,
-        block: &SignedBlock,
-        new_peers: impl IntoIterator<Item = PeerId>,
-    ) {
-        self.lift_up_peers(
-            block
-                .signatures()
-                .map(|s| s.0.try_into().expect("Peer index should fit into usize")),
-        );
+    pub fn block_committed(&mut self, new_peers: impl IntoIterator<Item = PeerId>) {
         self.rotate_set_a();
         self.update_peer_list(new_peers);
         self.1 = 0;
@@ -323,15 +298,6 @@ mod tests {
         let mut topology = topology();
         topology.rotate_set_a();
         assert_eq!(extract_ports(&topology), vec![1, 2, 3, 4, 0, 5, 6])
-    }
-
-    #[test]
-    fn lift_up_peers() {
-        let mut topology = topology();
-        // Will lift up 1, 2, 4, 6
-        let to_lift_up = [1, 2, 4, 6];
-        topology.lift_up_peers(to_lift_up);
-        assert_eq!(extract_ports(&topology), vec![1, 2, 4, 6, 0, 3, 5])
     }
 
     #[test]

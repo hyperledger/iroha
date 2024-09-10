@@ -106,7 +106,7 @@ impl SumeragiHandle {
             *topology = Topology::new(state_block.world.trusted_peers_ids.clone());
         }
 
-        topology.block_committed(block.as_ref(), state_block.world.peers().cloned());
+        topology.block_committed(state_block.world.peers().cloned());
 
         state_block
             .apply_without_execution(&block, topology.as_ref().to_owned())
