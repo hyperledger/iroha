@@ -460,7 +460,7 @@ impl Parameters {
     }
 
     /// Set `parameter` value to corresponding parameter in `self`
-    pub fn apply_parameter(&mut self, parameter: Parameter) {
+    pub fn set_parameter(&mut self, parameter: Parameter) {
         macro_rules! apply_parameter {
             ($($container:ident($param:ident.$field:ident) => $single:ident::$variant:ident),* $(,)?) => {
                 match parameter {

@@ -334,7 +334,7 @@ fn convert_parameters(parameters: Vec<Parameter>) -> Option<Parameters> {
     }
     let mut result = Parameters::default();
     for parameter in parameters {
-        result.apply_parameter(parameter);
+        result.set_parameter(parameter);
     }
     Some(result)
 }
