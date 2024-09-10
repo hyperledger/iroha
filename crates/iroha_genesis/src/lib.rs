@@ -334,43 +334,9 @@ fn convert_parameters(parameters: Vec<Parameter>) -> Option<Parameters> {
     }
     let mut result = Parameters::default();
     for parameter in parameters {
-        apply_parameter(&mut result, parameter);
+        result.apply_parameter(parameter);
     }
     Some(result)
-}
-
-fn apply_parameter(parameters: &mut Parameters, parameter: Parameter) {
-    macro_rules! apply_parameter {
-        ($($container:ident($param:ident.$field:ident) => $single:ident::$variant:ident),* $(,)?) => {
-            match parameter {
-                $(
-                Parameter::$container(iroha_data_model::parameter::$single::$variant(next)) => {
-                    parameters.$param.$field = next;
-                }
-                )*
-                Parameter::Custom(next) => {
-                    parameters.custom.insert(next.id.clone(), next);
-                }
-            }
-        };
-    }
-
-    apply_parameter!(
-        Sumeragi(sumeragi.max_clock_drift_ms) => SumeragiParameter::MaxClockDriftMs,
-        Sumeragi(sumeragi.block_time_ms) => SumeragiParameter::BlockTimeMs,
-        Sumeragi(sumeragi.commit_time_ms) => SumeragiParameter::CommitTimeMs,
-
-        Block(block.max_transactions) => BlockParameter::MaxTransactions,
-
-        Transaction(transaction.max_instructions) => TransactionParameter::MaxInstructions,
-        Transaction(transaction.smart_contract_size) => TransactionParameter::SmartContractSize,
-
-        SmartContract(smart_contract.fuel) => SmartContractParameter::Fuel,
-        SmartContract(smart_contract.memory) => SmartContractParameter::Memory,
-
-        Executor(executor.fuel) => SmartContractParameter::Fuel,
-        Executor(executor.memory) => SmartContractParameter::Memory,
-    );
 }
 
 impl Encode for ExecutorPath {
