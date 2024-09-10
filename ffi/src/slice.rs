@@ -8,18 +8,21 @@ use crate::ReprC;
 crate::decl_ffi_fns! { dealloc }
 
 /// Immutable slice `&[C]` with a defined C ABI layout. Consists of a data pointer and a length.
+///
 /// If the data pointer is set to `null`, the struct represents `Option<&[C]>`.
 #[repr(C)]
 #[derive(Debug)]
 pub struct RefSlice<C>(*const C, usize);
 
 /// Mutable slice `&mut [C]` with a defined C ABI layout. Consists of a data pointer and a length.
+///
 /// If the data pointer is set to `null`, the struct represents `Option<&mut [C]>`.
 #[repr(C)]
 #[derive(Debug)]
 pub struct RefMutSlice<C>(*mut C, usize);
 
 /// Owned slice `Box<[C]>` with a defined C ABI layout. Consists of a data pointer and a length.
+///
 /// Used in place of a function out-pointer to transfer ownership of the slice to the caller.
 /// If the data pointer is set to `null`, the struct represents `Option<Box<[C]>>`.
 #[repr(C)]

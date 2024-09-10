@@ -2,10 +2,10 @@
 //! [`RawGenesisTransaction`] and the [`GenesisBuilder`] structures.
 use std::{
     fmt::Debug,
-    fs,
-    fs::File,
+    fs::{self, File},
     io::BufReader,
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 use eyre::{eyre, Result, WrapErr};
@@ -14,16 +14,16 @@ use iroha_data_model::{
     block::SignedBlock, isi::Instruction, parameter::Parameter, peer::Peer, prelude::*,
 };
 use iroha_schema::IntoSchema;
-use once_cell::sync::Lazy;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 /// [`DomainId`](iroha_data_model::domain::DomainId) of the genesis account.
-pub static GENESIS_DOMAIN_ID: Lazy<DomainId> = Lazy::new(|| "genesis".parse().unwrap());
+pub static GENESIS_DOMAIN_ID: LazyLock<DomainId> = LazyLock::new(|| "genesis".parse().unwrap());
 
 /// Genesis block.
-/// First transaction should contain single [`Upgrade`] instruction to set executor.
-/// Second transaction should contain all other instructions.
+///
+/// First transaction must contain single [`Upgrade`] instruction to set executor.
+/// Second transaction must contain all other instructions.
 /// If there are no other instructions, second transaction will be omitted.
 #[derive(Debug, Clone)]
 #[repr(transparent)]
@@ -203,7 +203,8 @@ fn get_executor(file: &Path) -> Result<Executor> {
     Ok(Executor::new(WasmSmartContract::from_compiled(wasm)))
 }
 
-/// Builder type for [`GenesisBlock`]/[`RawGenesisTransaction`]
+/// Builder type for [`GenesisBlock`]/[`RawGenesisTransaction`].
+///
 /// that does not perform any correctness checking on the block produced.
 /// Use with caution in tests and other things to register domains and accounts.
 #[must_use]
@@ -332,7 +333,7 @@ fn convert_parameters(parameters: Vec<Parameter>) -> Option<Parameters> {
         return None;
     }
     let mut result = Parameters::default();
-    for parameter in parameters.into_iter() {
+    for parameter in parameters {
         apply_parameter(&mut result, parameter);
     }
     Some(result)
@@ -538,13 +539,12 @@ mod tests {
         fn test(parameters: &str) {
             let genesis_json = format!(
                 r#"{{
-              "parameters": {},
+              "parameters": {parameters},
               "chain": "0",
               "executor": "./executor.wasm",
               "topology": [],
               "instructions": []
-            }}"#,
-                parameters
+            }}"#
             );
             let _genesis: RawGenesisTransaction =
                 serde_json::from_str(&genesis_json).expect("Failed to deserialize");

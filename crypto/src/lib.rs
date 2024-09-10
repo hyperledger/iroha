@@ -548,7 +548,7 @@ impl FromStr for PublicKey {
     type Err = ParseError;
 
     fn from_str(key: &str) -> Result<Self, Self::Err> {
-        PublicKeyInner::from_str(key).map(Box::new).map(Self)
+        key.parse().map(Box::new).map(Self)
     }
 }
 
@@ -755,7 +755,7 @@ impl FromStr for ExposedPrivateKey {
     type Err = ParseError;
 
     fn from_str(key: &str) -> Result<Self, Self::Err> {
-        let private_key = PrivateKey::from_str(key)?;
+        let private_key = key.parse()?;
         Ok(ExposedPrivateKey(private_key))
     }
 }

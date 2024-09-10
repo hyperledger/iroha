@@ -203,7 +203,7 @@ impl MeasurerUnit {
                             iroha_logger::error!(?error, "Failed to submit transaction");
                         }
 
-                        nonce = nonce.checked_add(1).unwrap_or(nonzero!(1_u32));
+                        nonce = nonce.checked_add(1).unwrap_or_else(|| nonzero!(1_u32));
                         thread::sleep(time::Duration::from_micros(interval_us_per_tx));
                     }
                     Err(mpsc::TryRecvError::Disconnected) => {

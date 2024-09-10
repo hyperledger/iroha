@@ -2,9 +2,9 @@ use eyre::Result;
 use iroha::{
     client,
     client::Client,
+    crypto::KeyPair,
     data_model::{prelude::*, transaction::error::TransactionRejectionReason},
 };
-use iroha_crypto::KeyPair;
 use iroha_executor_data_model::permission::{
     account::CanUnregisterAccount,
     asset::CanUnregisterUserAsset,

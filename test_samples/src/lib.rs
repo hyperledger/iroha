@@ -1,8 +1,8 @@
 //! Utility crate for standardized and random signatories.
+use std::sync::LazyLock;
 
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::AccountId;
-use once_cell::sync::Lazy;
 
 /// Generate [`AccountId`](iroha_data_model::account::AccountId) in the given `domain`.
 ///
@@ -21,7 +21,7 @@ pub fn gen_account_in(domain: impl core::fmt::Display) -> (AccountId, KeyPair) {
 macro_rules! declare_keypair {
     ( $key_pair:ident, $public_key:expr, $private_key:expr ) => {
         /// A standardized [`KeyPair`](iroha_crypto::KeyPair).
-        pub static $key_pair: Lazy<KeyPair> = Lazy::new(|| {
+        pub static $key_pair: LazyLock<KeyPair> = LazyLock::new(|| {
             KeyPair::new(
                 $public_key
                     .parse()
@@ -38,7 +38,7 @@ macro_rules! declare_keypair {
 macro_rules! declare_account_with_keypair {
     ( $account_id:ident, $domain:literal, $key_pair:ident, $public_key:literal, $private_key:literal ) => {
         /// A standardized [`AccountId`](iroha_data_model::account::AccountId).
-        pub static $account_id: Lazy<AccountId> = Lazy::new(|| {
+        pub static $account_id: LazyLock<AccountId> = LazyLock::new(|| {
             format!("{}@{}", $key_pair.public_key(), $domain)
                 .parse()
                 .expect("domain and public_key should be valid as name and multihash, respectively")

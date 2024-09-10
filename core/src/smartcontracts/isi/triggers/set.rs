@@ -411,7 +411,7 @@ pub trait SetReadOnly {
     /// Apply `f` to triggers whose action satisfies the predicate.
     ///
     /// Return an empty list if [`Set`] doesn't contain any such triggers.
-    fn inspect_by_action<'a, P, F, R>(&'a self, filter: P, f: F) -> impl Iterator<Item = R> + '_
+    fn inspect_by_action<'a, P, F, R>(&'a self, filter: P, f: F) -> impl Iterator<Item = R> + 'a
     where
         P: Fn(&dyn LoadedActionTrait) -> bool + 'a,
         F: Fn(&TriggerId, &dyn LoadedActionTrait) -> R + 'a,
@@ -847,7 +847,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     ///
     /// - If a trigger with the given id is not found.
     /// - If updating the current trigger `repeats` causes an overflow. Indefinitely
-    /// repeating triggers and triggers set for exact time always cause an overflow.
+    ///   repeating triggers and triggers set for exact time always cause an overflow.
     pub fn mod_repeats(
         &mut self,
         id: &TriggerId,

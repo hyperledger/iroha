@@ -1,6 +1,6 @@
 FROM --platform=linux/amd64 archlinux:base-devel AS builder
 
-ARG NIGHTLY_VERSION=2024-04-18
+ARG NIGHTLY_VERSION=2024-09-09
 
 RUN <<EOT
   set -eux

@@ -1,4 +1,4 @@
-use std::{str::FromStr as _, thread, time::Duration};
+use std::{thread, time::Duration};
 
 use eyre::Result;
 use iroha::{
@@ -133,7 +133,9 @@ fn permissions_disallow_asset_burn() {
     let alice_id = ALICE_ID.clone();
     let bob_id = BOB_ID.clone();
     let (mouse_id, _mouse_keypair) = gen_account_in("wonderland");
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let asset_definition_id = "xor#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let mouse_keypair = KeyPair::random();
@@ -258,7 +260,7 @@ fn permissions_differ_not_only_by_names() {
     client
         .submit_blocking(SetKeyValue::asset(
             mouse_hat_id,
-            Name::from_str("color").expect("Valid"),
+            "color".parse().expect("Valid"),
             "red".parse::<JsonString>().expect("Valid"),
         ))
         .expect("Failed to modify Mouse's hats");
@@ -267,7 +269,7 @@ fn permissions_differ_not_only_by_names() {
     let mouse_shoes_id = AssetId::new(shoes_definition_id, mouse_id.clone());
     let set_shoes_color = SetKeyValue::asset(
         mouse_shoes_id.clone(),
-        Name::from_str("color").expect("Valid"),
+        "color".parse().expect("Valid"),
         "yellow".parse::<JsonString>().expect("Valid"),
     );
     let _err = client
@@ -338,7 +340,7 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
     // Check that alice can indeed mint mouse asset
     let set_key_value = SetKeyValue::asset(
         mouse_asset,
-        Name::from_str("color")?,
+        "color".parse()?,
         "red".parse::<JsonString>().expect("Valid"),
     );
     iroha

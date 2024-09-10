@@ -1,5 +1,3 @@
-use std::str::FromStr as _;
-
 use eyre::Result;
 use iroha::{
     client,
@@ -14,9 +12,9 @@ fn failed_trigger_revert() -> Result<()> {
     wait_for_genesis_committed(&[client.clone()], 0);
 
     //When
-    let trigger_id = TriggerId::from_str("trigger")?;
+    let trigger_id = "trigger".parse::<TriggerId>()?;
     let account_id = ALICE_ID.clone();
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
+    let asset_definition_id = "xor#wonderland".parse::<AssetDefinitionId>()?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let fail_isi = Unregister::domain("dummy".parse().unwrap());

@@ -1,4 +1,4 @@
-use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
+use std::{sync::mpsc, thread, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
 use iroha::data_model::prelude::*;
@@ -13,7 +13,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id);
-    let trigger_id = TriggerId::from_str("mint_rose")?;
+    let trigger_id = "mint_rose".parse::<TriggerId>()?;
 
     let instruction = Mint::asset_numeric(1u32, asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
@@ -57,7 +57,7 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let account_id = ALICE_ID.clone();
-    let trigger_id = TriggerId::from_str("fail_box")?;
+    let trigger_id = "fail_box".parse::<TriggerId>()?;
 
     let fail_isi = Unregister::domain("dummy".parse().unwrap());
     let register_trigger = Register::trigger(Trigger::new(

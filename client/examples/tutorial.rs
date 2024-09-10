@@ -143,8 +143,6 @@ fn account_registration_test(config: Config) -> Result<(), Error> {
 
 fn asset_registration_test(config: Config) -> Result<(), Error> {
     // #region register_asset_crates
-    use std::str::FromStr as _;
-
     use iroha::{
         client::Client,
         crypto::KeyPair,
@@ -159,7 +157,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
 
     // #region register_asset_create_asset
     // Create an asset
-    let asset_def_id = AssetDefinitionId::from_str("time#looking_glass")
+    let asset_def_id = "time#looking_glass".parse::<AssetDefinitionId>()
         .expect("Valid, because the string contains no whitespace, has a single '#' character and is not empty after");
     // #endregion register_asset_create_asset
 
@@ -193,11 +191,9 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
 
 fn asset_minting_test(config: Config) -> Result<(), Error> {
     // #region mint_asset_crates
-    use std::str::FromStr;
-
     use iroha::{
         client::Client,
-        data_model::prelude::{AccountId, AssetDefinitionId, AssetId, Mint},
+        data_model::prelude::{AccountId, AssetId, Mint},
     };
     // #endregion mint_asset_crates
 
@@ -206,7 +202,7 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
 
     // Define the instances of an Asset and Account
     // #region mint_asset_define_asset_account
-    let roses = AssetDefinitionId::from_str("rose#wonderland")
+    let roses = "rose#wonderland".parse()
         .expect("Valid, because the string contains no whitespace, has a single '#' character and is not empty after");
     let alice: AccountId = "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse()
         .expect("Valid, because before @ is a valid public key and after @ is a valid name i.e. a string with no spaces or forbidden chars");
@@ -247,11 +243,9 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
 
 fn asset_burning_test(config: Config) -> Result<(), Error> {
     // #region burn_asset_crates
-    use std::str::FromStr;
-
     use iroha::{
         client::Client,
-        data_model::prelude::{AccountId, AssetDefinitionId, AssetId, Burn},
+        data_model::prelude::{AccountId, AssetId, Burn},
     };
     // #endregion burn_asset_crates
 
@@ -260,7 +254,7 @@ fn asset_burning_test(config: Config) -> Result<(), Error> {
 
     // #region burn_asset_define_asset_account
     // Define the instances of an Asset and Account
-    let roses = AssetDefinitionId::from_str("rose#wonderland")
+    let roses = "rose#wonderland".parse()
         .expect("Valid, because the string contains no whitespace, has a single '#' character and is not empty after");
     let alice: AccountId = "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse()
         .expect("Valid, because before @ is a valid public key and after @ is a valid name i.e. a string with no spaces or forbidden chars");

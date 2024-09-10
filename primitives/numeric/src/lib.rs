@@ -336,7 +336,7 @@ impl core::str::FromStr for Numeric {
     type Err = NumericError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let Ok(inner) = Decimal::from_str(s) else {
+        let Ok(inner) = s.parse::<Decimal>() else {
             return Err(NumericError::Malformed);
         };
 

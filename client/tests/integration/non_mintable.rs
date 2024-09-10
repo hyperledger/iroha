@@ -1,5 +1,3 @@
-use std::str::FromStr as _;
-
 use eyre::Result;
 use iroha::{
     client,
@@ -15,7 +13,9 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
 
     // Given
     let account_id = ALICE_ID.clone();
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let asset_definition_id = "xor#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let create_asset = Register::asset_definition(
         AssetDefinition::numeric(asset_definition_id.clone()).mintable_once(),
     );
@@ -69,7 +69,9 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
 
     // Given
     let account_id = ALICE_ID.clone();
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let asset_definition_id = "xor#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let create_asset = Register::asset_definition(
         AssetDefinition::numeric(asset_definition_id.clone()).mintable_once(),
     );
@@ -108,7 +110,9 @@ fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()
 
     // Given
     let account_id = ALICE_ID.clone();
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let asset_definition_id = "xor#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let create_asset = Register::asset_definition(
         AssetDefinition::numeric(asset_definition_id.clone()).mintable_once(),
     );

@@ -5,8 +5,6 @@
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use core::str::FromStr as _;
-
 use dlmalloc::GlobalDlmalloc;
 use iroha_trigger::{prelude::*, smart_contract::query_single};
 
@@ -18,8 +16,7 @@ getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 /// Mint 1 rose for owner
 #[iroha_trigger::main]
 fn main(id: TriggerId, owner: AccountId, _event: EventBox) {
-    let rose_definition_id = AssetDefinitionId::from_str("rose#wonderland")
-        .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
+    let rose_definition_id = "rose#wonderland".parse().unwrap();
     let rose_id = AssetId::new(rose_definition_id, owner);
 
     let val: u32 = query_single(FindTriggerMetadata::new(id, "VAL".parse().unwrap()))

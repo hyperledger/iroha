@@ -1,4 +1,5 @@
 #![allow(missing_docs)]
+use std::sync::LazyLock;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use iroha_core::{
@@ -11,13 +12,12 @@ use iroha_core::{
 use iroha_data_model::{
     account::AccountId, isi::InstructionBox, prelude::*, transaction::TransactionBuilder,
 };
-use once_cell::sync::Lazy;
 use test_samples::gen_account_in;
 
-static STARTER_DOMAIN: Lazy<DomainId> = Lazy::new(|| "start".parse().unwrap());
-static STARTER_KEYPAIR: Lazy<KeyPair> = Lazy::new(KeyPair::random);
-static STARTER_ID: Lazy<AccountId> =
-    Lazy::new(|| AccountId::new(STARTER_DOMAIN.clone(), STARTER_KEYPAIR.public_key().clone()));
+static STARTER_DOMAIN: LazyLock<DomainId> = LazyLock::new(|| "start".parse().unwrap());
+static STARTER_KEYPAIR: LazyLock<KeyPair> = LazyLock::new(KeyPair::random);
+static STARTER_ID: LazyLock<AccountId> =
+    LazyLock::new(|| AccountId::new(STARTER_DOMAIN.clone(), STARTER_KEYPAIR.public_key().clone()));
 
 fn build_test_transaction(chain_id: ChainId) -> TransactionBuilder {
     let domain_id: DomainId = "domain".parse().unwrap();

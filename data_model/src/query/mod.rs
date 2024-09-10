@@ -417,8 +417,9 @@ mod candidate {
 
     #[cfg(test)]
     mod tests {
+        use std::sync::LazyLock;
+
         use iroha_crypto::KeyPair;
-        use once_cell::sync::Lazy;
         use parity_scale_codec::{DecodeAll, Encode};
 
         use crate::{
@@ -429,12 +430,12 @@ mod candidate {
             },
         };
 
-        static ALICE_ID: Lazy<AccountId> = Lazy::new(|| {
+        static ALICE_ID: LazyLock<AccountId> = LazyLock::new(|| {
             format!("{}@{}", ALICE_KEYPAIR.public_key(), "wonderland")
                 .parse()
                 .unwrap()
         });
-        static ALICE_KEYPAIR: Lazy<KeyPair> = Lazy::new(|| {
+        static ALICE_KEYPAIR: LazyLock<KeyPair> = LazyLock::new(|| {
             KeyPair::new(
                 "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03"
                     .parse()
@@ -446,7 +447,7 @@ mod candidate {
             .unwrap()
         });
 
-        static BOB_KEYPAIR: Lazy<KeyPair> = Lazy::new(|| {
+        static BOB_KEYPAIR: LazyLock<KeyPair> = LazyLock::new(|| {
             KeyPair::new(
                 "ed012004FF5B81046DDCCF19E2E451C45DFB6F53759D4EB30FA2EFA807284D1CC33016"
                     .parse()

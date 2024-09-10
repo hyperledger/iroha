@@ -1,7 +1,7 @@
-//! Iroha smart contract functionality. Most of the traits mentioned
-//! [`isi`] or Iroha Special Instructions are the main way of
-//! interacting with the [`State`], even [`wasm`] based
-//! smart-contracts can only interact with the `world`, via
+//! Iroha smart contract functionality.
+//!
+//! Most of the traits mentioned [`isi`] or Iroha Special Instructions are the main way of interacting
+//! with the [`State`], even [`wasm`] based smart-contracts can only interact with the `world`, via
 //! instructions.
 
 pub mod isi;

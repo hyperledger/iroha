@@ -29,8 +29,10 @@ impl<'dummy, R: Niche<'dummy>> OptionIr for R {
 impl<R> Cloned for Option<R> {}
 
 /// Type that has at least one trap representation that can be used as a niche value. The
-/// niche value is used in the serialization of [`Option<T>`]. For example, [`Option<bool>`]
-/// will be serilized into one byte and [`Option<*const T>`] will take the size of the pointer
+/// niche value is used in the serialization of [`Option<T>`].
+///
+/// For example, [`Option<bool>`] will be serilized into one byte
+/// and [`Option<*const T>`] will take the size of the pointer
 // TODO: Lifetime is used as a hack to deal with https://github.com/rust-lang/rust/issues/48214
 pub trait Niche<'dummy>: FfiType {
     /// The niche value of the type

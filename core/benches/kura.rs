@@ -1,7 +1,5 @@
 #![allow(missing_docs)]
 
-use std::str::FromStr as _;
-
 use byte_unit::{Byte, UnitType};
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_config::{base::WithOrigin, parameters::actual::Kura as Config};
@@ -34,7 +32,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
 
     let (alice_id, alice_keypair) = gen_account_in("test");
     let (bob_id, _bob_keypair) = gen_account_in("test");
-    let xor_id = AssetDefinitionId::from_str("xor#test").expect("tested");
+    let xor_id = "xor#test".parse().expect("tested");
     let alice_xor_id = AssetId::new(xor_id, alice_id.clone());
     let transfer = Transfer::asset_numeric(alice_xor_id, 10u32, bob_id);
     let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())

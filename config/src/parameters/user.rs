@@ -1,6 +1,7 @@
-//! User configuration view. Contains structures in a format that is
-//! convenient from the user perspective. It is less strict and not necessarily valid upon
-//! successful parsing of the user-provided content.
+//! User configuration view.
+//!
+//! Contains structures in a format that is convenient from the user perspective. It is less strict
+//! and not necessarily valid upon successful parsing of the user-provided content.
 //!
 //! It begins with [`Root`], containing sub-modules. Every structure has its `-Partial`
 //! representation (e.g. [`RootPartial`]).

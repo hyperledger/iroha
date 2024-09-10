@@ -56,7 +56,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["macros", "signal"] }
 tokio-util = { workspace = true, features = ["rt"] }
-once_cell = { workspace = true }
 owo-colors = { workspace = true, features = ["supports-colors"] }
 supports-color = { workspace = true }
 toml = { workspace = true }

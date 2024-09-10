@@ -10,12 +10,12 @@ use iroha::{
         isi::error::InstructionExecutionError,
         parameter::BlockParameter,
         prelude::*,
+        query::error::FindError,
         transaction::error::TransactionRejectionReason,
         ValidationFail,
     },
 };
 use iroha_config::parameters::actual::Root as Config;
-use iroha_data_model::query::error::FindError;
 use nonzero_ext::nonzero;
 use test_network::*;
 

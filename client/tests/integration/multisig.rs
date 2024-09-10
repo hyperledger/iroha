@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, str::FromStr};
+use std::collections::BTreeMap;
 
 use executor_custom_data_model::multisig::{MultisigArgs, MultisigRegisterArgs};
 use eyre::Result;
@@ -6,13 +6,11 @@ use iroha::{
     client,
     crypto::KeyPair,
     data_model::{
+        parameter::SmartContractParameter,
         prelude::*,
+        query::{builder::SingleQueryError, trigger::FindTriggers},
         transaction::{TransactionBuilder, WasmSmartContract},
     },
-};
-use iroha_data_model::{
-    parameter::SmartContractParameter,
-    query::{builder::SingleQueryError, trigger::FindTriggers},
 };
 use nonzero_ext::nonzero;
 use test_network::*;
@@ -33,7 +31,7 @@ fn mutlisig() -> Result<()> {
     ])?;
 
     let account_id = ALICE_ID.clone();
-    let multisig_register_trigger_id = TriggerId::from_str("multisig_register")?;
+    let multisig_register_trigger_id = "multisig_register".parse::<TriggerId>()?;
 
     let wasm = iroha_wasm_builder::Builder::new("../wasm_samples/multisig_register")
         .show_output()

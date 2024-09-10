@@ -1,4 +1,4 @@
-use std::{str::FromStr, thread};
+use std::thread;
 
 use eyre::Result;
 use iroha::{
@@ -14,7 +14,7 @@ use tokio::runtime::Runtime;
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     let account_id = ALICE_ID.clone();
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
+    let asset_definition_id = "xor#wonderland".parse::<AssetDefinitionId>().unwrap();
     let quantity = numeric!(200);
 
     let mut removed_peer = {

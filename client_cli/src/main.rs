@@ -1199,8 +1199,6 @@ mod json {
 }
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
 
     #[test]
@@ -1208,7 +1206,7 @@ mod tests {
         macro_rules! case {
             ($input:expr, $expected:expr) => {
                 let MetadataValueArg { value } =
-                    MetadataValueArg::from_str($input).expect("should not fail with valid input");
+                    $input.parse().expect("should not fail with valid input");
                 assert_eq!(value, $expected);
             };
         }

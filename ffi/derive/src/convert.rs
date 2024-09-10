@@ -1,4 +1,3 @@
-use core::str::FromStr as _;
 use std::fmt::{Display, Formatter};
 
 use darling::{
@@ -510,7 +509,7 @@ fn derive_ffi_type_for_data_carrying_enum(
         .iter()
         .enumerate()
         .map(|(i, variant)| {
-            let idx = TokenStream::from_str(&format!("{i}")).expect("Valid");
+            let idx = format!("{i}").parse::<TokenStream>().expect("Valid");
             let payload_name = gen_repr_c_enum_payload_name(enum_name);
             let variant_name = &variant.ident;
 
@@ -540,7 +539,7 @@ fn derive_ffi_type_for_data_carrying_enum(
         .collect::<Vec<_>>();
 
     let variants_try_from_ffi = variants.iter().enumerate().map(|(i, variant)| {
-        let idx = TokenStream::from_str(&format!("{i}")).expect("Valid");
+        let idx = format!("{i}").parse::<TokenStream>().expect("Valid");
         let variant_name = &variant.ident;
 
         variant_mapper(

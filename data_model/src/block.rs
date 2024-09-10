@@ -1,8 +1,6 @@
-//! This module contains `Block` structures for each state, it's
-//! transitions, implementations and related traits
-//! implementations. `Block`s are organised into a linear sequence
-//! over time (also known as the block chain).  A Block's life-cycle
-//! starts from `PendingBlock`.
+//! This module contains `Block` and related implementations.
+//!
+//! `Block`s are organised into a linear sequence over time (also known as the block chain).
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};

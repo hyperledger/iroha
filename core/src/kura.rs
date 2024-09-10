@@ -970,8 +970,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn strict_init_kura() {
+    #[test]
+    fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
         Kura::new(&Config {
             init_mode: InitMode::Strict,
@@ -983,8 +983,8 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
-    fn kura_not_miss_replace_block() {
+    #[tokio::test]
+    async fn kura_not_miss_replace_block() {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_time()
             .build()

@@ -29,13 +29,14 @@ use serde::{
 const MAX_INLINED_STRING_LEN: usize = 2 * size_of::<usize>() - 1;
 
 /// Immutable inlinable string.
+///
 /// Strings shorter than 15/7/3 bytes (in 64/32/16-bit architecture) are inlined.
 /// Union represents const-string variants: inlined or boxed.
 /// Distinction between variants are achieved by tagging most significant bit of field `len`:
 /// - for inlined variant MSB of `len` is always equal to 1, it's enforced by `InlinedString` constructor;
 /// - for boxed variant MSB of `len` is always equal to 0, it's enforced by the fact
-/// that `Box` and `Vec` never allocate more than`isize::MAX bytes`.
-/// For little-endian 64bit architecture memory layout of [`Self`] is following:
+///   that `Box` and `Vec` never allocate more than`isize::MAX bytes`.
+///   For little-endian 64bit architecture memory layout of [`Self`] is following:
 ///
 /// ```text
 /// +---------+-------+---------+----------+----------------+

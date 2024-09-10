@@ -1,5 +1,5 @@
 //! This module contains the sample configurations used for testing and benchmarking throughout Iroha.
-use std::{collections::HashSet, str::FromStr};
+use std::collections::HashSet;
 
 use iroha_config::{base::toml::TomlSource, parameters::actual::Root as Config};
 use iroha_crypto::{ExposedPrivateKey, KeyPair, PublicKey};
@@ -33,7 +33,7 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
         ),
     ]
     .iter()
-    .map(|(a, k)| PeerId::new(a.parse().expect("Valid"), PublicKey::from_str(k).unwrap()))
+    .map(|(a, k)| PeerId::new(a.parse().expect("Valid"), k.parse().unwrap()))
     .collect();
     if let Some(pubkey) = public_key {
         trusted_peers.insert(PeerId {

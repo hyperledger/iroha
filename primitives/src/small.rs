@@ -1,8 +1,7 @@
-//! Small-string optimisation-related implementations and
-//! structs. Thin wrapper around the `smallstr` crate. The array type
-//! `[u8; 32]` should be the standard for strings. The size of the
-//! `SmallVec` should be determined based on the average case size of
-//! the collection.
+//! Small-string optimisation-related implementations and structs.
+//!
+//! Thin wrapper around the `smallstr` crate. The array type `[u8; 32]` should be the standard for strings.
+//! The size of the `SmallVec` should be determined based on the average case size of the collection.
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 use core::fmt;

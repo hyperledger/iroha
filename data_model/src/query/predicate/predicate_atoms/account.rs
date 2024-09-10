@@ -51,6 +51,7 @@ impl EvaluatePredicate<AccountId> for AccountIdPredicateBox {
 
 /// A predicate that can be applied to an [`Account`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[allow(unreachable_patterns)]
 pub enum AccountPredicateBox {
     // projections
     /// Checks if a predicate applies to the ID of the input.

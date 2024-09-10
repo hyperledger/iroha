@@ -2,8 +2,8 @@
 //! 1. If a new block is constructed by the node:
 //!     `BlockBuilder<Pending>` -> `BlockBuilder<Chained>` -> `ValidBlock` -> `CommittedBlock`
 //! 2. If a block is received, i.e. deserialized:
-//!     `SignedBlock` -> `ValidBlock` -> `CommittedBlock`
-//! [`Block`]s are organised into a linear sequence over time (also known as the block chain).
+//!    `SignedBlock` -> `ValidBlock` -> `CommittedBlock`
+//!    [`Block`]s are organised into a linear sequence over time (also known as the block chain).
 use std::{error::Error as _, time::Duration};
 
 use iroha_crypto::{HashOf, KeyPair, MerkleTree};
@@ -184,14 +184,14 @@ mod pending {
             .unwrap();
 
             BlockHeader {
-                height: prev_block
-                    .map(|block| block.header().height)
-                    .map(|height| {
+                height: prev_block.map(|block| block.header().height).map_or_else(
+                    || nonzero!(1_u64),
+                    |height| {
                         height
                             .checked_add(1)
                             .expect("INTERNAL BUG: Blockchain height exceeds usize::MAX")
-                    })
-                    .unwrap_or(nonzero!(1_u64)),
+                    },
+                ),
                 prev_block_hash: prev_block.map(SignedBlock::hash),
                 transactions_hash: transactions
                     .iter()
@@ -1107,8 +1107,6 @@ mod event {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr as _;
-
     use iroha_data_model::prelude::*;
     use iroha_genesis::GENESIS_DOMAIN_ID;
     use test_samples::gen_account_in;
@@ -1144,7 +1142,7 @@ mod tests {
         // Predefined world state
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let account = Account::new(alice_id.clone()).build(&alice_id);
-        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let domain_id = "wonderland".parse().expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
         let world = World::with([domain], [account], []);
         let kura = Kura::blank_kura_for_testing();
@@ -1158,7 +1156,7 @@ mod tests {
         let mut state_block = state.block();
 
         // Creating an instruction
-        let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+        let asset_definition_id = "xor#wonderland".parse().expect("Valid");
         let create_asset_definition =
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
 
@@ -1202,7 +1200,7 @@ mod tests {
         // Predefined world state
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let account = Account::new(alice_id.clone()).build(&alice_id);
-        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let domain_id = "wonderland".parse().expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
         let world = World::with([domain], [account], []);
         let kura = Kura::blank_kura_for_testing();
@@ -1216,7 +1214,9 @@ mod tests {
         let mut state_block = state.block();
 
         // Creating an instruction
-        let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+        let asset_definition_id = "xor#wonderland"
+            .parse::<AssetDefinitionId>()
+            .expect("Valid");
         let create_asset_definition =
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
 
@@ -1280,7 +1280,7 @@ mod tests {
         // Predefined world state
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let account = Account::new(alice_id.clone()).build(&alice_id);
-        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let domain_id = "wonderland".parse().expect("Valid");
         let domain = Domain::new(domain_id).build(&alice_id);
         let world = World::with([domain], [account], []);
         let kura = Kura::blank_kura_for_testing();
@@ -1293,9 +1293,9 @@ mod tests {
         };
         let mut state_block = state.block();
 
-        let domain_id = DomainId::from_str("domain").expect("Valid");
+        let domain_id = "domain".parse().expect("Valid");
         let create_domain = Register::domain(Domain::new(domain_id));
-        let asset_definition_id = AssetDefinitionId::from_str("coin#domain").expect("Valid");
+        let asset_definition_id = "coin#domain".parse().expect("Valid");
         let create_asset =
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
         let fail_isi = Unregister::domain("dummy".parse().unwrap());

@@ -400,7 +400,7 @@ impl Queue {
 #[cfg(test)]
 // this is `pub` to re-use internal utils
 pub mod tests {
-    use std::{str::FromStr, sync::Arc, thread, time::Duration};
+    use std::{sync::Arc, thread, time::Duration};
 
     use iroha_data_model::{parameter::TransactionParameters, prelude::*};
     use nonzero_ext::nonzero;
@@ -459,7 +459,7 @@ pub mod tests {
     }
 
     pub fn world_with_test_domains() -> World {
-        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let domain_id = "wonderland".parse().expect("Valid");
         let (account_id, _account_keypair) = gen_account_in("wonderland");
         let domain = Domain::new(domain_id).build(&account_id);
         let account = Account::new(account_id.clone()).build(&account_id);
@@ -792,7 +792,7 @@ pub mod tests {
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let (bob_id, bob_keypair) = gen_account_in("wonderland");
         let world = {
-            let domain_id = DomainId::from_str("wonderland").expect("Valid");
+            let domain_id = "wonderland".parse().expect("Valid");
             let domain = Domain::new(domain_id).build(&alice_id);
             let alice_account = Account::new(alice_id.clone()).build(&alice_id);
             let bob_account = Account::new(bob_id.clone()).build(&bob_id);

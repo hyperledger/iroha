@@ -27,6 +27,7 @@ use crate::{
 
 /// A predicate that can be applied to an [`AssetDefinitionId`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[allow(unreachable_patterns)]
 pub enum AssetDefinitionPredicateBox {
     // projections
     /// Checks if a predicate applies to the ID of the input.
@@ -51,6 +52,7 @@ impl EvaluatePredicate<AssetDefinition> for AssetDefinitionPredicateBox {
 
 /// A predicate that can be applied to an [`Asset`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[allow(unreachable_patterns)]
 pub enum AssetPredicateBox {
     // projections
     /// Checks if a predicate applies to the ID of the input.
@@ -74,6 +76,8 @@ impl EvaluatePredicate<Asset> for AssetPredicateBox {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum AssetValuePredicateBox {
     // TODO: populate
+    // FIX: Remove all `#[allow(unreachable_patterns)]` from all use sites
+    // once some variants are added into this enum
 }
 
 impl_predicate_box!(AssetValue: AssetValuePredicateBox);

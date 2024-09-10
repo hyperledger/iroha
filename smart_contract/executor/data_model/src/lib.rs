@@ -8,6 +8,7 @@ pub mod parameter;
 pub mod permission;
 
 /// An error that might occur while converting a data model object into a native executor type.
+///
 /// Such objects are [`iroha_data_model::permission::Permission`] and [`iroha_data_model::parameter::Parameter`].
 #[derive(Debug)]
 pub enum TryFromDataModelObjectError {

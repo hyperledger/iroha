@@ -43,7 +43,7 @@ macro_rules! try_from_var_uint(
                     let bytes = payload.into_iter().map(|byte| byte & 0b0111_1111);
                     let number = bytes
                         .zip(offsets)
-                        .map(|(byte, offset)| (byte as Self) << offset)
+                        .map(|(byte, offset)| Self::from(byte) << offset)
                         .fold(0, |number, part| number + part);
                     Ok(number)
                 }

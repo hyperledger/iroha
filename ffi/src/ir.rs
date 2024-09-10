@@ -1,4 +1,5 @@
 //! Internal representation, a.k.a IR of `Rust` types during conversion into FFI types.
+//!
 //! While you can implement [`FfiType`] on your `Rust` type directly, it is encouraged
 //! that you map your type into IR by providing the implementation of [`Ir`] and benefit
 //! from automatic, correct and performant conversions from IR to C type equivalent.

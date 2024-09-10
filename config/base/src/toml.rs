@@ -8,7 +8,6 @@ use std::{
     fs::File,
     io::Read,
     path::{Path, PathBuf},
-    str::FromStr,
 };
 
 use error_stack::ResultExt;
@@ -56,7 +55,9 @@ impl TomlSource {
             .read_to_string(&mut raw_string)
             .change_context(FromFileError::Read)?;
 
-        let table = Table::from_str(&raw_string).change_context(FromFileError::Parse)?;
+        let table = raw_string
+            .parse::<Table>()
+            .change_context(FromFileError::Parse)?;
 
         Ok(TomlSource::new(path, table))
     }

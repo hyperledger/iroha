@@ -136,44 +136,40 @@ where
     }
 
     // sort & paginate, erase the iterator with QueryBatchedErasedIterator
-    let output = match &sorting.sort_by_metadata_key {
-        Some(key) => {
-            // if sorting was requested, we need to retrieve all the results first
-            let mut pairs: Vec<(Option<JsonString>, I::Item)> = iter
-                .map(|value| {
-                    let key = value.get_metadata_sorting_key(key);
-                    (key, value)
-                })
-                .collect();
-            pairs.sort_by(
-                |(left_key, _), (right_key, _)| match (left_key, right_key) {
-                    (Some(l), Some(r)) => l.cmp(r),
-                    (Some(_), None) => Ordering::Less,
-                    (None, Some(_)) => Ordering::Greater,
-                    (None, None) => Ordering::Equal,
-                },
-            );
+    let output = if let Some(key) = &sorting.sort_by_metadata_key {
+        // if sorting was requested, we need to retrieve all the results first
+        let mut pairs: Vec<(Option<JsonString>, I::Item)> = iter
+            .map(|value| {
+                let key = value.get_metadata_sorting_key(key);
+                (key, value)
+            })
+            .collect();
+        pairs.sort_by(
+            |(left_key, _), (right_key, _)| match (left_key, right_key) {
+                (Some(l), Some(r)) => l.cmp(r),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            },
+        );
 
-            QueryBatchedErasedIterator::new(
-                pairs.into_iter().map(|(_, val)| val).paginate(pagination),
-                fetch_size,
-            )
-        }
-        // no sorting required, can just paginate the results without constructing the full output vec
-        None => {
-            // FP: this collect is very deliberate
-            #[allow(clippy::needless_collect)]
-            let output = iter
-                .paginate(pagination)
-                // it should theoretically be possible to not collect the results into a vec and build the response lazily
-                // but:
-                // - the iterator is bound to the 'state lifetime and this lifetime should somehow be erased
-                // - for small queries this might not be efficient
-                // TODO: investigate this
-                .collect::<Vec<_>>();
+        QueryBatchedErasedIterator::new(
+            pairs.into_iter().map(|(_, val)| val).paginate(pagination),
+            fetch_size,
+        )
+    } else {
+        // FP: this collect is very deliberate
+        #[allow(clippy::needless_collect)]
+        let output = iter
+            .paginate(pagination)
+            // it should theoretically be possible to not collect the results into a vec and build the response lazily
+            // but:
+            // - the iterator is bound to the 'state lifetime and this lifetime should somehow be erased
+            // - for small queries this might not be efficient
+            // TODO: investigate this
+            .collect::<Vec<_>>();
 
-            QueryBatchedErasedIterator::new(output.into_iter(), fetch_size)
-        }
+        QueryBatchedErasedIterator::new(output.into_iter(), fetch_size)
     };
 
     Ok(output)
@@ -342,8 +338,6 @@ impl ValidQueryRequest {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr as _;
-
     use iroha_crypto::{Hash, KeyPair};
     use iroha_data_model::query::predicate::CompoundPredicate;
     use iroha_primitives::json::JsonString;
@@ -363,26 +357,25 @@ mod tests {
     };
 
     fn world_with_test_domains() -> World {
-        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let domain_id = "wonderland".parse().expect("Valid");
         let domain = Domain::new(domain_id).build(&ALICE_ID);
         let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
-        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
+        let asset_definition_id = "rose#wonderland".parse().expect("Valid");
         let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
         World::with([domain], [account], [asset_definition])
     }
 
     fn world_with_test_asset_with_metadata() -> World {
-        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
-        let domain = Domain::new(DomainId::from_str("wonderland").expect("Valid")).build(&ALICE_ID);
+        let asset_definition_id = "rose#wonderland"
+            .parse::<AssetDefinitionId>()
+            .expect("Valid");
+        let domain = Domain::new("wonderland".parse().expect("Valid")).build(&ALICE_ID);
         let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
         let asset_definition =
             AssetDefinition::numeric(asset_definition_id.clone()).build(&ALICE_ID);
 
         let mut store = Metadata::default();
-        store.insert(
-            Name::from_str("Bytes").expect("Valid"),
-            vec![1_u32, 2_u32, 3_u32],
-        );
+        store.insert("Bytes".parse().expect("Valid"), vec![1_u32, 2_u32, 3_u32]);
         let asset_id = AssetId::new(asset_definition_id, account.id().clone());
         let asset = Asset::new(asset_id, AssetValue::Store(store));
 
@@ -391,13 +384,13 @@ mod tests {
 
     fn world_with_test_account_with_metadata() -> Result<World> {
         let mut metadata = Metadata::default();
-        metadata.insert(Name::from_str("Bytes")?, vec![1_u32, 2_u32, 3_u32]);
+        metadata.insert("Bytes".parse()?, vec![1_u32, 2_u32, 3_u32]);
 
-        let domain = Domain::new(DomainId::from_str("wonderland")?).build(&ALICE_ID);
+        let domain = Domain::new("wonderland".parse()?).build(&ALICE_ID);
         let account = Account::new(ALICE_ID.clone())
             .with_metadata(metadata)
             .build(&ALICE_ID);
-        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
+        let asset_definition_id = "rose#wonderland".parse().expect("Valid");
         let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
         Ok(World::with([domain], [account], [asset_definition]))
     }
@@ -475,10 +468,9 @@ mod tests {
         let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_asset_with_metadata(), kura, query_handle);
 
-        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
+        let asset_definition_id = "rose#wonderland".parse()?;
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
-        let bytes =
-            FindAssetMetadata::new(asset_id, Name::from_str("Bytes")?).execute(&state.view())?;
+        let bytes = FindAssetMetadata::new(asset_id, "Bytes".parse()?).execute(&state.view())?;
         assert_eq!(JsonString::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
@@ -489,8 +481,8 @@ mod tests {
         let query_handle = LiveQueryStore::start_test();
         let state = State::new(world_with_test_account_with_metadata()?, kura, query_handle);
 
-        let bytes = FindAccountMetadata::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
-            .execute(&state.view())?;
+        let bytes =
+            FindAccountMetadata::new(ALICE_ID.clone(), "Bytes".parse()?).execute(&state.view())?;
         assert_eq!(JsonString::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
@@ -668,12 +660,12 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let state = {
             let mut metadata = Metadata::default();
-            metadata.insert(Name::from_str("Bytes")?, vec![1_u32, 2_u32, 3_u32]);
-            let domain = Domain::new(DomainId::from_str("wonderland")?)
+            metadata.insert("Bytes".parse()?, vec![1_u32, 2_u32, 3_u32]);
+            let domain = Domain::new("wonderland".parse()?)
                 .with_metadata(metadata)
                 .build(&ALICE_ID);
             let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
-            let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
+            let asset_definition_id = "rose#wonderland".parse()?;
             let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
             let query_handle = LiveQueryStore::start_test();
             State::new(
@@ -683,8 +675,8 @@ mod tests {
             )
         };
 
-        let domain_id = DomainId::from_str("wonderland")?;
-        let key = Name::from_str("Bytes")?;
+        let domain_id = "wonderland".parse()?;
+        let key = "Bytes".parse()?;
         let bytes = FindDomainMetadata::new(domain_id, key).execute(&state.view())?;
         assert_eq!(JsonString::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())

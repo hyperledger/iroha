@@ -1,4 +1,4 @@
-use std::{collections::HashSet, str::FromStr as _};
+use std::collections::HashSet;
 
 use eyre::Result;
 use iroha::{client, data_model::prelude::*};
@@ -11,7 +11,9 @@ fn find_accounts_with_asset() -> Result<()> {
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Registering new asset definition
-    let definition_id = AssetDefinitionId::from_str("test_coin#wonderland").expect("Valid");
+    let definition_id = "test_coin#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let asset_definition = AssetDefinition::numeric(definition_id.clone());
     test_client.submit_blocking(Register::asset_definition(asset_definition.clone()))?;
 

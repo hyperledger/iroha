@@ -1,7 +1,9 @@
 #![allow(trivial_casts)]
 
-//! Logic related to the conversion of IR types to equivalent robust C types. Types that are mapped into
-//! one of the predefined [`Ir`] types will be provided an automatic implementation of traits in this module.
+//! Logic related to the conversion of IR types to equivalent robust C types.
+//!
+//! Types that are mapped into one of the predefined [`Ir`] types will be provided an automatic
+//! implementation of traits in this module.
 //!
 //! Traits in this module mainly exist to bridge the gap between IR and C type equivalents. User should
 //! only implement these traits if none of the predefined IR types provide an adequate mapping.
@@ -109,22 +111,24 @@ pub trait COutPtrRead<S>: COutPtr<S> + Sized {
 }
 
 /// Marker trait indicating that [`CTypeConvert::into_repr_c`] and [`CTypeConvert::try_from_repr_c`] don't
-/// return a reference to the store. This is useful to determine which(and how) types can be
+/// return a reference to the store.
+///
+/// This is useful to determine which(and how) types can be
 /// returned from an FFI function considering that, after return, local context is destroyed
 ///
 /// # Example
 ///
 /// 1. `&[u8]` implements [`NonLocal`]
-/// This type will be converted to [`RefSlice<u8>`] and during conversion will not make use
-/// of the store (in any direction). The corresponding out-pointer will be `*mut RefSlice<u8>`
+///    This type will be converted to [`RefSlice<u8>`] and during conversion will not make use
+///    of the store (in any direction). The corresponding out-pointer will be `*mut RefSlice<u8>`
 ///
 /// 2. `&[Opaque<T>]` doesn't implement [`NonLocal`]
-/// This type will be converted to [`RefSlice<*const T>`] and during conversion will use the
-/// local store `Vec<*const T>`. The corresponding out-pointer will be `*mut OutBoxedSlice<*const T>`.
+///    This type will be converted to [`RefSlice<*const T>`] and during conversion will use the
+///    local store `Vec<*const T>`. The corresponding out-pointer will be `*mut OutBoxedSlice<*const T>`.
 ///
 /// 3. `&(u32, u32)`
-/// This type will be converted to `*const FfiTuple2<u32, u32>` and during conversion will use the
-/// local store `FfiTuple<u32, u32>`. The corresponding out-pointer will be `*mut FfiTuple2<u32, u32>`
+///    This type will be converted to `*const FfiTuple2<u32, u32>` and during conversion will use the
+///    local store `FfiTuple<u32, u32>`. The corresponding out-pointer will be `*mut FfiTuple2<u32, u32>`
 ///
 /// # Safety
 ///

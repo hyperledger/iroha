@@ -1,5 +1,3 @@
-use std::str::FromStr as _;
-
 use eyre::Result;
 use iroha::{
     client::QueryError,
@@ -24,7 +22,7 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
 
     let metadata_value: JsonString = client.query_single(FindAccountMetadata::new(
         client.account.clone(),
-        Name::from_str("cursor").unwrap(),
+        "cursor".parse().unwrap(),
     ))?;
     let asset_cursor = metadata_value.try_into_any()?;
 

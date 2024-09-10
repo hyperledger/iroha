@@ -1,4 +1,4 @@
-use std::{str::FromStr as _, thread};
+use std::thread;
 
 use eyre::Result;
 use iroha::{
@@ -26,7 +26,9 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
     // Given
     let account_id = ALICE_ID.clone();
 
-    let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").expect("Valid");
+    let asset_definition_id = "test_asset#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let register_asset = Register::asset(Asset::new(
@@ -65,7 +67,9 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
     // Given
     let account_id = ALICE_ID.clone();
 
-    let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").expect("Valid");
+    let asset_definition_id = "test_asset#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
     let create_asset: InstructionBox =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();
@@ -112,7 +116,9 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
 
     // Given
     let account_id = ALICE_ID.clone();
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let asset_definition_id = "xor#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let metadata = iroha::data_model::metadata::Metadata::default();
@@ -146,7 +152,9 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
 
     // Given
     let account_id = ALICE_ID.clone();
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let asset_definition_id = "xor#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let metadata = iroha::data_model::metadata::Metadata::default();
@@ -180,7 +188,9 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
 
     // Given
     let account_id = ALICE_ID.clone();
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let asset_definition_id = "xor#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let asset_definition = AssetDefinition::numeric(asset_definition_id.clone());
     let create_asset = Register::asset_definition(asset_definition);
     let metadata = iroha::data_model::metadata::Metadata::default();
@@ -240,15 +250,18 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     let pipeline_time = Config::pipeline_time();
 
     // Given
-    let normal_asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let normal_asset_definition_id = "xor#wonderland"
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(normal_asset_definition_id.clone()));
     test_client.submit(create_asset)?;
     iroha_logger::info!("Creating asset");
 
     let too_long_asset_name = "0".repeat(2_usize.pow(14));
-    let incorrect_asset_definition_id =
-        AssetDefinitionId::from_str(&(too_long_asset_name + "#wonderland")).expect("Valid");
+    let incorrect_asset_definition_id = (too_long_asset_name + "#wonderland")
+        .parse::<AssetDefinitionId>()
+        .expect("Valid");
     let create_asset = Register::asset_definition(AssetDefinition::numeric(
         incorrect_asset_definition_id.clone(),
     ));

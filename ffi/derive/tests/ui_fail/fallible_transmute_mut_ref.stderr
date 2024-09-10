@@ -24,7 +24,17 @@ error[E0277]: the trait bound `&mut Wrapper: FfiConvert<'_, *mut u32>` is not sa
 21 | #[ffi_export]
    | ------------- required by a bound introduced by this call
 22 | pub fn take_non_robust_ref_mut(_ffi_struct: &mut Wrapper) {}
-   |                                ^^^^^^^^^^^ the trait `InfallibleTransmute` is not implemented for `&mut Wrapper`, which is required by `&mut Wrapper: FfiConvert<'_, *mut u32>`
+   |                                ^^^^^^^^^^^ the trait `InfallibleTransmute` is not implemented for `Wrapper`, which is required by `&mut Wrapper: FfiConvert<'_, *mut u32>`
    |
+   = help: the following other types implement trait `InfallibleTransmute`:
+             ManuallyDrop<T>
+             [R; N]
+             i16
+             i32
+             i64
+             i8
+             u16
+             u32
+           and $N others
    = note: required for `&mut Wrapper` to implement `Ir`
    = note: required for `&mut Wrapper` to implement `FfiConvert<'_, *mut u32>`

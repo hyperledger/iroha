@@ -22,7 +22,6 @@ tracing-futures = { version = "0.2.5", default-features = false, features = ["st
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi", "json", "env-filter"] }
 tokio = { workspace = true, features = ["sync", "rt", "macros"] }
 console-subscriber = { version = "0.3.0", optional = true }
-once_cell = { workspace = true }
 derive_more = { workspace = true }
 tracing-error = "0.2.0"
 thiserror = { workspace = true }

@@ -73,7 +73,6 @@ test_samples = { workspace = true }
 
 criterion = { workspace = true }
 hex = { workspace = true }
-once_cell = { workspace = true }
 tempfile = { workspace = true }
 
 byte-unit = "5.1.4"
