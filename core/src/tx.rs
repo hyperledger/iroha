@@ -79,10 +79,8 @@ impl AcceptedTransaction {
             }));
         }
 
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap();
-        if tx.creation_time().saturating_sub(now) > max_clock_drift {
+        let now = SystemTime::now();
+        if tx.creation_time() > now + max_clock_drift {
             return Err(AcceptTransactionFail::TransactionInTheFuture);
         }
 

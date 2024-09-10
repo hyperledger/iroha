@@ -159,8 +159,9 @@ mod pending {
             transactions: &[CommittedTransaction],
             consensus_estimation: Duration,
         ) -> BlockHeader {
-            let prev_block_time =
-                prev_block.map_or(Duration::ZERO, |block| block.header().creation_time());
+            let prev_block_time = prev_block.map_or(SystemTime::UNIX_EPOCH, |block| {
+                block.header().creation_time()
+            });
 
             let latest_txn_time = transactions
                 .iter()
@@ -168,9 +169,7 @@ mod pending {
                 .max()
                 .expect("INTERNAL BUG: Block empty");
 
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap();
+            let now = SystemTime::now();
 
             // NOTE: Lower time bound must always be upheld for a valid block
             // If the clock has drifted too far this block will be rejected
@@ -200,6 +199,8 @@ mod pending {
                     .hash()
                     .expect("INTERNAL BUG: Empty block created"),
                 creation_time_ms: creation_time
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("INTERNAL BUG: Failed to get the current system time")
                     .as_millis()
                     .try_into()
                     .expect("Time should fit into u64"),
@@ -526,11 +527,9 @@ mod valid {
                 });
             }
 
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap();
+            let now = SystemTime::now();
             let max_clock_drift = state.world().parameters().sumeragi.max_clock_drift();
-            if block.header().creation_time().saturating_sub(now) > max_clock_drift {
+            if block.header().creation_time() > now + max_clock_drift {
                 return Err(BlockValidationError::BlockInTheFuture);
             }
 

@@ -1,6 +1,6 @@
 //! This module provides the [`State`] — an in-memory representation of the current blockchain state.
 use std::{
-    collections::BTreeSet, marker::PhantomData, num::NonZeroUsize, sync::Arc, time::Duration,
+    collections::BTreeSet, marker::PhantomData, num::NonZeroUsize, sync::Arc, time::SystemTime,
 };
 
 use eyre::Result;
@@ -1257,7 +1257,7 @@ pub trait StateReadOnly {
     /// Returns [`Some`] milliseconds since the genesis block was
     /// committed, or [`None`] if it wasn't.
     #[inline]
-    fn genesis_timestamp(&self) -> Option<Duration> {
+    fn genesis_timestamp(&self) -> Option<SystemTime> {
         if self.block_hashes().is_empty() {
             None
         } else {

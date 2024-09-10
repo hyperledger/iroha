@@ -7,6 +7,8 @@
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt::Display, time::Duration};
+#[cfg(feature = "std")]
+use std::time::SystemTime;
 
 use derive_more::Display;
 use iroha_crypto::{HashOf, MerkleTree, SignatureOf};
@@ -133,8 +135,9 @@ impl BlockHeader {
     }
 
     /// Creation timestamp
-    pub const fn creation_time(&self) -> Duration {
-        Duration::from_millis(self.creation_time_ms)
+    #[cfg(feature = "std")]
+    pub fn creation_time(&self) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_millis(self.creation_time_ms)
     }
 
     /// Consensus estimation
