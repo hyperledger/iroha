@@ -54,7 +54,7 @@ fn reported_length_should_be_accurate() -> Result<()> {
 #[test]
 fn fetch_size_should_work() -> Result<()> {
     // use the lower-level API to inspect the batch size
-    use iroha_data_model::query::{
+    use iroha::data_model::query::{
         builder::QueryExecutor as _,
         parameters::{FetchSize, QueryParams, Sorting},
         QueryWithFilter, QueryWithParams,

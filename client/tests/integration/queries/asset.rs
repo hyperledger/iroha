@@ -1,9 +1,10 @@
 use eyre::Result;
 use iroha::{
     client::{Client, QueryError},
-    data_model::{asset::AssetValue, isi::Instruction, prelude::*},
+    data_model::{
+        asset::AssetValue, isi::Instruction, prelude::*, query::builder::SingleQueryError,
+    },
 };
-use iroha_data_model::query::builder::SingleQueryError;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
 

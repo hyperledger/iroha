@@ -1,12 +1,9 @@
-use std::str::FromStr;
-
 use iroha::{
     client,
     data_model::{
         account::{Account, AccountId},
         asset::{Asset, AssetDefinition},
         isi::{Instruction, InstructionBox},
-        name::Name,
         prelude::*,
         Registered,
     },
@@ -39,7 +36,7 @@ fn simulate_transfer_store_asset() {
         Register::asset_definition(AssetDefinition::store(asset_definition_id.clone()));
     let set_key_value = SetKeyValue::asset(
         AssetId::new(asset_definition_id.clone(), alice_id.clone()),
-        Name::from_str("alicek").unwrap(),
+        "alicek".parse().unwrap(),
         true,
     );
 

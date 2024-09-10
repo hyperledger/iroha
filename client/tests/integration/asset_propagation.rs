@@ -1,4 +1,4 @@
-use std::{str::FromStr as _, thread};
+use std::thread;
 
 use eyre::Result;
 use iroha::{
@@ -24,10 +24,10 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
         BlockParameter::MaxTransactions(nonzero!(1_u64)),
     )))?;
 
-    let create_domain = Register::domain(Domain::new(DomainId::from_str("domain")?));
+    let create_domain = Register::domain(Domain::new("domain".parse()?));
     let (account_id, _account_keypair) = gen_account_in("domain");
     let create_account = Register::account(Account::new(account_id.clone()));
-    let asset_definition_id = AssetDefinitionId::from_str("xor#domain")?;
+    let asset_definition_id = "xor#domain".parse::<AssetDefinitionId>()?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     client.submit_all::<InstructionBox>([

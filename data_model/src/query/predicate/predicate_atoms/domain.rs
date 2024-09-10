@@ -21,6 +21,7 @@ use crate::{
 
 /// A predicate that can be applied to a [`Domain`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[allow(unreachable_patterns)]
 pub enum DomainPredicateBox {
     // projections
     /// Checks if a predicate applies to the ID of the input.

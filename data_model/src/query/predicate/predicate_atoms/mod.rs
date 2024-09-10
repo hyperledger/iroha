@@ -145,7 +145,11 @@ where
 
 /// A predicate that can be applied to [`Metadata`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub enum MetadataPredicateBox {}
+pub enum MetadataPredicateBox {
+    // TODO: populate
+    // FIX: Remove all `#[allow(unreachable_patterns)]` from all use sites
+    // once some variants are added into this enum
+}
 
 impl_predicate_box!(Metadata: MetadataPredicateBox);
 

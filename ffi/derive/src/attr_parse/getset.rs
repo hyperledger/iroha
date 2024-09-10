@@ -1,6 +1,6 @@
 //! This module provides parsing of custom attributes from the [`getset`](https://docs.rs/getset/latest/getset/) crate
 
-use std::{collections::hash_map::Entry, str::FromStr};
+use std::collections::hash_map::Entry;
 
 use proc_macro2::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -244,7 +244,7 @@ impl GetSetRawFieldAttr {
             } else if attr
                 .path()
                 .get_ident()
-                .and_then(|ident| GetSetGenMode::from_str(&ident.to_string()).ok())
+                .and_then(|ident| ident.to_string().parse::<GetSetGenMode>().ok())
                 .is_some()
             {
                 accumulator.push(

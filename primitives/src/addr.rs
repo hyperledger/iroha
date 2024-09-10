@@ -610,34 +610,32 @@ mod std_compat {
 
 #[cfg(test)]
 mod test {
-    use core::str::FromStr;
-
     use super::*;
 
     #[test]
     fn ipv4() {
         assert_eq!(
-            Ipv4Addr::from_str("0.0.0.0").unwrap(),
+            "0.0.0.0".parse::<Ipv4Addr>().unwrap(),
             Ipv4Addr([0, 0, 0, 0])
         );
 
         assert_eq!(
-            Ipv4Addr::from_str("127.0.0.1").unwrap(),
+            "127.0.0.1".parse::<Ipv4Addr>().unwrap(),
             Ipv4Addr([127, 0, 0, 1])
         );
 
         assert_eq!(
-            Ipv4Addr::from_str("192.168.1.256").unwrap_err(),
+            "192.168.1.256".parse::<Ipv4Addr>().unwrap_err(),
             ParseError::InvalidSegment
         );
 
         assert_eq!(
-            Ipv4Addr::from_str("192.168.1").unwrap_err(),
+            "192.168.1".parse::<Ipv4Addr>().unwrap_err(),
             ParseError::NotEnoughSegments
         );
 
         assert_eq!(
-            Ipv4Addr::from_str("192.168.1.2.3").unwrap_err(),
+            "192.168.1.2.3".parse::<Ipv4Addr>().unwrap_err(),
             ParseError::TooManySegments
         );
     }
@@ -645,37 +643,39 @@ mod test {
     #[test]
     fn ipv6() {
         assert_eq!(
-            Ipv6Addr::from_str("::1").unwrap(),
+            "::1".parse::<Ipv6Addr>().unwrap(),
             Ipv6Addr([0, 0, 0, 0, 0, 0, 0, 1])
         );
 
         assert_eq!(
-            Ipv6Addr::from_str("ff02::1").unwrap(),
+            "ff02::1".parse::<Ipv6Addr>().unwrap(),
             Ipv6Addr([0xff02, 0, 0, 0, 0, 0, 0, 1])
         );
 
         assert_eq!(
-            Ipv6Addr::from_str("2001:0db8::").unwrap(),
+            "2001:0db8::".parse::<Ipv6Addr>().unwrap(),
             Ipv6Addr([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0])
         );
 
         assert_eq!(
-            Ipv6Addr::from_str("2001:0db8:0000:0000:0000:0000:0000:0001").unwrap(),
+            "2001:0db8:0000:0000:0000:0000:0000:0001"
+                .parse::<Ipv6Addr>()
+                .unwrap(),
             Ipv6Addr([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1])
         );
 
         assert_eq!(
-            Ipv6Addr::from_str("2001:0db8::0001").unwrap(),
+            "2001:0db8::0001".parse::<Ipv6Addr>().unwrap(),
             Ipv6Addr([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1])
         );
 
         assert_eq!(
-            Ipv6Addr::from_str("2001:db8:0:1:2:3:4").unwrap_err(),
+            "2001:db8:0:1:2:3:4".parse::<Ipv6Addr>().unwrap_err(),
             ParseError::NotEnoughSegments
         );
 
         assert_eq!(
-            Ipv6Addr::from_str("2001:db8:0:1:2:3:4:5:6").unwrap_err(),
+            "2001:db8:0:1:2:3:4:5:6".parse::<Ipv6Addr>().unwrap_err(),
             ParseError::TooManySegments
         );
     }
@@ -683,7 +683,7 @@ mod test {
     #[test]
     fn socket_v4() {
         assert_eq!(
-            SocketAddrV4::from_str("192.168.1.0:9019").unwrap(),
+            "192.168.1.0:9019".parse::<SocketAddrV4>().unwrap(),
             SocketAddrV4 {
                 ip: Ipv4Addr([192, 168, 1, 0]),
                 port: 9019
@@ -691,12 +691,12 @@ mod test {
         );
 
         assert_eq!(
-            SocketAddrV4::from_str("192.168.1.1").unwrap_err(),
+            "192.168.1.1".parse::<SocketAddrV4>().unwrap_err(),
             ParseError::NoPort
         );
 
         assert_eq!(
-            SocketAddrV4::from_str("192.168.1.1:FOO").unwrap_err(),
+            "192.168.1.1:FOO".parse::<SocketAddrV4>().unwrap_err(),
             ParseError::InvalidPort
         );
     }
@@ -704,7 +704,7 @@ mod test {
     #[test]
     fn socket_v6() {
         assert_eq!(
-            SocketAddrV6::from_str("[2001:0db8::]:9019").unwrap(),
+            "[2001:0db8::]:9019".parse::<SocketAddrV6>().unwrap(),
             SocketAddrV6 {
                 ip: Ipv6Addr([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0]),
                 port: 9019
@@ -712,12 +712,12 @@ mod test {
         );
 
         assert_eq!(
-            SocketAddrV6::from_str("[2001:0db8::]").unwrap_err(),
+            "[2001:0db8::]".parse::<SocketAddrV6>().unwrap_err(),
             ParseError::NoPort
         );
 
         assert_eq!(
-            SocketAddrV6::from_str("[2001:0db8::]:FOO").unwrap_err(),
+            "[2001:0db8::]:FOO".parse::<SocketAddrV6>().unwrap_err(),
             ParseError::InvalidPort
         );
     }
@@ -784,7 +784,7 @@ mod test {
     #[test]
     fn host() {
         assert_eq!(
-            SocketAddrHost::from_str("localhost:9019").unwrap(),
+            "localhost:9019".parse::<SocketAddrHost>().unwrap(),
             SocketAddrHost {
                 host: "localhost".into(),
                 port: 9019

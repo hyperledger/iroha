@@ -51,7 +51,6 @@ pub mod samples;
 
 const EVENTS_BUFFER_CAPACITY: usize = 10_000;
 
-/// Iroha is an
 /// [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29)
 /// of the system. It configures, coordinates and manages transactions
 /// and queries processing, work of consensus and storage.
@@ -527,7 +526,7 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     // These cause race condition in tests, due to them actually binding TCP listeners
     // Since these validations are primarily for the convenience of the end user,
     // it seems a fine compromise to run it only in release mode
-    #[cfg(release)]
+    #[cfg(not(test))]
     {
         validate_try_bind_address(&mut emitter, &config.network.address);
         validate_try_bind_address(&mut emitter, &config.torii.address);
@@ -608,7 +607,7 @@ fn validate_directory_path(emitter: &mut Emitter<ConfigError>, path: &WithOrigin
     }
 }
 
-#[cfg(release)]
+#[cfg(not(test))]
 fn validate_try_bind_address(emitter: &mut Emitter<ConfigError>, value: &WithOrigin<SocketAddr>) {
     use std::net::TcpListener;
 

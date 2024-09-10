@@ -5,7 +5,6 @@ pub mod telemetry;
 
 use std::{
     fmt::Debug,
-    str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
         OnceLock,
@@ -104,7 +103,7 @@ pub fn test_logger() -> LoggerHandle {
             let config = Config {
                 level: std::env::var("TEST_LOG_LEVEL")
                     .ok()
-                    .and_then(|raw| Level::from_str(&raw).ok())
+                    .and_then(|raw| raw.parse().ok())
                     .unwrap_or(Level::DEBUG)
                     .into(),
                 format: Format::Pretty,

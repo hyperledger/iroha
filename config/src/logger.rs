@@ -49,7 +49,7 @@ impl FromStr for Directives {
         let directives = dirs
             .split(',')
             .filter(|s| !s.is_empty())
-            .map(Directive::from_str)
+            .map(FromStr::from_str)
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(Self(directives))
     }

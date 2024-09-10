@@ -245,11 +245,11 @@ fn gen_output(
 /// [`TokenStream`] wrapper which will be lazily evaluated
 ///
 /// Implements [`quote::ToTokens`] trait
-struct LazyTokenStream<F>(once_cell::unsync::Lazy<TokenStream, F>);
+struct LazyTokenStream<F>(core::cell::LazyCell<TokenStream, F>);
 
 impl<F: FnOnce() -> TokenStream> LazyTokenStream<F> {
     pub fn new(f: F) -> Self {
-        Self(once_cell::unsync::Lazy::new(f))
+        Self(core::cell::LazyCell::new(f))
     }
 }
 

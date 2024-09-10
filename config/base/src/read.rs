@@ -173,11 +173,8 @@ impl ConfigReader {
             Ok(())
         }
 
-        recursion(&mut self, path.as_ref(), 0).map_err(|err| {
-            // error doesn't mean we need to panic
-            self.bomb.defuse();
-            err
-        })?;
+        // NOTE: error doesn't mean we need to panic
+        recursion(&mut self, path.as_ref(), 0).inspect_err(|_| self.bomb.defuse())?;
 
         Ok(self)
     }

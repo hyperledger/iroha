@@ -102,7 +102,7 @@ impl AsRef<str> for IpfsPath {
 impl Decode for IpfsPath {
     fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
         let name = ConstString::decode(input)?;
-        Self::from_str(&name).map_err(|error| error.reason.into())
+        name.parse::<Self>().map_err(|error| error.reason.into())
     }
 }
 
@@ -125,19 +125,19 @@ mod tests {
     #[test]
     fn test_invalid_ipfs_path() {
         assert!(matches!(
-            IpfsPath::from_str(INVALID_IPFS[0]),
+            INVALID_IPFS[0].parse::<IpfsPath>(),
             Err(err) if err.to_string() == "Expected root type, but nothing found"
         ));
         assert!(matches!(
-            IpfsPath::from_str(INVALID_IPFS[1]),
+            INVALID_IPFS[1].parse::<IpfsPath>(),
             Err(err) if err.to_string() == "Expected at least one content id"
         ));
         assert!(matches!(
-            IpfsPath::from_str(INVALID_IPFS[2]),
+            INVALID_IPFS[2].parse::<IpfsPath>(),
             Err(err) if err.to_string() == "IPFS cid is too short"
         ));
         assert!(matches!(
-            IpfsPath::from_str(INVALID_IPFS[3]),
+            INVALID_IPFS[3].parse::<IpfsPath>(),
             Err(err) if err.to_string() == "Unexpected root type, expected `ipfs`, `ipld` or `ipns`"
         ));
     }
@@ -145,15 +145,20 @@ mod tests {
     #[test]
     fn test_valid_ipfs_path() {
         // Valid paths
-        IpfsPath::from_str("QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE")
+        "QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE"
+            .parse::<IpfsPath>()
             .expect("Path without root should be valid");
-        IpfsPath::from_str("/ipfs/QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE")
+        "/ipfs/QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE"
+            .parse::<IpfsPath>()
             .expect("Path with ipfs root should be valid");
-        IpfsPath::from_str("/ipld/QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE")
+        "/ipld/QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE"
+            .parse::<IpfsPath>()
             .expect("Path with ipld root should be valid");
-        IpfsPath::from_str("/ipns/QmSrPmbaUKA3ZodhzPWZnpFgcPMFWF4QsxXbkWfEptTBJd")
+        "/ipns/QmSrPmbaUKA3ZodhzPWZnpFgcPMFWF4QsxXbkWfEptTBJd"
+            .parse::<IpfsPath>()
             .expect("Path with ipns root should be valid");
-        IpfsPath::from_str("/ipfs/SomeFolder/SomeImage")
+        "/ipfs/SomeFolder/SomeImage"
+            .parse::<IpfsPath>()
             .expect("Path with folders should be valid");
     }
 

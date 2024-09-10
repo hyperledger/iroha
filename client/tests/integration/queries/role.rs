@@ -1,8 +1,10 @@
 use std::collections::HashSet;
 
 use eyre::Result;
-use iroha::{client, data_model::prelude::*};
-use iroha_data_model::query::builder::SingleQueryError;
+use iroha::{
+    client,
+    data_model::{prelude::*, query::builder::SingleQueryError},
+};
 use iroha_executor_data_model::permission::account::CanSetKeyValueInAccount;
 use test_network::*;
 use test_samples::ALICE_ID;

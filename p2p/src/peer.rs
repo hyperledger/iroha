@@ -151,7 +151,7 @@ mod run {
 
             let disambiguator = cryptographer.disambiguator;
 
-            tracing::Span::current().record("peer", &peer_id.to_string());
+            tracing::Span::current().record("peer", peer_id.to_string());
             tracing::Span::current().record("disambiguator", disambiguator);
 
             let (post_sender, mut post_receiver) = unbounded_with_len::unbounded_channel();
@@ -262,7 +262,7 @@ mod run {
                         ping_interval.reset();
                     }
                     // `message_sender.send()` is safe to be cancelled, it won't advance the queue or write anything if another branch completes first.
-                    // 
+                    //
                     // We need to conditionally disable it in case there is no data is to be sent, otherwise `message_sender.send()` will complete immediately
                     //
                     // The only source of data to be sent is other branches of this loop, so we do not need any async waiting mechanism for waiting for readiness.

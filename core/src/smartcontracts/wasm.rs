@@ -915,7 +915,7 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::SmartContract<'wrld, '
         let mut store = self.create_store(state);
         let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
-        let main_fn =
+        let main_fn: TypedFunc<(), ()> =
             Self::get_typed_func(&smart_contract, &mut store, import::SMART_CONTRACT_MAIN)?;
 
         // NOTE: This function takes ownership of the pointer
@@ -989,7 +989,8 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::Trigger<'wrld, 'block,
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
-        let main_fn = Self::get_typed_func(&instance, &mut store, import::TRIGGER_MAIN)?;
+        let main_fn: TypedFunc<(), ()> =
+            Self::get_typed_func(&instance, &mut store, import::TRIGGER_MAIN)?;
 
         // NOTE: This function takes ownership of the pointer
         main_fn
@@ -1377,7 +1378,8 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::Migrate<'wrld, 'block, 'sta
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
-        let migrate_fn = Self::get_typed_func(&instance, &mut store, import::EXECUTOR_MIGRATE)?;
+        let migrate_fn: TypedFunc<(), ()> =
+            Self::get_typed_func(&instance, &mut store, import::EXECUTOR_MIGRATE)?;
 
         migrate_fn
             .call(&mut store, ())

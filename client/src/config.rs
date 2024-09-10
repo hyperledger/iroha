@@ -101,12 +101,14 @@ mod tests {
 
     #[test]
     fn web_login_ok() {
-        let _ok = WebLogin::from_str("alice").expect("input is valid");
+        let _ok: WebLogin = "alice".parse().expect("input is valid");
     }
 
     #[test]
     fn web_login_bad() {
-        let _err = WebLogin::from_str("alice:wonderland").expect_err("input has `:`");
+        let _err = "alice:wonderland"
+            .parse::<WebLogin>()
+            .expect_err("input has `:`");
     }
 
     fn config_sample() -> toml::Table {

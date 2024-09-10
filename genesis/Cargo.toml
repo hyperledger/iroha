@@ -18,7 +18,6 @@ iroha_data_model = { workspace = true, features = ["http"] }
 derive_more = { workspace = true, features = ["deref"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["std"] }
-once_cell = { workspace = true }
 tracing = { workspace = true }
 eyre = { workspace = true }
 parity-scale-codec = { workspace = true }

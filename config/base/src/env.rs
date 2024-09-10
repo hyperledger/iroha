@@ -38,7 +38,7 @@ where
     where
         Self: Sized,
     {
-        Self::from_str(&value)
+        value.parse()
     }
 }
 

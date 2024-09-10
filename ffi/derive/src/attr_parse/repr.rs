@@ -2,8 +2,6 @@
 
 // TODO: it's probably a common functionality, move it to `iroha_derive_primitives` when it will use syn 2.0
 
-use std::str::FromStr;
-
 use darling::{error::Accumulator, util::SpannedValue, FromAttributes};
 use proc_macro2::{Delimiter, Span};
 use strum::{Display, EnumString};
@@ -66,7 +64,7 @@ impl Parse for SpannedReprToken {
             let mut span = ident.span();
 
             let str = ident.to_string();
-            if let Ok(primitive) = ReprPrimitive::from_str(&str) {
+            if let Ok(primitive) = str.parse() {
                 return Ok(((span,ReprToken::Kind(ReprKind::Primitive(primitive))), after_token));
             }
 

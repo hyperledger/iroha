@@ -254,8 +254,6 @@ mod internal {
         }
 
         fn retrieve_package_name(&self) -> Result<String> {
-            use std::str::FromStr as _;
-
             let manifest_output = cargo_command()
                 .current_dir(&self.absolute_path)
                 .arg("read-manifest")
@@ -267,10 +265,11 @@ mod internal {
             let manifest = String::from_utf8(manifest_output.stdout)
                 .wrap_err("Failed to convert `cargo read-manifest` output to string")?;
 
-            serde_json::Value::from_str(&manifest)
+            manifest
+                .parse::<serde_json::Value>()
                 .wrap_err("Failed to parse `cargo read-manifest` output")?
                 .get("name")
-                .map(serde_json::Value::to_string)
+                .map(ToString::to_string)
                 .map(|name| name.trim_matches('"').to_owned())
                 .ok_or_else(|| {
                     eyre!("Failed to retrieve package name from `cargo read-manifest` output")

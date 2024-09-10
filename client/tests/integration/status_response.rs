@@ -1,5 +1,3 @@
-use std::str::FromStr as _;
-
 use eyre::Result;
 use iroha::{data_model::prelude::*, samples::get_status_json};
 use iroha_telemetry::metrics::Status;
@@ -33,7 +31,7 @@ fn json_and_scale_statuses_equality() -> Result<()> {
     let (account_id, _account_keypair) = gen_account_in("domain");
 
     for coin in coins {
-        let asset_definition_id = AssetDefinitionId::from_str(&format!("{coin}#wonderland"))?;
+        let asset_definition_id = format!("{coin}#wonderland").parse::<AssetDefinitionId>()?;
         let create_asset =
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
         let mint_asset = Mint::asset_numeric(

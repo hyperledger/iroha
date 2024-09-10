@@ -246,6 +246,7 @@ pub enum FfiReturn {
 }
 
 /// Macro for defining FFI types of a known category ([`Robust`] or [`Transmute`]).
+///
 /// The implementation for an FFI type of one of the categories incurs a lot of bloat that
 /// is reduced by the use of this macro
 ///
@@ -388,8 +389,9 @@ pub struct Extern {
 }
 
 /// Define the correct [`FfiWrapperType::InputType`]/[`FfiWrapperType::ReturnType`] out of
-/// the given [`CWrapperType::InputType`]/[`CWrapperType::ReturnType`]. The only situation
-/// when this is evident is when [`Ir::Type`] is set to [`Transparent`] or [`Extern`] types
+/// the given [`CWrapperType::InputType`]/[`CWrapperType::ReturnType`].
+///
+/// The only situation when this is evident is when [`Ir::Type`] is set to [`Transparent`] or [`Extern`] types
 ///
 /// Example:
 ///

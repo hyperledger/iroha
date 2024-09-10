@@ -1,5 +1,5 @@
 //! Defaults for various items used in communication over http(s).
-use std::{net::TcpStream, str::FromStr};
+use std::net::TcpStream;
 
 use attohttpc::{
     body as atto_body, RequestBuilder as AttoHttpRequestBuilder, Response as AttoHttpResponse,
@@ -16,7 +16,8 @@ type Bytes = Vec<u8>;
 type AttoHttpRequestBuilderWithBytes = AttoHttpRequestBuilder<atto_body::Bytes<Bytes>>;
 
 fn header_name_from_str(str: &str) -> Result<HeaderName> {
-    HeaderName::from_str(str).wrap_err_with(|| format!("Failed to parse header name {str}"))
+    str.parse::<HeaderName>()
+        .wrap_err_with(|| format!("Failed to parse header name {str}"))
 }
 
 /// Default request builder implemented on top of `attohttpc` crate.
@@ -112,9 +113,12 @@ impl DefaultWebSocketRequestBuilder {
         let builder = self.0?;
         let mut request = builder
             .uri_ref()
-            .ok_or(eyre!("Missing URI"))?
+            .ok_or_else(|| eyre!("Missing URI"))?
             .into_client_request()?;
-        for (header, value) in builder.headers_ref().ok_or(eyre!("No headers found"))? {
+        for (header, value) in builder
+            .headers_ref()
+            .ok_or_else(|| eyre!("No headers found"))?
+        {
             request.headers_mut().entry(header).or_insert(value.clone());
         }
         Ok(DefaultWebSocketStreamRequest(request))

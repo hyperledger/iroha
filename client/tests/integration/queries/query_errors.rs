@@ -1,5 +1,7 @@
-use iroha::client;
-use iroha_data_model::{prelude::QueryBuilderExt, query::builder::SingleQueryError};
+use iroha::{
+    client,
+    data_model::{prelude::QueryBuilderExt, query::builder::SingleQueryError},
+};
 use test_samples::gen_account_in;
 
 #[test]

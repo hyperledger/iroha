@@ -31,7 +31,6 @@ thiserror = { workspace = true }
 displaydoc = { workspace = true }
 derive_more = { workspace = true }
 cfg-if = { workspace = true }
-once_cell = { workspace = true }
 nonzero_ext = { workspace = true }
 hex = { workspace = true, features = ["std"] }
 
