@@ -3076,17 +3076,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_core_wasm_codec_derive"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "iroha_macro_utils",
- "manyhow",
- "proc-macro2",
- "quote",
- "syn 2.0.75",
-]
-
-[[package]]
 name = "iroha_crypto"
 version = "2.0.0-rc.1.0"
 dependencies = [
@@ -3299,6 +3288,7 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_schema",
+ "iroha_test_samples",
  "parity-scale-codec",
  "serde",
  "serde_json",
@@ -3584,6 +3574,7 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_executor_data_model",
+ "iroha_futures",
  "iroha_genesis",
  "iroha_logger",
  "iroha_primitives",
@@ -3604,9 +3595,8 @@ version = "2.0.0-rc.1.0"
 dependencies = [
  "iroha_crypto",
  "iroha_data_model",
- "once_cell",
  "serde",
- "toml 0.8.16",
+ "toml",
 ]
 
 [[package]]
@@ -3733,10 +3723,9 @@ version = "2.0.0-rc.1.0"
 dependencies = [
  "iroha_macro_utils",
  "manyhow",
- "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.72",
+ "syn 2.0.75",
 ]
 
 [[package]]
