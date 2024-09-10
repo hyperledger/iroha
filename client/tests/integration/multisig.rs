@@ -10,7 +10,10 @@ use iroha::{
         transaction::{TransactionBuilder, WasmSmartContract},
     },
 };
-use iroha_data_model::{parameter::SmartContractParameter, query::builder::SingleQueryError};
+use iroha_data_model::{
+    parameter::SmartContractParameter,
+    query::{builder::SingleQueryError, trigger::FindTriggers},
+};
 use nonzero_ext::nonzero;
 use test_network::*;
 use test_samples::{gen_account_in, ALICE_ID};
@@ -94,7 +97,9 @@ fn mutlisig() -> Result<()> {
 
     // Check that multisig trigger exist
     let trigger = test_client
-        .query_single(client::trigger::by_id(multisig_trigger_id.clone()))
+        .query(FindTriggers::new())
+        .filter_with(|trigger| trigger.id.eq(multisig_trigger_id.clone()))
+        .execute_single()
         .expect("multisig trigger should be created after the call to register multisig trigger");
 
     assert_eq!(trigger.id(), &multisig_trigger_id);

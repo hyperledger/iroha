@@ -140,7 +140,7 @@ mod seal {
         FindPermissionsByAccountId,
         FindExecutorDataModel,
         FindActiveTriggerIds,
-        FindTriggerById,
+        FindTriggers,
         FindTriggerMetadata,
         FindRoles,
         FindRoleIds,

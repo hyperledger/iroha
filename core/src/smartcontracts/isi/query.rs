@@ -245,9 +245,6 @@ impl ValidQueryRequest {
                     SingularQueryBox::FindParameters(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
-                    SingularQueryBox::FindTriggerById(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
                     SingularQueryBox::FindDomainMetadata(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
@@ -311,6 +308,10 @@ impl ValidQueryRequest {
                         &iter_query.params,
                     )?,
                     QueryBox::FindActiveTriggerIds(q) => apply_query_postprocessing(
+                        ValidQuery::execute(q.query, q.predicate, state)?,
+                        &iter_query.params,
+                    )?,
+                    QueryBox::FindTriggers(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,

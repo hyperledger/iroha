@@ -614,10 +614,15 @@ pub mod trigger {
         CanBurnUserTrigger, CanExecuteUserTrigger, CanMintUserTrigger, CanRegisterUserTrigger,
         CanRemoveKeyValueInTrigger, CanSetKeyValueInTrigger, CanUnregisterUserTrigger,
     };
-    use iroha_smart_contract::query_single;
 
     use super::*;
-    use crate::permission::domain::is_domain_owner;
+    use crate::{
+        data_model::{
+            isi::error::InstructionExecutionError,
+            query::{builder::SingleQueryError, error::FindError, trigger::FindTriggers},
+        },
+        permission::domain::is_domain_owner,
+    };
 
     /// Check if `authority` is the owner of trigger.
     ///
@@ -636,7 +641,16 @@ pub mod trigger {
     }
     /// Returns the trigger.
     pub(crate) fn find_trigger(trigger_id: &TriggerId) -> Result<Trigger> {
-        query_single(FindTriggerById::new(trigger_id.clone()))
+        query(FindTriggers::new())
+            .filter_with(|trigger| trigger.id.eq(trigger_id.clone()))
+            .execute_single()
+            .map_err(|e| match e {
+                SingleQueryError::QueryError(e) => e,
+                SingleQueryError::ExpectedOneGotNone => ValidationFail::InstructionFailed(
+                    InstructionExecutionError::Find(FindError::Trigger(trigger_id.clone())),
+                ),
+                _ => unreachable!(),
+            })
     }
 
     /// Pass condition that checks if `authority` is the owner of trigger.

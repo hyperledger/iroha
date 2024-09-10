@@ -32,7 +32,7 @@ use crate::{
     role::{Role, RoleId},
     seal::Sealed,
     transaction::{CommittedTransaction, SignedTransaction},
-    trigger::TriggerId,
+    trigger::{Trigger, TriggerId},
 };
 
 pub mod builder;
@@ -99,6 +99,7 @@ mod model {
 
         FindPeers(QueryWithFilterFor<FindPeers>),
         FindActiveTriggerIds(QueryWithFilterFor<FindActiveTriggerIds>),
+        FindTriggers(QueryWithFilterFor<FindTriggers>),
         FindTransactions(QueryWithFilterFor<FindTransactions>),
         FindBlocks(QueryWithFilterFor<FindBlocks>),
         FindBlockHeaders(QueryWithFilterFor<FindBlockHeaders>),
@@ -122,6 +123,7 @@ mod model {
         Peer(Vec<Peer>),
         RoleId(Vec<RoleId>),
         TriggerId(Vec<TriggerId>),
+        Trigger(Vec<Trigger>),
         Block(Vec<SignedBlock>),
         BlockHeader(Vec<BlockHeader>),
     }
@@ -134,7 +136,6 @@ mod model {
         FindAssetQuantityById(FindAssetQuantityById),
         FindExecutorDataModel(FindExecutorDataModel),
         FindParameters(FindParameters),
-        FindTriggerById(FindTriggerById),
 
         FindDomainMetadata(FindDomainMetadata),
         FindAccountMetadata(FindAccountMetadata),
@@ -273,6 +274,7 @@ impl QueryOutputBatchBox {
             (Self::Peer(v1), Self::Peer(v2)) => v1.extend(v2),
             (Self::RoleId(v1), Self::RoleId(v2)) => v1.extend(v2),
             (Self::TriggerId(v1), Self::TriggerId(v2)) => v1.extend(v2),
+            (Self::Trigger(v1), Self::Trigger(v2)) => v1.extend(v2),
             (Self::Block(v1), Self::Block(v2)) => v1.extend(v2),
             (Self::BlockHeader(v1), Self::BlockHeader(v2)) => v1.extend(v2),
             _ => panic!("Cannot extend different types of IterableQueryOutputBatchBox"),
@@ -294,6 +296,7 @@ impl QueryOutputBatchBox {
             Self::Peer(v) => v.len(),
             Self::RoleId(v) => v.len(),
             Self::TriggerId(v) => v.len(),
+            Self::Trigger(v) => v.len(),
             Self::Block(v) => v.len(),
             Self::BlockHeader(v) => v.len(),
         }
@@ -559,6 +562,7 @@ impl_iter_queries! {
     FindDomains => crate::domain::Domain,
     FindPeers => crate::peer::Peer,
     FindActiveTriggerIds => crate::trigger::TriggerId,
+    FindTriggers => crate::trigger::Trigger,
     FindTransactions => TransactionQueryOutput,
     FindAccountsWithAsset => crate::account::Account,
     FindBlockHeaders => crate::block::BlockHeader,
@@ -572,7 +576,6 @@ impl_singular_queries! {
     FindAssetDefinitionMetadata => JsonString,
     FindDomainMetadata => JsonString,
     FindParameters => crate::parameter::Parameters,
-    FindTriggerById => crate::trigger::Trigger,
     FindTriggerMetadata => JsonString,
     FindExecutorDataModel => crate::executor::ExecutorDataModel,
 }
@@ -901,16 +904,11 @@ pub mod trigger {
         #[ffi_type]
         pub struct FindActiveTriggerIds;
 
-        /// Find Trigger given its ID.
-        #[derive(Display)]
-        #[display(fmt = "Find `{id}` trigger")]
-        #[repr(transparent)]
-        // SAFETY: `FindTriggerById` has no trap representation in `TriggerId`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindTriggerById {
-            /// The Identification of the trigger to be found.
-            pub id: TriggerId,
-        }
+        /// Find all currently active (as in not disabled and/or expired) triggers.
+        #[derive(Copy, Display)]
+        #[display(fmt = "Find all triggers")]
+        #[ffi_type]
+        pub struct FindTriggers;
 
         /// Find Trigger's metadata key-value pairs.
         #[derive(Display)]
@@ -926,7 +924,7 @@ pub mod trigger {
 
     pub mod prelude {
         //! Prelude Re-exports most commonly used traits, structs and macros from this crate.
-        pub use super::{FindActiveTriggerIds, FindTriggerById, FindTriggerMetadata};
+        pub use super::{FindActiveTriggerIds, FindTriggerMetadata, FindTriggers};
     }
 }
 

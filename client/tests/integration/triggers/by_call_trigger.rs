@@ -7,10 +7,11 @@ use iroha::{
     crypto::KeyPair,
     data_model::{
         prelude::*,
-        query::error::{FindError, QueryExecutionFail},
+        query::error::FindError,
         transaction::{Executable, WasmSmartContract},
     },
 };
+use iroha_data_model::query::{builder::SingleQueryError, trigger::FindTriggers};
 use iroha_executor_data_model::permission::trigger::CanRegisterUserTrigger;
 use iroha_genesis::GenesisBlock;
 use iroha_logger::info;
@@ -203,16 +204,22 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     //     .expect_err("Error expected");
     // iroha_logger::info!(?error);
 
-    assert!(matches!(
-        test_client
-            .submit_blocking(execute_trigger)
-            .expect_err("Error expected")
-            .chain()
-            .last()
-            .expect("At least two error causes expected")
-            .downcast_ref::<QueryExecutionFail>(),
-        Some(QueryExecutionFail::Find(FindError::Trigger(id))) if *id == trigger_id
-    ));
+    let error = test_client
+        .submit_blocking(execute_trigger)
+        .expect_err("Error expected");
+    let downcasted_error = error
+        .chain()
+        .last()
+        .expect("At least two error causes expected")
+        .downcast_ref::<FindError>();
+    assert!(
+        matches!(
+            downcasted_error,
+            Some(FindError::Trigger(id)) if *id == trigger_id
+        ),
+        "Unexpected error received: {:?}",
+        error
+    );
 
     // Checking results
     let new_asset_value = get_asset_value(&mut test_client, asset_id);
@@ -334,10 +341,10 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
         .submit_blocking(Register::trigger(trigger))
         .expect("Trigger should be registered!");
 
-    let find_trigger = FindTriggerById {
-        id: trigger_id.clone(),
-    };
-    let found_trigger = test_client.query_single(find_trigger)?;
+    let found_trigger = test_client
+        .query(FindTriggers::new())
+        .filter_with(|trigger| trigger.id.eq(trigger_id.clone()))
+        .execute_single()?;
 
     assert_eq!(found_trigger.id, trigger_id);
 
@@ -368,10 +375,10 @@ fn unregister_trigger() -> Result<()> {
     test_client.submit_blocking(register_trigger)?;
 
     // Finding trigger
-    let find_trigger = FindTriggerById {
-        id: trigger_id.clone(),
-    };
-    let found_trigger = test_client.query_single(find_trigger.clone())?;
+    let found_trigger = test_client
+        .query(FindTriggers::new())
+        .filter_with(|trigger| trigger.id.eq(trigger_id.clone()))
+        .execute_single()?;
     let found_action = found_trigger.action;
     let Executable::Instructions(found_instructions) = found_action.executable else {
         panic!("Expected instructions");
@@ -388,11 +395,17 @@ fn unregister_trigger() -> Result<()> {
     assert_eq!(found_trigger, trigger);
 
     // Unregistering trigger
-    let unregister_trigger = Unregister::trigger(trigger_id);
+    let unregister_trigger = Unregister::trigger(trigger_id.clone());
     test_client.submit_blocking(unregister_trigger)?;
 
     // Checking result
-    assert!(test_client.query_single(find_trigger).is_err());
+    assert!(matches!(
+        test_client
+            .query(FindTriggers::new())
+            .filter_with(|trigger| trigger.id.eq(trigger_id.clone()))
+            .execute_single(),
+        Err(SingleQueryError::ExpectedOneGotNone)
+    ));
 
     Ok(())
 }
@@ -610,10 +623,9 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
 
     test_client.submit_blocking(Unregister::trigger(first_trigger_id))?;
     let got_second_trigger = test_client
-        .query_single(FindTriggerById {
-            id: second_trigger_id,
-        })
-        .expect("Failed to request second trigger");
+        .query(FindTriggers::new())
+        .filter_with(|trigger| trigger.id.eq(second_trigger_id.clone()))
+        .execute_single()?;
 
     assert_eq!(got_second_trigger, second_trigger);
 

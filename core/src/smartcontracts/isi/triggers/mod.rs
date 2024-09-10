@@ -325,6 +325,7 @@ pub mod query {
         query::{
             error::QueryExecutionFail as Error,
             predicate::{predicate_atoms::trigger::TriggerIdPredicateBox, CompoundPredicate},
+            trigger::FindTriggers,
         },
         trigger::{Trigger, TriggerId},
     };
@@ -353,27 +354,27 @@ pub mod query {
         }
     }
 
-    impl ValidSingularQuery for FindTriggerById {
-        #[metrics(+"find_trigger_by_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Trigger, Error> {
-            let id = &self.id;
-            iroha_logger::trace!(%id);
-            // Can't use just `LoadedActionTrait::clone_and_box` cause this will trigger lifetime mismatch
-            #[allow(clippy::redundant_closure_for_method_calls)]
-            let loaded_action = state_ro
-                .world()
-                .triggers()
-                .inspect_by_id(id, |action| action.clone_and_box())
-                .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?;
+    impl ValidQuery for FindTriggers {
+        #[metrics(+"find_triggers")]
+        fn execute(
+            self,
+            filter: CompoundPredicate<TriggerPredicateBox>,
+            state_ro: &impl StateReadOnly,
+        ) -> Result<impl Iterator<Item = Self::Item>, Error> {
+            let triggers = state_ro.world().triggers();
 
-            let action = state_ro
-                .world()
-                .triggers()
-                .get_original_action(loaded_action)
-                .into();
+            Ok(triggers
+                   .ids_iter()
+                   .map(|id| {
+                       let action = triggers.inspect_by_id(id, |action| action.clone_and_box())
+                           .expect("INTERNAL BUG: Trigger Id is in the list of ids but not in the triggers map");
 
-            // TODO: Should we redact the metadata if the account is not the authority/owner?
-            Ok(Trigger::new(id.clone(), action))
+                       let action = triggers.get_original_action(action)
+                           .into();
+
+                       Trigger::new(id.clone(), action)
+                   })
+                   .filter(move |trigger| filter.applies(trigger)))
         }
     }
 

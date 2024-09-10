@@ -6,7 +6,9 @@ use iroha_primitives::numeric::Numeric;
 use crate::{
     isi::Log,
     prelude::*,
-    query::{AnyQueryBox, QueryWithFilterFor, QueryWithParams, SingularQueryBox},
+    query::{
+        trigger::FindTriggers, AnyQueryBox, QueryWithFilterFor, QueryWithParams, SingularQueryBox,
+    },
 };
 
 macro_rules! delegate {
@@ -53,7 +55,6 @@ pub trait Visit {
         visit_find_asset_quantity_by_id(&FindAssetQuantityById),
         visit_find_executor_data_model(&FindExecutorDataModel),
         visit_find_parameters(&FindParameters),
-        visit_find_trigger_by_id(&FindTriggerById),
         visit_find_domain_metadata(&FindDomainMetadata),
         visit_find_account_metadata(&FindAccountMetadata),
         visit_find_asset_metadata(&FindAssetMetadata),
@@ -72,6 +73,7 @@ pub trait Visit {
         visit_find_accounts_with_asset(&QueryWithFilterFor<FindAccountsWithAsset>),
         visit_find_peers(&QueryWithFilterFor<FindPeers>),
         visit_find_active_trigger_ids(&QueryWithFilterFor<FindActiveTriggerIds>),
+        visit_find_triggers(&QueryWithFilterFor<FindTriggers>),
         visit_find_transactions(&QueryWithFilterFor<FindTransactions>),
         visit_find_blocks(&QueryWithFilterFor<FindBlocks>),
         visit_find_block_headers(&QueryWithFilterFor<FindBlockHeaders>),
@@ -167,7 +169,6 @@ pub fn visit_singular_query<V: Visit + ?Sized>(
         visit_find_asset_quantity_by_id(FindAssetQuantityById),
         visit_find_executor_data_model(FindExecutorDataModel),
         visit_find_parameters(FindParameters),
-        visit_find_trigger_by_id(FindTriggerById),
         visit_find_domain_metadata(FindDomainMetadata),
         visit_find_account_metadata(FindAccountMetadata),
         visit_find_asset_metadata(FindAssetMetadata),
@@ -201,6 +202,7 @@ pub fn visit_iter_query<V: Visit + ?Sized>(
         visit_find_accounts_with_asset(FindAccountsWithAsset),
         visit_find_peers(FindPeers),
         visit_find_active_trigger_ids(FindActiveTriggerIds),
+        visit_find_triggers(FindTriggers),
         visit_find_transactions(FindTransactions),
         visit_find_block_headers(FindBlockHeaders),
         visit_find_blocks(FindBlocks),
@@ -432,7 +434,6 @@ leaf_visitors! {
     visit_find_asset_quantity_by_id(&FindAssetQuantityById),
     visit_find_executor_data_model(&FindExecutorDataModel),
     visit_find_parameters(&FindParameters),
-    visit_find_trigger_by_id(&FindTriggerById),
     visit_find_domain_metadata(&FindDomainMetadata),
     visit_find_account_metadata(&FindAccountMetadata),
     visit_find_asset_metadata(&FindAssetMetadata),
@@ -451,6 +452,7 @@ leaf_visitors! {
     visit_find_accounts_with_asset(&QueryWithFilterFor<FindAccountsWithAsset>),
     visit_find_peers(&QueryWithFilterFor<FindPeers>),
     visit_find_active_trigger_ids(&QueryWithFilterFor<FindActiveTriggerIds>),
+    visit_find_triggers(&QueryWithFilterFor<FindTriggers>),
     visit_find_transactions(&QueryWithFilterFor<FindTransactions>),
     visit_find_blocks(&QueryWithFilterFor<FindBlocks>),
     visit_find_block_headers(&QueryWithFilterFor<FindBlockHeaders>),
