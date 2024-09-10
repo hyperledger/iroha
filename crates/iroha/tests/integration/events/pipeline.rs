@@ -16,7 +16,6 @@ use iroha::{
     },
 };
 use iroha_config::parameters::actual::Root as Config;
-use nonzero_ext::nonzero;
 use iroha_test_network::*;
 use nonzero_ext::nonzero;
 
@@ -33,7 +32,7 @@ fn transaction_with_no_instructions_should_be_committed() -> Result<()> {
 // #[ignore = "Experiment"]
 #[test]
 fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
-    let unknown_domain_id = "dummy".parse::<DomainId>().unwrap();
+    let unknown_domain_id = "dummy".parse::<DomainId>()?;
     let fail_isi = Unregister::domain(unknown_domain_id.clone());
 
     test_with_instruction_and_status_and_port(
@@ -53,7 +52,7 @@ fn test_with_instruction_and_status_and_port(
     port: u16,
 ) -> Result<()> {
     let (_rt, network, client) =
-        Network::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), Some(port));
+        Network::start_test_with_runtime(PEER_COUNT.try_into()?, Some(port));
     let clients = network.clients();
     wait_for_genesis_committed(&clients, 0);
     let pipeline_time = Config::pipeline_time();

@@ -13,6 +13,7 @@ use iroha::{
     },
 };
 use iroha_test_network::*;
+use iroha_test_samples::{gen_account_in, ALICE_ID};
 use nonzero_ext::nonzero;
 
 #[test]
