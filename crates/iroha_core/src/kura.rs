@@ -1063,7 +1063,10 @@ mod tests {
         // Starting with empty block store
         assert_eq!(block_count.0, 0);
 
-        let _handle = Kura::start(kura.clone(), ShutdownSignal::new());
+        let _handle = {
+            let _rt_guard = rt.enter();
+            Kura::start(kura.clone(), ShutdownSignal::new())
+        };
 
         let state = State::new(
             World::with([domain, genesis_domain], [account, genesis_account], []),
@@ -1133,8 +1136,8 @@ mod tests {
             blocks.push(block.clone());
             kura.store_block(block);
         }
-        // Add wait so that previous block is written to the block store
-        thread::sleep(Duration::from_secs(1));
+        const BLOCK_FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
+        thread::sleep(BLOCK_FLUSH_TIMEOUT);
 
         {
             let mut state_block = state.block_and_revert();
@@ -1151,6 +1154,7 @@ mod tests {
             blocks.push(block_soft_fork.clone());
             kura.replace_top_block(block_soft_fork);
         }
+        thread::sleep(BLOCK_FLUSH_TIMEOUT);
 
         {
             let mut state_block: crate::state::StateBlock = state.block();
@@ -1167,6 +1171,7 @@ mod tests {
             blocks.push(block_next.clone());
             kura.store_block(block_next);
         }
+        thread::sleep(BLOCK_FLUSH_TIMEOUT);
 
         blocks
     }

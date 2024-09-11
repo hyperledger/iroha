@@ -141,7 +141,7 @@ impl LiveQueryStore {
                         });
                     }
                     () = self.shutdown_signal.receive() => {
-                        iroha_logger::info!("LiveQueryStore is being shut down.");
+                        iroha_logger::debug!("LiveQueryStore is being shut down.");
                         break;
                     }
                     else => break,

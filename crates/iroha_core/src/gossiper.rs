@@ -92,7 +92,7 @@ impl TransactionGossiper {
                     self.handle_transaction_gossip(transaction_gossip);
                 }
                 () = shutdown_signal.receive() => {
-                    iroha_logger::info!("Shutting down transactions gossiper");
+                    iroha_logger::debug!("Shutting down transactions gossiper");
                     break;
                 },
             }
