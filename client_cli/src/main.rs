@@ -1,5 +1,4 @@
 //! Iroha client CLI
-
 use std::{
     fs::{self, read as read_file},
     io::{stdin, stdout},
@@ -101,6 +100,9 @@ enum Subcommand {
     /// The subcommand related to p2p networking
     #[clap(subcommand)]
     Peer(peer::Args),
+    /// The subcommand related to adding config parameters.
+    #[clap(subcommand)]
+    Parameters(param::Args),
     /// The subcommand related to event streaming
     #[clap(subcommand)]
     Events(events::Args),
@@ -165,7 +167,7 @@ macro_rules! match_all {
 impl RunArgs for Subcommand {
     fn run(self, context: &mut dyn RunContext) -> Result<()> {
         use Subcommand::*;
-        match_all!((self, context), { Domain, Account, Asset, Peer, Events, Wasm, Blocks, Json })
+        match_all!((self, context), { Domain, Account, Asset, Peer, Parameters, Events, Wasm, Blocks, Json })
     }
 }
 
@@ -1086,6 +1088,196 @@ mod peer {
                 iroha::data_model::isi::Unregister::peer(PeerId::new(address, key));
             submit([unregister_peer], metadata.load()?, context)
                 .wrap_err("Failed to unregister peer")
+        }
+    }
+}
+
+mod param {
+    use super::*;
+    use clap::Subcommand;
+    use core::num::NonZeroU64;
+    use iroha::client::{self, *};
+    use iroha_data_model::isi::SetParameter;
+    use iroha_data_model::parameter::{self, *};
+
+    // #[derive(Parser, Debug)]
+    // #[command(author, version, about, long_about = None)]
+    #[derive(Subcommand, Debug)]
+    pub enum Args {
+        // #[command(subcommand)]
+        // Parameters(ParamCmd),
+        #[command(subcommand)]
+        Get(Box<Get>),
+        #[command(subcommand)]
+        Set(Box<Set>),
+    }
+
+    impl RunArgs for Args {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all!((self, context), { Args::Get, Args::Set, })
+        }
+    }
+
+    #[derive(Subcommand, Debug)]
+    pub enum Get {
+        All,
+        #[command(flatten)]
+        Inner(ParamCmd),
+    }
+
+    /// Get values of parameters
+    impl RunArgs for Get {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let client = context.client_from_config();
+            let vec = match self {
+                Self::All => client
+                    .request(client::parameter::all())
+                    .wrap_err("Failed to get all the parameters."),
+                Self::Inner(param) => client
+                    .build_query(client::parameter::all())
+                    .with_filter(ParamCmd::Sumeragi)
+                    .execute()
+                    .wrap_err("Failed to get the parameter value"),
+            }?;
+            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            Ok(())
+        }
+    }
+
+    /// Set values for parameters
+    #[derive(clap::Subcommand, Debug)]
+    pub enum Set {
+        All,
+        #[command(flatten)]
+        Inner(ParamCmd),
+    }
+
+    impl RunArgs for Set {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let set_param_value = SetParameter::new(0);
+	    // Not sure what to do.
+	    Ok(())
+        }
+    }
+
+    #[derive(Subcommand, Debug)]
+    pub enum ParamCmd {
+        #[command(subcommand, about = "Setting Sumeragi Parameters.")]
+        Sumeragi(SumeragiCmd),
+        #[command(subcommand, about = "Setting Block Parameters.")]
+        Block(BlockCmd),
+        #[command(subcommand, about = "Setting Transaction Parameters.")]
+        Transaction(TransactionCmd),
+        #[command(subcommand, about = "Setting Smart Contract Parameters.")]
+        SmartContract(SmartContractCmd),
+        #[command(subcommand, about = "Setting Custom Parameters.")]
+        Custom(CustomCmd),
+    }
+
+    impl RunArgs for ParamCmd {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all!((self, context), { ParamCmd::Sumeragi, ParamCmd::Block, ParamCmd::Transaction, ParamCmd::SmartContract, ParamCmd::Custom, })
+        }
+    }
+
+    #[derive(Subcommand, Debug)]
+    enum SumeragiCmd {
+        #[command(about = "Set block time in milliseconds.")]
+        BlockTime {
+            #[arg(long)]
+            value: u64,
+        },
+
+        #[command(about = "Set commit time in milliseconds.")]
+        CommitTime {
+            #[arg(long)]
+            value: u64,
+        },
+    }
+
+    impl RunArgs for SumeragiCmd {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all! ((self, context), { SumeragiCmd::BlockTime, SumeragiCmd::CommitTime, })
+        }
+    }
+
+    #[derive(Subcommand, Debug)]
+    pub enum BlockCmd {
+        #[command(about = "Set parameter for maximum transactions.")]
+        MaxTransanctions {
+            #[arg(long)]
+            value: NonZeroU64,
+        },
+    }
+
+    impl RunArgs for BlockCmd {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all! ((self, context), { BlockCmd::MaxTransanctions, })
+        }
+    }
+
+    #[derive(Subcommand, Debug)]
+    pub enum TransactionCmd {
+        #[command(about = "Set parameter for maximum instrutions.")]
+        MaxInstructions {
+            #[arg(long)]
+            value: NonZeroU64,
+        },
+
+        #[command(about = "Set parameter for smart contract size.")]
+        SmartContractSize {
+            #[arg(long)]
+            value: NonZeroU64,
+        },
+    }
+
+    impl RunArgs for TransactionCmd {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all! ((self, context), { TransactionCmd::MaxInstructions, TransactionCmd::SmartContractSize, })
+        }
+    }
+
+    #[derive(Subcommand, Debug)]
+    pub enum SmartContractCmd {
+        #[command(
+            about = "Setting parameter for maximum amount of fuel that a smart contract can use."
+        )]
+        Fuel {
+            #[arg(long)]
+            value: NonZeroU64,
+        },
+
+        #[command(about = "Setting the maximum amount of memory for each smart contract.")]
+        Memory {
+            #[arg(long)]
+            value: NonZeroU64,
+        },
+    }
+
+    impl RunArgs for SmartContractCmd {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all! ((self, context), { SmartContractCmd::Fuel, SmartContractCmd::Memory, })
+        }
+    }
+
+    #[derive(Subcommand, Debug)]
+    pub enum CustomCmd {
+        #[command(about = "Set the unique id of the custom parameter.")]
+        Id {
+            #[arg(long)]
+            value: String,
+        },
+
+        #[command(about = "Set the JSON-encoded payload.")]
+        PayLoad {
+            #[arg(long)]
+            value: JsonString,
+        },
+    }
+
+    impl RunArgs for CustomCmd {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all! ((self, context), { CustomCmd::Id, CustomCmd::PayLoad, })
         }
     }
 }
