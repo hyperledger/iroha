@@ -1,0 +1,20 @@
+[package]
+name = "iroha_executor_data_model"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_executor_data_model_derive = { path = "../iroha_executor_data_model_derive" }
+
+iroha_data_model.workspace = true
+iroha_schema.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true

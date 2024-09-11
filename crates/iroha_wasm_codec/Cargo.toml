@@ -1,0 +1,17 @@
+[package]
+name = "iroha_wasm_codec"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_wasm_codec_derive = { path = "../iroha_wasm_codec_derive" }
+
+thiserror = { workspace = true }
+wasmtime = { workspace = true }
+parity-scale-codec = { workspace = true, features = ["derive"] }

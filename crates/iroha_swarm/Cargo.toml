@@ -1,0 +1,31 @@
+[package]
+name = "iroha_swarm"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_crypto = { workspace = true, default-features = true }
+iroha_data_model.workspace = true
+iroha_primitives.workspace = true
+color-eyre.workspace = true
+path-absolutize.workspace = true
+pathdiff.workspace = true
+owo-colors = { workspace = true, features = ["supports-colors"] }
+serde = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive"] }
+serde_yaml.workspace = true
+serde_with = { workspace = true, features = ["json", "macros", "hex"] }
+inquire.workspace = true
+displaydoc.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+iroha_config.workspace = true
+expect-test.workspace = true
+nonzero_ext.workspace = true

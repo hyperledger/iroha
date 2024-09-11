@@ -2902,6 +2902,8 @@ dependencies = [
  "iroha_logger",
  "iroha_primitives",
  "iroha_telemetry",
+ "iroha_test_network",
+ "iroha_test_samples",
  "iroha_torii_const",
  "iroha_version",
  "iroha_wasm_builder",
@@ -2913,8 +2915,6 @@ dependencies = [
  "serde_json",
  "serde_with",
  "tempfile",
- "test_network",
- "test_samples",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
@@ -2927,7 +2927,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_client_cli"
+name = "iroha_cli"
 version = "2.0.0-rc.1.0"
 dependencies = [
  "clap",
@@ -2944,6 +2944,28 @@ dependencies = [
  "supports-color 2.1.0",
  "thiserror",
  "vergen",
+]
+
+[[package]]
+name = "iroha_codec"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "clap",
+ "colored",
+ "eyre",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_executor_data_model",
+ "iroha_genesis",
+ "iroha_primitives",
+ "iroha_schema",
+ "iroha_schema_gen",
+ "iroha_test_samples",
+ "iroha_version",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "supports-color 2.1.0",
 ]
 
 [[package]]
@@ -3036,6 +3058,7 @@ dependencies = [
  "iroha_p2p",
  "iroha_primitives",
  "iroha_telemetry",
+ "iroha_test_samples",
  "iroha_version",
  "iroha_wasm_codec",
  "mv",
@@ -3046,22 +3069,10 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "test_samples",
  "thiserror",
  "tokio",
  "uuid",
  "wasmtime",
-]
-
-[[package]]
-name = "iroha_core_wasm_codec_derive"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "iroha_macro_utils",
- "manyhow",
- "proc-macro2",
- "quote",
- "syn 2.0.75",
 ]
 
 [[package]]
@@ -3277,11 +3288,31 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_schema",
+ "iroha_test_samples",
  "parity-scale-codec",
  "serde",
  "serde_json",
- "test_samples",
  "tracing",
+]
+
+[[package]]
+name = "iroha_kagami"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "clap",
+ "color-eyre",
+ "derive_more",
+ "iroha_config",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_executor_data_model",
+ "iroha_genesis",
+ "iroha_primitives",
+ "iroha_schema_gen",
+ "iroha_test_samples",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3354,9 +3385,9 @@ dependencies = [
  "iroha_futures",
  "iroha_logger",
  "iroha_primitives",
+ "iroha_test_network",
  "parity-scale-codec",
  "rand",
- "test_network",
  "thiserror",
  "tokio",
 ]
@@ -3442,8 +3473,8 @@ dependencies = [
  "iroha_macro",
  "iroha_smart_contract_derive",
  "iroha_smart_contract_utils",
+ "iroha_test_samples",
  "parity-scale-codec",
- "test_samples",
  "trybuild",
  "webassembly-test",
 ]
@@ -3529,6 +3560,43 @@ dependencies = [
  "quote",
  "syn 2.0.75",
  "trybuild",
+]
+
+[[package]]
+name = "iroha_test_network"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "eyre",
+ "futures",
+ "iroha",
+ "iroha_config",
+ "iroha_core",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_executor_data_model",
+ "iroha_futures",
+ "iroha_genesis",
+ "iroha_logger",
+ "iroha_primitives",
+ "iroha_test_samples",
+ "iroha_wasm_builder",
+ "irohad",
+ "parity-scale-codec",
+ "rand",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "unique_port",
+]
+
+[[package]]
+name = "iroha_test_samples"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "iroha_crypto",
+ "iroha_data_model",
+ "serde",
+ "toml",
 ]
 
 [[package]]
@@ -3628,32 +3696,36 @@ dependencies = [
 name = "iroha_wasm_builder"
 version = "2.0.0-rc.1.0"
 dependencies = [
+ "clap",
+ "color-eyre",
  "eyre",
+ "owo-colors",
  "path-absolutize",
  "serde_json",
  "sha256",
- "wasm-opt",
-]
-
-[[package]]
-name = "iroha_wasm_builder_cli"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "clap",
- "color-eyre",
- "iroha_wasm_builder",
- "owo-colors",
  "spinoff",
+ "wasm-opt",
 ]
 
 [[package]]
 name = "iroha_wasm_codec"
 version = "2.0.0-rc.1.0"
 dependencies = [
- "iroha_core_wasm_codec_derive",
+ "iroha_wasm_codec_derive",
  "parity-scale-codec",
  "thiserror",
  "wasmtime",
+]
+
+[[package]]
+name = "iroha_wasm_codec_derive"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "iroha_macro_utils",
+ "manyhow",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.75",
 ]
 
 [[package]]
@@ -3805,26 +3877,6 @@ dependencies = [
  "elliptic-curve",
  "once_cell",
  "sha2",
-]
-
-[[package]]
-name = "kagami"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "clap",
- "color-eyre",
- "derive_more",
- "iroha_config",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_executor_data_model",
- "iroha_genesis",
- "iroha_primitives",
- "iroha_schema_gen",
- "parity-scale-codec",
- "serde",
- "serde_json",
- "test_samples",
 ]
 
 [[package]]
@@ -4374,28 +4426,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "parity_scale_cli"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "clap",
- "colored",
- "eyre",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_executor_data_model",
- "iroha_genesis",
- "iroha_primitives",
- "iroha_schema",
- "iroha_schema_gen",
- "iroha_version",
- "parity-scale-codec",
- "serde",
- "serde_json",
- "supports-color 2.1.0",
- "test_samples",
 ]
 
 [[package]]
@@ -5811,43 +5841,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bab24d30b911b2376f3a13cc2cd443142f0c81dda04c118693e35b3835757755"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "test_network"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "eyre",
- "futures",
- "iroha",
- "iroha_config",
- "iroha_core",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_executor_data_model",
- "iroha_futures",
- "iroha_genesis",
- "iroha_logger",
- "iroha_primitives",
- "iroha_wasm_builder",
- "irohad",
- "parity-scale-codec",
- "rand",
- "serde_json",
- "tempfile",
- "test_samples",
- "tokio",
- "unique_port",
-]
-
-[[package]]
-name = "test_samples"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "iroha_crypto",
- "iroha_data_model",
- "serde",
- "toml",
 ]
 
 [[package]]
