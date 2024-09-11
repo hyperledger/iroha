@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-requests = "^2.31.0"
+requests = "^2.32.3"
 pytest = "^8.3.3"
 websocket-client = "^1.7.0"
 allure-pytest = "^2.13.2"
