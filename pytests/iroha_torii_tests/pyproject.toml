@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "iroha_torii_tests"
+version = "0.1.0"
+description = ""
+authors = ["alexstroke <111361420+astrokov7@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+requests = "^2.31.0"
+pytest = "^8.0.2"
+websocket-client = "^1.7.0"
+allure-pytest = "^2.13.2"
+python-dotenv = "^1.0.1"
+faker = "^24.2.0"
+jsonschema = "^4.21.1"
+pyyaml = "^6.0.1"
+toml = "^0.10.2"
+black = "^24.4.2"
+mypy = "^1.10.0"
+flake8 = "^7.0.0"
+types-toml = "^0.10.8.20240310"
+types-requests = "^2.32.0.20240521"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

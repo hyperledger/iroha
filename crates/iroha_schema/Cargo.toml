@@ -1,0 +1,21 @@
+[package]
+name = "iroha_schema"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_schema_derive = { path = "../iroha_schema_derive" }
+
+serde = { workspace = true, features = ["derive", "alloc"] }
+
+[dev-dependencies]
+parity-scale-codec = { workspace = true, default-features = false, features = ["derive", "full"] }
+serde_json = { workspace = true, features = ["alloc"] }
+impls = { workspace = true }

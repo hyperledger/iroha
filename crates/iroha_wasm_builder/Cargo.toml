@@ -1,0 +1,24 @@
+[package]
+name = "iroha_wasm_builder"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+categories = ["development-tools::build-utils"]
+
+[lints]
+workspace = true
+
+[dependencies]
+eyre = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }
+sha256 = "1.5.0"
+path-absolutize = { workspace = true }
+wasm-opt = "0.116.1"
+
+clap = { workspace = true, features = ["derive"] }
+color-eyre.workspace = true
+spinoff = { workspace = true, features = ["binary"] }
+owo-colors = { workspace = true, features = ["supports-colors"] }

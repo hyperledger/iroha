@@ -1,0 +1,38 @@
+[package]
+name = "iroha_smart_contract"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
+debug = ["iroha_smart_contract_utils/debug"]
+
+[dependencies]
+iroha_smart_contract_derive = { path = "../iroha_smart_contract_derive" }
+
+iroha_macro.workspace = true
+iroha_data_model.workspace = true
+iroha_smart_contract_utils.workspace = true
+
+parity-scale-codec.workspace = true
+derive_more.workspace = true
+
+displaydoc.workspace = true
+
+getrandom = "0.2"
+
+[dev-dependencies]
+iroha_test_samples = { workspace = true }
+
+webassembly-test = "0.1.0"
+# Not used directly but required for compilation
+getrandom = { version = "0.2", features = ["custom"] }
+
+trybuild = { workspace = true }
