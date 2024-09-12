@@ -983,8 +983,8 @@ mod tests {
         .unwrap();
     }
 
-    #[tokio::test]
-    async fn kura_not_miss_replace_block() {
+    #[test]
+    fn kura_not_miss_replace_block() {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_time()
             .build()
