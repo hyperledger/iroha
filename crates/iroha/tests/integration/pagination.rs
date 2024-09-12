@@ -26,7 +26,7 @@ fn limits_should_work() -> Result<()> {
 
 #[test]
 fn reported_length_should_be_accurate() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_170).start_with_runtime();
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_200).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     register_assets(&client)?;
