@@ -28,6 +28,10 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    groups:
+      deps:
+        patterns:
+          - "*"
 
   - package-ecosystem: "cargo"
     target-branch: "main"
