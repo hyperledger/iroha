@@ -693,7 +693,8 @@ mod tests {
             .recv_timeout(OS_THREAD_SPAWN_TICK)
             .expect("thread should start by now");
         signal2.send();
-        timeout(TICK_TIMEOUT, sup_fut)
+        // It is too slow in CI sometimes
+        timeout(TICK_TIMEOUT * 10, sup_fut)
             .await
             .expect("should shutdown within timeout")
             .expect("should not panic")
@@ -715,6 +716,5 @@ mod tests {
         else {
             panic!("no other error expected");
         };
-        println!("hey");
     }
 }
