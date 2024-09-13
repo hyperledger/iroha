@@ -308,14 +308,6 @@ pub mod isi {
             let account_id = self.destination;
             let role_id = self.object;
 
-            let permissions = state_transaction
-                .world
-                .roles
-                .get(&role_id)
-                .ok_or_else(|| FindError::Role(role_id.clone()))?
-                .permissions
-                .clone();
-
             state_transaction.world.account(&account_id)?;
 
             if state_transaction
@@ -334,23 +326,12 @@ pub mod isi {
                 .into());
             }
 
-            state_transaction.world.emit_events({
-                let account_id_clone = account_id.clone();
-                permissions
-                    .into_iter()
-                    .zip(core::iter::repeat_with(move || account_id.clone()))
-                    .map(|(permission, account_id)| AccountPermissionChanged {
-                        account: account_id,
-                        permission,
-                    })
-                    .map(AccountEvent::PermissionAdded)
-                    .chain(std::iter::once(AccountEvent::RoleGranted(
-                        AccountRoleChanged {
-                            account: account_id_clone,
-                            role: role_id,
-                        },
-                    )))
-            });
+            state_transaction
+                .world
+                .emit_events(Some(AccountEvent::RoleGranted(AccountRoleChanged {
+                    account: account_id.clone(),
+                    role: role_id,
+                })));
 
             Ok(())
         }
@@ -366,14 +347,6 @@ pub mod isi {
             let account_id = self.destination;
             let role_id = self.object;
 
-            let permissions = state_transaction
-                .world
-                .roles
-                .get(&role_id)
-                .ok_or_else(|| FindError::Role(role_id.clone()))?
-                .permissions
-                .clone();
-
             if state_transaction
                 .world
                 .account_roles
@@ -386,23 +359,12 @@ pub mod isi {
                 return Err(FindError::Role(role_id).into());
             }
 
-            state_transaction.world.emit_events({
-                let account_id_clone = account_id.clone();
-                permissions
-                    .into_iter()
-                    .zip(core::iter::repeat_with(move || account_id.clone()))
-                    .map(|(permission, account_id)| AccountPermissionChanged {
-                        account: account_id,
-                        permission,
-                    })
-                    .map(AccountEvent::PermissionRemoved)
-                    .chain(std::iter::once(AccountEvent::RoleRevoked(
-                        AccountRoleChanged {
-                            account: account_id_clone,
-                            role: role_id,
-                        },
-                    )))
-            });
+            state_transaction
+                .world
+                .emit_events(Some(AccountEvent::RoleRevoked(AccountRoleChanged {
+                    account: account_id.clone(),
+                    role: role_id,
+                })));
 
             Ok(())
         }

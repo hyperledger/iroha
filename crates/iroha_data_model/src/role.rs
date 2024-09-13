@@ -7,6 +7,7 @@ use iroha_data_model_derive::model;
 
 pub use self::model::*;
 use crate::{
+    account::AccountId,
     permission::{Permission, Permissions},
     Identifiable, Name, Registered,
 };
@@ -76,23 +77,23 @@ mod model {
         Serialize,
         IntoSchema,
     )]
-    #[serde(transparent, rename = "Role")]
-    #[ffi_type(unsafe {robust})]
+    #[ffi_type]
     #[getset(get = "pub")]
-    #[schema(transparent)]
-    #[repr(transparent)]
+    #[display(fmt = "{grant_to}: {inner}")]
     pub struct NewRole {
         #[allow(missing_docs)]
         #[id(transparent)]
         pub inner: Role,
+        /// First owner
+        pub grant_to: AccountId,
     }
 }
 
 impl Role {
     /// Constructor.
     #[inline]
-    pub fn new(id: RoleId) -> <Self as Registered>::With {
-        NewRole::new(id)
+    pub fn new(id: RoleId, grant_to: AccountId) -> <Self as Registered>::With {
+        NewRole::new(id, grant_to)
     }
 
     /// Get an iterator over [`permissions`](Permission) of the `Role`
@@ -106,8 +107,9 @@ impl NewRole {
     /// Constructor
     #[must_use]
     #[inline]
-    fn new(id: RoleId) -> Self {
+    fn new(id: RoleId, grant_to: AccountId) -> Self {
         Self {
+            grant_to,
             inner: Role {
                 id,
                 permissions: Permissions::new(),

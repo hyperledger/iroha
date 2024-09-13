@@ -19,7 +19,7 @@ extern crate panic_halt;
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::permissions::CanControlDomainLives;
 use iroha_executor::{
-    data_model::prelude::*, permission::ExecutorPermision as _, prelude::*, smart_contract::query,
+    data_model::prelude::*, permission::ExecutorPermission as _, prelude::*, smart_contract::query,
     DataModelBuilder,
 };
 use iroha_executor_data_model::permission::domain::CanUnregisterDomain;

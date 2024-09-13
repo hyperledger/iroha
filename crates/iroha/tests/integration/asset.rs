@@ -12,7 +12,7 @@ use iroha::{
     },
 };
 use iroha_config::parameters::actual::Root as Config;
-use iroha_executor_data_model::permission::asset::CanTransferUserAsset;
+use iroha_executor_data_model::permission::asset::CanTransferAsset;
 use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 
@@ -328,7 +328,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let alice_id = ALICE_ID.clone();
     let alice_can_transfer_asset = |asset_id: AssetId, owner_key_pair: KeyPair| {
-        let permission = CanTransferUserAsset {
+        let permission = CanTransferAsset {
             asset: asset_id.clone(),
         };
         let instruction = Grant::account_permission(permission, alice_id.clone());

@@ -10,7 +10,7 @@ use alloc::format;
 
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::multisig::MultisigRegisterArgs;
-use iroha_executor_data_model::permission::trigger::CanExecuteUserTrigger;
+use iroha_executor_data_model::permission::trigger::CanExecuteTrigger;
 use iroha_trigger::{debug::dbg_panic, prelude::*};
 
 #[global_allocator]
@@ -22,7 +22,7 @@ getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 const WASM: &[u8] = core::include_bytes!(concat!(core::env!("OUT_DIR"), "/multisig.wasm"));
 
 #[iroha_trigger::main]
-fn main(_id: TriggerId, _owner: AccountId, event: EventBox) {
+fn main(_id: TriggerId, owner: AccountId, event: EventBox) {
     let args: MultisigRegisterArgs = match event {
         EventBox::ExecuteTrigger(event) => event
             .args()
@@ -34,7 +34,7 @@ fn main(_id: TriggerId, _owner: AccountId, event: EventBox) {
 
     let account_id = args.account.id().clone();
 
-    Register::account(args.account)
+    Register::account(args.account.clone())
         .execute()
         .dbg_expect("failed to register multisig account");
 
@@ -69,14 +69,17 @@ fn main(_id: TriggerId, _owner: AccountId, event: EventBox) {
     .parse()
     .dbg_expect("failed to parse role");
 
-    let can_execute_multisig_trigger = CanExecuteUserTrigger {
+    let can_execute_multisig_trigger = CanExecuteTrigger {
         trigger: trigger_id.clone(),
     };
-    let role = Role::new(role_id.clone()).add_permission(can_execute_multisig_trigger);
 
-    Register::role(role)
-        .execute()
-        .dbg_expect("failed to register multisig role");
+    Register::role(
+        // FIX: args.account.id() should be used but I can't
+        // execute an instruction from a different account
+        Role::new(role_id.clone(), owner).add_permission(can_execute_multisig_trigger),
+    )
+    .execute()
+    .dbg_expect("failed to register multisig role");
 
     SetKeyValue::trigger(
         trigger_id,
@@ -87,7 +90,7 @@ fn main(_id: TriggerId, _owner: AccountId, event: EventBox) {
     .dbg_unwrap();
 
     for signatory in args.signatories {
-        Grant::role(role_id.clone(), signatory)
+        Grant::account_role(role_id.clone(), signatory)
             .execute()
             .dbg_expect("failed to grant multisig role to account");
     }

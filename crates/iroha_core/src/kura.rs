@@ -1063,6 +1063,7 @@ mod tests {
 
     #[allow(clippy::too_many_lines)]
     fn create_blocks(rt: &tokio::runtime::Runtime, temp_dir: &TempDir) -> Vec<CommittedBlock> {
+        const BLOCK_FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
         let mut blocks = Vec::new();
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
@@ -1170,7 +1171,6 @@ mod tests {
             blocks.push(block.clone());
             kura.store_block(block);
         }
-        const BLOCK_FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
         thread::sleep(BLOCK_FLUSH_TIMEOUT);
 
         {
