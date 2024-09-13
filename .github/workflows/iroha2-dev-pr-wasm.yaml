@@ -9,6 +9,11 @@ on:
       - 'crates/iroha_data_model/**.json'
       - 'crates/iroha_data_model/**.toml'
 
+      - 'crates/iroha_crypto/**.rs'
+      - 'crates/iroha_crypto/**.yml'
+      - 'crates/iroha_crypto/**.json'
+      - 'crates/iroha_crypto/**.toml'
+
       - 'crates/iroha_smart_contract/**.rs'
       - 'crates/iroha_smart_contract/**.yml'
       - 'crates/iroha_smart_contract/**.json'

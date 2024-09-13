@@ -3473,7 +3473,6 @@ dependencies = [
  "iroha_macro",
  "iroha_smart_contract_derive",
  "iroha_smart_contract_utils",
- "iroha_test_samples",
  "parity-scale-codec",
  "trybuild",
  "webassembly-test",
