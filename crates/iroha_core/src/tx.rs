@@ -23,7 +23,7 @@ use iroha_macro::FromVariant;
 use mv::storage::StorageReadOnly;
 
 use crate::{
-    smartcontracts::wasm,
+    smartcontracts::{wasm, wasm::cache::WasmCache},
     state::{StateBlock, StateTransaction},
 };
 
@@ -204,9 +204,12 @@ impl StateBlock<'_> {
     pub fn validate(
         &mut self,
         tx: AcceptedTransaction,
+        wasm_cache: &mut WasmCache<'_, '_, '_>,
     ) -> Result<SignedTransaction, (SignedTransaction, TransactionRejectionReason)> {
         let mut state_transaction = self.transaction();
-        if let Err(rejection_reason) = Self::validate_internal(tx.clone(), &mut state_transaction) {
+        if let Err(rejection_reason) =
+            Self::validate_internal(tx.clone(), &mut state_transaction, wasm_cache)
+        {
             return Err((tx.0, rejection_reason));
         }
         state_transaction.apply();
@@ -217,6 +220,7 @@ impl StateBlock<'_> {
     fn validate_internal(
         tx: AcceptedTransaction,
         state_transaction: &mut StateTransaction<'_, '_>,
+        wasm_cache: &mut WasmCache<'_, '_, '_>,
     ) -> Result<(), TransactionRejectionReason> {
         let authority = tx.as_ref().authority();
 
@@ -227,7 +231,7 @@ impl StateBlock<'_> {
         }
 
         debug!(tx=%tx.as_ref().hash(), "Validating transaction");
-        Self::validate_with_runtime_executor(tx.clone(), state_transaction)?;
+        Self::validate_with_runtime_executor(tx.clone(), state_transaction, wasm_cache)?;
 
         if let (authority, Executable::Wasm(bytes)) = tx.into() {
             Self::validate_wasm(authority, state_transaction, bytes)?
@@ -270,6 +274,7 @@ impl StateBlock<'_> {
     fn validate_with_runtime_executor(
         tx: AcceptedTransaction,
         state_transaction: &mut StateTransaction<'_, '_>,
+        wasm_cache: &mut WasmCache<'_, '_, '_>,
     ) -> Result<(), TransactionRejectionReason> {
         let tx: SignedTransaction = tx.into();
         let authority = tx.authority().clone();
@@ -278,7 +283,7 @@ impl StateBlock<'_> {
             .world
             .executor
             .clone() // Cloning executor is a cheap operation
-            .execute_transaction(state_transaction, &authority, tx)
+            .execute_transaction(state_transaction, &authority, tx, wasm_cache)
             .map_err(|error| {
                 if let ValidationFail::InternalError(msg) = &error {
                     error!(

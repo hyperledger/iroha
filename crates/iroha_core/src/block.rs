@@ -251,7 +251,7 @@ mod new {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::state::StateBlock;
+    use crate::{smartcontracts::wasm::cache::WasmCache, state::StateBlock};
 
     /// First stage in the life-cycle of a [`Block`].
     ///
@@ -266,6 +266,7 @@ mod new {
     impl NewBlock {
         /// Categorize transactions of this block to produce a [`ValidBlock`]
         pub fn categorize(self, state_block: &mut StateBlock<'_>) -> WithEvents<ValidBlock> {
+            let mut wasm_cache = WasmCache::new();
             let errors = self
                 .transactions
                 .iter()
@@ -273,7 +274,7 @@ mod new {
                 .cloned()
                 .enumerate()
                 .fold(BTreeMap::new(), |mut acc, (idx, tx)| {
-                    if let Err((rejected_tx, error)) = state_block.validate(tx) {
+                    if let Err((rejected_tx, error)) = state_block.validate(tx, &mut wasm_cache) {
                         iroha_logger::debug!(
                             block=%self.header.hash(),
                             tx=%rejected_tx.hash(),
@@ -338,7 +339,9 @@ mod valid {
     use mv::storage::StorageReadOnly;
 
     use super::*;
-    use crate::{state::StateBlock, sumeragi::network_topology::Role};
+    use crate::{
+        smartcontracts::wasm::cache::WasmCache, state::StateBlock, sumeragi::network_topology::Role,
+    };
 
     /// Block that was validated and accepted
     #[derive(Debug, Clone)]
@@ -604,6 +607,7 @@ mod valid {
                 (params.sumeragi().max_clock_drift(), params.transaction)
             };
 
+            let mut wasm_cache = WasmCache::new();
             let errors = block
                 .transactions()
                 // FIXME: Redundant clone
@@ -626,7 +630,9 @@ mod valid {
                         )
                     }?;
 
-                    if let Err((rejected_tx, error)) = state_block.validate(accepted_tx) {
+                    if let Err((rejected_tx, error)) =
+                        state_block.validate(accepted_tx, &mut wasm_cache)
+                    {
                         iroha_logger::debug!(
                             tx=%rejected_tx.hash(),
                             block=%block.hash(),
