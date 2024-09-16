@@ -20,7 +20,7 @@ black = "^24.8.0"
 mypy = "^1.11.2"
 flake8 = "^7.1.1"
 types-toml = "^0.10.8.20240310"
-types-requests = "^2.32.0.20240907"
+types-requests = "^2.32.0.20240914"
 
 [build-system]
 requires = ["poetry-core"]
