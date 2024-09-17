@@ -29,8 +29,6 @@ displaydoc.workspace = true
 getrandom = "0.2"
 
 [dev-dependencies]
-iroha_test_samples = { workspace = true }
-
 webassembly-test = "0.1.0"
 # Not used directly but required for compilation
 getrandom = { version = "0.2", features = ["custom"] }
