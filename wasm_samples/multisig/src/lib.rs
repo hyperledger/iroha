@@ -24,6 +24,7 @@ fn main(id: TriggerId, _owner: AccountId, event: EventBox) {
             event
                 .args()
                 .dbg_expect("trigger expect args")
+                .clone()
                 .try_into_any()
                 .dbg_expect("failed to parse arguments"),
             event.authority().clone(),

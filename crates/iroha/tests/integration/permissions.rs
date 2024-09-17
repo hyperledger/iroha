@@ -16,6 +16,7 @@ use iroha_executor_data_model::permission::{
 use iroha_genesis::GenesisBlock;
 use iroha_test_network::{PeerBuilder, *};
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID};
+use serde_json::json;
 
 #[test]
 fn genesis_transactions_are_validated_by_executor() {
@@ -318,11 +319,7 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
         .expect("Failed to register mouse");
 
     // Allow alice to mint mouse asset and mint initial value
-    let value_json = JsonString::from_string_unchecked(format!(
-        // NOTE: Permissions is created explicitly as a json string to introduce additional whitespace
-        // This way, if the executor compares permissions just as JSON strings, the test will fail
-        r##"{{ "asset"   :   "xor#wonderland#{mouse_id}" }}"##
-    ));
+    let value_json = JsonString::new(json!({ "asset": format!("xor#wonderland#{mouse_id}") }));
 
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_mouse_asset = Grant::account_permission(

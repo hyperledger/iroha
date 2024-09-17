@@ -22,7 +22,7 @@ pub fn impl_derive_parameter(input: &syn::DeriveInput) -> TokenStream {
                     return Err(Self::Error::UnknownIdent(alloc::string::ToString::to_string(value_id.name().as_ref())));
                 }
 
-                serde_json::from_str::<Self>(value.payload().as_ref()).map_err(Self::Error::Deserialize)
+                value.payload().clone().try_into_any().map_err(Self::Error::Deserialize)
             }
         }
 

@@ -57,6 +57,6 @@ impl TryFrom<&JsonString> for CustomInstructionBox {
     type Error = serde_json::Error;
 
     fn try_from(payload: &JsonString) -> serde_json::Result<Self> {
-        serde_json::from_str::<Self>(payload.as_ref())
+        payload.clone().try_into_any()
     }
 }

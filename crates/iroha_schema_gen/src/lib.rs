@@ -166,6 +166,7 @@ types!(
     Box<TransactionRejectionReason>,
     BTreeMap<CustomParameterId, CustomParameter>,
     BTreeMap<Name, JsonString>,
+    BTreeMap<String, JsonString>,
     BTreeSet<Permission>,
     BTreeSet<String>,
     BurnBox,
@@ -483,6 +484,7 @@ types!(
     Vec<CompoundPredicate<TriggerPredicateBox>>,
     Vec<Domain>,
     Vec<EventFilterBox>,
+    Vec<JsonString>,
     Vec<InstructionBox>,
     Vec<Parameter>,
     Vec<Peer>,
@@ -505,6 +507,7 @@ types!(
     u32,
     u64,
     u8,
+    bool,
 
     iroha_genesis::RawGenesisTransaction,
 );
