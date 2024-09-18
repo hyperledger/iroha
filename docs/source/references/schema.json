@@ -3080,20 +3080,28 @@
         "type": "String"
       },
       {
-        "tag": "UnknownCursor",
+        "tag": "CursorMismatch",
         "discriminant": 2
       },
       {
-        "tag": "FetchSizeTooBig",
+        "tag": "Dropped",
         "discriminant": 3
       },
       {
-        "tag": "InvalidSingularParameters",
+        "tag": "CursorDone",
         "discriminant": 4
       },
       {
-        "tag": "CapacityLimit",
+        "tag": "FetchSizeTooBig",
         "discriminant": 5
+      },
+      {
+        "tag": "InvalidSingularParameters",
+        "discriminant": 6
+      },
+      {
+        "tag": "CapacityLimit",
+        "discriminant": 7
       }
     ]
   },
