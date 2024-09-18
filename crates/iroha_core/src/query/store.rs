@@ -37,8 +37,8 @@ use super::cursor::{Error as CursorError, QueryBatchedErasedIterator};
     Decode,
 )]
 pub enum Error {
-    /// The query has been dropped from the store.
-    Dropped,
+    /// Query not found in the live query store.
+    NotFound,
     /// Cursor error.
     #[error(transparent)]
     Cursor(#[from] CursorError),
@@ -52,7 +52,7 @@ pub enum Error {
 impl From<Error> for QueryExecutionFail {
     fn from(error: Error) -> Self {
         match error {
-            Error::Dropped => QueryExecutionFail::Dropped,
+            Error::NotFound => QueryExecutionFail::NotFound,
             Error::Cursor(error) => match error {
                 CursorError::Mismatch => QueryExecutionFail::CursorMismatch,
                 CursorError::Done => QueryExecutionFail::CursorDone,
@@ -210,7 +210,7 @@ impl LiveQueryStore {
             mut live_query,
             authority,
             ..
-        } = self.remove(&query_id).ok_or(Error::Dropped)?;
+        } = self.remove(&query_id).ok_or(Error::NotFound)?;
         let (next_batch, next_cursor) = live_query.next_batch(cursor.get())?;
         let remaining = live_query.remaining();
         if next_cursor.is_some() {

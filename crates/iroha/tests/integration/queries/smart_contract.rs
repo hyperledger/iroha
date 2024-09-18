@@ -33,7 +33,7 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
 
     assert!(matches!(
         err,
-        QueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFail::Dropped))
+        QueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFail::NotFound))
     ));
 
     Ok(())

@@ -1029,10 +1029,10 @@ pub mod error {
                 #[skip_try_from]
                 String,
             ),
+            /// Query not found in the live query store.
+            NotFound,
             /// The server's cursor does not match the provided cursor.
             CursorMismatch,
-            /// The query has been dropped.
-            Dropped,
             /// There aren't enough items for the cursor to proceed.
             CursorDone,
             /// fetch_size could not be greater than {MAX_FETCH_SIZE:?}

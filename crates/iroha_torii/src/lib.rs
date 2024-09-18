@@ -384,7 +384,7 @@ impl Error {
                 Conversion(_)
                 | CursorMismatch
                 | CursorDone
-                | Dropped
+                | NotFound
                 | FetchSizeTooBig
                 | InvalidSingularParameters => StatusCode::BAD_REQUEST,
                 Find(_) => StatusCode::NOT_FOUND,
