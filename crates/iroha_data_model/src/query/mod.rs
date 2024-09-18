@@ -12,7 +12,7 @@ use iroha_macro::FromVariant;
 use iroha_primitives::{json::JsonString, numeric::Numeric};
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
-use parameters::{ForwardCursor, QueryParams, MAX_FETCH_SIZE};
+use parameters::{ForwardCursor, QueryParams};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -58,7 +58,6 @@ pub trait Query: Sealed {
 
 #[model]
 mod model {
-
     use getset::Getters;
     use iroha_crypto::HashOf;
 
@@ -1001,6 +1000,7 @@ pub mod error {
     #[model]
     mod model {
         use super::*;
+        use crate::query::parameters::MAX_FETCH_SIZE;
 
         /// Query errors.
         #[derive(
@@ -1029,13 +1029,17 @@ pub mod error {
                 #[skip_try_from]
                 String,
             ),
-            /// Unknown query cursor
-            UnknownCursor,
+            /// The server's cursor does not match the provided cursor.
+            CursorMismatch,
+            /// The query has been dropped.
+            Dropped,
+            /// There aren't enough items for the cursor to proceed.
+            CursorDone,
             /// fetch_size could not be greater than {MAX_FETCH_SIZE:?}
             FetchSizeTooBig,
             /// Some of the specified parameters (filter/pagination/fetch_size/sorting) are not applicable to singular queries
             InvalidSingularParameters,
-            /// Reached limit of parallel queries. Either wait for previous queries to complete, or increase the limit in the config.
+            /// Reached the limit of parallel queries. Either wait for previous queries to complete, or increase the limit in the config.
             CapacityLimit,
         }
 
