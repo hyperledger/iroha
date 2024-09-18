@@ -284,7 +284,7 @@ impl LiveQueryStoreHandle {
     ///
     /// # Errors
     ///
-    /// - Returns an [`Error`] if the query id is not found, 
+    /// - Returns an [`Error`] if the query id is not found,
     ///   or if cursor position doesn't match or cannot continue.
     pub fn handle_iter_continue(
         &self,
