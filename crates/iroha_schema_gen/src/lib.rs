@@ -567,6 +567,8 @@ pub mod complete_data_model {
 
 #[cfg(test)]
 mod tests {
+    use iroha_schema::MetaMapEntry;
+
     use super::{complete_data_model::*, IntoSchema};
 
     fn is_const_generic(generic: &str) -> bool {
@@ -732,7 +734,7 @@ mod tests {
     fn no_missing_referenced_types() {
         let type_names = super::build_schemas()
             .into_iter()
-            .map(|(_, (name, _))| name)
+            .map(|(_, MetaMapEntry { type_id, .. })| type_id)
             .collect();
         let missing_schemas = find_missing_type_params(&type_names);
 

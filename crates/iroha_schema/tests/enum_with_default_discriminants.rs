@@ -25,24 +25,37 @@ fn default_discriminants() {
     let expected = vec![
         (
             TypeId::of::<core::result::Result<bool, alloc::string::String>>(),
-            (
-                "Result<bool, String>".to_owned(),
-                Result(ResultMeta {
+            MetaMapEntry {
+                type_id: "Result<bool, String>".to_owned(),
+                type_name: "Result<bool, String>".to_owned(),
+                metadata: Result(ResultMeta {
                     ok: TypeId::of::<bool>(),
                     err: TypeId::of::<alloc::string::String>(),
                 }),
-            ),
+            },
         ),
         (
             TypeId::of::<alloc::string::String>(),
-            ("String".to_owned(), String),
+            MetaMapEntry {
+                type_id: "String".to_owned(),
+                type_name: "String".to_owned(),
+                metadata: String,
+            },
         ),
-        (TypeId::of::<bool>(), ("bool".to_owned(), Bool)),
+        (
+            TypeId::of::<bool>(),
+            MetaMapEntry {
+                type_id: "bool".to_owned(),
+                type_name: "bool".to_owned(),
+                metadata: Bool,
+            },
+        ),
         (
             TypeId::of::<Foo>(),
-            (
-                "Foo".to_owned(),
-                Enum(EnumMeta {
+            MetaMapEntry {
+                type_id: "Foo".to_owned(),
+                type_name: "Foo".to_owned(),
+                metadata: Enum(EnumMeta {
                     variants: vec![
                         EnumVariant {
                             tag: "Variant1".to_owned(),
@@ -68,9 +81,16 @@ fn default_discriminants() {
                         },
                     ],
                 }),
-            ),
+            },
         ),
-        (TypeId::of::<i32>(), ("i32".to_owned(), Int(FixedWidth))),
+        (
+            TypeId::of::<i32>(),
+            MetaMapEntry {
+                type_id: "i32".to_owned(),
+                type_name: "i32".to_owned(),
+                metadata: Int(FixedWidth),
+            },
+        ),
     ]
     .into_iter()
     .collect::<BTreeMap<_, _>>();

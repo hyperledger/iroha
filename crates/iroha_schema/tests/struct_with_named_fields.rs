@@ -40,21 +40,37 @@ fn named_fields() {
     let expected = vec![
         (
             TypeId::of::<alloc::string::String>(),
-            ("String".to_owned(), String),
+            MetaMapEntry {
+                type_id: "String".to_owned(),
+                type_name: "String".to_owned(),
+                metadata: String,
+            },
         ),
         (
             TypeId::of::<alloc::vec::Vec<alloc::string::String>>(),
-            (
-                "Vec<String>".to_owned(),
-                Vec(VecMeta {
+            MetaMapEntry {
+                type_id: "Vec<String>".to_owned(),
+                type_name: "Vec<String>".to_owned(),
+                metadata: Vec(VecMeta {
                     ty: TypeId::of::<alloc::string::String>(),
                 }),
-            ),
+            },
         ),
-        (TypeId::of::<i32>(), ("i32".to_owned(), Int(FixedWidth))),
+        (
+            TypeId::of::<i32>(),
+            MetaMapEntry {
+                type_id: "i32".to_owned(),
+                type_name: "i32".to_owned(),
+                metadata: Int(FixedWidth),
+            },
+        ),
         (
             TypeId::of::<Command>(),
-            ("Command".to_owned(), expected_struct),
+            MetaMapEntry {
+                type_id: "Command".to_owned(),
+                type_name: "Command".to_owned(),
+                metadata: expected_struct,
+            },
         ),
     ]
     .into_iter()

@@ -21,14 +21,29 @@ fn check_generic() {
         }],
     });
     let expected = vec![
-        (TypeId::of::<bool>(), ("bool".to_owned(), Bool)),
+        (
+            TypeId::of::<bool>(),
+            MetaMapEntry {
+                type_id: "bool".to_owned(),
+                type_name: "bool".to_owned(),
+                metadata: Bool,
+            },
+        ),
         (
             TypeId::of::<core::option::Option<bool>>(),
-            ("Option<bool>".to_owned(), Option(TypeId::of::<bool>())),
+            MetaMapEntry {
+                type_id: "Option<bool>".to_owned(),
+                type_name: "Option<bool>".to_owned(),
+                metadata: Option(TypeId::of::<bool>()),
+            },
         ),
         (
             TypeId::of::<Foo<bool>>(),
-            ("Foo<bool>".to_owned(), expected_struct),
+            MetaMapEntry {
+                type_id: "Foo<bool>".to_owned(),
+                type_name: "Foo<bool>".to_owned(),
+                metadata: expected_struct,
+            },
         ),
     ]
     .into_iter()
