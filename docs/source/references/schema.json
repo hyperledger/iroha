@@ -3080,11 +3080,11 @@
         "type": "String"
       },
       {
-        "tag": "CursorMismatch",
+        "tag": "NotFound",
         "discriminant": 2
       },
       {
-        "tag": "Dropped",
+        "tag": "CursorMismatch",
         "discriminant": 3
       },
       {
