@@ -175,7 +175,7 @@ mod model {
         #[getset(skip)]
         pub value: SignedTransaction,
         /// Reason of rejection
-        pub error: Option<error::TransactionRejectionReason>,
+        pub error: Option<Box<error::TransactionRejectionReason>>,
     }
 }
 

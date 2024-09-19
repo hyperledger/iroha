@@ -232,7 +232,7 @@ mod pending {
                         );
                         CommittedTransaction {
                             value: tx,
-                            error: Some(error),
+                            error: Some(Box::new(error)),
                         }
                     }
                 })
