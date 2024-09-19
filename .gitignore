@@ -51,3 +51,4 @@ result
 /lcov.info
 test_docker
 **/*.wasm
+.iroha_test_network_run.json*

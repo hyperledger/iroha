@@ -1,11 +1,10 @@
-use std::thread;
+// use std::thread;
 
 use eyre::Result;
 use iroha::{
     client,
     data_model::{parameter::BlockParameter, prelude::*},
 };
-use iroha_config::parameters::actual::Root as Config;
 use iroha_test_network::*;
 use iroha_test_samples::gen_account_in;
 use nonzero_ext::nonzero;
@@ -16,13 +15,15 @@ use nonzero_ext::nonzero;
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
 ) -> Result<()> {
     // Given
-    let (_rt, network, client) = Network::start_test_with_runtime(4, Some(10_450));
-    wait_for_genesis_committed(&network.clients(), 0);
-    let pipeline_time = Config::pipeline_time();
-
-    client.submit_blocking(SetParameter::new(Parameter::Block(
-        BlockParameter::MaxTransactions(nonzero!(1_u64)),
-    )))?;
+    let (network, rt) = NetworkBuilder::new()
+        .with_peers(4)
+        .with_genesis_instruction(SetParameter::new(Parameter::Block(
+            BlockParameter::MaxTransactions(nonzero!(1_u64)),
+        )))
+        .start_blocking()?;
+    let mut peers = network.peers().iter();
+    let peer_a = peers.next().unwrap();
+    let peer_b = peers.next().unwrap();
 
     let create_domain = Register::domain(Domain::new("domain".parse()?));
     let (account_id, _account_keypair) = gen_account_in("domain");
@@ -30,32 +31,30 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     let asset_definition_id = "xor#domain".parse::<AssetDefinitionId>()?;
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    client.submit_all::<InstructionBox>([
+    peer_a.client().submit_all_blocking::<InstructionBox>([
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
     ])?;
-    thread::sleep(pipeline_time * 3);
-    //When
+
+    // When
     let quantity = numeric!(200);
-    client.submit(Mint::asset_numeric(
+    peer_a.client().submit_blocking(Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     ))?;
-    thread::sleep(pipeline_time);
+    rt.block_on(async { network.ensure_blocks(3).await })?;
 
-    //Then
-    let peer = network.peers.values().last().unwrap();
-    client::Client::test(&peer.api_address).poll(|client| {
-        let assets = client
-            .query(client::asset::all())
-            .filter_with(|asset| asset.id.account.eq(account_id))
-            .execute_all()?;
+    // Then
+    let asset = peer_b
+        .client()
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(account_id))
+        .execute_all()?
+        .into_iter()
+        .find(|asset| *asset.id().definition() == asset_definition_id)
+        .expect("should be");
+    assert_eq!(*asset.value(), AssetValue::Numeric(quantity));
 
-        Ok(assets.iter().any(|asset| {
-            *asset.id().definition() == asset_definition_id
-                && *asset.value() == AssetValue::Numeric(quantity)
-        }))
-    })?;
     Ok(())
 }

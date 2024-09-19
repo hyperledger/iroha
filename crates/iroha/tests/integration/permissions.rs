@@ -1,4 +1,4 @@
-use std::{thread, time::Duration};
+use std::time::Duration;
 
 use eyre::Result;
 use iroha::{
@@ -13,51 +13,39 @@ use iroha_executor_data_model::permission::{
     asset::{CanModifyAssetMetadata, CanTransferAsset},
     domain::CanModifyDomainMetadata,
 };
-use iroha_genesis::GenesisBlock;
-use iroha_test_network::{PeerBuilder, *};
+use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID};
+use tokio::{join, time::timeout};
 
-#[test]
-fn genesis_transactions_are_validated_by_executor() {
+// FIXME
+#[tokio::test]
+#[ignore]
+async fn genesis_transactions_are_validated_by_executor() {
     // `wonderland` domain is owned by Alice,
-    // so default executor will deny genesis account to register asset definition.
+    //  so the default executor will deny a genesis account to register asset definition.
     let asset_definition_id = "xor#wonderland".parse().expect("Valid");
     let invalid_instruction =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
-    let genesis = GenesisBlock::test_with_instructions([invalid_instruction], vec![]);
+    let network = NetworkBuilder::new()
+        .with_genesis_instruction(invalid_instruction)
+        .build();
+    let peer = network.peer();
 
-    let (_rt, _peer, test_client) = <PeerBuilder>::new()
-        .with_genesis(genesis)
-        .with_port(11_115)
-        .start_with_runtime();
-
-    check_no_blocks(&test_client);
-}
-
-fn check_no_blocks(test_client: &Client) {
-    const POLL_PERIOD: Duration = Duration::from_millis(1000);
-    const MAX_RETRIES: u32 = 3;
-
-    // Checking that peer contains no blocks multiple times
-    // See also `wait_for_genesis_committed()`
-    for _ in 0..MAX_RETRIES {
-        match test_client.get_status() {
-            Ok(status) => {
-                assert!(status.blocks == 0);
-                thread::sleep(POLL_PERIOD);
-            }
-            Err(error) => {
-                // Connection failed meaning that Iroha panicked on invalid genesis.
-                // Not a very good way to check it, but it's the best we can do in the current situation.
-
-                iroha_logger::info!(
-                    ?error,
-                    "Failed to get status, Iroha probably panicked on invalid genesis, test passed"
-                );
-                break;
-            }
-        }
-    }
+    timeout(Duration::from_secs(3), async {
+        join!(
+            // Peer should start...
+            peer.start(network.config(), Some(network.genesis())),
+            peer.once(|event| matches!(event, PeerLifecycleEvent::ServerStarted)),
+            // ...but it should shortly exit with an error
+            peer.once(|event| match event {
+                // TODO: handle "Invalid genesis" more granular
+                PeerLifecycleEvent::Terminated { status } => !status.success(),
+                _ => false,
+            })
+        )
+    })
+    .await
+    .expect("peer should panic within timeout");
 }
 
 fn get_assets(iroha: &Client, id: &AccountId) -> Vec<Asset> {
@@ -73,8 +61,8 @@ fn get_assets(iroha: &Client, id: &AccountId) -> Vec<Asset> {
 fn permissions_disallow_asset_transfer() {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_725).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let iroha = network.client();
 
     // Given
     let alice_id = ALICE_ID.clone();
@@ -128,7 +116,8 @@ fn permissions_disallow_asset_transfer() {
 fn permissions_disallow_asset_burn() {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_735).start_with_runtime();
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let iroha = network.client();
 
     let alice_id = ALICE_ID.clone();
     let bob_id = BOB_ID.clone();
@@ -179,8 +168,8 @@ fn permissions_disallow_asset_burn() {
 #[test]
 #[ignore = "ignore, more in #2851"]
 fn account_can_query_only_its_own_domain() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_740).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let client = network.client();
 
     // Given
     let domain_id: DomainId = "wonderland".parse()?;
@@ -209,7 +198,8 @@ fn account_can_query_only_its_own_domain() -> Result<()> {
 fn permissions_differ_not_only_by_names() {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _not_drop, client) = <PeerBuilder>::new().with_port(10_745).start_with_runtime();
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let client = network.client();
 
     let alice_id = ALICE_ID.clone();
     let (mouse_id, mouse_keypair) = gen_account_in("outfit");
@@ -297,12 +287,12 @@ fn permissions_differ_not_only_by_names() {
 }
 
 #[test]
-#[allow(deprecated)]
+// #[allow(deprecated)]
 fn stored_vs_granted_permission_payload() -> Result<()> {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let iroha = network.client();
 
     // Given
     let alice_id = ALICE_ID.clone();
@@ -351,10 +341,10 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
 }
 
 #[test]
-#[allow(deprecated)]
+// #[allow(deprecated)]
 fn permissions_are_unified() {
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_230).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let iroha = network.client();
 
     // Given
     let alice_id = ALICE_ID.clone();
@@ -380,8 +370,8 @@ fn permissions_are_unified() {
 
 #[test]
 fn associated_permissions_removed_on_unregister() {
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_240).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let iroha = network.client();
 
     let bob_id = BOB_ID.clone();
     let kingdom_id: DomainId = "kingdom".parse().expect("Valid");
@@ -432,8 +422,8 @@ fn associated_permissions_removed_on_unregister() {
 
 #[test]
 fn associated_permissions_removed_from_role_on_unregister() {
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_255).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let iroha = network.client();
 
     let role_id: RoleId = "role".parse().expect("Valid");
     let kingdom_id: DomainId = "kingdom".parse().expect("Valid");

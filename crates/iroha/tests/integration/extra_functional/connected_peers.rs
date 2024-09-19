@@ -1,130 +1,127 @@
-use std::thread;
+use std::iter::once;
 
-use eyre::{Context, Result};
-use iroha::{
-    client::Client,
-    data_model::{
-        isi::{Register, Unregister},
-        peer::Peer as DataModelPeer,
-    },
+use assert_matches::assert_matches;
+use eyre::Result;
+use futures_util::{stream::FuturesUnordered, StreamExt};
+use iroha::data_model::{
+    isi::{Register, Unregister},
+    peer::Peer,
 };
-use iroha_config::parameters::actual::Root as Config;
-use iroha_primitives::unique_vec;
+use iroha_config_base::toml::WriteExt;
 use iroha_test_network::*;
-use rand::{seq::SliceRandom, thread_rng, Rng};
-use tokio::runtime::Runtime;
+use rand::{prelude::IteratorRandom, seq::SliceRandom, thread_rng};
+use tokio::{task::spawn_blocking, time::timeout};
 
-#[ignore = "ignore, more in #2851"]
-#[test]
-fn connected_peers_with_f_2_1_2() -> Result<()> {
-    connected_peers_with_f(2, Some(11_020))
+#[tokio::test]
+async fn connected_peers_with_f_2_1_2() -> Result<()> {
+    connected_peers_with_f(2).await
 }
 
-#[test]
-fn connected_peers_with_f_1_0_1() -> Result<()> {
-    connected_peers_with_f(1, Some(11_000))
+#[tokio::test]
+async fn connected_peers_with_f_1_0_1() -> Result<()> {
+    connected_peers_with_f(1).await
 }
 
-#[test]
-fn register_new_peer() -> Result<()> {
-    let (_rt, network, _) = Network::start_test_with_runtime(4, Some(11_180));
-    wait_for_genesis_committed(&network.clients(), 0);
-    let pipeline_time = Config::pipeline_time();
+#[tokio::test]
+async fn register_new_peer() -> Result<()> {
+    let network = NetworkBuilder::new().with_peers(4).start().await?;
 
-    let mut peer_clients: Vec<_> = Network::peers(&network)
-        .zip(Network::clients(&network))
-        .collect();
+    let peer = NetworkPeer::generate();
+    peer.start(
+        network
+            .config()
+            // only one random peer
+            .write(["sumeragi", "trusted_peers"], [network.peer().id()]),
+        None,
+    )
+    .await;
 
-    check_status(&peer_clients, 1);
+    let register = Register::peer(Peer::new(peer.id()));
+    let client = network.client();
+    spawn_blocking(move || client.submit_blocking(register)).await??;
 
-    // Start new peer
-    let mut configuration = Config::test();
-    configuration.sumeragi.trusted_peers.value_mut().others =
-        unique_vec![peer_clients.choose(&mut thread_rng()).unwrap().0.id.clone()];
-    let rt = Runtime::test();
-    let new_peer = rt.block_on(
-        PeerBuilder::new()
-            .with_config(configuration)
-            .with_into_genesis(WithGenesis::None)
-            .with_port(11_225)
-            .start(),
-    );
-
-    let register_peer = Register::peer(DataModelPeer::new(new_peer.id.clone()));
-    peer_clients
-        .choose(&mut thread_rng())
-        .unwrap()
-        .1
-        .submit_blocking(register_peer)?;
-    peer_clients.push((&new_peer, Client::test(&new_peer.api_address)));
-    thread::sleep(pipeline_time * 2 * 20); // Wait for some time to allow peers to connect
-
-    check_status(&peer_clients, 2);
+    timeout(network.sync_timeout(), peer.once_block(2)).await?;
 
     Ok(())
 }
 
 /// Test the number of connected peers, changing the number of faults tolerated down and up
-fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
+// Note: sometimes fails due to https://github.com/hyperledger/iroha/issues/5104
+async fn connected_peers_with_f(faults: usize) -> Result<()> {
     let n_peers = 3 * faults + 1;
 
-    let (_rt, network, _) = Network::start_test_with_runtime(
-        (n_peers)
-            .try_into()
-            .wrap_err("`faults` argument `u64` value too high, cannot convert to `u32`")?,
-        start_port,
-    );
-    wait_for_genesis_committed(&network.clients(), 0);
-    let pipeline_time = Config::pipeline_time();
+    let network = NetworkBuilder::new().with_peers(n_peers).start().await?;
 
-    let mut peer_clients: Vec<_> = Network::peers(&network)
-        .zip(Network::clients(&network))
-        .collect();
+    assert_peers_status(network.peers().iter(), 1, n_peers as u64 - 1).await;
 
-    check_status(&peer_clients, 1);
+    let mut randomized_peers = network
+        .peers()
+        .iter()
+        .choose_multiple(&mut thread_rng(), n_peers);
+    let removed_peer = randomized_peers.remove(0);
 
     // Unregister a peer: committed with f = `faults` then `status.peers` decrements
-    let removed_peer_idx = rand::thread_rng().gen_range(0..peer_clients.len());
-    let (removed_peer, _) = &peer_clients[removed_peer_idx];
-    let unregister_peer = Unregister::peer(removed_peer.id.clone());
-    peer_clients
-        .choose(&mut thread_rng())
-        .unwrap()
-        .1
-        .submit_blocking(unregister_peer)?;
-    thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to connect
-    let (removed_peer, removed_peer_client) = peer_clients.remove(removed_peer_idx);
+    let client = randomized_peers.choose(&mut thread_rng()).unwrap().client();
+    let unregister_peer = Unregister::peer(removed_peer.id());
+    spawn_blocking(move || client.submit_blocking(unregister_peer)).await??;
+    timeout(
+        network.sync_timeout(),
+        randomized_peers
+            .iter()
+            .map(|peer| peer.once_block(2))
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+    assert_peers_status(randomized_peers.iter().copied(), 2, n_peers as u64 - 2).await;
 
-    thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to disconnect
-
-    check_status(&peer_clients, 2);
-    let status = removed_peer_client.get_status()?;
+    let status = removed_peer.status().await?;
     // Peer might have been disconnected before getting the block
-    assert!(status.blocks == 1 || status.blocks == 2);
+    assert_matches!(status.blocks, 1 | 2);
     assert_eq!(status.peers, 0);
 
     // Re-register the peer: committed with f = `faults` - 1 then `status.peers` increments
-    let register_peer = Register::peer(DataModelPeer::new(removed_peer.id.clone()));
-    peer_clients
+    let register_peer = Register::peer(Peer::new(removed_peer.id()));
+    let client = randomized_peers
+        .iter()
         .choose(&mut thread_rng())
         .unwrap()
-        .1
-        .submit_blocking(register_peer)?;
-    peer_clients.insert(removed_peer_idx, (removed_peer, removed_peer_client));
-    thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to connect
+        .client();
+    spawn_blocking(move || client.submit_blocking(register_peer)).await??;
+    network.ensure_blocks(3).await?;
 
-    check_status(&peer_clients, 3);
+    assert_peers_status(
+        randomized_peers.iter().copied().chain(once(removed_peer)),
+        3,
+        n_peers as u64 - 1,
+    )
+    .await;
 
     Ok(())
 }
 
-fn check_status(peer_clients: &[(&Peer, Client)], expected_blocks: u64) {
-    let n_peers = peer_clients.len() as u64;
-
-    for (_, peer_client) in peer_clients {
-        let status = peer_client.get_status().unwrap();
-
-        assert_eq!(status.peers, n_peers - 1);
-        assert_eq!(status.blocks, expected_blocks);
-    }
+async fn assert_peers_status(
+    peers: impl Iterator<Item = &NetworkPeer> + Send,
+    expected_blocks: u64,
+    expected_peers: u64,
+) {
+    peers
+        .map(|peer| async {
+            let status = peer.status().await.expect("peer should be able to reply");
+            assert_eq!(
+                status.peers,
+                expected_peers,
+                "unexpected peers for {}",
+                peer.id()
+            );
+            assert_eq!(
+                status.blocks,
+                expected_blocks,
+                "expected blocks for {}",
+                peer.id()
+            );
+        })
+        .collect::<FuturesUnordered<_>>()
+        .collect::<Vec<_>>()
+        .await;
 }

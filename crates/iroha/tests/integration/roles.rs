@@ -11,8 +11,8 @@ use serde_json::json;
 
 #[test]
 fn register_empty_role() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_695).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let role_id = "root".parse().expect("Valid");
     let register_role = Register::role(Role::new(role_id, ALICE_ID.clone()));
@@ -33,10 +33,8 @@ fn register_empty_role() -> Result<()> {
 /// @s8sato added: This test represents #2081 case.
 #[test]
 fn register_and_grant_role_for_metadata_access() -> Result<()> {
-    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_700).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let alice_id = ALICE_ID.clone();
     let (mouse_id, mouse_keypair) = gen_account_in("wonderland");
@@ -56,7 +54,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
     // Mouse grants role to Alice
     let grant_role = Grant::account_role(role_id.clone(), alice_id.clone());
-    let grant_role_tx = TransactionBuilder::new(chain_id, mouse_id.clone())
+    let grant_role_tx = TransactionBuilder::new(network.chain_id(), mouse_id.clone())
         .with_instructions([grant_role])
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&grant_role_tx)?;
@@ -80,8 +78,8 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
 #[test]
 fn unregistered_role_removed_from_account() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_705).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let role_id: RoleId = "root".parse().expect("Valid");
     let alice_id = ALICE_ID.clone();
@@ -123,8 +121,8 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
 #[test]
 fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_025).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let role_id = "ACCESS_TO_ACCOUNT_METADATA".parse()?;
     let role = Role::new(role_id, ALICE_ID.clone()).add_permission(CanControlDomainLives);
@@ -150,8 +148,8 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
 // so that they don't get deduplicated eagerly but rather in the executor
 // This way, if the executor compares permissions just as JSON strings, the test will fail
 fn role_permissions_are_deduplicated() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_235).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let test_client = network.client();
 
     let allow_alice_to_transfer_rose_1 = Permission::new(
         "CanTransferAsset".parse().unwrap(),
@@ -189,10 +187,8 @@ fn role_permissions_are_deduplicated() {
 
 #[test]
 fn grant_revoke_role_permissions() -> Result<()> {
-    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_245).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let alice_id = ALICE_ID.clone();
     let (mouse_id, mouse_keypair) = gen_account_in("wonderland");
@@ -214,7 +210,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
 
     // Mouse grants role to Alice
     let grant_role = Grant::account_role(role_id.clone(), alice_id.clone());
-    let grant_role_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
+    let grant_role_tx = TransactionBuilder::new(network.chain_id(), mouse_id.clone())
         .with_instructions([grant_role])
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&grant_role_tx)?;
@@ -246,7 +242,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
         .expect_err("shouldn't be able to modify metadata");
 
     // Alice can modify Mouse's metadata after permission is granted to role
-    let grant_role_permission_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
+    let grant_role_permission_tx = TransactionBuilder::new(network.chain_id(), mouse_id.clone())
         .with_instructions([grant_role_permission])
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&grant_role_permission_tx)?;
@@ -258,7 +254,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
     test_client.submit_blocking(set_key_value.clone())?;
 
     // Alice can't modify Mouse's metadata after permission is removed from role
-    let revoke_role_permission_tx = TransactionBuilder::new(chain_id.clone(), mouse_id)
+    let revoke_role_permission_tx = TransactionBuilder::new(network.chain_id(), mouse_id)
         .with_instructions([revoke_role_permission])
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&revoke_role_permission_tx)?;

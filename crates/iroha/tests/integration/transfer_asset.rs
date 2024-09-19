@@ -21,14 +21,14 @@ fn simulate_transfer_numeric() {
         AssetDefinition::numeric,
         Mint::asset_numeric,
         Transfer::asset_numeric,
-        10_710,
     )
 }
 
 #[test]
 fn simulate_transfer_store_asset() {
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(11_145).start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let iroha = network.client();
+
     let (alice_id, mouse_id) = generate_two_ids();
     let create_mouse = create_mouse(mouse_id.clone());
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().unwrap();
@@ -55,19 +55,17 @@ fn simulate_transfer_store_asset() {
     );
 
     iroha
-        .submit(transfer_asset)
+        .submit_blocking(transfer_asset)
         .expect("Failed to transfer asset.");
-    iroha
-        .poll(|client| {
-            let assets = client
-                .query(client::asset::all())
-                .filter_with(|asset| asset.id.account.eq(mouse_id.clone()))
-                .execute_all()?;
-            Ok(assets.iter().any(|asset| {
-                *asset.id().definition() == asset_definition_id && *asset.id().account() == mouse_id
-            }))
-        })
-        .expect("Test case failure.");
+    assert!(iroha
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(mouse_id.clone()))
+        .execute_all()
+        .unwrap()
+        .into_iter()
+        .any(|asset| {
+            *asset.id().definition() == asset_definition_id && *asset.id().account() == mouse_id
+        }));
 }
 
 fn simulate_transfer<T>(
@@ -76,16 +74,13 @@ fn simulate_transfer<T>(
     asset_definition_ctr: impl FnOnce(AssetDefinitionId) -> <AssetDefinition as Registered>::With,
     mint_ctr: impl FnOnce(T, AssetId) -> Mint<T, Asset>,
     transfer_ctr: impl FnOnce(AssetId, T, AccountId) -> Transfer<Asset, T, Account>,
-    port_number: u16,
 ) where
     T: std::fmt::Debug + Clone + Into<AssetValue>,
     Mint<T, Asset>: Instruction,
     Transfer<Asset, T, Account>: Instruction,
 {
-    let (_rt, _peer, iroha) = <PeerBuilder>::new()
-        .with_port(port_number)
-        .start_with_runtime();
-    wait_for_genesis_committed(&[iroha.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let iroha = network.client();
 
     let (alice_id, mouse_id) = generate_two_ids();
     let create_mouse = create_mouse(mouse_id.clone());
@@ -114,22 +109,19 @@ fn simulate_transfer<T>(
         mouse_id.clone(),
     );
     iroha
-        .submit(transfer_asset)
+        .submit_blocking(transfer_asset)
         .expect("Failed to transfer asset.");
-    iroha
-        .poll(|client| {
-            let assets = client
-                .query(client::asset::all())
-                .filter_with(|asset| asset.id.account.eq(mouse_id.clone()))
-                .execute_all()?;
-
-            Ok(assets.iter().any(|asset| {
-                *asset.id().definition() == asset_definition_id
-                    && *asset.value() == amount_to_transfer.clone().into()
-                    && *asset.id().account() == mouse_id
-            }))
-        })
-        .expect("Test case failure.");
+    assert!(iroha
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(mouse_id.clone()))
+        .execute_all()
+        .unwrap()
+        .into_iter()
+        .any(|asset| {
+            *asset.id().definition() == asset_definition_id
+                && *asset.value() == amount_to_transfer.clone().into()
+                && *asset.id().account() == mouse_id
+        }));
 }
 
 fn generate_two_ids() -> (AccountId, AccountId) {

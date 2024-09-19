@@ -8,8 +8,8 @@ use nonzero_ext::nonzero;
 
 #[test]
 fn limits_should_work() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_690).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     register_assets(&client)?;
 
@@ -26,8 +26,8 @@ fn limits_should_work() -> Result<()> {
 
 #[test]
 fn reported_length_should_be_accurate() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_200).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     register_assets(&client)?;
 
@@ -60,8 +60,8 @@ fn fetch_size_should_work() -> Result<()> {
         QueryWithFilter, QueryWithParams,
     };
 
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_120).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     register_assets(&client)?;
 

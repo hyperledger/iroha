@@ -8,8 +8,8 @@ use iroha_test_samples::load_sample_wasm;
 
 #[test]
 fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_140).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     let transaction = client.build_transaction(
         load_sample_wasm("query_assets_and_save_cursor"),
@@ -38,8 +38,8 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
 
 #[test]
 fn smart_contract_can_filter_queries() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_260).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     let transaction = client.build_transaction(
         load_sample_wasm("smart_contract_can_filter_queries"),
