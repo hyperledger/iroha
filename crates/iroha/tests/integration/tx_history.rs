@@ -1,22 +1,16 @@
-use std::thread;
-
 use eyre::Result;
 use iroha::{
     client::transaction,
     data_model::{prelude::*, query::parameters::Pagination},
 };
-use iroha_config::parameters::actual::Root as Config;
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
 use nonzero_ext::nonzero;
 
-#[ignore = "ignore, more in #2851"]
 #[test]
-fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_715).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
-
-    let pipeline_time = Config::pipeline_time();
+fn client_has_rejected_and_accepted_txs_should_return_tx_history() -> Result<()> {
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -44,9 +38,8 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
         };
         let instructions: Vec<InstructionBox> = vec![mint_asset.clone().into()];
         let transaction = client.build_transaction(instructions, Metadata::default());
-        client.submit_transaction(&transaction)?;
+        let _ = client.submit_transaction_blocking(&transaction);
     }
-    thread::sleep(pipeline_time * 5);
 
     let transactions = client
         .query(transaction::all())

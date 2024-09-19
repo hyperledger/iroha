@@ -158,7 +158,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
 mod internal {
     //! Internal implementation of [`Builder`](super::Builder).
 
-    use std::borrow::Cow;
+    use std::{borrow::Cow, process::Stdio};
 
     use super::*;
 
@@ -208,6 +208,7 @@ mod internal {
             let mut command = cargo_command();
             command
                 .current_dir(&self.absolute_path)
+                .stderr(Stdio::inherit())
                 .arg(cmd)
                 .args(Self::build_options());
 
@@ -360,18 +361,22 @@ impl Output {
 }
 
 // TODO: Remove cargo invocation (#2152)
+#[allow(unreachable_code, unused)]
 fn cargo_command() -> Command {
+    const INSTRUMENT_COVERAGE_FLAG: &str = "instrument-coverage";
+    for var in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {
+        if let Some(value) = env::var(var).ok() {
+            if value.contains(INSTRUMENT_COVERAGE_FLAG) {
+                eprintln!("WARNING: found `{INSTRUMENT_COVERAGE_FLAG}` rustc flag in `{var}` environment variable\n  \
+                           This directly interferes with `-Z build-std` flag set by `iroha_wasm_builder`\n  \
+                           See https://github.com/rust-lang/wg-cargo-std-aware/issues/68\n  \
+                           Further execution of `cargo` will most probably fail with `could not find profiler-builtins` error");
+            }
+        }
+    }
+
     let mut cargo = Command::new("cargo");
-    cargo
-        // Removing environment variable to avoid
-        // `error: infinite recursion detected` when running `cargo lints`
-        .env_remove("RUST_RECURSION_COUNT")
-        // Removing environment variable to avoid
-        // `error: `profiler_builtins` crate (required by compiler options) is not compatible with crate attribute `#![no_core]``
-        // when running with `-C instrument-coverage`
-        // TODO: Check if there are no problems with that
-        .env_remove("CARGO_ENCODED_RUSTFLAGS")
-        .args([TOOLCHAIN]);
+    cargo.arg(TOOLCHAIN);
     cargo
 }
 

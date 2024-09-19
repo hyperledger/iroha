@@ -140,7 +140,7 @@ impl TrustedPeers {
 impl Sumeragi {
     /// Tells whether a trusted peers list has some other peers except for the peer itself
     pub fn contains_other_trusted_peers(&self) -> bool {
-        self.trusted_peers.value().others.len() > 1
+        !self.trusted_peers.value().others.is_empty()
     }
 }
 

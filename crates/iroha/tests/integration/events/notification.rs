@@ -1,14 +1,15 @@
-use std::{sync::mpsc, thread, time::Duration};
+use std::time::Duration;
 
-use eyre::{eyre, Result, WrapErr};
+use eyre::Result;
+use futures_util::StreamExt;
 use iroha::data_model::prelude::*;
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
+use tokio::{task::spawn_blocking, time::timeout};
 
-#[test]
-fn trigger_completion_success_should_produce_event() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_050).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+#[tokio::test]
+async fn trigger_completion_success_should_produce_event() -> Result<()> {
+    let network = NetworkBuilder::new().start().await?;
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -27,34 +28,28 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
                 .under_authority(asset_id.account().clone()),
         ),
     ));
-    test_client.submit_blocking(register_trigger)?;
+    let client = network.client();
+    spawn_blocking(move || client.submit_blocking(register_trigger)).await??;
 
-    let call_trigger = ExecuteTrigger::new(trigger_id.clone());
+    let mut events = network
+        .client()
+        .listen_for_events_async([TriggerCompletedEventFilter::new()
+            .for_trigger(trigger_id.clone())
+            .for_outcome(TriggerCompletedOutcomeType::Success)])
+        .await?;
 
-    let thread_client = test_client.clone();
-    let (sender, receiver) = mpsc::channel();
-    let _handle = thread::spawn(move || -> Result<()> {
-        let mut event_it = thread_client.listen_for_events([TriggerCompletedEventFilter::new()
-            .for_trigger(trigger_id)
-            .for_outcome(TriggerCompletedOutcomeType::Success)])?;
-        if event_it.next().is_some() {
-            sender.send(())?;
-            return Ok(());
-        }
-        Err(eyre!("No events emitted"))
-    });
+    let call_trigger = ExecuteTrigger::new(trigger_id);
+    let client = network.client();
+    spawn_blocking(move || client.submit_blocking(call_trigger)).await??;
 
-    test_client.submit(call_trigger)?;
+    let _ = timeout(Duration::from_secs(5), events.next()).await?;
 
-    receiver
-        .recv_timeout(Duration::from_secs(60))
-        .wrap_err("Failed to receive event message")
+    Ok(())
 }
 
-#[test]
-fn trigger_completion_failure_should_produce_event() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_055).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+#[tokio::test]
+async fn trigger_completion_failure_should_produce_event() -> Result<()> {
+    let network = NetworkBuilder::new().start().await?;
 
     let account_id = ALICE_ID.clone();
     let trigger_id = "fail_box".parse::<TriggerId>()?;
@@ -71,26 +66,21 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
                 .under_authority(account_id),
         ),
     ));
-    test_client.submit_blocking(register_trigger)?;
+    let client = network.client();
+    spawn_blocking(move || client.submit_blocking(register_trigger)).await??;
 
-    let call_trigger = ExecuteTrigger::new(trigger_id.clone());
+    let mut events = network
+        .client()
+        .listen_for_events_async([TriggerCompletedEventFilter::new()
+            .for_trigger(trigger_id.clone())
+            .for_outcome(TriggerCompletedOutcomeType::Failure)])
+        .await?;
 
-    let thread_client = test_client.clone();
-    let (sender, receiver) = mpsc::channel();
-    let _handle = thread::spawn(move || -> Result<()> {
-        let mut event_it = thread_client.listen_for_events([TriggerCompletedEventFilter::new()
-            .for_trigger(trigger_id)
-            .for_outcome(TriggerCompletedOutcomeType::Failure)])?;
-        if event_it.next().is_some() {
-            sender.send(())?;
-            return Ok(());
-        }
-        Err(eyre!("No events emitted"))
-    });
+    let call_trigger = ExecuteTrigger::new(trigger_id);
+    let client = network.client();
+    spawn_blocking(move || client.submit_blocking(call_trigger)).await??;
 
-    test_client.submit(call_trigger)?;
+    let _ = timeout(Duration::from_secs(5), events.next()).await?;
 
-    receiver
-        .recv_timeout(Duration::from_secs(60))
-        .wrap_err("Failed to receive event message")
+    Ok(())
 }

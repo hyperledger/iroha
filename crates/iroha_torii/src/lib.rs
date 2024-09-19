@@ -5,7 +5,7 @@
 //! - `telemetry`: enables Status, Metrics, and API Version endpoints
 //! - `schema`: enables Data Model Schema endpoint
 
-use std::{fmt::Debug, net::ToSocketAddrs, sync::Arc, time::Duration};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use axum::{
     extract::{DefaultBodyLimit, WebSocketUpgrade},
@@ -14,8 +14,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use error_stack::IntoReportCompat;
-use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
+use error_stack::ResultExt;
 use iroha_config::{
     base::{util::Bytes, WithOrigin},
     parameters::actual::Torii as Config,
@@ -35,7 +34,7 @@ use iroha_data_model::ChainId;
 use iroha_futures::supervisor::ShutdownSignal;
 use iroha_primitives::addr::SocketAddr;
 use iroha_torii_const::uri;
-use tokio::{net::TcpListener, task};
+use tokio::net::TcpListener;
 use tower_http::{
     timeout::TimeoutLayer,
     trace::{DefaultMakeSpan, TraceLayer},
@@ -239,79 +238,28 @@ impl Torii {
         ))
     }
 
-    /// Start main API endpoints.
-    ///
-    /// # Errors
-    /// Can fail due to listening to network or if http server fails
-    async fn start_api(
-        self: Arc<Self>,
-        shutdown_signal: &ShutdownSignal,
-    ) -> eyre::Result<Vec<task::JoinHandle<eyre::Result<()>>>> {
-        let torii_address = self.address.value();
-
-        let handles = torii_address
-            .to_socket_addrs()?
-            .map(TcpListener::bind)
-            .collect::<FuturesUnordered<_>>()
-            .try_collect::<Vec<TcpListener>>()
-            .await?
-            .into_iter()
-            .map(|listener| {
-                let signal = shutdown_signal.clone();
-                let signal = async move { signal.receive().await };
-                let torii = Arc::clone(&self);
-                let api_router = torii.create_api_router();
-
-                let serve_fut = async move {
-                    axum::serve(listener, api_router)
-                        .with_graceful_shutdown(signal)
-                        .await
-                        .map_err(eyre::Report::from)
-                };
-                task::spawn(serve_fut)
-            })
-            .collect();
-
-        Ok(handles)
-    }
-
     /// To handle incoming requests `Torii` should be started first.
     ///
     /// # Errors
     /// Can fail due to listening to network or if http server fails
-    #[iroha_futures::telemetry_future]
-    pub async fn start(
-        self,
-        shutdown_signal: &ShutdownSignal,
-    ) -> error_stack::Result<impl core::future::Future<Output = ()>, eyre::Report> {
-        let torii = Arc::new(self);
-        let mut handles = vec![];
+    // #[iroha_futures::telemetry_future]
+    pub async fn start(self, shutdown_signal: ShutdownSignal) -> error_stack::Result<(), Error> {
+        let torii_address = self.address.value().clone();
 
-        handles.extend(
-            Arc::clone(&torii)
-                .start_api(shutdown_signal)
-                .await
-                .into_report()
-                .map_err(|err| err.attach_printable(torii.address.clone().into_attachment()))?,
-        );
+        let listener = match torii_address {
+            SocketAddr::Ipv4(v) => TcpListener::bind(std::net::SocketAddr::V4(v.into())).await,
+            SocketAddr::Ipv6(v) => TcpListener::bind(std::net::SocketAddr::V6(v.into())).await,
+            SocketAddr::Host(v) => TcpListener::bind((v.host.as_ref(), v.port)).await,
+        }
+        .change_context(Error::StartServer)
+        .attach_printable("failed to bind to the specified address")
+        .attach_printable_lazy(|| self.address.clone().into_attachment())?;
+        let api_router = self.create_api_router();
 
-        let run = handles
-            .into_iter()
-            .collect::<FuturesUnordered<_>>()
-            .for_each(|handle| {
-                match handle {
-                    Err(error) => {
-                        iroha_logger::error!(%error, "Join handle error");
-                    }
-                    Ok(Err(error)) => {
-                        iroha_logger::error!(%error, "Error while running torii");
-                    }
-                    _ => {}
-                }
-                futures::future::ready(())
-            });
-
-        Ok(run)
+        axum::serve(listener, api_router)
+            .with_graceful_shutdown(async move { shutdown_signal.receive().await })
+            .await
+            .change_context(Error::FailedExit)
     }
 }
 
@@ -339,6 +287,10 @@ pub enum Error {
     ConfigurationFailure(#[from] KisoError),
     /// Failed to find status segment by provided path
     StatusSegmentNotFound(#[source] eyre::Report),
+    /// Failed to start Torii
+    StartServer,
+    /// Torii server terminated with an error
+    FailedExit,
 }
 
 impl IntoResponse for Error {
@@ -367,6 +319,7 @@ impl Error {
             #[cfg(feature = "profiling")]
             Pprof(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ConfigurationFailure(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            StartServer | FailedExit => unreachable!("these never occur during request handling"),
         }
     }
 

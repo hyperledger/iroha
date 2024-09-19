@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use executor_custom_data_model::permissions::CanControlDomainLives;
 use eyre::Result;
 use futures_util::TryStreamExt as _;
@@ -11,7 +9,6 @@ use iroha::{
     },
 };
 use iroha_executor_data_model::permission::{domain::CanUnregisterDomain, Permission as _};
-use iroha_logger::info;
 use iroha_test_network::*;
 use iroha_test_samples::{ALICE_ID, BOB_ID};
 use nonzero_ext::nonzero;
@@ -31,8 +28,8 @@ fn executor_upgrade_should_work() -> Result<()> {
         .parse::<iroha::crypto::PrivateKey>()
         .unwrap();
 
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_795).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     // Register `admin` domain and account
     let admin_domain = Domain::new(admin_id.domain().clone());
@@ -55,7 +52,7 @@ fn executor_upgrade_should_work() -> Result<()> {
         .submit_transaction_blocking(&transfer_rose_tx)
         .expect_err("Should fail");
 
-    upgrade_executor(&client, "../../wasm_samples/executor_with_admin")?;
+    upgrade_executor(&client, "executor_with_admin")?;
 
     // Check that admin can transfer alice's rose now
     // Creating new transaction instead of cloning, because we need to update it's creation time
@@ -71,8 +68,8 @@ fn executor_upgrade_should_work() -> Result<()> {
 
 #[test]
 fn executor_upgrade_should_run_migration() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_990).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     // Check that `CanUnregisterDomain` exists
     assert!(client
@@ -95,10 +92,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
             .is_ok_and(|permission| permission == can_unregister_domain)
     }));
 
-    upgrade_executor(
-        &client,
-        "../../wasm_samples/executor_with_custom_permission",
-    )?;
+    upgrade_executor(&client, "executor_with_custom_permission")?;
 
     // Check that `CanUnregisterDomain` doesn't exist
     let data_model = client.query_single(FindExecutorDataModel)?;
@@ -127,8 +121,8 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
 
 #[test]
 fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_030).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     // Permission which will be removed by executor
     let can_unregister_domain = CanUnregisterDomain {
@@ -172,7 +166,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
                 .is_ok_and(|permission| permission == can_unregister_domain)
         }));
 
-    upgrade_executor(&client, "../../wasm_samples/executor_remove_permission")?;
+    upgrade_executor(&client, "executor_remove_permission")?;
 
     // Check that permission doesn't exist
     assert!(!client
@@ -211,13 +205,10 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 fn executor_custom_instructions_simple() -> Result<()> {
     use executor_custom_data_model::simple_isi::MintAssetForAllAccounts;
 
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_270).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
-    upgrade_executor(
-        &client,
-        "../../wasm_samples/executor_custom_instructions_simple",
-    )?;
+    upgrade_executor(&client, "executor_custom_instructions_simple")?;
 
     let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().unwrap();
 
@@ -253,17 +244,14 @@ fn executor_custom_instructions_complex() -> Result<()> {
         ConditionalExpr, CoreExpr, EvaluatesTo, Expression, Greater,
     };
 
-    let (_rt, _peer, client) = PeerBuilder::new().with_port(11_275).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     let executor_fuel_limit = SetParameter::new(Parameter::Executor(SmartContractParameter::Fuel(
         nonzero!(1_000_000_000_u64),
     )));
     client.submit_blocking(executor_fuel_limit)?;
-    upgrade_executor(
-        &client,
-        "../../wasm_samples/executor_custom_instructions_complex",
-    )?;
+    upgrade_executor(&client, "executor_custom_instructions_complex")?;
 
     // Give 6 roses to bob
     let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().unwrap();
@@ -312,8 +300,8 @@ fn executor_custom_instructions_complex() -> Result<()> {
 
 #[test]
 fn migration_fail_should_not_cause_any_effects() {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_980).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let client = network.client();
 
     let assert_domain_does_not_exist = |client: &Client, domain_id: &DomainId| {
         assert!(
@@ -333,7 +321,7 @@ fn migration_fail_should_not_cause_any_effects() {
         "failed_migration_test_domain".parse().expect("Valid");
     assert_domain_does_not_exist(&client, &domain_registered_in_migration);
 
-    let _err = upgrade_executor(&client, "../../wasm_samples/executor_with_migration_fail")
+    let _err = upgrade_executor(&client, "executor_with_migration_fail")
         .expect_err("Upgrade should fail due to migration failure");
 
     // Checking that things registered in migration does not exist after failed migration
@@ -345,8 +333,8 @@ fn migration_fail_should_not_cause_any_effects() {
 
 #[test]
 fn migration_should_cause_upgrade_event() {
-    let (rt, _peer, client) = <PeerBuilder>::new().with_port(10_995).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let client = network.client();
 
     let events_client = client.clone();
     let task = rt.spawn(async move {
@@ -365,11 +353,7 @@ fn migration_should_cause_upgrade_event() {
         }
     });
 
-    upgrade_executor(
-        &client,
-        "../../wasm_samples/executor_with_custom_permission",
-    )
-    .unwrap();
+    upgrade_executor(&client, "executor_with_custom_permission").unwrap();
 
     rt.block_on(async {
         tokio::time::timeout(core::time::Duration::from_secs(60), task)
@@ -383,14 +367,14 @@ fn migration_should_cause_upgrade_event() {
 fn define_custom_parameter() -> Result<()> {
     use executor_custom_data_model::parameters::DomainLimits;
 
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_325).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     let long_domain_name = "0".repeat(2_usize.pow(5)).parse::<DomainId>()?;
     let create_domain = Register::domain(Domain::new(long_domain_name));
     client.submit_blocking(create_domain)?;
 
-    upgrade_executor(&client, "../../wasm_samples/executor_with_custom_parameter").unwrap();
+    upgrade_executor(&client, "executor_with_custom_parameter")?;
 
     let too_long_domain_name = "1".repeat(2_usize.pow(5)).parse::<DomainId>()?;
     let create_domain = Register::domain(Domain::new(too_long_domain_name));
@@ -406,18 +390,8 @@ fn define_custom_parameter() -> Result<()> {
     Ok(())
 }
 
-fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
-    info!("Building executor");
-
-    let wasm = iroha_wasm_builder::Builder::new(executor.as_ref())
-        .show_output()
-        .build()?
-        .optimize()?
-        .into_bytes()?;
-
-    info!("WASM size is {} bytes", wasm.len());
-
-    let upgrade_executor = Upgrade::new(Executor::new(WasmSmartContract::from_compiled(wasm)));
+fn upgrade_executor(client: &Client, executor_wasm_name: impl AsRef<str>) -> Result<()> {
+    let upgrade_executor = Upgrade::new(Executor::new(crate::load_sample_wasm(executor_wasm_name)));
     client.submit_blocking(upgrade_executor)?;
 
     Ok(())

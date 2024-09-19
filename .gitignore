@@ -49,6 +49,6 @@ result
 /test/
 /iroha-java/
 /lcov.info
-**/test-smartcontracts/
 test_docker
 **/*.wasm
+.iroha_test_network_run.json*
