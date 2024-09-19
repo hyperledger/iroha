@@ -22,7 +22,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
-use super::cursor::{QueryBatchedErasedIterator, UnknownCursor};
+use super::cursor::{Error as CursorError, QueryBatchedErasedIterator};
 
 /// Query service error.
 #[derive(
@@ -37,12 +37,14 @@ use super::cursor::{QueryBatchedErasedIterator, UnknownCursor};
     Decode,
 )]
 pub enum Error {
-    /// Unknown cursor error.
+    /// Query not found in the live query store.
+    NotFound,
+    /// Cursor error.
     #[error(transparent)]
-    UnknownCursor(#[from] UnknownCursor),
+    Cursor(#[from] CursorError),
     /// Fetch size is too big.
     FetchSizeTooBig,
-    /// Reached limit of parallel queries. Either wait for previous queries to complete, or increase the limit in the config.
+    /// Reached the limit of parallel queries. Either wait for previous queries to complete, or increase the limit in the config.
     CapacityLimit,
 }
 
@@ -50,7 +52,11 @@ pub enum Error {
 impl From<Error> for QueryExecutionFail {
     fn from(error: Error) -> Self {
         match error {
-            Error::UnknownCursor(_) => QueryExecutionFail::UnknownCursor,
+            Error::NotFound => QueryExecutionFail::NotFound,
+            Error::Cursor(error) => match error {
+                CursorError::Mismatch => QueryExecutionFail::CursorMismatch,
+                CursorError::Done => QueryExecutionFail::CursorDone,
+            },
             Error::FetchSizeTooBig => QueryExecutionFail::FetchSizeTooBig,
             Error::CapacityLimit => QueryExecutionFail::CapacityLimit,
         }
@@ -204,7 +210,7 @@ impl LiveQueryStore {
             mut live_query,
             authority,
             ..
-        } = self.remove(&query_id).ok_or(UnknownCursor)?;
+        } = self.remove(&query_id).ok_or(Error::NotFound)?;
         let (next_batch, next_cursor) = live_query.next_batch(cursor.get())?;
         let remaining = live_query.remaining();
         if next_cursor.is_some() {
@@ -278,7 +284,8 @@ impl LiveQueryStoreHandle {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::UnknownCursor`] if query id not found or cursor position doesn't match.
+    /// - Returns an [`Error`] if the query id is not found,
+    ///   or if cursor position doesn't match or cannot continue.
     pub fn handle_iter_continue(
         &self,
         ForwardCursor { query, cursor }: ForwardCursor,

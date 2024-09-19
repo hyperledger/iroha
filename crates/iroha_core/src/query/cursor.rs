@@ -2,16 +2,34 @@
 
 use std::{fmt::Debug, num::NonZeroU64};
 
-use derive_more::Display;
 use iroha_data_model::query::QueryOutputBatchBox;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+
+/// An error with cursor processing.
+#[derive(
+    Debug,
+    displaydoc::Display,
+    thiserror::Error,
+    Copy,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+)]
+pub enum Error {
+    /// The server's cursor does not match the provided cursor.
+    Mismatch,
+    /// There aren't enough items to proceed.
+    Done,
+}
 
 trait BatchedTrait {
     fn next_batch(
         &mut self,
         cursor: u64,
-    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor>;
+    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), Error>;
     fn remaining(&self) -> u64;
 }
 
@@ -29,15 +47,15 @@ where
     fn next_batch(
         &mut self,
         cursor: u64,
-    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor> {
+    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), Error> {
         let Some(server_cursor) = self.cursor else {
             // the server is done with the iterator
-            return Err(UnknownCursor);
+            return Err(Error::Done);
         };
 
         if cursor != server_cursor {
             // the cursor doesn't match
-            return Err(UnknownCursor);
+            return Err(Error::Mismatch);
         }
 
         let expected_batch_size: usize = self
@@ -83,13 +101,6 @@ where
     }
 }
 
-/// Unknown cursor error.
-///
-/// Happens when client sends a cursor that doesn't match any server's cursor.
-#[derive(Debug, Display, thiserror::Error, Copy, Clone, Serialize, Deserialize, Encode, Decode)]
-#[display(fmt = "Unknown cursor")]
-pub struct UnknownCursor;
-
 /// A query output iterator that combines batching and type erasure.
 pub struct QueryBatchedErasedIterator {
     inner: Box<dyn BatchedTrait + Send + Sync>,
@@ -126,11 +137,11 @@ impl QueryBatchedErasedIterator {
     /// # Errors
     ///
     /// - The cursor doesn't match the server's cursor.
-    /// - The iterator is drained.
+    /// - There aren't enough items for the cursor.
     pub fn next_batch(
         &mut self,
         cursor: u64,
-    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), UnknownCursor> {
+    ) -> Result<(QueryOutputBatchBox, Option<NonZeroU64>), Error> {
         self.inner.next_batch(cursor)
     }
 

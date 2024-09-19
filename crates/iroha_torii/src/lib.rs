@@ -381,9 +381,12 @@ impl Error {
             QueryFailed(query_error)
             | InstructionFailed(InstructionExecutionError::Query(query_error)) => match query_error
             {
-                Conversion(_) | UnknownCursor | FetchSizeTooBig | InvalidSingularParameters => {
-                    StatusCode::BAD_REQUEST
-                }
+                Conversion(_)
+                | CursorMismatch
+                | CursorDone
+                | NotFound
+                | FetchSizeTooBig
+                | InvalidSingularParameters => StatusCode::BAD_REQUEST,
                 Find(_) => StatusCode::NOT_FOUND,
                 CapacityLimit => StatusCode::TOO_MANY_REQUESTS,
             },
