@@ -11,8 +11,8 @@ use iroha_test_samples::{gen_account_in, ALICE_ID};
 #[test]
 #[allow(clippy::too_many_lines)]
 fn find_asset_total_quantity() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_765).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let test_client = network.client();
 
     // Register new domain
     let domain_id: DomainId = "looking_glass".parse()?;

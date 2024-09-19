@@ -3,29 +3,28 @@ use std::{sync::mpsc, thread, time::Duration};
 use executor_custom_data_model::mint_rose_args::MintRoseArgs;
 use eyre::{eyre, Result, WrapErr};
 use iroha::{
-    client::{self, Client},
+    client::{self},
     crypto::KeyPair,
     data_model::{prelude::*, query::error::FindError, transaction::Executable},
 };
 use iroha_data_model::query::{builder::SingleQueryError, trigger::FindTriggers};
 use iroha_executor_data_model::permission::trigger::CanRegisterTrigger;
-use iroha_genesis::GenesisBlock;
-use iroha_logger::info;
-use iroha_test_network::{Peer as TestPeer, *};
+use iroha_test_network::*;
 use iroha_test_samples::{load_sample_wasm, ALICE_ID};
-use tokio::runtime::Runtime;
+
+use crate::integration::triggers::get_asset_value;
 
 const TRIGGER_NAME: &str = "mint_rose";
 
 #[test]
 fn call_execute_trigger() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_005).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id);
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
+    let prev_value = get_asset_value(&test_client, asset_id.clone());
 
     let instruction = Mint::asset_numeric(1u32, asset_id.clone());
     let register_trigger = build_register_trigger_isi(asset_id.account(), vec![instruction.into()]);
@@ -35,7 +34,7 @@ fn call_execute_trigger() -> Result<()> {
     let call_trigger = ExecuteTrigger::new(trigger_id);
     test_client.submit_blocking(call_trigger)?;
 
-    let new_value = get_asset_value(&mut test_client, asset_id);
+    let new_value = get_asset_value(&test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
@@ -43,8 +42,8 @@ fn call_execute_trigger() -> Result<()> {
 
 #[test]
 fn execute_trigger_should_produce_event() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_010).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -79,15 +78,15 @@ fn execute_trigger_should_produce_event() -> Result<()> {
 
 #[test]
 fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_015).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id);
     let trigger_id = TRIGGER_NAME.parse()?;
     let call_trigger = ExecuteTrigger::new(trigger_id);
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
+    let prev_value = get_asset_value(&test_client, asset_id.clone());
 
     let instructions = vec![
         Mint::asset_numeric(1u32, asset_id.clone()).into(),
@@ -98,7 +97,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
 
     test_client.submit_blocking(call_trigger)?;
 
-    let new_value = get_asset_value(&mut test_client, asset_id);
+    let new_value = get_asset_value(&test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
@@ -106,8 +105,8 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
 
 #[test]
 fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_020).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -147,13 +146,13 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     test_client.submit_blocking(register_trigger)?;
 
     // Saving current asset value
-    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone());
+    let prev_asset_value = get_asset_value(&test_client, asset_id.clone());
 
     // Executing bad trigger
     test_client.submit_blocking(ExecuteTrigger::new(bad_trigger_id))?;
 
     // Checking results
-    let new_asset_value = get_asset_value(&mut test_client, asset_id);
+    let new_asset_value = get_asset_value(&test_client, asset_id);
     assert_eq!(
         new_asset_value,
         prev_asset_value.checked_add(Numeric::ONE).unwrap()
@@ -163,8 +162,8 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
 
 #[test]
 fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_025).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -186,7 +185,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     test_client.submit_blocking(register_trigger)?;
 
     // Saving current asset value
-    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone());
+    let prev_asset_value = get_asset_value(&test_client, asset_id.clone());
 
     // Executing trigger first time
     let execute_trigger = ExecuteTrigger::new(trigger_id.clone());
@@ -217,7 +216,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     );
 
     // Checking results
-    let new_asset_value = get_asset_value(&mut test_client, asset_id);
+    let new_asset_value = get_asset_value(&test_client, asset_id);
     assert_eq!(
         new_asset_value,
         prev_asset_value.checked_add(Numeric::ONE).unwrap()
@@ -228,8 +227,8 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
 
 #[test]
 fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_030).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -254,7 +253,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
     test_client.submit_blocking(register_trigger)?;
 
     // Saving current asset value
-    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone());
+    let prev_asset_value = get_asset_value(&test_client, asset_id.clone());
 
     // Executing trigger first time
     let execute_trigger = ExecuteTrigger::new(trigger_id);
@@ -264,7 +263,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
     test_client.submit_blocking(execute_trigger)?;
 
     // Checking results
-    let new_asset_value = get_asset_value(&mut test_client, asset_id);
+    let new_asset_value = get_asset_value(&test_client, asset_id);
     assert_eq!(
         new_asset_value,
         prev_asset_value.checked_add(numeric!(2)).unwrap()
@@ -275,9 +274,8 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
 
 #[test]
 fn only_account_with_permission_can_register_trigger() -> Result<()> {
-    // Building a configuration
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_035).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let domain_id = ALICE_ID.domain().clone();
     let alice_account_id = ALICE_ID.clone();
@@ -316,20 +314,20 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
         .filter_with(|account| account.id.eq(rabbit_account_id.clone()))
         .execute_single()
         .expect("Account not found");
-    info!("Rabbit is found.");
+    println!("Rabbit is found.");
 
     // Trying register the trigger without permissions
     let _ = rabbit_client
         .submit_blocking(Register::trigger(trigger.clone()))
         .expect_err("Trigger should not be registered!");
-    info!("Rabbit couldn't register the trigger");
+    println!("Rabbit couldn't register the trigger");
 
     // Give permissions to the rabbit
     test_client.submit_blocking(Grant::account_permission(
         permission_on_registration,
         rabbit_account_id,
     ))?;
-    info!("Rabbit has got the permission");
+    println!("Rabbit has got the permission");
 
     // Trying register the trigger with permissions
     rabbit_client
@@ -348,8 +346,8 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
 
 #[test]
 fn unregister_trigger() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_040).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let account_id = ALICE_ID.clone();
 
@@ -423,21 +421,14 @@ fn trigger_in_genesis() -> Result<()> {
         ),
     );
 
-    let mut peer = TestPeer::new().expect("Failed to create peer");
-    let topology = vec![peer.id.clone()];
-
-    // Registering trigger in genesis
-    let genesis = GenesisBlock::test_with_instructions([Register::trigger(trigger)], topology);
-
-    let rt = Runtime::test();
-    let builder = PeerBuilder::new().with_genesis(genesis).with_port(10_045);
-    rt.block_on(builder.start_with_peer(&mut peer));
-    let mut test_client = Client::test(&peer.api_address);
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new()
+        .with_genesis_instruction(Register::trigger(trigger))
+        .start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id);
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
+    let prev_value = get_asset_value(&test_client, asset_id.clone());
 
     // Executing trigger
     test_client
@@ -451,7 +442,7 @@ fn trigger_in_genesis() -> Result<()> {
     test_client.submit_blocking(call_trigger)?;
 
     // Checking result
-    let new_value = get_asset_value(&mut test_client, asset_id);
+    let new_value = get_asset_value(&test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
@@ -459,8 +450,8 @@ fn trigger_in_genesis() -> Result<()> {
 
 #[test]
 fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_085).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -499,7 +490,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     test_client.submit_blocking(register_trigger)?;
 
     // Saving current asset value
-    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone());
+    let prev_asset_value = get_asset_value(&test_client, asset_id.clone());
 
     // Executing triggers
     let execute_trigger_unregister = ExecuteTrigger::new(trigger_id_unregister);
@@ -511,7 +502,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
 
     // Checking results
     // First trigger should cancel second one, so value should stay the same
-    let new_asset_value = get_asset_value(&mut test_client, asset_id);
+    let new_asset_value = get_asset_value(&test_client, asset_id);
     assert_eq!(new_asset_value, prev_asset_value);
 
     Ok(())
@@ -519,8 +510,8 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
 
 #[test]
 fn trigger_burn_repetitions() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_070).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
@@ -555,8 +546,8 @@ fn trigger_burn_repetitions() -> Result<()> {
 #[test]
 fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_original_wasm_loss(
 ) -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_105).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let account_id = ALICE_ID.clone();
     let first_trigger_id = "mint_rose_1".parse::<TriggerId>()?;
@@ -595,20 +586,6 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
     Ok(())
 }
 
-fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
-    let asset = client
-        .query(client::asset::all())
-        .filter_with(|asset| asset.id.eq(asset_id))
-        .execute_single()
-        .unwrap();
-
-    let AssetValue::Numeric(val) = *asset.value() else {
-        panic!("Unexpected asset value");
-    };
-
-    val
-}
-
 fn build_register_trigger_isi(
     account_id: &AccountId,
     trigger_instructions: Vec<InstructionBox>,
@@ -630,13 +607,13 @@ fn build_register_trigger_isi(
 
 #[test]
 fn call_execute_trigger_with_args() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(11_265).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
+    let prev_value = get_asset_value(&test_client, asset_id.clone());
 
     let trigger_id = TRIGGER_NAME.parse::<TriggerId>()?;
     let trigger = Trigger::new(
@@ -657,7 +634,7 @@ fn call_execute_trigger_with_args() -> Result<()> {
     let call_trigger = ExecuteTrigger::new(trigger_id).with_args(&args);
     test_client.submit_blocking(call_trigger)?;
 
-    let new_value = get_asset_value(&mut test_client, asset_id);
+    let new_value = get_asset_value(&test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(numeric!(42)).unwrap());
 
     Ok(())

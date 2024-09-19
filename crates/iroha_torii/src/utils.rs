@@ -64,6 +64,7 @@ pub mod extractors {
     }
 
     /// Extractor of Accept header
+    #[allow(unused)] // unused without `telemetry` feature
     pub struct ExtractAccept(pub HeaderValue);
 
     #[async_trait]
