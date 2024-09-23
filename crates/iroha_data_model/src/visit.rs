@@ -145,7 +145,7 @@ pub fn visit_transaction<V: Visit + ?Sized>(
     match transaction.instructions() {
         Executable::Wasm(wasm) => visitor.visit_wasm(authority, wasm),
         Executable::Instructions(instructions) => {
-            for isi in instructions {
+            for isi in instructions.as_ref() {
                 visitor.visit_instruction(authority, isi);
             }
         }

@@ -30,6 +30,7 @@ use crate::{
 #[model]
 mod model {
     use getset::Getters;
+    use iroha_primitives::const_vec::ConstVec;
 
     use super::*;
     use crate::account::AccountId;
@@ -53,7 +54,7 @@ mod model {
     pub enum Executable {
         /// Ordered set of instructions.
         #[debug(fmt = "{_0:?}")]
-        Instructions(Vec<InstructionBox>),
+        Instructions(ConstVec<InstructionBox>),
         /// WebAssembly smartcontract
         Wasm(WasmSmartContract),
     }
@@ -182,7 +183,7 @@ mod model {
 
 impl<A: Instruction> FromIterator<A> for Executable {
     fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self {
-        Self::Instructions(iter.into_iter().map(Into::into).collect())
+        Self::Instructions(iter.into_iter().map(Into::into).collect::<Vec<_>>().into())
     }
 }
 

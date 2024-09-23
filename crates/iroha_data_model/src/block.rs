@@ -454,7 +454,7 @@ mod candidate {
             else {
                 return Err("Genesis transaction must contain instructions");
             };
-            let [InstructionBox::Upgrade(_)] = instructions_executor.as_slice() else {
+            let [InstructionBox::Upgrade(_)] = instructions_executor.as_ref() else {
                 return Err(
                     "First transaction must contain single `Upgrade` instruction to set executor",
                 );
