@@ -1,5 +1,6 @@
 //! Logic related to the conversion of [`Option<T>`] to and from FFI-compatible representation
 
+use alloc::boxed::Box;
 use core::mem::MaybeUninit;
 
 use crate::{
@@ -47,6 +48,13 @@ where
 }
 
 impl<R, C> Niche<'_> for &mut R
+where
+    Self: FfiType<ReprC = *mut C>,
+{
+    const NICHE_VALUE: Self::ReprC = core::ptr::null_mut();
+}
+
+impl<R, C> Niche<'_> for Box<R>
 where
     Self: FfiType<ReprC = *mut C>,
 {
