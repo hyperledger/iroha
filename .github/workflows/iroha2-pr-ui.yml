@@ -20,7 +20,7 @@ env:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     timeout-minutes: 60
@@ -28,10 +28,6 @@ jobs:
       matrix:
         feature_flag: [all-features, no-default-features]
     steps:
-      - name: Maximize build space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@nextest
       - name: Run UI tests, with ${{ matrix.feature_flag }}
