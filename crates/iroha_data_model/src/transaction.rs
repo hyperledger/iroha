@@ -175,7 +175,8 @@ mod model {
         #[getset(skip)]
         pub value: SignedTransaction,
         /// Reason of rejection
-        pub error: Option<error::TransactionRejectionReason>,
+        // NOTE: Using `Box` reduces memory use by 10%
+        pub error: Option<Box<error::TransactionRejectionReason>>,
     }
 }
 

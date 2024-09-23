@@ -330,7 +330,7 @@ types!(
     Option<PeerId>,
     Option<RoleId>,
     Option<TimeInterval>,
-    Option<TransactionRejectionReason>,
+    Option<Box<TransactionRejectionReason>>,
     Option<TransactionStatus>,
     Option<TriggerCompletedOutcomeType>,
     Option<TriggerId>,

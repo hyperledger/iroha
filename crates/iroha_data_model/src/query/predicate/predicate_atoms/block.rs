@@ -1,7 +1,7 @@
 //! This module contains predicates for block-related objects, mirroring [`crate::block`].
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 use iroha_crypto::HashOf;
 use iroha_schema::IntoSchema;
@@ -128,10 +128,10 @@ pub enum TransactionErrorPredicateBox {
     IsSome,
 }
 
-impl_predicate_box!(Option<TransactionRejectionReason>: TransactionErrorPredicateBox);
+impl_predicate_box!(Option<Box<TransactionRejectionReason>>: TransactionErrorPredicateBox);
 
-impl EvaluatePredicate<Option<TransactionRejectionReason>> for TransactionErrorPredicateBox {
-    fn applies(&self, input: &Option<TransactionRejectionReason>) -> bool {
+impl EvaluatePredicate<Option<Box<TransactionRejectionReason>>> for TransactionErrorPredicateBox {
+    fn applies(&self, input: &Option<Box<TransactionRejectionReason>>) -> bool {
         match self {
             TransactionErrorPredicateBox::IsSome => input.is_some(),
         }
