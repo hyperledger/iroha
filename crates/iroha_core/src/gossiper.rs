@@ -103,7 +103,7 @@ impl TransactionGossiper {
     fn gossip_transactions(&self) {
         let txs = self
             .queue
-            .n_random_transactions(self.gossip_size.get(), &self.state.view());
+            .gossip_batch(self.gossip_size.get(), &self.state.view());
 
         if txs.is_empty() {
             return;
