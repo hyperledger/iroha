@@ -252,7 +252,7 @@ types!(
     Grant<Permission, Role>,
     Grant<RoleId, Account>,
     Hash,
-    HashOf<MerkleTree<SignedTransaction>>,
+    HashOf<MerkleTree<CommittedTransaction>>,
     HashOf<BlockHeader>,
     HashOf<SignedTransaction>,
     IdBox,

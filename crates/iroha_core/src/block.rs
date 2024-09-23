@@ -195,7 +195,7 @@ mod pending {
                 prev_block_hash: prev_block.map(SignedBlock::hash),
                 transactions_hash: transactions
                     .iter()
-                    .map(|value| value.as_ref().hash())
+                    .map(CommittedTransaction::hash)
                     .collect::<MerkleTree<_>>()
                     .hash()
                     .expect("INTERNAL BUG: Empty block created"),

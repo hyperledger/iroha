@@ -673,7 +673,7 @@
       },
       {
         "name": "transactions_hash",
-        "type": "HashOf<MerkleTree<SignedTransaction>>"
+        "type": "HashOf<MerkleTree<CommittedTransaction>>"
       },
       {
         "name": "creation_time_ms",
@@ -2111,7 +2111,7 @@
   },
   "Hash": "Array<u8, 32>",
   "HashOf<BlockHeader>": "Hash",
-  "HashOf<MerkleTree<SignedTransaction>>": "Hash",
+  "HashOf<MerkleTree<CommittedTransaction>>": "Hash",
   "HashOf<SignedTransaction>": "Hash",
   "IdBox": {
     "Enum": [

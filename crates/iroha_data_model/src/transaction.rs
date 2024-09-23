@@ -295,6 +295,14 @@ impl SignedTransaction {
     }
 }
 
+impl CommittedTransaction {
+    /// Calculate transaction [`Hash`](`iroha_crypto::HashOf`).
+    #[inline]
+    pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
+        iroha_crypto::HashOf::new(self)
+    }
+}
+
 #[cfg(feature = "transparent_api")]
 impl From<SignedTransaction> for (AccountId, Executable) {
     fn from(source: SignedTransaction) -> Self {

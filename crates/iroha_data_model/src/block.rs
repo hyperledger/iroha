@@ -58,7 +58,7 @@ mod model {
         pub prev_block_hash: Option<HashOf<BlockHeader>>,
         /// Hash of merkle tree root of transactions' hashes.
         #[getset(get_copy = "pub")]
-        pub transactions_hash: HashOf<MerkleTree<SignedTransaction>>,
+        pub transactions_hash: HashOf<MerkleTree<CommittedTransaction>>,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub creation_time_ms: u64,
@@ -264,9 +264,16 @@ impl SignedBlock {
 
         use nonzero_ext::nonzero;
 
-        let transactions_hash = genesis_transactions
+        let transactions = genesis_transactions
+            .into_iter()
+            .map(|transaction| CommittedTransaction {
+                value: transaction,
+                error: None,
+            })
+            .collect::<Vec<_>>();
+        let transactions_hash = transactions
             .iter()
-            .map(SignedTransaction::hash)
+            .map(CommittedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
             .expect("Tree is not empty");
@@ -284,13 +291,6 @@ impl SignedBlock {
             view_change_index: 0,
             consensus_estimation_ms: 0,
         };
-        let transactions = genesis_transactions
-            .into_iter()
-            .map(|transaction| CommittedTransaction {
-                value: transaction,
-                error: None,
-            })
-            .collect();
 
         let payload = BlockPayload {
             header,
@@ -355,7 +355,7 @@ mod candidate {
             let expected_txs_hash = self
                 .transactions
                 .iter()
-                .map(|value| value.as_ref().hash())
+                .map(CommittedTransaction::hash)
                 .collect::<MerkleTree<_>>()
                 .hash()
                 .ok_or("Block is empty")?;
