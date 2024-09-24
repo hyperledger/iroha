@@ -29,7 +29,7 @@ fn tranasctions_should_be_applied() {
     iroha.submit_blocking(create_domain).unwrap();
 
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
     iroha.submit_blocking(create_asset).unwrap();
 
     let create_account = Register::account(Account::new(account_id.clone()));

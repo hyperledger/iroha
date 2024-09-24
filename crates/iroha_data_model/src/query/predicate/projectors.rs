@@ -16,7 +16,7 @@ use crate::{
             account::{AccountIdPredicateBox, AccountPredicateBox},
             asset::{
                 AssetDefinitionIdPredicateBox, AssetDefinitionPredicateBox, AssetIdPredicateBox,
-                AssetPredicateBox, AssetValuePredicateBox,
+                AssetPredicateBox,
             },
             block::{
                 BlockHashPredicateBox, CommittedTransactionPredicateBox,
@@ -26,7 +26,7 @@ use crate::{
             domain::{DomainIdPredicateBox, DomainPredicateBox},
             role::{RoleIdPredicateBox, RolePredicateBox},
             trigger::{TriggerIdPredicateBox, TriggerPredicateBox},
-            MetadataPredicateBox, PublicKeyPredicateBox, StringPredicateBox,
+            MetadataPredicateBox, NumericPredicateBox, PublicKeyPredicateBox, StringPredicateBox,
         },
         predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
     },
@@ -182,7 +182,7 @@ proj!(AssetDefinitionMetadataProjector(AssetDefinitionMetadataProjection): Metad
 
 // projections on Asset
 proj!(AssetIdProjector(AssetIdProjection): AssetIdPredicateBox => AssetPredicateBox::Id);
-proj!(AssetValueProjector(AssetValueProjection): AssetValuePredicateBox => AssetPredicateBox::Value);
+proj!(AssetValueProjector(AssetValueProjection): NumericPredicateBox => AssetPredicateBox::Value);
 
 // projections on DomainId
 proj!(DomainIdNameProjector(DomainIdNameProjection): StringPredicateBox => DomainIdPredicateBox::Name);

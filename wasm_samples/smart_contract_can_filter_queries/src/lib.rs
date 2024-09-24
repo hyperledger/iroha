@@ -31,19 +31,13 @@ fn main(_owner: AccountId) {
     let time_id: AssetDefinitionId = "time#looking_glass".parse().dbg_unwrap();
     let space_id: AssetDefinitionId = "space#looking_glass".parse().dbg_unwrap();
 
-    Register::asset_definition(AssetDefinition::new(
-        time_id.clone(),
-        AssetType::Numeric(NumericSpec::default()),
-    ))
-    .execute()
-    .dbg_unwrap();
+    Register::asset_definition(AssetDefinition::new(time_id.clone()))
+        .execute()
+        .dbg_unwrap();
 
-    Register::asset_definition(AssetDefinition::new(
-        space_id.clone(),
-        AssetType::Numeric(NumericSpec::default()),
-    ))
-    .execute()
-    .dbg_unwrap();
+    Register::asset_definition(AssetDefinition::new(space_id.clone()))
+        .execute()
+        .dbg_unwrap();
 
     // genesis registers some more asset definitions, but we apply a filter to find only the ones from the `looking_glass` domain
     let cursor = query(FindAssetsDefinitions)

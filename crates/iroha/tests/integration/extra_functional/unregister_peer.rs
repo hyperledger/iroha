@@ -78,8 +78,7 @@ fn check_assets(
                 .execute_all()?;
 
             Ok(assets.iter().any(|asset| {
-                asset.id().definition() == asset_definition_id
-                    && *asset.value() == AssetValue::Numeric(quantity)
+                asset.id().definition() == asset_definition_id && *asset.value() == quantity
             }))
         })
         .expect("Test case failure");
@@ -123,7 +122,7 @@ fn init() -> Result<(
     let create_account = Register::account(Account::new(account_id.clone()));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
     client.submit_all_blocking::<InstructionBox>([
         set_max_txns_in_block.into(),
         create_domain.into(),

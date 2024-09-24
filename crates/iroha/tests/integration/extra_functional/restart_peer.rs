@@ -26,7 +26,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         let peer_clients = Network::clients(&network);
 
         let create_asset =
-            Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+            Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
         peer_clients
             .choose(&mut thread_rng())
             .unwrap()
@@ -54,7 +54,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             .into_iter()
             .find(|asset| *asset.id().definition() == asset_definition_id)
             .expect("Asset not found");
-        assert_eq!(AssetValue::Numeric(quantity), *asset.value());
+        assert_eq!(quantity, *asset.value());
 
         let mut all_peers: Vec<_> = core::iter::once(network.first_peer)
             .chain(network.peers.into_values())
@@ -89,7 +89,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
                 .find(|asset| *asset.id().definition() == asset_definition_id)
                 .expect("Asset not found");
 
-            Ok(AssetValue::Numeric(quantity) == *account_asset.value())
+            Ok(quantity == *account_asset.value())
         })?
     }
     Ok(())

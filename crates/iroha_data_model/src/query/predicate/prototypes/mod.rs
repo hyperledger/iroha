@@ -17,10 +17,11 @@ use alloc::string::String;
 use core::marker::PhantomData;
 
 use iroha_crypto::PublicKey;
+use iroha_primitives::numeric::{Numeric, NumericSpec};
 
 use super::{projectors::ObjectProjector, AstPredicate, HasPrototype};
 use crate::query::predicate::predicate_atoms::{
-    MetadataPredicateBox, PublicKeyPredicateBox, StringPredicateBox,
+    MetadataPredicateBox, NumericPredicateBox, PublicKeyPredicateBox, StringPredicateBox,
 };
 
 macro_rules! impl_prototype {
@@ -87,6 +88,52 @@ where
         expected: impl Into<String>,
     ) -> Projector::ProjectedPredicate<StringPredicateBox> {
         Projector::project_predicate(StringPredicateBox::EndsWith(expected.into()))
+    }
+}
+
+/// A prototype of [`Numeric`] for predicate construction.
+#[derive(Default, Copy, Clone)]
+pub struct NumericPrototype<Projector> {
+    phantom: PhantomData<Projector>,
+}
+
+impl_prototype!(NumericPrototype: NumericPredicateBox);
+
+impl<Projector> NumericPrototype<Projector>
+where
+    Projector: ObjectProjector<Input = NumericPredicateBox>,
+{
+    /// Creates a predicate that checks if the numeric value matches the expected specification.
+    pub fn matches_spec(
+        &self,
+        expected: NumericSpec,
+    ) -> Projector::ProjectedPredicate<NumericPredicateBox> {
+        Projector::project_predicate(NumericPredicateBox::MatchesSpec(expected))
+    }
+
+    /// Creates a predicate that checks if the numeric value is equal to the expected value.
+    pub fn eq(&self, expected: Numeric) -> Projector::ProjectedPredicate<NumericPredicateBox> {
+        Projector::project_predicate(NumericPredicateBox::Equals(expected))
+    }
+
+    /// Creates a predicate that checks if the numeric value is less than the expected value.
+    pub fn lt(&self, expected: Numeric) -> Projector::ProjectedPredicate<NumericPredicateBox> {
+        Projector::project_predicate(NumericPredicateBox::LessThan(expected))
+    }
+
+    /// Creates a predicate that checks if the numeric value is less than or equal to the expected value.
+    pub fn le(&self, expected: Numeric) -> Projector::ProjectedPredicate<NumericPredicateBox> {
+        Projector::project_predicate(NumericPredicateBox::LessThanOrEquals(expected))
+    }
+
+    /// Creates a predicate that checks if the numeric value is greater than the expected value.
+    pub fn gt(&self, expected: Numeric) -> Projector::ProjectedPredicate<NumericPredicateBox> {
+        Projector::project_predicate(NumericPredicateBox::GreaterThan(expected))
+    }
+
+    /// Creates a predicate that checks if the numeric value is greater than or equal to the expected value.
+    pub fn ge(&self, expected: Numeric) -> Projector::ProjectedPredicate<NumericPredicateBox> {
+        Projector::project_predicate(NumericPredicateBox::GreaterThanOrEquals(expected))
     }
 }
 

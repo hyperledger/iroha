@@ -29,7 +29,7 @@ fn long_multiple_blocks_created() -> Result<()> {
     let create_account = Register::account(Account::new(account_id.clone()));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
 
     client.submit_all::<InstructionBox>([
         create_domain.into(),
@@ -64,7 +64,7 @@ fn long_multiple_blocks_created() -> Result<()> {
 
         Ok(assets.iter().any(|asset| {
             *asset.id().definition() == asset_definition_id
-                && *asset.value() == AssetValue::Numeric(account_has_quantity)
+                && *asset.value() == account_has_quantity
         }))
     })?;
     Ok(())

@@ -33,7 +33,7 @@ fn json_and_scale_statuses_equality() -> Result<()> {
     for coin in coins {
         let asset_definition_id = format!("{coin}#wonderland").parse::<AssetDefinitionId>()?;
         let create_asset =
-            Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+            Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
         let mint_asset = Mint::asset_numeric(
             1234u32,
             AssetId::new(asset_definition_id, account_id.clone()),
