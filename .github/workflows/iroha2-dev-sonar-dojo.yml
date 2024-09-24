@@ -16,6 +16,10 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.workflow_run.head_repository.full_name }}
+          ref: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
+          fetch-depth: 0
       - name: Download clippy and lcov artifact reports
         uses: actions/download-artifact@v4
         with:
@@ -33,6 +37,9 @@ jobs:
           args: >
             -Dcommunity.rust.clippy.reportPaths=lints/clippy.json
             -Dcommunity.rust.lcov.reportPaths=lints/lcov.info
+            -Dsonar.pullrequest.key=${{ github.event.workflow_run.pull_requests[0].number }}
+            -Dsonar.pullrequest.base=${{ github.event.workflow_run.pull_requests[0].base.ref }}
+            -Dsonar.pullrequest.branch=${{ github.event.workflow_run.pull_requests[0].head.ref }}
       - name: DefectDojo
         id: defectdojo
         uses: C4tWithShell/defectdojo-action@1.0.5
