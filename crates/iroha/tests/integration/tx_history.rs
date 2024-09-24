@@ -16,7 +16,7 @@ fn client_has_rejected_and_accepted_txs_should_return_tx_history() -> Result<()>
     let account_id = ALICE_ID.clone();
     let asset_definition_id = "xor#wonderland".parse::<AssetDefinitionId>()?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
     client.submit_blocking(create_asset)?;
 
     //When

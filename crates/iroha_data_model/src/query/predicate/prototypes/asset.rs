@@ -1,15 +1,13 @@
 //! Account-related prototypes, mirroring types in [`crate::asset`].
 
-use core::marker::PhantomData;
-
-use super::{impl_prototype, MetadataPrototype, StringPrototype};
+use super::{impl_prototype, MetadataPrototype, NumericPrototype, StringPrototype};
 use crate::{
     asset::{AssetDefinitionId, AssetId},
     query::{
         predicate::{
             predicate_atoms::asset::{
                 AssetDefinitionIdPredicateBox, AssetDefinitionPredicateBox, AssetIdPredicateBox,
-                AssetPredicateBox, AssetValuePredicateBox,
+                AssetPredicateBox,
             },
             projectors::{
                 AssetDefinitionIdDomainIdProjector, AssetDefinitionIdNameProjector,
@@ -85,15 +83,7 @@ pub struct AssetPrototype<Projector> {
     /// Build a predicate on ID of this [`crate::asset::Asset`]
     pub id: AssetIdPrototype<AssetIdProjector<Projector>>,
     /// Build a predicate on value of this [`crate::asset::Asset`]
-    pub value: AssetValuePrototype<AssetValueProjector<Projector>>,
+    pub value: NumericPrototype<AssetValueProjector<Projector>>,
 }
 
 impl_prototype!(AssetPrototype: AssetPredicateBox);
-
-/// A prototype of [`crate::asset::AssetValue`] for predicate construction.
-#[derive(Default, Copy, Clone)]
-pub struct AssetValuePrototype<Projector> {
-    phantom: PhantomData<Projector>,
-}
-
-impl_prototype!(AssetValuePrototype: AssetValuePredicateBox);

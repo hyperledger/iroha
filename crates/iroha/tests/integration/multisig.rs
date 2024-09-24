@@ -100,10 +100,7 @@ fn mutlisig() -> Result<()> {
         .parse::<AssetDefinitionId>()
         .unwrap();
     let isi =
-        vec![
-            Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()))
-                .into(),
-        ];
+        vec![Register::asset_definition(AssetDefinition::new(asset_definition_id.clone())).into()];
     let isi_hash = HashOf::new(&isi);
 
     let mut signatories_iter = signatories.into_iter();

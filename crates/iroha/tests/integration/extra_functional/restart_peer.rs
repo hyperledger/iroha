@@ -9,6 +9,7 @@ use tokio::{task::spawn_blocking, time::timeout};
 
 #[tokio::test]
 async fn restarted_peer_should_restore_its_state() -> Result<()> {
+    let account_id = ALICE_ID.clone();
     let asset_definition_id = "xor#wonderland".parse::<AssetDefinitionId>()?;
     let quantity = numeric!(200);
 
@@ -22,10 +23,8 @@ async fn restarted_peer_should_restore_its_state() -> Result<()> {
     spawn_blocking(move || {
         client
             .submit_all_blocking::<InstructionBox>([
-                Register::asset_definition(AssetDefinition::numeric(
-                    asset_definition_clone.clone(),
-                ))
-                .into(),
+                Register::asset_definition(AssetDefinition::new(asset_definition_clone.clone()))
+                    .into(),
                 Mint::asset_numeric(
                     quantity,
                     AssetId::new(asset_definition_clone, ALICE_ID.clone()),
@@ -55,14 +54,13 @@ async fn restarted_peer_should_restore_its_state() -> Result<()> {
     let asset = spawn_blocking(move || {
         client
             .query(client::asset::all())
-            .filter_with(|asset| asset.id.account.eq(ALICE_ID.clone()))
+            .filter_with(|asset| asset.id.account.eq(account_id))
             .execute_all()
     })
     .await??
     .into_iter()
     .find(|asset| *asset.id().definition() == asset_definition_id)
     .expect("Asset not found");
-    assert_eq!(AssetValue::Numeric(quantity), *asset.value());
-
+    assert_eq!(quantity, *asset.value());
     Ok(())
 }

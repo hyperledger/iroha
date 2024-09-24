@@ -16,7 +16,7 @@ fn failed_trigger_revert() -> Result<()> {
     let account_id = ALICE_ID.clone();
     let asset_definition_id = "xor#wonderland".parse::<AssetDefinitionId>()?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
     let fail_isi = Unregister::domain("dummy".parse().unwrap());
     let instructions: [InstructionBox; 2] = [create_asset.into(), fail_isi.into()];
     let register_trigger = Register::trigger(Trigger::new(

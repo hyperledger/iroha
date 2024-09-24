@@ -13,16 +13,12 @@ fn must_execute_both_triggers() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
     let get_asset_value = |iroha: &client::Client, asset_id: AssetId| -> Numeric {
-        match *iroha
+        *iroha
             .query(client::asset::all())
             .filter_with(|asset| asset.id.eq(asset_id))
             .execute_single()
             .unwrap()
             .value()
-        {
-            AssetValue::Numeric(val) => val,
-            _ => panic!("Expected u32 asset value"),
-        }
     };
 
     let prev_value = get_asset_value(&test_client, asset_id.clone());
