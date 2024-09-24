@@ -92,6 +92,16 @@ impl<T: IntoSchema> IntoSchema for ConstVec<T> {
     }
 }
 
+impl<'a, T> IntoIterator for &'a ConstVec<T> {
+    type Item = &'a T;
+
+    type IntoIter = <&'a [T] as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl<T> IntoIterator for ConstVec<T> {
     type Item = T;
 
@@ -99,6 +109,13 @@ impl<T> IntoIterator for ConstVec<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.into_vec().into_iter()
+    }
+}
+
+impl<T> FromIterator<T> for ConstVec<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let vec: Vec<T> = iter.into_iter().collect();
+        Self::new(vec)
     }
 }
 

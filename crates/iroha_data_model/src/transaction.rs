@@ -183,7 +183,7 @@ mod model {
 
 impl<A: Instruction> FromIterator<A> for Executable {
     fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self {
-        Self::Instructions(iter.into_iter().map(Into::into).collect::<Vec<_>>().into())
+        Self::Instructions(iter.into_iter().map(Into::into).collect())
     }
 }
 

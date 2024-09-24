@@ -63,7 +63,7 @@ pub fn visit_transaction<V: Validate + Visit + ?Sized>(
     match transaction.instructions() {
         Executable::Wasm(wasm) => executor.visit_wasm(authority, wasm),
         Executable::Instructions(instructions) => {
-            for isi in instructions.as_ref() {
+            for isi in instructions {
                 if executor.verdict().is_ok() {
                     executor.visit_instruction(authority, isi);
                 }
