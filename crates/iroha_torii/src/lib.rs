@@ -46,6 +46,7 @@ use utils::{
 
 #[macro_use]
 pub(crate) mod utils;
+mod block;
 mod event;
 mod routing;
 mod stream;
@@ -207,7 +208,7 @@ impl Torii {
                     move |ws: WebSocketUpgrade| {
                         core::future::ready(ws.on_upgrade(|ws| async move {
                             if let Err(error) =
-                                routing::subscription::handle_subscription(events, ws).await
+                                routing::event::handle_events_stream(events, ws).await
                             {
                                 iroha_logger::error!(%error, "Failure during event streaming");
                             }
@@ -221,7 +222,8 @@ impl Torii {
                     let kura = self.kura.clone();
                     move |ws: WebSocketUpgrade| {
                         core::future::ready(ws.on_upgrade(|ws| async move {
-                            if let Err(error) = routing::handle_blocks_stream(kura, ws).await {
+                            if let Err(error) = routing::block::handle_blocks_stream(kura, ws).await
+                            {
                                 iroha_logger::error!(%error, "Failure during block streaming");
                             }
                         }))
