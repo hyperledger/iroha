@@ -10,11 +10,11 @@ use iroha::{
     },
 };
 use iroha_executor_data_model::permission::{
-    asset::{CanModifyAssetMetadata, CanTransferAsset},
+    asset::{CanMintAssetWithDefinition, CanTransferAsset},
     domain::CanModifyDomainMetadata,
 };
 use iroha_test_network::*;
-use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID};
+use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID, BOB_KEYPAIR};
 use tokio::{join, time::timeout};
 
 #[tokio::test]
@@ -22,8 +22,7 @@ async fn genesis_transactions_are_validated_by_executor() {
     // `wonderland` domain is owned by Alice,
     //  so the default executor will deny a genesis account to register asset definition.
     let asset_definition_id = "xor#wonderland".parse().expect("Valid");
-    let invalid_instruction =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
+    let invalid_instruction = Register::asset_definition(AssetDefinition::new(asset_definition_id));
     let network = NetworkBuilder::new()
         .with_genesis_instruction(invalid_instruction)
         .build();
@@ -68,7 +67,7 @@ fn permissions_disallow_asset_transfer() {
     let (mouse_id, _mouse_keypair) = gen_account_in("wonderland");
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
     let mouse_keypair = KeyPair::random();
 
     let alice_start_assets = get_assets(&iroha, &alice_id);
@@ -124,7 +123,7 @@ fn permissions_disallow_asset_burn() {
         .parse::<AssetDefinitionId>()
         .expect("Valid");
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
     let mouse_keypair = KeyPair::random();
 
     let alice_start_assets = get_assets(&iroha, &alice_id);
@@ -194,94 +193,59 @@ fn account_can_query_only_its_own_domain() -> Result<()> {
 
 #[test]
 fn permissions_differ_not_only_by_names() {
-    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-
     let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
     let client = network.client();
 
-    let alice_id = ALICE_ID.clone();
-    let (mouse_id, mouse_keypair) = gen_account_in("outfit");
+    let alice_in_wland = ALICE_ID.clone();
+    let (bob_in_wland, bob_in_wland_key) = (BOB_ID.clone(), BOB_KEYPAIR.private_key());
 
-    // Registering mouse
-    let outfit_domain: DomainId = "outfit".parse().unwrap();
-    let create_outfit_domain = Register::domain(Domain::new(outfit_domain.clone()));
-    let register_mouse_account = Register::account(Account::new(mouse_id.clone()));
+    let wland_roses = "rose#wonderland".parse::<AssetDefinitionId>().unwrap();
+    let wland_coins = "coin#wonderland".parse::<AssetDefinitionId>().unwrap();
     client
-        .submit_all_blocking::<InstructionBox>([
-            create_outfit_domain.into(),
-            register_mouse_account.into(),
-        ])
-        .expect("Failed to register mouse");
+        .submit_blocking(Register::asset_definition(AssetDefinition::new(
+            wland_coins.clone(),
+        )))
+        .unwrap();
 
-    // Registering `Store` asset definitions
-    let hat_definition_id: AssetDefinitionId = "hat#outfit".parse().expect("Valid");
-    let register_hat_definition =
-        Register::asset_definition(AssetDefinition::store(hat_definition_id.clone()));
-    let transfer_shoes_domain = Transfer::domain(alice_id.clone(), outfit_domain, mouse_id.clone());
-    let shoes_definition_id: AssetDefinitionId = "shoes#outfit".parse().expect("Valid");
-    let register_shoes_definition =
-        Register::asset_definition(AssetDefinition::store(shoes_definition_id.clone()));
+    // allow Bob to mint roses
     client
-        .submit_all_blocking::<InstructionBox>([
-            register_hat_definition.into(),
-            register_shoes_definition.into(),
-            transfer_shoes_domain.into(),
-        ])
-        .expect("Failed to register new asset definitions");
-
-    // Granting permission to Alice to modify metadata in Mouse's hats
-    let mouse_hat_id = AssetId::new(hat_definition_id, mouse_id.clone());
-    let mouse_hat_permission = CanModifyAssetMetadata {
-        asset: mouse_hat_id.clone(),
-    };
-    let allow_alice_to_set_key_value_in_hats =
-        Grant::account_permission(mouse_hat_permission, alice_id.clone());
-
-    let grant_hats_access_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
-        .with_instructions([allow_alice_to_set_key_value_in_hats])
-        .sign(mouse_keypair.private_key());
-    client
-        .submit_transaction_blocking(&grant_hats_access_tx)
-        .expect("Failed grant permission to modify Mouse's hats");
-
-    // Checking that Alice can modify Mouse's hats ...
-    client
-        .submit_blocking(SetKeyValue::asset(
-            mouse_hat_id,
-            "color".parse().expect("Valid"),
-            "red".parse::<Json>().expect("Valid"),
+        .submit_blocking(Grant::account_permission(
+            CanMintAssetWithDefinition {
+                asset_definition: wland_roses.clone(),
+            },
+            bob_in_wland.clone(),
         ))
-        .expect("Failed to modify Mouse's hats");
-
-    // ... but not shoes
-    let mouse_shoes_id = AssetId::new(shoes_definition_id, mouse_id.clone());
-    let set_shoes_color = SetKeyValue::asset(
-        mouse_shoes_id.clone(),
-        "color".parse().expect("Valid"),
-        "yellow".parse::<Json>().expect("Valid"),
-    );
-    let _err = client
-        .submit_blocking(set_shoes_color.clone())
-        .expect_err("Expected Alice to fail to modify Mouse's shoes");
-
-    let mouse_shoes_permission = CanModifyAssetMetadata {
-        asset: mouse_shoes_id,
-    };
-    let allow_alice_to_set_key_value_in_shoes =
-        Grant::account_permission(mouse_shoes_permission, alice_id);
-
-    let grant_shoes_access_tx = TransactionBuilder::new(chain_id, mouse_id)
-        .with_instructions([allow_alice_to_set_key_value_in_shoes])
-        .sign(mouse_keypair.private_key());
-
+        .unwrap();
+    // check that Bob can mint roses
+    let wland_roses_of_alice = AssetId::new(wland_roses, alice_in_wland.clone());
+    let wland_coins_of_alice = AssetId::new(wland_coins.clone(), alice_in_wland.clone());
     client
-        .submit_transaction_blocking(&grant_shoes_access_tx)
-        .expect("Failed grant permission to modify Mouse's shoes");
-
-    // Checking that Alice can modify Mouse's shoes
+        .submit_blocking(Mint::asset_numeric(1_u32, wland_roses_of_alice))
+        .unwrap();
+    // check that Bob cannot mint coins
+    // FIXME: sign transaction as Bob
+    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
+    let tx = TransactionBuilder::new(chain_id.clone(), bob_in_wland.clone())
+        .with_instructions(Some(Mint::asset_numeric(
+            1_u32,
+            wland_coins_of_alice.clone(),
+        )))
+        .sign(bob_in_wland_key);
+    let _ = client.submit_transaction_blocking(&tx).unwrap_err();
+    // allow Bob to mint coins
     client
-        .submit_blocking(set_shoes_color)
-        .expect("Failed to modify Mouse's shoes");
+        .submit_blocking(Grant::account_permission(
+            CanMintAssetWithDefinition {
+                asset_definition: wland_coins.clone(),
+            },
+            bob_in_wland.clone(),
+        ))
+        .unwrap();
+    // check that Bob can mint coins
+    let tx = TransactionBuilder::new(chain_id, bob_in_wland)
+        .with_instructions(Some(Mint::asset_numeric(1_u32, wland_coins_of_alice)))
+        .sign(bob_in_wland_key);
+    client.submit_transaction_blocking(&tx).unwrap();
 }
 
 #[test]
@@ -295,14 +259,15 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
     let alice_id = ALICE_ID.clone();
 
     // Registering mouse and asset definition
-    let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse()?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::store(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
     let (mouse_id, mouse_keypair) = gen_account_in("wonderland");
     let register_mouse_account = Register::account(Account::new(mouse_id.clone()));
-    iroha
-        .submit_all_blocking::<InstructionBox>([register_mouse_account.into(), create_asset.into()])
-        .expect("Failed to register mouse");
+    iroha.submit_all_blocking::<InstructionBox>([
+        register_mouse_account.into(),
+        create_asset.into(),
+    ])?;
 
     // Allow alice to mint mouse asset and mint initial value
     let value_json = Json::from_string_unchecked(format!(
@@ -312,27 +277,19 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
     ));
 
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
-    let allow_alice_to_set_key_value_in_mouse_asset = Grant::account_permission(
-        Permission::new("CanModifyAssetMetadata".parse().unwrap(), value_json),
+    let allow_alice_to_mint_mouse_asset = Grant::account_permission(
+        Permission::new("CanMintAsset".parse()?, value_json),
         alice_id,
     );
 
     let transaction = TransactionBuilder::new(chain_id, mouse_id)
-        .with_instructions([allow_alice_to_set_key_value_in_mouse_asset])
+        .with_instructions([allow_alice_to_mint_mouse_asset])
         .sign(mouse_keypair.private_key());
-    iroha
-        .submit_transaction_blocking(&transaction)
-        .expect("Failed to grant permission to alice.");
+    iroha.submit_transaction_blocking(&transaction)?;
 
     // Check that alice can indeed mint mouse asset
-    let set_key_value = SetKeyValue::asset(
-        mouse_asset,
-        "color".parse()?,
-        "red".parse::<Json>().expect("Valid"),
-    );
-    iroha
-        .submit_blocking(set_key_value)
-        .expect("Failed to mint asset for mouse.");
+    let set_key_value = Mint::asset_numeric(1_u32, mouse_asset);
+    iroha.submit_blocking(set_key_value)?;
 
     Ok(())
 }

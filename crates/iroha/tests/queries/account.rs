@@ -14,7 +14,7 @@ fn find_accounts_with_asset() -> Result<()> {
     let definition_id = "test_coin#wonderland"
         .parse::<AssetDefinitionId>()
         .expect("Valid");
-    let asset_definition = AssetDefinition::numeric(definition_id.clone());
+    let asset_definition = AssetDefinition::new(definition_id.clone());
     test_client.submit_blocking(Register::asset_definition(asset_definition.clone()))?;
 
     // Checking results before all
@@ -24,10 +24,6 @@ fn find_accounts_with_asset() -> Result<()> {
         .execute_single()?;
 
     assert_eq!(received_asset_definition.id(), asset_definition.id());
-    assert!(matches!(
-        received_asset_definition.type_(),
-        AssetType::Numeric(_)
-    ));
 
     let accounts: [AccountId; 5] = [
         ALICE_ID.clone(),
@@ -63,10 +59,7 @@ fn find_accounts_with_asset() -> Result<()> {
         .execute_single()?;
 
     assert_eq!(received_asset_definition.id(), asset_definition.id());
-    assert_eq!(
-        received_asset_definition.type_(),
-        AssetType::Numeric(NumericSpec::default()),
-    );
+    assert_eq!(received_asset_definition.spec(), NumericSpec::default(),);
 
     let found_accounts = test_client
         .query(client::account::all_with_asset(definition_id))

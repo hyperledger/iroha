@@ -6,7 +6,7 @@ use iroha::{
 };
 use iroha_executor_data_model::permission::{
     account::CanUnregisterAccount,
-    asset::CanUnregisterAsset,
+    asset::CanMintAsset,
     asset_definition::{CanRegisterAssetDefinition, CanUnregisterAssetDefinition},
     domain::CanUnregisterDomain,
     trigger::CanUnregisterTrigger,
@@ -22,7 +22,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
     let kingdom_id: DomainId = "kingdom".parse()?;
     let (bob_id, bob_keypair) = gen_account_in("kingdom");
     let coin_id: AssetDefinitionId = "coin#kingdom".parse()?;
-    let coin = AssetDefinition::numeric(coin_id.clone());
+    let coin = AssetDefinition::new(coin_id.clone());
 
     // "alice@wonderland" is owner of "kingdom" domain
     let kingdom = Domain::new(kingdom_id.clone());
@@ -155,7 +155,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     test_client.submit_blocking(Grant::account_permission(permission, bob_id.clone()))?;
 
     // register asset definitions by "bob@kingdom" so he is owner of it
-    let coin = AssetDefinition::numeric(coin_id.clone());
+    let coin = AssetDefinition::new(coin_id.clone());
     let transaction = TransactionBuilder::new(network.chain_id(), bob_id.clone())
         .with_instructions([Register::asset_definition(coin)])
         .sign(bob_keypair.private_key());
@@ -203,7 +203,6 @@ fn domain_owner_asset_permissions() -> Result<()> {
     let kingdom_id: DomainId = "kingdom".parse()?;
     let (bob_id, bob_keypair) = gen_account_in("kingdom");
     let coin_id: AssetDefinitionId = "coin#kingdom".parse()?;
-    let store_id: AssetDefinitionId = "store#kingdom".parse()?;
 
     // "alice@wonderland" is owner of "kingdom" domain
     let kingdom = Domain::new(kingdom_id.clone());
@@ -217,38 +216,23 @@ fn domain_owner_asset_permissions() -> Result<()> {
     test_client.submit_blocking(Grant::account_permission(permission, bob_id.clone()))?;
 
     // register asset definitions by "bob@kingdom" so he is owner of it
-    let coin = AssetDefinition::numeric(coin_id.clone());
-    let store = AssetDefinition::store(store_id.clone());
+    let coin = AssetDefinition::new(coin_id.clone());
     let transaction = TransactionBuilder::new(network.chain_id(), bob_id.clone())
-        .with_instructions([
-            Register::asset_definition(coin),
-            Register::asset_definition(store),
-        ])
+        .with_instructions([Register::asset_definition(coin)])
         .sign(bob_keypair.private_key());
     test_client.submit_transaction_blocking(&transaction)?;
 
-    // check that "alice@wonderland" as owner of domain can register and unregister assets in her domain
-    let bob_coin_id = AssetId::new(coin_id, bob_id.clone());
-    let bob_coin = Asset::new(bob_coin_id.clone(), 30_u32);
-    test_client.submit_blocking(Register::asset(bob_coin))?;
-    test_client.submit_blocking(Unregister::asset(bob_coin_id.clone()))?;
-
     // check that "alice@wonderland" as owner of domain can burn, mint and transfer assets in her domain
-    test_client.submit_blocking(Mint::asset_numeric(10u32, bob_coin_id.clone()))?;
-    test_client.submit_blocking(Burn::asset_numeric(5u32, bob_coin_id.clone()))?;
-    test_client.submit_blocking(Transfer::asset_numeric(bob_coin_id, 5u32, alice_id))?;
+    let bob_coin = AssetId::new(coin_id, bob_id.clone());
+    test_client.submit_blocking(Mint::asset_numeric(10u32, bob_coin.clone()))?;
+    test_client.submit_blocking(Burn::asset_numeric(5u32, bob_coin.clone()))?;
+    test_client.submit_blocking(Transfer::asset_numeric(bob_coin.clone(), 5u32, alice_id))?;
 
-    // check that "alice@wonderland" as owner of domain can edit metadata of store asset in her domain
-    let key: Name = "key".parse()?;
-    let value = Json::new("value");
-    let bob_store_id = AssetId::new(store_id, bob_id.clone());
-    test_client.submit_blocking(SetKeyValue::asset(bob_store_id.clone(), key.clone(), value))?;
-    test_client.submit_blocking(RemoveKeyValue::asset(bob_store_id.clone(), key))?;
+    // TODO: test non-fungible assets
 
-    // check that "alice@wonderland" as owner of domain can grant and revoke asset related permissions in her domain
-    let permission = CanUnregisterAsset {
-        asset: bob_store_id,
-    };
+    // check that "alice@wonderland" as owner of domain
+    // can grant and revoke asset related permissions in her domain
+    let permission = CanMintAsset { asset: bob_coin };
     test_client.submit_blocking(Grant::account_permission(
         permission.clone(),
         bob_id.clone(),

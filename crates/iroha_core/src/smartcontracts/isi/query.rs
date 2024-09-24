@@ -48,11 +48,8 @@ impl SortableQueryOutput for AssetDefinition {
 }
 
 impl SortableQueryOutput for Asset {
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json> {
-        match &self.value {
-            AssetValue::Numeric(_) => None,
-            AssetValue::Store(metadata) => metadata.get(key).cloned(),
-        }
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
+        None
     }
 }
 
@@ -247,9 +244,6 @@ impl ValidQueryRequest {
                     SingularQueryBox::FindAccountMetadata(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
-                    SingularQueryBox::FindAssetMetadata(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
                     SingularQueryBox::FindAssetDefinitionMetadata(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
@@ -361,26 +355,27 @@ mod tests {
         let domain = Domain::new(domain_id).build(&ALICE_ID);
         let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
         let asset_definition_id = "rose#wonderland".parse().expect("Valid");
-        let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
+        let asset_definition = AssetDefinition::new(asset_definition_id).build(&ALICE_ID);
         World::with([domain], [account], [asset_definition])
     }
 
-    fn world_with_test_asset_with_metadata() -> World {
-        let asset_definition_id = "rose#wonderland"
-            .parse::<AssetDefinitionId>()
-            .expect("Valid");
-        let domain = Domain::new("wonderland".parse().expect("Valid")).build(&ALICE_ID);
-        let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
-        let asset_definition =
-            AssetDefinition::numeric(asset_definition_id.clone()).build(&ALICE_ID);
-
-        let mut store = Metadata::default();
-        store.insert("Bytes".parse().expect("Valid"), vec![1_u32, 2_u32, 3_u32]);
-        let asset_id = AssetId::new(asset_definition_id, account.id().clone());
-        let asset = Asset::new(asset_id, AssetValue::Store(store));
-
-        World::with_assets([domain], [account], [asset_definition], [asset])
-    }
+    // FIXME: NFT
+    // fn world_with_test_asset_with_metadata() -> World {
+    //     let asset_definition_id = "rose#wonderland"
+    //         .parse::<AssetDefinitionId>()
+    //         .expect("Valid");
+    //     let domain = Domain::new("wonderland".parse().expect("Valid")).build(&ALICE_ID);
+    //     let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
+    //     let asset_definition =
+    //         AssetDefinition::new(asset_definition_id.clone()).build(&ALICE_ID);
+    //
+    //     let mut store = Metadata::default();
+    //     store.insert("Bytes".parse().expect("Valid"), vec![1_u32, 2_u32, 3_u32]);
+    //     let asset_id = AssetId::new(asset_definition_id, account.id().clone());
+    //     let asset = Asset::new(asset_id, AssetValue::Store(store));
+    //
+    //     World::with_assets([domain], [account], [asset_definition], [asset])
+    // }
 
     fn world_with_test_account_with_metadata() -> Result<World> {
         let mut metadata = Metadata::default();
@@ -391,7 +386,7 @@ mod tests {
             .with_metadata(metadata)
             .build(&ALICE_ID);
         let asset_definition_id = "rose#wonderland".parse().expect("Valid");
-        let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
+        let asset_definition = AssetDefinition::new(asset_definition_id).build(&ALICE_ID);
         Ok(World::with([domain], [account], [asset_definition]))
     }
 
@@ -469,19 +464,6 @@ mod tests {
         }
 
         Ok(state)
-    }
-
-    #[test]
-    async fn asset_store() -> Result<()> {
-        let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::start_test();
-        let state = State::new(world_with_test_asset_with_metadata(), kura, query_handle);
-
-        let asset_definition_id = "rose#wonderland".parse()?;
-        let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
-        let bytes = FindAssetMetadata::new(asset_id, "Bytes".parse()?).execute(&state.view())?;
-        assert_eq!(Json::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
-        Ok(())
     }
 
     #[test]
@@ -678,7 +660,7 @@ mod tests {
                 .build(&ALICE_ID);
             let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
             let asset_definition_id = "rose#wonderland".parse()?;
-            let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
+            let asset_definition = AssetDefinition::new(asset_definition_id).build(&ALICE_ID);
             let query_handle = LiveQueryStore::start_test();
             State::new(
                 World::with([domain], [account], [asset_definition]),

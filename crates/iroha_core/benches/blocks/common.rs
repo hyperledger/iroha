@@ -104,7 +104,7 @@ pub fn populate_state(
     }
 
     for asset_definition_id in asset_definitions {
-        let asset_definition = AssetDefinition::numeric(asset_definition_id.clone());
+        let asset_definition = AssetDefinition::new(asset_definition_id.clone());
         instructions.push(Register::asset_definition(asset_definition).into());
         let can_unregister_asset_definition = Grant::account_permission(
             CanUnregisterAssetDefinition {
@@ -181,7 +181,7 @@ pub fn restore_every_nth(
             .enumerate()
         {
             if k % nth == 0 || i % nth == 0 {
-                let asset_definition = AssetDefinition::numeric(asset_definition_id.clone());
+                let asset_definition = AssetDefinition::new(asset_definition_id.clone());
                 instructions.push(Register::asset_definition(asset_definition).into());
             }
         }

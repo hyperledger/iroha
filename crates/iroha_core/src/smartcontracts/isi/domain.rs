@@ -4,7 +4,7 @@ use eyre::Result;
 use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
-use super::super::isi::prelude::*;
+use crate::smartcontracts::isi::prelude::*;
 
 impl Registrable for iroha_data_model::domain::NewDomain {
     type Target = Domain;
@@ -28,7 +28,6 @@ impl Registrable for iroha_data_model::domain::NewDomain {
 /// - transfer, etc.
 pub mod isi {
     use iroha_data_model::isi::error::{InstructionExecutionError, RepetitionError};
-    use iroha_logger::prelude::*;
 
     use super::*;
 
@@ -124,168 +123,6 @@ pub mod isi {
             state_transaction
                 .world
                 .emit_events(Some(AccountEvent::Deleted(account_id)));
-
-            Ok(())
-        }
-    }
-
-    impl Execute for Register<AssetDefinition> {
-        #[metrics(+"register_asset_definition")]
-        fn execute(
-            self,
-            authority: &AccountId,
-            state_transaction: &mut StateTransaction<'_, '_>,
-        ) -> Result<(), Error> {
-            let asset_definition = self.object.build(authority);
-
-            let asset_definition_id = asset_definition.id().clone();
-            if state_transaction
-                .world
-                .asset_definition(&asset_definition_id)
-                .is_ok()
-            {
-                return Err(RepetitionError {
-                    instruction: InstructionType::Register,
-                    id: IdBox::AssetDefinitionId(asset_definition_id),
-                }
-                .into());
-            }
-            let _ = state_transaction
-                .world
-                .domain(&asset_definition_id.domain)?;
-
-            state_transaction
-                .world
-                .asset_definitions
-                .insert(asset_definition_id.clone(), asset_definition.clone());
-
-            state_transaction
-                .world
-                .emit_events(Some(DomainEvent::AssetDefinition(
-                    AssetDefinitionEvent::Created(asset_definition),
-                )));
-
-            Ok(())
-        }
-    }
-
-    impl Execute for Unregister<AssetDefinition> {
-        #[metrics(+"unregister_asset_definition")]
-        fn execute(
-            self,
-            _authority: &AccountId,
-            state_transaction: &mut StateTransaction<'_, '_>,
-        ) -> Result<(), Error> {
-            let asset_definition_id = self.object;
-
-            let mut assets_to_remove = Vec::new();
-            assets_to_remove.extend(
-                state_transaction
-                    .world
-                    .assets
-                    .iter()
-                    .filter(|(asset_id, _)| asset_id.definition == asset_definition_id)
-                    .map(|(asset_id, _)| asset_id)
-                    .cloned(),
-            );
-
-            let mut events = Vec::with_capacity(assets_to_remove.len() + 1);
-            for asset_id in assets_to_remove {
-                if state_transaction
-                    .world
-                    .assets
-                    .remove(asset_id.clone())
-                    .is_none()
-                {
-                    error!(%asset_id, "asset not found. This is a bug");
-                }
-
-                events.push(AssetEvent::Deleted(asset_id).into());
-            }
-
-            if state_transaction
-                .world
-                .asset_definitions
-                .remove(asset_definition_id.clone())
-                .is_none()
-            {
-                return Err(FindError::AssetDefinition(asset_definition_id).into());
-            }
-            let _ = state_transaction
-                .world
-                .domain(&asset_definition_id.domain)?;
-
-            events.push(DataEvent::from(AssetDefinitionEvent::Deleted(
-                asset_definition_id,
-            )));
-
-            state_transaction.world.emit_events(events);
-
-            Ok(())
-        }
-    }
-
-    impl Execute for SetKeyValue<AssetDefinition> {
-        #[metrics(+"set_key_value_asset_definition")]
-        fn execute(
-            self,
-            _authority: &AccountId,
-            state_transaction: &mut StateTransaction<'_, '_>,
-        ) -> Result<(), Error> {
-            let asset_definition_id = self.object;
-
-            state_transaction
-                .world
-                .asset_definition_mut(&asset_definition_id)
-                .map_err(Error::from)
-                .map(|asset_definition| {
-                    asset_definition
-                        .metadata
-                        .insert(self.key.clone(), self.value.clone())
-                })?;
-
-            state_transaction
-                .world
-                .emit_events(Some(AssetDefinitionEvent::MetadataInserted(
-                    MetadataChanged {
-                        target: asset_definition_id,
-                        key: self.key,
-                        value: self.value,
-                    },
-                )));
-
-            Ok(())
-        }
-    }
-
-    impl Execute for RemoveKeyValue<AssetDefinition> {
-        #[metrics(+"remove_key_value_asset_definition")]
-        fn execute(
-            self,
-            _authority: &AccountId,
-            state_transaction: &mut StateTransaction<'_, '_>,
-        ) -> Result<(), Error> {
-            let asset_definition_id = self.object;
-
-            let value = state_transaction
-                .world
-                .asset_definition_mut(&asset_definition_id)
-                .and_then(|asset_definition| {
-                    asset_definition
-                        .metadata
-                        .remove(&self.key)
-                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
-                })?;
-
-            state_transaction
-                .world
-                .emit_events(Some(AssetDefinitionEvent::MetadataRemoved(
-                    MetadataChanged {
-                        target: asset_definition_id,
-                        key: self.key,
-                        value,
-                    },
-                )));
 
             Ok(())
         }
@@ -419,23 +256,6 @@ pub mod query {
                 .map_domain(id, |domain| domain.metadata.get(key).cloned())?
                 .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 .map(Into::into)
-        }
-    }
-
-    impl ValidSingularQuery for FindAssetDefinitionMetadata {
-        #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
-            let id = &self.id;
-            let key = &self.key;
-            iroha_logger::trace!(%id, %key);
-            Ok(state_ro
-                .world()
-                .asset_definition(id)?
-                .metadata
-                .get(key)
-                .ok_or(FindError::MetadataKey(key.clone()))
-                .cloned()
-                .map(Into::into)?)
         }
     }
 }

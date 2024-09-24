@@ -163,7 +163,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
     // #region register_asset_init_submit
     // Initialise the registration time
     let register_time =
-        Register::asset_definition(AssetDefinition::numeric(asset_def_id.clone()).mintable_once());
+        Register::asset_definition(AssetDefinition::new(asset_def_id.clone()).mintable_once());
 
     // Submit a registration time
     client.submit(register_time)?;

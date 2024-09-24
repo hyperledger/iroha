@@ -1,9 +1,7 @@
 use eyre::Result;
-use iroha::data_model::prelude::*;
+use iroha::{client, client::Client, data_model::prelude::*};
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
-
-use crate::integration::triggers::get_asset_value;
 
 #[test]
 fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
@@ -29,11 +27,20 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
 
     let tea_definition_id = "tea#wonderland".parse()?;
     let register_tea_definition =
-        Register::asset_definition(AssetDefinition::numeric(tea_definition_id));
+        Register::asset_definition(AssetDefinition::new(tea_definition_id));
     test_client.submit_blocking(register_tea_definition)?;
 
     let new_value = get_asset_value(&test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
+}
+
+fn get_asset_value(client: &Client, asset_id: AssetId) -> Numeric {
+    let asset = client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.eq(asset_id))
+        .execute_single()
+        .unwrap();
+    *asset.value()
 }

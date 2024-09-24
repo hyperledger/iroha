@@ -109,18 +109,6 @@ pub mod asset {
     use super::*;
 
     permission! {
-        pub struct CanRegisterAssetWithDefinition {
-            pub asset_definition: AssetDefinitionId,
-        }
-    }
-
-    permission! {
-        pub struct CanUnregisterAssetWithDefinition {
-            pub asset_definition: AssetDefinitionId,
-        }
-    }
-
-    permission! {
         pub struct CanMintAssetWithDefinition {
             pub asset_definition: AssetDefinitionId,
         }
@@ -139,18 +127,6 @@ pub mod asset {
     }
 
     permission! {
-        pub struct CanRegisterAsset {
-            pub owner: AccountId,
-        }
-    }
-
-    permission! {
-        pub struct CanUnregisterAsset {
-            pub asset: AssetId,
-        }
-    }
-
-    permission! {
         pub struct CanMintAsset {
             pub asset: AssetId,
         }
@@ -164,12 +140,6 @@ pub mod asset {
 
     permission! {
         pub struct CanTransferAsset {
-            pub asset: AssetId,
-        }
-    }
-
-    permission! {
-        pub struct CanModifyAssetMetadata {
             pub asset: AssetId,
         }
     }

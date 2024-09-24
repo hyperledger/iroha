@@ -41,7 +41,7 @@ async fn multiple_blocks_created() -> Result<()> {
     let create_account = Register::account(Account::new(account_id.clone()));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
 
     {
         let client = network.client();
@@ -89,10 +89,9 @@ async fn multiple_blocks_created() -> Result<()> {
     // ensuring all have the same total
     sleep(Duration::from_secs(2)).await;
     println!("all peers should have total={total}");
-    let expected_value = AssetValue::Numeric(Numeric::new(total, 0));
+    let expected_value = Numeric::new(total, 0);
     for peer in network.peers() {
         let client = peer.client();
-        let expected_value = expected_value.clone();
         let account_id = account_id.clone();
         let definition = asset_definition_id.clone();
         let assets = spawn_blocking(move || {
@@ -108,7 +107,6 @@ async fn multiple_blocks_created() -> Result<()> {
         let asset = assets.into_iter().next().unwrap();
         assert_eq!(*asset.value(), expected_value);
     }
-
     Ok(())
 }
 

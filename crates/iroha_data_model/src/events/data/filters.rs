@@ -740,7 +740,7 @@ mod tests {
             owned_by: domain_owner_id,
         };
         let account = Account::new(account_id.clone()).into_account();
-        let asset = Asset::new(asset_id.clone(), 0_u32);
+        let asset = Asset::new(asset_id.clone(), Numeric::ZERO);
 
         // Create three events with three levels of nesting
         // the first one is just a domain event
@@ -751,7 +751,7 @@ mod tests {
         let asset_created =
             DomainEvent::Account(AccountEvent::Asset(AssetEvent::Created(asset))).into();
 
-        // test how the differently nested filters with with the events
+        // test how the differently nested filters with the events
         let domain_filter = DataEventFilter::Domain(DomainEventFilter::new().for_domain(domain_id));
         let account_filter =
             DataEventFilter::Account(AccountEventFilter::new().for_account(account_id));

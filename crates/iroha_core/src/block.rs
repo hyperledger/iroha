@@ -1196,7 +1196,7 @@ mod tests {
         // Creating an instruction
         let asset_definition_id = "xor#wonderland".parse().expect("Valid");
         let create_asset_definition =
-            Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
+            Register::asset_definition(AssetDefinition::new(asset_definition_id));
 
         // Making two transactions that have the same instruction
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id)
@@ -1258,7 +1258,7 @@ mod tests {
             .parse::<AssetDefinitionId>()
             .expect("Valid");
         let create_asset_definition =
-            Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+            Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
 
         // Making two transactions that have the same instruction
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
@@ -1337,8 +1337,7 @@ mod tests {
         let domain_id = "domain".parse().expect("Valid");
         let create_domain = Register::domain(Domain::new(domain_id));
         let asset_definition_id = "coin#domain".parse().expect("Valid");
-        let create_asset =
-            Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
+        let create_asset = Register::asset_definition(AssetDefinition::new(asset_definition_id));
         let fail_isi = Unregister::domain("dummy".parse().unwrap());
         let tx_fail = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions::<InstructionBox>([create_domain.clone().into(), fail_isi.into()])

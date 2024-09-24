@@ -30,13 +30,11 @@ fn main(host: Iroha, _context: Context) {
 
     host.submit(&Register::asset_definition(AssetDefinition::new(
         time_id.clone(),
-        AssetType::Numeric(NumericSpec::default()),
     )))
     .dbg_unwrap();
 
     host.submit(&Register::asset_definition(AssetDefinition::new(
         space_id.clone(),
-        AssetType::Numeric(NumericSpec::default()),
     )))
     .dbg_unwrap();
 

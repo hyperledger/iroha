@@ -686,10 +686,7 @@ mod account {
 }
 
 mod asset {
-    use iroha::{
-        client::{self, asset},
-        data_model::name::Name,
-    };
+    use iroha::client::{self, asset};
 
     use super::*;
 
@@ -710,25 +707,19 @@ mod asset {
         /// List assets
         #[clap(subcommand)]
         List(List),
-        /// Get a value from a Store asset
-        GetKeyValue(GetKeyValue),
-        /// Set a key-value entry in a Store asset
-        SetKeyValue(SetKeyValue),
-        /// Remove a key-value entry from a Store asset
-        RemoveKeyValue(RemoveKeyValue),
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             match_all!(
                 (self, context),
-                { Args::Definition, Args::Mint, Args::Burn, Args::Transfer, Args::Get, Args::List, Args::SetKeyValue, Args::RemoveKeyValue, Args::GetKeyValue}
+                { Args::Definition, Args::Mint, Args::Burn, Args::Transfer, Args::Get, Args::List}
             )
         }
     }
 
     mod definition {
-        use iroha::data_model::asset::{AssetDefinition, AssetDefinitionId, AssetType};
+        use iroha::data_model::asset::{AssetDefinition, AssetDefinitionId};
 
         use super::*;
 
@@ -762,7 +753,7 @@ mod asset {
             pub unmintable: bool,
             /// Value type stored in asset
             #[arg(short, long)]
-            pub r#type: AssetType,
+            pub spec: NumericSpec,
             #[command(flatten)]
             pub metadata: MetadataArgs,
         }
@@ -771,11 +762,11 @@ mod asset {
             fn run(self, context: &mut dyn RunContext) -> Result<()> {
                 let Self {
                     id: asset_id,
-                    r#type,
+                    spec,
                     unmintable,
                     metadata,
                 } = self;
-                let mut asset_definition = AssetDefinition::new(asset_id, r#type);
+                let mut asset_definition = AssetDefinition::new(asset_id).with_numeric_spec(spec);
                 if unmintable {
                     asset_definition = asset_definition.mintable_once();
                 }
@@ -943,73 +934,6 @@ mod asset {
             let result = query.execute_all().wrap_err("Failed to get all accounts")?;
             context.print_data(&result)?;
 
-            Ok(())
-        }
-    }
-
-    #[derive(clap::Args, Debug)]
-    pub struct SetKeyValue {
-        /// Asset id for the Store asset (in form of `asset##account@domain_name`)
-        #[clap(long)]
-        pub id: AssetId,
-        /// The key for the store value
-        #[clap(long)]
-        pub key: Name,
-        #[command(flatten)]
-        pub value: MetadataValueArg,
-    }
-
-    impl RunArgs for SetKeyValue {
-        fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self {
-                id: asset_id,
-                key,
-                value: MetadataValueArg { value },
-            } = self;
-
-            let set = iroha::data_model::isi::SetKeyValue::asset(asset_id, key, value);
-            submit([set], Metadata::default(), context)?;
-            Ok(())
-        }
-    }
-    #[derive(clap::Args, Debug)]
-    pub struct RemoveKeyValue {
-        /// Asset id for the Store asset (in form of `asset##account@domain_name`)
-        #[clap(long)]
-        pub id: AssetId,
-        /// The key for the store value
-        #[clap(long)]
-        pub key: Name,
-    }
-
-    impl RunArgs for RemoveKeyValue {
-        fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self { id: asset_id, key } = self;
-            let remove = iroha::data_model::isi::RemoveKeyValue::asset(asset_id, key);
-            submit([remove], Metadata::default(), context)?;
-            Ok(())
-        }
-    }
-
-    #[derive(clap::Args, Debug)]
-    pub struct GetKeyValue {
-        /// Asset id for the Store asset (in form of `asset##account@domain_name`)
-        #[clap(long)]
-        pub id: AssetId,
-        /// The key for the store value
-        #[clap(long)]
-        pub key: Name,
-    }
-
-    impl RunArgs for GetKeyValue {
-        fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self { id: asset_id, key } = self;
-            let client = context.client_from_config();
-            let find_key_value = FindAssetMetadata::new(asset_id, key);
-            let asset = client
-                .query_single(find_key_value)
-                .wrap_err("Failed to get key-value")?;
-            context.print_data(&asset)?;
             Ok(())
         }
     }

@@ -75,7 +75,6 @@ impl Execute for RegisterBox {
             Self::Domain(isi) => isi.execute(authority, state_transaction),
             Self::Account(isi) => isi.execute(authority, state_transaction),
             Self::AssetDefinition(isi) => isi.execute(authority, state_transaction),
-            Self::Asset(isi) => isi.execute(authority, state_transaction),
             Self::Role(isi) => isi.execute(authority, state_transaction),
             Self::Trigger(isi) => isi.execute(authority, state_transaction),
         }
@@ -94,7 +93,6 @@ impl Execute for UnregisterBox {
             Self::Domain(isi) => isi.execute(authority, state_transaction),
             Self::Account(isi) => isi.execute(authority, state_transaction),
             Self::AssetDefinition(isi) => isi.execute(authority, state_transaction),
-            Self::Asset(isi) => isi.execute(authority, state_transaction),
             Self::Role(isi) => isi.execute(authority, state_transaction),
             Self::Trigger(isi) => isi.execute(authority, state_transaction),
         }
@@ -139,20 +137,7 @@ impl Execute for TransferBox {
         match self {
             Self::Domain(isi) => isi.execute(authority, state_transaction),
             Self::AssetDefinition(isi) => isi.execute(authority, state_transaction),
-            Self::Asset(isi) => isi.execute(authority, state_transaction),
-        }
-    }
-}
-
-impl Execute for AssetTransferBox {
-    fn execute(
-        self,
-        authority: &AccountId,
-        state_transaction: &mut StateTransaction<'_, '_>,
-    ) -> std::prelude::v1::Result<(), Error> {
-        match self {
             Self::Numeric(isi) => isi.execute(authority, state_transaction),
-            Self::Store(isi) => isi.execute(authority, state_transaction),
         }
     }
 }
@@ -167,7 +152,6 @@ impl Execute for SetKeyValueBox {
             Self::Domain(isi) => isi.execute(authority, state_transaction),
             Self::Account(isi) => isi.execute(authority, state_transaction),
             Self::AssetDefinition(isi) => isi.execute(authority, state_transaction),
-            Self::Asset(isi) => isi.execute(authority, state_transaction),
             Self::Trigger(isi) => isi.execute(authority, state_transaction),
         }
     }
@@ -183,7 +167,6 @@ impl Execute for RemoveKeyValueBox {
             Self::Domain(isi) => isi.execute(authority, state_transaction),
             Self::Account(isi) => isi.execute(authority, state_transaction),
             Self::AssetDefinition(isi) => isi.execute(authority, state_transaction),
-            Self::Asset(isi) => isi.execute(authority, state_transaction),
             Self::Trigger(isi) => isi.execute(authority, state_transaction),
         }
     }
@@ -256,38 +239,38 @@ mod tests {
             .execute(&SAMPLE_GENESIS_ACCOUNT_ID, &mut state_transaction)?;
         Register::account(Account::new(ALICE_ID.clone()))
             .execute(&SAMPLE_GENESIS_ACCOUNT_ID, &mut state_transaction)?;
-        Register::asset_definition(AssetDefinition::store(asset_definition_id))
+        Register::asset_definition(AssetDefinition::new(asset_definition_id))
             .execute(&SAMPLE_GENESIS_ACCOUNT_ID, &mut state_transaction)?;
         state_transaction.apply();
         state_block.commit();
         Ok(state)
     }
 
-    #[test]
-    async fn asset_store() -> Result<()> {
-        let kura = Kura::blank_kura_for_testing();
-        let state = state_with_test_domains(&kura)?;
-        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
-            .as_ref()
-            .header();
-        let mut state_block = state.block(block_header);
-        let mut state_transaction = state_block.transaction();
-        let account_id = ALICE_ID.clone();
-        let asset_definition_id = "rose#wonderland".parse()?;
-        let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-        let key = "Bytes".parse::<Name>()?;
-        SetKeyValue::asset(asset_id.clone(), key.clone(), vec![1_u32, 2_u32, 3_u32])
-            .execute(&account_id, &mut state_transaction)?;
-        state_transaction.apply();
-        state_block.commit();
-        let asset = state.view().world.asset(&asset_id)?;
-        let AssetValue::Store(store) = &asset.value else {
-            panic!("expected store asset");
-        };
-        let value = store.get(&key).cloned();
-        assert_eq!(value, Some(vec![1_u32, 2_u32, 3_u32,].into()));
-        Ok(())
-    }
+    // TODO(nft): #[test]
+    // async fn asset_store() -> Result<()> {
+    //     let kura = Kura::blank_kura_for_testing();
+    //     let state = state_with_test_domains(&kura)?;
+    //     let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+    //         .as_ref()
+    //         .header();
+    //     let mut state_block = state.block(block_header);
+    //     let mut state_transaction = state_block.transaction();
+    //     let account_id = ALICE_ID.clone();
+    //     let asset_definition_id = "rose#wonderland".parse()?;
+    //     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+    //     let key = "Bytes".parse::<Name>()?;
+    //     SetKeyValue::asset(asset_id.clone(), key.clone(), vec![1_u32, 2_u32, 3_u32])
+    //         .execute(&account_id, &mut state_transaction)?;
+    //     state_transaction.apply();
+    //     state_block.commit();
+    //     let asset = state.view().world.asset(&asset_id)?;
+    //     let AssetValue::Store(store) = &asset.value else {
+    //         panic!("expected store asset");
+    //     };
+    //     let value = store.get(&key).cloned();
+    //     assert_eq!(value, Some(vec![1_u32, 2_u32, 3_u32,].into()));
+    //     Ok(())
+    // }
 
     #[test]
     async fn account_metadata() -> Result<()> {

@@ -4,117 +4,111 @@ use eyre::{Result, WrapErr as _};
 use iroha::{
     client::{self, QueryResult},
     crypto::KeyPair,
-    data_model::{
-        account::Account, name::Name, prelude::*,
-        query::predicate::predicate_atoms::asset::AssetPredicateBox,
-    },
+    data_model::{account::Account, name::Name, prelude::*},
 };
 use iroha_test_network::*;
-use iroha_test_samples::ALICE_ID;
-use nonzero_ext::nonzero;
-use rand::{seq::SliceRandom, thread_rng};
 
 #[test]
 #[ignore]
 #[allow(clippy::cast_possible_truncation)]
 fn correct_pagination_assets_after_creating_new_one() {
     // FIXME transaction is rejected for more than a certain number of instructions
-    const N_ASSETS: usize = 12;
-    // 0 < pagination.start < missing_idx < pagination.end < N_ASSETS
-    let missing_indices = vec![N_ASSETS / 2];
-    let pagination = Pagination {
-        limit: Some(nonzero!(N_ASSETS as u64 / 3)),
-        offset: N_ASSETS as u64 / 3,
-    };
-    let xor_filter =
-        AssetPredicateBox::build(|asset| asset.id.definition_id.name.starts_with("xor"));
-
-    let sort_by_metadata_key = "sort".parse::<Name>().expect("Valid");
-    let sorting = Sorting::by_metadata_key(sort_by_metadata_key.clone());
-    let account_id = ALICE_ID.clone();
-
-    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
-    let test_client = network.client();
-
-    let mut tester_assets = vec![];
-    let mut register_asset_definitions = vec![];
-    let mut register_assets = vec![];
-
-    let mut missing_tester_assets = vec![];
-    let mut missing_register_asset_definitions = vec![];
-    let mut missing_register_assets = vec![];
-
-    for i in 0..N_ASSETS {
-        let asset_definition_id = format!("xor{i}#wonderland")
-            .parse::<AssetDefinitionId>()
-            .expect("Valid");
-        let asset_definition = AssetDefinition::store(asset_definition_id.clone());
-        let mut asset_metadata = Metadata::default();
-        asset_metadata.insert(sort_by_metadata_key.clone(), i as u32);
-        let asset = Asset::new(
-            AssetId::new(asset_definition_id, account_id.clone()),
-            AssetValue::Store(asset_metadata),
-        );
-
-        if missing_indices.contains(&i) {
-            missing_tester_assets.push(asset.clone());
-            missing_register_asset_definitions.push(Register::asset_definition(asset_definition));
-            missing_register_assets.push(Register::asset(asset));
-        } else {
-            tester_assets.push(asset.clone());
-            register_asset_definitions.push(Register::asset_definition(asset_definition));
-            register_assets.push(Register::asset(asset));
-        }
-    }
-    register_asset_definitions.shuffle(&mut thread_rng());
-    register_assets.shuffle(&mut thread_rng());
-
-    test_client
-        .submit_all_blocking(register_asset_definitions)
-        .expect("Valid");
-    test_client
-        .submit_all_blocking(register_assets)
-        .expect("Valid");
-
-    let queried_assets = test_client
-        .query(client::asset::all())
-        .filter(xor_filter.clone())
-        .with_pagination(pagination)
-        .with_sorting(sorting.clone())
-        .execute_all()
-        .expect("Valid");
-
-    tester_assets
-        .iter()
-        .skip(N_ASSETS / 3)
-        .take(N_ASSETS / 3)
-        .zip(queried_assets)
-        .for_each(|(tester, queried)| assert_eq!(*tester, queried));
-
-    for (i, missing_idx) in missing_indices.into_iter().enumerate() {
-        tester_assets.insert(missing_idx, missing_tester_assets[i].clone());
-    }
-    test_client
-        .submit_all_blocking(missing_register_asset_definitions)
-        .expect("Valid");
-    test_client
-        .submit_all_blocking(missing_register_assets)
-        .expect("Valid");
-
-    let queried_assets = test_client
-        .query(client::asset::all())
-        .filter(xor_filter)
-        .with_pagination(pagination)
-        .with_sorting(sorting)
-        .execute_all()
-        .expect("Valid");
-
-    tester_assets
-        .iter()
-        .skip(N_ASSETS / 3)
-        .take(N_ASSETS / 3)
-        .zip(queried_assets)
-        .for_each(|(tester, queried)| assert_eq!(*tester, queried));
+    // const N_ASSETS: usize = 12;
+    // // 0 < pagination.start < missing_idx < pagination.end < N_ASSETS
+    // let missing_indices = vec![N_ASSETS / 2];
+    // let pagination = Pagination {
+    //     limit: Some(nonzero!(N_ASSETS as u64 / 3)),
+    //     offset: N_ASSETS as u64 / 3,
+    // };
+    // let xor_filter =
+    //     AssetPredicateBox::build(|asset| asset.id.definition_id.name.starts_with("xor"));
+    //
+    // let sort_by_metadata_key = "sort".parse::<Name>().expect("Valid");
+    // let sorting = Sorting::by_metadata_key(sort_by_metadata_key.clone());
+    // let account_id = ALICE_ID.clone();
+    //
+    // let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    // let test_client = network.client();
+    //
+    // let mut tester_assets = vec![];
+    // let mut register_asset_definitions = vec![];
+    // let mut register_assets = vec![];
+    //
+    // let mut missing_tester_assets = vec![];
+    // let mut missing_register_asset_definitions = vec![];
+    // let mut missing_register_assets = vec![];
+    //
+    // for i in 0..N_ASSETS {
+    //     let asset_definition_id = format!("xor{i}#wonderland")
+    //         .parse::<AssetDefinitionId>()
+    //         .expect("Valid");
+    //     let asset_definition = AssetDefinition::store(asset_definition_id.clone());
+    //     let mut asset_metadata = Metadata::default();
+    //     asset_metadata.insert(sort_by_metadata_key.clone(), i as u32);
+    //     let asset = Asset::new(
+    //         AssetId::new(asset_definition_id, account_id.clone()),
+    //         AssetValue::Store(asset_metadata),
+    //     );
+    //
+    //     if missing_indices.contains(&i) {
+    //         missing_tester_assets.push(asset.clone());
+    //         missing_register_asset_definitions.push(Register::asset_definition(asset_definition));
+    //         missing_register_assets.push(Register::asset(asset));
+    //     } else {
+    //         tester_assets.push(asset.clone());
+    //         register_asset_definitions.push(Register::asset_definition(asset_definition));
+    //         register_assets.push(Register::asset(asset));
+    //     }
+    // }
+    // register_asset_definitions.shuffle(&mut thread_rng());
+    // register_assets.shuffle(&mut thread_rng());
+    //
+    // test_client
+    //     .submit_all_blocking(register_asset_definitions)
+    //     .expect("Valid");
+    // test_client
+    //     .submit_all_blocking(register_assets)
+    //     .expect("Valid");
+    //
+    // let queried_assets = test_client
+    //     .query(client::asset::all())
+    //     .filter(xor_filter.clone())
+    //     .with_pagination(pagination)
+    //     .with_sorting(sorting.clone())
+    //     .execute_all()
+    //     .expect("Valid");
+    //
+    // tester_assets
+    //     .iter()
+    //     .skip(N_ASSETS / 3)
+    //     .take(N_ASSETS / 3)
+    //     .zip(queried_assets)
+    //     .for_each(|(tester, queried)| assert_eq!(*tester, queried));
+    //
+    // for (i, missing_idx) in missing_indices.into_iter().enumerate() {
+    //     tester_assets.insert(missing_idx, missing_tester_assets[i].clone());
+    // }
+    // test_client
+    //     .submit_all_blocking(missing_register_asset_definitions)
+    //     .expect("Valid");
+    // test_client
+    //     .submit_all_blocking(missing_register_assets)
+    //     .expect("Valid");
+    //
+    // let queried_assets = test_client
+    //     .query(client::asset::all())
+    //     .filter(xor_filter)
+    //     .with_pagination(pagination)
+    //     .with_sorting(sorting)
+    //     .execute_all()
+    //     .expect("Valid");
+    //
+    // tester_assets
+    //     .iter()
+    //     .skip(N_ASSETS / 3)
+    //     .take(N_ASSETS / 3)
+    //     .zip(queried_assets)
+    //     .for_each(|(tester, queried)| assert_eq!(*tester, queried));
 }
 
 #[test]
@@ -137,8 +131,8 @@ fn correct_sorting_of_entities() {
             .expect("Valid");
         let mut asset_metadata = Metadata::default();
         asset_metadata.insert(sort_by_metadata_key.clone(), n - i - 1);
-        let asset_definition = AssetDefinition::numeric(asset_definition_id.clone())
-            .with_metadata(asset_metadata.clone());
+        let asset_definition =
+            AssetDefinition::new(asset_definition_id.clone()).with_metadata(asset_metadata.clone());
 
         metadata_of_assets.push(asset_metadata);
         asset_definitions.push(asset_definition_id);

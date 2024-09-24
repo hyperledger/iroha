@@ -3,7 +3,7 @@ use std::{sync::mpsc, thread, time::Duration};
 use executor_custom_data_model::mint_rose_args::MintRoseArgs;
 use eyre::{eyre, Result, WrapErr};
 use iroha::{
-    client::{self},
+    client::{self, Client},
     crypto::KeyPair,
     data_model::{
         prelude::*,
@@ -14,8 +14,6 @@ use iroha::{
 use iroha_executor_data_model::permission::trigger::CanRegisterTrigger;
 use iroha_test_network::*;
 use iroha_test_samples::{load_sample_wasm, ALICE_ID};
-
-use crate::integration::triggers::get_asset_value;
 
 const TRIGGER_NAME: &str = "mint_rose";
 
@@ -587,6 +585,15 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
     assert_eq!(got_second_trigger, second_trigger);
 
     Ok(())
+}
+
+fn get_asset_value(client: &Client, asset_id: AssetId) -> Numeric {
+    let asset = client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.eq(asset_id))
+        .execute_single()
+        .unwrap();
+    *asset.value()
 }
 
 fn build_register_trigger_isi(

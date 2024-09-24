@@ -28,7 +28,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     let create_account = Register::account(Account::new(account_id.clone()));
     let asset_definition_id = "xor#domain".parse::<AssetDefinitionId>()?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
     peer_a.client().submit_all_blocking::<InstructionBox>([
         create_domain.into(),
         create_account.into(),
@@ -52,7 +52,6 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
         .into_iter()
         .find(|asset| *asset.id().definition() == asset_definition_id)
         .expect("should be");
-    assert_eq!(*asset.value(), AssetValue::Numeric(quantity));
-
+    assert_eq!(*asset.value(), quantity);
     Ok(())
 }
