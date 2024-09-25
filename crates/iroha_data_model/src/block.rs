@@ -260,8 +260,6 @@ impl SignedBlock {
         genesis_transactions: Vec<SignedTransaction>,
         genesis_private_key: &iroha_crypto::PrivateKey,
     ) -> SignedBlock {
-        use std::time::SystemTime;
-
         use nonzero_ext::nonzero;
 
         let transactions_hash = genesis_transactions
@@ -270,12 +268,7 @@ impl SignedBlock {
             .collect::<MerkleTree<_>>()
             .hash()
             .expect("Tree is not empty");
-        let creation_time_ms = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-            .try_into()
-            .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
+        let creation_time_ms = Self::get_genesis_block_creation_time(&genesis_transactions);
         let header = BlockHeader {
             height: nonzero!(1_u64),
             prev_block_hash: None,
@@ -303,6 +296,27 @@ impl SignedBlock {
             payload,
         }
         .into()
+    }
+
+    #[cfg(feature = "std")]
+    fn get_genesis_block_creation_time(genesis_transactions: &[SignedTransaction]) -> u64 {
+        use std::time::SystemTime;
+
+        let latest_txn_time = genesis_transactions
+            .iter()
+            .map(|tx| tx.creation_time())
+            .max()
+            .expect("INTERNAL BUG: Block empty");
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap();
+        now
+            // We have invariant that "transaction creation time" < "block creation time"
+            // See `BlockPayloadCandidate::validate_header`
+            .max(latest_txn_time + Duration::from_millis(1))
+            .as_millis()
+            .try_into()
+            .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX")
     }
 }
 
