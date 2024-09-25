@@ -26,7 +26,6 @@ jobs:
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
-          retention-days: 1
 
   registry_save_build_artifacts:
     runs-on: [self-hosted, Linux, iroha2]
@@ -61,7 +60,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: Dockerfile.glibc
           push: true
           tags: |
             hyperledger/iroha:dev

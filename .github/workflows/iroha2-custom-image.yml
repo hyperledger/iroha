@@ -67,6 +67,8 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.CHECKOUT_REF }}
       - name: Download executor.wasm file
         uses: actions/download-artifact@v4
         with:
