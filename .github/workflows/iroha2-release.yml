@@ -54,7 +54,7 @@ jobs:
         with:
           context: .
           load: true
-          file: Dockerfile
+          file: Dockerfile.glibc
           tags: |
             hyperledger/iroha:${{ env.TAG }}
             docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}
