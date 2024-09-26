@@ -30,6 +30,7 @@ use crate::{
 #[model]
 mod model {
     use getset::Getters;
+    use iroha_primitives::const_vec::ConstVec;
 
     use super::*;
     use crate::account::AccountId;
@@ -53,7 +54,7 @@ mod model {
     pub enum Executable {
         /// Ordered set of instructions.
         #[debug(fmt = "{_0:?}")]
-        Instructions(Vec<InstructionBox>),
+        Instructions(ConstVec<InstructionBox>),
         /// WebAssembly smartcontract
         Wasm(WasmSmartContract),
     }

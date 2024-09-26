@@ -19,6 +19,7 @@ use iroha_data_model::{
     query::error::FindError,
     transaction::WasmSmartContract,
 };
+use iroha_primitives::const_vec::ConstVec;
 use mv::{
     cell::{Block as CellBlock, Cell, Transaction as CellTransaction, View as CellView},
     storage::{
@@ -1012,7 +1013,7 @@ pub enum ExecutableRef {
     /// Loaded WASM
     Wasm(HashOf<WasmSmartContract>),
     /// Vector of ISI
-    Instructions(Vec<InstructionBox>),
+    Instructions(ConstVec<InstructionBox>),
 }
 
 impl core::fmt::Debug for ExecutableRef {

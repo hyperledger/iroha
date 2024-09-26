@@ -192,6 +192,7 @@ types!(
     ConfigurationEventSet,
     ConstString,
     ConstVec<u8>,
+    ConstVec<InstructionBox>,
     CustomInstruction,
     CustomParameter,
     CustomParameterId,
