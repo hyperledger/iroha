@@ -30,7 +30,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
 
     let tea_definition_id = "tea#wonderland".parse()?;
     let register_tea_definition =
-        Register::asset_definition(AssetDefinition::numeric(tea_definition_id));
+        Register::asset_definition(AssetDefinition::new(tea_definition_id));
     test_client.submit_blocking(register_tea_definition)?;
 
     let new_value = get_asset_value(&mut test_client, asset_id);
@@ -45,10 +45,5 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
         .filter_with(|asset| asset.id.eq(asset_id))
         .execute_single()
         .unwrap();
-
-    let AssetValue::Numeric(val) = *asset.value() else {
-        panic!("Unexpected asset value");
-    };
-
-    val
+    *asset.value()
 }

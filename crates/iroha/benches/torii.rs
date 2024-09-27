@@ -62,7 +62,7 @@ fn query_requests(criterion: &mut Criterion) {
     let create_account = Register::account(Account::new(account_id.clone()));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
     let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
     let mint_asset = Mint::asset_numeric(
         200u32,
         AssetId::new(asset_definition_id, account_id.clone()),

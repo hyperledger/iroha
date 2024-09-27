@@ -29,10 +29,7 @@ fn generate_genesis(
         builder = builder
             .domain(format!("wonderland-{i}").parse().expect("Valid"))
             .account(signatory_alice.clone())
-            .asset(
-                format!("xor-{i}").parse().expect("Valid"),
-                AssetType::Numeric(NumericSpec::default()),
-            )
+            .asset(format!("xor-{i}").parse().expect("Valid"))
             .finish_domain();
     }
 

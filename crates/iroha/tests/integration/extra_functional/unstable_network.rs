@@ -74,7 +74,7 @@ fn unstable_network(
     let account_id = ALICE_ID.clone();
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
     let register_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
     iroha
         .submit_blocking(register_asset)
         .expect("Failed to register asset");
@@ -109,7 +109,7 @@ fn unstable_network(
 
                 Ok(assets.iter().any(|asset| {
                     *asset.id().definition() == asset_definition_id
-                        && *asset.value() == AssetValue::Numeric(account_has_quantity)
+                        && *asset.value() == account_has_quantity
                 }))
             })
             .expect("Test case failure.");

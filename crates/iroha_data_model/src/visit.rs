@@ -57,7 +57,6 @@ pub trait Visit {
         visit_find_parameters(&FindParameters),
         visit_find_domain_metadata(&FindDomainMetadata),
         visit_find_account_metadata(&FindAccountMetadata),
-        visit_find_asset_metadata(&FindAssetMetadata),
         visit_find_asset_definition_metadata(&FindAssetDefinitionMetadata),
         visit_find_trigger_metadata(&FindTriggerMetadata),
 
@@ -83,7 +82,6 @@ pub trait Visit {
         visit_register_domain(&Register<Domain>),
         visit_register_account(&Register<Account>),
         visit_register_asset_definition(&Register<AssetDefinition>),
-        visit_register_asset(&Register<Asset>),
         visit_register_role(&Register<Role>),
         visit_register_trigger(&Register<Trigger>),
 
@@ -92,7 +90,6 @@ pub trait Visit {
         visit_unregister_domain(&Unregister<Domain>),
         visit_unregister_account(&Unregister<Account>),
         visit_unregister_asset_definition(&Unregister<AssetDefinition>),
-        visit_unregister_asset(&Unregister<Asset>),
         // TODO: Need to allow role creator to unregister it somehow
         visit_unregister_role(&Unregister<Role>),
         visit_unregister_trigger(&Unregister<Trigger>),
@@ -108,21 +105,18 @@ pub trait Visit {
         // Visit TransferBox
         visit_transfer_asset_definition(&Transfer<Account, AssetDefinitionId, Account>),
         visit_transfer_asset_numeric(&Transfer<Asset, Numeric, Account>),
-        visit_transfer_asset_store(&Transfer<Asset, Metadata, Account>),
         visit_transfer_domain(&Transfer<Account, DomainId, Account>),
 
         // Visit SetKeyValueBox
         visit_set_domain_key_value(&SetKeyValue<Domain>),
         visit_set_account_key_value(&SetKeyValue<Account>),
         visit_set_asset_definition_key_value(&SetKeyValue<AssetDefinition>),
-        visit_set_asset_key_value(&SetKeyValue<Asset>),
         visit_set_trigger_key_value(&SetKeyValue<Trigger>),
 
         // Visit RemoveKeyValueBox
         visit_remove_domain_key_value(&RemoveKeyValue<Domain>),
         visit_remove_account_key_value(&RemoveKeyValue<Account>),
         visit_remove_asset_definition_key_value(&RemoveKeyValue<AssetDefinition>),
-        visit_remove_asset_key_value(&RemoveKeyValue<Asset>),
         visit_remove_trigger_key_value(&RemoveKeyValue<Trigger>),
 
         // Visit GrantBox
@@ -171,7 +165,6 @@ pub fn visit_singular_query<V: Visit + ?Sized>(
         visit_find_parameters(FindParameters),
         visit_find_domain_metadata(FindDomainMetadata),
         visit_find_account_metadata(FindAccountMetadata),
-        visit_find_asset_metadata(FindAssetMetadata),
         visit_find_asset_definition_metadata(FindAssetDefinitionMetadata),
         visit_find_trigger_metadata(FindTriggerMetadata),
     }
@@ -273,7 +266,6 @@ pub fn visit_register<V: Visit + ?Sized>(
         RegisterBox::AssetDefinition(obj) => {
             visitor.visit_register_asset_definition(authority, obj)
         }
-        RegisterBox::Asset(obj) => visitor.visit_register_asset(authority, obj),
         RegisterBox::Role(obj) => visitor.visit_register_role(authority, obj),
         RegisterBox::Trigger(obj) => visitor.visit_register_trigger(authority, obj),
     }
@@ -291,7 +283,6 @@ pub fn visit_unregister<V: Visit + ?Sized>(
         UnregisterBox::AssetDefinition(obj) => {
             visitor.visit_unregister_asset_definition(authority, obj)
         }
-        UnregisterBox::Asset(obj) => visitor.visit_unregister_asset(authority, obj),
         UnregisterBox::Role(obj) => visitor.visit_unregister_role(authority, obj),
         UnregisterBox::Trigger(obj) => visitor.visit_unregister_trigger(authority, obj),
     }
@@ -321,10 +312,7 @@ pub fn visit_transfer<V: Visit + ?Sized>(
         TransferBox::AssetDefinition(obj) => {
             visitor.visit_transfer_asset_definition(authority, obj)
         }
-        TransferBox::Asset(transfer_asset) => match transfer_asset {
-            AssetTransferBox::Numeric(obj) => visitor.visit_transfer_asset_numeric(authority, obj),
-            AssetTransferBox::Store(obj) => visitor.visit_transfer_asset_store(authority, obj),
-        },
+        TransferBox::Numeric(obj) => visitor.visit_transfer_asset_numeric(authority, obj),
     }
 }
 
@@ -339,7 +327,6 @@ pub fn visit_set_key_value<V: Visit + ?Sized>(
         SetKeyValueBox::AssetDefinition(obj) => {
             visitor.visit_set_asset_definition_key_value(authority, obj)
         }
-        SetKeyValueBox::Asset(obj) => visitor.visit_set_asset_key_value(authority, obj),
         SetKeyValueBox::Trigger(obj) => visitor.visit_set_trigger_key_value(authority, obj),
     }
 }
@@ -355,7 +342,6 @@ pub fn visit_remove_key_value<V: Visit + ?Sized>(
         RemoveKeyValueBox::AssetDefinition(obj) => {
             visitor.visit_remove_asset_definition_key_value(authority, obj)
         }
-        RemoveKeyValueBox::Asset(obj) => visitor.visit_remove_asset_key_value(authority, obj),
         RemoveKeyValueBox::Trigger(obj) => visitor.visit_remove_trigger_key_value(authority, obj),
     }
 }
@@ -390,14 +376,9 @@ leaf_visitors! {
     visit_unregister_account(&Unregister<Account>),
     visit_set_account_key_value(&SetKeyValue<Account>),
     visit_remove_account_key_value(&RemoveKeyValue<Account>),
-    visit_register_asset(&Register<Asset>),
-    visit_unregister_asset(&Unregister<Asset>),
     visit_mint_asset_numeric(&Mint<Numeric, Asset>),
     visit_burn_asset_numeric(&Burn<Numeric, Asset>),
     visit_transfer_asset_numeric(&Transfer<Asset, Numeric, Account>),
-    visit_transfer_asset_store(&Transfer<Asset, Metadata, Account>),
-    visit_set_asset_key_value(&SetKeyValue<Asset>),
-    visit_remove_asset_key_value(&RemoveKeyValue<Asset>),
     visit_set_trigger_key_value(&SetKeyValue<Trigger>),
     visit_remove_trigger_key_value(&RemoveKeyValue<Trigger>),
     visit_register_asset_definition(&Register<AssetDefinition>),
@@ -436,7 +417,6 @@ leaf_visitors! {
     visit_find_parameters(&FindParameters),
     visit_find_domain_metadata(&FindDomainMetadata),
     visit_find_account_metadata(&FindAccountMetadata),
-    visit_find_asset_metadata(&FindAssetMetadata),
     visit_find_asset_definition_metadata(&FindAssetDefinitionMetadata),
     visit_find_trigger_metadata(&FindTriggerMetadata),
 

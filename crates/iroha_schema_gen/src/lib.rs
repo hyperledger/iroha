@@ -76,17 +76,12 @@ pub fn build_schemas() -> MetaMap {
         permission::asset_definition::CanUnregisterAssetDefinition,
         permission::asset_definition::CanSetKeyValueInAssetDefinition,
         permission::asset_definition::CanRemoveKeyValueInAssetDefinition,
-        permission::asset::CanRegisterAssetWithDefinition,
-        permission::asset::CanUnregisterAssetWithDefinition,
-        permission::asset::CanUnregisterUserAsset,
         permission::asset::CanBurnAssetWithDefinition,
         permission::asset::CanMintAssetWithDefinition,
         permission::asset::CanMintUserAsset,
         permission::asset::CanBurnUserAsset,
         permission::asset::CanTransferAssetWithDefinition,
         permission::asset::CanTransferUserAsset,
-        permission::asset::CanSetKeyValueInUserAsset,
-        permission::asset::CanRemoveKeyValueInUserAsset,
         permission::parameter::CanSetParameters,
         permission::role::CanUnregisterAnyRole,
         permission::trigger::CanRegisterUserTrigger,
@@ -133,10 +128,6 @@ types!(
     AssetId,
     AssetIdPredicateBox,
     AssetPredicateBox,
-    AssetTransferBox,
-    AssetType,
-    AssetValue,
-    AssetValuePredicateBox,
     BlockEvent,
     BlockEventFilter,
     BlockHashPredicateBox,
@@ -239,7 +230,6 @@ types!(
     FindTransactions,
     FindTriggers,
     FindAssetDefinitionMetadata,
-    FindAssetMetadata,
     FindAssetQuantityById,
     FindDomainMetadata,
     FindError,
@@ -294,7 +284,6 @@ types!(
     Metadata,
     MetadataChanged<AccountId>,
     MetadataChanged<AssetDefinitionId>,
-    MetadataChanged<AssetId>,
     MetadataChanged<DomainId>,
     MetadataChanged<TriggerId>,
     MetadataPredicateBox,
@@ -303,7 +292,7 @@ types!(
     MintBox,
     Mint<Numeric, Asset>,
     Mint<u32, Trigger>,
-    Mismatch<AssetType>,
+    Mismatch<NumericSpec>,
     Name,
     NewAccount,
     NewAssetDefinition,
@@ -313,6 +302,7 @@ types!(
     NonZeroU64,
     Numeric,
     NumericSpec,
+    NumericPredicateBox,
     Option<AccountId>,
     Option<AssetDefinitionId>,
     Option<AssetId>,
@@ -359,7 +349,6 @@ types!(
     QueryResponse,
     QuerySignature,
     Register<Account>,
-    Register<Asset>,
     Register<AssetDefinition>,
     RegisterBox,
     Register<Domain>,
@@ -367,7 +356,6 @@ types!(
     Register<Role>,
     Register<Trigger>,
     RemoveKeyValue<Account>,
-    RemoveKeyValue<Asset>,
     RemoveKeyValue<AssetDefinition>,
     RemoveKeyValueBox,
     RemoveKeyValue<Domain>,
@@ -387,7 +375,6 @@ types!(
     RolePermissionChanged,
     RolePredicateBox,
     SetKeyValue<Account>,
-    SetKeyValue<Asset>,
     SetKeyValue<AssetDefinition>,
     SetKeyValueBox,
     SetKeyValue<Domain>,
@@ -437,7 +424,6 @@ types!(
     TransactionStatus,
     Transfer<Account, AssetDefinitionId, Account>,
     Transfer<Account, DomainId, Account>,
-    Transfer<Asset, Metadata, Account>,
     Transfer<Asset, Numeric, Account>,
     TransferBox,
     Trigger,
@@ -454,7 +440,6 @@ types!(
     TriggerNumberOfExecutionsChanged,
     TypeError,
     Unregister<Account>,
-    Unregister<Asset>,
     Unregister<AssetDefinition>,
     UnregisterBox,
     Unregister<Domain>,
@@ -624,13 +609,6 @@ mod tests {
         insert_into_test_map!(iroha_executor_data_model::permission::asset_definition::CanSetKeyValueInAssetDefinition);
         insert_into_test_map!(iroha_executor_data_model::permission::asset_definition::CanRemoveKeyValueInAssetDefinition);
         insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanRegisterAssetWithDefinition
-        );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanUnregisterAssetWithDefinition
-        );
-        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanUnregisterUserAsset);
-        insert_into_test_map!(
             iroha_executor_data_model::permission::asset::CanBurnAssetWithDefinition
         );
         insert_into_test_map!(
@@ -642,12 +620,6 @@ mod tests {
             iroha_executor_data_model::permission::asset::CanTransferAssetWithDefinition
         );
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanTransferUserAsset);
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanSetKeyValueInUserAsset
-        );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanRemoveKeyValueInUserAsset
-        );
         insert_into_test_map!(iroha_executor_data_model::permission::parameter::CanSetParameters);
         insert_into_test_map!(iroha_executor_data_model::permission::role::CanUnregisterAnyRole);
         insert_into_test_map!(

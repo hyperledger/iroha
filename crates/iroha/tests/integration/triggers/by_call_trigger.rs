@@ -638,12 +638,7 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
         .filter_with(|asset| asset.id.eq(asset_id))
         .execute_single()
         .unwrap();
-
-    let AssetValue::Numeric(val) = *asset.value() else {
-        panic!("Unexpected asset value");
-    };
-
-    val
+    *asset.value()
 }
 
 fn build_register_trigger_isi(

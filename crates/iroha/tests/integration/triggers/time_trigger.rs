@@ -8,13 +8,11 @@ use iroha::{
         events::pipeline::{BlockEventFilter, BlockStatus},
         parameter::SumeragiParameters,
         prelude::*,
-        transaction::WasmSmartContract,
         Level,
     },
 };
-use iroha_logger::info;
 use iroha_test_network::*;
-use iroha_test_samples::{gen_account_in, ALICE_ID};
+use iroha_test_samples::ALICE_ID;
 
 /// Default estimation of consensus duration.
 pub fn default_consensus_estimation() -> Duration {
@@ -214,101 +212,6 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
-    const TRIGGER_PERIOD: Duration = Duration::from_millis(1000);
-    const EXPECTED_COUNT: u64 = 4;
-
-    info!("Building trigger");
-    let wasm =
-        iroha_wasm_builder::Builder::new("../../wasm_samples/create_nft_for_every_user_trigger")
-            .show_output()
-            .build()?
-            .optimize()?
-            .into_bytes()?;
-
-    info!("WASM size is {} bytes", wasm.len());
-
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
-
-    let alice_id = ALICE_ID.clone();
-
-    let accounts: Vec<AccountId> = vec![
-        alice_id.clone(),
-        gen_account_in("wonderland").0,
-        gen_account_in("wonderland").0,
-        gen_account_in("wonderland").0,
-        gen_account_in("wonderland").0,
-    ];
-
-    // Registering accounts
-    let register_accounts = accounts
-        .iter()
-        .skip(1) // Alice has already been registered in genesis
-        .cloned()
-        .map(|account_id| Register::account(Account::new(account_id)))
-        .collect::<Vec<_>>();
-    test_client.submit_all_blocking(register_accounts)?;
-
-    // Start listening BEFORE submitting any transaction not to miss any block committed event
-    let event_listener = get_block_committed_event_listener(&test_client)?;
-
-    // Registering trigger
-    // Offset into the future to be able to register trigger
-    let offset = Duration::from_secs(10);
-    let start_time = curr_time() + offset;
-    let schedule = TimeSchedule::starting_at(start_time).with_period(TRIGGER_PERIOD);
-
-    let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
-    let register_trigger = Register::trigger(Trigger::new(
-        "mint_nft_for_all".parse()?,
-        Action::new(
-            WasmSmartContract::from_compiled(wasm),
-            Repeats::Indefinitely,
-            alice_id.clone(),
-            filter,
-        ),
-    ));
-    test_client.submit_blocking(register_trigger)?;
-    std::thread::sleep(offset);
-
-    // Time trigger will be executed on block commits, so we have to produce some transactions
-    submit_sample_isi_on_every_block_commit(
-        event_listener,
-        &mut test_client,
-        &alice_id,
-        TRIGGER_PERIOD,
-        usize::try_from(EXPECTED_COUNT)?,
-    )?;
-
-    // Checking results
-    for account_id in accounts {
-        let start_pattern = "nft_number_";
-        let end_pattern = format!("_for_{}#{}", account_id.signatory(), account_id.domain());
-        let assets = test_client
-            .query(client::asset::all())
-            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
-            .execute_all()?;
-        let count: u64 = assets
-            .into_iter()
-            .filter(|asset| {
-                let s = asset.id().definition().to_string();
-                s.starts_with(start_pattern) && s.ends_with(&end_pattern)
-            })
-            .count()
-            .try_into()
-            .expect("`usize` should always fit in `u64`");
-
-        assert!(
-            count >= EXPECTED_COUNT,
-            "{account_id} has {count} NFTs, but at least {EXPECTED_COUNT} expected",
-        );
-    }
-
-    Ok(())
-}
-
 /// Get block committed event listener
 fn get_block_committed_event_listener(
     client: &Client,
@@ -324,12 +227,7 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
         .filter_with(|asset| asset.id.eq(asset_id))
         .execute_single()
         .unwrap();
-
-    let AssetValue::Numeric(val) = *asset.value() else {
-        panic!("Unexpected asset value");
-    };
-
-    val
+    *asset.value()
 }
 
 /// Submit some sample ISIs to create new blocks

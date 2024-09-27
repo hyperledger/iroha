@@ -5,10 +5,7 @@ use eyre::Result;
 use futures_util::TryStreamExt as _;
 use iroha::{
     client::{self, Client},
-    data_model::{
-        parameter::{Parameter, SmartContractParameter},
-        prelude::*,
-    },
+    data_model::{parameter::SmartContractParameter, prelude::*},
 };
 use iroha_executor_data_model::permission::{domain::CanUnregisterDomain, Permission as _};
 use iroha_logger::info;
@@ -255,10 +252,9 @@ fn executor_custom_instructions_complex() -> Result<()> {
     let (_rt, _peer, client) = PeerBuilder::new().with_port(11_275).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    let executor_fuel_limit = SetParameter::new(Parameter::Executor(SmartContractParameter::Fuel(
-        nonzero!(1_000_000_000_u64),
-    )));
-    client.submit_blocking(executor_fuel_limit)?;
+    let executor_fuel_limit =
+        Parameter::Executor(SmartContractParameter::Fuel(nonzero!(1_000_000_000_u64)));
+    client.submit_blocking(SetParameter(executor_fuel_limit))?;
     upgrade_executor(
         &client,
         "../../wasm_samples/executor_custom_instructions_complex",
@@ -267,7 +263,7 @@ fn executor_custom_instructions_complex() -> Result<()> {
     // Give 6 roses to bob
     let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().unwrap();
     let bob_rose = AssetId::new(asset_definition_id.clone(), BOB_ID.clone());
-    client.submit_blocking(Mint::asset_numeric(Numeric::from(6u32), bob_rose.clone()))?;
+    client.submit_blocking(Mint::asset_numeric(numeric!(6), bob_rose.clone()))?;
 
     // Check that bob has 6 roses
     assert_eq!(
@@ -275,7 +271,7 @@ fn executor_custom_instructions_complex() -> Result<()> {
         Numeric::from(6u32)
     );
 
-    // If bob has more then 5 roses, then burn 1 rose
+    // If bob has more than 5 roses, then burn 1 rose
     let burn_bob_rose_if_more_then_5 = || -> Result<()> {
         let condition = Greater::new(
             EvaluatesTo::new_unchecked(Expression::Query(
@@ -397,9 +393,8 @@ fn define_custom_parameter() -> Result<()> {
 
     let parameter = DomainLimits {
         id_len: 2_u32.pow(6),
-    }
-    .into();
-    let set_param_isi = SetParameter::new(parameter);
+    };
+    let set_param_isi = SetParameter(parameter.into());
     client.submit_all_blocking::<InstructionBox>([set_param_isi.into(), create_domain.into()])?;
 
     Ok(())

@@ -72,13 +72,11 @@ mod seal {
         SetKeyValue<Domain>,
         SetKeyValue<AssetDefinition>,
         SetKeyValue<Account>,
-        SetKeyValue<Asset>,
         SetKeyValue<Trigger>,
 
         RemoveKeyValue<Domain>,
         RemoveKeyValue<AssetDefinition>,
         RemoveKeyValue<Account>,
-        RemoveKeyValue<Asset>,
         RemoveKeyValue<Trigger>,
 
         Register<Peer>,
@@ -106,7 +104,6 @@ mod seal {
         Transfer<Account, DomainId, Account>,
         Transfer<Account, AssetDefinitionId, Account>,
         Transfer<Asset, Numeric, Account>,
-        Transfer<Asset, Metadata, Account>,
 
         Grant<Permission, Account>,
         Grant<RoleId, Account>,
@@ -129,7 +126,6 @@ mod seal {
         FindAssets,
         FindAssetsDefinitions,
         FindAssetQuantityById,
-        FindAssetMetadata,
         FindAssetDefinitionMetadata,
         FindDomains,
         FindDomainMetadata,

@@ -100,17 +100,12 @@ declare_permissions! {
     iroha_executor_data_model::permission::asset_definition::{CanSetKeyValueInAssetDefinition},
     iroha_executor_data_model::permission::asset_definition::{CanRemoveKeyValueInAssetDefinition},
 
-    iroha_executor_data_model::permission::asset::{CanRegisterAssetWithDefinition},
-    iroha_executor_data_model::permission::asset::{CanUnregisterAssetWithDefinition},
-    iroha_executor_data_model::permission::asset::{CanUnregisterUserAsset},
     iroha_executor_data_model::permission::asset::{CanBurnAssetWithDefinition},
     iroha_executor_data_model::permission::asset::{CanMintAssetWithDefinition},
     iroha_executor_data_model::permission::asset::{CanMintUserAsset},
     iroha_executor_data_model::permission::asset::{CanBurnUserAsset},
     iroha_executor_data_model::permission::asset::{CanTransferAssetWithDefinition},
     iroha_executor_data_model::permission::asset::{CanTransferUserAsset},
-    iroha_executor_data_model::permission::asset::{CanSetKeyValueInUserAsset},
-    iroha_executor_data_model::permission::asset::{CanRemoveKeyValueInUserAsset},
 
     iroha_executor_data_model::permission::parameter::{CanSetParameters},
     iroha_executor_data_model::permission::role::{CanUnregisterAnyRole},
@@ -242,9 +237,7 @@ pub mod asset {
 
     use iroha_executor_data_model::permission::asset::{
         CanBurnAssetWithDefinition, CanBurnUserAsset, CanMintAssetWithDefinition, CanMintUserAsset,
-        CanRegisterAssetWithDefinition, CanRemoveKeyValueInUserAsset, CanSetKeyValueInUserAsset,
-        CanTransferAssetWithDefinition, CanTransferUserAsset, CanUnregisterAssetWithDefinition,
-        CanUnregisterUserAsset,
+        CanTransferAssetWithDefinition, CanTransferUserAsset,
     };
 
     use super::*;
@@ -281,24 +274,6 @@ pub mod asset {
         }
     }
 
-    impl ValidateGrantRevoke for CanRegisterAssetWithDefinition {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
-        }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
-        }
-    }
-
-    impl ValidateGrantRevoke for CanUnregisterAssetWithDefinition {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
-        }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, block_height)
-        }
-    }
-
     impl ValidateGrantRevoke for CanBurnAssetWithDefinition {
         fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
             super::asset_definition::Owner::from(self).validate(authority, block_height)
@@ -323,15 +298,6 @@ pub mod asset {
         }
         fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
             super::asset_definition::Owner::from(self).validate(authority, block_height)
-        }
-    }
-
-    impl ValidateGrantRevoke for CanUnregisterUserAsset {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
-        }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
         }
     }
 
@@ -362,23 +328,6 @@ pub mod asset {
         }
     }
 
-    impl ValidateGrantRevoke for CanSetKeyValueInUserAsset {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
-        }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
-        }
-    }
-    impl ValidateGrantRevoke for CanRemoveKeyValueInUserAsset {
-        fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
-        }
-        fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-            Owner::from(self).validate(authority, block_height)
-        }
-    }
-
     macro_rules! impl_froms {
         ($($name:ty),+ $(,)?) => {$(
             impl<'t> From<&'t $name> for Owner<'t> {
@@ -389,14 +338,7 @@ pub mod asset {
         };
     }
 
-    impl_froms!(
-        CanUnregisterUserAsset,
-        CanMintUserAsset,
-        CanBurnUserAsset,
-        CanTransferUserAsset,
-        CanSetKeyValueInUserAsset,
-        CanRemoveKeyValueInUserAsset,
-    );
+    impl_froms!(CanMintUserAsset, CanBurnUserAsset, CanTransferUserAsset,);
 }
 
 pub mod asset_definition {
@@ -509,8 +451,6 @@ pub mod asset_definition {
         CanUnregisterAssetDefinition,
         CanSetKeyValueInAssetDefinition,
         CanRemoveKeyValueInAssetDefinition,
-        iroha_executor_data_model::permission::asset::CanRegisterAssetWithDefinition,
-        iroha_executor_data_model::permission::asset::CanUnregisterAssetWithDefinition,
         iroha_executor_data_model::permission::asset::CanBurnAssetWithDefinition,
         iroha_executor_data_model::permission::asset::CanMintAssetWithDefinition,
         iroha_executor_data_model::permission::asset::CanTransferAssetWithDefinition,

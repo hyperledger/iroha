@@ -103,7 +103,6 @@ mod asset {
     pub use self::model::*;
     use super::*;
 
-    type AssetMetadataChanged = MetadataChanged<AssetId>;
     type AssetDefinitionMetadataChanged = MetadataChanged<AssetDefinitionId>;
 
     data_event! {
@@ -116,10 +115,6 @@ mod asset {
             Added(AssetChanged),
             #[has_origin(asset_changed => &asset_changed.asset)]
             Removed(AssetChanged),
-            #[has_origin(metadata_changed => &metadata_changed.target)]
-            MetadataInserted(AssetMetadataChanged),
-            #[has_origin(metadata_changed => &metadata_changed.target)]
-            MetadataRemoved(AssetMetadataChanged),
         }
     }
 
@@ -164,7 +159,7 @@ mod asset {
         #[ffi_type]
         pub struct AssetChanged {
             pub asset: AssetId,
-            pub amount: AssetValue,
+            pub amount: Numeric,
         }
 
         /// [`Self`] represents updated total asset quantity.

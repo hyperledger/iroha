@@ -139,25 +139,21 @@ impl_instruction! {
     SetKeyValue<Domain>,
     SetKeyValue<AssetDefinition>,
     SetKeyValue<Account>,
-    SetKeyValue<Asset>,
     SetKeyValue<Trigger>,
     RemoveKeyValue<Domain>,
     RemoveKeyValue<AssetDefinition>,
     RemoveKeyValue<Account>,
-    RemoveKeyValue<Asset>,
     RemoveKeyValue<Trigger>,
     Register<Peer>,
     Register<Domain>,
     Register<Account>,
     Register<AssetDefinition>,
-    Register<Asset>,
     Register<Role>,
     Register<Trigger>,
     Unregister<Peer>,
     Unregister<Domain>,
     Unregister<Account>,
     Unregister<AssetDefinition>,
-    Unregister<Asset>,
     Unregister<Role>,
     Unregister<Trigger>,
     Mint<Numeric, Asset>,
@@ -167,7 +163,6 @@ impl_instruction! {
     Transfer<Account, DomainId, Account>,
     Transfer<Account, AssetDefinitionId, Account>,
     Transfer<Asset, Numeric, Account>,
-    Transfer<Asset, Metadata, Account>,
     Grant<Permission, Account>,
     Grant<RoleId, Account>,
     Grant<Permission, Role>,
@@ -192,7 +187,7 @@ mod transparent {
     use iroha_primitives::json::JsonString;
 
     use super::*;
-    use crate::{account::NewAccount, domain::NewDomain, metadata::Metadata};
+    use crate::{account::NewAccount, domain::NewDomain};
 
     macro_rules! isi {
         ($($meta:meta)* $item:item) => {
@@ -312,17 +307,6 @@ mod transparent {
         }
     }
 
-    impl SetKeyValue<Asset> {
-        /// Constructs a new [`SetKeyValue`] for an [`Asset`] with the given `key` and `value`.
-        pub fn asset(asset_id: AssetId, key: Name, value: impl Into<JsonString>) -> Self {
-            Self {
-                object: asset_id,
-                key,
-                value: value.into(),
-            }
-        }
-    }
-
     impl SetKeyValue<Trigger> {
         /// Constructs a new [`SetKeyValue`] for a [`Trigger`] with the given `key` and `value`.
         pub fn trigger(trigger_id: TriggerId, key: Name, value: impl Into<JsonString>) -> Self {
@@ -348,7 +332,6 @@ mod transparent {
         SetKeyValue<Domain> |
         SetKeyValue<Account> |
         SetKeyValue<AssetDefinition> |
-        SetKeyValue<Asset> |
         SetKeyValue<Trigger>
     => SetKeyValueBox => InstructionBox[SetKeyValue],
     => SetKeyValueBoxRef<'a> => InstructionBoxRef<'a>[SetKeyValue]
@@ -395,16 +378,6 @@ mod transparent {
         }
     }
 
-    impl RemoveKeyValue<Asset> {
-        /// Constructs a new [`RemoveKeyValue`] for an [`Asset`] with the given `key`.
-        pub fn asset(asset_id: AssetId, key: Name) -> Self {
-            Self {
-                object: asset_id,
-                key,
-            }
-        }
-    }
-
     impl RemoveKeyValue<Trigger> {
         /// Constructs a new [`RemoveKeyValue`] for an [`Asset`] with the given `key`.
         pub fn trigger(trigger_id: TriggerId, key: Name) -> Self {
@@ -429,7 +402,6 @@ mod transparent {
         RemoveKeyValue<Domain> |
         RemoveKeyValue<Account> |
         RemoveKeyValue<AssetDefinition> |
-        RemoveKeyValue<Asset> |
         RemoveKeyValue<Trigger>
     => RemoveKeyValueBox => InstructionBox[RemoveKeyValue],
     => RemoveKeyValueBoxRef<'a> => InstructionBoxRef<'a>[RemoveKeyValue]
@@ -477,13 +449,6 @@ mod transparent {
         }
     }
 
-    impl Register<Asset> {
-        /// Constructs a new [`Register`] for an [`Asset`].
-        pub fn asset(new_asset: Asset) -> Self {
-            Self { object: new_asset }
-        }
-    }
-
     impl Register<Role> {
         /// Constructs a new [`Register`] for a [`Role`].
         pub fn role(new_role: NewRole) -> Self {
@@ -515,7 +480,6 @@ mod transparent {
         Register<Domain> |
         Register<Account> |
         Register<AssetDefinition> |
-        Register<Asset> |
         Register<Role> |
         Register<Trigger>
     => RegisterBox => InstructionBox[Register],
@@ -546,7 +510,6 @@ mod transparent {
         Unregister<Domain> |
         Unregister<Account> |
         Unregister<AssetDefinition> |
-        Unregister<Asset> |
         Unregister<Role> |
         Unregister<Trigger>
     => UnregisterBox => InstructionBox[Unregister],
@@ -580,13 +543,6 @@ mod transparent {
             Self {
                 object: asset_definition_id,
             }
-        }
-    }
-
-    impl Unregister<Asset> {
-        /// Constructs a new [`Unregister`] for an [`Asset`].
-        pub fn asset(asset_id: AssetId) -> Self {
-            Self { object: asset_id }
         }
     }
 
@@ -760,17 +716,6 @@ mod transparent {
         }
     }
 
-    impl Transfer<Asset, Metadata, Account> {
-        /// Constructs a new [`Transfer`] for an [`Asset`] of [`Store`] type.
-        pub fn asset_store(asset_id: AssetId, to: AccountId) -> Self {
-            Self {
-                source: asset_id,
-                object: Metadata::default(),
-                destination: to,
-            }
-        }
-    }
-
     impl_display! {
         Transfer<S, O, D>
         where
@@ -787,15 +732,9 @@ mod transparent {
     }
 
     impl_into_box! {
-        Transfer<Asset, Numeric, Account> | Transfer<Asset, Metadata, Account>
-    => AssetTransferBox => TransferBox[Asset],
-    => AssetTransferBoxRef<'a> => TransferBoxRef<'a>[Asset]
-    }
-
-    impl_into_box! {
         Transfer<Account, DomainId, Account> |
         Transfer<Account, AssetDefinitionId, Account> |
-        Transfer<Asset, Numeric, Account> | Transfer<Asset, Metadata, Account>
+        Transfer<Asset, Numeric, Account>
     => TransferBox => InstructionBox[Transfer],
     => TransferBoxRef<'a> => InstructionBoxRef<'a>[Transfer]
     }
@@ -1045,8 +984,6 @@ isi_box! {
         Account(SetKeyValue<Account>),
         /// Set key value for [`AssetDefinition`].
         AssetDefinition(SetKeyValue<AssetDefinition>),
-        /// Set key value for [`Asset`].
-        Asset(SetKeyValue<Asset>),
         /// Set key value for [`Trigger`].
         Trigger(SetKeyValue<Trigger>),
     }
@@ -1066,8 +1003,6 @@ isi_box! {
         Account(RemoveKeyValue<Account>),
         /// Remove key value from [`AssetDefinition`].
         AssetDefinition(RemoveKeyValue<AssetDefinition>),
-        /// Remove key value from [`Asset`].
-        Asset(RemoveKeyValue<Asset>),
         /// Remove key value for [`Trigger`].
         Trigger(RemoveKeyValue<Trigger>),
     }
@@ -1089,8 +1024,6 @@ isi_box! {
         Account(Register<Account>),
         /// Register [`AssetDefinition`].
         AssetDefinition(Register<AssetDefinition>),
-        /// Register [`Asset`].
-        Asset(Register<Asset>),
         /// Register [`Role`].
         Role(Register<Role>),
         /// Register [`Trigger`].
@@ -1114,8 +1047,6 @@ isi_box! {
         Account(Unregister<Account>),
         /// Unregister [`AssetDefinition`].
         AssetDefinition(Unregister<AssetDefinition>),
-        /// Unregister [`Asset`].
-        Asset(Unregister<Asset>),
         /// Unregister [`Role`].
         Role(Unregister<Role>),
         /// Unregister [`Trigger`].
@@ -1165,24 +1096,8 @@ isi_box! {
         Domain(Transfer<Account, DomainId, Account>),
         /// Transfer [`AssetDefinition`] to another [`Account`].
         AssetDefinition(Transfer<Account, AssetDefinitionId, Account>),
-        /// Transfer [`Asset`] to another [`Account`].
-        #[enum_ref(transparent)]
-        Asset(AssetTransferBox),
-    }
-}
-
-isi_box! {
-    #[strum_discriminants(
-        vis(pub(crate)),
-        name(AssetTransferType),
-        derive(Encode),
-    )]
-    /// Enum with all supported [`Transfer`] instructions related to [`Asset`].
-    pub enum AssetTransferBox {
         /// Transfer [`Asset`] of [`Numeric`] type.
         Numeric(Transfer<Asset, Numeric, Account>),
-        /// Transfer [`Asset`] of [`Store`] type.
-        Store(Transfer<Asset, Metadata, Account>),
     }
 }
 
@@ -1236,7 +1151,7 @@ pub mod error {
     pub use self::model::*;
     use super::InstructionType;
     use crate::{
-        asset::AssetType,
+        prelude::NumericSpec,
         query::error::{FindError, QueryExecutionFail},
         IdBox,
     };
@@ -1370,14 +1285,8 @@ pub mod error {
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type]
         pub enum TypeError {
-            /// Asset Ids correspond to assets with different underlying types, {0}
-            AssetType(#[cfg_attr(feature = "std", source)] Mismatch<AssetType>),
-            /// Numeric asset value type was expected, received: {0}
-            NumericAssetTypeExpected(
-                #[skip_from]
-                #[skip_try_from]
-                AssetType,
-            ),
+            /// Asset Ids correspond to assets with different underlying specs, {0}
+            NumericSpec(#[cfg_attr(feature = "std", source)] Mismatch<NumericSpec>),
         }
 
         /// Math error, which occurs during instruction execution
@@ -1506,9 +1415,9 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        AssetTransferBox, Burn, BurnBox, CustomInstruction, ExecuteTrigger, Grant, GrantBox,
-        InstructionBox, Log, Mint, MintBox, Register, RegisterBox, RemoveKeyValue,
-        RemoveKeyValueBox, Revoke, RevokeBox, SetKeyValue, SetKeyValueBox, SetParameter, Transfer,
-        TransferBox, Unregister, UnregisterBox, Upgrade,
+        Burn, BurnBox, CustomInstruction, ExecuteTrigger, Grant, GrantBox, InstructionBox, Log,
+        Mint, MintBox, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox,
+        SetKeyValue, SetKeyValueBox, SetParameter, Transfer, TransferBox, Unregister,
+        UnregisterBox, Upgrade,
     };
 }
