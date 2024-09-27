@@ -230,13 +230,13 @@ files = [
 
 [[package]]
 name = "faker"
-version = "29.0.0"
+version = "30.0.0"
 description = "Faker is a Python package that generates fake data for you."
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "Faker-29.0.0-py3-none-any.whl", hash = "sha256:32d0ee7d42925ff06e4a7d906ee7efbf34f5052a41a2a1eb8bb174a422a5498f"},
-    {file = "faker-29.0.0.tar.gz", hash = "sha256:34e89aec594cad9773431ca479ee95c7ce03dd9f22fda2524e2373b880a2fa77"},
+    {file = "Faker-30.0.0-py3-none-any.whl", hash = "sha256:f0a60009150736c1c033bea31aa19ae63071c9dcf10adfaf9f1a87a3add84bc8"},
+    {file = "faker-30.0.0.tar.gz", hash = "sha256:bf0207af5777950054a2a3b43f4b5bdc33b585918d2b28f1dab52ac0ffe2bac0"},
 ]
 
 [package.dependencies]
@@ -806,4 +806,4 @@ test = ["websockets"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "1987e93a47ea74472526872c9e7302c2ab5b072dcea0bf794a7d2229b1aa51df"
+content-hash = "cdb463d94bd90cfc4be601ecfcfc82cfd1bf8f4b7ac5d3f4c23479f92b0e4c4f"
