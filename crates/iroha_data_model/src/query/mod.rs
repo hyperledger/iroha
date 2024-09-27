@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
 use self::{
-    account::*, asset::*, block::*, domain::*, executor::*, peer::*, permission::*, predicate::*,
+    account::*, asset::*, block::*, domain::*, dsl::*, executor::*, peer::*, permission::*,
     role::*, transaction::*, trigger::*,
 };
 use crate::{
@@ -36,8 +36,8 @@ use crate::{
 };
 
 pub mod builder;
+pub mod dsl;
 pub mod parameters;
-pub mod predicate;
 
 /// A query that either returns a single value or errors out
 // NOTE: we are planning to remove this class of queries (https://github.com/hyperledger-iroha/iroha/issues/4933)
@@ -53,30 +53,38 @@ pub trait SingularQuery: Sealed {
 /// [`builder::QueryIterator`] abstracts over this and allows the query consumer to use a familiar [`Iterator`] interface to iterate over the results.
 pub trait Query: Sealed {
     /// The type of single element of the output collection
-    type Item: HasPredicateBox;
+    type Item: HasProjection<PredicateMarker>;
 }
 
 #[model]
 mod model {
+    use derive_where::derive_where;
     use getset::Getters;
     use iroha_crypto::HashOf;
+    use iroha_macro::serde_where;
 
     use super::*;
 
     /// An iterable query bundled with a filter
-    ///
-    /// The `P` type doesn't have any bounds to simplify generic trait bounds in some places.
-    /// Use [`super::QueryWithFilterFor`] if you have a concrete query type to avoid specifying `P` manually.
-    #[derive(
-        Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Constructor,
+    #[serde_where(Q, CompoundPredicate<Q::Item>)]
+    #[derive_where(
+        Debug, Clone, PartialEq, Eq; Q, CompoundPredicate<Q::Item>
     )]
-    pub struct QueryWithFilter<Q, P> {
+    #[derive(Decode, Encode, Constructor, IntoSchema, Deserialize, Serialize)]
+    pub struct QueryWithFilter<Q>
+    where
+        Q: Query,
+        Q::Item: HasProjection<PredicateMarker>,
+    {
         pub query: Q,
         #[serde(default = "predicate_default")]
-        pub predicate: CompoundPredicate<P>,
+        pub predicate: CompoundPredicate<Q::Item>,
     }
 
-    fn predicate_default<P>() -> CompoundPredicate<P> {
+    fn predicate_default<T>() -> CompoundPredicate<T>
+    where
+        T: HasProjection<PredicateMarker>,
+    {
         CompoundPredicate::PASS
     }
 
@@ -85,23 +93,23 @@ mod model {
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
     )]
     pub enum QueryBox {
-        FindDomains(QueryWithFilterFor<FindDomains>),
-        FindAccounts(QueryWithFilterFor<FindAccounts>),
-        FindAssets(QueryWithFilterFor<FindAssets>),
-        FindAssetsDefinitions(QueryWithFilterFor<FindAssetsDefinitions>),
-        FindRoles(QueryWithFilterFor<FindRoles>),
+        FindDomains(QueryWithFilter<FindDomains>),
+        FindAccounts(QueryWithFilter<FindAccounts>),
+        FindAssets(QueryWithFilter<FindAssets>),
+        FindAssetsDefinitions(QueryWithFilter<FindAssetsDefinitions>),
+        FindRoles(QueryWithFilter<FindRoles>),
 
-        FindRoleIds(QueryWithFilterFor<FindRoleIds>),
-        FindPermissionsByAccountId(QueryWithFilterFor<FindPermissionsByAccountId>),
-        FindRolesByAccountId(QueryWithFilterFor<FindRolesByAccountId>),
-        FindAccountsWithAsset(QueryWithFilterFor<FindAccountsWithAsset>),
+        FindRoleIds(QueryWithFilter<FindRoleIds>),
+        FindPermissionsByAccountId(QueryWithFilter<FindPermissionsByAccountId>),
+        FindRolesByAccountId(QueryWithFilter<FindRolesByAccountId>),
+        FindAccountsWithAsset(QueryWithFilter<FindAccountsWithAsset>),
 
-        FindPeers(QueryWithFilterFor<FindPeers>),
-        FindActiveTriggerIds(QueryWithFilterFor<FindActiveTriggerIds>),
-        FindTriggers(QueryWithFilterFor<FindTriggers>),
-        FindTransactions(QueryWithFilterFor<FindTransactions>),
-        FindBlocks(QueryWithFilterFor<FindBlocks>),
-        FindBlockHeaders(QueryWithFilterFor<FindBlockHeaders>),
+        FindPeers(QueryWithFilter<FindPeers>),
+        FindActiveTriggerIds(QueryWithFilter<FindActiveTriggerIds>),
+        FindTriggers(QueryWithFilter<FindTriggers>),
+        FindTransactions(QueryWithFilter<FindTransactions>),
+        FindBlocks(QueryWithFilter<FindBlocks>),
+        FindBlockHeaders(QueryWithFilter<FindBlockHeaders>),
     }
 
     /// An enum of all possible iterable query batches.
@@ -250,10 +258,6 @@ mod model {
         pub error: Option<TransactionRejectionReason>,
     }
 }
-
-/// A type alias to refer to a [`QueryWithFilter`] paired with a correct predicate
-pub type QueryWithFilterFor<Q> =
-    QueryWithFilter<Q, <<Q as Query>::Item as HasPredicateBox>::PredicateBoxType>;
 
 impl QueryOutputBatchBox {
     // this is used in client cli to do type-erased iterable queries
@@ -1097,8 +1101,8 @@ pub mod error {
 pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, builder::prelude::*,
-        domain::prelude::*, executor::prelude::*, parameters::prelude::*, peer::prelude::*,
-        permission::prelude::*, predicate::prelude::*, role::prelude::*, transaction::prelude::*,
+        domain::prelude::*, dsl::prelude::*, executor::prelude::*, parameters::prelude::*,
+        peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::prelude::*,
         trigger::prelude::*, CommittedTransaction, QueryBox, QueryRequest, SingularQueryBox,
     };
 }

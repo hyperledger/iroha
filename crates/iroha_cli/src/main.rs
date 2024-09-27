@@ -251,12 +251,7 @@ fn submit(
 }
 
 mod filter {
-    use iroha::data_model::query::predicate::{
-        predicate_atoms::{
-            account::AccountPredicateBox, asset::AssetPredicateBox, domain::DomainPredicateBox,
-        },
-        CompoundPredicate,
-    };
+    use iroha::data_model::query::dsl::CompoundPredicate;
     use serde::Deserialize;
 
     use super::*;
@@ -265,32 +260,32 @@ mod filter {
     #[derive(Clone, Debug, clap::Parser)]
     pub struct DomainFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_json5::<CompoundPredicate<DomainPredicateBox>>)]
-        pub predicate: CompoundPredicate<DomainPredicateBox>,
+        #[clap(value_parser = parse_json5::<CompoundPredicate<Domain>>)]
+        pub predicate: CompoundPredicate<Domain>,
     }
 
     /// Filter for account queries
     #[derive(Clone, Debug, clap::Parser)]
     pub struct AccountFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_json5::<CompoundPredicate<AccountPredicateBox>>)]
-        pub predicate: CompoundPredicate<AccountPredicateBox>,
+        #[clap(value_parser = parse_json5::<CompoundPredicate<Account>>)]
+        pub predicate: CompoundPredicate<Account>,
     }
 
     /// Filter for asset queries
     #[derive(Clone, Debug, clap::Parser)]
     pub struct AssetFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_json5::<CompoundPredicate<AssetPredicateBox>>)]
-        pub predicate: CompoundPredicate<AssetPredicateBox>,
+        #[clap(value_parser = parse_json5::<CompoundPredicate<Asset>>)]
+        pub predicate: CompoundPredicate<Asset>,
     }
 
     /// Filter for asset definition queries
     #[derive(Clone, Debug, clap::Parser)]
     pub struct AssetDefinitionFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_json5::<CompoundPredicate<AssetDefinitionPredicateBox>>)]
-        pub predicate: CompoundPredicate<AssetDefinitionPredicateBox>,
+        #[clap(value_parser = parse_json5::<CompoundPredicate<Asset>>)]
+        pub predicate: CompoundPredicate<AssetDefinition>,
     }
 
     fn parse_json5<T>(s: &str) -> Result<T, String>

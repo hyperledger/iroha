@@ -9,10 +9,10 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::query::{
+    dsl::{BaseProjector, CompoundPredicate, HasProjection, HasPrototype, PredicateMarker},
     parameters::{FetchSize, Pagination, QueryParams, Sorting},
-    predicate::{projectors, AstPredicate, CompoundPredicate, HasPredicateBox, HasPrototype},
-    Query, QueryBox, QueryOutputBatchBox, QueryWithFilter, QueryWithFilterFor, QueryWithParams,
-    SingularQueryBox, SingularQueryOutputBox,
+    Query, QueryBox, QueryOutputBatchBox, QueryWithFilter, QueryWithParams, SingularQueryBox,
+    SingularQueryOutputBox,
 };
 
 /// A trait abstracting away concrete backend for executing queries against iroha.
@@ -169,19 +169,23 @@ impl<E> From<E> for SingleQueryError<E> {
 }
 
 /// Struct that simplifies construction of an iterable query.
-pub struct QueryBuilder<'e, E, Q, P> {
+pub struct QueryBuilder<'e, E, Q>
+where
+    Q: Query,
+    Q::Item: HasProjection<PredicateMarker>,
+{
     query_executor: &'e E,
     query: Q,
-    filter: CompoundPredicate<P>,
+    filter: CompoundPredicate<Q::Item>,
     pagination: Pagination,
     sorting: Sorting,
     fetch_size: FetchSize,
 }
 
-impl<'a, E, Q, P> QueryBuilder<'a, E, Q, P>
+impl<'a, E, Q> QueryBuilder<'a, E, Q>
 where
     Q: Query,
-    Q::Item: HasPredicateBox<PredicateBoxType = P>,
+    Q::Item: HasProjection<PredicateMarker>,
 {
     /// Create a new iterable query builder for a given backend and query.
     pub fn new(query_executor: &'a E, query: Q) -> Self {
@@ -196,12 +200,16 @@ where
     }
 }
 
-impl<E, Q, P> QueryBuilder<'_, E, Q, P> {
+impl<E, Q> QueryBuilder<'_, E, Q>
+where
+    Q: Query,
+    Q::Item: HasProjection<PredicateMarker>,
+{
     /// Only return results that match the given predicate.
     ///
     /// If multiple filters are added, they are combined with a logical AND.
     #[must_use]
-    pub fn filter(self, filter: CompoundPredicate<P>) -> Self {
+    pub fn filter(self, filter: CompoundPredicate<Q::Item>) -> Self {
         Self {
             filter: self.filter.and(filter),
             ..self
@@ -212,15 +220,21 @@ impl<E, Q, P> QueryBuilder<'_, E, Q, P> {
     ///
     /// If multiple filters are added, they are combined with a logical AND.
     #[must_use]
-    pub fn filter_with<B, O>(self, predicate_builder: B) -> Self
+    pub fn filter_with<B>(self, predicate_builder: B) -> Self
     where
-        P: HasPrototype,
-        B: FnOnce(P::Prototype<projectors::BaseProjector<P>>) -> O,
-        O: AstPredicate<P>,
+        Q::Item: HasPrototype,
+        B: FnOnce(
+            <Q::Item as HasPrototype>::Prototype<
+                PredicateMarker,
+                BaseProjector<PredicateMarker, Q::Item>,
+            >,
+        ) -> CompoundPredicate<Q::Item>,
+        <Q::Item as HasPrototype>::Prototype<
+            PredicateMarker,
+            BaseProjector<PredicateMarker, Q::Item>,
+        >: Default,
     {
-        use crate::query::predicate::predicate_ast_extensions::AstPredicateExt as _;
-
-        self.filter(predicate_builder(Default::default()).normalize())
+        self.filter(predicate_builder(Default::default()))
     }
 
     /// Sort the results according to the specified sorting.
@@ -244,12 +258,12 @@ impl<E, Q, P> QueryBuilder<'_, E, Q, P> {
     }
 }
 
-impl<E, Q, P> QueryBuilder<'_, E, Q, P>
+impl<E, Q> QueryBuilder<'_, E, Q>
 where
-    E: QueryExecutor,
     Q: Query,
-    Q::Item: HasPredicateBox<PredicateBoxType = P>,
-    QueryBox: From<QueryWithFilterFor<Q>>,
+    Q::Item: HasProjection<PredicateMarker>,
+    E: QueryExecutor,
+    QueryBox: From<QueryWithFilter<Q>>,
     Vec<Q::Item>: TryFrom<QueryOutputBatchBox>,
     <Vec<Q::Item> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
 {
@@ -283,10 +297,11 @@ where
     }
 }
 
-impl<E, Q, P> Clone for QueryBuilder<'_, E, Q, P>
+impl<E, Q> Clone for QueryBuilder<'_, E, Q>
 where
-    Q: Clone,
-    P: Clone,
+    Q: Query + Clone,
+    Q::Item: HasProjection<PredicateMarker>,
+    CompoundPredicate<Q::Item>: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -328,12 +343,12 @@ where
     fn execute_single(self) -> Result<Q::Item, SingleQueryError<E::Error>>;
 }
 
-impl<E, Q, P> QueryBuilderExt<E, Q> for QueryBuilder<'_, E, Q, P>
+impl<E, Q> QueryBuilderExt<E, Q> for QueryBuilder<'_, E, Q>
 where
     E: QueryExecutor,
     Q: Query,
-    Q::Item: HasPredicateBox<PredicateBoxType = P>,
-    QueryBox: From<QueryWithFilterFor<Q>>,
+    Q::Item: HasProjection<PredicateMarker>,
+    QueryBox: From<QueryWithFilter<Q>>,
     Vec<Q::Item>: TryFrom<QueryOutputBatchBox>,
     <Vec<Q::Item> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
 {

@@ -44,6 +44,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true, optional = true }
 displaydoc = { workspace = true }
 getset = { workspace = true }
+derive-where = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 base64 = { workspace = true, features = ["alloc"] }
 nonzero_ext = { workspace = true }

@@ -339,7 +339,7 @@ impl ValidQueryRequest {
 #[cfg(test)]
 mod tests {
     use iroha_crypto::{Hash, KeyPair};
-    use iroha_data_model::query::predicate::CompoundPredicate;
+    use iroha_data_model::{block::BlockHeader, query::dsl::CompoundPredicate};
     use iroha_primitives::json::Json;
     use iroha_test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use nonzero_ext::nonzero;
@@ -539,7 +539,7 @@ mod tests {
         assert_eq!(
             FindBlockHeaders::new()
                 .execute(
-                    BlockHeaderPredicateBox::build(|header| header.hash.eq(block.hash())),
+                    CompoundPredicate::<BlockHeader>::build(|header| header.hash.eq(block.hash())),
                     &state_view,
                 )
                 .expect("Query execution should not fail")
@@ -550,7 +550,7 @@ mod tests {
         assert!(
             FindBlockHeaders::new()
                 .execute(
-                    BlockHeaderPredicateBox::build(|header| {
+                    CompoundPredicate::<BlockHeader>::build(|header| {
                         header
                             .hash
                             .eq(HashOf::from_untyped_unchecked(Hash::new([42])))
@@ -634,7 +634,7 @@ mod tests {
 
         let not_found = FindTransactions::new()
             .execute(
-                CommittedTransactionPredicateBox::build(|tx| tx.value.hash.eq(wrong_hash)),
+                CompoundPredicate::<CommittedTransaction>::build(|tx| tx.value.hash.eq(wrong_hash)),
                 &state_view,
             )
             .expect("Query execution should not fail")
@@ -643,7 +643,7 @@ mod tests {
 
         let found_accepted = FindTransactions::new()
             .execute(
-                CommittedTransactionPredicateBox::build(|tx| {
+                CompoundPredicate::<CommittedTransaction>::build(|tx| {
                     tx.value.hash.eq(va_tx.as_ref().hash())
                 }),
                 &state_view,

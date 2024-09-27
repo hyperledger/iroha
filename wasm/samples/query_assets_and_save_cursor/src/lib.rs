@@ -9,8 +9,8 @@ use dlmalloc::GlobalDlmalloc;
 use iroha_smart_contract::{
     data_model::query::{
         builder::QueryExecutor,
+        dsl::CompoundPredicate,
         parameters::{ForwardCursor, QueryParams},
-        predicate::CompoundPredicate,
         QueryWithFilter, QueryWithParams,
     },
     prelude::*,

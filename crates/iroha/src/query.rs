@@ -4,6 +4,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use eyre::{eyre, Context, Result};
 use http::StatusCode;
+use iroha_data_model::query::dsl::{HasProjection, PredicateMarker};
 use iroha_torii_const::uri as torii_uri;
 use parity_scale_codec::{DecodeAll, Encode};
 use url::Url;
@@ -16,7 +17,6 @@ use crate::{
         query::{
             builder::{QueryBuilder, QueryExecutor},
             parameters::ForwardCursor,
-            predicate::HasPredicateBox,
             Query, QueryOutput, QueryOutputBatchBox, QueryRequest, QueryResponse, QueryWithParams,
             SingularQuery, SingularQueryBox, SingularQueryOutputBox,
         },
@@ -235,12 +235,10 @@ impl Client {
     }
 
     /// Build an iterable query and return a builder object
-    pub fn query<Q>(
-        &self,
-        query: Q,
-    ) -> QueryBuilder<Self, Q, <<Q as Query>::Item as HasPredicateBox>::PredicateBoxType>
+    pub fn query<Q>(&self, query: Q) -> QueryBuilder<Self, Q>
     where
         Q: Query,
+        Q::Item: HasProjection<PredicateMarker>,
     {
         QueryBuilder::new(self, query)
     }

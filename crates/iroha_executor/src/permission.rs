@@ -151,7 +151,7 @@ pub trait ExecutorPermission: Permission + PartialEq {
             .expect("INTERNAL BUG: `FindRolesByAccountId` must never fail")
             .map(|role_id| role_id.dbg_expect("Failed to get role from cursor"))
             .fold(CompoundPredicate::Or(Vec::new()), |predicate, role_id| {
-                predicate.or(RolePredicateBox::build(|role| role.id.eq(role_id)))
+                predicate.or(CompoundPredicate::<Role>::build(|role| role.id.eq(role_id)))
             });
 
         // check if any of the roles have the permission we need

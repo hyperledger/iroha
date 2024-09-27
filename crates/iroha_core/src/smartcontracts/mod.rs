@@ -11,8 +11,8 @@ use iroha_data_model::{
     isi::error::InstructionExecutionError as Error,
     prelude::*,
     query::{
+        dsl::{CompoundPredicate, HasProjection, PredicateMarker},
         error::QueryExecutionFail,
-        predicate::{CompoundPredicate, HasPredicateBox},
     },
 };
 pub use isi::*;
@@ -35,7 +35,7 @@ pub trait Execute {
 /// This trait defines how an Iroha Iterable query is executed.
 pub trait ValidQuery: iroha_data_model::query::Query
 where
-    Self::Item: HasPredicateBox,
+    Self::Item: HasProjection<PredicateMarker>,
 {
     /// Execute a query on a read-only state.
     ///
@@ -46,7 +46,7 @@ where
     /// Concrete to each implementer
     fn execute(
         self,
-        filter: CompoundPredicate<<Self::Item as HasPredicateBox>::PredicateBoxType>,
+        filter: CompoundPredicate<Self::Item>,
         state_ro: &impl StateReadOnly,
     ) -> Result<impl Iterator<Item = Self::Item>, QueryExecutionFail>;
 }
