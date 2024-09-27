@@ -20,7 +20,12 @@ pub mod queue {
 }
 
 pub mod kura {
+    use std::num::NonZeroUsize;
+
+    use nonzero_ext::nonzero;
+
     pub const STORE_DIR: &str = "./storage";
+    pub const MAX_BLOCKS_IN_MEMORY: NonZeroUsize = nonzero!(128_usize);
 }
 
 pub mod network {
