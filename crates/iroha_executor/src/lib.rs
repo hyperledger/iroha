@@ -137,7 +137,12 @@ mod host {
 #[macro_export]
 macro_rules! execute {
     ($executor:ident, $isi:ident) => {{
-        if $executor.verdict().is_ok() {
+        #[cfg(debug_assertions)]
+        if !$executor.verdict().is_ok() {
+            unreachable!("Executor already denied");
+        }
+
+        {
             use $crate::smart_contract::ExecuteOnHost as _;
 
             if let Err(err) = $isi.execute() {
@@ -156,7 +161,7 @@ macro_rules! execute {
 macro_rules! deny {
     ($executor:ident, $l:literal $(,)?) => {{
         #[cfg(debug_assertions)]
-        if let Err(_error) = $executor.verdict() {
+        if $executor.verdict().is_err() {
             unreachable!("Executor already denied");
         }
         $executor.deny($crate::data_model::ValidationFail::NotPermitted(
@@ -166,7 +171,7 @@ macro_rules! deny {
     }};
     ($executor:ident, $e:expr $(,)?) => {{
         #[cfg(debug_assertions)]
-        if let Err(_error) = $executor.verdict() {
+        if $executor.verdict().is_err() {
             unreachable!("Executor already denied");
         }
         $executor.deny($e);

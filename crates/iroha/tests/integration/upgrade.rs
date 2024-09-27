@@ -137,7 +137,8 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Register `TEST_ROLE` with permission
     let test_role_id: RoleId = "TEST_ROLE".parse()?;
-    let test_role = Role::new(test_role_id.clone()).add_permission(can_unregister_domain.clone());
+    let test_role = Role::new(test_role_id.clone(), ALICE_ID.clone())
+        .add_permission(can_unregister_domain.clone());
     client.submit_blocking(Register::role(test_role))?;
 
     // Check that permission exists

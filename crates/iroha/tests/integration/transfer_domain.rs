@@ -7,10 +7,10 @@ use iroha::{
 };
 use iroha_executor_data_model::permission::{
     account::CanUnregisterAccount,
-    asset::CanUnregisterUserAsset,
-    asset_definition::CanUnregisterAssetDefinition,
-    domain::{CanRegisterAssetDefinitionInDomain, CanUnregisterDomain},
-    trigger::CanUnregisterUserTrigger,
+    asset::CanUnregisterAsset,
+    asset_definition::{CanRegisterAssetDefinition, CanUnregisterAssetDefinition},
+    domain::CanUnregisterDomain,
+    trigger::CanUnregisterTrigger,
 };
 use iroha_genesis::GenesisBlock;
 use iroha_primitives::json::JsonString;
@@ -59,7 +59,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
     test_client.submit_blocking(Unregister::asset_definition(coin_id))?;
 
     // Granting a respective permission also allows "bob@kingdom" to do so
-    let permission = CanRegisterAssetDefinitionInDomain {
+    let permission = CanRegisterAssetDefinition {
         domain: kingdom_id.clone(),
     };
     test_client.submit_blocking(Grant::account_permission(
@@ -158,7 +158,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     test_client.submit_blocking(Register::account(rabbit))?;
 
     // Grant permission to register asset definitions to "bob@kingdom"
-    let permission = CanRegisterAssetDefinitionInDomain { domain: kingdom_id };
+    let permission = CanRegisterAssetDefinition { domain: kingdom_id };
     test_client.submit_blocking(Grant::account_permission(permission, bob_id.clone()))?;
 
     // register asset definitions by "bob@kingdom" so he is owner of it
@@ -222,7 +222,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
     test_client.submit_blocking(Register::account(bob))?;
 
     // Grant permission to register asset definitions to "bob@kingdom"
-    let permission = CanRegisterAssetDefinitionInDomain { domain: kingdom_id };
+    let permission = CanRegisterAssetDefinition { domain: kingdom_id };
     test_client.submit_blocking(Grant::account_permission(permission, bob_id.clone()))?;
 
     // register asset definitions by "bob@kingdom" so he is owner of it
@@ -255,7 +255,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
     test_client.submit_blocking(RemoveKeyValue::asset(bob_store_id.clone(), key))?;
 
     // check that "alice@wonderland" as owner of domain can grant and revoke asset related permissions in her domain
-    let permission = CanUnregisterUserAsset {
+    let permission = CanUnregisterAsset {
         asset: bob_store_id,
     };
     test_client.submit_blocking(Grant::account_permission(
@@ -308,8 +308,8 @@ fn domain_owner_trigger_permissions() -> Result<()> {
     let _result = test_client.submit_blocking(execute_trigger)?;
 
     // check that "alice@wonderland" as owner of domain can grant and revoke trigger related permissions in her domain
-    let permission = CanUnregisterUserTrigger {
-        account: bob_id.clone(),
+    let permission = CanUnregisterTrigger {
+        trigger: trigger_id.clone(),
     };
     test_client.submit_blocking(Grant::account_permission(
         permission.clone(),

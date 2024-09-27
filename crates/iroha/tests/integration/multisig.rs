@@ -12,11 +12,14 @@ use iroha::{
         transaction::{TransactionBuilder, WasmSmartContract},
     },
 };
+use iroha_data_model::asset::{AssetDefinition, AssetDefinitionId};
+use iroha_executor_data_model::permission::asset_definition::CanRegisterAssetDefinition;
 use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, ALICE_ID};
 use nonzero_ext::nonzero;
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn mutlisig() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_400).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
@@ -85,13 +88,14 @@ fn mutlisig() -> Result<()> {
     test_client.submit_blocking(call_trigger)?;
 
     // Check that multisig account exist
-    let account = test_client
-        .query(client::account::all())
-        .filter_with(|account| account.id.eq(multisig_account_id.clone()))
-        .execute_single()
+    test_client
+        .submit_blocking(Grant::account_permission(
+            CanRegisterAssetDefinition {
+                domain: "wonderland".parse().unwrap(),
+            },
+            multisig_account_id.clone(),
+        ))
         .expect("multisig account should be created after the call to register multisig trigger");
-
-    assert_eq!(account.id(), &multisig_account_id);
 
     // Check that multisig trigger exist
     let trigger = test_client
@@ -102,8 +106,14 @@ fn mutlisig() -> Result<()> {
 
     assert_eq!(trigger.id(), &multisig_trigger_id);
 
-    let domain_id: DomainId = "domain_controlled_by_multisig".parse().unwrap();
-    let isi = vec![Register::domain(Domain::new(domain_id.clone())).into()];
+    let asset_definition_id = "asset_definition_controlled_by_multisig#wonderland"
+        .parse::<AssetDefinitionId>()
+        .unwrap();
+    let isi =
+        vec![
+            Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()))
+                .into(),
+        ];
     let isi_hash = HashOf::new(&isi);
 
     let mut signatories_iter = signatories.into_iter();
@@ -118,12 +128,12 @@ fn mutlisig() -> Result<()> {
         )?;
     }
 
-    // Check that domain isn't created yet
+    // Check that asset definition isn't created yet
     let err = test_client
-        .query(client::domain::all())
-        .filter_with(|domain| domain.id.eq(domain_id.clone()))
+        .query(client::asset::all_definitions())
+        .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
         .execute_single()
-        .expect_err("domain shouldn't be created before enough votes are collected");
+        .expect_err("asset definition shouldn't be created before enough votes are collected");
     assert!(matches!(err, SingleQueryError::ExpectedOneGotNone));
 
     for (signatory, key_pair) in signatories_iter {
@@ -136,14 +146,14 @@ fn mutlisig() -> Result<()> {
         )?;
     }
 
-    // Check that new domain was created and multisig account is owner
-    let domain = test_client
-        .query(client::domain::all())
-        .filter_with(|domain| domain.id.eq(domain_id.clone()))
+    // Check that new asset definition was created and multisig account is owner
+    let asset_definition = test_client
+        .query(client::asset::all_definitions())
+        .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
         .execute_single()
-        .expect("domain should be created after enough votes are collected");
+        .expect("asset definition should be created after enough votes are collected");
 
-    assert_eq!(domain.owned_by(), &multisig_account_id);
+    assert_eq!(asset_definition.owned_by(), &multisig_account_id);
 
     Ok(())
 }

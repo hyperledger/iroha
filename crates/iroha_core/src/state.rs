@@ -576,20 +576,10 @@ pub trait WorldReadOnly {
     fn account_permissions_iter<'slf>(
         &'slf self,
         account_id: &AccountId,
-    ) -> Result<std::collections::btree_set::IntoIter<&'slf Permission>, FindError> {
+    ) -> Result<std::collections::btree_set::Iter<'slf, Permission>, FindError> {
         self.account(account_id)?;
 
-        let mut tokens = self
-            .account_inherent_permissions(account_id)
-            .collect::<BTreeSet<_>>();
-
-        for role_id in self.account_roles_iter(account_id) {
-            if let Some(role) = self.roles().get(role_id) {
-                tokens.extend(role.permissions.iter());
-            }
-        }
-
-        Ok(tokens.into_iter())
+        Ok(self.account_inherent_permissions(account_id))
     }
 
     /// Return a set of permission tokens granted to this account not as part of any role.

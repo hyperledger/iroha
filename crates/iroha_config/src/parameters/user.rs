@@ -181,6 +181,11 @@ pub struct Kura {
         default = "PathBuf::from(defaults::kura::STORE_DIR)"
     )]
     pub store_dir: WithOrigin<PathBuf>,
+    #[config(
+        env = "KURA_MAX_BLOCKS_IN_MEMORY",
+        default = "defaults::kura::MAX_BLOCKS_IN_MEMORY"
+    )]
+    pub max_blocks_in_memory: NonZeroUsize,
     #[config(nested)]
     pub debug: KuraDebug,
 }
@@ -190,6 +195,7 @@ impl Kura {
         let Self {
             init_mode,
             store_dir,
+            max_blocks_in_memory,
             debug:
                 KuraDebug {
                     output_new_blocks: debug_output_new_blocks,
@@ -199,6 +205,7 @@ impl Kura {
         actual::Kura {
             init_mode,
             store_dir,
+            max_blocks_in_memory,
             debug_output_new_blocks,
         }
     }

@@ -14,11 +14,8 @@ pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair};
 use iroha_data_model::{asset::AssetDefinitionId, isi::InstructionBox, ChainId};
 use iroha_executor_data_model::permission::{
-    asset::{CanBurnAssetWithDefinition, CanMintAssetWithDefinition},
-    domain::CanUnregisterDomain,
-    executor::CanUpgradeExecutor,
-    peer::CanUnregisterAnyPeer,
-    role::CanUnregisterAnyRole,
+    asset::CanMintAssetsWithDefinition, domain::CanUnregisterDomain, executor::CanUpgradeExecutor,
+    peer::CanManagePeers, role::CanManageRoles,
 };
 use iroha_futures::supervisor::ShutdownSignal;
 use iroha_genesis::{GenesisBlock, RawGenesisTransaction};
@@ -99,22 +96,16 @@ impl TestGenesis for GenesisBlock {
 
         let rose_definition_id = "rose#wonderland".parse::<AssetDefinitionId>().unwrap();
 
-        let grant_mint_rose_permission = Grant::account_permission(
-            CanMintAssetWithDefinition {
+        let grant_modify_rose_permission = Grant::account_permission(
+            CanMintAssetsWithDefinition {
                 asset_definition: rose_definition_id.clone(),
             },
             ALICE_ID.clone(),
         );
-        let grant_burn_rose_permission = Grant::account_permission(
-            CanBurnAssetWithDefinition {
-                asset_definition: rose_definition_id,
-            },
-            ALICE_ID.clone(),
-        );
-        let grant_unregister_any_peer_permission =
-            Grant::account_permission(CanUnregisterAnyPeer, ALICE_ID.clone());
-        let grant_unregister_any_role_permission =
-            Grant::account_permission(CanUnregisterAnyRole, ALICE_ID.clone());
+        let grant_manage_peers_permission =
+            Grant::account_permission(CanManagePeers, ALICE_ID.clone());
+        let grant_manage_roles_permission =
+            Grant::account_permission(CanManageRoles, ALICE_ID.clone());
         let grant_unregister_wonderland_domain = Grant::account_permission(
             CanUnregisterDomain {
                 domain: "wonderland".parse().unwrap(),
@@ -124,10 +115,9 @@ impl TestGenesis for GenesisBlock {
         let grant_upgrade_executor_permission =
             Grant::account_permission(CanUpgradeExecutor, ALICE_ID.clone());
         for isi in [
-            grant_mint_rose_permission,
-            grant_burn_rose_permission,
-            grant_unregister_any_peer_permission,
-            grant_unregister_any_role_permission,
+            grant_modify_rose_permission,
+            grant_manage_peers_permission,
+            grant_manage_roles_permission,
             grant_unregister_wonderland_domain,
             grant_upgrade_executor_permission,
         ] {

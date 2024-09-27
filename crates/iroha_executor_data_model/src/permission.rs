@@ -37,12 +37,17 @@ pub mod peer {
 
     permission! {
         #[derive(Copy)]
-        pub struct CanUnregisterAnyPeer;
+        pub struct CanManagePeers;
     }
 }
 
 pub mod domain {
     use super::*;
+
+    permission! {
+        #[derive(Copy)]
+        pub struct CanRegisterDomain;
+    }
 
     permission! {
         pub struct CanUnregisterDomain {
@@ -51,25 +56,7 @@ pub mod domain {
     }
 
     permission! {
-        pub struct CanSetKeyValueInDomain {
-            pub domain: DomainId,
-        }
-    }
-
-    permission! {
-        pub struct CanRemoveKeyValueInDomain {
-            pub domain: DomainId,
-        }
-    }
-
-    permission! {
-        pub struct CanRegisterAccountInDomain {
-            pub domain: DomainId,
-        }
-    }
-
-    permission! {
-        pub struct CanRegisterAssetDefinitionInDomain {
+        pub struct CanModifyDomainMetadata {
             pub domain: DomainId,
         }
     }
@@ -79,19 +66,19 @@ pub mod asset_definition {
     use super::*;
 
     permission! {
+        pub struct CanRegisterAssetDefinition {
+            pub domain: DomainId,
+        }
+    }
+
+    permission! {
         pub struct CanUnregisterAssetDefinition {
             pub asset_definition: AssetDefinitionId,
         }
     }
 
     permission! {
-        pub struct CanSetKeyValueInAssetDefinition {
-            pub asset_definition: AssetDefinitionId,
-        }
-    }
-
-    permission! {
-        pub struct CanRemoveKeyValueInAssetDefinition {
+        pub struct CanModifyAssetDefinitionMetadata {
             pub asset_definition: AssetDefinitionId,
         }
     }
@@ -101,17 +88,18 @@ pub mod account {
     use super::*;
 
     permission! {
+        pub struct CanRegisterAccount {
+            pub domain: DomainId,
+        }
+    }
+
+    permission! {
         pub struct CanUnregisterAccount {
             pub account: AccountId,
         }
     }
     permission! {
-        pub struct CanSetKeyValueInAccount {
-            pub account: AccountId,
-        }
-    }
-    permission! {
-        pub struct CanRemoveKeyValueInAccount {
+        pub struct CanModifyAccountMetadata {
             pub account: AccountId,
         }
     }
@@ -133,56 +121,90 @@ pub mod asset {
     }
 
     permission! {
-        pub struct CanUnregisterUserAsset {
-            pub asset: AssetId,
-        }
-    }
-
-    permission! {
-        pub struct CanBurnAssetWithDefinition {
+        pub struct CanMintAssetsWithDefinition {
             pub asset_definition: AssetDefinitionId,
         }
     }
 
     permission! {
-        pub struct CanBurnUserAsset {
-            pub asset: AssetId,
-        }
-    }
-
-    permission! {
-        pub struct CanMintAssetWithDefinition {
+        pub struct CanBurnAssetsWithDefinition {
             pub asset_definition: AssetDefinitionId,
         }
     }
 
     permission! {
-        pub struct CanMintUserAsset {
-            pub asset: AssetId,
-        }
-    }
-
-    permission! {
-        pub struct CanTransferAssetWithDefinition {
+        pub struct CanTransferAssetsWithDefinition {
             pub asset_definition: AssetDefinitionId,
         }
     }
 
     permission! {
-        pub struct CanTransferUserAsset {
+        pub struct CanRegisterAsset {
+            pub owner: AccountId,
+        }
+    }
+
+    permission! {
+        pub struct CanUnregisterAsset {
             pub asset: AssetId,
         }
     }
 
     permission! {
-        pub struct CanSetKeyValueInUserAsset {
+        pub struct CanMintAsset {
             pub asset: AssetId,
         }
     }
 
     permission! {
-        pub struct CanRemoveKeyValueInUserAsset {
+        pub struct CanBurnAsset {
             pub asset: AssetId,
+        }
+    }
+
+    permission! {
+        pub struct CanTransferAsset {
+            pub asset: AssetId,
+        }
+    }
+
+    permission! {
+        pub struct CanModifyAssetMetadata {
+            pub asset: AssetId,
+        }
+    }
+}
+
+pub mod trigger {
+    use super::*;
+
+    permission! {
+        pub struct CanRegisterTrigger {
+            pub authority: AccountId,
+        }
+    }
+
+    permission! {
+        pub struct CanUnregisterTrigger {
+            pub trigger: TriggerId,
+        }
+    }
+
+    permission! {
+        pub struct CanModifyTrigger {
+            pub trigger: TriggerId,
+        }
+    }
+
+    permission! {
+        pub struct CanExecuteTrigger {
+            pub trigger: TriggerId,
+        }
+    }
+
+    permission! {
+        pub struct CanModifyTriggerMetadata {
+            pub trigger: TriggerId,
         }
     }
 }
@@ -201,53 +223,7 @@ pub mod role {
 
     permission! {
         #[derive(Copy)]
-        pub struct CanUnregisterAnyRole;
-    }
-}
-
-pub mod trigger {
-    use super::*;
-
-    permission! {
-        pub struct CanRegisterUserTrigger {
-            pub account: AccountId,
-        }
-    }
-
-    permission! {
-        pub struct CanExecuteUserTrigger {
-            pub trigger: TriggerId,
-        }
-    }
-
-    permission! {
-        pub struct CanUnregisterUserTrigger {
-            pub account: AccountId,
-        }
-    }
-
-    permission! {
-        pub struct CanMintUserTrigger {
-            pub trigger: TriggerId,
-        }
-    }
-
-    permission! {
-        pub struct CanBurnUserTrigger {
-            pub trigger: TriggerId,
-        }
-    }
-
-    permission! {
-        pub struct CanSetKeyValueInTrigger {
-            pub trigger: TriggerId,
-        }
-    }
-
-    permission! {
-        pub struct CanRemoveKeyValueInTrigger {
-            pub trigger: TriggerId,
-        }
+        pub struct CanManageRoles;
     }
 }
 

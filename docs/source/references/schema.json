@@ -802,15 +802,7 @@
       }
     ]
   },
-  "CanBurnAssetWithDefinition": {
-    "Struct": [
-      {
-        "name": "asset_definition",
-        "type": "AssetDefinitionId"
-      }
-    ]
-  },
-  "CanBurnUserAsset": {
+  "CanBurnAsset": {
     "Struct": [
       {
         "name": "asset",
@@ -818,7 +810,7 @@
       }
     ]
   },
-  "CanBurnUserTrigger": {
+  "CanExecuteTrigger": {
     "Struct": [
       {
         "name": "trigger",
@@ -826,23 +818,9 @@
       }
     ]
   },
-  "CanExecuteUserTrigger": {
-    "Struct": [
-      {
-        "name": "trigger",
-        "type": "TriggerId"
-      }
-    ]
-  },
-  "CanMintAssetWithDefinition": {
-    "Struct": [
-      {
-        "name": "asset_definition",
-        "type": "AssetDefinitionId"
-      }
-    ]
-  },
-  "CanMintUserAsset": {
+  "CanManagePeers": null,
+  "CanManageRoles": null,
+  "CanMintAsset": {
     "Struct": [
       {
         "name": "asset",
@@ -850,15 +828,31 @@
       }
     ]
   },
-  "CanMintUserTrigger": {
+  "CanModifyAccountMetadata": {
     "Struct": [
       {
-        "name": "trigger",
-        "type": "TriggerId"
+        "name": "account",
+        "type": "AccountId"
       }
     ]
   },
-  "CanRegisterAccountInDomain": {
+  "CanModifyAssetDefinitionMetadata": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "CanModifyAssetMetadata": {
+    "Struct": [
+      {
+        "name": "asset",
+        "type": "AssetId"
+      }
+    ]
+  },
+  "CanModifyDomainMetadata": {
     "Struct": [
       {
         "name": "domain",
@@ -866,7 +860,39 @@
       }
     ]
   },
-  "CanRegisterAssetDefinitionInDomain": {
+  "CanModifyTrigger": {
+    "Struct": [
+      {
+        "name": "trigger",
+        "type": "TriggerId"
+      }
+    ]
+  },
+  "CanModifyTriggerMetadata": {
+    "Struct": [
+      {
+        "name": "trigger",
+        "type": "TriggerId"
+      }
+    ]
+  },
+  "CanRegisterAccount": {
+    "Struct": [
+      {
+        "name": "domain",
+        "type": "DomainId"
+      }
+    ]
+  },
+  "CanRegisterAsset": {
+    "Struct": [
+      {
+        "name": "owner",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "CanRegisterAssetDefinition": {
     "Struct": [
       {
         "name": "domain",
@@ -882,108 +908,28 @@
       }
     ]
   },
-  "CanRegisterUserTrigger": {
+  "CanRegisterTrigger": {
     "Struct": [
       {
-        "name": "account",
+        "name": "authority",
         "type": "AccountId"
-      }
-    ]
-  },
-  "CanRemoveKeyValueInAccount": {
-    "Struct": [
-      {
-        "name": "account",
-        "type": "AccountId"
-      }
-    ]
-  },
-  "CanRemoveKeyValueInAssetDefinition": {
-    "Struct": [
-      {
-        "name": "asset_definition",
-        "type": "AssetDefinitionId"
-      }
-    ]
-  },
-  "CanRemoveKeyValueInDomain": {
-    "Struct": [
-      {
-        "name": "domain",
-        "type": "DomainId"
-      }
-    ]
-  },
-  "CanRemoveKeyValueInTrigger": {
-    "Struct": [
-      {
-        "name": "trigger",
-        "type": "TriggerId"
-      }
-    ]
-  },
-  "CanRemoveKeyValueInUserAsset": {
-    "Struct": [
-      {
-        "name": "asset",
-        "type": "AssetId"
-      }
-    ]
-  },
-  "CanSetKeyValueInAccount": {
-    "Struct": [
-      {
-        "name": "account",
-        "type": "AccountId"
-      }
-    ]
-  },
-  "CanSetKeyValueInAssetDefinition": {
-    "Struct": [
-      {
-        "name": "asset_definition",
-        "type": "AssetDefinitionId"
-      }
-    ]
-  },
-  "CanSetKeyValueInDomain": {
-    "Struct": [
-      {
-        "name": "domain",
-        "type": "DomainId"
-      }
-    ]
-  },
-  "CanSetKeyValueInTrigger": {
-    "Struct": [
-      {
-        "name": "trigger",
-        "type": "TriggerId"
-      }
-    ]
-  },
-  "CanSetKeyValueInUserAsset": {
-    "Struct": [
-      {
-        "name": "asset",
-        "type": "AssetId"
       }
     ]
   },
   "CanSetParameters": null,
-  "CanTransferAssetWithDefinition": {
-    "Struct": [
-      {
-        "name": "asset_definition",
-        "type": "AssetDefinitionId"
-      }
-    ]
-  },
-  "CanTransferUserAsset": {
+  "CanTransferAsset": {
     "Struct": [
       {
         "name": "asset",
         "type": "AssetId"
+      }
+    ]
+  },
+  "CanTransferAssetsWithDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
       }
     ]
   },
@@ -995,8 +941,14 @@
       }
     ]
   },
-  "CanUnregisterAnyPeer": null,
-  "CanUnregisterAnyRole": null,
+  "CanUnregisterAsset": {
+    "Struct": [
+      {
+        "name": "asset",
+        "type": "AssetId"
+      }
+    ]
+  },
   "CanUnregisterAssetDefinition": {
     "Struct": [
       {
@@ -1021,19 +973,11 @@
       }
     ]
   },
-  "CanUnregisterUserAsset": {
+  "CanUnregisterTrigger": {
     "Struct": [
       {
-        "name": "asset",
-        "type": "AssetId"
-      }
-    ]
-  },
-  "CanUnregisterUserTrigger": {
-    "Struct": [
-      {
-        "name": "account",
-        "type": "AccountId"
+        "name": "trigger",
+        "type": "TriggerId"
       }
     ]
   },
@@ -2680,6 +2624,18 @@
       }
     ]
   },
+  "NewRole": {
+    "Struct": [
+      {
+        "name": "inner",
+        "type": "Role"
+      },
+      {
+        "name": "grant_to",
+        "type": "AccountId"
+      }
+    ]
+  },
   "NonZero<u32>": "u32",
   "NonZero<u64>": "u64",
   "Numeric": {
@@ -3517,7 +3473,7 @@
     "Struct": [
       {
         "name": "object",
-        "type": "Role"
+        "type": "NewRole"
       }
     ]
   },

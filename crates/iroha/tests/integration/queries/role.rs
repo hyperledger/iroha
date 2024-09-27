@@ -5,7 +5,7 @@ use iroha::{
     client,
     data_model::{prelude::*, query::builder::SingleQueryError},
 };
-use iroha_executor_data_model::permission::account::CanSetKeyValueInAccount;
+use iroha_executor_data_model::permission::account::CanModifyAccountMetadata;
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
 
@@ -30,7 +30,7 @@ fn find_roles() -> Result<()> {
     let register_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| Register::role(Role::new(role_id)))
+        .map(|role_id| Register::role(Role::new(role_id, ALICE_ID.clone())))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
 
@@ -62,7 +62,7 @@ fn find_role_ids() -> Result<()> {
     let register_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| Register::role(Role::new(role_id)))
+        .map(|role_id| Register::role(Role::new(role_id, ALICE_ID.clone())))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
 
@@ -83,7 +83,7 @@ fn find_role_by_id() -> Result<()> {
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let role_id: RoleId = "root".parse().expect("Valid");
-    let new_role = Role::new(role_id.clone());
+    let new_role = Role::new(role_id.clone(), ALICE_ID.clone());
 
     // Registering role
     let register_role = Register::role(new_role.clone());
@@ -133,20 +133,14 @@ fn find_roles_by_account_id() -> Result<()> {
         .iter()
         .cloned()
         .map(|role_id| {
-            Register::role(Role::new(role_id).add_permission(CanSetKeyValueInAccount {
-                account: alice_id.clone(),
-            }))
+            Register::role(Role::new(role_id, alice_id.clone()).add_permission(
+                CanModifyAccountMetadata {
+                    account: alice_id.clone(),
+                },
+            ))
         })
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
-
-    // Granting roles to account
-    let grant_roles = role_ids
-        .iter()
-        .cloned()
-        .map(|role_id| Grant::role(role_id, alice_id.clone()))
-        .collect::<Vec<_>>();
-    test_client.submit_all_blocking(grant_roles)?;
 
     let role_ids = HashSet::from(role_ids);
 
