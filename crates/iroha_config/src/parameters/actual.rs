@@ -101,6 +101,7 @@ pub struct Queue {
 pub struct Kura {
     pub init_mode: InitMode,
     pub store_dir: WithOrigin<PathBuf>,
+    pub max_blocks_in_memory: NonZeroUsize,
     pub debug_output_new_blocks: bool,
 }
 
