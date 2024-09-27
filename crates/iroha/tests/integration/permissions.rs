@@ -10,8 +10,8 @@ use iroha::{
     },
 };
 use iroha_executor_data_model::permission::{
-    asset::{CanSetKeyValueInUserAsset, CanTransferUserAsset},
-    domain::CanSetKeyValueInDomain,
+    asset::{CanModifyAssetMetadata, CanTransferAsset},
+    domain::CanModifyDomainMetadata,
 };
 use iroha_genesis::GenesisBlock;
 use iroha_test_network::{PeerBuilder, *};
@@ -243,7 +243,7 @@ fn permissions_differ_not_only_by_names() {
 
     // Granting permission to Alice to modify metadata in Mouse's hats
     let mouse_hat_id = AssetId::new(hat_definition_id, mouse_id.clone());
-    let mouse_hat_permission = CanSetKeyValueInUserAsset {
+    let mouse_hat_permission = CanModifyAssetMetadata {
         asset: mouse_hat_id.clone(),
     };
     let allow_alice_to_set_key_value_in_hats =
@@ -276,7 +276,7 @@ fn permissions_differ_not_only_by_names() {
         .submit_blocking(set_shoes_color.clone())
         .expect_err("Expected Alice to fail to modify Mouse's shoes");
 
-    let mouse_shoes_permission = CanSetKeyValueInUserAsset {
+    let mouse_shoes_permission = CanModifyAssetMetadata {
         asset: mouse_shoes_id,
     };
     let allow_alice_to_set_key_value_in_shoes =
@@ -326,7 +326,7 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
 
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_mouse_asset = Grant::account_permission(
-        Permission::new("CanSetKeyValueInUserAsset".parse().unwrap(), value_json),
+        Permission::new("CanModifyAssetMetadata".parse().unwrap(), value_json),
         alice_id,
     );
 
@@ -359,12 +359,12 @@ fn permissions_are_unified() {
     // Given
     let alice_id = ALICE_ID.clone();
 
-    let permission1 = CanTransferUserAsset {
+    let permission1 = CanTransferAsset {
         asset: format!("rose#wonderland#{alice_id}").parse().unwrap(),
     };
     let allow_alice_to_transfer_rose_1 = Grant::account_permission(permission1, alice_id.clone());
 
-    let permission2 = CanTransferUserAsset {
+    let permission2 = CanTransferAsset {
         asset: format!("rose##{alice_id}").parse().unwrap(),
     };
     let allow_alice_to_transfer_rose_2 = Grant::account_permission(permission2, alice_id);
@@ -389,7 +389,7 @@ fn associated_permissions_removed_on_unregister() {
 
     // register kingdom and give bob permissions in this domain
     let register_domain = Register::domain(kingdom);
-    let bob_to_set_kv_in_domain = CanSetKeyValueInDomain {
+    let bob_to_set_kv_in_domain = CanModifyDomainMetadata {
         domain: kingdom_id.clone(),
     };
     let allow_bob_to_set_kv_in_domain =
@@ -409,7 +409,7 @@ fn associated_permissions_removed_on_unregister() {
         .expect("failed to get permissions for bob")
         .into_iter()
         .any(|permission| {
-            CanSetKeyValueInDomain::try_from(&permission)
+            CanModifyDomainMetadata::try_from(&permission)
                 .is_ok_and(|permission| permission == bob_to_set_kv_in_domain)
         }));
 
@@ -425,7 +425,7 @@ fn associated_permissions_removed_on_unregister() {
         .expect("failed to get permissions for bob")
         .into_iter()
         .any(|permission| {
-            CanSetKeyValueInDomain::try_from(&permission)
+            CanModifyDomainMetadata::try_from(&permission)
                 .is_ok_and(|permission| permission == bob_to_set_kv_in_domain)
         }));
 }
@@ -441,11 +441,12 @@ fn associated_permissions_removed_from_role_on_unregister() {
 
     // register kingdom and give bob permissions in this domain
     let register_domain = Register::domain(kingdom);
-    let set_kv_in_domain = CanSetKeyValueInDomain {
+    let set_kv_in_domain = CanModifyDomainMetadata {
         domain: kingdom_id.clone(),
     };
-    let role = Role::new(role_id.clone()).add_permission(set_kv_in_domain.clone());
-    let register_role = Register::role(role);
+    let register_role = Register::role(
+        Role::new(role_id.clone(), ALICE_ID.clone()).add_permission(set_kv_in_domain.clone()),
+    );
 
     iroha
         .submit_all_blocking::<InstructionBox>([register_domain.into(), register_role.into()])
@@ -459,7 +460,7 @@ fn associated_permissions_removed_from_role_on_unregister() {
         .expect("failed to get role")
         .permissions()
         .any(|permission| {
-            CanSetKeyValueInDomain::try_from(permission)
+            CanModifyDomainMetadata::try_from(permission)
                 .is_ok_and(|permission| permission == set_kv_in_domain)
         }));
 
@@ -476,7 +477,7 @@ fn associated_permissions_removed_from_role_on_unregister() {
         .expect("failed to get role")
         .permissions()
         .any(|permission| {
-            CanSetKeyValueInDomain::try_from(permission)
+            CanModifyDomainMetadata::try_from(permission)
                 .is_ok_and(|permission| permission == set_kv_in_domain)
         }));
 }

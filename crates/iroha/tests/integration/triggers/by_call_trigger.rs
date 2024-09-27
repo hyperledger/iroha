@@ -12,7 +12,7 @@ use iroha::{
     },
 };
 use iroha_data_model::query::{builder::SingleQueryError, trigger::FindTriggers};
-use iroha_executor_data_model::permission::trigger::CanRegisterUserTrigger;
+use iroha_executor_data_model::permission::trigger::CanRegisterTrigger;
 use iroha_genesis::GenesisBlock;
 use iroha_logger::info;
 use iroha_test_network::{Peer as TestPeer, *};
@@ -217,8 +217,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
             downcasted_error,
             Some(FindError::Trigger(id)) if *id == trigger_id
         ),
-        "Unexpected error received: {:?}",
-        error
+        "Unexpected error received: {error:?}",
     );
 
     // Checking results
@@ -295,8 +294,8 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
     rabbit_client.key_pair = rabbit_keys;
 
     // Permission for the trigger registration on behalf of alice
-    let permission_on_registration = CanRegisterUserTrigger {
-        account: ALICE_ID.clone(),
+    let permission_on_registration = CanRegisterTrigger {
+        authority: ALICE_ID.clone(),
     };
 
     // Trigger with 'alice' as authority

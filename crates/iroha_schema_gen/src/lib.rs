@@ -64,38 +64,31 @@ pub fn build_schemas() -> MetaMap {
         MerkleTree<SignedTransaction>,
 
         // Default permissions
-        permission::peer::CanUnregisterAnyPeer,
+        permission::peer::CanManagePeers,
         permission::domain::CanUnregisterDomain,
-        permission::domain::CanSetKeyValueInDomain,
-        permission::domain::CanRemoveKeyValueInDomain,
-        permission::domain::CanRegisterAccountInDomain,
-        permission::domain::CanRegisterAssetDefinitionInDomain,
+        permission::domain::CanModifyDomainMetadata,
+        permission::account::CanRegisterAccount,
         permission::account::CanUnregisterAccount,
-        permission::account::CanSetKeyValueInAccount,
-        permission::account::CanRemoveKeyValueInAccount,
+        permission::account::CanModifyAccountMetadata,
+        permission::asset_definition::CanRegisterAssetDefinition,
         permission::asset_definition::CanUnregisterAssetDefinition,
-        permission::asset_definition::CanSetKeyValueInAssetDefinition,
-        permission::asset_definition::CanRemoveKeyValueInAssetDefinition,
+        permission::asset_definition::CanModifyAssetDefinitionMetadata,
         permission::asset::CanRegisterAssetWithDefinition,
         permission::asset::CanUnregisterAssetWithDefinition,
-        permission::asset::CanUnregisterUserAsset,
-        permission::asset::CanBurnAssetWithDefinition,
-        permission::asset::CanMintAssetWithDefinition,
-        permission::asset::CanMintUserAsset,
-        permission::asset::CanBurnUserAsset,
-        permission::asset::CanTransferAssetWithDefinition,
-        permission::asset::CanTransferUserAsset,
-        permission::asset::CanSetKeyValueInUserAsset,
-        permission::asset::CanRemoveKeyValueInUserAsset,
+        permission::asset::CanTransferAssetsWithDefinition,
+        permission::asset::CanRegisterAsset,
+        permission::asset::CanUnregisterAsset,
+        permission::asset::CanMintAsset,
+        permission::asset::CanBurnAsset,
+        permission::asset::CanTransferAsset,
+        permission::asset::CanModifyAssetMetadata,
         permission::parameter::CanSetParameters,
-        permission::role::CanUnregisterAnyRole,
-        permission::trigger::CanRegisterUserTrigger,
-        permission::trigger::CanExecuteUserTrigger,
-        permission::trigger::CanUnregisterUserTrigger,
-        permission::trigger::CanMintUserTrigger,
-        permission::trigger::CanBurnUserTrigger,
-        permission::trigger::CanSetKeyValueInTrigger,
-        permission::trigger::CanRemoveKeyValueInTrigger,
+        permission::role::CanManageRoles,
+        permission::trigger::CanRegisterTrigger,
+        permission::trigger::CanExecuteTrigger,
+        permission::trigger::CanUnregisterTrigger,
+        permission::trigger::CanModifyTrigger,
+        permission::trigger::CanModifyTriggerMetadata,
         permission::executor::CanUpgradeExecutor,
 
         // Genesis file - used by SDKs to generate the genesis block
@@ -597,75 +590,46 @@ mod tests {
         insert_into_test_map!(Compact<u128>);
         insert_into_test_map!(Compact<u32>);
 
-        insert_into_test_map!(iroha_executor_data_model::permission::peer::CanUnregisterAnyPeer);
+        insert_into_test_map!(iroha_executor_data_model::permission::peer::CanManagePeers);
         insert_into_test_map!(iroha_executor_data_model::permission::domain::CanUnregisterDomain);
         insert_into_test_map!(
-            iroha_executor_data_model::permission::domain::CanSetKeyValueInDomain
+            iroha_executor_data_model::permission::domain::CanModifyDomainMetadata
         );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::domain::CanRemoveKeyValueInDomain
-        );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::domain::CanRegisterAccountInDomain
-        );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::domain::CanRegisterAssetDefinitionInDomain
-        );
+        insert_into_test_map!(iroha_executor_data_model::permission::account::CanRegisterAccount);
         insert_into_test_map!(iroha_executor_data_model::permission::account::CanUnregisterAccount);
         insert_into_test_map!(
-            iroha_executor_data_model::permission::account::CanSetKeyValueInAccount
+            iroha_executor_data_model::permission::account::CanModifyAccountMetadata
         );
         insert_into_test_map!(
-            iroha_executor_data_model::permission::account::CanRemoveKeyValueInAccount
+            iroha_executor_data_model::permission::asset_definition::CanRegisterAssetDefinition
         );
         insert_into_test_map!(
             iroha_executor_data_model::permission::asset_definition::CanUnregisterAssetDefinition
         );
-        insert_into_test_map!(iroha_executor_data_model::permission::asset_definition::CanSetKeyValueInAssetDefinition);
-        insert_into_test_map!(iroha_executor_data_model::permission::asset_definition::CanRemoveKeyValueInAssetDefinition);
+        insert_into_test_map!(iroha_executor_data_model::permission::asset_definition::CanModifyAssetDefinitionMetadata);
         insert_into_test_map!(
             iroha_executor_data_model::permission::asset::CanRegisterAssetWithDefinition
         );
         insert_into_test_map!(
             iroha_executor_data_model::permission::asset::CanUnregisterAssetWithDefinition
         );
-        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanUnregisterUserAsset);
         insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanBurnAssetWithDefinition
+            iroha_executor_data_model::permission::asset::CanTransferAssetsWithDefinition
         );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanMintAssetWithDefinition
-        );
-        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanMintUserAsset);
-        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanBurnUserAsset);
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanTransferAssetWithDefinition
-        );
-        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanTransferUserAsset);
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanSetKeyValueInUserAsset
-        );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanRemoveKeyValueInUserAsset
-        );
+        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanRegisterAsset);
+        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanUnregisterAsset);
+        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanMintAsset);
+        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanBurnAsset);
+        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanTransferAsset);
+        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanModifyAssetMetadata);
         insert_into_test_map!(iroha_executor_data_model::permission::parameter::CanSetParameters);
-        insert_into_test_map!(iroha_executor_data_model::permission::role::CanUnregisterAnyRole);
+        insert_into_test_map!(iroha_executor_data_model::permission::role::CanManageRoles);
+        insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanRegisterTrigger);
+        insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanExecuteTrigger);
+        insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanUnregisterTrigger);
+        insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanModifyTrigger);
         insert_into_test_map!(
-            iroha_executor_data_model::permission::trigger::CanRegisterUserTrigger
-        );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::trigger::CanExecuteUserTrigger
-        );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::trigger::CanUnregisterUserTrigger
-        );
-        insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanMintUserTrigger);
-        insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanBurnUserTrigger);
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::trigger::CanSetKeyValueInTrigger
-        );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::trigger::CanRemoveKeyValueInTrigger
+            iroha_executor_data_model::permission::trigger::CanModifyTriggerMetadata
         );
         insert_into_test_map!(iroha_executor_data_model::permission::executor::CanUpgradeExecutor);
 

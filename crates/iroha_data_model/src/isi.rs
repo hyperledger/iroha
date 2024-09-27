@@ -823,7 +823,7 @@ mod transparent {
 
     impl Grant<RoleId, Account> {
         /// Constructs a new [`Grant`] for a [`Role`].
-        pub fn role(role_id: RoleId, to: AccountId) -> Self {
+        pub fn account_role(role_id: RoleId, to: AccountId) -> Self {
             Self {
                 object: role_id,
                 destination: to,

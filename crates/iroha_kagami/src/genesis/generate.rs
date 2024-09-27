@@ -7,8 +7,7 @@ use clap::{Parser, Subcommand};
 use color_eyre::eyre::WrapErr as _;
 use iroha_data_model::{isi::InstructionBox, parameter::Parameters, prelude::*};
 use iroha_executor_data_model::permission::{
-    account::{CanRemoveKeyValueInAccount, CanSetKeyValueInAccount},
-    parameter::CanSetParameters,
+    domain::CanRegisterDomain, parameter::CanSetParameters,
 };
 use iroha_genesis::{GenesisBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
@@ -117,6 +116,8 @@ pub fn generate_default(
     );
     let grant_permission_to_set_parameters =
         Grant::account_permission(CanSetParameters, ALICE_ID.clone());
+    let grant_permission_to_register_domains =
+        Grant::account_permission(CanRegisterDomain, ALICE_ID.clone());
     let transfer_rose_ownership = Transfer::asset_definition(
         genesis_account_id.clone(),
         "rose#wonderland".parse()?,
@@ -127,16 +128,6 @@ pub fn generate_default(
         "wonderland".parse()?,
         ALICE_ID.clone(),
     );
-    let register_user_metadata_access: InstructionBox = Register::role(
-        Role::new("ALICE_METADATA_ACCESS".parse()?)
-            .add_permission(CanSetKeyValueInAccount {
-                account: ALICE_ID.clone(),
-            })
-            .add_permission(CanRemoveKeyValueInAccount {
-                account: ALICE_ID.clone(),
-            }),
-    )
-    .into();
 
     let parameters = Parameters::default();
     let parameters = parameters.parameters();
@@ -145,16 +136,16 @@ pub fn generate_default(
         builder = builder.append_parameter(parameter);
     }
 
-    for isi in [
+    let instructions: [InstructionBox; 6] = [
         mint.into(),
         mint_cabbage.into(),
         transfer_rose_ownership.into(),
         transfer_wonderland_ownership.into(),
         grant_permission_to_set_parameters.into(),
-    ]
-    .into_iter()
-    .chain(std::iter::once(register_user_metadata_access))
-    {
+        grant_permission_to_register_domains.into(),
+    ];
+
+    for isi in instructions {
         builder = builder.append_instruction(isi);
     }
 

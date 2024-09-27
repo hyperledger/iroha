@@ -417,7 +417,7 @@ pub mod isi {
 
             state_transaction
                 .world
-                .emit_events(std::iter::once(ExecutorEvent::Upgraded(ExecutorUpgrade {
+                .emit_events(Some(ExecutorEvent::Upgraded(ExecutorUpgrade {
                     new_data_model: state_transaction.world.executor_data_model.clone(),
                 })));
 
