@@ -65,8 +65,6 @@ mod model {
         /// Value of view change index. Used to resolve soft forks.
         #[getset(skip)]
         pub view_change_index: u32,
-        /// Estimation of consensus duration (in milliseconds).
-        pub consensus_estimation_ms: u64,
     }
 
     #[derive(
@@ -133,11 +131,6 @@ impl BlockHeader {
     /// Creation timestamp
     pub const fn creation_time(&self) -> Duration {
         Duration::from_millis(self.creation_time_ms)
-    }
-
-    /// Consensus estimation
-    pub const fn consensus_estimation(&self) -> Duration {
-        Duration::from_millis(self.consensus_estimation_ms)
     }
 
     /// Calculate block hash
@@ -275,7 +268,6 @@ impl SignedBlock {
             transactions_hash,
             creation_time_ms,
             view_change_index: 0,
-            consensus_estimation_ms: 0,
         };
         let transactions = genesis_transactions
             .into_iter()

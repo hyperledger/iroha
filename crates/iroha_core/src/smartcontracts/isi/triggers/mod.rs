@@ -39,9 +39,9 @@ pub mod isi {
                 }
             }
 
-            let last_block_estimation = state_transaction.latest_block().map(|block| {
-                block.header().creation_time() + block.header().consensus_estimation()
-            });
+            let latest_block_time = state_transaction
+                .latest_block()
+                .map(|block| block.header().creation_time());
 
             let engine = state_transaction.engine.clone(); // Cloning engine is cheap
             let genesis_creation_time_ms = state_transaction.world().genesis_creation_time_ms();
@@ -63,7 +63,7 @@ pub mod isi {
                 ),
                 EventFilterBox::Time(time_filter) => {
                     if let ExecutionTime::Schedule(schedule) = time_filter.0 {
-                        match last_block_estimation {
+                        match latest_block_time {
                             // Genesis block
                             None => {
                                 let genesis_creation_time_ms = genesis_creation_time_ms
@@ -75,8 +75,8 @@ pub mod isi {
                                     ));
                                 }
                             }
-                            Some(latest_block_estimation) => {
-                                if schedule.start() < latest_block_estimation {
+                            Some(latest_block_time) => {
+                                if schedule.start() < latest_block_time {
                                     return Err(Error::InvalidParameter(
                                         InvalidParameterError::TimeTriggerInThePast,
                                     ));
