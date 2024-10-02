@@ -31,51 +31,35 @@ pub mod log {
 }
 
 /// Get payload for `validate_transaction()` entrypoint.
-///
-/// # Traps
-///
-/// Host side will generate a trap if this function was called not from a
-/// executor `validate_transaction()` entrypoint.
 #[cfg(not(test))]
-pub fn get_validate_transaction_payload() -> payloads::Validate<SignedTransaction> {
-    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_validate_transaction_payload()) }
+pub fn decode_validate_transaction_payload(
+    payload: *const u8,
+) -> payloads::Validate<SignedTransaction> {
+    // Safety: ownership of the provided payload is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(payload) }
 }
 
 /// Get payload for `validate_instruction()` entrypoint.
-///
-/// # Traps
-///
-/// Host side will generate a trap if this function was called not from a
-/// executor `validate_instruction()` entrypoint.
 #[cfg(not(test))]
-pub fn get_validate_instruction_payload() -> payloads::Validate<InstructionBox> {
-    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_validate_instruction_payload()) }
+pub fn decode_validate_instruction_payload(
+    payload: *const u8,
+) -> payloads::Validate<InstructionBox> {
+    // Safety: ownership of the provided payload is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(payload) }
 }
 
 /// Get payload for `validate_query()` entrypoint.
-///
-/// # Traps
-///
-/// Host side will generate a trap if this function was called not from a
-/// executor `validate_query()` entrypoint.
 #[cfg(not(test))]
-pub fn get_validate_query_payload() -> payloads::Validate<AnyQueryBox> {
-    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_validate_query_payload()) }
+pub fn decode_validate_query_payload(payload: *const u8) -> payloads::Validate<AnyQueryBox> {
+    // Safety: ownership of the provided payload is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(payload) }
 }
 
 /// Get payload for `migrate()` entrypoint.
-///
-/// # Traps
-///
-/// Host side will generate a trap if this function was called not from a
-/// executor `migrate()` entrypoint.
 #[cfg(not(test))]
-pub fn get_migrate_payload() -> payloads::Migrate {
-    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_migrate_payload()) }
+pub fn decode_migrate_payload(payload: *const u8) -> payloads::Migrate {
+    // Safety: ownership of the provided payload is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(payload) }
 }
 
 /// Set new [`ExecutorDataModel`].
@@ -98,34 +82,6 @@ pub fn set_data_model(data_model: &ExecutorDataModel) {
 mod host {
     #[link(wasm_import_module = "iroha")]
     extern "C" {
-        /// Get payload for `validate_transaction()` entrypoint.
-        ///
-        /// # Warning
-        ///
-        /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_validate_transaction_payload() -> *const u8;
-
-        /// Get payload for `validate_instruction()` entrypoint.
-        ///
-        /// # Warning
-        ///
-        /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_validate_instruction_payload() -> *const u8;
-
-        /// Get payload for `validate_query()` entrypoint.
-        ///
-        /// # Warning
-        ///
-        /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_validate_query_payload() -> *const u8;
-
-        /// Get payload for `migrate()` entrypoint.
-        ///
-        /// # Warning
-        ///
-        /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_migrate_payload() -> *const u8;
-
         /// Set new [`ExecutorDataModel`].
         pub(super) fn set_data_model(ptr: *const u8, len: usize);
     }
