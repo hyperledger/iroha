@@ -35,6 +35,7 @@ use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, Ne
 pub struct SumeragiHandle {
     peer_id: PeerId,
     /// Counter for amount of dropped messages by sumeragi
+    #[cfg(feature = "telemetry")]
     dropped_messages_metric: iroha_telemetry::metrics::DroppedMessagesCounter,
     // Should be dropped after `_thread_handle` to prevent sumeargi thread from panicking
     control_message_sender: mpsc::SyncSender<ControlFlowMessage>,
@@ -45,6 +46,7 @@ impl SumeragiHandle {
     /// Deposit a sumeragi control flow network message.
     pub fn incoming_control_flow_message(&self, msg: ControlFlowMessage) {
         if let Err(error) = self.control_message_sender.try_send(msg) {
+            #[cfg(feature = "telemetry")]
             self.dropped_messages_metric.inc();
 
             error!(
@@ -59,6 +61,7 @@ impl SumeragiHandle {
     /// Deposit a sumeragi network message.
     pub fn incoming_block_message(&self, msg: impl Into<BlockMessage>) {
         if let Err(error) = self.message_sender.try_send(msg.into()) {
+            #[cfg(feature = "telemetry")]
             self.dropped_messages_metric.inc();
 
             error!(
@@ -134,7 +137,8 @@ impl SumeragiStartArgs {
             network,
             genesis_network,
             block_count: BlockCount(block_count),
-            sumeragi_metrics:
+            #[cfg(feature = "telemetry")]
+                sumeragi_metrics:
                 SumeragiMetrics {
                     view_changes,
                     dropped_messages,
@@ -209,6 +213,7 @@ impl SumeragiStartArgs {
             debug_force_soft_fork,
             topology,
             transaction_cache: Vec::new(),
+            #[cfg(feature = "telemetry")]
             view_changes_metric: view_changes,
             was_commit: false,
             round_start_time: Instant::now(),
@@ -227,6 +232,7 @@ impl SumeragiStartArgs {
         (
             SumeragiHandle {
                 peer_id,
+                #[cfg(feature = "telemetry")]
                 dropped_messages_metric: dropped_messages,
                 control_message_sender,
                 message_sender,
@@ -284,6 +290,7 @@ pub struct SumeragiStartArgs {
     pub network: IrohaNetwork,
     pub genesis_network: GenesisWithPubKey,
     pub block_count: BlockCount,
+    #[cfg(feature = "telemetry")]
     pub sumeragi_metrics: SumeragiMetrics,
 }
 

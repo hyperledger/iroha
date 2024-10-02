@@ -14,8 +14,6 @@ use iroha_config::{
     base::{read::ConfigReader, util::Emitter, WithOrigin},
     parameters::{actual::Root as Config, user::Root as UserConfig},
 };
-#[cfg(feature = "telemetry")]
-use iroha_core::metrics::MetricsReporter;
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
@@ -26,9 +24,11 @@ use iroha_core::{
     smartcontracts::isi::Registrable as _,
     snapshot::{try_read_snapshot, SnapshotMaker, TryReadError as TryReadSnapshotError},
     state::{State, StateReadOnly, World},
-    sumeragi::{GenesisWithPubKey, SumeragiHandle, SumeragiMetrics, SumeragiStartArgs},
+    sumeragi::{GenesisWithPubKey, SumeragiHandle, SumeragiStartArgs},
     IrohaNetwork,
 };
+#[cfg(feature = "telemetry")]
+use iroha_core::{metrics::MetricsReporter, sumeragi::SumeragiMetrics};
 use iroha_data_model::{block::SignedBlock, prelude::*};
 use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal, Supervisor};
 use iroha_genesis::GenesisBlock;
@@ -269,6 +269,7 @@ impl Iroha {
                 public_key: config.genesis.public_key.clone(),
             },
             block_count,
+            #[cfg(feature = "telemetry")]
             sumeragi_metrics: SumeragiMetrics {
                 dropped_messages: metrics_reporter.metrics().dropped_messages.clone(),
                 view_changes: metrics_reporter.metrics().view_changes.clone(),

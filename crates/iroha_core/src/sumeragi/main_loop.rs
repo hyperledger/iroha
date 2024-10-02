@@ -41,6 +41,7 @@ pub struct Sumeragi {
     /// subsystem.
     pub transaction_cache: Vec<TransactionGuard>,
     /// Metrics for reporting number of view changes in current round
+    #[cfg(feature = "telemetry")]
     pub view_changes_metric: iroha_telemetry::metrics::ViewChangesGauge,
 
     /// Was there a commit in previous round?
@@ -1061,6 +1062,7 @@ pub(crate) fn run(
             &mut last_view_change_time,
             &mut view_change_time,
         );
+        #[cfg(feature = "telemetry")]
         sumeragi
             .view_changes_metric
             .set(sumeragi.topology.view_change_index() as u64);
@@ -1179,6 +1181,7 @@ pub(crate) fn run(
             &mut last_view_change_time,
             &mut view_change_time,
         );
+        #[cfg(feature = "telemetry")]
         sumeragi
             .view_changes_metric
             .set(sumeragi.topology.view_change_index() as u64);
