@@ -14,9 +14,9 @@ mod export {
 }
 
 mod import {
-    pub const GET_VALIDATE_TRANSACTION_PAYLOAD: &str = "get_validate_transaction_payload";
-    pub const GET_VALIDATE_INSTRUCTION_PAYLOAD: &str = "get_validate_instruction_payload";
-    pub const GET_VALIDATE_QUERY_PAYLOAD: &str = "get_validate_query_payload";
+    pub const DECODE_VALIDATE_TRANSACTION_PAYLOAD: &str = "decode_validate_transaction_payload";
+    pub const DECODE_VALIDATE_INSTRUCTION_PAYLOAD: &str = "decode_validate_instruction_payload";
+    pub const DECODE_VALIDATE_QUERY_PAYLOAD: &str = "decode_validate_query_payload";
 }
 
 /// [`executor_entrypoint`](crate::executor_entrypoint()) macro implementation
@@ -25,7 +25,7 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
     macro_rules! match_entrypoints {
         (validate: {
             $($user_entrypoint_name:ident =>
-                $generated_entrypoint_name:ident ($query_validating_object_fn_name:ident)),* $(,)?
+                $generated_entrypoint_name:ident ($decode_validation_payload_fn_name:ident)),* $(,)?
         }
         other: {
             $($other_user_entrypoint_name:ident => $branch:block),* $(,)?
@@ -36,7 +36,7 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
                         item,
                         stringify!($user_entrypoint_name),
                         export::$generated_entrypoint_name,
-                        import::$query_validating_object_fn_name,
+                        import::$decode_validation_payload_fn_name,
                     )
                 })*
                 $(fn_name if fn_name == stringify!($other_user_entrypoint_name) => $branch),*
@@ -57,9 +57,9 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
 
     match_entrypoints! {
         validate: {
-            validate_transaction => EXECUTOR_VALIDATE_TRANSACTION(GET_VALIDATE_TRANSACTION_PAYLOAD),
-            validate_instruction => EXECUTOR_VALIDATE_INSTRUCTION(GET_VALIDATE_INSTRUCTION_PAYLOAD),
-            validate_query => EXECUTOR_VALIDATE_QUERY(GET_VALIDATE_QUERY_PAYLOAD),
+            validate_transaction => EXECUTOR_VALIDATE_TRANSACTION(DECODE_VALIDATE_TRANSACTION_PAYLOAD),
+            validate_instruction => EXECUTOR_VALIDATE_INSTRUCTION(DECODE_VALIDATE_INSTRUCTION_PAYLOAD),
+            validate_query => EXECUTOR_VALIDATE_QUERY(DECODE_VALIDATE_QUERY_PAYLOAD),
         }
         other: {
             migrate => { impl_migrate_entrypoint(item) }
@@ -71,7 +71,7 @@ fn impl_validate_entrypoint(
     fn_item: syn::ItemFn,
     user_entrypoint_name: &'static str,
     generated_entrypoint_name: &'static str,
-    get_validation_payload_fn_name: &'static str,
+    decode_validation_payload_fn_name: &'static str,
 ) -> TokenStream {
     let syn::ItemFn {
         attrs,
@@ -96,8 +96,8 @@ fn impl_validate_entrypoint(
     let generated_entrypoint_ident: syn::Ident = syn::parse_str(generated_entrypoint_name)
         .expect("Provided entrypoint name to generate is not a valid Ident, this is a bug");
 
-    let get_validation_payload_fn_ident: syn::Ident =
-        syn::parse_str(get_validation_payload_fn_name).expect(
+    let decode_validation_payload_fn_ident: syn::Ident =
+        syn::parse_str(decode_validation_payload_fn_name).expect(
             "Provided function name to query validating object is not a valid Ident, this is a bug",
         );
 
@@ -110,8 +110,8 @@ fn impl_validate_entrypoint(
         /// [`Result`](::iroha_executor::data_model::executor::Result)
         #[no_mangle]
         #[doc(hidden)]
-        unsafe extern "C" fn #generated_entrypoint_ident() -> *const u8 {
-            let payload = ::iroha_executor::#get_validation_payload_fn_ident();
+        unsafe extern "C" fn #generated_entrypoint_ident(payload: *const u8) -> *const u8 {
+            let payload = ::iroha_executor::#decode_validation_payload_fn_ident(payload);
             let verdict: ::iroha_executor::data_model::executor::Result =
                 #fn_name(payload.authority, payload.target, payload.block_height);
             let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_executor::utils::encode_with_length_prefix(&verdict));
@@ -147,8 +147,8 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         /// This function transfers the ownership of allocated [`Vec`](alloc::vec::Vec).
         #[no_mangle]
         #[doc(hidden)]
-        unsafe extern "C" fn #migrate_fn_name() {
-            let payload = ::iroha_executor::get_migrate_payload();
+        unsafe extern "C" fn #migrate_fn_name(payload: *const u8) {
+            let payload = ::iroha_executor::decode_migrate_payload(payload);
             #fn_name(payload.block_height);
         }
 
