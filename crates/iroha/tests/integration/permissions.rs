@@ -73,7 +73,7 @@ fn get_assets(iroha: &Client, id: &AccountId) -> Vec<Asset> {
 fn permissions_disallow_asset_transfer() {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
+    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_725).start_with_runtime();
     wait_for_genesis_committed(&[iroha.clone()], 0);
 
     // Given

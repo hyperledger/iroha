@@ -12,7 +12,7 @@ from typing import Callable
 import allure  # type: ignore
 
 from ...common.helpers import extract_hash, read_isi_from_json, write_isi_to_json
-from ...common.settings import BASE_DIR, IROHA_CLI_PATH, PATH_CONFIG_IROHA_CLI, ROOT_DIR
+from ...common.settings import IROHA_CLI_BINARY, ISI_PATH, IROHA_CLI_CONFIG, ROOT_DIR
 from .configuration import Config
 
 
@@ -21,8 +21,8 @@ class IrohaCli:
     A class to represent the Iroha client command line interface.
     """
 
-    BASE_PATH = IROHA_CLI_PATH
-    BASE_FLAGS = ["--config=" + PATH_CONFIG_IROHA_CLI]
+    BASE_PATH = IROHA_CLI_BINARY
+    BASE_FLAGS = ["--config=" + IROHA_CLI_CONFIG]
 
     def __init__(self, config: Config):
         """
@@ -274,7 +274,7 @@ class IrohaCli:
         :rtype: str
         """
         json_template_path = (
-            Path(BASE_DIR)
+            Path(ROOT_DIR)
             / "pytests"
             / "common"
             / "json_isi_examples"
@@ -289,7 +289,7 @@ class IrohaCli:
                 element = element[key]
             element[key_path[-1]] = value
 
-        json_temp_file_path = Path(ROOT_DIR) / f"isi_{template_filename}"
+        json_temp_file_path = Path(ISI_PATH) / f"isi_{template_filename}"
         write_isi_to_json(data, str(json_temp_file_path))
 
         return str(json_temp_file_path)
