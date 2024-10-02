@@ -72,13 +72,13 @@ fn iroha_bin() -> impl AsRef<Path> {
     })
 }
 
-const TEMPDIR_PREFIX: &'static str = "irohad_test_network_";
+const TEMPDIR_PREFIX: &str = "irohad_test_network_";
 const TEMPDIR_IN_ENV: &str = "TEST_NETWORK_TMP_DIR";
 
 fn tempdir_in() -> Option<impl AsRef<Path>> {
     static ENV: OnceLock<Option<PathBuf>> = OnceLock::new();
 
-    ENV.get_or_init(|| std::env::var(TEMPDIR_IN_ENV).map(|s| PathBuf::from(s)).ok())
+    ENV.get_or_init(|| std::env::var(TEMPDIR_IN_ENV).map(PathBuf::from).ok())
         .as_ref()
 }
 
@@ -236,6 +236,12 @@ pub struct NetworkBuilder {
     extra_isi: Vec<InstructionBox>,
 }
 
+impl Default for NetworkBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Test network builder
 impl NetworkBuilder {
     /// Constructor
@@ -252,7 +258,6 @@ impl NetworkBuilder {
     ///
     /// One by default.
     pub fn with_peers(mut self, n_peers: usize) -> Self {
-        let n_peers = n_peers.into();
         assert_ne!(n_peers, 0);
         self.n_peers = n_peers;
         self
@@ -665,20 +670,14 @@ impl NetworkPeer {
                     });
 
                 while let Some(Ok(event)) = events.next().await {
-                    match event {
-                        EventBox::Pipeline(PipelineEventBox::Block(block)) => {
-                            // FIXME: should we wait for `Applied` event instead?
-                            if *block.status() == BlockStatus::Applied {
-                                let height = block.header().height().get();
-                                eprintln!("{log_prefix} BlockStatus::Applied height={height}",);
-                                let _ = events_tx.send(PeerLifecycleEvent::BlockApplied { height });
-                                block_height_tx.send_modify(|x| *x = Some(height));
-                            }
+                    if let EventBox::Pipeline(PipelineEventBox::Block(block)) = event {
+                        // FIXME: should we wait for `Applied` event instead?
+                        if *block.status() == BlockStatus::Applied {
+                            let height = block.header().height().get();
+                            eprintln!("{log_prefix} BlockStatus::Applied height={height}",);
+                            let _ = events_tx.send(PeerLifecycleEvent::BlockApplied { height });
+                            block_height_tx.send_modify(|x| *x = Some(height));
                         }
-                        // EventBox::Pipeline(PipelineEventBox::Transaction(event)) => {
-                        //     eprintln!("{log_prefix} transaction event {:?}", event)
-                        // }
-                        _ => {}
                     }
                 }
                 eprintln!("{log_prefix} events stream is closed");

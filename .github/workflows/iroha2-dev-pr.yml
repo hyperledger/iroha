@@ -80,7 +80,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
+          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}/default_executor.wasm
           retention-days: 1
 
   unit_tests_with_coverage:

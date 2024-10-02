@@ -60,6 +60,7 @@ impl LockContent {
         };
         let mut file = OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(DATA_FILE)?;
         file.write_all(serde_json::to_string(&self).unwrap().as_bytes())?;
@@ -84,7 +85,7 @@ impl AllocatedPort {
             if !value.ports_in_use.contains(&port) {
                 break port;
             }
-            i = i + 1;
+            i += 1;
             if i == 1000 {
                 panic!("cannot find a free port")
             }
