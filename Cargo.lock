@@ -3689,7 +3689,6 @@ dependencies = [
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_test_samples",
- "iroha_wasm_builder",
  "nix 0.29.0",
  "parity-scale-codec",
  "rand",
