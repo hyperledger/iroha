@@ -12,7 +12,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use syn::parse_quote;
 
-fn add_bounds_to_all_generic_parameters(generics: &mut syn::Generics, bound: syn::Path) {
+fn add_bounds_to_all_generic_parameters(generics: &mut syn::Generics, bound: &syn::Path) {
     let generic_type_parameters = generics
         .type_params()
         .map(|ty_param| ty_param.ident.clone())
@@ -50,7 +50,7 @@ fn impl_type_id(input: &mut syn::DeriveInput) -> TokenStream {
 
     // Unlike IntoSchema, `TypeId` bounds are required only on the generic type parameters, as in the standard "dumb" algorithm
     // The schema of the fields are irrelevant here, as we only need the names of the parameters
-    add_bounds_to_all_generic_parameters(&mut input.generics, parse_quote!(iroha_schema::TypeId));
+    add_bounds_to_all_generic_parameters(&mut input.generics, &parse_quote!(iroha_schema::TypeId));
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let type_id_body = trait_body(name, &input.generics, true);
@@ -217,19 +217,19 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
     // first of all, `IntoSchema` impls are required for all generic type parameters to be able to call `type_name` on them
     add_bounds_to_all_generic_parameters(
         &mut input.generics,
-        parse_quote!(iroha_schema::IntoSchema),
+        &parse_quote!(iroha_schema::IntoSchema),
     );
 
     // add trait bounds on field types using the same algorithm that parity scale codec uses
-    emitter.handle(trait_bounds::add(
+    trait_bounds::add(
         &input.ident,
         &mut input.generics,
         &input.data,
-        syn::parse_quote!(iroha_schema::IntoSchema),
+        &syn::parse_quote!(iroha_schema::IntoSchema),
         None,
         false,
         &syn::parse_quote!(iroha_schema),
-    ));
+    );
 
     let impl_type_id = impl_type_id(&mut syn::parse2(original_input).unwrap());
 
