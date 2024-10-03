@@ -3,8 +3,10 @@
 //! `Block`s are organised into a linear sequence over time (also known as the block chain).
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, format, string::String, vec::Vec};
 use core::{fmt::Display, time::Duration};
+#[cfg(feature = "std")]
+use std::collections::BTreeMap;
 
 use derive_more::Display;
 use iroha_crypto::{HashOf, MerkleTree, SignatureOf};
@@ -16,7 +18,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::transaction::prelude::*;
+use crate::transaction::{error::TransactionRejectionReason, prelude::*};
 
 #[model]
 mod model {
@@ -73,7 +75,7 @@ mod model {
         /// Block header
         pub header: BlockHeader,
         /// array of transactions, which successfully passed validation and consensus step.
-        pub transactions: Vec<CommittedTransaction>,
+        pub transactions: Vec<SignedTransaction>,
     }
 
     /// Signature of a block
@@ -109,6 +111,12 @@ mod model {
         pub(super) signatures: Vec<BlockSignature>,
         /// Block payload
         pub(super) payload: BlockPayload,
+        /// Collection of rejection reasons for every transaction if exists
+        ///
+        /// # Warning
+        ///
+        /// Transaction errors are not part of the block hash or protected by the block signature.
+        pub(super) errors: BTreeMap<u64, TransactionRejectionReason>,
     }
 }
 
@@ -158,20 +166,13 @@ impl SignedBlock {
         header: BlockHeader,
         transactions: impl IntoIterator<Item = SignedTransaction>,
     ) -> SignedBlock {
-        let transactions = transactions
-            .into_iter()
-            .map(|tx| CommittedTransaction {
-                value: tx,
-                error: None,
-            })
-            .collect();
-
         SignedBlockV1 {
             signatures: vec![signature],
             payload: BlockPayload {
                 header,
-                transactions,
+                transactions: transactions.into_iter().collect(),
             },
+            errors: BTreeMap::new(),
         }
         .into()
     }
@@ -184,11 +185,18 @@ impl SignedBlock {
     ) -> &mut Self {
         let SignedBlock::V1(block) = self;
 
-        for (tx, error) in errors {
-            block.payload.transactions[tx].error = Some(Box::new(error));
-        }
+        block.errors = errors
+            .into_iter()
+            .map(|(idx, error)| (idx as u64, error))
+            .collect();
 
         self
+    }
+
+    /// Return error for the transaction index
+    pub fn error(&self, tx: usize) -> Option<&TransactionRejectionReason> {
+        let SignedBlock::V1(block) = self;
+        block.errors.get(&(tx as u64))
     }
 
     /// Block payload. Used for tests
@@ -205,13 +213,6 @@ impl SignedBlock {
         block.header()
     }
 
-    /// Block transactions
-    #[inline]
-    pub fn transactions(&self) -> impl ExactSizeIterator<Item = &CommittedTransaction> {
-        let SignedBlock::V1(block) = self;
-        block.payload.transactions.iter()
-    }
-
     /// Signatures of peers which approved this block.
     #[inline]
     pub fn signatures(
@@ -219,6 +220,23 @@ impl SignedBlock {
     ) -> impl ExactSizeIterator<Item = &BlockSignature> + DoubleEndedIterator {
         let SignedBlock::V1(block) = self;
         block.signatures.iter()
+    }
+
+    /// Block transactions
+    #[inline]
+    pub fn transactions(&self) -> impl ExactSizeIterator<Item = &SignedTransaction> {
+        let SignedBlock::V1(block) = self;
+        block.payload.transactions.iter()
+    }
+
+    /// Collection of rejection reasons for every transaction if exists
+    ///
+    /// # Warning
+    ///
+    /// Transaction errors are not part of the block hash or protected by the block signature.
+    pub fn errors(&self) -> impl ExactSizeIterator<Item = (&u64, &TransactionRejectionReason)> {
+        let SignedBlock::V1(block) = self;
+        block.errors.iter()
     }
 
     /// Calculate block hash
@@ -316,13 +334,6 @@ impl SignedBlock {
             creation_time_ms,
             view_change_index: 0,
         };
-        let transactions = transactions
-            .into_iter()
-            .map(|transaction| CommittedTransaction {
-                value: transaction,
-                error: None,
-            })
-            .collect();
 
         let signature = BlockSignature(0, SignatureOf::new(private_key, &header));
         let payload = BlockPayload {
@@ -333,17 +344,18 @@ impl SignedBlock {
         SignedBlockV1 {
             signatures: vec![signature],
             payload,
+            errors: BTreeMap::new(),
         }
         .into()
     }
 
     #[cfg(feature = "std")]
-    fn get_genesis_block_creation_time(genesis_transactions: &[SignedTransaction]) -> u64 {
+    fn get_genesis_block_creation_time(transactions: &[SignedTransaction]) -> u64 {
         use std::time::SystemTime;
 
-        let latest_txn_time = genesis_transactions
+        let latest_txn_time = transactions
             .iter()
-            .map(super::transaction::SignedTransaction::creation_time)
+            .map(SignedTransaction::creation_time)
             .max()
             .expect("INTERNAL BUG: Block empty");
         let now = SystemTime::now()
@@ -380,12 +392,13 @@ mod candidate {
     struct SignedBlockCandidate {
         signatures: Vec<BlockSignature>,
         payload: BlockPayload,
+        errors: BTreeMap<u64, TransactionRejectionReason>,
     }
 
     #[derive(Decode, Deserialize)]
     struct BlockPayloadCandidate {
         header: BlockHeader,
-        transactions: Vec<CommittedTransaction>,
+        transactions: Vec<SignedTransaction>,
     }
 
     impl BlockPayloadCandidate {
@@ -408,7 +421,7 @@ mod candidate {
             let expected_txs_hash = self
                 .transactions
                 .iter()
-                .map(|value| value.as_ref().hash())
+                .map(SignedTransaction::hash)
                 .collect::<MerkleTree<_>>()
                 .hash()
                 .ok_or("Block is empty")?;
@@ -418,7 +431,7 @@ mod candidate {
             }
 
             self.transactions.iter().try_for_each(|tx| {
-                if tx.value.creation_time() >= self.header.creation_time() {
+                if tx.creation_time() >= self.header.creation_time() {
                     return Err("Transaction creation time is ahead of block creation time");
                 }
 
@@ -443,6 +456,7 @@ mod candidate {
             Ok(SignedBlockV1 {
                 signatures: self.signatures,
                 payload: self.payload,
+                errors: self.errors,
             })
         }
 
@@ -473,14 +487,14 @@ mod candidate {
 
         #[cfg(not(target_family = "wasm"))]
         fn validate_genesis(&self) -> Result<(), &'static str> {
-            use crate::isi::InstructionBox;
-
             let transactions = self.payload.transactions.as_slice();
+
+            if !self.errors.is_empty() {
+                return Err("Genesis transaction must not contain errors");
+            }
+
             for transaction in transactions {
-                if transaction.error.is_some() {
-                    return Err("Genesis transaction must not contain errors");
-                }
-                let Executable::Instructions(_) = transaction.value.instructions() else {
+                let Executable::Instructions(_) = transaction.instructions() else {
                     return Err("Genesis transaction must contain instructions");
                 };
             }
@@ -489,11 +503,11 @@ mod candidate {
                 return Err("Genesis block must contain at least one transaction");
             };
             let Executable::Instructions(instructions_executor) =
-                transaction_executor.value.instructions()
+                transaction_executor.instructions()
             else {
                 return Err("Genesis transaction must contain instructions");
             };
-            let [InstructionBox::Upgrade(_)] = instructions_executor.as_ref() else {
+            let [crate::isi::InstructionBox::Upgrade(_)] = instructions_executor.as_ref() else {
                 return Err(
                     "First transaction must contain single `Upgrade` instruction to set executor",
                 );

@@ -11,7 +11,7 @@ use iroha_data_model::{
     block::*,
     events::prelude::*,
     peer::PeerId,
-    transaction::{error::TransactionRejectionReason, prelude::*},
+    transaction::{error::TransactionRejectionReason, SignedTransaction},
 };
 use thiserror::Error;
 
@@ -583,7 +583,7 @@ mod valid {
             if block.transactions().any(|tx| {
                 state
                     .transactions()
-                    .get(&tx.as_ref().hash())
+                    .get(&tx.hash())
                     // In case of soft-fork transaction is check if it was added at the same height as candidate block
                     .is_some_and(|height| height.get() < expected_block_height)
             }) {
@@ -606,7 +606,6 @@ mod valid {
 
             let errors = block
                 .transactions()
-                .map(AsRef::as_ref)
                 // FIXME: Redundant clone
                 .cloned()
                 .enumerate()
@@ -859,7 +858,7 @@ mod valid {
 
         let transactions = block.payload().transactions.as_slice();
         for transaction in transactions {
-            if transaction.value.authority() != genesis_account {
+            if transaction.authority() != genesis_account {
                 return Err(InvalidGenesisError::UnexpectedAuthority);
             }
         }
@@ -1095,15 +1094,16 @@ mod event {
         fn produce_events(&self) -> impl Iterator<Item = PipelineEventBox> {
             let block_height = self.as_ref().header().height;
 
-            let tx_events = self.as_ref().transactions().map(move |tx| {
-                let status = tx.error.as_ref().map_or_else(
+            let block = self.as_ref();
+            let tx_events = block.transactions().enumerate().map(move |(idx, tx)| {
+                let status = block.error(idx).map_or_else(
                     || TransactionStatus::Approved,
-                    |error| TransactionStatus::Rejected(error.clone()),
+                    |error| TransactionStatus::Rejected(Box::new(error.clone())),
                 );
 
                 TransactionEvent {
                     block_height: Some(block_height),
-                    hash: tx.as_ref().hash(),
+                    hash: tx.hash(),
                     status,
                 }
             });
@@ -1216,23 +1216,8 @@ mod tests {
         let valid_block = unverified_block.categorize(&mut state_block).unpack(|_| {});
         state_block.commit();
 
-        // The first transaction should be confirmed
-        assert!(valid_block
-            .as_ref()
-            .transactions()
-            .next()
-            .unwrap()
-            .error
-            .is_none());
-
-        // The second transaction should be rejected
-        assert!(valid_block
-            .as_ref()
-            .transactions()
-            .nth(1)
-            .unwrap()
-            .error
-            .is_some());
+        // The 1st transaction should be confirmed and the 2nd rejected
+        assert_eq!(*valid_block.as_ref().errors().next().unwrap().0, 1);
     }
 
     #[tokio::test]
@@ -1297,23 +1282,10 @@ mod tests {
         let valid_block = unverified_block.categorize(&mut state_block).unpack(|_| {});
         state_block.commit();
 
-        // The first transaction should fail
-        assert!(valid_block
-            .as_ref()
-            .transactions()
-            .next()
-            .unwrap()
-            .error
-            .is_some());
-
-        // The third transaction should succeed
-        assert!(valid_block
-            .as_ref()
-            .transactions()
-            .nth(2)
-            .unwrap()
-            .error
-            .is_none());
+        // The 1st transaction should fail and 2nd succeed
+        let mut errors = valid_block.as_ref().errors();
+        assert_eq!(0, *errors.next().unwrap().0);
+        assert!(errors.next().is_none());
     }
 
     #[tokio::test]
@@ -1363,27 +1335,17 @@ mod tests {
         let valid_block = unverified_block.categorize(&mut state_block).unpack(|_| {});
         state_block.commit();
 
-        // The first transaction should be rejected
-        assert!(
-            valid_block
-                .as_ref()
-                .transactions()
-                .next()
-                .unwrap()
-                .error
-                .is_some(),
+        let mut errors = valid_block.as_ref().errors();
+        // The 1st transaction should be rejected
+        assert_eq!(
+            0,
+            *errors.next().unwrap().0,
             "The first transaction should be rejected, as it contains `Fail`."
         );
 
         // The second transaction should be accepted
         assert!(
-            valid_block
-                .as_ref()
-                .transactions()
-                .nth(1)
-                .unwrap()
-                .error
-                .is_none(),
+            errors.next().is_none(),
             "The second transaction should be accepted."
         );
     }

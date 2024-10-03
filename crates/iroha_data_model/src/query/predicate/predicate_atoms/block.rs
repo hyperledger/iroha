@@ -1,7 +1,7 @@
 //! This module contains predicates for block-related objects, mirroring [`crate::block`].
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 
 use iroha_crypto::HashOf;
 use iroha_schema::IntoSchema;
@@ -19,9 +19,9 @@ use crate::{
             projectors::BaseProjector,
             AstPredicate, CompoundPredicate, EvaluatePredicate, HasPredicateBox, HasPrototype,
         },
-        TransactionQueryOutput,
+        CommittedTransaction,
     },
-    transaction::{CommittedTransaction, SignedTransaction},
+    transaction::SignedTransaction,
 };
 
 /// A predicate that can be applied to a [`HashOf<BlockHeader>`]
@@ -128,21 +128,22 @@ pub enum TransactionErrorPredicateBox {
     IsSome,
 }
 
-impl_predicate_box!(Option<Box<TransactionRejectionReason>>: TransactionErrorPredicateBox);
+impl_predicate_box!(Option<TransactionRejectionReason>: TransactionErrorPredicateBox);
 
-impl EvaluatePredicate<Option<Box<TransactionRejectionReason>>> for TransactionErrorPredicateBox {
-    fn applies(&self, input: &Option<Box<TransactionRejectionReason>>) -> bool {
+impl EvaluatePredicate<Option<TransactionRejectionReason>> for TransactionErrorPredicateBox {
+    fn applies(&self, input: &Option<TransactionRejectionReason>) -> bool {
         match self {
             TransactionErrorPredicateBox::IsSome => input.is_some(),
         }
     }
 }
 
-/// A predicate that can be applied to a [`CommittedTransaction`]
+/// A predicate that can be applied to a [`CommittedTransaction`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum CommittedTransactionPredicateBox {
-    // projections
-    /// Checks if a predicate applies to the signed transaction inside.
+    /// Checks if a predicate applies to the hash of the block the transaction was included in.
+    BlockHash(BlockHashPredicateBox),
+    /// Checks if a predicate applies to the committed transaction inside.
     Value(SignedTransactionPredicateBox),
     /// Checks if a predicate applies to the error of the transaction.
     Error(TransactionErrorPredicateBox),
@@ -153,35 +154,13 @@ impl_predicate_box!(CommittedTransaction: CommittedTransactionPredicateBox);
 impl EvaluatePredicate<CommittedTransaction> for CommittedTransactionPredicateBox {
     fn applies(&self, input: &CommittedTransaction) -> bool {
         match self {
-            CommittedTransactionPredicateBox::Value(signed_transaction) => {
-                signed_transaction.applies(&input.value)
-            }
-            CommittedTransactionPredicateBox::Error(error) => error.applies(&input.error),
-        }
-    }
-}
-
-/// A predicate that can be applied to a [`TransactionQueryOutput`].
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub enum TransactionQueryOutputPredicateBox {
-    // projections
-    /// Checks if a predicate applies to the committed transaction inside.
-    Transaction(CommittedTransactionPredicateBox),
-    /// Checks if a predicate applies to the hash of the block the transaction was included in.
-    BlockHash(BlockHashPredicateBox),
-}
-
-impl_predicate_box!(TransactionQueryOutput: TransactionQueryOutputPredicateBox);
-
-impl EvaluatePredicate<TransactionQueryOutput> for TransactionQueryOutputPredicateBox {
-    fn applies(&self, input: &TransactionQueryOutput) -> bool {
-        match self {
-            TransactionQueryOutputPredicateBox::Transaction(committed_transaction) => {
-                committed_transaction.applies(&input.transaction)
-            }
-            TransactionQueryOutputPredicateBox::BlockHash(block_hash) => {
+            CommittedTransactionPredicateBox::BlockHash(block_hash) => {
                 block_hash.applies(&input.block_hash)
             }
+            CommittedTransactionPredicateBox::Value(committed_transaction) => {
+                committed_transaction.applies(&input.value)
+            }
+            CommittedTransactionPredicateBox::Error(error) => error.applies(&input.error),
         }
     }
 }
@@ -191,7 +170,7 @@ pub mod prelude {
     pub use super::{
         BlockHashPredicateBox, BlockHeaderPredicateBox, CommittedTransactionPredicateBox,
         SignedBlockPredicateBox, SignedTransactionPredicateBox, TransactionErrorPredicateBox,
-        TransactionHashPredicateBox, TransactionQueryOutputPredicateBox,
+        TransactionHashPredicateBox,
     };
 }
 
@@ -203,7 +182,7 @@ mod test {
         account::AccountId,
         prelude::{
             AccountIdPredicateBox, BlockHeaderPredicateBox, CompoundPredicate,
-            SignedBlockPredicateBox, TransactionQueryOutputPredicateBox,
+            SignedBlockPredicateBox,
         },
         query::predicate::predicate_atoms::block::{
             BlockHashPredicateBox, CommittedTransactionPredicateBox, SignedTransactionPredicateBox,
@@ -219,36 +198,31 @@ mod test {
                 .parse()
                 .unwrap();
 
-        let predicate = TransactionQueryOutputPredicateBox::build(|tx| {
+        let predicate = CommittedTransactionPredicateBox::build(|tx| {
             tx.block_hash.eq(HashOf::from_untyped_unchecked(hash))
-                & tx.transaction.error.is_some()
-                & tx.transaction.value.authority.eq(account_id.clone())
-                & tx.transaction
-                    .value
-                    .hash
-                    .eq(HashOf::from_untyped_unchecked(hash))
+                & tx.value.authority.eq(account_id.clone())
+                & tx.value.hash.eq(HashOf::from_untyped_unchecked(hash))
+                & tx.error.is_some()
         });
 
         assert_eq!(
             predicate,
             CompoundPredicate::And(vec![
-                CompoundPredicate::Atom(TransactionQueryOutputPredicateBox::BlockHash(
+                CompoundPredicate::Atom(CommittedTransactionPredicateBox::BlockHash(
                     BlockHashPredicateBox::Equals(HashOf::from_untyped_unchecked(hash))
                 )),
-                CompoundPredicate::Atom(TransactionQueryOutputPredicateBox::Transaction(
-                    CommittedTransactionPredicateBox::Error(TransactionErrorPredicateBox::IsSome)
-                )),
-                CompoundPredicate::Atom(TransactionQueryOutputPredicateBox::Transaction(
-                    CommittedTransactionPredicateBox::Value(
-                        SignedTransactionPredicateBox::Authority(AccountIdPredicateBox::Equals(
-                            account_id.clone()
-                        ))
-                    )
-                )),
-                CompoundPredicate::Atom(TransactionQueryOutputPredicateBox::Transaction(
-                    CommittedTransactionPredicateBox::Value(SignedTransactionPredicateBox::Hash(
-                        TransactionHashPredicateBox::Equals(HashOf::from_untyped_unchecked(hash))
+                CompoundPredicate::Atom(CommittedTransactionPredicateBox::Value(
+                    SignedTransactionPredicateBox::Authority(AccountIdPredicateBox::Equals(
+                        account_id.clone()
                     ))
+                )),
+                CompoundPredicate::Atom(CommittedTransactionPredicateBox::Value(
+                    SignedTransactionPredicateBox::Hash(TransactionHashPredicateBox::Equals(
+                        HashOf::from_untyped_unchecked(hash)
+                    ))
+                )),
+                CompoundPredicate::Atom(CommittedTransactionPredicateBox::Error(
+                    TransactionErrorPredicateBox::IsSome
                 )),
             ])
         );

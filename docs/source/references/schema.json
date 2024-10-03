@@ -720,7 +720,7 @@
       },
       {
         "name": "transactions",
-        "type": "Vec<CommittedTransaction>"
+        "type": "Vec<SignedTransaction>"
       }
     ]
   },
@@ -986,6 +986,10 @@
   "CommittedTransaction": {
     "Struct": [
       {
+        "name": "block_hash",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
         "name": "value",
         "type": "SignedTransaction"
       },
@@ -998,13 +1002,18 @@
   "CommittedTransactionPredicateBox": {
     "Enum": [
       {
-        "tag": "Value",
+        "tag": "BlockHash",
         "discriminant": 0,
+        "type": "BlockHashPredicateBox"
+      },
+      {
+        "tag": "Value",
+        "discriminant": 1,
         "type": "SignedTransactionPredicateBox"
       },
       {
         "tag": "Error",
-        "discriminant": 1,
+        "discriminant": 2,
         "type": "TransactionErrorPredicateBox"
       }
     ]
@@ -1108,6 +1117,30 @@
         "tag": "Or",
         "discriminant": 3,
         "type": "Vec<CompoundPredicate<BlockHeaderPredicateBox>>"
+      }
+    ]
+  },
+  "CompoundPredicate<CommittedTransactionPredicateBox>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "CommittedTransactionPredicateBox"
+      },
+      {
+        "tag": "Not",
+        "discriminant": 1,
+        "type": "CompoundPredicate<CommittedTransactionPredicateBox>"
+      },
+      {
+        "tag": "And",
+        "discriminant": 2,
+        "type": "Vec<CompoundPredicate<CommittedTransactionPredicateBox>>"
+      },
+      {
+        "tag": "Or",
+        "discriminant": 3,
+        "type": "Vec<CompoundPredicate<CommittedTransactionPredicateBox>>"
       }
     ]
   },
@@ -1252,30 +1285,6 @@
         "tag": "Or",
         "discriminant": 3,
         "type": "Vec<CompoundPredicate<SignedBlockPredicateBox>>"
-      }
-    ]
-  },
-  "CompoundPredicate<TransactionQueryOutputPredicateBox>": {
-    "Enum": [
-      {
-        "tag": "Atom",
-        "discriminant": 0,
-        "type": "TransactionQueryOutputPredicateBox"
-      },
-      {
-        "tag": "Not",
-        "discriminant": 1,
-        "type": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
-      },
-      {
-        "tag": "And",
-        "discriminant": 2,
-        "type": "Vec<CompoundPredicate<TransactionQueryOutputPredicateBox>>"
-      },
-      {
-        "tag": "Or",
-        "discriminant": 3,
-        "type": "Vec<CompoundPredicate<TransactionQueryOutputPredicateBox>>"
       }
     ]
   },
@@ -3003,7 +3012,7 @@
       {
         "tag": "FindTransactions",
         "discriminant": 12,
-        "type": "QueryWithFilter<FindTransactions, TransactionQueryOutputPredicateBox>"
+        "type": "QueryWithFilter<FindTransactions, CommittedTransactionPredicateBox>"
       },
       {
         "tag": "FindBlocks",
@@ -3111,7 +3120,7 @@
       {
         "tag": "Transaction",
         "discriminant": 7,
-        "type": "Vec<TransactionQueryOutput>"
+        "type": "Vec<CommittedTransaction>"
       },
       {
         "tag": "Peer",
@@ -3363,7 +3372,7 @@
       }
     ]
   },
-  "QueryWithFilter<FindTransactions, TransactionQueryOutputPredicateBox>": {
+  "QueryWithFilter<FindTransactions, CommittedTransactionPredicateBox>": {
     "Struct": [
       {
         "name": "query",
@@ -3371,7 +3380,7 @@
       },
       {
         "name": "predicate",
-        "type": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
+        "type": "CompoundPredicate<CommittedTransactionPredicateBox>"
       }
     ]
   },
@@ -3961,6 +3970,10 @@
       {
         "name": "payload",
         "type": "BlockPayload"
+      },
+      {
+        "name": "errors",
+        "type": "SortedMap<u64, TransactionRejectionReason>"
       }
     ]
   },
@@ -4094,7 +4107,7 @@
       {
         "tag": "Transaction",
         "discriminant": 5,
-        "type": "TransactionQueryOutput"
+        "type": "CommittedTransaction"
       },
       {
         "tag": "BlockHeader",
@@ -4194,6 +4207,12 @@
     "Map": {
       "key": "Name",
       "value": "Json"
+    }
+  },
+  "SortedMap<u64, TransactionRejectionReason>": {
+    "Map": {
+      "key": "u64",
+      "value": "TransactionRejectionReason"
     }
   },
   "SortedVec<Permission>": {
@@ -4403,32 +4422,6 @@
       {
         "name": "metadata",
         "type": "Metadata"
-      }
-    ]
-  },
-  "TransactionQueryOutput": {
-    "Struct": [
-      {
-        "name": "block_hash",
-        "type": "HashOf<BlockHeader>"
-      },
-      {
-        "name": "transaction",
-        "type": "CommittedTransaction"
-      }
-    ]
-  },
-  "TransactionQueryOutputPredicateBox": {
-    "Enum": [
-      {
-        "tag": "Transaction",
-        "discriminant": 0,
-        "type": "CommittedTransactionPredicateBox"
-      },
-      {
-        "tag": "BlockHash",
-        "discriminant": 1,
-        "type": "BlockHashPredicateBox"
       }
     ]
   },
@@ -4921,6 +4914,9 @@
   "Vec<CompoundPredicate<BlockHeaderPredicateBox>>": {
     "Vec": "CompoundPredicate<BlockHeaderPredicateBox>"
   },
+  "Vec<CompoundPredicate<CommittedTransactionPredicateBox>>": {
+    "Vec": "CompoundPredicate<CommittedTransactionPredicateBox>"
+  },
   "Vec<CompoundPredicate<DomainPredicateBox>>": {
     "Vec": "CompoundPredicate<DomainPredicateBox>"
   },
@@ -4938,9 +4934,6 @@
   },
   "Vec<CompoundPredicate<SignedBlockPredicateBox>>": {
     "Vec": "CompoundPredicate<SignedBlockPredicateBox>"
-  },
-  "Vec<CompoundPredicate<TransactionQueryOutputPredicateBox>>": {
-    "Vec": "CompoundPredicate<TransactionQueryOutputPredicateBox>"
   },
   "Vec<CompoundPredicate<TriggerIdPredicateBox>>": {
     "Vec": "CompoundPredicate<TriggerIdPredicateBox>"
@@ -4978,8 +4971,8 @@
   "Vec<SignedBlock>": {
     "Vec": "SignedBlock"
   },
-  "Vec<TransactionQueryOutput>": {
-    "Vec": "TransactionQueryOutput"
+  "Vec<SignedTransaction>": {
+    "Vec": "SignedTransaction"
   },
   "Vec<Trigger>": {
     "Vec": "Trigger"

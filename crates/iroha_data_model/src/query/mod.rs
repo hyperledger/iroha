@@ -31,7 +31,7 @@ use crate::{
     permission::Permission,
     role::{Role, RoleId},
     seal::Sealed,
-    transaction::{CommittedTransaction, SignedTransaction},
+    transaction::{error::TransactionRejectionReason, SignedTransaction},
     trigger::{Trigger, TriggerId},
 };
 
@@ -118,7 +118,7 @@ mod model {
         Role(Vec<Role>),
         Parameter(Vec<Parameter>),
         Permission(Vec<Permission>),
-        Transaction(Vec<TransactionQueryOutput>),
+        Transaction(Vec<CommittedTransaction>),
         Peer(Vec<Peer>),
         RoleId(Vec<RoleId>),
         TriggerId(Vec<TriggerId>),
@@ -153,7 +153,7 @@ mod model {
         Json(Json),
         Trigger(crate::trigger::Trigger),
         Parameters(Parameters),
-        Transaction(TransactionQueryOutput),
+        Transaction(CommittedTransaction),
         BlockHeader(BlockHeader),
     }
 
@@ -240,12 +240,14 @@ mod model {
     )]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct TransactionQueryOutput {
+    pub struct CommittedTransaction {
         /// The hash of the block to which `tx` belongs to
         pub block_hash: HashOf<BlockHeader>,
         /// Transaction
         #[getset(skip)]
-        pub transaction: CommittedTransaction,
+        pub value: SignedTransaction,
+        /// Reason of rejection, if any
+        pub error: Option<TransactionRejectionReason>,
     }
 }
 
@@ -563,7 +565,7 @@ impl_iter_queries! {
     FindPeers => crate::peer::Peer,
     FindActiveTriggerIds => crate::trigger::TriggerId,
     FindTriggers => crate::trigger::Trigger,
-    FindTransactions => TransactionQueryOutput,
+    FindTransactions => CommittedTransaction,
     FindAccountsWithAsset => crate::account::Account,
     FindBlockHeaders => crate::block::BlockHeader,
     FindBlocks => SignedBlock,
@@ -580,9 +582,9 @@ impl_singular_queries! {
     FindExecutorDataModel => crate::executor::ExecutorDataModel,
 }
 
-impl AsRef<CommittedTransaction> for TransactionQueryOutput {
-    fn as_ref(&self) -> &CommittedTransaction {
-        &self.transaction
+impl AsRef<SignedTransaction> for CommittedTransaction {
+    fn as_ref(&self) -> &SignedTransaction {
+        &self.value
     }
 }
 
@@ -1097,6 +1099,6 @@ pub mod prelude {
         account::prelude::*, asset::prelude::*, block::prelude::*, builder::prelude::*,
         domain::prelude::*, executor::prelude::*, parameters::prelude::*, peer::prelude::*,
         permission::prelude::*, predicate::prelude::*, role::prelude::*, transaction::prelude::*,
-        trigger::prelude::*, QueryBox, QueryRequest, SingularQueryBox, TransactionQueryOutput,
+        trigger::prelude::*, CommittedTransaction, QueryBox, QueryRequest, SingularQueryBox,
     };
 }
