@@ -41,10 +41,19 @@ pub fn genesis<T: Instruction>(
     topology: UniqueVec<PeerId>,
 ) -> GenesisBlock {
     // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
-    let mut genesis = RawGenesisTransaction::from_path(
+    let mut genesis = match RawGenesisTransaction::from_path(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../defaults/genesis.json"),
-    )
-    .expect("Failed to deserialize genesis block from file");
+    ) {
+        Ok(x) => x,
+        Err(err) => {
+            eprintln!(
+                "ERROR: cannot load genesis from `defaults/genesis.json`\n  \
+                    If `executor.wasm` is not found, make sure to run `scripts/build_wasm_samples.sh` first\n  \
+                    Full error: {err}"
+            );
+            panic!("cannot proceed without genesis, see the error above");
+        }
+    };
 
     let rose_definition_id = "rose#wonderland".parse::<AssetDefinitionId>().unwrap();
     let grant_modify_rose_permission = Grant::account_permission(
