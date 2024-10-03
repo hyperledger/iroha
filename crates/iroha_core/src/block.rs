@@ -4,14 +4,14 @@
 //! 2. If a block is received, i.e. deserialized:
 //!    `SignedBlock` -> `ValidBlock` -> `CommittedBlock`
 //!    [`Block`]s are organised into a linear sequence over time (also known as the block chain).
-use std::{error::Error as _, time::Duration};
+use std::{collections::BTreeMap, error::Error as _, time::Duration};
 
 use iroha_crypto::{HashOf, KeyPair, MerkleTree};
 use iroha_data_model::{
     block::*,
     events::prelude::*,
     peer::PeerId,
-    transaction::{error::TransactionRejectionReason, prelude::*},
+    transaction::{error::TransactionRejectionReason, SignedTransaction},
 };
 use thiserror::Error;
 
@@ -118,7 +118,6 @@ pub struct BlockBuilder<B>(B);
 mod pending {
     use std::time::SystemTime;
 
-    use iroha_data_model::transaction::CommittedTransaction;
     use nonzero_ext::nonzero;
 
     use super::*;
@@ -175,14 +174,14 @@ mod pending {
         fn make_header(
             prev_block: Option<&SignedBlock>,
             view_change_index: usize,
-            transactions: &[CommittedTransaction],
+            transactions: &[SignedTransaction],
         ) -> BlockHeader {
             let prev_block_time =
                 prev_block.map_or(Duration::ZERO, |block| block.header().creation_time());
 
             let latest_txn_time = transactions
                 .iter()
-                .map(|tx| tx.as_ref().creation_time())
+                .map(SignedTransaction::creation_time)
                 .max()
                 .expect("INTERNAL BUG: Block empty");
 
@@ -213,7 +212,7 @@ mod pending {
                 prev_block_hash: prev_block.map(SignedBlock::hash),
                 transactions_hash: transactions
                     .iter()
-                    .map(|value| value.as_ref().hash())
+                    .map(SignedTransaction::hash)
                     .collect::<MerkleTree<_>>()
                     .hash()
                     .expect("INTERNAL BUG: Empty block created"),
@@ -230,27 +229,31 @@ mod pending {
         fn categorize_transactions(
             transactions: Vec<AcceptedTransaction>,
             state_block: &mut StateBlock<'_>,
-        ) -> Vec<CommittedTransaction> {
-            transactions
+        ) -> (
+            Vec<SignedTransaction>,
+            BTreeMap<usize, TransactionRejectionReason>,
+        ) {
+            let mut errors = BTreeMap::new();
+
+            let transactions = transactions
                 .into_iter()
-                .map(|tx| match state_block.validate(tx) {
-                    Ok(tx) => CommittedTransaction {
-                        value: tx,
-                        error: None,
-                    },
+                .enumerate()
+                .map(|(idx, tx)| match state_block.validate(tx) {
+                    Ok(tx) => tx,
                     Err((tx, error)) => {
                         iroha_logger::warn!(
                             reason = %error,
                             caused_by = ?error.source(),
                             "Transaction validation failed",
                         );
-                        CommittedTransaction {
-                            value: tx,
-                            error: Some(Box::new(error)),
-                        }
+                        errors.insert(idx, error);
+
+                        tx
                     }
                 })
-                .collect()
+                .collect();
+
+            (transactions, errors)
         }
 
         /// Chain the block with existing blockchain.
@@ -261,16 +264,19 @@ mod pending {
             view_change_index: usize,
             state: &mut StateBlock<'_>,
         ) -> BlockBuilder<Chained> {
-            let transactions = Self::categorize_transactions(self.0.transactions, state);
+            let (transactions, errors) = Self::categorize_transactions(self.0.transactions, state);
 
-            BlockBuilder(Chained(BlockPayload {
-                header: Self::make_header(
-                    state.latest_block().as_deref(),
-                    view_change_index,
-                    &transactions,
-                ),
-                transactions,
-            }))
+            BlockBuilder(Chained(
+                BlockPayload {
+                    header: Self::make_header(
+                        state.latest_block().as_deref(),
+                        view_change_index,
+                        &transactions,
+                    ),
+                    transactions,
+                },
+                errors,
+            ))
         }
     }
 }
@@ -280,12 +286,17 @@ mod chained {
 
     /// When a [`Pending`] block is chained with the blockchain it becomes [`Chained`] block.
     #[derive(Debug, Clone)]
-    pub struct Chained(pub(super) BlockPayload);
+    pub struct Chained(
+        pub(super) BlockPayload,
+        pub(super) BTreeMap<usize, TransactionRejectionReason>,
+    );
 
     impl BlockBuilder<Chained> {
         /// Sign this block as Leader and get [`SignedBlock`].
         pub fn sign(self, private_key: &PrivateKey) -> WithEvents<ValidBlock> {
-            WithEvents::new(ValidBlock(self.0 .0.sign(private_key)))
+            let mut block = self.0 .0.sign(private_key);
+            block.categorize_transactions(self.0 .1);
+            WithEvents::new(ValidBlock(block))
         }
     }
 }
@@ -589,7 +600,7 @@ mod valid {
             if block.transactions().any(|tx| {
                 state
                     .transactions()
-                    .get(&tx.as_ref().hash())
+                    .get(&tx.hash())
                     // In case of soft-fork transaction is check if it was added at the same height as candidate block
                     .is_some_and(|height| height.get() < expected_block_height)
             }) {
@@ -612,28 +623,36 @@ mod valid {
                 (params.sumeragi().max_clock_drift(), params.transaction)
             };
 
-            for CommittedTransaction { value, error } in block.transactions_mut() {
-                let tx = if is_genesis {
-                    AcceptedTransaction::accept_genesis(
-                        value.clone(),
-                        expected_chain_id,
-                        max_clock_drift,
-                        genesis_account,
-                    )
-                } else {
-                    AcceptedTransaction::accept(
-                        value.clone(),
-                        expected_chain_id,
-                        max_clock_drift,
-                        tx_limits,
-                    )
-                }?;
+            block
+                .transactions()
+                // FIXME: Redundant clone
+                .cloned()
+                .enumerate()
+                .try_fold(BTreeMap::new(), |acc, (idx, tx)| {
+                    let accepted_tx = if is_genesis {
+                        AcceptedTransaction::accept_genesis(
+                            tx,
+                            expected_chain_id,
+                            max_clock_drift,
+                            genesis_account,
+                        )
+                    } else {
+                        AcceptedTransaction::accept(
+                            tx,
+                            expected_chain_id,
+                            max_clock_drift,
+                            tx_limits,
+                        )
+                    }?;
 
-                *error = match state_block.validate(tx) {
-                    Ok(_) => None,
-                    Err((_tx, error)) => Some(Box::new(error)),
-                };
-            }
+                    if let Err((rejected_tx, error)) = state_block.validate(tx) {
+                        trace!(tx=%rejected_tx.hash(), reason=?error, "Transaction rejected");
+                        assert!(acc.insert(idx, error).is_none());
+                    }
+
+                    Ok(acc)
+                })?;
+
             Ok(())
         }
 
@@ -788,11 +807,11 @@ mod valid {
             leader_private_key: &PrivateKey,
             f: impl FnOnce(&mut BlockPayload),
         ) -> Self {
-            use nonzero_ext::nonzero;
+            let (transactions, errors) = (Vec::new(), BTreeMap::new());
 
             let mut payload = BlockPayload {
                 header: BlockHeader {
-                    height: nonzero!(2_u64),
+                    height: nonzero_ext::nonzero!(2_u64),
                     prev_block_hash: None,
                     transactions_hash: HashOf::from_untyped_unchecked(Hash::prehashed(
                         [1; Hash::LENGTH],
@@ -800,10 +819,10 @@ mod valid {
                     creation_time_ms: 0,
                     view_change_index: 0,
                 },
-                transactions: Vec::new(),
+                transactions,
             };
             f(&mut payload);
-            BlockBuilder(Chained(payload))
+            BlockBuilder(Chained(payload, errors))
                 .sign(leader_private_key)
                 .unpack(|_| {})
         }
@@ -837,7 +856,7 @@ mod valid {
 
         let transactions = block.payload().transactions.as_slice();
         for transaction in transactions {
-            if transaction.value.authority() != genesis_account {
+            if transaction.authority() != genesis_account {
                 return Err(InvalidGenesisError::UnexpectedAuthority);
             }
         }
@@ -1060,15 +1079,16 @@ mod event {
         fn produce_events(&self) -> impl Iterator<Item = PipelineEventBox> {
             let block_height = self.as_ref().header().height;
 
-            let tx_events = self.as_ref().transactions().map(move |tx| {
-                let status = tx.error.as_ref().map_or_else(
+            let block = self.as_ref();
+            let tx_events = block.transactions().enumerate().map(move |(idx, tx)| {
+                let status = block.error(idx).map_or_else(
                     || TransactionStatus::Approved,
                     |error| TransactionStatus::Rejected(error.clone()),
                 );
 
                 TransactionEvent {
                     block_height: Some(block_height),
-                    hash: tx.as_ref().hash(),
+                    hash: tx.hash(),
                     status,
                 }
             });
@@ -1179,23 +1199,8 @@ mod tests {
             .sign(alice_keypair.private_key())
             .unpack(|_| {});
 
-        // The first transaction should be confirmed
-        assert!(valid_block
-            .as_ref()
-            .transactions()
-            .next()
-            .unwrap()
-            .error
-            .is_none());
-
-        // The second transaction should be rejected
-        assert!(valid_block
-            .as_ref()
-            .transactions()
-            .nth(1)
-            .unwrap()
-            .error
-            .is_some());
+        // The 1st transaction should be confirmed and the 2nd rejected
+        assert_eq!(*valid_block.as_ref().errors().next().unwrap().0, 1);
     }
 
     #[tokio::test]
@@ -1259,23 +1264,10 @@ mod tests {
             .sign(alice_keypair.private_key())
             .unpack(|_| {});
 
-        // The first transaction should fail
-        assert!(valid_block
-            .as_ref()
-            .transactions()
-            .next()
-            .unwrap()
-            .error
-            .is_some());
-
-        // The third transaction should succeed
-        assert!(valid_block
-            .as_ref()
-            .transactions()
-            .nth(2)
-            .unwrap()
-            .error
-            .is_none());
+        // The 1st transaction should fail and 2nd succeed
+        let mut errors = valid_block.as_ref().errors();
+        assert_eq!(0, *errors.next().unwrap().0);
+        assert!(errors.next().is_none());
     }
 
     #[tokio::test]
@@ -1323,27 +1315,17 @@ mod tests {
             .sign(alice_keypair.private_key())
             .unpack(|_| {});
 
-        // The first transaction should be rejected
-        assert!(
-            valid_block
-                .as_ref()
-                .transactions()
-                .next()
-                .unwrap()
-                .error
-                .is_some(),
+        let mut errors = valid_block.as_ref().errors();
+        // The 1st transaction should be rejected
+        assert_eq!(
+            0,
+            *errors.next().unwrap().0,
             "The first transaction should be rejected, as it contains `Fail`."
         );
 
         // The second transaction should be accepted
         assert!(
-            valid_block
-                .as_ref()
-                .transactions()
-                .nth(1)
-                .unwrap()
-                .error
-                .is_none(),
+            errors.next().is_none(),
             "The second transaction should be accepted."
         );
     }

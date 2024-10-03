@@ -134,7 +134,7 @@ impl Sumeragi {
                 .map_err(|recv_error| {
                     assert!(
                         recv_error != mpsc::TryRecvError::Disconnected,
-                        "INTERNAL ERROR: Sumeragi control message pump disconnected"
+                        "INTERNAL BUG: Sumeragi control message pump disconnected"
                     )
                 })
             {
@@ -173,7 +173,7 @@ impl Sumeragi {
                 .map_err(|recv_error| {
                     assert!(
                         recv_error != mpsc::TryRecvError::Disconnected,
-                        "INTERNAL ERROR: Sumeragi message pump disconnected"
+                        "INTERNAL BUG: Sumeragi message pump disconnected"
                     )
                 })
                 .ok()?;
@@ -259,7 +259,7 @@ impl Sumeragi {
                         }
                     };
 
-                    if block.as_ref().transactions().any(|tx| tx.error.is_some()) {
+                    if block.as_ref().errors().next().is_some() {
                         error!(
                             peer_id=%self.peer_id,
                             role=%self.role(),
@@ -307,7 +307,7 @@ impl Sumeragi {
         .expect("Genesis invalid");
 
         assert!(
-            !genesis.as_ref().transactions().any(|tx| tx.error.is_some()),
+            !genesis.as_ref().errors().next().is_some(),
             "Genesis contains invalid transactions"
         );
 
