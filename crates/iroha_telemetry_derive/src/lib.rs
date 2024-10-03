@@ -82,14 +82,14 @@ impl Parse for MetricSpecs {
 }
 
 struct MetricSpec {
+    metric_name: LitStr,
     #[cfg(feature = "metric-instrumentation")]
     timing: bool,
-    metric_name: LitStr,
 }
 
 impl Parse for MetricSpec {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let _timing = <syn::Token![+]>::parse(input).is_ok();
+        let timing = <syn::Token![+]>::parse(input).is_ok();
         let metric_name_lit = syn::Lit::parse(input)?;
 
         let metric_name = match metric_name_lit {
@@ -112,7 +112,7 @@ impl Parse for MetricSpec {
         Ok(Self {
             metric_name,
             #[cfg(feature = "metric-instrumentation")]
-            timing: _timing,
+            timing,
         })
     }
 }
@@ -191,7 +191,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 fn impl_metrics(
     emitter: &mut Emitter,
-    #[cfg_attr(not(feature = "metric-instrumentation"), allow(unused))] specs: MetricSpecs,
+    #[cfg_attr(not(feature = "metric-instrumentation"), expect(unused))] specs: MetricSpecs,
     func: &syn::ItemFn,
 ) -> TokenStream {
     let syn::ItemFn {
