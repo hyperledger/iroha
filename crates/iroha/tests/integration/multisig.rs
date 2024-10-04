@@ -9,13 +9,13 @@ use iroha::{
         parameter::SmartContractParameter,
         prelude::*,
         query::{builder::SingleQueryError, trigger::FindTriggers},
-        transaction::{TransactionBuilder, WasmSmartContract},
+        transaction::TransactionBuilder,
     },
 };
 use iroha_data_model::asset::{AssetDefinition, AssetDefinitionId};
 use iroha_executor_data_model::permission::asset_definition::CanRegisterAssetDefinition;
 use iroha_test_network::*;
-use iroha_test_samples::{gen_account_in, ALICE_ID};
+use iroha_test_samples::{gen_account_in, load_sample_wasm, ALICE_ID};
 use nonzero_ext::nonzero;
 
 #[test]
@@ -36,17 +36,10 @@ fn mutlisig() -> Result<()> {
     let account_id = ALICE_ID.clone();
     let multisig_register_trigger_id = "multisig_register".parse::<TriggerId>()?;
 
-    let wasm = iroha_wasm_builder::Builder::new("../../wasm_samples/multisig_register")
-        .show_output()
-        .build()?
-        .optimize()?
-        .into_bytes()?;
-    let wasm = WasmSmartContract::from_compiled(wasm);
-
     let trigger = Trigger::new(
         multisig_register_trigger_id.clone(),
         Action::new(
-            wasm,
+            load_sample_wasm("multisig_register"),
             Repeats::Indefinitely,
             account_id.clone(),
             ExecuteTriggerEventFilter::new().for_trigger(multisig_register_trigger_id.clone()),

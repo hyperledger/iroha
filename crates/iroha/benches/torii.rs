@@ -9,10 +9,8 @@ use iroha::{
 };
 use iroha_genesis::GenesisBuilder;
 use iroha_primitives::unique_vec;
-use iroha_test_network::{
-    construct_executor, get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime,
-};
-use iroha_test_samples::gen_account_in;
+use iroha_test_network::{get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
+use iroha_test_samples::{gen_account_in, load_sample_wasm};
 use irohad::samples::get_config;
 use tokio::runtime::Runtime;
 
@@ -31,8 +29,7 @@ fn query_requests(criterion: &mut Criterion) {
     );
 
     let rt = Runtime::test();
-    let executor = construct_executor("../../wasm_samples/default_executor")
-        .expect("Failed to construct executor");
+    let executor = Executor::new(load_sample_wasm("default_executor"));
     let topology = vec![peer.id.clone()];
     let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
@@ -133,8 +130,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         get_key_pair(iroha_test_network::Signatory::Peer),
         genesis_key_pair.public_key(),
     );
-    let executor = construct_executor("../../wasm_samples/default_executor")
-        .expect("Failed to construct executor");
+    let executor = Executor::new(load_sample_wasm("default_executor"));
     let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
         .account(configuration.common.key_pair.public_key().clone())

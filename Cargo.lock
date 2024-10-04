@@ -2906,7 +2906,6 @@ dependencies = [
  "iroha_test_samples",
  "iroha_torii_const",
  "iroha_version",
- "iroha_wasm_builder",
  "irohad",
  "nonzero_ext",
  "parity-scale-codec",

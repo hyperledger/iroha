@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use executor_custom_data_model::permissions::CanControlDomainLives;
 use eyre::Result;
 use futures_util::TryStreamExt as _;
@@ -11,9 +9,8 @@ use iroha::{
     },
 };
 use iroha_executor_data_model::permission::{domain::CanUnregisterDomain, Permission as _};
-use iroha_logger::info;
 use iroha_test_network::*;
-use iroha_test_samples::{ALICE_ID, BOB_ID};
+use iroha_test_samples::{load_sample_wasm, ALICE_ID, BOB_ID};
 use nonzero_ext::nonzero;
 
 const ADMIN_PUBLIC_KEY_MULTIHASH: &str =
@@ -55,7 +52,7 @@ fn executor_upgrade_should_work() -> Result<()> {
         .submit_transaction_blocking(&transfer_rose_tx)
         .expect_err("Should fail");
 
-    upgrade_executor(&client, "../../wasm_samples/executor_with_admin")?;
+    upgrade_executor(&client, "executor_with_admin")?;
 
     // Check that admin can transfer alice's rose now
     // Creating new transaction instead of cloning, because we need to update it's creation time
@@ -172,7 +169,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
                 .is_ok_and(|permission| permission == can_unregister_domain)
         }));
 
-    upgrade_executor(&client, "../../wasm_samples/executor_remove_permission")?;
+    upgrade_executor(&client, "executor_remove_permission")?;
 
     // Check that permission doesn't exist
     assert!(!client
@@ -333,7 +330,7 @@ fn migration_fail_should_not_cause_any_effects() {
         "failed_migration_test_domain".parse().expect("Valid");
     assert_domain_does_not_exist(&client, &domain_registered_in_migration);
 
-    let _err = upgrade_executor(&client, "../../wasm_samples/executor_with_migration_fail")
+    let _err = upgrade_executor(&client, "executor_with_migration_fail")
         .expect_err("Upgrade should fail due to migration failure");
 
     // Checking that things registered in migration does not exist after failed migration
@@ -390,7 +387,7 @@ fn define_custom_parameter() -> Result<()> {
     let create_domain = Register::domain(Domain::new(long_domain_name));
     client.submit_blocking(create_domain)?;
 
-    upgrade_executor(&client, "../../wasm_samples/executor_with_custom_parameter").unwrap();
+    upgrade_executor(&client, "executor_with_custom_parameter").unwrap();
 
     let too_long_domain_name = "1".repeat(2_usize.pow(5)).parse::<DomainId>()?;
     let create_domain = Register::domain(Domain::new(too_long_domain_name));
@@ -406,18 +403,8 @@ fn define_custom_parameter() -> Result<()> {
     Ok(())
 }
 
-fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
-    info!("Building executor");
-
-    let wasm = iroha_wasm_builder::Builder::new(executor.as_ref())
-        .show_output()
-        .build()?
-        .optimize()?
-        .into_bytes()?;
-
-    info!("WASM size is {} bytes", wasm.len());
-
-    let upgrade_executor = Upgrade::new(Executor::new(WasmSmartContract::from_compiled(wasm)));
+fn upgrade_executor(client: &Client, executor: impl AsRef<str>) -> Result<()> {
+    let upgrade_executor = Upgrade::new(Executor::new(load_sample_wasm(executor)));
     client.submit_blocking(upgrade_executor)?;
 
     Ok(())
