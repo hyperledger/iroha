@@ -183,7 +183,7 @@ jobs:
 
 
   # Run the job to check that the docker containers are properly buildable
-  pr-generator-build:
+  image_build_push:
     # Job will only execute if the head of the pull request is a branch for PR-generator case
     if: startsWith(github.head_ref, 'iroha2-pr-deploy/')
     runs-on: [self-hosted, Linux, iroha2]
