@@ -535,7 +535,13 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     // maybe validate only if snapshot mode is enabled
     validate_directory_path(&mut emitter, &config.snapshot.store_dir);
 
-    if config.genesis.file.is_none() && !config.sumeragi.contains_other_trusted_peers() {
+    if config.genesis.file.is_none()
+        && !config
+            .sumeragi
+            .trusted_peers
+            .value()
+            .contains_other_trusted_peers()
+    {
         emitter.emit(Report::new(ConfigError::LonePeer).attach_printable("\
             Reason: the network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
             Since `genesis.file` is not set, there is no way to receive the genesis block.\n\

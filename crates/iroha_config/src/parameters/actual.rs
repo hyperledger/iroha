@@ -135,12 +135,10 @@ impl TrustedPeers {
     pub fn into_non_empty_vec(self) -> UniqueVec<PeerId> {
         std::iter::once(self.myself).chain(self.others).collect()
     }
-}
 
-impl Sumeragi {
     /// Tells whether a trusted peers list has some other peers except for the peer itself
     pub fn contains_other_trusted_peers(&self) -> bool {
-        self.trusted_peers.value().others.len() > 1
+        !self.others.is_empty()
     }
 }
 
@@ -191,4 +189,45 @@ pub struct Telemetry {
     pub url: Url,
     pub min_retry_period: Duration,
     pub max_retry_delay_exponent: u8,
+}
+
+#[cfg(test)]
+mod tests {
+    use iroha_primitives::{addr::socket_addr, unique_vec};
+
+    use super::*;
+
+    fn dummy_id(port: u16) -> PeerId {
+        PeerId::new(
+            socket_addr!(127.0.0.1:port),
+            KeyPair::random().into_parts().0,
+        )
+    }
+
+    #[test]
+    fn no_trusted_peers() {
+        let value = TrustedPeers {
+            myself: dummy_id(80),
+            others: unique_vec![],
+        };
+        assert!(!value.contains_other_trusted_peers());
+    }
+
+    #[test]
+    fn one_trusted_peer() {
+        let value = TrustedPeers {
+            myself: dummy_id(80),
+            others: unique_vec![dummy_id(81)],
+        };
+        assert!(value.contains_other_trusted_peers());
+    }
+
+    #[test]
+    fn many_trusted_peers() {
+        let value = TrustedPeers {
+            myself: dummy_id(80),
+            others: unique_vec![dummy_id(1), dummy_id(2), dummy_id(3), dummy_id(4),],
+        };
+        assert!(value.contains_other_trusted_peers());
+    }
 }
