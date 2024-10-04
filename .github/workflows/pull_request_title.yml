@@ -1,4 +1,4 @@
-name: I2::Dev::Title
+name: pull_request/title
 
 on:
   pull_request_target:

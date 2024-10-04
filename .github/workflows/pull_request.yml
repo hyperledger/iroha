@@ -1,4 +1,4 @@
-name: I2::Dev::Tests
+name: pull_request
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ on:
       - '**.toml'
       - '**.lock'
       - '**.py'
-      - '.github/workflows/iroha2-dev-pr.yml'
+      - 'pull_request.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -46,7 +46,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Format
+        if: always()
         run: cargo fmt --all -- --check
+      - name: Format (wasm_samples)
+        run: cargo fmt --manifest-path wasm_samples/Cargo.toml --all -- --check
       - name: Lints without features
         if: always()
         run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
@@ -61,6 +64,33 @@ jobs:
         with:
           name: report-clippy
           path: clippy.json
+
+  python_static_analysis:
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-09-09
+    strategy:
+      matrix:
+        suite: [iroha_cli_tests, iroha_torii_tests]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies using Poetry for pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
+        run: |
+          poetry lock --no-update
+          poetry install
+      - name: Check code formatting with Black in pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
+        run: |
+          poetry run black --check .
+      - name: Run mypy (Type Checker) in pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
+        run: |
+          poetry run mypy --explicit-package-bases --ignore-missing-imports .
+      - name: Run flake8 (Linter) in pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
+        run: |
+          poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
 
   build_wasm_samples:
     runs-on: ubuntu-latest
@@ -132,6 +162,25 @@ jobs:
         with:
           name: test_network_runs
           path: ${{ env.TEST_NETWORK_TMP_DIR }}/irohad_test_network_*
+
+  test_wasms:
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-09-09
+    needs: build_wasm_samples
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download executor.wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: executor.wasm
+          path: ${{ env.DOCKER_COMPOSE_PATH }}
+      - name: Install iroha_wasm_test_runner
+        run: which iroha_wasm_test_runner || cargo install --path crates/iroha_wasm_test_runner
+      - name: Run smart contract tests on WebAssembly VM
+        working-directory: crates/iroha_smart_contract
+        run: mold --run cargo test -p iroha_smart_contract -p iroha_smart_contract_utils --release --tests --target wasm32-unknown-unknown --no-fail-fast --quiet
+
 
   # Run the job to check that the docker containers are properly buildable
   pr-generator-build:

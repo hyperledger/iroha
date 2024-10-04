@@ -1,4 +1,4 @@
-name: I2::Release::Publish
+name: publish/what?
 
 on:
   push:
