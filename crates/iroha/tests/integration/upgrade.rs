@@ -92,10 +92,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
             .is_ok_and(|permission| permission == can_unregister_domain)
     }));
 
-    upgrade_executor(
-        &client,
-        "../../wasm_samples/executor_with_custom_permission",
-    )?;
+    upgrade_executor(&client, "executor_with_custom_permission")?;
 
     // Check that `CanUnregisterDomain` doesn't exist
     let data_model = client.query_single(FindExecutorDataModel)?;
@@ -211,10 +208,7 @@ fn executor_custom_instructions_simple() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_270).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    upgrade_executor(
-        &client,
-        "../../wasm_samples/executor_custom_instructions_simple",
-    )?;
+    upgrade_executor(&client, "executor_custom_instructions_simple")?;
 
     let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().unwrap();
 
@@ -257,10 +251,7 @@ fn executor_custom_instructions_complex() -> Result<()> {
         nonzero!(1_000_000_000_u64),
     )));
     client.submit_blocking(executor_fuel_limit)?;
-    upgrade_executor(
-        &client,
-        "../../wasm_samples/executor_custom_instructions_complex",
-    )?;
+    upgrade_executor(&client, "executor_custom_instructions_complex")?;
 
     // Give 6 roses to bob
     let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().unwrap();
@@ -362,11 +353,7 @@ fn migration_should_cause_upgrade_event() {
         }
     });
 
-    upgrade_executor(
-        &client,
-        "../../wasm_samples/executor_with_custom_permission",
-    )
-    .unwrap();
+    upgrade_executor(&client, "executor_with_custom_permission").unwrap();
 
     rt.block_on(async {
         tokio::time::timeout(core::time::Duration::from_secs(60), task)
