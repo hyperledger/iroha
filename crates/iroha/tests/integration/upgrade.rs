@@ -321,8 +321,7 @@ fn migration_fail_should_not_cause_any_effects() {
         "failed_migration_test_domain".parse().expect("Valid");
     assert_domain_does_not_exist(&client, &domain_registered_in_migration);
 
-    #[allow(unused_must_use)]
-    upgrade_executor(&client, "executor_with_migration_fail")
+    let _report = upgrade_executor(&client, "executor_with_migration_fail")
         .expect_err("Upgrade should fail due to migration failure");
 
     // Checking that things registered in migration does not exist after failed migration
