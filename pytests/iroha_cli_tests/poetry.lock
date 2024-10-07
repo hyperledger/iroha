@@ -273,17 +273,18 @@ testing = ["hatch", "pre-commit", "pytest", "tox"]
 
 [[package]]
 name = "faker"
-version = "30.0.0"
+version = "30.2.0"
 description = "Faker is a Python package that generates fake data for you."
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "Faker-30.0.0-py3-none-any.whl", hash = "sha256:f0a60009150736c1c033bea31aa19ae63071c9dcf10adfaf9f1a87a3add84bc8"},
-    {file = "faker-30.0.0.tar.gz", hash = "sha256:bf0207af5777950054a2a3b43f4b5bdc33b585918d2b28f1dab52ac0ffe2bac0"},
+    {file = "Faker-30.2.0-py3-none-any.whl", hash = "sha256:d055fe44c31eac3ef890afea1fa35e2084e02e01ee6ac004156d15771547c966"},
+    {file = "faker-30.2.0.tar.gz", hash = "sha256:90d065ad0354e37132790622a18543b8c8f30b8f5d2d86688f788c3bc4011567"},
 ]
 
 [package.dependencies]
 python-dateutil = ">=2.4"
+typing-extensions = "*"
 
 [[package]]
 name = "flake8"
