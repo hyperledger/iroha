@@ -19,6 +19,7 @@ env:
   CARGO_TERM_COLOR: always
   IROHA_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
   DOCKER_COMPOSE_PATH: defaults
+  WASM_SAMPLES_TARGET_DIR: wasm_samples/target/prebuilt
 
 jobs:
   consistency:
@@ -60,16 +61,22 @@ jobs:
           name: report-clippy
           path: clippy.json
 
-  build_executor:
+  build_wasm_samples:
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Build iroha executor
-        run: mold --run cargo run --bin iroha_wasm_builder -- build ./wasm_samples/default_executor --optimize --out-file ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
-      - name: Upload executor to reuse in other jobs
+      - name: Build
+        run: ./scripts/build_wasm_samples.sh
+      - name: Upload all built WASMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm_samples
+          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
+          retention-days: 1
+      - name: Upload executor.wasm specifically
         uses: actions/upload-artifact@v4
         with:
           name: executor.wasm
@@ -80,7 +87,7 @@ jobs:
     runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
-    needs: build_executor
+    needs: build_wasm_samples
     env:
       LLVM_PROFILE_FILE_NAME: "iroha-%p-%m.profraw"
     steps:
@@ -122,7 +129,7 @@ jobs:
     runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
-    needs: build_executor
+    needs: build_wasm_samples
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -131,6 +138,11 @@ jobs:
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
+      - name: Download the rest of WASM samples
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm_samples
+          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
       - uses: taiki-e/install-action@nextest
       - name: Run integration tests, with all features
         run: >
@@ -145,7 +157,7 @@ jobs:
     runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
-    needs: build_executor
+    needs: build_wasm_samples
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -154,6 +166,11 @@ jobs:
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
+      - name: Download the rest of WASM samples
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm_samples
+          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
       - uses: taiki-e/install-action@nextest
       - name: Run integration tests, with all features
         run: >
@@ -198,7 +215,7 @@ jobs:
           context: .
 
   docker-compose-and-pytests:
-    needs: build_executor
+    needs: build_wasm_samples
     runs-on: [self-hosted, Linux, iroha2]
     timeout-minutes: 60
     env:

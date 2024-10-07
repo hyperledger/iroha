@@ -8,13 +8,11 @@ use iroha::{
         events::pipeline::{BlockEventFilter, BlockStatus},
         parameter::SumeragiParameters,
         prelude::*,
-        transaction::WasmSmartContract,
         Level,
     },
 };
-use iroha_logger::info;
 use iroha_test_network::*;
-use iroha_test_samples::{gen_account_in, ALICE_ID};
+use iroha_test_samples::{gen_account_in, load_sample_wasm, ALICE_ID};
 
 /// Default estimation of consensus duration.
 pub fn default_consensus_estimation() -> Duration {
@@ -219,16 +217,6 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     const TRIGGER_PERIOD: Duration = Duration::from_millis(1000);
     const EXPECTED_COUNT: u64 = 4;
 
-    info!("Building trigger");
-    let wasm =
-        iroha_wasm_builder::Builder::new("../../wasm_samples/create_nft_for_every_user_trigger")
-            .show_output()
-            .build()?
-            .optimize()?
-            .into_bytes()?;
-
-    info!("WASM size is {} bytes", wasm.len());
-
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -264,7 +252,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let register_trigger = Register::trigger(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(
-            WasmSmartContract::from_compiled(wasm),
+            load_sample_wasm("create_nft_for_every_user_trigger"),
             Repeats::Indefinitely,
             alice_id.clone(),
             filter,

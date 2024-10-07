@@ -850,24 +850,3 @@ impl TestClient for Client {
         self.poll_with_period(Config::pipeline_time() / 2, 10, f)
     }
 }
-
-/// Construct executor from path.
-///
-/// `relative_path` should be relative to `CARGO_MANIFEST_DIR`.
-///
-/// # Errors
-///
-/// - Failed to create temp dir for executor output
-/// - Failed to build executor
-/// - Failed to optimize executor
-pub fn construct_executor<P>(relative_path: &P) -> eyre::Result<Executor>
-where
-    P: AsRef<Path> + ?Sized,
-{
-    let wasm_blob = iroha_wasm_builder::Builder::new(relative_path)
-        .build()?
-        .optimize()?
-        .into_bytes()?;
-
-    Ok(Executor::new(WasmSmartContract::from_compiled(wasm_blob)))
-}

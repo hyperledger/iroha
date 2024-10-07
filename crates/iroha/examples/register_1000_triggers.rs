@@ -12,10 +12,10 @@ use iroha_data_model::parameter::{Parameter, SmartContractParameter};
 use iroha_genesis::{GenesisBlock, GenesisBuilder};
 use iroha_primitives::unique_vec;
 use iroha_test_network::{
-    construct_executor, get_chain_id, get_key_pair, wait_for_genesis_committed_with_max_retries,
-    Peer as TestPeer, PeerBuilder, TestClient, TestRuntime,
+    get_chain_id, get_key_pair, wait_for_genesis_committed_with_max_retries, Peer as TestPeer,
+    PeerBuilder, TestClient, TestRuntime,
 };
-use iroha_test_samples::gen_account_in;
+use iroha_test_samples::{gen_account_in, load_sample_wasm};
 use irohad::samples::get_config;
 use tokio::runtime::Runtime;
 
@@ -33,19 +33,13 @@ fn generate_genesis(
             SmartContractParameter::Memory(NonZeroU64::MAX),
         )));
 
-    let wasm = iroha_wasm_builder::Builder::new("wasm_samples/mint_rose_trigger")
-        .show_output()
-        .build()?
-        .optimize()?
-        .into_bytes()?;
-    let wasm = WasmSmartContract::from_compiled(wasm);
     let (account_id, _account_keypair) = gen_account_in("wonderland");
 
     let build_trigger = |trigger_id: TriggerId| {
         Trigger::new(
             trigger_id.clone(),
             Action::new(
-                wasm.clone(),
+                load_sample_wasm("mint_rose_trigger"),
                 Repeats::Indefinitely,
                 account_id.clone(),
                 ExecuteTriggerEventFilter::new()
@@ -63,8 +57,7 @@ fn generate_genesis(
         })
         .fold(builder, GenesisBuilder::append_instruction);
 
-    let executor = construct_executor("../../wasm_samples/default_executor")
-        .expect("Failed to construct executor");
+    let executor = Executor::new(load_sample_wasm("default_executor"));
     Ok(builder.build_and_sign(chain_id, executor, topology, genesis_key_pair))
 }
 
