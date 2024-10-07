@@ -10,6 +10,16 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use syn::parse_quote;
 
+fn override_where_clause(
+    emitter: &mut Emitter,
+    where_clause: Option<&syn::WhereClause>,
+    bounds: Option<&String>,
+) -> Option<syn::WhereClause> {
+    bounds
+        .and_then(|bounds| emitter.handle(syn::parse_str(&format!("where {bounds}"))))
+        .unwrap_or(where_clause.cloned())
+}
+
 /// Derive [`iroha_schema::TypeId`]
 ///
 /// Check out [`iroha_schema`] documentation
@@ -230,12 +240,7 @@ fn impl_transparent_into_schema(
 ) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let name = &input.ident;
-    let where_clause: Option<syn::WhereClause> = match bounds
-        .and_then(|bounds| emitter.handle(syn::parse_str(&format!("where {bounds}"))))
-    {
-        Some(bounds) => Some(bounds),
-        None => where_clause.cloned(),
-    };
+    let where_clause = override_where_clause(emitter, where_clause, bounds);
 
     quote! {
         impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics #where_clause {
@@ -267,12 +272,7 @@ fn impl_into_schema(
     let type_name_body = trait_body(name, &input.generics, false);
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let metadata = metadata(emitter, &input.data);
-    let where_clause: Option<syn::WhereClause> = match bounds
-        .and_then(|bounds| emitter.handle(syn::parse_str(&format!("where {bounds}"))))
-    {
-        Some(bounds) => Some(bounds),
-        None => where_clause.cloned(),
-    };
+    let where_clause = override_where_clause(emitter, where_clause, bounds);
 
     quote! {
         impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics #where_clause {
