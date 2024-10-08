@@ -3441,6 +3441,7 @@ name = "iroha_schema_derive"
 version = "2.0.0-rc.1.0"
 dependencies = [
  "darling",
+ "iroha_macro_utils",
  "iroha_schema",
  "manyhow",
  "proc-macro2",
