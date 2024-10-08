@@ -1,6 +1,9 @@
 //! Attribute-like macro for instrumenting `isi` for `prometheus`
 //! metrics. See [`macro@metrics`] for more details.
 
+// FIXME
+#![allow(unused)]
+
 use iroha_macro_utils::Emitter;
 use manyhow::{emit, manyhow, Result};
 use proc_macro2::TokenStream;
@@ -181,12 +184,16 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
         return emitter.finish_token_stream();
     };
 
-    let result = impl_metrics(&mut emitter, &metric_specs, &func);
+    let result = impl_metrics(&mut emitter, metric_specs, &func);
 
     emitter.finish_token_stream_with(result)
 }
 
-fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn::ItemFn) -> TokenStream {
+fn impl_metrics(
+    emitter: &mut Emitter,
+    #[cfg_attr(not(feature = "metric-instrumentation"), allow(unused))] specs: MetricSpecs,
+    func: &syn::ItemFn,
+) -> TokenStream {
     let syn::ItemFn {
         attrs,
         vis,
@@ -224,7 +231,8 @@ fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn::ItemFn)
 
     // Again this may seem fragile, but if we move the metrics from
     // the `WorldStateView`, we'd need to refactor many things anyway
-    let _metric_arg_ident = match arg_metrics(&sig.inputs) {
+    #[cfg_attr(not(feature = "metric-instrumentation"), allow(unused_variables))]
+    let metric_arg_ident = match arg_metrics(&sig.inputs) {
         Ok(ident) => ident,
         Err(args) => {
             emit!(
@@ -237,9 +245,9 @@ fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn::ItemFn)
     };
 
     #[cfg(feature = "metric-instrumentation")]
-    let res = {
-        let (totals, successes, times) = write_metrics(_metric_arg_ident, _specs);
-        quote!(
+    {
+        let (totals, successes, times) = write_metrics(metric_arg_ident, specs);
+        return quote!(
             #(#attrs)* #vis #sig {
                 let _closure = || #block;
                 let started_at = std::time::Instant::now();
@@ -256,14 +264,14 @@ fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn::ItemFn)
     };
 
     #[cfg(not(feature = "metric-instrumentation"))]
-    let res = quote!(
+    quote!(
         #(#attrs)* #vis #sig {
             #block
         }
-    );
-    res
+    )
 }
 
+// FIXME: metrics were removed https://github.com/hyperledger/iroha/issues/5134
 #[cfg(feature = "metric-instrumentation")]
 fn write_metrics(
     metric_arg_ident: proc_macro2::Ident,
@@ -271,19 +279,19 @@ fn write_metrics(
 ) -> (TokenStream, TokenStream, TokenStream) {
     let inc_metric = |spec: &MetricSpec, kind: &str| {
         quote!(
-            #metric_arg_ident
-                .metrics
-                .isi
-                .with_label_values( &[#spec, #kind ]).inc();
+            // #metric_arg_ident
+            //     .metrics
+            //     .isi
+            //     .with_label_values( &[#spec, #kind ]).inc();
         )
     };
     let track_time = |spec: &MetricSpec| {
         quote!(
-            #metric_arg_ident
-                .metrics
-                .isi_times
-                .with_label_values( &[#spec])
-                .observe(started_at.elapsed().as_millis() as f64);
+            // #metric_arg_ident
+            //     .metrics
+            //     .isi_times
+            //     .with_label_values( &[#spec])
+            //     .observe(started_at.elapsed().as_millis() as f64);
         )
     };
     let totals: TokenStream = specs

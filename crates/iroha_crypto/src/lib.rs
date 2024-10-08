@@ -995,7 +995,6 @@ mod ffi {
     }
 
     // NOTE: Makes sure that only one `dealloc` is exported per generated dynamic library
-    #[cfg(any(crate_type = "dylib", crate_type = "cdylib"))]
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     mod dylib {
         #[cfg(not(feature = "std"))]

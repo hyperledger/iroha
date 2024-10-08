@@ -5,8 +5,6 @@
 #[cfg(not(test))]
 extern crate panic_halt;
 
-extern crate alloc;
-
 use dlmalloc::GlobalDlmalloc;
 use iroha_smart_contract::{
     data_model::query::{

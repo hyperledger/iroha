@@ -2,7 +2,6 @@
 
 #![no_std]
 
-extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
