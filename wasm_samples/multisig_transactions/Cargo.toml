@@ -1,5 +1,5 @@
 [package]
-name = "multisig_register"
+name = "multisig_transactions"
 
 edition.workspace = true
 version.workspace = true
@@ -12,7 +12,6 @@ crate-type = ['cdylib']
 
 [dependencies]
 iroha_trigger.workspace = true
-iroha_executor_data_model.workspace = true
 executor_custom_data_model.workspace = true
 
 panic-halt.workspace = true
@@ -21,6 +20,3 @@ getrandom.workspace = true
 
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, default-features = false }
-
-[build-dependencies]
-iroha_wasm_builder = { version = "=2.0.0-rc.1.0", path = "../../crates/iroha_wasm_builder" }

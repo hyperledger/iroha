@@ -459,9 +459,9 @@ mod candidate {
                 );
             };
 
-            if transactions.len() > 4 {
+            if transactions.len() > 5 {
                 return Err(
-                    "Genesis block must have 1 to 4 transactions (executor upgrade, initial topology, parameters, other isi)",
+                    "Genesis block must have 1 to 5 transactions (executor upgrade, initial topology, parameters, other instructions, trigger registrations)",
                 );
             }
 

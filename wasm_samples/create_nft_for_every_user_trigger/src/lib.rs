@@ -21,7 +21,8 @@ fn main(_id: TriggerId, _owner: AccountId, _event: EventBox) {
 
     let accounts_cursor = query(FindAccounts).execute().dbg_unwrap();
 
-    let bad_domain_ids: [DomainId; 2] = [
+    let bad_domain_ids: [DomainId; 3] = [
+        "system".parse().dbg_unwrap(),
         "genesis".parse().dbg_unwrap(),
         "garden_of_live_flowers".parse().dbg_unwrap(),
     ];

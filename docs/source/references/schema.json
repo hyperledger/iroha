@@ -880,6 +880,7 @@
       }
     ]
   },
+  "CanRegisterAnyTrigger": null,
   "CanRegisterAsset": {
     "Struct": [
       {
@@ -937,6 +938,7 @@
       }
     ]
   },
+  "CanUnregisterAnyTrigger": null,
   "CanUnregisterAsset": {
     "Struct": [
       {
@@ -1991,6 +1993,38 @@
       {
         "name": "cursor",
         "type": "NonZero<u64>"
+      }
+    ]
+  },
+  "GenesisWasmAction": {
+    "Struct": [
+      {
+        "name": "executable",
+        "type": "String"
+      },
+      {
+        "name": "repeats",
+        "type": "Repeats"
+      },
+      {
+        "name": "authority",
+        "type": "AccountId"
+      },
+      {
+        "name": "filter",
+        "type": "EventFilterBox"
+      }
+    ]
+  },
+  "GenesisWasmTrigger": {
+    "Struct": [
+      {
+        "name": "id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "action",
+        "type": "GenesisWasmAction"
       }
     ]
   },
@@ -3409,6 +3443,10 @@
         "type": "String"
       },
       {
+        "name": "topology",
+        "type": "Vec<PeerId>"
+      },
+      {
         "name": "parameters",
         "type": "Option<Parameters>"
       },
@@ -3417,8 +3455,8 @@
         "type": "Vec<InstructionBox>"
       },
       {
-        "name": "topology",
-        "type": "Vec<PeerId>"
+        "name": "wasm_triggers",
+        "type": "Vec<GenesisWasmTrigger>"
       }
     ]
   },
@@ -4952,6 +4990,9 @@
   },
   "Vec<EventFilterBox>": {
     "Vec": "EventFilterBox"
+  },
+  "Vec<GenesisWasmTrigger>": {
+    "Vec": "GenesisWasmTrigger"
   },
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
