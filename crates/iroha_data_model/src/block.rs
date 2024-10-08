@@ -185,6 +185,13 @@ impl SignedBlock {
         block.payload.transactions.iter()
     }
 
+    /// Block transactions with mutable access
+    #[inline]
+    pub fn transactions_mut(&mut self) -> &mut [CommittedTransaction] {
+        let SignedBlock::V1(block) = self;
+        block.payload.transactions.as_mut_slice()
+    }
+
     /// Signatures of peers which approved this block.
     #[inline]
     pub fn signatures(

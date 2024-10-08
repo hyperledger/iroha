@@ -153,6 +153,31 @@ mod pending {
             Self(Pending { transactions })
         }
 
+        /// Create new BlockPayload
+        pub fn new_unverified(
+            prev_block: Option<&SignedBlock>,
+            view_change_index: usize,
+            transactions_a: Vec<AcceptedTransaction>,
+            consensus_estimation: Duration,
+        ) -> BlockPayload {
+            let transactions = transactions_a
+                .into_iter()
+                .map(|tx| CommittedTransaction {
+                    value: tx.clone().into(),
+                    error: None,
+                })
+                .collect::<Vec<_>>();
+            BlockPayload {
+                header: Self::make_header(
+                    prev_block,
+                    view_change_index,
+                    &transactions,
+                    consensus_estimation,
+                ),
+                transactions,
+            }
+        }
+
         fn make_header(
             prev_block: Option<&SignedBlock>,
             view_change_index: usize,
@@ -264,7 +289,7 @@ mod chained {
     pub struct Chained(pub(super) BlockPayload);
 
     impl BlockBuilder<Chained> {
-        /// Sign this block and get [`SignedBlock`].
+        /// Sign this block as Leader and get [`SignedBlock`].
         pub fn sign(self, private_key: &PrivateKey) -> WithEvents<ValidBlock> {
             WithEvents::new(ValidBlock(self.0 .0.sign(private_key)))
         }
@@ -415,7 +440,8 @@ mod valid {
             Ok(())
         }
 
-        /// Validate a block against the current state of the world.
+        /// Validate a block against the current state of the world. Individual transaction
+        /// errors will be updated.
         ///
         /// # Errors
         ///
@@ -430,7 +456,7 @@ mod valid {
         /// - Error during validation of individual transactions
         /// - Transaction in the genesis block is not signed by the genesis public key
         pub fn validate(
-            block: SignedBlock,
+            mut block: SignedBlock,
             topology: &Topology,
             expected_chain_id: &ChainId,
             genesis_account: &AccountId,
@@ -442,9 +468,12 @@ mod valid {
                 return WithEvents::new(Err((block, error)));
             }
 
-            if let Err(error) =
-                Self::validate_transactions(&block, expected_chain_id, genesis_account, state_block)
-            {
+            if let Err(error) = Self::validate_transactions(
+                &mut block,
+                expected_chain_id,
+                genesis_account,
+                state_block,
+            ) {
                 return WithEvents::new(Err((block, error.into())));
             }
 
@@ -456,7 +485,7 @@ mod valid {
         /// * If block header is valid, `voting_block` will be released,
         ///   and transactions will be validated with write state
         pub fn validate_keep_voting_block<'state>(
-            block: SignedBlock,
+            mut block: SignedBlock,
             topology: &Topology,
             expected_chain_id: &ChainId,
             genesis_account: &AccountId,
@@ -480,7 +509,7 @@ mod valid {
             };
 
             if let Err(error) = Self::validate_transactions(
-                &block,
+                &mut block,
                 expected_chain_id,
                 genesis_account,
                 &mut state_block,
@@ -577,7 +606,7 @@ mod valid {
         }
 
         fn validate_transactions(
-            block: &SignedBlock,
+            block: &mut SignedBlock,
             expected_chain_id: &ChainId,
             genesis_account: &AccountId,
             state_block: &mut StateBlock<'_>,
@@ -589,40 +618,29 @@ mod valid {
                 (params.sumeragi().max_clock_drift(), params.transaction)
             };
 
-            block
-                .transactions()
-                // TODO: Unnecessary clone?
-                .cloned()
-                .try_for_each(|CommittedTransaction { value, error }| {
-                    let tx = if is_genesis {
-                        AcceptedTransaction::accept_genesis(
-                            value,
-                            expected_chain_id,
-                            max_clock_drift,
-                            genesis_account,
-                        )
-                    } else {
-                        AcceptedTransaction::accept(
-                            value,
-                            expected_chain_id,
-                            max_clock_drift,
-                            tx_limits,
-                        )
-                    }?;
+            for CommittedTransaction { value, error } in block.transactions_mut() {
+                let tx = if is_genesis {
+                    AcceptedTransaction::accept_genesis(
+                        value.clone(),
+                        expected_chain_id,
+                        max_clock_drift,
+                        genesis_account,
+                    )
+                } else {
+                    AcceptedTransaction::accept(
+                        value.clone(),
+                        expected_chain_id,
+                        max_clock_drift,
+                        tx_limits,
+                    )
+                }?;
 
-                    if error.is_some() {
-                        match state_block.validate(tx) {
-                            Err(rejected_transaction) => Ok(rejected_transaction),
-                            Ok(_) => Err(TransactionValidationError::RejectedIsValid),
-                        }?;
-                    } else {
-                        state_block
-                            .validate(tx)
-                            .map_err(|(_tx, error)| TransactionValidationError::NotValid(error))?;
-                    }
-
-                    Ok(())
-                })
+                *error = match state_block.validate(tx) {
+                    Ok(_) => None,
+                    Err((_tx, error)) => Some(Box::new(error)),
+                };
+            }
+            Ok(())
         }
 
         /// Add additional signature for [`Self`]
