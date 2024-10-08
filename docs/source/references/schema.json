@@ -682,10 +682,6 @@
       {
         "name": "view_change_index",
         "type": "u32"
-      },
-      {
-        "name": "consensus_estimation_ms",
-        "type": "u64"
       }
     ]
   },
@@ -2709,9 +2705,6 @@
   "Option<RoleId>": {
     "Option": "RoleId"
   },
-  "Option<TimeInterval>": {
-    "Option": "TimeInterval"
-  },
   "Option<TransactionRejectionReason>": {
     "Option": "TransactionRejectionReason"
   },
@@ -4278,10 +4271,6 @@
   },
   "TimeEvent": {
     "Struct": [
-      {
-        "name": "prev_interval",
-        "type": "Option<TimeInterval>"
-      },
       {
         "name": "interval",
         "type": "TimeInterval"

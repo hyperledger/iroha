@@ -157,7 +157,6 @@ mod pending {
             prev_block: Option<&SignedBlock>,
             view_change_index: usize,
             transactions: &[CommittedTransaction],
-            consensus_estimation: Duration,
         ) -> BlockHeader {
             let prev_block_time =
                 prev_block.map_or(Duration::ZERO, |block| block.header().creation_time());
@@ -206,10 +205,6 @@ mod pending {
                 view_change_index: view_change_index
                     .try_into()
                     .expect("View change index should fit into u32"),
-                consensus_estimation_ms: consensus_estimation
-                    .as_millis()
-                    .try_into()
-                    .expect("INTERNAL BUG: Time should fit into u64"),
             }
         }
 
@@ -254,7 +249,6 @@ mod pending {
                     state.latest_block().as_deref(),
                     view_change_index,
                     &transactions,
-                    state.world.parameters().sumeragi.consensus_estimation(),
                 ),
                 transactions,
             }))
@@ -793,7 +787,6 @@ mod valid {
                     )),
                     creation_time_ms: 0,
                     view_change_index: 0,
-                    consensus_estimation_ms: 4_000,
                 },
                 transactions: Vec::new(),
             };

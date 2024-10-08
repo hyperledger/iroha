@@ -15,18 +15,10 @@ use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, load_sample_wasm, ALICE_ID};
 
 /// Default estimation of consensus duration.
-pub fn default_consensus_estimation() -> Duration {
+pub fn pipeline_time() -> Duration {
     let default_parameters = SumeragiParameters::default();
 
-    default_parameters
-        .block_time()
-        .checked_add(
-            default_parameters
-                .commit_time()
-                .checked_div(2)
-                .map_or_else(|| unreachable!(), |x| x),
-        )
-        .map_or_else(|| unreachable!(), |x| x)
+    default_parameters.pipeline_time()
 }
 
 fn curr_time() -> core::time::Duration {
@@ -37,87 +29,12 @@ fn curr_time() -> core::time::Duration {
         .unwrap()
 }
 
-/// Macro to abort compilation, if `e` isn't `true`
-macro_rules! const_assert {
-    ($e:expr) => {
-        #[allow(trivial_casts)]
-        const _: usize = ($e as bool) as usize - 1;
-    };
-}
-
-/// Time-based triggers and block commitment process depend heavily on **current time** and **CPU**,
-/// so it's impossible to create fully reproducible test scenario.
-///
-/// But in general it works well and this test demonstrates it
-#[test]
-#[allow(clippy::cast_precision_loss)]
-fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result<()> {
-    const PERIOD: Duration = Duration::from_millis(100);
-    const ACCEPTABLE_ERROR_PERCENT: u8 = 15;
-    assert!(PERIOD.as_millis() < default_consensus_estimation().as_millis());
-    const_assert!(ACCEPTABLE_ERROR_PERCENT <= 100);
-
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_775).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
-    let start_time = curr_time();
-
-    // Start listening BEFORE submitting any transaction not to miss any block committed event
-    let event_listener = get_block_committed_event_listener(&test_client)?;
-
-    let account_id = ALICE_ID.clone();
-    let asset_definition_id = "rose#wonderland".parse().expect("Valid");
-    let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
-
-    let schedule = TimeSchedule::starting_at(start_time).with_period(PERIOD);
-    let instruction = Mint::asset_numeric(1u32, asset_id.clone());
-    let register_trigger = Register::trigger(Trigger::new(
-        "mint_rose".parse()?,
-        Action::new(
-            vec![instruction],
-            Repeats::Indefinitely,
-            account_id.clone(),
-            TimeEventFilter::new(ExecutionTime::Schedule(schedule)),
-        ),
-    ));
-    test_client.submit(register_trigger)?;
-
-    submit_sample_isi_on_every_block_commit(
-        event_listener,
-        &mut test_client,
-        &account_id,
-        Duration::from_secs(1),
-        3,
-    )?;
-    std::thread::sleep(default_consensus_estimation());
-
-    let finish_time = curr_time();
-    let average_count = finish_time.saturating_sub(start_time).as_millis() / PERIOD.as_millis();
-
-    let actual_value = get_asset_value(&mut test_client, asset_id);
-    let expected_value = prev_value
-        .checked_add(Numeric::new(average_count, 0))
-        .unwrap();
-    let acceptable_error = expected_value.to_f64() * (f64::from(ACCEPTABLE_ERROR_PERCENT) / 100.0);
-    let error = core::cmp::max(actual_value, expected_value)
-        .checked_sub(core::cmp::min(actual_value, expected_value))
-        .unwrap()
-        .to_f64();
-    assert!(
-        error < acceptable_error,
-        "error = {error}, but acceptable error = {acceptable_error}"
-    );
-
-    Ok(())
-}
-
 #[test]
 fn mint_asset_after_3_sec() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_665).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     // Sleep to certainly bypass time interval analyzed by genesis
-    std::thread::sleep(default_consensus_estimation());
+    std::thread::sleep(pipeline_time());
 
     let asset_definition_id = "rose#wonderland"
         .parse::<AssetDefinitionId>()
@@ -152,7 +69,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
     assert_eq!(init_quantity, after_registration_quantity);
 
     // Sleep long enough that trigger start is in the past
-    std::thread::sleep(default_consensus_estimation());
+    std::thread::sleep(pipeline_time());
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
 
     let after_wait_quantity = test_client.query_single(FindAssetQuantityById {

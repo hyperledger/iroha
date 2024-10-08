@@ -357,7 +357,6 @@ mod tests {
                 )),
                 creation_time_ms: 0,
                 view_change_index: 0,
-                consensus_estimation_ms: 0,
             }
         }
     }

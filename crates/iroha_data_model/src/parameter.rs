@@ -350,12 +350,6 @@ impl SumeragiParameters {
     pub fn pipeline_time(&self) -> Duration {
         self.block_time() + self.commit_time()
     }
-
-    /// Estimation of consensus duration
-    #[cfg(feature = "transparent_api")]
-    pub fn consensus_estimation(&self) -> Duration {
-        self.block_time() + (self.commit_time() / 2)
-    }
 }
 
 mod defaults {

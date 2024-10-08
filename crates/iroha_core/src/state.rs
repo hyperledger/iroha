@@ -1455,21 +1455,17 @@ impl<'state> StateBlock<'state> {
 
     /// Create time event using previous and current blocks
     fn create_time_event(&self, block: &CommittedBlock) -> TimeEvent {
-        let prev_interval = self.latest_block().map(|latest_block| {
-            let header = &latest_block.as_ref().header();
+        let to = block.as_ref().header().creation_time();
 
-            TimeInterval::new(header.creation_time(), header.consensus_estimation())
+        let since = self.latest_block().map_or(to, |latest_block| {
+            let header = latest_block.header();
+            header.creation_time()
         });
 
-        let interval = TimeInterval::new(
-            block.as_ref().header().creation_time(),
-            block.as_ref().header().consensus_estimation(),
-        );
+        // NOTE: in case of genesis block only single point in time is matched
+        let interval = TimeInterval::new(since, to - since);
 
-        TimeEvent {
-            prev_interval,
-            interval,
-        }
+        TimeEvent { interval }
     }
 
     /// Process every trigger in `matched_ids`
