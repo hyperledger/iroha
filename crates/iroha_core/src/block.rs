@@ -158,7 +158,6 @@ mod pending {
             prev_block: Option<&SignedBlock>,
             view_change_index: usize,
             transactions_a: Vec<AcceptedTransaction>,
-            consensus_estimation: Duration,
         ) -> BlockPayload {
             let transactions = transactions_a
                 .into_iter()
@@ -168,12 +167,7 @@ mod pending {
                 })
                 .collect::<Vec<_>>();
             BlockPayload {
-                header: Self::make_header(
-                    prev_block,
-                    view_change_index,
-                    &transactions,
-                    consensus_estimation,
-                ),
+                header: Self::make_header(prev_block, view_change_index, &transactions),
                 transactions,
             }
         }

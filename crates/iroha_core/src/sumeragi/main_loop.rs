@@ -858,12 +858,6 @@ impl Sumeragi {
                 state.view().latest_block().as_deref(),
                 self.topology.view_change_index(),
                 transactions,
-                state
-                    .view()
-                    .world
-                    .parameters()
-                    .sumeragi
-                    .consensus_estimation(),
             )
             .sign(self.key_pair.private_key());
 

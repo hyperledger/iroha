@@ -98,7 +98,7 @@ impl<'a, T> IntoIterator for &'a ConstVec<T> {
     type IntoIter = <&'a [T] as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        self.0.iter()
     }
 }
 
