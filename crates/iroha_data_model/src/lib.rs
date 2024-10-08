@@ -11,7 +11,6 @@
 //! This gives about 50% performance boost, see #4995.
 
 // Clippy bug
-#![allow(clippy::items_after_test_module)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]

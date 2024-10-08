@@ -1159,9 +1159,13 @@ mod tests {
 
         {
             let mut state_block = state.block();
-            let block = BlockBuilder::new(vec![tx1.clone()])
+            let unverified_block = BlockBuilder::new(vec![tx1.clone()])
                 .chain(0, &mut state_block)
                 .sign(&leader_private_key)
+                .unpack(|_| {});
+
+            let block = unverified_block
+                .categorize(&mut state_block)
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
@@ -1175,9 +1179,13 @@ mod tests {
 
         {
             let mut state_block = state.block_and_revert();
-            let block_soft_fork = BlockBuilder::new(vec![tx1])
+            let unverified_block_soft_fork = BlockBuilder::new(vec![tx1])
                 .chain(1, &mut state_block)
                 .sign(&leader_private_key)
+                .unpack(|_| {});
+
+            let block_soft_fork = unverified_block_soft_fork
+                .categorize(&mut state_block)
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
@@ -1192,9 +1200,13 @@ mod tests {
 
         {
             let mut state_block: crate::state::StateBlock = state.block();
-            let block_next = BlockBuilder::new(vec![tx2])
+            let unverified_block_next = BlockBuilder::new(vec![tx2])
                 .chain(0, &mut state_block)
                 .sign(&leader_private_key)
+                .unpack(|_| {});
+
+            let block_next = unverified_block_next
+                .categorize(&mut state_block)
                 .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})

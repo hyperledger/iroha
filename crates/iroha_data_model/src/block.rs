@@ -44,11 +44,7 @@ mod model {
         Serialize,
         IntoSchema,
     )]
-    #[cfg_attr(
-        feature = "std",
-        display(fmt = "Block №{height} (hash: {});", "HashOf::new(&self)")
-    )]
-    #[cfg_attr(not(feature = "std"), display(fmt = "Block №{height}"))]
+    #[display(fmt = "{} (№{height})", "self.hash()")]
     #[allow(missing_docs)]
     #[ffi_type]
     pub struct BlockHeader {
@@ -107,7 +103,7 @@ mod model {
     #[derive(
         Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
-    #[display(fmt = "{}", "self.hash()")]
+    #[display(fmt = "{}", "self.header()")]
     #[ffi_type]
     pub struct SignedBlockV1 {
         /// Signatures of peers which approved this block.
@@ -148,35 +144,40 @@ impl BlockHeader {
     }
 }
 
-impl BlockPayload {
-    /// Create new signed block, using `key_pair` to sign `payload`.
-    ///
-    /// # Warning
-    ///
-    /// All transactions are categorized as valid
-    #[cfg(feature = "std")]
-    pub fn sign(self, private_key: &iroha_crypto::PrivateKey) -> SignedBlock {
-        let signatures = vec![BlockSignature(
-            0,
-            SignatureOf::new(private_key, &self.header),
-        )];
-
-        SignedBlockV1 {
-            signatures,
-            payload: self,
-            errors: BTreeMap::new(),
-        }
-        .into()
-    }
-}
-
 impl SignedBlockV1 {
-    fn hash(&self) -> iroha_crypto::HashOf<BlockHeader> {
+    fn hash(&self) -> HashOf<BlockHeader> {
         self.payload.header.hash()
+    }
+
+    fn header(&self) -> &BlockHeader {
+        &self.payload.header
     }
 }
 
 impl SignedBlock {
+    /// Create new block with a given signature without verifying whether the signature is valid
+    ///
+    /// # Warning
+    ///
+    /// All transactions are categorized as valid
+    #[cfg(feature = "transparent_api")]
+    pub fn presigned_unverified(
+        signature: BlockSignature,
+        header: BlockHeader,
+        transactions: impl IntoIterator<Item = SignedTransaction>,
+    ) -> SignedBlock {
+        let signatures = vec![signature];
+
+        SignedBlockV1 {
+            signatures,
+            payload: BlockPayload {
+                header,
+                transactions: transactions.into_iter().collect(),
+            },
+            errors: BTreeMap::new(),
+        }
+        .into()
+    }
     /// Return error for the transaction index
     pub fn error(&self, tx: usize) -> Option<&TransactionRejectionReason> {
         let SignedBlock::V1(block) = self;
@@ -225,16 +226,6 @@ impl SignedBlock {
     /// # Warning
     ///
     /// Transaction errors are not part of the block hash or protected by the block signature.
-    #[cfg(feature = "transparent_api")]
-    pub fn set_errors(&mut self, errors: impl IntoIterator<Item = (usize, TransactionRejectionReason)>) {
-        unimplemented!()
-    }
-
-    /// Collection of rejection reasons for every transaction if exists
-    ///
-    /// # Warning
-    ///
-    /// Transaction errors are not part of the block hash or protected by the block signature.
     pub fn errors(&self) -> impl ExactSizeIterator<Item = (&u64, &TransactionRejectionReason)> {
         let SignedBlock::V1(block) = self;
         block.errors.iter()
@@ -262,18 +253,12 @@ impl SignedBlock {
     ///
     /// if signature is invalid
     #[cfg(feature = "transparent_api")]
-    pub fn add_signature(
-        &mut self,
-        signature: BlockSignature,
-        public_key: &iroha_crypto::PublicKey,
-    ) -> Result<(), iroha_crypto::Error> {
+    pub fn add_signature(&mut self, signature: BlockSignature) -> Result<(), iroha_crypto::Error> {
         if self.signatures().any(|s| signature.0 == s.0) {
             return Err(iroha_crypto::Error::Signing(
                 "Duplicate signature".to_owned(),
             ));
         }
-
-        signature.1.verify(public_key, &self.payload().header)?;
 
         let SignedBlock::V1(block) = self;
         block.signatures.push(signature);
@@ -282,17 +267,43 @@ impl SignedBlock {
     }
 
     /// Replace signatures without verification
+    ///
+    /// # Errors
+    ///
+    /// if there is a duplicate signature
     #[cfg(feature = "transparent_api")]
-    pub fn replace_signatures_unchecked(
+    pub fn replace_signatures(
         &mut self,
         signatures: Vec<BlockSignature>,
-    ) -> Vec<BlockSignature> {
+    ) -> Result<Vec<BlockSignature>, iroha_crypto::Error> {
+        #[cfg(not(feature = "std"))]
+        use alloc::collections::BTreeSet;
+        #[cfg(feature = "std")]
+        use std::collections::BTreeSet;
+
+        if signatures.is_empty() {
+            return Err(iroha_crypto::Error::Signing("Signatures empty".to_owned()));
+        }
+
+        signatures.iter().map(|signature| signature.0).try_fold(
+            BTreeSet::new(),
+            |mut acc, elem| {
+                if !acc.insert(elem) {
+                    return Err(iroha_crypto::Error::Signing(format!(
+                        "{elem}: Duplicate signature"
+                    )));
+                }
+
+                Ok(acc)
+            },
+        )?;
+
         let SignedBlock::V1(block) = self;
-        std::mem::replace(&mut block.signatures, signatures)
+        Ok(core::mem::replace(&mut block.signatures, signatures))
     }
 
-    /// Add additional signatures to this block
-    #[cfg(all(feature = "std", feature = "transparent_api"))]
+    /// Add additional signature to this block
+    #[cfg(feature = "transparent_api")]
     pub fn sign(&mut self, private_key: &iroha_crypto::PrivateKey, signatory: usize) {
         let SignedBlock::V1(block) = self;
 
@@ -325,12 +336,18 @@ impl SignedBlock {
             view_change_index: 0,
         };
 
+        let signature = BlockSignature(0, SignatureOf::new(private_key, &header));
         let payload = BlockPayload {
             header,
             transactions,
         };
 
-        payload.sign(private_key)
+        SignedBlockV1 {
+            signatures: vec![signature],
+            payload,
+            errors: BTreeMap::new(),
+        }
+        .into()
     }
 
     #[cfg(feature = "std")]

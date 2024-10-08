@@ -58,6 +58,8 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
             .chain(0, &mut state_block)
             .sign(&peer_private_key)
             .unpack(|_| {})
+            .categorize(&mut state_block)
+            .unpack(|_| {})
     };
 
     let key_pair = KeyPair::random();
