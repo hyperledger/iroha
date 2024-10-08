@@ -178,21 +178,23 @@ impl Sumeragi {
                 })
                 .ok()?;
 
-            let block_vc_index = match &block_msg {
+            match &block_msg {
                 BlockMessage::BlockCreated(bc) => {
-                    Some(bc.block.header().view_change_index as usize)
+                    if (bc.block.header().view_change_index as usize) < current_view_change_index {
+                        trace!(
+                            ty="BlockCreated",
+                            block=%bc.block.hash(),
+                            "Discarding message due to outdated view change index",
+                        );
+                        // ignore block_message
+                        continue;
+                    }
                 }
                 // Signed and Committed contain no block.
                 // Block sync updates are exempt from early pruning.
                 BlockMessage::BlockSigned(_)
                 | BlockMessage::BlockCommitted(_)
-                | BlockMessage::BlockSyncUpdate(_) => None,
-            };
-            if let Some(block_vc_index) = block_vc_index {
-                if block_vc_index < current_view_change_index {
-                    // ignore block_message
-                    continue;
-                }
+                | BlockMessage::BlockSyncUpdate(_) => {}
             }
             return Some(block_msg);
         }
@@ -538,6 +540,13 @@ impl Sumeragi {
                 }
             }
             (BlockMessage::BlockCreated(block_created), Role::ValidatingPeer) => {
+                info!(
+                    peer_id=%self.peer_id,
+                    role=%self.role(),
+                    block=%block_created.block.hash(),
+                    "Block received"
+                );
+
                 let topology = &self
                     .topology
                     .is_consensus_required()
@@ -555,10 +564,23 @@ impl Sumeragi {
                     let msg = BlockSigned::from(&v_block.block);
                     self.broadcast_packet_to(msg, [topology.proxy_tail()]);
 
+                    info!(
+                        peer_id=%self.peer_id,
+                        role=%self.role(),
+                        block=%v_block.block.as_ref().hash(),
+                        "Voted for the block"
+                    );
                     *voting_block = Some(v_block);
                 }
             }
             (BlockMessage::BlockCreated(block_created), Role::ObservingPeer) => {
+                info!(
+                    peer_id=%self.peer_id,
+                    role=%self.role(),
+                    block=%block_created.block.hash(),
+                    "Block received"
+                );
+
                 let topology = &self
                     .topology
                     .is_consensus_required()
@@ -581,7 +603,7 @@ impl Sumeragi {
                             peer_id=%self.peer_id,
                             role=%self.role(),
                             block=%v_block.block.as_ref().hash(),
-                            "Block signed and forwarded"
+                            "Voted for the block"
                         );
                     }
 
@@ -619,6 +641,7 @@ impl Sumeragi {
                 info!(
                     peer_id=%self.peer_id,
                     role=%self.role(),
+                    block=%hash,
                     "Received block signatures"
                 );
 
@@ -658,6 +681,7 @@ impl Sumeragi {
                                         ?actual_hash,
                                         "Block hash mismatch"
                                     );
+                                    *voting_block = Some(voted_block);
                                 } else if let Err(err) =
                                     voted_block.block.add_signature(signature, &self.topology)
                                 {
@@ -667,6 +691,7 @@ impl Sumeragi {
                                         ?err,
                                         "Signature not valid"
                                     );
+                                    *voting_block = Some(voted_block);
                                 } else {
                                     *voting_block =
                                         self.try_commit_block(voted_block, is_genesis_peer);
@@ -698,6 +723,12 @@ impl Sumeragi {
                 BlockMessage::BlockCommitted(BlockCommitted { hash, signatures }),
                 Role::Leader | Role::ValidatingPeer | Role::ObservingPeer,
             ) => {
+                info!(
+                    peer_id=%self.peer_id,
+                    role=%self.role(),
+                    block=%hash,
+                    "Received block committed",
+                );
                 if let Some(mut voted_block) = voting_block.take() {
                     let actual_hash = voted_block.block.as_ref().hash();
 
@@ -799,7 +830,10 @@ impl Sumeragi {
                     .world
                     .parameters()
                     .sumeragi
-                    .pipeline_time();
+                    .pipeline_time(
+                        self.topology.view_change_index(),
+                        self.topology.max_faults() + 1,
+                    );
 
                 std::thread::sleep(pipeline_time * 2);
             } else {
@@ -1000,7 +1034,10 @@ pub(crate) fn run(
     let mut should_sleep = false;
     let mut view_change_proof_chain = ProofChain::default();
     // Duration after which a view change is suggested
-    let mut view_change_time = state.world.view().parameters().sumeragi.pipeline_time();
+    let mut view_change_time = state.world.view().parameters().sumeragi.pipeline_time(
+        sumeragi.topology.view_change_index(),
+        sumeragi.topology.max_faults() + 1,
+    );
     // Instant when the previous view change or round happened.
     let mut last_view_change_time = Instant::now();
 
@@ -1049,7 +1086,12 @@ pub(crate) fn run(
 
         reset_state(
             &sumeragi.peer_id,
-            state.world.view().parameters().sumeragi.pipeline_time(),
+            state
+                .world
+                .view()
+                .parameters()
+                .sumeragi
+                .pipeline_time(view_change_index, sumeragi.topology.max_faults() + 1),
             view_change_index,
             &mut sumeragi.was_commit,
             &mut sumeragi.topology,
@@ -1154,12 +1196,22 @@ pub(crate) fn run(
 
             // NOTE: View change must be periodically suggested until it is accepted.
             // Must be initialized to pipeline time but can increase by chosen amount
-            view_change_time += state.world.view().parameters().sumeragi.pipeline_time();
+            view_change_time += state
+                .world
+                .view()
+                .parameters()
+                .sumeragi
+                .pipeline_time(view_change_index, sumeragi.topology.max_faults() + 1);
         }
 
         reset_state(
             &sumeragi.peer_id,
-            state.world.view().parameters().sumeragi.pipeline_time(),
+            state
+                .world
+                .view()
+                .parameters()
+                .sumeragi
+                .pipeline_time(view_change_index, sumeragi.topology.max_faults() + 1),
             view_change_index,
             &mut sumeragi.was_commit,
             &mut sumeragi.topology,
