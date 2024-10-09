@@ -10,7 +10,10 @@ use std::{
 use error_stack::{Result, ResultExt};
 use iroha_config_base::{read::ConfigReader, toml::TomlSource, util::Bytes, WithOrigin};
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{peer::PeerId, ChainId};
+use iroha_data_model::{
+    peer::{Peer, PeerId},
+    ChainId,
+};
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use url::Url;
 pub use user::{DevTelemetry, Logger, Snapshot};
@@ -66,7 +69,7 @@ impl Root {
 pub struct Common {
     pub chain: ChainId,
     pub key_pair: KeyPair,
-    pub peer: PeerId,
+    pub peer: Peer,
 }
 
 /// Network options
@@ -125,15 +128,18 @@ pub struct Sumeragi {
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct TrustedPeers {
-    pub myself: PeerId,
-    pub others: UniqueVec<PeerId>,
+    pub myself: Peer,
+    pub others: UniqueVec<Peer>,
 }
 
 impl TrustedPeers {
     /// Returns a list of trusted peers which is guaranteed to have at
     /// least one element - the id of the peer itself.
     pub fn into_non_empty_vec(self) -> UniqueVec<PeerId> {
-        std::iter::once(self.myself).chain(self.others).collect()
+        std::iter::once(self.myself)
+            .chain(self.others)
+            .map(|peer| peer.id().clone())
+            .collect()
     }
 
     /// Tells whether a trusted peers list has some other peers except for the peer itself
@@ -197,8 +203,8 @@ mod tests {
 
     use super::*;
 
-    fn dummy_id(port: u16) -> PeerId {
-        PeerId::new(
+    fn dummy_peer(port: u16) -> Peer {
+        Peer::new(
             socket_addr!(127.0.0.1:port),
             KeyPair::random().into_parts().0,
         )
@@ -207,7 +213,7 @@ mod tests {
     #[test]
     fn no_trusted_peers() {
         let value = TrustedPeers {
-            myself: dummy_id(80),
+            myself: dummy_peer(80),
             others: unique_vec![],
         };
         assert!(!value.contains_other_trusted_peers());
@@ -216,8 +222,8 @@ mod tests {
     #[test]
     fn one_trusted_peer() {
         let value = TrustedPeers {
-            myself: dummy_id(80),
-            others: unique_vec![dummy_id(81)],
+            myself: dummy_peer(80),
+            others: unique_vec![dummy_peer(81)],
         };
         assert!(value.contains_other_trusted_peers());
     }
@@ -225,8 +231,8 @@ mod tests {
     #[test]
     fn many_trusted_peers() {
         let value = TrustedPeers {
-            myself: dummy_id(80),
-            others: unique_vec![dummy_id(1), dummy_id(2), dummy_id(3), dummy_id(4),],
+            myself: dummy_peer(80),
+            others: unique_vec![dummy_peer(1), dummy_peer(2), dummy_peer(3), dummy_peer(4),],
         };
         assert!(value.contains_other_trusted_peers());
     }

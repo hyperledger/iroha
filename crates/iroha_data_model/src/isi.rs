@@ -444,7 +444,7 @@ mod transparent {
 
     impl Register<Peer> {
         /// Constructs a new [`Register`] for a [`Peer`].
-        pub fn peer(new_peer: Peer) -> Self {
+        pub fn peer(new_peer: PeerId) -> Self {
             Self { object: new_peer }
         }
     }

@@ -252,9 +252,9 @@ mod candidate {
 #[cfg(test)]
 mod tests {
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::peer::PeerId;
 
     use super::*;
+    use crate::sumeragi::network_topology::test_topology_with_keys;
 
     fn key_pairs<const N: usize>() -> [KeyPair; N] {
         [(); N].map(|()| KeyPair::random())
@@ -262,11 +262,7 @@ mod tests {
 
     fn prepare_data<const N: usize>() -> ([KeyPair; N], Topology, HashOf<BlockHeader>) {
         let key_pairs = key_pairs::<N>();
-        let peer_ids = key_pairs.clone().map(|key_pair| {
-            let (public_key, _) = key_pair.into_parts();
-            PeerId::new(([127, 0, 0, 1], 8080).into(), public_key)
-        });
-        let topology = Topology::new(peer_ids);
+        let topology = test_topology_with_keys(&key_pairs);
         let latest_block = HashOf::from_untyped_unchecked(Hash::prehashed([0; 32]));
 
         (key_pairs, topology, latest_block)

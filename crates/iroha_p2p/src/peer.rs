@@ -1,7 +1,6 @@
 //! Tokio actor Peer
 
 use bytes::{Buf, BufMut, BytesMut};
-use iroha_data_model::prelude::PeerId;
 use message::*;
 use parity_scale_codec::{DecodeAll, Encode};
 use tokio::{
@@ -125,7 +124,7 @@ mod run {
         // Insure proper termination from every execution path.
         async {
             // Try to do handshake process
-            let peer = match tokio::time::timeout(idle_timeout, peer.handshake()).await {
+            let ready_peer = match tokio::time::timeout(idle_timeout, peer.handshake()).await {
                 Ok(Ok(ready)) => ready,
                 Ok(Err(error)) => {
                     iroha_logger::warn!(?error, "Failure during handshake.");
@@ -138,7 +137,7 @@ mod run {
             };
 
             let Ready {
-                peer_id: new_peer_id,
+                peer: new_peer_id,
                 connection:
                     Connection {
                         read,
@@ -146,7 +145,7 @@ mod run {
                         id: connection_id,
                     },
                 cryptographer,
-            } = peer;
+            } = ready_peer;
             let peer_id = peer_id.insert(new_peer_id);
 
             let disambiguator = cryptographer.disambiguator;
@@ -160,7 +159,7 @@ mod run {
             if service_message_sender
                 .send(ServiceMessage::Connected(Connected {
                     connection_id,
-                    peer_id: peer_id.clone(),
+                    peer: peer_id.clone(),
                     ready_peer_handle,
                     peer_message_sender,
                     disambiguator,
@@ -280,7 +279,10 @@ mod run {
 
         iroha_logger::debug!("Peer is terminated.");
         let _ = service_message_sender
-            .send(ServiceMessage::Terminated(Terminated { peer_id, conn_id }))
+            .send(ServiceMessage::Terminated(Terminated {
+                peer: peer_id,
+                conn_id,
+            }))
             .await;
     }
 
@@ -660,7 +662,7 @@ mod state {
     /// Peer that is ready for communication after finishing the
     /// handshake process.
     pub(super) struct Ready<E: Enc> {
-        pub peer_id: PeerId,
+        pub peer: Peer,
         pub connection: Connection,
         pub cryptographer: Cryptographer<E>,
     }
@@ -752,12 +754,14 @@ mod handshake {
 pub mod message {
     //! Module for peer messages
 
+    use iroha_data_model::peer::Peer;
+
     use super::*;
 
     /// Connection and Handshake was successful
     pub struct Connected<T: Pload> {
-        /// Peer Id
-        pub peer_id: PeerId,
+        /// Peer
+        pub peer: Peer,
         /// Connection Id
         pub connection_id: ConnectionId,
         /// Handle for peer to send messages and terminate command
@@ -769,12 +773,12 @@ pub mod message {
     }
 
     /// Messages received from Peer
-    pub struct PeerMessage<T: Pload>(pub PeerId, pub T);
+    pub struct PeerMessage<T: Pload>(pub Peer, pub T);
 
     /// Peer faced error or `Terminate` message, send to indicate that it is terminated
     pub struct Terminated {
-        /// Peer Id
-        pub peer_id: Option<PeerId>,
+        /// Peer
+        pub peer: Option<Peer>,
         /// Connection Id
         pub conn_id: ConnectionId,
     }

@@ -115,7 +115,8 @@ class _Peer:
             "public_key": self.public_key,
             "private_key": self.private_key,
             "network": {
-                "address":  f"{self.host_ip}:{self.p2p_port}"
+                "address": f"{self.host_ip}:{self.p2p_port}",
+                "external_port": self.p2p_port
             },
             "torii": {
                 "address": f"{self.host_ip}:{self.api_port}"

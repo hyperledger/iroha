@@ -36,7 +36,7 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let peer_id = self.object.id;
+            let peer_id = self.object;
 
             let world = &mut state_transaction.world;
             if let PushResult::Duplicate(duplicate) = world.trusted_peers_ids.push(peer_id.clone())
@@ -451,7 +451,6 @@ pub mod query {
     use eyre::Result;
     use iroha_data_model::{
         parameter::Parameters,
-        peer::Peer,
         prelude::*,
         query::{
             error::QueryExecutionFail as Error,
@@ -515,7 +514,6 @@ pub mod query {
                 .world()
                 .peers()
                 .cloned()
-                .map(Peer::new)
                 .filter(move |peer| filter.applies(peer)))
         }
     }
