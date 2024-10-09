@@ -30,7 +30,7 @@ impl StateValidateBlocks {
         let (domain_ids, account_ids, asset_definition_ids) =
             generate_ids(domains, accounts_per_domain, assets_per_domain);
         let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+        let peer_id = PeerId::new(peer_public_key);
         let topology = Topology::new(vec![peer_id]);
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let state = build_state(rt, &alice_id);

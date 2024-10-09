@@ -26,7 +26,7 @@ use iroha_config_base::{
     ReadConfig, WithOrigin,
 };
 use iroha_crypto::{PrivateKey, PublicKey};
-use iroha_data_model::{peer::PeerId, ChainId};
+use iroha_data_model::{peer::Peer, ChainId};
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::Deserialize;
 use url::Url;
@@ -116,16 +116,16 @@ impl Root {
         let (torii, live_query_store) = self.torii.parse();
         let telemetry = self.telemetry.map(actual::Telemetry::from);
 
-        let peer_id = key_pair.as_ref().map(|key_pair| {
-            PeerId::new(
+        let peer = key_pair.as_ref().map(|key_pair| {
+            Peer::new(
                 network.address.value().clone(),
                 key_pair.public_key().clone(),
             )
         });
 
-        let sumeragi = peer_id
+        let sumeragi = peer
             .as_ref()
-            .map(|id| self.sumeragi.parse_and_push_self(id.clone()));
+            .map(|peer| self.sumeragi.parse_and_push_self(peer.clone()));
 
         emitter.into_result()?;
 
@@ -133,7 +133,7 @@ impl Root {
         let peer = actual::Common {
             chain: self.chain.0,
             key_pair,
-            peer: peer_id.unwrap(),
+            peer: peer.unwrap(),
         };
 
         Ok(actual::Root {
@@ -226,7 +226,7 @@ pub struct Sumeragi {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TrustedPeers(UniqueVec<PeerId>);
+pub struct TrustedPeers(UniqueVec<Peer>);
 
 impl FromEnvStr for TrustedPeers {
     type Error = json5::Error;
@@ -246,7 +246,7 @@ impl Default for TrustedPeers {
 }
 
 impl Sumeragi {
-    fn parse_and_push_self(self, self_id: PeerId) -> actual::Sumeragi {
+    fn parse_and_push_self(self, self_id: Peer) -> actual::Sumeragi {
         let Self {
             trusted_peers,
             debug: SumeragiDebug { force_soft_fork },

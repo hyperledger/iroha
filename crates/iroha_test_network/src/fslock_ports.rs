@@ -75,7 +75,7 @@ impl LockContent {
 
 /// Releases the port on [`Drop`].
 #[derive(Debug, Deref, Display)]
-pub struct AllocatedPort(u16);
+pub struct AllocatedPort(pub u16);
 
 impl AllocatedPort {
     pub fn new() -> Self {

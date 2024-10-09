@@ -186,7 +186,7 @@ impl Network {
     pub fn config(&self) -> Table {
         self.config
             .clone()
-            .write(["sumeragi", "trusted_peers"], self.topology())
+            .write(["sumeragi", "trusted_peers"], self.trusted_peers())
     }
 
     /// Network genesis block.
@@ -206,7 +206,7 @@ impl Network {
         self
     }
 
-    fn topology(&self) -> UniqueVec<PeerId> {
+    fn trusted_peers(&self) -> UniqueVec<Peer> {
         self.peers.iter().map(|x| x.id.clone()).collect()
     }
 
@@ -316,7 +316,7 @@ impl NetworkBuilder {
     pub fn build(self) -> Network {
         let peers: Vec<_> = (0..self.n_peers).map(|_| NetworkPeer::generate()).collect();
 
-        let topology: UniqueVec<_> = peers.iter().map(|peer| peer.id.clone()).collect();
+        let topology: UniqueVec<_> = peers.iter().map(|peer| peer.id()).collect();
 
         let block_sync_gossip_period = DEFAULT_BLOCK_SYNC;
 
@@ -457,7 +457,7 @@ pub enum PeerLifecycleEvent {
 /// When dropped, aborts the child process (if it is running).
 #[derive(Clone, Debug)]
 pub struct NetworkPeer {
-    id: PeerId,
+    id: Peer,
     key_pair: KeyPair,
     dir: Arc<TempDir>,
     run: Arc<Mutex<Option<PeerRun>>>,
@@ -476,7 +476,7 @@ impl NetworkPeer {
         let key_pair = KeyPair::random();
         let port_p2p = AllocatedPort::new();
         let port_api = AllocatedPort::new();
-        let id = PeerId::new(
+        let id = Peer::new(
             socket_addr!(127.0.0.1:*port_p2p),
             key_pair.public_key().clone(),
         );
@@ -549,6 +549,7 @@ impl NetworkPeer {
                 ["network", "address"],
                 format!("127.0.0.1:{}", self.port_p2p),
             )
+            .write(["network", "external_port"], self.port_p2p.0)
             .write(["torii", "address"], format!("127.0.0.1:{}", self.port_api))
             .write(["logger", "format"], "json");
 
@@ -772,9 +773,14 @@ impl NetworkPeer {
         }
     }
 
+    /// Generated [`Peer`]
+    pub fn peer(&self) -> Peer {
+        self.id.clone()
+    }
+
     /// Generated [`PeerId`]
     pub fn id(&self) -> PeerId {
-        self.id.clone()
+        self.id.id.clone()
     }
 
     /// Check whether the peer is running
@@ -825,12 +831,6 @@ impl NetworkPeer {
 impl PartialEq for NetworkPeer {
     fn eq(&self, other: &Self) -> bool {
         self.id.eq(&other.id)
-    }
-}
-
-impl From<NetworkPeer> for Box<Peer> {
-    fn from(val: NetworkPeer) -> Self {
-        Box::new(Peer::new(val.id.clone()))
     }
 }
 

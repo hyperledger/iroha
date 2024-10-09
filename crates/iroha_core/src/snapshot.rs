@@ -341,10 +341,7 @@ mod tests {
         let state = state_factory();
 
         let peer_key_pair = KeyPair::random();
-        let peer_id = PeerId::new(
-            "127.0.0.1:8080".parse().unwrap(),
-            peer_key_pair.public_key().clone(),
-        );
+        let peer_id = PeerId::new(peer_key_pair.public_key().clone());
         let topology = Topology::new(vec![peer_id]);
         let valid_block = ValidBlock::new_dummy(peer_key_pair.private_key());
         let committed_block = valid_block
@@ -400,10 +397,7 @@ mod tests {
         let state = state_factory();
 
         let peer_key_pair = KeyPair::random();
-        let peer_id = PeerId::new(
-            "127.0.0.1:8080".parse().unwrap(),
-            peer_key_pair.public_key().clone(),
-        );
+        let peer_id = PeerId::new(peer_key_pair.public_key().clone());
         let topology = Topology::new(vec![peer_id]);
         let valid_block = ValidBlock::new_dummy(peer_key_pair.private_key());
         let committed_block = valid_block

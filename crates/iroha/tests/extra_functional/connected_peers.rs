@@ -3,10 +3,7 @@ use std::iter::once;
 use assert_matches::assert_matches;
 use eyre::Result;
 use futures_util::{stream::FuturesUnordered, StreamExt};
-use iroha::data_model::{
-    isi::{Register, Unregister},
-    peer::Peer,
-};
+use iroha::data_model::isi::{Register, Unregister};
 use iroha_config_base::toml::WriteExt;
 use iroha_test_network::*;
 use rand::{prelude::IteratorRandom, seq::SliceRandom, thread_rng};
@@ -31,12 +28,12 @@ async fn register_new_peer() -> Result<()> {
         network
             .config()
             // only one random peer
-            .write(["sumeragi", "trusted_peers"], [network.peer().id()]),
+            .write(["sumeragi", "trusted_peers"], [network.peer().peer()]),
         None,
     )
     .await;
 
-    let register = Register::peer(Peer::new(peer.id()));
+    let register = Register::peer(peer.id());
     let client = network.client();
     spawn_blocking(move || client.submit_blocking(register)).await??;
 
@@ -81,7 +78,7 @@ async fn connected_peers_with_f(faults: usize) -> Result<()> {
     assert_eq!(status.peers, 0);
 
     // Re-register the peer: committed with f = `faults` - 1 then `status.peers` increments
-    let register_peer = Register::peer(Peer::new(removed_peer.id()));
+    let register_peer = Register::peer(removed_peer.id());
     let client = randomized_peers
         .iter()
         .choose(&mut thread_rng())

@@ -1068,7 +1068,7 @@ mod tests {
         let mut blocks = Vec::new();
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let peer_id = PeerId::new(leader_public_key);
         let topology = Topology::new(vec![peer_id]);
 
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");

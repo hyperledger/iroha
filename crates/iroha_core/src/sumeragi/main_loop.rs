@@ -19,7 +19,7 @@ pub struct Sumeragi {
     /// Address of queue
     pub queue: Arc<Queue>,
     /// The peer id of myself.
-    pub peer_id: PeerId,
+    pub peer: Peer,
     /// An actor that sends events
     pub events_sender: EventsSender,
     /// Kura instance used for IO
@@ -57,14 +57,14 @@ impl Debug for Sumeragi {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sumeragi")
             .field("public_key", &self.key_pair.public_key())
-            .field("peer_id", &self.peer_id)
+            .field("peer_id", &self.peer)
             .finish()
     }
 }
 
 impl Sumeragi {
     fn role(&self) -> Role {
-        self.topology.role(&self.peer_id)
+        self.topology.role(&self.peer.id)
     }
 
     /// Send a sumeragi packet over the network to the specified `peer`.
@@ -72,7 +72,7 @@ impl Sumeragi {
     /// Fails if network sending fails
     #[instrument(skip(self, packet))]
     fn post_packet_to(&self, packet: BlockMessage, peer: &PeerId) {
-        if peer == &self.peer_id {
+        if peer == &self.peer.id {
             return;
         }
 
@@ -206,7 +206,7 @@ impl Sumeragi {
         shutdown_signal: &ShutdownSignal,
     ) -> Result<(), EarlyReturn> {
         info!(
-            peer_id=%self.peer_id,
+            peer_id=%self.peer,
             role=%self.role(),
             "Listening for genesis..."
         );
@@ -247,7 +247,7 @@ impl Sumeragi {
                         Ok(block) => block,
                         Err(error) => {
                             error!(
-                                peer_id=%self.peer_id,
+                                peer_id=%self.peer,
                                 ?error,
                                 "Received invalid genesis block"
                             );
@@ -258,7 +258,7 @@ impl Sumeragi {
 
                     if block.as_ref().errors().next().is_some() {
                         error!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             "Genesis contains invalid transactions"
                         );
@@ -352,7 +352,7 @@ impl Sumeragi {
         // Commit new block making it's effect visible for the rest of application
         state_block.commit();
         info!(
-            peer_id=%self.peer_id,
+            peer_id=%self.peer,
             %prev_role,
             next_role=%self.role(),
             block_hash=%block_hash,
@@ -361,7 +361,7 @@ impl Sumeragi {
         );
         #[cfg(debug_assertions)]
         iroha_logger::info!(
-            peer_id=%self.peer_id,
+            peer_id=%self.peer,
             role=%self.role(),
             topology=?self.topology,
             "Topology after commit"
@@ -402,7 +402,7 @@ impl Sumeragi {
         .map(|(block, state_block)| VotingBlock::new(block, state_block))
         .map_err(|(block, error)| {
             warn!(
-                peer_id=%self.peer_id,
+                peer_id=%self.peer,
                 role=%self.role(),
                 block=%block.hash(),
                 ?error,
@@ -437,7 +437,7 @@ impl Sumeragi {
         match (message, self.role()) {
             (BlockMessage::BlockSyncUpdate(BlockSyncUpdate { block }), _) => {
                 info!(
-                    peer_id=%self.peer_id,
+                    peer_id=%self.peer,
                     role=%self.role(),
                     block=%block.hash(),
                     "Block sync update received"
@@ -463,7 +463,7 @@ impl Sumeragi {
                             .expect("INTERNAL BUG: No latest block");
 
                         warn!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             peer_latest_block_hash=?state_block.latest_block_hash(),
                             peer_latest_block_view_change_index=%latest_block.header().view_change_index,
@@ -476,7 +476,7 @@ impl Sumeragi {
                     }
                     Err((block, BlockSyncError::BlockNotValid(error))) => {
                         error!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             block=%block.hash(),
                             ?error,
@@ -485,7 +485,7 @@ impl Sumeragi {
                     }
                     Err((block, BlockSyncError::SoftForkBlockNotValid(error))) => {
                         error!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             block=%block.hash(),
                             ?error,
@@ -500,7 +500,7 @@ impl Sumeragi {
                         },
                     )) => {
                         debug!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             peer_latest_block_hash=?state.view().latest_block_hash(),
                             peer_latest_block_view_change_index=?peer_view_change_index,
@@ -517,7 +517,7 @@ impl Sumeragi {
                         },
                     )) => {
                         warn!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             block=%block.hash(),
                             %block_height,
@@ -529,7 +529,7 @@ impl Sumeragi {
             }
             (BlockMessage::BlockCreated(BlockCreated { block }), Role::ValidatingPeer) => {
                 info!(
-                    peer_id=%self.peer_id,
+                    peer_id=%self.peer,
                     role=%self.role(),
                     block=%block.hash(),
                     "Block received"
@@ -549,7 +549,7 @@ impl Sumeragi {
                     self.broadcast_packet_to(msg, [topology.proxy_tail()]);
 
                     info!(
-                        peer_id=%self.peer_id,
+                        peer_id=%self.peer,
                         role=%self.role(),
                         block=%valid_block.block.as_ref().hash(),
                         "Voted for the block"
@@ -559,7 +559,7 @@ impl Sumeragi {
             }
             (BlockMessage::BlockCreated(BlockCreated { block }), Role::ObservingPeer) => {
                 info!(
-                    peer_id=%self.peer_id,
+                    peer_id=%self.peer,
                     role=%self.role(),
                     block=%block.hash(),
                     "Block received"
@@ -580,7 +580,7 @@ impl Sumeragi {
                         self.broadcast_packet_to(msg, [topology.proxy_tail()]);
 
                         info!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             block=%valid_block.block.as_ref().hash(),
                             "Voted for the block"
@@ -592,7 +592,7 @@ impl Sumeragi {
             }
             (BlockMessage::BlockCreated(BlockCreated { block }), Role::ProxyTail) => {
                 info!(
-                    peer_id=%self.peer_id,
+                    peer_id=%self.peer,
                     role=%self.role(),
                     block=%block.hash(),
                     "Block received"
@@ -615,7 +615,7 @@ impl Sumeragi {
             }
             (BlockMessage::BlockSigned(BlockSigned { hash, signature }), Role::ProxyTail) => {
                 info!(
-                    peer_id=%self.peer_id,
+                    peer_id=%self.peer,
                     role=%self.role(),
                     block=%hash,
                     "Received block signatures"
@@ -626,7 +626,7 @@ impl Sumeragi {
                         s
                     } else {
                         error!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             ?signatory_idx,
                             topology_size=%self.topology.as_ref().len(),
@@ -638,22 +638,22 @@ impl Sumeragi {
 
                     match self.topology.role(signatory) {
                         Role::Leader => error!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             "Signatory is leader"
                         ),
                         Role::Undefined => error!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             "Unknown signatory"
                         ),
                         Role::ObservingPeer if view_change_index == 0 => error!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             "Signatory is observing peer"
                         ),
                         Role::ProxyTail => error!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             "Signatory is proxy tail"
                         ),
@@ -663,7 +663,7 @@ impl Sumeragi {
 
                                 if hash != actual_hash {
                                     error!(
-                                        peer_id=%self.peer_id,
+                                        peer_id=%self.peer,
                                         role=%self.role(),
                                         expected_hash=?hash,
                                         ?actual_hash,
@@ -674,7 +674,7 @@ impl Sumeragi {
                                     voted_block.block.add_signature(signature, &self.topology)
                                 {
                                     error!(
-                                        peer_id=%self.peer_id,
+                                        peer_id=%self.peer,
                                         role=%self.role(),
                                         ?err,
                                         "Signature not valid"
@@ -689,7 +689,7 @@ impl Sumeragi {
                                 // the block (sent by the leader). Collect the signatures and wait for the block to be received
                                 if !voting_signatures.insert(signature) {
                                     error!(
-                                        peer_id=%self.peer_id,
+                                        peer_id=%self.peer,
                                         role=%self.role(),
                                         "Duplicate signature"
                                     );
@@ -699,7 +699,7 @@ impl Sumeragi {
                     }
                 } else {
                     error!(
-                        peer_id=%self.peer_id,
+                        peer_id=%self.peer,
                         role=%self.role(),
                         "Signatory index exceeds usize::MAX"
                     );
@@ -712,7 +712,7 @@ impl Sumeragi {
                 Role::Leader | Role::ValidatingPeer | Role::ObservingPeer,
             ) => {
                 info!(
-                    peer_id=%self.peer_id,
+                    peer_id=%self.peer,
                     role=%self.role(),
                     block=%hash,
                     "Received block committed",
@@ -739,7 +739,7 @@ impl Sumeragi {
                                     }
                                     Err((mut block, error)) => {
                                         error!(
-                                            peer_id=%self.peer_id,
+                                            peer_id=%self.peer,
                                             role=%self.role(),
                                             ?error,
                                             "Block failed to be committed"
@@ -756,7 +756,7 @@ impl Sumeragi {
                             }
                             Err(error) => {
                                 error!(
-                                    peer_id=%self.peer_id,
+                                    peer_id=%self.peer,
                                     role=%self.role(),
                                     ?error,
                                     "Received incorrect signatures"
@@ -767,7 +767,7 @@ impl Sumeragi {
                         }
                     } else {
                         error!(
-                            peer_id=%self.peer_id,
+                            peer_id=%self.peer,
                             role=%self.role(),
                             expected_hash=?hash,
                             ?actual_hash,
@@ -776,7 +776,7 @@ impl Sumeragi {
                     }
                 } else {
                     error!(
-                        peer_id=%self.peer_id,
+                        peer_id=%self.peer,
                         role=%self.role(),
                         "Peer missing voting block"
                     );
@@ -785,7 +785,7 @@ impl Sumeragi {
             (msg, _) => {
                 trace!(
                     role=%self.role(),
-                    peer_id=%self.peer_id,
+                    peer_id=%self.peer,
                     ?msg,
                     "message not handled"
                 );
@@ -881,7 +881,7 @@ impl Sumeragi {
                 .sign(self.key_pair.private_key())
                 .unpack(|e| self.send_event(e));
             info!(
-                peer_id=%self.peer_id,
+                peer_id=%self.peer,
                 block_hash=%unverified_block.header().hash(),
                 txns=%unverified_block.transactions().len(),
                 view_change_index=%self.topology.view_change_index(),
@@ -1012,7 +1012,7 @@ pub(crate) fn run(
     span.exit();
 
     info!(
-        peer_id=%sumeragi.peer_id,
+        peer_id=%sumeragi.peer,
         role=%sumeragi.role(),
         "Sumeragi initialized",
     );
@@ -1074,7 +1074,7 @@ pub(crate) fn run(
         );
 
         reset_state(
-            &sumeragi.peer_id,
+            &sumeragi.peer.id,
             state
                 .world
                 .view()
@@ -1143,7 +1143,7 @@ pub(crate) fn run(
                     // NOTE: Suspecting the tail node because it hasn't committed the block yet
 
                     warn!(
-                        peer_id=%sumeragi.peer_id,
+                        peer_id=%sumeragi.peer,
                         role=%sumeragi.role(),
                         block=%block.as_ref().hash(),
                         "Block not committed in due time, requesting view change..."
@@ -1153,7 +1153,7 @@ pub(crate) fn run(
                     // If the current node has a transaction, leader should have as well
 
                     warn!(
-                        peer_id=%sumeragi.peer_id,
+                        peer_id=%sumeragi.peer,
                         role=%sumeragi.role(),
                         "No block produced in due time, requesting view change..."
                     );
@@ -1204,7 +1204,7 @@ pub(crate) fn run(
         }
 
         reset_state(
-            &sumeragi.peer_id,
+            &sumeragi.peer.id,
             state
                 .world
                 .view()
@@ -1478,7 +1478,6 @@ mod tests {
                 topology
                     .iter()
                     .cloned()
-                    .map(Peer::new)
                     .map(Register::peer)
                     .map(InstructionBox::from),
             )
@@ -1541,7 +1540,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let peer_id = PeerId::new(leader_public_key);
         let topology = Topology::new(vec![peer_id]);
         let (state, _, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
@@ -1561,7 +1560,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let peer_id = PeerId::new(leader_public_key);
         let topology = Topology::new(vec![peer_id]);
         let (state, kura, unverified_block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
@@ -1598,7 +1597,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let peer_id = PeerId::new(leader_public_key);
         let topology = Topology::new(vec![peer_id]);
         let (state, _, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
@@ -1633,7 +1632,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let peer_id = PeerId::new(leader_public_key);
         let topology = Topology::new(vec![peer_id]);
         let (state, _, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
@@ -1652,7 +1651,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let peer_id = PeerId::new(leader_public_key);
         let topology = Topology::new(vec![peer_id]);
         let (state, kura, unverified_block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
@@ -1689,7 +1688,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let peer_id = PeerId::new(leader_public_key);
         let topology = Topology::new(vec![peer_id]);
         let (state, kura, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
@@ -1742,7 +1741,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let peer_id = PeerId::new(leader_public_key);
         let topology = Topology::new(vec![peer_id]);
         let (state, _, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
@@ -1779,7 +1778,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
+        let peer_id = PeerId::new(leader_public_key);
         let topology = Topology::new(vec![peer_id]);
         let (state, _, unverified_block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);

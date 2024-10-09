@@ -870,16 +870,14 @@ mod valid {
         use iroha_crypto::SignatureOf;
 
         use super::*;
-        use crate::sumeragi::network_topology::test_peers;
+        use crate::sumeragi::network_topology::test_topology_with_keys;
 
         #[test]
         fn signature_verification_ok() {
             let key_pairs = core::iter::repeat_with(KeyPair::random)
                 .take(7)
                 .collect::<Vec<_>>();
-            let mut key_pairs_iter = key_pairs.iter();
-            let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
-            let topology = Topology::new(peers);
+            let topology = test_topology_with_keys(&key_pairs);
 
             let mut block = ValidBlock::new_dummy(key_pairs[0].private_key());
             let payload = block.0.payload().clone();
@@ -910,9 +908,7 @@ mod valid {
             let key_pairs = core::iter::repeat_with(KeyPair::random)
                 .take(1)
                 .collect::<Vec<_>>();
-            let mut key_pairs_iter = key_pairs.iter();
-            let peers = test_peers![0,: key_pairs_iter];
-            let topology = Topology::new(peers);
+            let topology = test_topology_with_keys(&key_pairs);
 
             let block = ValidBlock::new_dummy(key_pairs[0].private_key());
 
@@ -925,9 +921,7 @@ mod valid {
             let key_pairs = core::iter::repeat_with(KeyPair::random)
                 .take(7)
                 .collect::<Vec<_>>();
-            let mut key_pairs_iter = key_pairs.iter();
-            let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
-            let topology = Topology::new(peers);
+            let topology = test_topology_with_keys(&key_pairs);
 
             let mut block = ValidBlock::new_dummy(key_pairs[0].private_key());
             block.sign(&key_pairs[4], &topology);
@@ -948,9 +942,7 @@ mod valid {
             let key_pairs = core::iter::repeat_with(KeyPair::random)
                 .take(7)
                 .collect::<Vec<_>>();
-            let mut key_pairs_iter = key_pairs.iter();
-            let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
-            let topology = Topology::new(peers);
+            let topology = test_topology_with_keys(&key_pairs);
 
             let mut block = ValidBlock::new_dummy(key_pairs[0].private_key());
             let payload = block.0.payload().clone();
@@ -1154,16 +1146,13 @@ mod tests {
     use super::*;
     use crate::{
         kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _,
-        state::State,
+        state::State, sumeragi::network_topology::test_topology,
     };
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
         let peer_key_pair = KeyPair::random();
-        let peer_id = PeerId::new(
-            "127.0.0.1:8080".parse().unwrap(),
-            peer_key_pair.public_key().clone(),
-        );
+        let peer_id = PeerId::new(peer_key_pair.public_key().clone());
         let topology = Topology::new(vec![peer_id]);
         let valid_block = ValidBlock::new_dummy(peer_key_pair.private_key());
         let committed_block = valid_block
@@ -1390,9 +1379,7 @@ mod tests {
 
         // Create genesis block
         let transactions = vec![tx];
-        let (peer_public_key, _) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
-        let topology = Topology::new(vec![peer_id]);
+        let topology = test_topology(1);
         let unverified_block = BlockBuilder::new(transactions)
             .chain(0, state.view().latest_block().as_deref())
             .sign(genesis_correct_key.private_key())

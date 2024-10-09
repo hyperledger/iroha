@@ -37,6 +37,7 @@ class Network:
 
         logging.info("Generating shared configuration...")
         trusted_peers = [{"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key} for peer in self.peers]
+        topology = [peer.public_key for peer in self.peers]
         genesis_path = pathlib.Path(args.out_dir) / "genesis.json"
         genesis_key_pair = kagami_generate_key_pair(args.out_dir, seed="Irohagenesis")
         genesis_public_key = genesis_key_pair["public_key"]
@@ -58,7 +59,7 @@ class Network:
             tomli_w.dump(shared_config, f)
 
         copy_or_prompt_build_bin("irohad", args.root_dir, peers_dir)
-        copy_genesis_json_and_change_topology(args, genesis_path, trusted_peers)
+        copy_genesis_json_and_change_topology(args, genesis_path, topology)
         sign_genesis_with_kagami(args, genesis_path, genesis_public_key, genesis_private_key)
 
 
@@ -116,7 +117,8 @@ class _Peer:
             "public_key": self.public_key,
             "private_key": self.private_key,
             "network": {
-                "address":  f"{self.host_ip}:{self.p2p_port}"
+                "address": f"{self.host_ip}:{self.p2p_port}",
+                "external_port": self.p2p_port
             },
             "torii": {
                 "address": f"{self.host_ip}:{self.api_port}"
