@@ -244,26 +244,26 @@ fn impl_metrics(
         }
     };
 
-    #[cfg(feature = "metric-instrumentation")]
-    {
-        let (totals, successes, times) = write_metrics(metric_arg_ident, specs);
-        return quote!(
-            #(#attrs)* #vis #sig {
-                let _closure = || #block;
-                let started_at = std::time::Instant::now();
+    // #[cfg(feature = "metric-instrumentation")]
+    // {
+    //     let (totals, successes, times) = write_metrics(metric_arg_ident, specs);
+    //     quote!(
+    //         #(#attrs)* #vis #sig {
+    //             let closure = || #block;
+    //             let started_at = std::time::Instant::now();
+    //
+    //             #totals
+    //             let res = closure();
+    //
+    //             #times
+    //             if let Ok(_) = res {
+    //                 #successes
+    //             };
+    //             res
+    //     })
+    // }
 
-                #totals
-                let res = _closure();
-
-                #times
-                if let Ok(_) = res {
-                    #successes
-                };
-                res
-        });
-    };
-
-    #[cfg(not(feature = "metric-instrumentation"))]
+    // #[cfg(not(feature = "metric-instrumentation"))]
     quote!(
         #(#attrs)* #vis #sig {
             #block
@@ -279,19 +279,19 @@ fn write_metrics(
 ) -> (TokenStream, TokenStream, TokenStream) {
     let inc_metric = |spec: &MetricSpec, kind: &str| {
         quote!(
-            // #metric_arg_ident
-            //     .metrics
-            //     .isi
-            //     .with_label_values( &[#spec, #kind ]).inc();
+            #metric_arg_ident
+                .metrics
+                .isi
+                .with_label_values( &[#spec, #kind ]).inc();
         )
     };
     let track_time = |spec: &MetricSpec| {
         quote!(
-            // #metric_arg_ident
-            //     .metrics
-            //     .isi_times
-            //     .with_label_values( &[#spec])
-            //     .observe(started_at.elapsed().as_millis() as f64);
+            #metric_arg_ident
+                .metrics
+                .isi_times
+                .with_label_values( &[#spec])
+                .observe(started_at.elapsed().as_millis() as f64);
         )
     };
     let totals: TokenStream = specs
