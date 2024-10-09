@@ -152,8 +152,8 @@ rust.unused_lifetimes = "warn"
 rust.unexpected_cfgs = { level = "warn", check-cfg = [
     # FIXME: https://github.com/hyperledger/iroha/issues/3102
     'cfg(feature, values("ffi_import"))',
-    # FIXME: was never supported https://github.com/hyperledger/iroha/issues/5139
-    #    'cfg(coverage)'
+    # It is set by `cargo-llvm-cov`
+    'cfg(coverage)'
 ] }
 
 # pedantic
