@@ -4,7 +4,7 @@
 //! 2. If a block is received, i.e. deserialized:
 //!    `SignedBlock` -> `ValidBlock` -> `CommittedBlock`
 //!    [`Block`]s are organised into a linear sequence over time (also known as the block chain).
-use std::{error::Error as _, time::Duration};
+use std::time::Duration;
 
 use iroha_crypto::{HashOf, KeyPair, MerkleTree};
 use iroha_data_model::{
@@ -16,7 +16,7 @@ use iroha_data_model::{
 use thiserror::Error;
 
 pub(crate) use self::event::WithEvents;
-pub use self::{chained::Chained, commit::CommittedBlock, valid::ValidBlock};
+pub use self::{chained::Chained, commit::CommittedBlock, new::NewBlock, valid::ValidBlock};
 use crate::{
     prelude::*,
     state::State,
@@ -87,11 +87,6 @@ pub enum SignatureVerificationError {
         /// Minimal required number of signatures
         min_votes_for_commit: usize,
     },
-    /// Block was signed by the same node multiple times
-    DuplicateSignatures {
-        /// Index of the faulty node in the topology
-        signatory: usize,
-    },
     /// Block signatory doesn't correspond to any in topology
     UnknownSignatory,
     /// Block signature doesn't correspond to block payload
@@ -100,6 +95,8 @@ pub enum SignatureVerificationError {
     ProxyTailMissing,
     /// The block doesn't have leader signature
     LeaderMissing,
+    /// Miscellaneous
+    Other,
 }
 
 /// Errors occurred on genesis block validation
@@ -118,7 +115,6 @@ pub struct BlockBuilder<B>(B);
 mod pending {
     use std::time::SystemTime;
 
-    use iroha_data_model::transaction::CommittedTransaction;
     use nonzero_ext::nonzero;
 
     use super::*;
@@ -131,7 +127,6 @@ mod pending {
     #[derive(Debug, Clone)]
     pub struct Pending {
         /// Collection of transactions which have been accepted.
-        /// Transaction will be validated when block is chained.
         transactions: Vec<AcceptedTransaction>,
     }
 
@@ -153,36 +148,18 @@ mod pending {
             Self(Pending { transactions })
         }
 
-        /// Create new BlockPayload
-        pub fn new_unverified(
-            prev_block: Option<&SignedBlock>,
-            view_change_index: usize,
-            transactions_a: Vec<AcceptedTransaction>,
-        ) -> BlockPayload {
-            let transactions = transactions_a
-                .into_iter()
-                .map(|tx| CommittedTransaction {
-                    value: tx.clone().into(),
-                    error: None,
-                })
-                .collect::<Vec<_>>();
-            BlockPayload {
-                header: Self::make_header(prev_block, view_change_index, &transactions),
-                transactions,
-            }
-        }
-
         fn make_header(
             prev_block: Option<&SignedBlock>,
             view_change_index: usize,
-            transactions: &[CommittedTransaction],
+            transactions: &[AcceptedTransaction],
         ) -> BlockHeader {
             let prev_block_time =
                 prev_block.map_or(Duration::ZERO, |block| block.header().creation_time());
 
             let latest_txn_time = transactions
                 .iter()
-                .map(|tx| tx.as_ref().creation_time())
+                .map(AsRef::as_ref)
+                .map(SignedTransaction::creation_time)
                 .max()
                 .expect("INTERNAL BUG: Block empty");
 
@@ -213,7 +190,8 @@ mod pending {
                 prev_block_hash: prev_block.map(SignedBlock::hash),
                 transactions_hash: transactions
                     .iter()
-                    .map(|value| value.as_ref().hash())
+                    .map(AsRef::as_ref)
+                    .map(SignedTransaction::hash)
                     .collect::<MerkleTree<_>>()
                     .hash()
                     .expect("INTERNAL BUG: Empty block created"),
@@ -227,32 +205,6 @@ mod pending {
             }
         }
 
-        fn categorize_transactions(
-            transactions: Vec<AcceptedTransaction>,
-            state_block: &mut StateBlock<'_>,
-        ) -> Vec<CommittedTransaction> {
-            transactions
-                .into_iter()
-                .map(|tx| match state_block.validate(tx) {
-                    Ok(tx) => CommittedTransaction {
-                        value: tx,
-                        error: None,
-                    },
-                    Err((tx, error)) => {
-                        iroha_logger::warn!(
-                            reason = %error,
-                            caused_by = ?error.source(),
-                            "Transaction validation failed",
-                        );
-                        CommittedTransaction {
-                            value: tx,
-                            error: Some(Box::new(error)),
-                        }
-                    }
-                })
-                .collect()
-        }
-
         /// Chain the block with existing blockchain.
         ///
         /// Upon executing this method current timestamp is stored in the block header.
@@ -261,31 +213,98 @@ mod pending {
             view_change_index: usize,
             state: &mut StateBlock<'_>,
         ) -> BlockBuilder<Chained> {
-            let transactions = Self::categorize_transactions(self.0.transactions, state);
-
-            BlockBuilder(Chained(BlockPayload {
+            BlockBuilder(Chained {
                 header: Self::make_header(
                     state.latest_block().as_deref(),
                     view_change_index,
-                    &transactions,
+                    &self.0.transactions,
                 ),
-                transactions,
-            }))
+                transactions: self.0.transactions,
+            })
         }
     }
 }
 
 mod chained {
+    use iroha_crypto::SignatureOf;
+    use new::NewBlock;
+
     use super::*;
 
     /// When a [`Pending`] block is chained with the blockchain it becomes [`Chained`] block.
     #[derive(Debug, Clone)]
-    pub struct Chained(pub(super) BlockPayload);
+    pub struct Chained {
+        pub(super) header: BlockHeader,
+        pub(super) transactions: Vec<AcceptedTransaction>,
+    }
 
     impl BlockBuilder<Chained> {
-        /// Sign this block as Leader and get [`SignedBlock`].
-        pub fn sign(self, private_key: &PrivateKey) -> WithEvents<ValidBlock> {
-            WithEvents::new(ValidBlock(self.0 .0.sign(private_key)))
+        /// Sign this block and get [`NewBlock`].
+        pub fn sign(self, private_key: &PrivateKey) -> WithEvents<NewBlock> {
+            let signature = BlockSignature(0, SignatureOf::new(private_key, &self.0.header));
+
+            WithEvents::new(NewBlock {
+                signature,
+                header: self.0.header,
+                transactions: self.0.transactions,
+            })
+        }
+    }
+}
+
+mod new {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::state::StateBlock;
+
+    /// First stage in the life-cycle of a [`Block`].
+    ///
+    /// Transactions in this block are not categorized.
+    #[derive(Debug, Clone)]
+    pub struct NewBlock {
+        pub(crate) signature: BlockSignature,
+        pub(crate) header: BlockHeader,
+        pub(crate) transactions: Vec<AcceptedTransaction>,
+    }
+
+    impl NewBlock {
+        /// Categorize transactions of this block to produce a [`ValidBlock`]
+        pub fn categorize(self, state_block: &mut StateBlock<'_>) -> WithEvents<ValidBlock> {
+            let errors = self
+                .transactions
+                .iter()
+                // FIXME: Redundant clone
+                .cloned()
+                .enumerate()
+                .fold(BTreeMap::new(), |mut acc, (idx, tx)| {
+                    if let Err((rejected_tx, error)) = state_block.validate(tx) {
+                        iroha_logger::debug!(
+                            block=%self.header.hash(),
+                            tx=%rejected_tx.hash(),
+                            reason=?error,
+                            "Transaction rejected"
+                        );
+
+                        acc.insert(idx, error);
+                    }
+
+                    acc
+                });
+
+            let mut block: SignedBlock = self.into();
+            block.set_transaction_errors(errors);
+            WithEvents::new(ValidBlock(block))
+        }
+    }
+
+    impl From<NewBlock> for SignedBlock {
+        fn from(block: NewBlock) -> Self {
+            SignedBlock::presigned(
+                block.signature,
+                block.header,
+                block.transactions.into_iter().map(Into::into),
+            )
         }
     }
 }
@@ -294,7 +313,6 @@ mod valid {
     use std::time::SystemTime;
 
     use commit::CommittedBlock;
-    use indexmap::IndexMap;
     use iroha_data_model::{account::AccountId, events::pipeline::PipelineEventBox, ChainId};
     use mv::storage::StorageReadOnly;
 
@@ -311,34 +329,19 @@ mod valid {
             block: &SignedBlock,
             topology: &Topology,
         ) -> Result<(), SignatureVerificationError> {
-            let leader_index = topology.leader_index();
-            let mut block_signatures = block.signatures();
+            use SignatureVerificationError::LeaderMissing;
+            let leader_idx = topology.leader_index();
 
-            let leader_signature = match block_signatures.next() {
-                Some(BlockSignature(signatory, signature))
-                    if usize::try_from(*signatory)
-                        .map_err(|_err| SignatureVerificationError::LeaderMissing)?
-                        == leader_index =>
-                {
-                    let mut additional_leader_signatures =
-                        topology.filter_signatures_by_roles(&[Role::Leader], block_signatures);
+            let signature = block.signatures().next().ok_or(LeaderMissing)?;
+            if leader_idx != usize::try_from(signature.0).map_err(|_err| LeaderMissing)? {
+                return Err(LeaderMissing);
+            }
 
-                    if additional_leader_signatures.next().is_some() {
-                        return Err(SignatureVerificationError::DuplicateSignatures {
-                            signatory: leader_index,
-                        });
-                    }
-
-                    signature
-                }
-                _ => {
-                    return Err(SignatureVerificationError::LeaderMissing);
-                }
-            };
-
-            leader_signature
+            signature
+                .1
                 .verify(topology.leader().public_key(), &block.payload().header)
-                .map_err(|_err| SignatureVerificationError::LeaderMissing)?;
+                .map_err(|_err| LeaderMissing)?;
+
             Ok(())
         }
 
@@ -354,28 +357,18 @@ mod valid {
 
             topology
                 .filter_signatures_by_roles(valid_roles, block.signatures())
-                .try_fold(IndexMap::<usize, _>::default(), |mut acc, signature| {
-                    let signatory_idx = usize::try_from(signature.0)
-                        .map_err(|_err| SignatureVerificationError::UnknownSignatory)?;
+                .try_for_each(|signature| {
+                    use SignatureVerificationError::{UnknownSignatory, UnknownSignature};
 
-                    if acc.insert(signatory_idx, signature.1.clone()).is_some() {
-                        return Err(SignatureVerificationError::DuplicateSignatures {
-                            signatory: signatory_idx,
-                        });
-                    }
-
-                    Ok(acc)
-                })?
-                .into_iter()
-                .try_for_each(|(signatory_idx, signature)| {
-                    let signatory: &PeerId = topology
-                        .as_ref()
-                        .get(signatory_idx)
-                        .ok_or(SignatureVerificationError::UnknownSignatory)?;
+                    let signatory =
+                        usize::try_from(signature.0).map_err(|_err| UnknownSignatory)?;
+                    let signatory: &PeerId =
+                        topology.as_ref().get(signatory).ok_or(UnknownSignatory)?;
 
                     signature
+                        .1
                         .verify(signatory.public_key(), &block.payload().header)
-                        .map_err(|_err| SignatureVerificationError::UnknownSignature)?;
+                        .map_err(|_err| UnknownSignature)?;
 
                     Ok(())
                 })?;
@@ -402,47 +395,30 @@ mod valid {
             block: &SignedBlock,
             topology: &Topology,
         ) -> Result<(), SignatureVerificationError> {
-            let proxy_tail_index = topology.proxy_tail_index();
-            let mut signatures = block.signatures().rev();
+            use SignatureVerificationError::ProxyTailMissing;
+            let proxy_tail_idx = topology.proxy_tail_index();
 
-            let proxy_tail_signature = match signatures.next() {
-                Some(BlockSignature(signatory, signature))
-                    if usize::try_from(*signatory)
-                        .map_err(|_err| SignatureVerificationError::ProxyTailMissing)?
-                        == proxy_tail_index =>
-                {
-                    let mut additional_proxy_tail_signatures =
-                        topology.filter_signatures_by_roles(&[Role::ProxyTail], signatures);
+            let signature = block.signatures().next_back().ok_or(ProxyTailMissing)?;
+            if proxy_tail_idx != usize::try_from(signature.0).map_err(|_err| ProxyTailMissing)? {
+                return Err(ProxyTailMissing);
+            }
 
-                    if additional_proxy_tail_signatures.next().is_some() {
-                        return Err(SignatureVerificationError::DuplicateSignatures {
-                            signatory: proxy_tail_index,
-                        });
-                    }
-
-                    signature
-                }
-                _ => {
-                    return Err(SignatureVerificationError::ProxyTailMissing);
-                }
-            };
-
-            proxy_tail_signature
+            signature
+                .1
                 .verify(topology.proxy_tail().public_key(), &block.payload().header)
-                .map_err(|_err| SignatureVerificationError::ProxyTailMissing)?;
+                .map_err(|_err| ProxyTailMissing)?;
 
             Ok(())
         }
 
-        /// Validate a block against the current state of the world. Individual transaction
-        /// errors will be updated.
+        /// Validate a block against the current state of the world.
+        /// Individual transaction errors will be updated.
         ///
         /// # Errors
         ///
         /// - There is a mismatch between candidate block height and actual blockchain height
         /// - There is a mismatch between candidate block previous block hash and actual previous block hash
         /// - Block is not signed by the leader
-        /// - Block has duplicate signatures
         /// - Block has unknown signatories
         /// - Block has incorrect signatures
         /// - Topology field is incorrect
@@ -462,12 +438,9 @@ mod valid {
                 return WithEvents::new(Err((block, error)));
             }
 
-            if let Err(error) = Self::validate_transactions(
-                &mut block,
-                expected_chain_id,
-                genesis_account,
-                state_block,
-            ) {
+            if let Err(error) =
+                Self::categorize(&mut block, expected_chain_id, genesis_account, state_block)
+            {
                 return WithEvents::new(Err((block, error.into())));
             }
 
@@ -502,7 +475,7 @@ mod valid {
                 state.block()
             };
 
-            if let Err(error) = Self::validate_transactions(
+            if let Err(error) = Self::categorize(
                 &mut block,
                 expected_chain_id,
                 genesis_account,
@@ -599,41 +572,56 @@ mod valid {
             Ok(())
         }
 
-        fn validate_transactions(
+        fn categorize(
             block: &mut SignedBlock,
             expected_chain_id: &ChainId,
             genesis_account: &AccountId,
             state_block: &mut StateBlock<'_>,
         ) -> Result<(), TransactionValidationError> {
-            let is_genesis = block.header().is_genesis();
-
             let (max_clock_drift, tx_limits) = {
                 let params = state_block.world().parameters();
                 (params.sumeragi().max_clock_drift(), params.transaction)
             };
 
-            for CommittedTransaction { value, error } in block.transactions_mut() {
-                let tx = if is_genesis {
-                    AcceptedTransaction::accept_genesis(
-                        value.clone(),
-                        expected_chain_id,
-                        max_clock_drift,
-                        genesis_account,
-                    )
-                } else {
-                    AcceptedTransaction::accept(
-                        value.clone(),
-                        expected_chain_id,
-                        max_clock_drift,
-                        tx_limits,
-                    )
-                }?;
+            let errors = block
+                .transactions()
+                .map(AsRef::as_ref)
+                // FIXME: Redundant clone
+                .cloned()
+                .enumerate()
+                .try_fold(Vec::new(), |mut acc, (idx, tx)| {
+                    let accepted_tx = if block.header().is_genesis() {
+                        AcceptedTransaction::accept_genesis(
+                            tx,
+                            expected_chain_id,
+                            max_clock_drift,
+                            genesis_account,
+                        )
+                    } else {
+                        AcceptedTransaction::accept(
+                            tx,
+                            expected_chain_id,
+                            max_clock_drift,
+                            tx_limits,
+                        )
+                    }?;
 
-                *error = match state_block.validate(tx) {
-                    Ok(_) => None,
-                    Err((_tx, error)) => Some(Box::new(error)),
-                };
-            }
+                    if let Err((rejected_tx, error)) = state_block.validate(accepted_tx) {
+                        iroha_logger::debug!(
+                            tx=%rejected_tx.hash(),
+                            block=%block.hash(),
+                            reason=?error,
+                            "Transaction rejected"
+                        );
+
+                        acc.push((idx, error));
+                    }
+
+                    Ok::<_, TransactionValidationError>(acc)
+                })?;
+
+            block.set_transaction_errors(errors);
+
             Ok(())
         }
 
@@ -647,20 +635,25 @@ mod valid {
             signature: BlockSignature,
             topology: &Topology,
         ) -> Result<(), SignatureVerificationError> {
-            let signatory_idx = usize::try_from(signature.0)
-                .expect("INTERNAL BUG: Number of peers exceeds usize::MAX");
-            let signatory = &topology.as_ref()[signatory_idx];
+            use SignatureVerificationError::{Other, UnknownSignatory, UnknownSignature};
+
+            let signatory = usize::try_from(signature.0).map_err(|_err| UnknownSignatory)?;
+            let signatory = topology.as_ref().get(signatory).ok_or(UnknownSignatory)?;
 
             assert_ne!(Role::Leader, topology.role(signatory));
+            assert_ne!(Role::ProxyTail, topology.role(signatory));
+            assert_ne!(Role::Undefined, topology.role(signatory));
+
             if topology.view_change_index() == 0 {
                 assert_ne!(Role::ObservingPeer, topology.role(signatory),);
             }
-            assert_ne!(Role::Undefined, topology.role(signatory));
-            assert_ne!(Role::ProxyTail, topology.role(signatory));
 
-            self.0
-                .add_signature(signature, signatory.public_key())
-                .map_err(|_err| SignatureVerificationError::UnknownSignature)
+            signature
+                .1
+                .verify(signatory.public_key(), &self.as_ref().payload().header)
+                .map_err(|_err| UnknownSignature)?;
+
+            self.0.add_signature(signature).map_err(|_err| Other)
         }
 
         /// Replace block's signatures. Returns previous block signatures
@@ -668,32 +661,37 @@ mod valid {
         /// # Errors
         ///
         /// - Replacement signatures don't contain the leader signature
-        /// - Replacement signatures contain duplicate signatures
         /// - Replacement signatures contain unknown signatories
         /// - Replacement signatures contain incorrect signatures
+        /// - Replacement signatures contain duplicate signatures
         pub fn replace_signatures(
             &mut self,
             signatures: Vec<BlockSignature>,
             topology: &Topology,
         ) -> WithEvents<Result<Vec<BlockSignature>, SignatureVerificationError>> {
-            let prev_signatures = self.0.replace_signatures_unchecked(signatures);
+            let Ok(prev_signatures) = self.0.replace_signatures(signatures) else {
+                return WithEvents::new(Err(SignatureVerificationError::Other));
+            };
 
-            if let Err(err) = Self::verify_leader_signature(self.as_ref(), topology)
+            let result = if let Err(err) = Self::verify_leader_signature(self.as_ref(), topology)
                 .and_then(|()| Self::verify_validator_signatures(self.as_ref(), topology))
                 .and_then(|()| Self::verify_no_undefined_signatures(self.as_ref(), topology))
             {
-                self.0.replace_signatures_unchecked(prev_signatures);
-                WithEvents::new(Err(err))
+                self.0
+                    .replace_signatures(prev_signatures)
+                    .expect("INTERNAL BUG: invalid signatures in block");
+                Err(err)
             } else {
-                WithEvents::new(Ok(prev_signatures))
-            }
+                Ok(prev_signatures)
+            };
+
+            WithEvents::new(result)
         }
 
         /// commit block to the store.
         ///
         /// # Errors
         ///
-        /// - Block has duplicate proxy tail signatures
         /// - Block is not signed by the proxy tail
         /// - Block doesn't have enough signatures
         pub fn commit(
@@ -749,7 +747,6 @@ mod valid {
         ///
         /// # Errors
         ///
-        /// - Block has duplicate proxy tail signatures
         /// - Block is not signed by the proxy tail
         /// - Block doesn't have enough signatures
         fn is_commit(block: &SignedBlock, topology: &Topology) -> Result<(), BlockValidationError> {
@@ -780,32 +777,36 @@ mod valid {
 
         #[cfg(test)]
         pub(crate) fn new_dummy(leader_private_key: &PrivateKey) -> Self {
-            Self::new_dummy_and_modify_payload(leader_private_key, |_| {})
+            Self::new_dummy_and_modify_header(leader_private_key, |_| {})
         }
 
         #[cfg(test)]
-        pub(crate) fn new_dummy_and_modify_payload(
+        pub(crate) fn new_dummy_and_modify_header(
             leader_private_key: &PrivateKey,
-            f: impl FnOnce(&mut BlockPayload),
+            f: impl FnOnce(&mut BlockHeader),
         ) -> Self {
-            use nonzero_ext::nonzero;
-
-            let mut payload = BlockPayload {
-                header: BlockHeader {
-                    height: nonzero!(2_u64),
-                    prev_block_hash: None,
-                    transactions_hash: HashOf::from_untyped_unchecked(Hash::prehashed(
-                        [1; Hash::LENGTH],
-                    )),
-                    creation_time_ms: 0,
-                    view_change_index: 0,
-                },
-                transactions: Vec::new(),
+            let mut header = BlockHeader {
+                height: nonzero_ext::nonzero!(2_u64),
+                prev_block_hash: None,
+                transactions_hash: HashOf::from_untyped_unchecked(Hash::prehashed(
+                    [1; Hash::LENGTH],
+                )),
+                creation_time_ms: 0,
+                view_change_index: 0,
             };
-            f(&mut payload);
-            BlockBuilder(Chained(payload))
-                .sign(leader_private_key)
-                .unpack(|_| {})
+            f(&mut header);
+            let unverified_block = BlockBuilder(Chained {
+                header,
+                transactions: Vec::new(),
+            })
+            .sign(leader_private_key)
+            .unpack(|_| {});
+
+            Self(SignedBlock::presigned(
+                unverified_block.signature,
+                unverified_block.header,
+                unverified_block.transactions.into_iter().map(Into::into),
+            ))
         }
     }
 
@@ -993,6 +994,8 @@ mod commit {
 }
 
 mod event {
+    use new::NewBlock;
+
     use super::*;
     use crate::state::StateBlock;
 
@@ -1053,6 +1056,17 @@ mod event {
         pub(crate) fn unpack<F: Fn(PipelineEventBox)>(self, f: F) -> (B, E) {
             self.0 .1.produce_events().for_each(f);
             self.0
+        }
+    }
+
+    impl EventProducer for NewBlock {
+        fn produce_events(&self) -> impl Iterator<Item = PipelineEventBox> {
+            let block_event = BlockEvent {
+                header: self.header.clone(),
+                status: BlockStatus::Created,
+            };
+
+            core::iter::once(block_event.into())
         }
     }
 
@@ -1177,6 +1191,8 @@ mod tests {
         let valid_block = BlockBuilder::new(transactions)
             .chain(0, &mut state_block)
             .sign(alice_keypair.private_key())
+            .unpack(|_| {})
+            .categorize(&mut state_block)
             .unpack(|_| {});
 
         // The first transaction should be confirmed
@@ -1257,6 +1273,8 @@ mod tests {
         let valid_block = BlockBuilder::new(transactions)
             .chain(0, &mut state_block)
             .sign(alice_keypair.private_key())
+            .unpack(|_| {})
+            .categorize(&mut state_block)
             .unpack(|_| {});
 
         // The first transaction should fail
@@ -1321,6 +1339,8 @@ mod tests {
         let valid_block = BlockBuilder::new(transactions)
             .chain(0, &mut state_block)
             .sign(alice_keypair.private_key())
+            .unpack(|_| {})
+            .categorize(&mut state_block)
             .unpack(|_| {});
 
         // The first transaction should be rejected
@@ -1395,6 +1415,8 @@ mod tests {
         let valid_block = BlockBuilder::new(transactions)
             .chain(0, &mut state_block)
             .sign(genesis_correct_key.private_key())
+            .unpack(|_| {})
+            .categorize(&mut state_block)
             .unpack(|_| {});
 
         // Validate genesis block

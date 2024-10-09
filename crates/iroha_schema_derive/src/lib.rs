@@ -32,7 +32,7 @@ fn override_where_clause(
 ) -> Option<syn::WhereClause> {
     bounds
         .and_then(|bounds| emitter.handle(syn::parse_str(&format!("where {bounds}"))))
-        .unwrap_or(where_clause.cloned())
+        .unwrap_or_else(|| where_clause.cloned())
 }
 
 /// Derive [`iroha_schema::TypeId`]

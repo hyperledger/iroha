@@ -27,7 +27,7 @@ fn generate_genesis(
     chain_id: ChainId,
     genesis_key_pair: &KeyPair,
     topology: Vec<PeerId>,
-) -> Result<GenesisBlock, Box<dyn std::error::Error>> {
+) -> GenesisBlock {
     let builder = GenesisBuilder::default()
         .append_instruction(SetParameter::new(Parameter::Executor(
             SmartContractParameter::Fuel(NonZeroU64::MAX),
@@ -61,10 +61,10 @@ fn generate_genesis(
         .fold(builder, GenesisBuilder::append_instruction);
 
     let executor = Executor::new(load_sample_wasm("default_executor"));
-    Ok(builder.build_and_sign(chain_id, executor, topology, genesis_key_pair))
+    builder.build_and_sign(chain_id, executor, topology, genesis_key_pair)
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     let mut peer: TestPeer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         genesis_key_pair.public_key(),
     );
 
-    let genesis = generate_genesis(1_000_u32, chain_id, &genesis_key_pair, topology)?;
+    let genesis = generate_genesis(1_000_u32, chain_id, &genesis_key_pair, topology);
 
     let builder = PeerBuilder::new()
         .with_genesis(genesis)
@@ -88,6 +88,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     rt.block_on(builder.start_with_peer(&mut peer));
 
     wait_for_genesis_committed_with_max_retries(&vec![test_client.clone()], 0, 600);
-
-    Ok(())
 }

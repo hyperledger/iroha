@@ -741,21 +741,25 @@
   "BlockStatus": {
     "Enum": [
       {
-        "tag": "Approved",
+        "tag": "Created",
         "discriminant": 0
       },
       {
+        "tag": "Approved",
+        "discriminant": 1
+      },
+      {
         "tag": "Rejected",
-        "discriminant": 1,
+        "discriminant": 2,
         "type": "BlockRejectionReason"
       },
       {
         "tag": "Committed",
-        "discriminant": 2
+        "discriminant": 3
       },
       {
         "tag": "Applied",
-        "discriminant": 3
+        "discriminant": 4
       }
     ]
   },

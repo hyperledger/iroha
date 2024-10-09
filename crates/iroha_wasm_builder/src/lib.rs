@@ -364,7 +364,7 @@ impl Output {
 fn cargo_command() -> Command {
     const INSTRUMENT_COVERAGE_FLAG: &str = "instrument-coverage";
     for var in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {
-        if let Some(value) = env::var(var).ok() {
+        if let Ok(value) = env::var(var) {
             if value.contains(INSTRUMENT_COVERAGE_FLAG) {
                 eprintln!("WARNING: found `{INSTRUMENT_COVERAGE_FLAG}` rustc flag in `{var}` environment variable\n  \
                            This directly interferes with `-Z build-std` flag set by `iroha_wasm_builder`\n  \

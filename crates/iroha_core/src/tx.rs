@@ -29,8 +29,8 @@ use crate::{
 
 /// `AcceptedTransaction` — a transaction accepted by Iroha peer.
 #[derive(Debug, Clone, PartialEq, Eq)]
-// FIX: Inner field should be private to maintain invariants
-pub struct AcceptedTransaction(pub(crate) SignedTransaction);
+#[repr(transparent)]
+pub struct AcceptedTransaction(pub(super) SignedTransaction);
 
 /// Verification failed of some signature due to following reason
 #[derive(Debug, Clone, PartialEq, Eq)]
