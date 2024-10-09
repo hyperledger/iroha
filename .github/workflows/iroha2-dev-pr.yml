@@ -20,6 +20,7 @@ env:
   IROHA_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
   DOCKER_COMPOSE_PATH: defaults
   WASM_SAMPLES_TARGET_DIR: wasm_samples/target/prebuilt
+  TEST_NETWORK_TMP_DIR: /tmp
 
 jobs:
   consistency:
@@ -127,6 +128,12 @@ jobs:
         with:
           name: report-coverage
           path: lcov.info
+      - name: Upload test network artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test_network_runs
+          path: ${{ env.TEST_NETWORK_TMP_DIR }}/irohad_test_network_*
 
   # Run the job to check that the docker containers are properly buildable
   pr-generator-build:
