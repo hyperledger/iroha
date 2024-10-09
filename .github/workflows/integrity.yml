@@ -1,4 +1,4 @@
-name: pull_request
+name: integrity
 
 on:
   pull_request:
@@ -92,6 +92,7 @@ jobs:
         run: |
           poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
 
+
   build_wasm_samples:
     runs-on: ubuntu-latest
     container:
@@ -180,7 +181,6 @@ jobs:
       - name: Run smart contract tests on WebAssembly VM
         working-directory: crates/iroha_smart_contract
         run: mold --run cargo test -p iroha_smart_contract -p iroha_smart_contract_utils --release --tests --target wasm32-unknown-unknown --no-fail-fast --quiet
-
 
   # Run the job to check that the docker containers are properly buildable
   image_build_push:

@@ -1,8 +1,8 @@
-name: pull_request/sonar_dojo
+name: sonar_dojo
 
 on:
   workflow_run:
-    workflows: ["pull_request"]
+    workflows: ["integrity"]
     types: [completed]
 
 concurrency:

@@ -1,4 +1,4 @@
-name: pull_request/labels
+name: labels
 
 on:
   pull_request_target:
