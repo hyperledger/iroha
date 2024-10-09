@@ -8,8 +8,8 @@ use iroha_test_samples::ALICE_ID;
 
 #[test]
 fn failed_trigger_revert() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_150).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     //When
     let trigger_id = "trigger".parse::<TriggerId>()?;

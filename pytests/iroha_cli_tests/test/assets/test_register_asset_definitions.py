@@ -105,6 +105,7 @@ def test_register_asset_with_not_existing_domain(
         iroha_cli.should(have.error(Stderr.FAILED_TO_FIND_DOMAIN.value))
 
 
+# FIXME: this should not work anymore
 @allure.label("sdk_test_id", "register_asset_with_too_long_type")
 def test_register_asset_with_too_long_type(
     GIVEN_fake_asset_name, GIVEN_registered_domain

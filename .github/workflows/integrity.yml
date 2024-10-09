@@ -1,4 +1,4 @@
-name: I2::Dev::Tests
+name: integrity
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ on:
       - '**.toml'
       - '**.lock'
       - '**.py'
-      - '.github/workflows/iroha2-dev-pr.yml'
+      - 'pull_request.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +20,7 @@ env:
   IROHA_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
   DOCKER_COMPOSE_PATH: defaults
   WASM_SAMPLES_TARGET_DIR: wasm_samples/target/prebuilt
+  TEST_NETWORK_TMP_DIR: /tmp
 
 jobs:
   consistency:
@@ -45,7 +46,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Format
+        if: always()
         run: cargo fmt --all -- --check
+      - name: Format (wasm_samples)
+        run: cargo fmt --manifest-path wasm_samples/Cargo.toml --all -- --check
       - name: Lints without features
         if: always()
         run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
@@ -60,6 +64,34 @@ jobs:
         with:
           name: report-clippy
           path: clippy.json
+
+  python_static_analysis:
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-09-09
+    strategy:
+      matrix:
+        suite: [iroha_cli_tests, iroha_torii_tests]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies using Poetry for pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
+        run: |
+          poetry lock --no-update
+          poetry install
+      - name: Check code formatting with Black in pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
+        run: |
+          poetry run black --check .
+      - name: Run mypy (Type Checker) in pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
+        run: |
+          poetry run mypy --explicit-package-bases --ignore-missing-imports .
+      - name: Run flake8 (Linter) in pytests/${{ matrix.suite }}
+        working-directory: pytests/${{ matrix.suite }}
+        run: |
+          poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
+
 
   build_wasm_samples:
     runs-on: ubuntu-latest
@@ -83,7 +115,7 @@ jobs:
           path: ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
           retention-days: 1
 
-  unit_tests_with_coverage:
+  test_with_coverage:
     runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
@@ -92,29 +124,32 @@ jobs:
       LLVM_PROFILE_FILE_NAME: "iroha-%p-%m.profraw"
     steps:
       - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@cargo-llvm-cov
       - name: Download executor.wasm
         uses: actions/download-artifact@v4
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
-      - uses: taiki-e/install-action@nextest
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Run unit tests (no default features)
+      - name: Download the rest of WASM samples
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm_samples
+          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
+      - name: Install irohad
+        run: which irohad || cargo install --path crates/irohad --locked
+      - name: Test with no default features
         run: >
           mold --run cargo llvm-cov nextest
-          --no-fail-fast
-          --workspace --lib
+          --profile ci
           --no-default-features
-          --branch
-          --no-report
-      - name: Run unit tests (all features)
+          --branch --no-report
+      - name: Test with all features
         run: >
           mold --run cargo llvm-cov nextest
-          --no-fail-fast
-          --workspace --lib
+          --profile ci
           --all-features
-          --branch
-          --no-report
+          --branch --no-report
       - name: Generate lcov report
         run: cargo llvm-cov report --lcov --output-path lcov.info
       - name: Upload lcov report
@@ -122,15 +157,18 @@ jobs:
         with:
           name: report-coverage
           path: lcov.info
+      - name: Upload test network artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test_network_runs
+          path: ${{ env.TEST_NETWORK_TMP_DIR }}/irohad_test_network_*
 
-  # include: iroha/tests/integration/
-  # exclude: iroha/tests/integration/extra_functional
-  integration:
-    runs-on: [self-hosted, Linux, iroha2]
+  test_wasms:
+    runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     needs: build_wasm_samples
-    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Download executor.wasm
@@ -138,51 +176,14 @@ jobs:
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
-      - name: Download the rest of WASM samples
-        uses: actions/download-artifact@v4
-        with:
-          name: wasm_samples
-          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
-      - uses: taiki-e/install-action@nextest
-      - name: Run integration tests, with all features
-        run: >
-          mold --run cargo nextest run 
-          --all-features
-          --no-fail-fast 
-          --failure-output immediate-final 
-          -E 'package(iroha) and test(integration) and not test(extra_functional)'
-
-  # include: iroha/tests/integration/extra_functional
-  extra_functional:
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-09-09
-    needs: build_wasm_samples
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download executor.wasm
-        uses: actions/download-artifact@v4
-        with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}
-      - name: Download the rest of WASM samples
-        uses: actions/download-artifact@v4
-        with:
-          name: wasm_samples
-          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
-      - uses: taiki-e/install-action@nextest
-      - name: Run integration tests, with all features
-        run: >
-          mold --run cargo nextest run 
-          --all-features
-          --no-fail-fast 
-          --failure-output final 
-          --test-threads 1
-          -E 'test(extra_functional)'
+      - name: Install iroha_wasm_test_runner
+        run: which iroha_wasm_test_runner || cargo install --path crates/iroha_wasm_test_runner
+      - name: Run smart contract tests on WebAssembly VM
+        working-directory: crates/iroha_smart_contract
+        run: mold --run cargo test -p iroha_smart_contract -p iroha_smart_contract_utils --release --tests --target wasm32-unknown-unknown --no-fail-fast --quiet
 
   # Run the job to check that the docker containers are properly buildable
-  pr-generator-build:
+  image_build_push:
     # Job will only execute if the head of the pull request is a branch for PR-generator case
     if: startsWith(github.head_ref, 'iroha2-pr-deploy/')
     runs-on: [self-hosted, Linux, iroha2]

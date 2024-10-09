@@ -1,4 +1,4 @@
-name: I2::CI::Publish
+name: publish/manual
 
 on:
   workflow_dispatch:

@@ -1,5 +1,3 @@
-use std::thread;
-
 use eyre::Result;
 use iroha::{
     client,
@@ -11,7 +9,6 @@ use iroha::{
         transaction::error::TransactionRejectionReason,
     },
 };
-use iroha_config::parameters::actual::Root as Config;
 use iroha_executor_data_model::permission::asset::CanTransferAsset;
 use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID};
@@ -20,8 +17,8 @@ use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 // This test is also covered at the UI level in the iroha_cli tests
 // in test_register_asset_definitions.py
 fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_620).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -36,22 +33,21 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
         0_u32,
     ));
 
-    test_client
-        .submit_all::<InstructionBox>([create_asset.into(), register_asset.clone().into()])?;
+    test_client.submit_all_blocking::<InstructionBox>([
+        create_asset.into(),
+        register_asset.clone().into(),
+    ])?;
 
     // Registering an asset to an account which doesn't have one
     // should result in asset being created
-    test_client.poll(move |client| {
-        let assets = client
-            .query(client::asset::all())
-            .filter_with(|asset| asset.id.account.eq(account_id))
-            .execute_all()?;
-
-        Ok(assets.iter().any(|asset| {
-            *asset.id().definition() == asset_definition_id
-                && *asset.value() == AssetValue::Numeric(Numeric::ZERO)
-        }))
-    })?;
+    let asset = test_client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(account_id))
+        .execute_all()?
+        .into_iter()
+        .find(|asset| *asset.id().definition() == asset_definition_id)
+        .unwrap();
+    assert_eq!(*asset.value(), AssetValue::Numeric(Numeric::ZERO));
 
     // But registering an asset to account already having one should fail
     assert!(test_client.submit_blocking(register_asset).is_err());
@@ -61,8 +57,8 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
 
 #[test]
 fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_555).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -76,33 +72,29 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
     let register_asset = Register::asset(Asset::new(asset_id.clone(), 0_u32)).into();
     let unregister_asset = Unregister::asset(asset_id);
 
-    test_client.submit_all([create_asset, register_asset])?;
+    test_client.submit_all_blocking([create_asset, register_asset])?;
 
-    // Wait for asset to be registered
-    test_client.poll(|client| {
-        let assets = client
-            .query(client::asset::all())
-            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
-            .execute_all()?;
+    // Check for asset to be registered
+    let assets = test_client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+        .execute_all()?;
 
-        Ok(assets
-            .iter()
-            .any(|asset| *asset.id().definition() == asset_definition_id))
-    })?;
+    assert!(assets
+        .iter()
+        .any(|asset| *asset.id().definition() == asset_definition_id));
 
-    test_client.submit(unregister_asset)?;
+    test_client.submit_blocking(unregister_asset)?;
 
     // ... and check that it is removed after Unregister
-    test_client.poll(|client| {
-        let assets = client
-            .query(client::asset::all())
-            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
-            .execute_all()?;
+    let assets = test_client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+        .execute_all()?;
 
-        Ok(assets
-            .iter()
-            .all(|asset| *asset.id().definition() != asset_definition_id))
-    })?;
+    assert!(assets
+        .iter()
+        .all(|asset| *asset.id().definition() != asset_definition_id));
 
     Ok(())
 }
@@ -111,8 +103,8 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
 // This test is also covered at the UI level in the iroha_cli tests
 // in test_mint_assets.py
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_000).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -130,25 +122,23 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     );
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata);
-    test_client.submit_transaction(&tx)?;
-    test_client.poll(|client| {
-        let assets = client
-            .query(client::asset::all())
-            .filter_with(|asset| asset.id.account.eq(account_id))
-            .execute_all()?;
+    test_client.submit_transaction_blocking(&tx)?;
 
-        Ok(assets.iter().any(|asset| {
-            *asset.id().definition() == asset_definition_id
-                && *asset.value() == AssetValue::Numeric(quantity)
-        }))
-    })?;
+    let asset = test_client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(account_id))
+        .execute_all()?
+        .into_iter()
+        .find(|asset| *asset.id().definition() == asset_definition_id)
+        .unwrap();
+    assert_eq!(*asset.value(), AssetValue::Numeric(quantity));
     Ok(())
 }
 
 #[test]
 fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_510).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -158,7 +148,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     let create_asset =
         Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let metadata = iroha::data_model::metadata::Metadata::default();
-    //When
+    // When
     let quantity = Numeric::new(2_u128.pow(65), 0);
     let mint = Mint::asset_numeric(
         quantity,
@@ -166,25 +156,23 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     );
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata);
-    test_client.submit_transaction(&tx)?;
-    test_client.poll(|client| {
-        let assets = client
-            .query(client::asset::all())
-            .filter_with(|asset| asset.id.account.eq(account_id))
-            .execute_all()?;
+    test_client.submit_transaction_blocking(&tx)?;
 
-        Ok(assets.iter().any(|asset| {
-            *asset.id().definition() == asset_definition_id
-                && *asset.value() == AssetValue::Numeric(quantity)
-        }))
-    })?;
+    let asset = test_client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(account_id))
+        .execute_all()?
+        .into_iter()
+        .find(|asset| *asset.id().definition() == asset_definition_id)
+        .unwrap();
+    assert_eq!(*asset.value(), AssetValue::Numeric(quantity));
     Ok(())
 }
 
 #[test]
 fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_515).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     // Given
     let account_id = ALICE_ID.clone();
@@ -203,18 +191,16 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     );
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata);
-    test_client.submit_transaction(&tx)?;
-    test_client.poll(|client| {
-        let assets = client
-            .query(client::asset::all())
-            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
-            .execute_all()?;
+    test_client.submit_transaction_blocking(&tx)?;
 
-        Ok(assets.iter().any(|asset| {
-            *asset.id().definition() == asset_definition_id
-                && *asset.value() == AssetValue::Numeric(quantity)
-        }))
-    })?;
+    let asset = test_client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+        .execute_all()?
+        .into_iter()
+        .find(|asset| *asset.id().definition() == asset_definition_id)
+        .unwrap();
+    assert_eq!(*asset.value(), AssetValue::Numeric(quantity));
 
     // Add some fractional part
     let quantity2 = numeric!(0.55);
@@ -226,65 +212,16 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let sum = quantity
         .checked_add(quantity2)
         .ok_or_else(|| eyre::eyre!("overflow"))?;
-    test_client.submit(mint)?;
-    test_client.poll(|client| {
-        let assets = client
-            .query(client::asset::all())
-            .filter_with(|asset| asset.id.account.eq(account_id))
-            .execute_all()?;
+    test_client.submit_blocking(mint)?;
 
-        Ok(assets.iter().any(|asset| {
-            *asset.id().definition() == asset_definition_id
-                && *asset.value() == AssetValue::Numeric(sum)
-        }))
-    })?;
-    Ok(())
-}
-
-#[test]
-// This test is also covered at the UI level in the iroha_cli tests
-// in test_register_asset_definitions.py
-fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_520).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
-    let pipeline_time = Config::pipeline_time();
-
-    // Given
-    let normal_asset_definition_id = "xor#wonderland"
-        .parse::<AssetDefinitionId>()
-        .expect("Valid");
-    let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(normal_asset_definition_id.clone()));
-    test_client.submit(create_asset)?;
-    iroha_logger::info!("Creating asset");
-
-    let too_long_asset_name = "0".repeat(2_usize.pow(14));
-    let incorrect_asset_definition_id = (too_long_asset_name + "#wonderland")
-        .parse::<AssetDefinitionId>()
-        .expect("Valid");
-    let create_asset = Register::asset_definition(AssetDefinition::numeric(
-        incorrect_asset_definition_id.clone(),
-    ));
-
-    test_client.submit(create_asset)?;
-    iroha_logger::info!("Creating another asset");
-    thread::sleep(pipeline_time * 4);
-
-    let mut asset_definition_ids = test_client
-        .query(client::asset::all_definitions())
-        .execute_all()
-        .expect("Failed to execute request.")
+    let asset = test_client
+        .query(client::asset::all())
+        .filter_with(|asset| asset.id.account.eq(account_id))
+        .execute_all()?
         .into_iter()
-        .map(|asset| asset.id().clone());
-    iroha_logger::debug!(
-        "Collected asset definitions ID's: {:?}",
-        &asset_definition_ids
-    );
-
-    assert!(asset_definition_ids
-        .any(|asset_definition_id| asset_definition_id == normal_asset_definition_id));
-    assert!(!asset_definition_ids
-        .any(|asset_definition_id| asset_definition_id == incorrect_asset_definition_id));
+        .find(|asset| *asset.id().definition() == asset_definition_id)
+        .unwrap();
+    assert_eq!(*asset.value(), AssetValue::Numeric(sum));
 
     Ok(())
 }
@@ -294,8 +231,8 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
 #[allow(clippy::expect_fun_call)]
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_675).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let test_client = network.client();
 
     let (dex_id, _dex_keypair) = gen_account_in("exchange");
     let (seller_id, seller_keypair) = gen_account_in("company");
@@ -388,8 +325,8 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
 #[test]
 fn transfer_asset_definition() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_060).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let test_client = network.client();
 
     let alice_id = ALICE_ID.clone();
     let bob_id = BOB_ID.clone();
@@ -426,8 +363,8 @@ fn transfer_asset_definition() {
 
 #[test]
 fn fail_if_dont_satisfy_spec() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_125).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let test_client = network.client();
 
     let alice_id = ALICE_ID.clone();
     let bob_id = BOB_ID.clone();

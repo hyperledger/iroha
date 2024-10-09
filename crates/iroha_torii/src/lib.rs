@@ -39,10 +39,7 @@ use tower_http::{
     timeout::TimeoutLayer,
     trace::{DefaultMakeSpan, TraceLayer},
 };
-use utils::{
-    extractors::{ExtractAccept, ScaleVersioned},
-    Scale,
-};
+use utils::{extractors::ScaleVersioned, Scale};
 
 #[macro_use]
 pub(crate) mod utils;
@@ -115,7 +112,7 @@ impl Torii {
                 &format!("{}/*tail", uri::STATUS),
                 get({
                     let metrics_reporter = self.metrics_reporter.clone();
-                    move |accept: Option<ExtractAccept>, axum::extract::Path(tail): axum::extract::Path<String>| {
+                    move |accept: Option<utils::extractors::ExtractAccept>, axum::extract::Path(tail): axum::extract::Path<String>| {
                         core::future::ready(routing::handle_status(
                             &metrics_reporter,
                             accept.map(|extract| extract.0),
@@ -128,7 +125,7 @@ impl Torii {
                 uri::STATUS,
                 get({
                     let metrics_reporter = self.metrics_reporter.clone();
-                    move |accept: Option<ExtractAccept>| {
+                    move |accept: Option<utils::extractors::ExtractAccept>| {
                         core::future::ready(routing::handle_status(&metrics_reporter, accept.map(|extract| extract.0), None))
                     }
                 }),

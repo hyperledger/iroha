@@ -1,8 +1,8 @@
-name: I2::Dev::Sonar-Dojo
+name: sonar_dojo
 
 on:
   workflow_run:
-    workflows: ["I2::Dev::Tests"]
+    workflows: ["integrity"]
     types: [completed]
 
 concurrency:

@@ -16,7 +16,6 @@ categories = ["cryptography::cryptocurrencies"]
 [workspace.dependencies]
 iroha_core = { version = "=2.0.0-rc.1.0 ", path = "crates/iroha_core" }
 
-irohad = { version = "=2.0.0-rc.1.0", path = "crates/irohad" }
 iroha_torii = { version = "=2.0.0-rc.1.0", path = "crates/iroha_torii" }
 iroha_torii_const = { version = "=2.0.0-rc.1.0", path = "crates/iroha_torii_const" }
 
@@ -58,7 +57,7 @@ darling = "0.20.10"
 drop_bomb = "0.1.5"
 
 futures = { version = "0.3.30", default-features = false }
-tokio = "1.39.2"
+tokio = "1.40.0"
 tokio-stream = "0.1.15"
 tokio-tungstenite = "0.21.0"
 tokio-util = "0.7.11"
@@ -128,9 +127,9 @@ mv = { version = "0.1.0" }
 [workspace.lints]
 rustdoc.private_doc_tests = "deny"
 
-rust.future_incompatible = {level = "deny", priority = -1 }
-rust.nonstandard_style = {level = "deny", priority = -1 }
-rust.rust_2018_idioms = {level = "deny", priority = -1 }
+rust.future_incompatible = { level = "deny", priority = -1 }
+rust.nonstandard_style = { level = "deny", priority = -1 }
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rust.unused = { level = "deny", priority = -1 }
 
 rust.anonymous_parameters = "deny"
