@@ -15,17 +15,18 @@ static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 
-#[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
+#[derive(Visit, Execute, Entrypoints)]
 struct Executor {
+    host: Iroha,
+    context: Context,
     verdict: Result,
-    block_height: u64,
 }
 
 #[entrypoint]
-fn migrate(_block_height: u64) {
+fn migrate(host: Iroha, _context: Context) {
     // Note that actually migration will reset token schema to default (minus `CanUnregisterDomain`)
     // So any added custom permission tokens will be also removed
     DataModelBuilder::with_default_permissions()
         .remove_permission::<CanUnregisterDomain>()
-        .build_and_set();
+        .build_and_set(&host);
 }

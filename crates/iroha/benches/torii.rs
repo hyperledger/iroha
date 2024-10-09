@@ -70,10 +70,10 @@ fn query_requests(criterion: &mut Criterion) {
         format!("http://{}", peer.api_address).parse().unwrap(),
     );
 
-    let iroha = Client::new(client_config);
+    let client = Client::new(client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
 
-    let _ = iroha
+    let _ = client
         .submit_all::<InstructionBox>([
             create_domain.into(),
             create_account.into(),
@@ -82,7 +82,7 @@ fn query_requests(criterion: &mut Criterion) {
         ])
         .expect("Failed to prepare state");
 
-    let query = iroha
+    let query = client
         .query(asset::all())
         .filter_with(|asset| asset.id.account.eq(account_id));
     thread::sleep(std::time::Duration::from_millis(1500));
@@ -151,9 +151,9 @@ fn instruction_submits(criterion: &mut Criterion) {
         get_key_pair(iroha_test_network::Signatory::Alice),
         format!("http://{}", peer.api_address).parse().unwrap(),
     );
-    let iroha = Client::new(client_config);
+    let client = Client::new(client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
-    let _ = iroha
+    let _ = client
         .submit_all::<InstructionBox>([create_domain.into(), create_account.into()])
         .expect("Failed to create role.");
     thread::sleep(std::time::Duration::from_millis(500));
@@ -165,7 +165,7 @@ fn instruction_submits(criterion: &mut Criterion) {
                 200u32,
                 AssetId::new(asset_definition_id.clone(), account_id.clone()),
             );
-            match iroha.submit(mint_asset) {
+            match client.submit(mint_asset) {
                 Ok(_) => success_count += 1,
                 Err(e) => {
                     eprintln!("Failed to execute instruction: {e}");

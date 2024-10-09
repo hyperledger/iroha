@@ -278,7 +278,7 @@ impl StateBlock<'_> {
             .world
             .executor
             .clone() // Cloning executor is a cheap operation
-            .validate_transaction(state_transaction, &authority, tx)
+            .execute_transaction(state_transaction, &authority, tx)
             .map_err(|error| {
                 if let ValidationFail::InternalError(msg) = &error {
                     error!(

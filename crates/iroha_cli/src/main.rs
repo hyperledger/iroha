@@ -233,15 +233,15 @@ fn submit(
     metadata: Metadata,
     context: &mut dyn RunContext,
 ) -> Result<()> {
-    let iroha = context.client_from_config();
+    let client = context.client_from_config();
     let instructions = instructions.into();
-    let tx = iroha.build_transaction(instructions, metadata);
+    let tx = client.build_transaction(instructions, metadata);
 
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to submit transaction.";
     #[cfg(debug_assertions)]
     let err_msg = format!("Failed to submit transaction {tx:?}");
-    let hash = iroha.submit_transaction_blocking(&tx).wrap_err(err_msg)?;
+    let hash = client.submit_transaction_blocking(&tx).wrap_err(err_msg)?;
     context.print_data(&hash)?;
 
     Ok(())
@@ -333,9 +333,9 @@ mod events {
 
     fn listen(filter: impl Into<EventFilterBox>, context: &mut dyn RunContext) -> Result<()> {
         let filter = filter.into();
-        let iroha = context.client_from_config();
+        let client = context.client_from_config();
         eprintln!("Listening to events with filter: {filter:?}");
-        iroha
+        client
             .listen_for_events([filter])
             .wrap_err("Failed to listen for events.")?
             .try_for_each(|event| context.print_data(&event?))?;
@@ -363,9 +363,9 @@ mod blocks {
     }
 
     fn listen(height: NonZeroU64, context: &mut dyn RunContext) -> Result<()> {
-        let iroha = context.client_from_config();
+        let client = context.client_from_config();
         eprintln!("Listening to blocks from height: {height}");
-        iroha
+        client
             .listen_for_blocks(height)
             .wrap_err("Failed to listen for blocks.")?
             .try_for_each(|event| context.print_data(&event?))?;
@@ -909,8 +909,8 @@ mod asset {
     impl RunArgs for Get {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { id: asset_id } = self;
-            let iroha = context.client_from_config();
-            let asset = iroha
+            let client = context.client_from_config();
+            let asset = client
                 .query(asset::all())
                 .filter_with(|asset| asset.id.eq(asset_id))
                 .execute_single()

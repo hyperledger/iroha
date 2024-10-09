@@ -5,9 +5,12 @@ use eyre::{eyre, Result, WrapErr};
 use iroha::{
     client::{self, Client},
     crypto::KeyPair,
-    data_model::{prelude::*, query::error::FindError, transaction::Executable},
+    data_model::{
+        prelude::*,
+        query::{builder::SingleQueryError, error::FindError, trigger::FindTriggers},
+        transaction::Executable,
+    },
 };
-use iroha_data_model::query::{builder::SingleQueryError, trigger::FindTriggers};
 use iroha_executor_data_model::permission::trigger::CanRegisterTrigger;
 use iroha_genesis::GenesisBlock;
 use iroha_logger::info;
@@ -653,8 +656,8 @@ fn call_execute_trigger_with_args() -> Result<()> {
 
     test_client.submit_blocking(Register::trigger(trigger))?;
 
-    let args: MintRoseArgs = MintRoseArgs { val: 42 };
-    let call_trigger = ExecuteTrigger::new(trigger_id).with_args(&args);
+    let args = &MintRoseArgs { val: 42 };
+    let call_trigger = ExecuteTrigger::new(trigger_id).with_args(args);
     test_client.submit_blocking(call_trigger)?;
 
     let new_value = get_asset_value(&mut test_client, asset_id);

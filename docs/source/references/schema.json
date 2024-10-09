@@ -921,7 +921,7 @@
       }
     ]
   },
-  "CanTransferAssetsWithDefinition": {
+  "CanTransferAssetWithDefinition": {
     "Struct": [
       {
         "name": "asset_definition",
@@ -1695,7 +1695,7 @@
       },
       {
         "name": "args",
-        "type": "Option<JsonString>"
+        "type": "JsonString"
       }
     ]
   },
@@ -1711,7 +1711,7 @@
       },
       {
         "name": "args",
-        "type": "Option<JsonString>"
+        "type": "JsonString"
       }
     ]
   },
@@ -2680,9 +2680,6 @@
   },
   "Option<IpfsPath>": {
     "Option": "IpfsPath"
-  },
-  "Option<JsonString>": {
-    "Option": "JsonString"
   },
   "Option<Name>": {
     "Option": "Name"

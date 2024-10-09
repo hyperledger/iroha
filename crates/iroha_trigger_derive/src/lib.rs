@@ -9,8 +9,12 @@ mod entrypoint;
 /// Annotate the user-defined function that starts the execution of the trigger.
 ///
 /// Requires function to accept two arguments of types:
-/// 1. `AccountId`, which represents the trigger owner
-/// 2. `Event`, which represents the event which triggered this trigger execution
+/// 1. `host: Iroha` - handle to the host system (use it to execute instructions and queries)
+/// 2. `context: Context` - context of the execution (authority, triggering event, etc)
+///
+/// # Panics
+///
+/// - If function has a return type
 ///
 /// # Examples
 ///
@@ -18,7 +22,7 @@ mod entrypoint;
 /// use iroha_trigger::prelude::*;
 ///
 /// #[main]
-/// fn main(owner: AccountId, event: Event) {
+/// fn main(host: Iroha, context: Context) {
 ///     todo!()
 /// }
 /// ```

@@ -930,7 +930,7 @@ mod transparent {
             /// Id of a trigger to execute
             pub trigger: TriggerId,
             /// Arguments to trigger execution
-            pub args: Option<JsonString>,
+            pub args: JsonString,
         }
     }
 
@@ -939,14 +939,14 @@ mod transparent {
         pub fn new(trigger: TriggerId) -> Self {
             Self {
                 trigger,
-                args: None,
+                args: JsonString::default(),
             }
         }
 
         /// Add trigger execution args
         #[must_use]
         pub fn with_args<T: serde::Serialize>(mut self, args: &T) -> Self {
-            self.args = Some(JsonString::new(args));
+            self.args = JsonString::new(args);
             self
         }
     }

@@ -13,8 +13,8 @@ use crate::{
 
 macro_rules! delegate {
     ( $($visitor:ident $(<$param:ident $(: $bound:path)?>)?($operation:ty)),+ $(,)? ) => { $(
-        fn $visitor$(<$param $(: $bound)?>)?(&mut self, authority: &AccountId, operation: $operation) {
-            $visitor(self, authority, operation);
+        fn $visitor$(<$param $(: $bound)?>)?(&mut self, operation: $operation) {
+            $visitor(self, operation);
         } )+
     };
 }
@@ -137,30 +137,22 @@ pub trait Visit {
     }
 }
 
-pub fn visit_transaction<V: Visit + ?Sized>(
-    visitor: &mut V,
-    authority: &AccountId,
-    transaction: &SignedTransaction,
-) {
+pub fn visit_transaction<V: Visit + ?Sized>(visitor: &mut V, transaction: &SignedTransaction) {
     match transaction.instructions() {
-        Executable::Wasm(wasm) => visitor.visit_wasm(authority, wasm),
+        Executable::Wasm(wasm) => visitor.visit_wasm(wasm),
         Executable::Instructions(instructions) => {
             for isi in instructions {
-                visitor.visit_instruction(authority, isi);
+                visitor.visit_instruction(isi);
             }
         }
     }
 }
 
-pub fn visit_singular_query<V: Visit + ?Sized>(
-    visitor: &mut V,
-    authority: &AccountId,
-    query: &SingularQueryBox,
-) {
+pub fn visit_singular_query<V: Visit + ?Sized>(visitor: &mut V, query: &SingularQueryBox) {
     macro_rules! singular_query_visitors {
         ( $($visitor:ident($query:ident)),+ $(,)? ) => {
             match query { $(
-                SingularQueryBox::$query(query) => visitor.$visitor(authority, &query), )+
+                SingularQueryBox::$query(query) => visitor.$visitor(&query), )+
             }
         };
     }
@@ -177,15 +169,11 @@ pub fn visit_singular_query<V: Visit + ?Sized>(
     }
 }
 
-pub fn visit_iter_query<V: Visit + ?Sized>(
-    visitor: &mut V,
-    authority: &AccountId,
-    query: &QueryWithParams,
-) {
+pub fn visit_iter_query<V: Visit + ?Sized>(visitor: &mut V, query: &QueryWithParams) {
     macro_rules! iterable_query_visitors {
         ( $($visitor:ident($query:ident)),+ $(,)? ) => {
             match &query.query { $(
-                QueryBox::$query(query) => visitor.$visitor(authority, &query), )+
+                QueryBox::$query(query) => visitor.$visitor(&query), )+
             }
         };
     }
@@ -209,176 +197,133 @@ pub fn visit_iter_query<V: Visit + ?Sized>(
     }
 }
 
-pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, query: &AnyQueryBox) {
+pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, query: &AnyQueryBox) {
     match query {
-        AnyQueryBox::Singular(query) => visitor.visit_singular_query(authority, query),
-        AnyQueryBox::Iterable(query) => visitor.visit_iter_query(authority, query),
+        AnyQueryBox::Singular(query) => visitor.visit_singular_query(query),
+        AnyQueryBox::Iterable(query) => visitor.visit_iter_query(query),
     }
 }
 
-pub fn visit_wasm<V: Visit + ?Sized>(
-    _visitor: &mut V,
-    _authority: &AccountId,
-    _wasm: &WasmSmartContract,
-) {
-}
+pub fn visit_wasm<V: Visit + ?Sized>(_visitor: &mut V, _wasm: &WasmSmartContract) {}
 
 /// Default validation for [`InstructionBox`].
 ///
 /// # Warning
 ///
 /// Instruction is executed following successful validation
-pub fn visit_instruction<V: Visit + ?Sized>(
-    visitor: &mut V,
-    authority: &AccountId,
-    isi: &InstructionBox,
-) {
+pub fn visit_instruction<V: Visit + ?Sized>(visitor: &mut V, isi: &InstructionBox) {
     match isi {
-        InstructionBox::SetParameter(variant_value) => {
-            visitor.visit_set_parameter(authority, variant_value)
-        }
+        InstructionBox::SetParameter(variant_value) => visitor.visit_set_parameter(variant_value),
         InstructionBox::ExecuteTrigger(variant_value) => {
-            visitor.visit_execute_trigger(authority, variant_value)
+            visitor.visit_execute_trigger(variant_value)
         }
-        InstructionBox::Log(variant_value) => visitor.visit_log(authority, variant_value),
-        InstructionBox::Burn(variant_value) => visitor.visit_burn(authority, variant_value),
-        InstructionBox::Grant(variant_value) => visitor.visit_grant(authority, variant_value),
-        InstructionBox::Mint(variant_value) => visitor.visit_mint(authority, variant_value),
-        InstructionBox::Register(variant_value) => visitor.visit_register(authority, variant_value),
+        InstructionBox::Log(variant_value) => visitor.visit_log(variant_value),
+        InstructionBox::Burn(variant_value) => visitor.visit_burn(variant_value),
+        InstructionBox::Grant(variant_value) => visitor.visit_grant(variant_value),
+        InstructionBox::Mint(variant_value) => visitor.visit_mint(variant_value),
+        InstructionBox::Register(variant_value) => visitor.visit_register(variant_value),
         InstructionBox::RemoveKeyValue(variant_value) => {
-            visitor.visit_remove_key_value(authority, variant_value)
+            visitor.visit_remove_key_value(variant_value)
         }
-        InstructionBox::Revoke(variant_value) => visitor.visit_revoke(authority, variant_value),
-        InstructionBox::SetKeyValue(variant_value) => {
-            visitor.visit_set_key_value(authority, variant_value)
-        }
-        InstructionBox::Transfer(variant_value) => visitor.visit_transfer(authority, variant_value),
-        InstructionBox::Unregister(variant_value) => {
-            visitor.visit_unregister(authority, variant_value)
-        }
-        InstructionBox::Upgrade(variant_value) => visitor.visit_upgrade(authority, variant_value),
-        InstructionBox::Custom(custom) => visitor.visit_custom(authority, custom),
+        InstructionBox::Revoke(variant_value) => visitor.visit_revoke(variant_value),
+        InstructionBox::SetKeyValue(variant_value) => visitor.visit_set_key_value(variant_value),
+        InstructionBox::Transfer(variant_value) => visitor.visit_transfer(variant_value),
+        InstructionBox::Unregister(variant_value) => visitor.visit_unregister(variant_value),
+        InstructionBox::Upgrade(variant_value) => visitor.visit_upgrade(variant_value),
+        InstructionBox::Custom(custom) => visitor.visit_custom(custom),
     }
 }
 
-pub fn visit_register<V: Visit + ?Sized>(
-    visitor: &mut V,
-    authority: &AccountId,
-    isi: &RegisterBox,
-) {
+pub fn visit_register<V: Visit + ?Sized>(visitor: &mut V, isi: &RegisterBox) {
     match isi {
-        RegisterBox::Peer(obj) => visitor.visit_register_peer(authority, obj),
-        RegisterBox::Domain(obj) => visitor.visit_register_domain(authority, obj),
-        RegisterBox::Account(obj) => visitor.visit_register_account(authority, obj),
-        RegisterBox::AssetDefinition(obj) => {
-            visitor.visit_register_asset_definition(authority, obj)
-        }
-        RegisterBox::Asset(obj) => visitor.visit_register_asset(authority, obj),
-        RegisterBox::Role(obj) => visitor.visit_register_role(authority, obj),
-        RegisterBox::Trigger(obj) => visitor.visit_register_trigger(authority, obj),
+        RegisterBox::Peer(obj) => visitor.visit_register_peer(obj),
+        RegisterBox::Domain(obj) => visitor.visit_register_domain(obj),
+        RegisterBox::Account(obj) => visitor.visit_register_account(obj),
+        RegisterBox::AssetDefinition(obj) => visitor.visit_register_asset_definition(obj),
+        RegisterBox::Asset(obj) => visitor.visit_register_asset(obj),
+        RegisterBox::Role(obj) => visitor.visit_register_role(obj),
+        RegisterBox::Trigger(obj) => visitor.visit_register_trigger(obj),
     }
 }
 
-pub fn visit_unregister<V: Visit + ?Sized>(
-    visitor: &mut V,
-    authority: &AccountId,
-    isi: &UnregisterBox,
-) {
+pub fn visit_unregister<V: Visit + ?Sized>(visitor: &mut V, isi: &UnregisterBox) {
     match isi {
-        UnregisterBox::Peer(obj) => visitor.visit_unregister_peer(authority, obj),
-        UnregisterBox::Domain(obj) => visitor.visit_unregister_domain(authority, obj),
-        UnregisterBox::Account(obj) => visitor.visit_unregister_account(authority, obj),
-        UnregisterBox::AssetDefinition(obj) => {
-            visitor.visit_unregister_asset_definition(authority, obj)
-        }
-        UnregisterBox::Asset(obj) => visitor.visit_unregister_asset(authority, obj),
-        UnregisterBox::Role(obj) => visitor.visit_unregister_role(authority, obj),
-        UnregisterBox::Trigger(obj) => visitor.visit_unregister_trigger(authority, obj),
+        UnregisterBox::Peer(obj) => visitor.visit_unregister_peer(obj),
+        UnregisterBox::Domain(obj) => visitor.visit_unregister_domain(obj),
+        UnregisterBox::Account(obj) => visitor.visit_unregister_account(obj),
+        UnregisterBox::AssetDefinition(obj) => visitor.visit_unregister_asset_definition(obj),
+        UnregisterBox::Asset(obj) => visitor.visit_unregister_asset(obj),
+        UnregisterBox::Role(obj) => visitor.visit_unregister_role(obj),
+        UnregisterBox::Trigger(obj) => visitor.visit_unregister_trigger(obj),
     }
 }
 
-pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &MintBox) {
+pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, isi: &MintBox) {
     match isi {
-        MintBox::Asset(obj) => visitor.visit_mint_asset_numeric(authority, obj),
-        MintBox::TriggerRepetitions(obj) => visitor.visit_mint_trigger_repetitions(authority, obj),
+        MintBox::Asset(obj) => visitor.visit_mint_asset_numeric(obj),
+        MintBox::TriggerRepetitions(obj) => visitor.visit_mint_trigger_repetitions(obj),
     }
 }
 
-pub fn visit_burn<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &BurnBox) {
+pub fn visit_burn<V: Visit + ?Sized>(visitor: &mut V, isi: &BurnBox) {
     match isi {
-        BurnBox::Asset(obj) => visitor.visit_burn_asset_numeric(authority, obj),
-        BurnBox::TriggerRepetitions(obj) => visitor.visit_burn_trigger_repetitions(authority, obj),
+        BurnBox::Asset(obj) => visitor.visit_burn_asset_numeric(obj),
+        BurnBox::TriggerRepetitions(obj) => visitor.visit_burn_trigger_repetitions(obj),
     }
 }
 
-pub fn visit_transfer<V: Visit + ?Sized>(
-    visitor: &mut V,
-    authority: &AccountId,
-    isi: &TransferBox,
-) {
+pub fn visit_transfer<V: Visit + ?Sized>(visitor: &mut V, isi: &TransferBox) {
     match isi {
-        TransferBox::Domain(obj) => visitor.visit_transfer_domain(authority, obj),
-        TransferBox::AssetDefinition(obj) => {
-            visitor.visit_transfer_asset_definition(authority, obj)
-        }
+        TransferBox::Domain(obj) => visitor.visit_transfer_domain(obj),
+        TransferBox::AssetDefinition(obj) => visitor.visit_transfer_asset_definition(obj),
         TransferBox::Asset(transfer_asset) => match transfer_asset {
-            AssetTransferBox::Numeric(obj) => visitor.visit_transfer_asset_numeric(authority, obj),
-            AssetTransferBox::Store(obj) => visitor.visit_transfer_asset_store(authority, obj),
+            AssetTransferBox::Numeric(obj) => visitor.visit_transfer_asset_numeric(obj),
+            AssetTransferBox::Store(obj) => visitor.visit_transfer_asset_store(obj),
         },
     }
 }
 
-pub fn visit_set_key_value<V: Visit + ?Sized>(
-    visitor: &mut V,
-    authority: &AccountId,
-    isi: &SetKeyValueBox,
-) {
+pub fn visit_set_key_value<V: Visit + ?Sized>(visitor: &mut V, isi: &SetKeyValueBox) {
     match isi {
-        SetKeyValueBox::Domain(obj) => visitor.visit_set_domain_key_value(authority, obj),
-        SetKeyValueBox::Account(obj) => visitor.visit_set_account_key_value(authority, obj),
-        SetKeyValueBox::AssetDefinition(obj) => {
-            visitor.visit_set_asset_definition_key_value(authority, obj)
-        }
-        SetKeyValueBox::Asset(obj) => visitor.visit_set_asset_key_value(authority, obj),
-        SetKeyValueBox::Trigger(obj) => visitor.visit_set_trigger_key_value(authority, obj),
+        SetKeyValueBox::Domain(obj) => visitor.visit_set_domain_key_value(obj),
+        SetKeyValueBox::Account(obj) => visitor.visit_set_account_key_value(obj),
+        SetKeyValueBox::AssetDefinition(obj) => visitor.visit_set_asset_definition_key_value(obj),
+        SetKeyValueBox::Asset(obj) => visitor.visit_set_asset_key_value(obj),
+        SetKeyValueBox::Trigger(obj) => visitor.visit_set_trigger_key_value(obj),
     }
 }
 
-pub fn visit_remove_key_value<V: Visit + ?Sized>(
-    visitor: &mut V,
-    authority: &AccountId,
-    isi: &RemoveKeyValueBox,
-) {
+pub fn visit_remove_key_value<V: Visit + ?Sized>(visitor: &mut V, isi: &RemoveKeyValueBox) {
     match isi {
-        RemoveKeyValueBox::Domain(obj) => visitor.visit_remove_domain_key_value(authority, obj),
-        RemoveKeyValueBox::Account(obj) => visitor.visit_remove_account_key_value(authority, obj),
+        RemoveKeyValueBox::Domain(obj) => visitor.visit_remove_domain_key_value(obj),
+        RemoveKeyValueBox::Account(obj) => visitor.visit_remove_account_key_value(obj),
         RemoveKeyValueBox::AssetDefinition(obj) => {
-            visitor.visit_remove_asset_definition_key_value(authority, obj)
+            visitor.visit_remove_asset_definition_key_value(obj)
         }
-        RemoveKeyValueBox::Asset(obj) => visitor.visit_remove_asset_key_value(authority, obj),
-        RemoveKeyValueBox::Trigger(obj) => visitor.visit_remove_trigger_key_value(authority, obj),
+        RemoveKeyValueBox::Asset(obj) => visitor.visit_remove_asset_key_value(obj),
+        RemoveKeyValueBox::Trigger(obj) => visitor.visit_remove_trigger_key_value(obj),
     }
 }
 
-pub fn visit_grant<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &GrantBox) {
+pub fn visit_grant<V: Visit + ?Sized>(visitor: &mut V, isi: &GrantBox) {
     match isi {
-        GrantBox::Permission(obj) => visitor.visit_grant_account_permission(authority, obj),
-        GrantBox::Role(obj) => visitor.visit_grant_account_role(authority, obj),
-        GrantBox::RolePermission(obj) => visitor.visit_grant_role_permission(authority, obj),
+        GrantBox::Permission(obj) => visitor.visit_grant_account_permission(obj),
+        GrantBox::Role(obj) => visitor.visit_grant_account_role(obj),
+        GrantBox::RolePermission(obj) => visitor.visit_grant_role_permission(obj),
     }
 }
 
-pub fn visit_revoke<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &RevokeBox) {
+pub fn visit_revoke<V: Visit + ?Sized>(visitor: &mut V, isi: &RevokeBox) {
     match isi {
-        RevokeBox::Permission(obj) => visitor.visit_revoke_account_permission(authority, obj),
-        RevokeBox::Role(obj) => visitor.visit_revoke_account_role(authority, obj),
-        RevokeBox::RolePermission(obj) => visitor.visit_revoke_role_permission(authority, obj),
+        RevokeBox::Permission(obj) => visitor.visit_revoke_account_permission(obj),
+        RevokeBox::Role(obj) => visitor.visit_revoke_account_role(obj),
+        RevokeBox::RolePermission(obj) => visitor.visit_revoke_role_permission(obj),
     }
 }
 
 macro_rules! leaf_visitors {
     ( $($visitor:ident($operation:ty)),+ $(,)? ) => { $(
-        pub fn $visitor<V: Visit + ?Sized>(_visitor: &mut V, _authority: &AccountId, _operation: $operation) {
+        pub fn $visitor<V: Visit + ?Sized>(_visitor: &mut V, _operation: $operation) {
 
         } )+
     };

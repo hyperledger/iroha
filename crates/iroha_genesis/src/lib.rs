@@ -336,6 +336,7 @@ fn convert_parameters(parameters: Vec<Parameter>) -> Option<Parameters> {
     for parameter in parameters {
         result.set_parameter(parameter);
     }
+
     Some(result)
 }
 
@@ -512,6 +513,7 @@ mod tests {
               "instructions": []
             }}"#
             );
+
             let _genesis: RawGenesisTransaction =
                 serde_json::from_str(&genesis_json).expect("Failed to deserialize");
         }

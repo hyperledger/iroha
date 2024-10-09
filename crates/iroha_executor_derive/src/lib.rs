@@ -17,26 +17,22 @@ mod entrypoint;
 /// use iroha_executor::prelude::*;
 ///
 /// #[entrypoint]
-/// pub fn migrate(block_height: u64) {
+/// fn migrate(host: Iroha, context: Context) {
 ///     todo!()
 /// }
 ///
 /// #[entrypoint]
-/// pub fn validate_transaction(
-///     authority: AccountId,
-///     transaction: SignedTransaction,
-///     block_height: u64,
-/// ) -> Result {
+/// fn execute_transaction(transaction: SignedTransaction, host: Iroha, context: Context) -> Result {
 ///     todo!()
 /// }
 ///
 /// #[entrypoint]
-/// pub fn validate_instruction(authority: AccountId, instruction: InstructionBox, block_height: u64) -> Result {
+/// fn execute_instruction(instruction: InstructionBox, host: Iroha, context: Context) -> Result {
 ///     todo!()
 /// }
 ///
 /// #[entrypoint]
-/// pub fn validate_query(authority: AccountId, query: QueryBox, block_height: u64) -> Result {
+/// fn validate_query(query: QueryBox, host: Iroha, context: Context) -> Result {
 ///     todo!()
 /// }
 /// ```
@@ -64,19 +60,17 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Implements the `iroha_executor::Validate` trait for the given `Executor` struct. As
 /// this trait has a `iroha_executor::prelude::Visit` at least this one should be implemented as well.
 ///
-/// Emits a compile error if the struct didn't have all the expected fields with corresponding
-/// types, i.e. `verdict`: `iroha_executor::prelude::Result` and `block_height`: `u64`.
-/// The types can be unqualified, but not aliased.
+/// Emits a compile error if the struct didn't have all the expected fields with corresponding types.
 #[manyhow]
-#[proc_macro_derive(Validate)]
-pub fn derive_validate(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(Execute)]
+pub fn derive_execute(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
     let Some(input) = emitter.handle(syn::parse2(input)) else {
         return emitter.finish_token_stream();
     };
 
-    let result = default::impl_derive_validate(&mut emitter, &input);
+    let result = default::impl_derive_execute(&mut emitter, &input);
 
     emitter.finish_token_stream_with(result)
 }
@@ -87,24 +81,23 @@ pub fn derive_validate(input: TokenStream) -> TokenStream {
 /// supplying corresponding visit function names inside of it, otherwise a default
 /// implementation from `iroha_executor::default` module is used.
 ///
-/// Emits a compile error if the struct didn't have all the expected fields with corresponding
-/// types, i.e. `verdict`: `iroha_executor::prelude::Result` and `block_height`: `u64`,
-/// though technically only `verdict` is needed. The types can be unqualified, but not aliased.
+/// Emits a compile error if the struct didn't have all the expected fields with corresponding types.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use iroha_executor::prelude::*;
 ///
-/// #[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
+/// #[derive(Visit, Execute, Entrypoints)]
 /// #[visit(custom(visit_query)]
-/// pub struct Executor {
+/// struct Executor {
+///    host: Iroha,
+///    context: Context,
 ///    verdict: Result,
-///    block_height: u64,
 /// }
 ///
 /// // Custom visit function should supply a `&mut Executor` as first argument
-/// fn visit_query(executor: &mut Executor, _authority: &AccountId, _query: &AnyQueryBox) {
+/// fn visit_query(executor: &mut Executor, _query: &AnyQueryBox) {
 ///     executor.deny(ValidationFail::NotPermitted(
 ///         "All queries are forbidden".to_owned(),
 ///     ));
@@ -124,32 +117,31 @@ pub fn derive_visit(input: TokenStream) -> TokenStream {
     emitter.finish_token_stream_with(result)
 }
 
-/// Implements three default entrypoints on a given `Executor` struct: `validate_transaction`,
-/// `validate_query` and `validate_instruction`. The `migrate` entrypoint is implied to be
+/// Implements three default entrypoints on a given `Executor` struct: `execute_transaction`,
+/// `validate_query` and `execute_instruction`. The `migrate` entrypoint is implied to be
 /// implemented manually by the user at all times.
 ///
 /// Users can supply custom overrides for any of the entrypoint functions as freestanding functions
 /// in the same module via the `#[entrypoints(custom(...))]` attribute by
 /// supplying corresponding entrypoint function names inside of it.
 ///
-/// Emits a compile error if the struct didn't have all the expected fields with corresponding
-/// types, i.e. `verdict`: `iroha_executor::prelude::Result` and `block_height`: `u64`,
-/// though technically only `verdict` is needed. The types can be unqualified, but not aliased.
+/// Emits a compile error if the struct didn't have all the expected fields with corresponding types.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use iroha_executor::prelude::*;
 ///
-/// #[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
+/// #[derive(Visit, Validate, Entrypoints)]
 /// #[entrypoints(custom(validate_query))]
-/// pub struct Executor {
+/// struct Executor {
+///    host: Iroha,
+///    context: Context,
 ///    verdict: Result,
-///    block_height: u64,
 /// }
 /// ```
 #[manyhow]
-#[proc_macro_derive(ValidateEntrypoints, attributes(entrypoints))]
+#[proc_macro_derive(Entrypoints, attributes(entrypoints))]
 pub fn derive_entrypoints(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
@@ -158,28 +150,6 @@ pub fn derive_entrypoints(input: TokenStream) -> TokenStream {
     };
 
     let result = default::impl_derive_entrypoints(&mut emitter, &input);
-
-    emitter.finish_token_stream_with(result)
-}
-
-/// Implements a constructor for the given `Executor` struct. If the `Executor` has any custom fields
-/// (i.e. different from the expected fields listed below), they will be included into the constructor
-/// automatically and will need to be passed into `new()` function explicitly. In the default case,
-/// only the `block_height` needs to be supplied manually.
-///
-/// Emits a compile error if the struct didn't have all the expected fields with corresponding
-/// types, i.e. `verdict`: `iroha_executor::prelude::Result` and `block_height`: `u64`.
-/// The types can be unqualified, but not aliased.
-#[manyhow]
-#[proc_macro_derive(Constructor)]
-pub fn derive_constructor(input: TokenStream) -> TokenStream {
-    let mut emitter = Emitter::new();
-
-    let Some(input) = emitter.handle(syn::parse2(input)) else {
-        return emitter.finish_token_stream();
-    };
-
-    let result = default::impl_derive_constructor(&mut emitter, &input);
 
     emitter.finish_token_stream_with(result)
 }

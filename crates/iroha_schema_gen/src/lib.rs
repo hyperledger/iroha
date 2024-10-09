@@ -75,7 +75,7 @@ pub fn build_schemas() -> MetaMap {
         permission::asset_definition::CanModifyAssetDefinitionMetadata,
         permission::asset::CanRegisterAssetWithDefinition,
         permission::asset::CanUnregisterAssetWithDefinition,
-        permission::asset::CanTransferAssetsWithDefinition,
+        permission::asset::CanTransferAssetWithDefinition,
         permission::asset::CanRegisterAsset,
         permission::asset::CanUnregisterAsset,
         permission::asset::CanMintAsset,
@@ -315,7 +315,6 @@ types!(
     Option<HashOf<BlockHeader>>,
     Option<HashOf<SignedTransaction>>,
     Option<IpfsPath>,
-    Option<JsonString>,
     Option<Name>,
     Option<NonZeroU32>,
     Option<NonZeroU64>,
@@ -613,7 +612,7 @@ mod tests {
             iroha_executor_data_model::permission::asset::CanUnregisterAssetWithDefinition
         );
         insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanTransferAssetsWithDefinition
+            iroha_executor_data_model::permission::asset::CanTransferAssetWithDefinition
         );
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanRegisterAsset);
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanUnregisterAsset);

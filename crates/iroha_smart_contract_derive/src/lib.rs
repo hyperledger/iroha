@@ -8,20 +8,22 @@ mod entrypoint;
 
 /// Annotate the user-defined function that starts the execution of the smart contract.
 ///
-/// Requires function to accept one argument of type `AccountId`, which represents the smart contract owner.
+/// Requires function to accept two arguments of types:
+/// 1. `host: Iroha` - handle to the host system (use it to execute instructions and queries)
+/// 2. `context: Context` - context of the execution (authority, triggering event, etc)
 ///
 /// # Panics
 ///
 /// - If function has a return type
 ///
 /// # Examples
-// `ignore` because this macro idiomatically should be imported from `iroha_wasm` crate.
 //
-/// Using without parameters:
 /// ```ignore
-/// #[iroha_smart_contract::main]
-/// fn main(owner: AccountId) {
-///    todo!()
+/// use crate::prelude::*;
+///
+/// #[main]
+/// fn main(host: Iroha, context: Context) {
+///     todo!()
 /// }
 /// ```
 #[manyhow]

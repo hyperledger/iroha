@@ -110,20 +110,20 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Executor> {
 }
 
 impl Executor {
-    /// Validate [`SignedTransaction`].
+    /// Execute [`SignedTransaction`].
     ///
     /// # Errors
     ///
     /// - Failed to prepare runtime for WASM execution;
     /// - Failed to execute the entrypoint of the WASM blob;
     /// - Executor denied the operation.
-    pub fn validate_transaction(
+    pub fn execute_transaction(
         &self,
         state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
         transaction: SignedTransaction,
     ) -> Result<(), ValidationFail> {
-        trace!("Running transaction validation");
+        trace!("Running transaction execution");
 
         match self {
             Self::Initial => {
@@ -141,12 +141,12 @@ impl Executor {
             }
             Self::UserProvided(loaded_executor) => {
                 let runtime =
-                    wasm::RuntimeBuilder::<wasm::state::executor::ValidateTransaction>::new()
+                    wasm::RuntimeBuilder::<wasm::state::executor::ExecuteTransaction>::new()
                         .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
                         .with_config(state_transaction.world.parameters().executor)
                         .build()?;
 
-                runtime.execute_executor_validate_transaction(
+                runtime.execute_executor_execute_transaction(
                     state_transaction,
                     authority,
                     &loaded_executor.module,
@@ -156,20 +156,20 @@ impl Executor {
         }
     }
 
-    /// Validate [`InstructionExpr`].
+    /// Execute [`Instruction`].
     ///
     /// # Errors
     ///
     /// - Failed to prepare runtime for WASM execution;
     /// - Failed to execute the entrypoint of the WASM blob;
     /// - Executor denied the operation.
-    pub fn validate_instruction(
+    pub fn execute_instruction(
         &self,
         state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
         instruction: InstructionBox,
     ) -> Result<(), ValidationFail> {
-        trace!("Running instruction validation");
+        trace!("Running instruction execution");
 
         match self {
             Self::Initial => instruction
@@ -177,12 +177,12 @@ impl Executor {
                 .map_err(Into::into),
             Self::UserProvided(loaded_executor) => {
                 let runtime =
-                    wasm::RuntimeBuilder::<wasm::state::executor::ValidateInstruction>::new()
+                    wasm::RuntimeBuilder::<wasm::state::executor::ExecuteInstruction>::new()
                         .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
                         .with_config(state_transaction.world.parameters().executor)
                         .build()?;
 
-                runtime.execute_executor_validate_instruction(
+                runtime.execute_executor_execute_instruction(
                     state_transaction,
                     authority,
                     &loaded_executor.module,

@@ -35,7 +35,7 @@ mod model {
         pub authority: AccountId,
         /// Args to pass for trigger execution
         #[getset(skip)]
-        pub args: Option<JsonString>,
+        pub args: JsonString,
     }
 
     /// Filter for trigger execution [`Event`]
@@ -64,8 +64,8 @@ mod model {
 
 impl ExecuteTriggerEvent {
     /// Args to pass for trigger execution
-    pub fn args(&self) -> Option<&JsonString> {
-        self.args.as_ref()
+    pub fn args(&self) -> &JsonString {
+        &self.args
     }
 }
 

@@ -6,13 +6,13 @@ use iroha::{
     client,
     crypto::KeyPair,
     data_model::{
+        asset::{AssetDefinition, AssetDefinitionId},
         parameter::SmartContractParameter,
         prelude::*,
         query::{builder::SingleQueryError, trigger::FindTriggers},
         transaction::TransactionBuilder,
     },
 };
-use iroha_data_model::asset::{AssetDefinition, AssetDefinitionId};
 use iroha_executor_data_model::permission::asset_definition::CanRegisterAssetDefinition;
 use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, load_sample_wasm, ALICE_ID};
@@ -64,7 +64,7 @@ fn mutlisig() -> Result<()> {
         .take(5)
         .collect::<BTreeMap<AccountId, KeyPair>>();
 
-    let args = MultisigRegisterArgs {
+    let args = &MultisigRegisterArgs {
         account: Account::new(multisig_account_id.clone()),
         signatories: signatories.keys().cloned().collect(),
     };
@@ -77,7 +77,7 @@ fn mutlisig() -> Result<()> {
             .map(Register::account),
     )?;
 
-    let call_trigger = ExecuteTrigger::new(multisig_register_trigger_id).with_args(&args);
+    let call_trigger = ExecuteTrigger::new(multisig_register_trigger_id).with_args(args);
     test_client.submit_blocking(call_trigger)?;
 
     // Check that multisig account exist
@@ -112,8 +112,8 @@ fn mutlisig() -> Result<()> {
     let mut signatories_iter = signatories.into_iter();
 
     if let Some((signatory, key_pair)) = signatories_iter.next() {
-        let args = MultisigArgs::Instructions(isi);
-        let call_trigger = ExecuteTrigger::new(multisig_trigger_id.clone()).with_args(&args);
+        let args = &MultisigArgs::Instructions(isi);
+        let call_trigger = ExecuteTrigger::new(multisig_trigger_id.clone()).with_args(args);
         test_client.submit_transaction_blocking(
             &TransactionBuilder::new(test_client.chain.clone(), signatory)
                 .with_instructions([call_trigger])
@@ -130,8 +130,8 @@ fn mutlisig() -> Result<()> {
     assert!(matches!(err, SingleQueryError::ExpectedOneGotNone));
 
     for (signatory, key_pair) in signatories_iter {
-        let args = MultisigArgs::Vote(isi_hash);
-        let call_trigger = ExecuteTrigger::new(multisig_trigger_id.clone()).with_args(&args);
+        let args = &MultisigArgs::Vote(isi_hash);
+        let call_trigger = ExecuteTrigger::new(multisig_trigger_id.clone()).with_args(args);
         test_client.submit_transaction_blocking(
             &TransactionBuilder::new(test_client.chain.clone(), signatory)
                 .with_instructions([call_trigger])
