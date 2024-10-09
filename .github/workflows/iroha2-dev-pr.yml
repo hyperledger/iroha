@@ -93,6 +93,8 @@ jobs:
       LLVM_PROFILE_FILE_NAME: "iroha-%p-%m.profraw"
     steps:
       - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@cargo-llvm-cov
       - name: Download executor.wasm
         uses: actions/download-artifact@v4
         with:
@@ -105,21 +107,17 @@ jobs:
           path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
       - name: Install irohad
         run: which irohad || cargo install --path crates/irohad --locked
-      - uses: taiki-e/install-action@nextest
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Run tests (no default features)
+      - name: Test with no default features
         run: >
           mold --run cargo llvm-cov nextest
+          --profile ci
           --no-default-features
-          --no-fail-fast --retries 2
-          --failure-output immediate-final
           --branch --no-report
-      - name: Run tests (all features)
+      - name: Test with all features
         run: >
           mold --run cargo llvm-cov nextest
+          --profile ci
           --all-features
-          --no-fail-fast --retries 2
-          --failure-output immediate-final
           --branch --no-report
       - name: Generate lcov report
         run: cargo llvm-cov report --lcov --output-path lcov.info
