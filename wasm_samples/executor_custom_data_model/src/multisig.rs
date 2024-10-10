@@ -23,30 +23,30 @@ pub enum MultisigArgs {
     Vote(HashOf<Vec<InstructionBox>>),
 }
 
-impl From<MultisigRegisterArgs> for JsonString {
+impl From<MultisigRegisterArgs> for JsonValue {
     fn from(details: MultisigRegisterArgs) -> Self {
-        JsonString::new(details)
+        JsonValue::new(details)
     }
 }
 
-impl TryFrom<&JsonString> for MultisigRegisterArgs {
+impl TryFrom<&JsonValue> for MultisigRegisterArgs {
     type Error = serde_json::Error;
 
-    fn try_from(payload: &JsonString) -> serde_json::Result<Self> {
+    fn try_from(payload: &JsonValue) -> serde_json::Result<Self> {
         serde_json::from_str::<Self>(payload.as_ref())
     }
 }
 
-impl From<MultisigArgs> for JsonString {
+impl From<MultisigArgs> for JsonValue {
     fn from(details: MultisigArgs) -> Self {
-        JsonString::new(details)
+        JsonValue::new(details)
     }
 }
 
-impl TryFrom<&JsonString> for MultisigArgs {
+impl TryFrom<&JsonValue> for MultisigArgs {
     type Error = serde_json::Error;
 
-    fn try_from(payload: &JsonString) -> serde_json::Result<Self> {
+    fn try_from(payload: &JsonValue) -> serde_json::Result<Self> {
         serde_json::from_str::<Self>(payload.as_ref())
     }
 }
