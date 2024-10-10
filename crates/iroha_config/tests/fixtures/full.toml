@@ -26,6 +26,7 @@ query_store_capacity_per_user = 128
 [kura]
 init_mode = "strict"
 store_dir = "./storage"
+blocks_in_memory = 128
 
 [kura.debug]
 output_new_blocks = true

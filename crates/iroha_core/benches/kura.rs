@@ -4,7 +4,7 @@ use byte_unit::{Byte, UnitType};
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_config::{
     base::WithOrigin,
-    parameters::{actual::Kura as Config, defaults::kura::MAX_BLOCKS_IN_MEMORY},
+    parameters::{actual::Kura as Config, defaults::kura::BLOCKS_IN_MEMORY},
 };
 use iroha_core::{
     block::*,
@@ -25,7 +25,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let cfg = Config {
         init_mode: iroha_config::kura::InitMode::Strict,
         debug_output_new_blocks: false,
-        max_blocks_in_memory: MAX_BLOCKS_IN_MEMORY,
+        blocks_in_memory: BLOCKS_IN_MEMORY,
         store_dir: WithOrigin::inline(dir.path().to_path_buf()),
     };
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
