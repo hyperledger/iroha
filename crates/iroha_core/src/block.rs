@@ -122,7 +122,7 @@ mod pending {
     use nonzero_ext::nonzero;
 
     use super::*;
-    use crate::state::StateBlock;
+    use crate::{smartcontracts::wasm::cache::WasmCache, state::StateBlock};
 
     /// First stage in the life-cycle of a [`Block`].
     /// In the beginning the block is assumed to be verified and to contain only accepted transactions.
@@ -231,9 +231,10 @@ mod pending {
             transactions: Vec<AcceptedTransaction>,
             state_block: &mut StateBlock<'_>,
         ) -> Vec<CommittedTransaction> {
+            let mut wasm_cache = WasmCache::new();
             transactions
                 .into_iter()
-                .map(|tx| match state_block.validate(tx) {
+                .map(|tx| match state_block.validate(tx, &mut wasm_cache) {
                     Ok(tx) => CommittedTransaction {
                         value: tx,
                         error: None,
@@ -299,7 +300,9 @@ mod valid {
     use mv::storage::StorageReadOnly;
 
     use super::*;
-    use crate::{state::StateBlock, sumeragi::network_topology::Role};
+    use crate::{
+        smartcontracts::wasm::cache::WasmCache, state::StateBlock, sumeragi::network_topology::Role,
+    };
 
     /// Block that was validated and accepted
     #[derive(Debug, Clone)]
@@ -612,6 +615,7 @@ mod valid {
                 (params.sumeragi().max_clock_drift(), params.transaction)
             };
 
+            let mut wasm_cache = WasmCache::new();
             for CommittedTransaction { value, error } in block.transactions_mut() {
                 let tx = if is_genesis {
                     AcceptedTransaction::accept_genesis(
@@ -629,7 +633,7 @@ mod valid {
                     )
                 }?;
 
-                *error = match state_block.validate(tx) {
+                *error = match state_block.validate(tx, &mut wasm_cache) {
                     Ok(_) => None,
                     Err((_tx, error)) => Some(Box::new(error)),
                 };
