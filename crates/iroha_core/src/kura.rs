@@ -13,7 +13,7 @@ use std::{
 
 use iroha_config::{
     kura::InitMode,
-    parameters::{actual::Kura as Config, defaults::kura::MAX_BLOCKS_IN_MEMORY},
+    parameters::{actual::Kura as Config, defaults::kura::BLOCKS_IN_MEMORY},
 };
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::block::{BlockHeader, SignedBlock};
@@ -42,7 +42,7 @@ pub struct Kura {
     block_plain_text_path: Option<PathBuf>,
     /// At most N last blocks will be stored in memory.
     /// Older blocks will be dropped from memory and loaded from the disk if they are needed.
-    max_blocks_in_memory: NonZeroUsize,
+    blocks_in_memory: NonZeroUsize,
     /// Amount of blocks loaded during initialization
     init_block_count: usize,
 }
@@ -74,7 +74,7 @@ impl Kura {
             block_store: Mutex::new(block_store),
             block_data: Mutex::new(block_data),
             block_plain_text_path,
-            max_blocks_in_memory: config.max_blocks_in_memory,
+            blocks_in_memory: config.blocks_in_memory,
             init_block_count: block_count,
         });
 
@@ -88,7 +88,7 @@ impl Kura {
             block_store: Mutex::new(BlockStore::new(PathBuf::new())),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path: None,
-            max_blocks_in_memory: MAX_BLOCKS_IN_MEMORY,
+            blocks_in_memory: BLOCKS_IN_MEMORY,
             init_block_count: 0,
         })
     }
@@ -242,7 +242,7 @@ impl Kura {
                 Self::drop_old_block(
                     &mut block_data,
                     written_block_count,
-                    kura.max_blocks_in_memory.get(),
+                    kura.blocks_in_memory.get(),
                 );
                 written_block_count += 1;
             }
@@ -332,7 +332,7 @@ impl Kura {
 
         let block_arc = Arc::new(block);
         // Only last N blocks should be kept in memory
-        if block_index + self.max_blocks_in_memory.get() >= data_array_guard.len() {
+        if block_index + self.blocks_in_memory.get() >= data_array_guard.len() {
             data_array_guard[block_index].1 = Some(Arc::clone(&block_arc));
         }
         Some(block_arc)
@@ -357,12 +357,12 @@ impl Kura {
     fn drop_old_block(
         block_data: &mut BlockData,
         written_block_count: usize,
-        max_blocks_in_memory: usize,
+        blocks_in_memory: usize,
     ) {
         // Keep last N blocks and genesis block.
         // (genesis block is used in metrics to get genesis timestamp)
-        if written_block_count > max_blocks_in_memory {
-            block_data[written_block_count - max_blocks_in_memory].1 = None;
+        if written_block_count > blocks_in_memory {
+            block_data[written_block_count - blocks_in_memory].1 = None;
         }
     }
 }
@@ -810,7 +810,7 @@ impl<T> AddErrContextExt<T> for Result<T, std::io::Error> {
 mod tests {
     use std::{str::FromStr, thread, time::Duration};
 
-    use iroha_config::parameters::defaults::kura::MAX_BLOCKS_IN_MEMORY;
+    use iroha_config::parameters::defaults::kura::BLOCKS_IN_MEMORY;
     use iroha_crypto::KeyPair;
     use iroha_data_model::{
         account::Account,
@@ -1009,7 +1009,7 @@ mod tests {
             store_dir: iroha_config::base::WithOrigin::inline(
                 temp_dir.path().to_str().unwrap().into(),
             ),
-            max_blocks_in_memory: MAX_BLOCKS_IN_MEMORY,
+            blocks_in_memory: BLOCKS_IN_MEMORY,
             debug_output_new_blocks: false,
         })
         .unwrap();
@@ -1039,7 +1039,7 @@ mod tests {
                 store_dir: iroha_config::base::WithOrigin::inline(
                     temp_dir.path().to_str().unwrap().into(),
                 ),
-                max_blocks_in_memory: MAX_BLOCKS_IN_MEMORY,
+                blocks_in_memory: BLOCKS_IN_MEMORY,
                 debug_output_new_blocks: false,
             })
             .unwrap();
@@ -1091,7 +1091,7 @@ mod tests {
             store_dir: iroha_config::base::WithOrigin::inline(
                 temp_dir.path().to_str().unwrap().into(),
             ),
-            max_blocks_in_memory: MAX_BLOCKS_IN_MEMORY,
+            blocks_in_memory: BLOCKS_IN_MEMORY,
             debug_output_new_blocks: false,
         })
         .unwrap();

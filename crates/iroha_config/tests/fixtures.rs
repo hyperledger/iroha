@@ -127,7 +127,7 @@ fn minimal_config_snapshot() {
                         id: ParameterId(kura.store_dir),
                     },
                 },
-                max_blocks_in_memory: 128,
+                blocks_in_memory: 128,
                 debug_output_new_blocks: false,
             },
             sumeragi: Sumeragi {
