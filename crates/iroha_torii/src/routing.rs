@@ -5,24 +5,18 @@
 use axum::extract::ws::WebSocket;
 #[cfg(feature = "telemetry")]
 use eyre::{eyre, WrapErr};
-use futures::TryStreamExt;
 use iroha_config::client_api::ConfigDTO;
 use iroha_core::{query::store::LiveQueryStoreHandle, smartcontracts::query::ValidQueryRequest};
 use iroha_data_model::{
-    block::{
-        stream::{BlockMessage, BlockSubscriptionRequest},
-        SignedBlock,
-    },
+    self,
     prelude::*,
     query::{QueryRequestWithAuthority, QueryResponse, SignedQuery},
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
-use stream::StreamMessage as _;
 use tokio::task;
 
 use super::*;
-use crate::stream::{Sink, Stream};
 
 #[iroha_futures::telemetry_future]
 pub async fn handle_transaction(
@@ -103,75 +97,27 @@ pub async fn handle_post_configuration(
     Ok((StatusCode::ACCEPTED, ()))
 }
 
-#[iroha_futures::telemetry_future]
-pub async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::Result<()> {
-    let BlockSubscriptionRequest(mut from_height) =
-        Stream::<BlockSubscriptionRequest>::recv(&mut stream).await?;
+pub mod block {
+    //! Blocks stream handler
 
-    let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
-    loop {
-        // FIXME: cleanup.
-
-        tokio::select! {
-            // This branch catches `Close` and unexpected messages
-            closed = async {
-                while let Some(message) = stream.try_next().await? {
-                    if message.is_close() {
-                        return Ok(());
-                    }
-                    iroha_logger::warn!(?message, "Unexpected message received");
-                }
-                eyre::bail!("Can't receive close message")
-            } => {
-                match closed {
-                    Ok(()) =>  {
-                        return stream.close().await.map_err(Into::into);
-                    }
-                    Err(err) => return Err(err)
-                }
-            }
-            // This branch sends blocks
-            _ = interval.tick() => {
-                if let Some(block) = kura.get_block_by_height(from_height.try_into().expect("INTERNAL BUG: Number of blocks exceeds usize::MAX")) {
-                    // TODO: to avoid clone `BlockMessage` could be split into sending and receiving parts
-                    Sink::<BlockMessage>::send(&mut stream, BlockMessage(SignedBlock::clone(&block))).await?;
-                    from_height = from_height.checked_add(1).expect("Maximum block height is achieved.");
-                }
-            }
-            // Else branch to prevent panic i.e. I don't know what
-            // this does.
-            else => ()
-        }
-    }
-}
-
-pub mod subscription {
-    //! Contains the `handle_subscription` functions and used for general routing.
+    use stream::WebSocketScale;
 
     use super::*;
-    use crate::event;
+    use crate::block;
 
-    /// Type for any error during subscription handling
+    /// Type for any error during blocks streaming
     #[derive(Debug, displaydoc::Display, thiserror::Error)]
     enum Error {
-        /// Event consumption resulted in an error
-        Consumer(#[from] Box<event::Error>),
-        /// Event reception error
-        Event(#[from] tokio::sync::broadcast::error::RecvError),
-        /// `WebSocket` error
-        WebSocket(#[from] axum::Error),
-        /// A `Close` message is received. Not strictly an Error
-        CloseMessage,
+        /// Block consumption resulted in an error: {_0}
+        Consumer(#[from] Box<block::Error>),
+        /// Connection is closed
+        Close,
     }
 
-    impl From<event::Error> for Error {
-        fn from(error: event::Error) -> Self {
+    impl From<block::Error> for Error {
+        fn from(error: block::Error) -> Self {
             match error {
-                event::Error::Stream(box_err)
-                    if matches!(*box_err, event::StreamError::CloseMessage) =>
-                {
-                    Self::CloseMessage
-                }
+                block::Error::Stream(err) if matches!(*err, stream::Error::Closed) => Self::Close,
                 error => Self::Consumer(Box::new(error)),
             }
         }
@@ -179,34 +125,113 @@ pub mod subscription {
 
     type Result<T> = core::result::Result<T, Error>;
 
-    /// Handle subscription request
+    #[iroha_futures::telemetry_future]
+    pub async fn handle_blocks_stream(kura: Arc<Kura>, stream: WebSocket) -> eyre::Result<()> {
+        let mut stream = WebSocketScale(stream);
+        let init_and_subscribe = async {
+            let mut consumer = block::Consumer::new(&mut stream, kura).await?;
+            subscribe_forever(&mut consumer).await
+        };
+
+        match init_and_subscribe.await {
+            Ok(()) => stream.close().await.map_err(Into::into),
+            Err(Error::Close) => Ok(()),
+            Err(err) => {
+                // NOTE: try close websocket and return initial error
+                let _ = stream.close().await;
+                Err(err.into())
+            }
+        }
+    }
+
+    /// Make endless `consumer` subscription for `blocks`
     ///
+    /// Ideally should return `Result<!>` cause it either runs forever or returns error
+    async fn subscribe_forever(consumer: &mut block::Consumer<'_>) -> Result<()> {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
+        loop {
+            tokio::select! {
+                // Wait for stream to be closed by client
+                closed = consumer.stream.closed() => {
+                    match closed {
+                        Ok(()) => return Err(Error::Close),
+                        Err(err) => return Err(block::Error::from(err).into())
+                    }
+                }
+                // This branch sends blocks
+                _ = interval.tick() => consumer.consume().await?,
+            }
+        }
+    }
+}
+
+pub mod event {
+    //! Events stream handler
+
+    use stream::WebSocketScale;
+
+    use super::*;
+    use crate::event;
+
+    /// Type for any error during events streaming
+    #[derive(Debug, displaydoc::Display, thiserror::Error)]
+    enum Error {
+        /// Event consumption resulted in an error: {_0}
+        Consumer(#[from] Box<event::Error>),
+        /// Event reception error
+        Event(#[from] tokio::sync::broadcast::error::RecvError),
+        /// Connection is closed
+        Close,
+    }
+
+    impl From<event::Error> for Error {
+        fn from(error: event::Error) -> Self {
+            match error {
+                event::Error::Stream(err) if matches!(*err, stream::Error::Closed) => Self::Close,
+                error => Self::Consumer(Box::new(error)),
+            }
+        }
+    }
+
+    type Result<T> = core::result::Result<T, Error>;
+
     /// Subscribes `stream` for `events` filtered by filter that is
     /// received through the `stream`
     #[iroha_futures::telemetry_future]
-    pub async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
-        let mut consumer = event::Consumer::new(stream).await?;
+    pub async fn handle_events_stream(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
+        let mut stream = WebSocketScale(stream);
+        let init_and_subscribe = async {
+            let mut consumer = event::Consumer::new(&mut stream).await?;
+            subscribe_forever(events, &mut consumer).await
+        };
 
-        match subscribe_forever(events, &mut consumer).await {
-            Ok(()) | Err(Error::CloseMessage) => consumer.close_stream().await.map_err(Into::into),
-            Err(err) => Err(err.into()),
+        match init_and_subscribe.await {
+            Ok(()) => stream.close().await.map_err(Into::into),
+            Err(Error::Close) => Ok(()),
+            Err(err) => {
+                // NOTE: try close websocket and return initial error
+                let _ = stream.close().await;
+                Err(err.into())
+            }
         }
     }
 
     /// Make endless `consumer` subscription for `events`
     ///
-    /// Ideally should return `Result<!>` cause it either runs forever
-    /// either returns `Err` variant
-    async fn subscribe_forever(events: EventsSender, consumer: &mut event::Consumer) -> Result<()> {
+    /// Ideally should return `Result<!>` cause it either runs forever or returns error
+    async fn subscribe_forever(
+        events: EventsSender,
+        consumer: &mut event::Consumer<'_>,
+    ) -> Result<()> {
         let mut events = events.subscribe();
 
         loop {
             tokio::select! {
-                // This branch catches `Close` and unexpected messages
-                closed = consumer.stream_closed() => {
+                // Wait for stream to be closed by client
+                closed = consumer.stream.closed() => {
                     match closed {
-                        Ok(()) => return Err(Error::CloseMessage),
-                        Err(err) => return Err(err.into())
+                        Ok(()) => return Err(Error::Close),
+                        Err(err) => return Err(event::Error::from(err).into())
                     }
                 }
                 // This branch catches and sends events
@@ -215,8 +240,6 @@ pub mod subscription {
                     iroha_logger::trace!(?event);
                     consumer.consume(event).await?;
                 }
-                // Else branch to prevent panic
-                else => ()
             }
         }
     }
