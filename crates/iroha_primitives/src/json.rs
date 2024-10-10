@@ -20,13 +20,13 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
-/// A valid `JsonString` that consists of valid String of Json type
+/// A valid `JsonValue` that consists of valid String of Json type
 #[derive(Debug, Display, Clone, PartialOrd, PartialEq, Ord, Eq, IntoSchema, Encode, Decode)]
 #[display(fmt = "{_0}")]
-pub struct JsonString(String);
+pub struct JsonValue(String);
 
-impl JsonString {
-    /// Constructs [`JsonString`]
+impl JsonValue {
+    /// Constructs [`Self`]
     /// # Errors
     ///
     /// - Serialization can fail if T's implementation of Serialize decides to fail,
@@ -36,7 +36,7 @@ impl JsonString {
         candidate::JsonCandidate::new(payload).try_into().unwrap()
     }
 
-    /// Tries cast [`JsonString`] to any value.
+    /// Tries cast [`Self`] to any value.
     ///
     /// # Errors
     /// - if invalid representation of `T`
@@ -51,13 +51,13 @@ impl JsonString {
         Self(value)
     }
 
-    /// Getter for [`JsonString`]
+    /// Getter for [`Self`]
     pub fn get(&self) -> &String {
         &self.0
     }
 }
 
-impl<'de> serde::de::Deserialize<'de> for JsonString {
+impl<'de> serde::de::Deserialize<'de> for JsonValue {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -67,7 +67,7 @@ impl<'de> serde::de::Deserialize<'de> for JsonString {
     }
 }
 
-impl serde::ser::Serialize for JsonString {
+impl serde::ser::Serialize for JsonValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -77,77 +77,77 @@ impl serde::ser::Serialize for JsonString {
     }
 }
 
-impl From<&Value> for JsonString {
+impl From<&Value> for JsonValue {
     fn from(value: &Value) -> Self {
-        JsonString(value.to_string())
+        JsonValue(value.to_string())
     }
 }
 
-impl From<Value> for JsonString {
+impl From<Value> for JsonValue {
     fn from(value: Value) -> Self {
-        JsonString(value.to_string())
+        JsonValue(value.to_string())
     }
 }
 
-impl From<u32> for JsonString {
+impl From<u32> for JsonValue {
     fn from(value: u32) -> Self {
-        JsonString::new(value)
+        JsonValue::new(value)
     }
 }
 
-impl From<u64> for JsonString {
+impl From<u64> for JsonValue {
     fn from(value: u64) -> Self {
-        JsonString::new(value)
+        JsonValue::new(value)
     }
 }
 
-impl From<f64> for JsonString {
+impl From<f64> for JsonValue {
     fn from(value: f64) -> Self {
-        JsonString::new(value)
+        JsonValue::new(value)
     }
 }
 
-impl From<bool> for JsonString {
+impl From<bool> for JsonValue {
     fn from(value: bool) -> Self {
-        JsonString::new(value)
+        JsonValue::new(value)
     }
 }
 
-impl From<&str> for JsonString {
+impl From<&str> for JsonValue {
     fn from(value: &str) -> Self {
-        value.parse::<JsonString>().expect("Impossible error")
+        value.parse::<JsonValue>().expect("Impossible error")
     }
 }
 
-impl<T: Into<JsonString> + Serialize> From<Vec<T>> for JsonString {
+impl<T: Into<JsonValue> + Serialize> From<Vec<T>> for JsonValue {
     fn from(value: Vec<T>) -> Self {
-        JsonString::new(value)
+        JsonValue::new(value)
     }
 }
 
 /// Removes extra spaces from object if `&str` is an object
-impl FromStr for JsonString {
+impl FromStr for JsonValue {
     type Err = serde_json::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Ok(value) = serde_json::from_str::<Value>(s) {
-            Ok(JsonString(value.to_string()))
+            Ok(JsonValue(value.to_string()))
         } else {
             let json_formatted_string = serde_json::to_string(s)?;
             let value: Value = serde_json::from_str(&json_formatted_string)?;
-            Ok(JsonString(value.to_string()))
+            Ok(JsonValue(value.to_string()))
         }
     }
 }
 
-impl Default for JsonString {
+impl Default for JsonValue {
     fn default() -> Self {
         // NOTE: empty string isn't valid JSON
         Self("null".to_string())
     }
 }
 
-impl AsRef<str> for JsonString {
+impl AsRef<str> for JsonValue {
     fn as_ref(&self) -> &str {
         &self.0
     }
@@ -156,8 +156,6 @@ impl AsRef<str> for JsonString {
 mod candidate {
     use super::*;
 
-    /// A candidate for a valid `JsonString`.
-    /// Is used for generalizing ser/de any types to `JsonString` and vise versa
     #[derive(Serialize, Deserialize, Clone)]
     pub(super) struct JsonCandidate<T>(T);
 
@@ -167,10 +165,10 @@ mod candidate {
         }
     }
 
-    impl<T: Serialize> TryFrom<JsonCandidate<T>> for JsonString {
+    impl<T: Serialize> TryFrom<JsonCandidate<T>> for JsonValue {
         type Error = serde_json::Error;
         fn try_from(value: JsonCandidate<T>) -> Result<Self, Self::Error> {
-            Ok(JsonString(serde_json::to_string(&value.0)?))
+            Ok(JsonValue(serde_json::to_string(&value.0)?))
         }
     }
 }

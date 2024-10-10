@@ -51,7 +51,7 @@ fn main(host: Iroha, context: Context) {
     host.submit(&SetKeyValue::account(
         context.authority,
         "cursor".parse().unwrap(),
-        JsonString::new(asset_cursor.cursor),
+        JsonValue::new(asset_cursor.cursor),
     ))
     .dbg_expect("Failed to save cursor to the owner's metadata");
 }

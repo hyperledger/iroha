@@ -7,7 +7,7 @@ use core::borrow::Borrow;
 use std::collections::BTreeMap;
 
 use iroha_data_model_derive::model;
-use iroha_primitives::json::JsonString;
+use iroha_primitives::json::JsonValue;
 
 pub use self::model::*;
 use crate::prelude::Name;
@@ -46,7 +46,7 @@ mod model {
     #[serde(transparent)]
     #[display(fmt = "Metadata")]
     #[allow(clippy::multiple_inherent_impl)]
-    pub struct Metadata(pub(super) BTreeMap<Name, JsonString>);
+    pub struct Metadata(pub(super) BTreeMap<Name, JsonValue>);
 }
 
 impl Metadata {
@@ -56,13 +56,13 @@ impl Metadata {
     }
 
     /// Iterate over key/value pairs stored in the internal map.
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&Name, &JsonString)> {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&Name, &JsonValue)> {
         self.0.iter()
     }
 
     /// Get the `Some(&Value)` associated to `key`. Return `None` if not found.
     #[inline]
-    pub fn get<K: Ord + ?Sized>(&self, key: &K) -> Option<&JsonString>
+    pub fn get<K: Ord + ?Sized>(&self, key: &K) -> Option<&JsonValue>
     where
         Name: Borrow<K>,
     {
@@ -71,7 +71,7 @@ impl Metadata {
 
     /// Insert [`Value`] under the given key.  Returns `Some(value)`
     /// if the value was already present, `None` otherwise.
-    pub fn insert(&mut self, key: Name, value: impl Into<JsonString>) -> Option<JsonString> {
+    pub fn insert(&mut self, key: Name, value: impl Into<JsonValue>) -> Option<JsonValue> {
         self.0.insert(key, value.into())
     }
 }
@@ -82,7 +82,7 @@ impl Metadata {
     /// `Some(value)` at the key if the key was previously in the
     /// map, else `None`.
     #[inline]
-    pub fn remove<K: Ord + ?Sized>(&mut self, key: &K) -> Option<JsonString>
+    pub fn remove<K: Ord + ?Sized>(&mut self, key: &K) -> Option<JsonValue>
     where
         Name: Borrow<K>,
     {
