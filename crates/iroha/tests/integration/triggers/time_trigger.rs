@@ -121,7 +121,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
         let sample_isi = SetKeyValue::account(
             account_id.clone(),
             "key".parse::<Name>()?,
-            "value".parse::<JsonString>()?,
+            "value".parse::<JsonValue>()?,
         );
         test_client.submit(sample_isi)?;
     }
@@ -251,7 +251,7 @@ fn submit_sample_isi_on_every_block_commit(
         let sample_isi = SetKeyValue::account(
             account_id.clone(),
             "key".parse::<Name>()?,
-            JsonString::new("value"),
+            JsonValue::new("value"),
         );
         test_client.submit(sample_isi)?;
     }

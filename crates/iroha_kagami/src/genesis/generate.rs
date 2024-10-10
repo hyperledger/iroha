@@ -90,7 +90,7 @@ pub fn generate_default(
 ) -> color_eyre::Result<RawGenesisTransaction> {
     let genesis_account_id = AccountId::new(GENESIS_DOMAIN_ID.clone(), genesis_public_key);
     let mut meta = Metadata::default();
-    meta.insert("key".parse()?, JsonString::new("value"));
+    meta.insert("key".parse()?, JsonValue::new("value"));
 
     let mut builder = builder
         .domain_with_metadata("wonderland".parse()?, meta.clone())

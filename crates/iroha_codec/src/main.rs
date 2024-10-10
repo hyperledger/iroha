@@ -313,7 +313,7 @@ mod tests {
         let mut metadata = Metadata::default();
         metadata.insert(
             "hat".parse().expect("Valid"),
-            "white".parse::<JsonString>().expect("Valid"),
+            "white".parse::<JsonValue>().expect("Valid"),
         );
         let account = Account::new(ALICE_ID.clone()).with_metadata(metadata);
 
