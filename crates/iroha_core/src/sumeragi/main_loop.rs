@@ -41,6 +41,7 @@ pub struct Sumeragi {
     /// subsystem.
     pub transaction_cache: Vec<TransactionGuard>,
     /// Metrics for reporting number of view changes in current round
+    #[cfg(feature = "telemetry")]
     pub view_changes_metric: iroha_telemetry::metrics::ViewChangesGauge,
 
     /// Was there a commit in previous round?
@@ -123,60 +124,58 @@ impl Sumeragi {
         &self,
         latest_block: HashOf<BlockHeader>,
         view_change_proof_chain: &mut ProofChain,
-    ) -> (Option<BlockMessage>, bool) {
+    ) -> Result<(Option<BlockMessage>, bool), ReceiveNetworkPacketError> {
         const MAX_CONTROL_MSG_IN_A_ROW: usize = 25;
 
         let mut should_sleep = true;
         for _ in 0..MAX_CONTROL_MSG_IN_A_ROW {
-            if let Ok(msg) = self
-                .control_message_receiver
-                .try_recv()
-                .map_err(|recv_error| {
-                    assert!(
-                        recv_error != mpsc::TryRecvError::Disconnected,
-                        "INTERNAL ERROR: Sumeragi control message pump disconnected"
-                    )
-                })
-            {
-                should_sleep = false;
-                if let Err(error) = view_change_proof_chain.insert_proof(
-                    msg.view_change_proof,
-                    &self.topology,
-                    latest_block,
-                ) {
-                    trace!(%error, "Failed to add proof into view change proof chain")
+            match self.control_message_receiver.try_recv() {
+                Ok(msg) => {
+                    should_sleep = false;
+                    if let Err(error) = view_change_proof_chain.insert_proof(
+                        msg.view_change_proof,
+                        &self.topology,
+                        latest_block,
+                    ) {
+                        trace!(%error, "Failed to add proof into view change proof chain")
+                    }
                 }
-            } else {
-                break;
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Err(ReceiveNetworkPacketError::ChannelDisconnected)
+                }
+                Err(err) => {
+                    trace!(%err, "Failed to receive control message");
+                    break;
+                }
             }
         }
 
         let block_msg =
-            self.receive_block_message_network_packet(latest_block, view_change_proof_chain);
+            self.receive_block_message_network_packet(latest_block, view_change_proof_chain)?;
 
         should_sleep &= block_msg.is_none();
-        (block_msg, should_sleep)
+        Ok((block_msg, should_sleep))
     }
 
     fn receive_block_message_network_packet(
         &self,
         latest_block: HashOf<BlockHeader>,
         view_change_proof_chain: &ProofChain,
-    ) -> Option<BlockMessage> {
+    ) -> Result<Option<BlockMessage>, ReceiveNetworkPacketError> {
         let current_view_change_index =
             view_change_proof_chain.verify_with_state(&self.topology, latest_block);
 
         loop {
-            let block_msg = self
-                .message_receiver
-                .try_recv()
-                .map_err(|recv_error| {
-                    assert!(
-                        recv_error != mpsc::TryRecvError::Disconnected,
-                        "INTERNAL ERROR: Sumeragi message pump disconnected"
-                    )
-                })
-                .ok()?;
+            let block_msg = match self.message_receiver.try_recv() {
+                Ok(msg) => msg,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Err(ReceiveNetworkPacketError::ChannelDisconnected)
+                }
+                Err(err) => {
+                    trace!(%err, "Failed to receive message");
+                    return Ok(None);
+                }
+            };
 
             match &block_msg {
                 BlockMessage::BlockCreated(bc) => {
@@ -196,7 +195,7 @@ impl Sumeragi {
                 | BlockMessage::BlockCommitted(_)
                 | BlockMessage::BlockSyncUpdate(_) => {}
             }
-            return Some(block_msg);
+            return Ok(Some(block_msg));
         }
     }
 
@@ -938,6 +937,17 @@ impl Sumeragi {
     }
 }
 
+/// A simple error to handle network packet receiving failures
+#[derive(Copy, Clone)]
+pub enum ReceiveNetworkPacketError {
+    /// Some message pump is disconnected.
+    ///
+    /// It means either that Iroha is being shut down, or that something is terribly wrong.
+    ///
+    /// In any case, Sumeragi should terminate immediately.
+    ChannelDisconnected,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn reset_state(
     peer_id: &PeerId,
@@ -1100,17 +1110,26 @@ pub(crate) fn run(
             &mut last_view_change_time,
             &mut view_change_time,
         );
+        #[cfg(feature = "telemetry")]
         sumeragi
             .view_changes_metric
             .set(sumeragi.topology.view_change_index() as u64);
 
         if let Some(message) = {
-            let (msg, sleep) = sumeragi.receive_network_packet(
+            let (msg, sleep) = match sumeragi.receive_network_packet(
                 state_view
                     .latest_block_hash()
                     .expect("INTERNAL BUG: No latest block"),
                 &mut view_change_proof_chain,
-            );
+            ) {
+                Ok(x) => x,
+                Err(ReceiveNetworkPacketError::ChannelDisconnected) => {
+                    if shutdown_signal.is_sent() {
+                        break;
+                    }
+                    panic!("INTERNAL BUG: Sumeragi message pumps are disconnected while there is no shutdown signal yet.")
+                }
+            };
             should_sleep = sleep;
             msg
         } {
@@ -1220,6 +1239,7 @@ pub(crate) fn run(
             &mut last_view_change_time,
             &mut view_change_time,
         );
+        #[cfg(feature = "telemetry")]
         sumeragi
             .view_changes_metric
             .set(sumeragi.topology.view_change_index() as u64);

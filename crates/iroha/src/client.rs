@@ -70,12 +70,7 @@ impl TransactionResponseHandler {
 pub struct StatusResponseHandler;
 
 impl StatusResponseHandler {
-    pub(crate) fn handle(resp: &Response<Vec<u8>>) -> Result<Status> {
-        let slice = Self::handle_raw(resp)?;
-        serde_json::from_slice(slice).wrap_err("Failed to decode body")
-    }
-
-    fn handle_raw(resp: &Response<Vec<u8>>) -> Result<&Vec<u8>> {
+    fn handle(resp: &Response<Vec<u8>>) -> Result<&Vec<u8>> {
         if resp.status() != StatusCode::OK {
             return Err(ResponseReport::with_msg("Unexpected status response", resp)
                 .unwrap_or_else(core::convert::identity)
@@ -361,6 +356,12 @@ impl Client {
                 Self::listen_for_tx_confirmation_loop(&mut event_iterator, hash),
             )
             .await
+            .wrap_err_with(|| {
+                eyre!(
+                    "haven't got tx confirmation within {:?} (configured with `transaction_status_timeout`)",
+                    self.transaction_status_timeout
+                )
+            })
             .map_err(Into::into)
             .and_then(std::convert::identity);
             event_iterator.close().await;
@@ -614,7 +615,7 @@ impl Client {
             .prepare_status_request::<DefaultRequestBuilder>()
             .header(http::header::ACCEPT, "application/x-parity-scale");
         let resp = req.build()?.send()?;
-        let scaled_resp = StatusResponseHandler::handle_raw(&resp).cloned()?;
+        let scaled_resp = StatusResponseHandler::handle(&resp).cloned()?;
         DecodeAll::decode_all(&mut scaled_resp.as_slice()).map_err(|err| eyre!("{err}"))
     }
 

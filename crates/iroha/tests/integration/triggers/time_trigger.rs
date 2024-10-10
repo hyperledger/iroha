@@ -6,7 +6,6 @@ use iroha::{
     data_model::{
         asset::AssetId,
         events::pipeline::{BlockEventFilter, BlockStatus},
-        parameter::SumeragiParameters,
         prelude::*,
         Level,
     },
@@ -14,14 +13,9 @@ use iroha::{
 use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, load_sample_wasm, ALICE_ID};
 
-/// Default estimation of consensus duration.
-pub fn pipeline_time() -> Duration {
-    let default_parameters = SumeragiParameters::default();
+use crate::integration::triggers::get_asset_value;
 
-    default_parameters.pipeline_time(0, 0)
-}
-
-fn curr_time() -> core::time::Duration {
+fn curr_time() -> Duration {
     use std::time::SystemTime;
 
     SystemTime::now()
@@ -31,10 +25,12 @@ fn curr_time() -> core::time::Duration {
 
 #[test]
 fn mint_asset_after_3_sec() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_665).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new()
+        .with_default_pipeline_time()
+        .start_blocking()?;
+    let test_client = network.client();
     // Sleep to certainly bypass time interval analyzed by genesis
-    std::thread::sleep(pipeline_time());
+    std::thread::sleep(network.consensus_estimation());
 
     let asset_definition_id = "rose#wonderland"
         .parse::<AssetDefinitionId>()
@@ -47,8 +43,12 @@ fn mint_asset_after_3_sec() -> Result<()> {
     })?;
 
     let start_time = curr_time();
-    // Create trigger with schedule which is in the future to the new block but within block estimation time
-    let schedule = TimeSchedule::starting_at(start_time + Duration::from_secs(3));
+    const GAP: Duration = Duration::from_secs(3);
+    assert!(
+        GAP < network.consensus_estimation(),
+        "Schedule should be in the future but within block estimation"
+    );
+    let schedule = TimeSchedule::starting_at(start_time + GAP);
     let instruction = Mint::asset_numeric(1_u32, asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         "mint_rose".parse().expect("Valid"),
@@ -69,7 +69,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
     assert_eq!(init_quantity, after_registration_quantity);
 
     // Sleep long enough that trigger start is in the past
-    std::thread::sleep(pipeline_time());
+    std::thread::sleep(network.consensus_estimation());
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
 
     let after_wait_quantity = test_client.query_single(FindAssetQuantityById {
@@ -88,14 +88,14 @@ fn mint_asset_after_3_sec() -> Result<()> {
 fn pre_commit_trigger_should_be_executed() -> Result<()> {
     const CHECKS_COUNT: usize = 5;
 
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_600).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let asset_definition_id = "rose#wonderland".parse().expect("Valid");
     let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let mut prev_value = get_asset_value(&mut test_client, asset_id.clone());
+    let mut prev_value = get_asset_value(&test_client, asset_id.clone());
 
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
@@ -113,7 +113,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     test_client.submit(register_trigger)?;
 
     for _ in event_listener.take(CHECKS_COUNT) {
-        let new_value = get_asset_value(&mut test_client, asset_id.clone());
+        let new_value = get_asset_value(&test_client, asset_id.clone());
         assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
         prev_value = new_value;
 
@@ -134,8 +134,10 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     const TRIGGER_PERIOD: Duration = Duration::from_millis(1000);
     const EXPECTED_COUNT: u64 = 4;
 
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new()
+        .with_default_pipeline_time()
+        .start_blocking()?;
+    let test_client = network.client();
 
     let alice_id = ALICE_ID.clone();
 
@@ -181,7 +183,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     // Time trigger will be executed on block commits, so we have to produce some transactions
     submit_sample_isi_on_every_block_commit(
         event_listener,
-        &mut test_client,
+        &test_client,
         &alice_id,
         TRIGGER_PERIOD,
         usize::try_from(EXPECTED_COUNT)?,
@@ -222,25 +224,10 @@ fn get_block_committed_event_listener(
     client.listen_for_events([block_filter])
 }
 
-/// Get asset numeric value
-fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
-    let asset = client
-        .query(client::asset::all())
-        .filter_with(|asset| asset.id.eq(asset_id))
-        .execute_single()
-        .unwrap();
-
-    let AssetValue::Numeric(val) = *asset.value() else {
-        panic!("Unexpected asset value");
-    };
-
-    val
-}
-
 /// Submit some sample ISIs to create new blocks
 fn submit_sample_isi_on_every_block_commit(
     block_committed_event_listener: impl Iterator<Item = Result<EventBox>>,
-    test_client: &mut Client,
+    test_client: &Client,
     account_id: &AccountId,
     timeout: Duration,
     times: usize,

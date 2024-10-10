@@ -1,6 +1,8 @@
-use std::{fmt::Write as _, sync::mpsc, thread};
+use std::fmt::Write as _;
 
+use assert_matches::assert_matches;
 use eyre::Result;
+use futures_util::StreamExt;
 use iroha::data_model::{prelude::*, transaction::WasmSmartContract};
 use iroha_executor_data_model::permission::{
     account::CanModifyAccountMetadata, domain::CanModifyDomainMetadata,
@@ -8,6 +10,7 @@ use iroha_executor_data_model::permission::{
 use iroha_test_network::*;
 use iroha_test_samples::{ALICE_ID, BOB_ID};
 use parity_scale_codec::Encode as _;
+use tokio::task::spawn_blocking;
 
 /// Return string containing exported memory, dummy allocator, and
 /// host function imports which you can embed into your wasm module.
@@ -79,13 +82,13 @@ fn produce_instructions() -> Vec<InstructionBox> {
         .collect::<Vec<_>>()
 }
 
-#[test]
-fn instruction_execution_should_produce_events() -> Result<()> {
-    transaction_execution_should_produce_events(produce_instructions(), 10_665)
+#[tokio::test]
+async fn instruction_execution_should_produce_events() -> Result<()> {
+    transaction_execution_should_produce_events(produce_instructions()).await
 }
 
-#[test]
-fn wasm_execution_should_produce_events() -> Result<()> {
+#[tokio::test]
+async fn wasm_execution_should_produce_events() -> Result<()> {
     #![allow(clippy::integer_division)]
     let isi_hex: Vec<String> = produce_instructions()
         .into_iter()
@@ -124,105 +127,84 @@ fn wasm_execution_should_produce_events() -> Result<()> {
         isi_calls = isi_calls
     );
 
-    transaction_execution_should_produce_events(
-        WasmSmartContract::from_compiled(wat.into_bytes()),
-        10_615,
-    )
+    transaction_execution_should_produce_events(WasmSmartContract::from_compiled(wat.into_bytes()))
+        .await
 }
 
-fn transaction_execution_should_produce_events(
-    executable: impl Into<Executable>,
-    port: u16,
+async fn transaction_execution_should_produce_events(
+    executable: impl Into<Executable> + Send,
 ) -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(port).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let network = NetworkBuilder::new().start().await?;
+    let mut events_stream = network
+        .client()
+        .listen_for_events_async([DataEventFilter::Any])
+        .await?;
 
-    // spawn event reporter
-    let listener = client.clone();
-    let (init_sender, init_receiver) = mpsc::channel();
-    let (event_sender, event_receiver) = mpsc::channel();
-    let event_filter = DataEventFilter::Any;
-    thread::spawn(move || -> Result<()> {
-        let event_iterator = listener.listen_for_events([event_filter])?;
-        init_sender.send(())?;
-        for event in event_iterator {
-            event_sender.send(event)?
-        }
-        Ok(())
-    });
+    {
+        let client = network.client();
+        let tx = client.build_transaction(executable, <_>::default());
+        spawn_blocking(move || client.submit_transaction_blocking(&tx)).await??;
+    }
 
-    // submit transaction to produce events
-    init_receiver.recv()?;
-    let transaction = client.build_transaction(executable, Metadata::default());
-    client.submit_transaction_blocking(&transaction)?;
+    for i in 0..4 {
+        let event = events_stream
+            .next()
+            .await
+            .expect("there are at least 4 events")?;
 
-    // assertion
-    iroha_logger::info!("Listening for events");
-    for i in 0..4_usize {
-        let event: DataEvent = event_receiver.recv()??.try_into()?;
-        iroha_logger::info!("Event: {:?}", event);
-        assert!(matches!(event, DataEvent::Domain(_)));
-        if let DataEvent::Domain(domain_event) = event {
-            assert!(matches!(domain_event, DomainEvent::Created(_)));
-
-            if let DomainEvent::Created(created_domain) = domain_event {
-                let domain_id = DomainId::new(i.to_string().parse().expect("Valid"));
-                assert_eq!(domain_id, *created_domain.id());
-            }
-        }
+        let domain = assert_matches!(
+            event,
+            EventBox::Data(DataEvent::Domain(DomainEvent::Created(domain))) => domain
+        );
+        assert_eq!(domain.id().name().as_ref(), i.to_string())
     }
 
     Ok(())
 }
 
-#[test]
-fn produce_multiple_events() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_645).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn produce_multiple_events() -> Result<()> {
+    let network = NetworkBuilder::new().start().await?;
+    let mut events_stream = network
+        .client()
+        .listen_for_events_async([DataEventFilter::Any])
+        .await?;
 
-    // Spawn event reporter
-    let listener = client.clone();
-    let (init_sender, init_receiver) = mpsc::channel();
-    let (event_sender, event_receiver) = mpsc::channel();
-    let event_filter = DataEventFilter::Any;
-    thread::spawn(move || -> Result<()> {
-        let event_iterator = listener.listen_for_events([event_filter])?;
-        init_sender.send(())?;
-        for event in event_iterator {
-            event_sender.send(event)?
-        }
-        Ok(())
-    });
-
-    // Wait for event listener
-    init_receiver.recv()?;
-
-    // Registering role
-    let alice_id = ALICE_ID.clone();
+    // Register role
     let role_id = "TEST_ROLE".parse::<RoleId>()?;
     let permission_1 = CanModifyAccountMetadata {
-        account: alice_id.clone(),
+        account: ALICE_ID.clone(),
     };
     let permission_2 = CanModifyDomainMetadata {
-        domain: alice_id.domain().clone(),
+        domain: ALICE_ID.domain().clone(),
     };
-    let role = iroha::data_model::role::Role::new(role_id.clone(), alice_id.clone())
+    let role = Role::new(role_id.clone(), ALICE_ID.clone())
         .add_permission(permission_1.clone())
         .add_permission(permission_2.clone());
-    let instructions = [Register::role(role.clone())];
-    client.submit_all_blocking(instructions)?;
+    let register_role = Register::role(role.clone());
 
-    // Grants role to Bob
+    // Grant the role to Bob
     let bob_id = BOB_ID.clone();
-    let grant_role = Grant::account_role(role_id.clone(), bob_id.clone());
-    client.submit_blocking(grant_role)?;
+    let grant_role = Grant::account_role(role_id.clone(), BOB_ID.clone());
 
-    // Unregister role
+    // Unregister the role
     let unregister_role = Unregister::role(role_id.clone());
-    client.submit_blocking(unregister_role)?;
+
+    {
+        let client = network.client();
+        spawn_blocking(move || {
+            client.submit_all_blocking::<InstructionBox>([
+                register_role.into(),
+                grant_role.into(),
+                unregister_role.into(),
+            ])
+        })
+        .await??;
+    }
 
     // Inspect produced events
-    let event: DataEvent = event_receiver.recv()??.try_into()?;
+    let event: DataEvent = events_stream.next().await.unwrap()?.try_into()?;
     assert!(matches!(event, DataEvent::Role(_)));
     if let DataEvent::Role(role_event) = event {
         assert!(matches!(role_event, RoleEvent::Created(_)));
@@ -238,16 +220,16 @@ fn produce_multiple_events() -> Result<()> {
     }
 
     if let DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(event))) =
-        event_receiver.recv()??.try_into()?
+        events_stream.next().await.unwrap()?.try_into()?
     {
-        assert_eq!(*event.account(), alice_id);
+        assert_eq!(*event.account(), *ALICE_ID);
         assert_eq!(*event.role(), role_id);
     } else {
         panic!("Expected event is not an AccountEvent::RoleGranted")
     }
 
     if let DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(event))) =
-        event_receiver.recv()??.try_into()?
+        events_stream.next().await.unwrap()?.try_into()?
     {
         assert_eq!(*event.account(), bob_id);
         assert_eq!(*event.role(), role_id);
@@ -256,7 +238,7 @@ fn produce_multiple_events() -> Result<()> {
     }
 
     if let DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(event))) =
-        event_receiver.recv()??.try_into()?
+        events_stream.next().await.unwrap()?.try_into()?
     {
         assert_eq!(*event.account(), bob_id);
         assert_eq!(*event.role(), role_id);
@@ -265,15 +247,17 @@ fn produce_multiple_events() -> Result<()> {
     }
 
     if let DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(event))) =
-        event_receiver.recv()??.try_into()?
+        events_stream.next().await.unwrap()?.try_into()?
     {
-        assert_eq!(*event.account(), alice_id);
+        assert_eq!(*event.account(), *ALICE_ID);
         assert_eq!(*event.role(), role_id);
     } else {
         panic!("Expected event is not an AccountEvent::RoleRevoked")
     }
 
-    if let DataEvent::Role(RoleEvent::Deleted(event)) = event_receiver.recv()??.try_into()? {
+    if let DataEvent::Role(RoleEvent::Deleted(event)) =
+        events_stream.next().await.unwrap()?.try_into()?
+    {
         assert_eq!(event, role_id);
     } else {
         panic!("Expected event is not an RoleEvent::Deleted")

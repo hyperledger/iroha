@@ -83,37 +83,15 @@ toml = { workspace = true }
 nonzero_ext = { workspace = true }
 
 [dev-dependencies]
-# FIXME: These three activate `transparent_api` but client should never activate this feature.
-# Additionally there is a dependency on iroha_core in dev-dependencies in iroha_telemetry/derive
-# Hopefully, once the integration tests migration is finished these can be removed
-irohad = { workspace = true }
-
 iroha_genesis = { workspace = true }
 iroha_test_network = { workspace = true }
 executor_custom_data_model = { version = "=2.0.0-rc.1.0", path = "../../wasm_samples/executor_custom_data_model" }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-criterion = { workspace = true, features = ["html_reports"] }
+reqwest = { version = "0.12.7", features = ["json"] }
 color-eyre = { workspace = true }
 tempfile = { workspace = true }
 hex = { workspace = true }
 assertables = { workspace = true }
-
-tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
-tracing-flame = "0.2.0"
-
 trybuild = { workspace = true }
-
-[[bench]]
-name = "torii"
-harness = false
-
-[[bench]]
-name = "tps-dev"
-harness = false
-path = "benches/tps/dev.rs"
-
-[[example]]
-name = "tps-oneshot"
-harness = false
-path = "benches/tps/oneshot.rs"
+assert_matches = "1.5.0"

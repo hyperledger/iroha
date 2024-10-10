@@ -1,8 +1,8 @@
 use eyre::Result;
-use iroha::{data_model::prelude::*, samples::get_status_json};
+use iroha::{client, data_model::prelude::*};
 use iroha_telemetry::metrics::Status;
 use iroha_test_network::*;
-use iroha_test_samples::gen_account_in;
+use tokio::task::spawn_blocking;
 
 fn status_eq_excluding_uptime_and_queue(lhs: &Status, rhs: &Status) -> bool {
     lhs.peers == rhs.peers
@@ -12,43 +12,43 @@ fn status_eq_excluding_uptime_and_queue(lhs: &Status, rhs: &Status) -> bool {
         && lhs.view_changes == rhs.view_changes
 }
 
-#[test]
-fn json_and_scale_statuses_equality() -> Result<()> {
-    let (_rt, network, client) = Network::start_test_with_runtime(2, Some(11_280));
-    wait_for_genesis_committed(&network.clients(), 0);
+async fn check(client: &client::Client, blocks: u64) -> Result<()> {
+    let status_json = reqwest::get(client.torii_url.join("/status").unwrap())
+        .await?
+        .json()
+        .await?;
 
-    let json_status_zero = get_status_json(&client).unwrap();
+    let status_scale = {
+        let client = client.clone();
+        spawn_blocking(move || client.get_status()).await??
+    };
 
-    let scale_status_zero_decoded = client.get_status().unwrap();
+    assert!(status_eq_excluding_uptime_and_queue(
+        &status_json,
+        &status_scale
+    ));
+    assert_eq!(status_json.blocks, blocks);
 
-    assert!(
-        status_eq_excluding_uptime_and_queue(&json_status_zero, &scale_status_zero_decoded),
-        "get_status() result is not equal to decoded get_status_scale_encoded()"
-    );
+    Ok(())
+}
 
-    let coins = ["xor", "btc", "eth", "doge"];
+#[tokio::test]
+async fn json_and_scale_statuses_equality() -> Result<()> {
+    let network = NetworkBuilder::new().start().await?;
+    let client = network.client();
 
-    let (account_id, _account_keypair) = gen_account_in("domain");
+    check(&client, 1).await?;
 
-    for coin in coins {
-        let asset_definition_id = format!("{coin}#wonderland").parse::<AssetDefinitionId>()?;
-        let create_asset =
-            Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-        let mint_asset = Mint::asset_numeric(
-            1234u32,
-            AssetId::new(asset_definition_id, account_id.clone()),
-        );
-        client.submit_all::<InstructionBox>([create_asset.into(), mint_asset.into()])?;
+    {
+        let client = client.clone();
+        spawn_blocking(move || {
+            client.submit_blocking(Register::domain(Domain::new("looking_glass".parse()?)))
+        })
     }
+    .await??;
+    network.ensure_blocks(2).await?;
 
-    let json_status_coins = get_status_json(&client).unwrap();
-
-    let scale_status_coins_decoded = client.get_status().unwrap();
-
-    assert!(
-        status_eq_excluding_uptime_and_queue(&json_status_coins, &scale_status_coins_decoded),
-        "get_status() result is not equal to decoded get_status_scale_encoded()"
-    );
+    check(&client, 2).await?;
 
     Ok(())
 }

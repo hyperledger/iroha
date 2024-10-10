@@ -1,7 +1,6 @@
 use eyre::Result;
 use iroha::{
     client,
-    client::Client,
     crypto::KeyPair,
     data_model::{prelude::*, transaction::error::TransactionRejectionReason},
 };
@@ -12,18 +11,14 @@ use iroha_executor_data_model::permission::{
     domain::CanUnregisterDomain,
     trigger::CanUnregisterTrigger,
 };
-use iroha_genesis::GenesisBlock;
 use iroha_primitives::json::JsonString;
-use iroha_test_network::{Peer as TestPeer, *};
+use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID, SAMPLE_GENESIS_ACCOUNT_ID};
-use tokio::runtime::Runtime;
 
 #[test]
 fn domain_owner_domain_permissions() -> Result<()> {
-    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_080).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let kingdom_id: DomainId = "kingdom".parse()?;
     let (bob_id, bob_keypair) = gen_account_in("kingdom");
@@ -38,7 +33,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
     test_client.submit_blocking(Register::account(bob))?;
 
     // Asset definitions can't be registered by "bob@kingdom" by default
-    let transaction = TransactionBuilder::new(chain_id.clone(), bob_id.clone())
+    let transaction = TransactionBuilder::new(network.chain_id(), bob_id.clone())
         .with_instructions([Register::asset_definition(coin.clone())])
         .sign(bob_keypair.private_key());
     let err = test_client
@@ -66,7 +61,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
         permission.clone(),
         bob_id.clone(),
     ))?;
-    let transaction = TransactionBuilder::new(chain_id, bob_id.clone())
+    let transaction = TransactionBuilder::new(network.chain_id(), bob_id.clone())
         .with_instructions([Register::asset_definition(coin)])
         .sign(bob_keypair.private_key());
     test_client.submit_transaction_blocking(&transaction)?;
@@ -96,8 +91,8 @@ fn domain_owner_domain_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_account_permissions() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_075).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let kingdom_id: DomainId = "kingdom".parse()?;
     let (mad_hatter_id, _mad_hatter_keypair) = gen_account_in("kingdom");
@@ -138,10 +133,9 @@ fn domain_owner_account_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_asset_definition_permissions() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_085).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
-    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
     let kingdom_id: DomainId = "kingdom".parse()?;
     let (bob_id, bob_keypair) = gen_account_in("kingdom");
     let (rabbit_id, _rabbit_keypair) = gen_account_in("kingdom");
@@ -163,7 +157,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
 
     // register asset definitions by "bob@kingdom" so he is owner of it
     let coin = AssetDefinition::numeric(coin_id.clone());
-    let transaction = TransactionBuilder::new(chain_id, bob_id.clone())
+    let transaction = TransactionBuilder::new(network.chain_id(), bob_id.clone())
         .with_instructions([Register::asset_definition(coin)])
         .sign(bob_keypair.private_key());
     test_client.submit_transaction_blocking(&transaction)?;
@@ -203,10 +197,8 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_asset_permissions() -> Result<()> {
-    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_090).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let alice_id = ALICE_ID.clone();
     let kingdom_id: DomainId = "kingdom".parse()?;
@@ -228,7 +220,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
     // register asset definitions by "bob@kingdom" so he is owner of it
     let coin = AssetDefinition::numeric(coin_id.clone());
     let store = AssetDefinition::store(store_id.clone());
-    let transaction = TransactionBuilder::new(chain_id, bob_id.clone())
+    let transaction = TransactionBuilder::new(network.chain_id(), bob_id.clone())
         .with_instructions([
             Register::asset_definition(coin),
             Register::asset_definition(store),
@@ -269,8 +261,8 @@ fn domain_owner_asset_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_trigger_permissions() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_095).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let alice_id = ALICE_ID.clone();
     let kingdom_id: DomainId = "kingdom".parse()?;
@@ -325,8 +317,8 @@ fn domain_owner_trigger_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_transfer() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_100).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let alice_id = ALICE_ID.clone();
     let kingdom_id: DomainId = "kingdom".parse()?;
@@ -365,31 +357,29 @@ fn domain_owner_transfer() -> Result<()> {
 
 #[test]
 fn not_allowed_to_transfer_other_user_domain() -> Result<()> {
-    let mut peer = TestPeer::new().expect("Failed to create peer");
-    let topology = vec![peer.id.clone()];
-
     let users_domain: DomainId = "users".parse()?;
     let foo_domain: DomainId = "foo".parse()?;
-
     let user1 = AccountId::new(users_domain.clone(), KeyPair::random().into_parts().0);
     let user2 = AccountId::new(users_domain.clone(), KeyPair::random().into_parts().0);
     let genesis_account = SAMPLE_GENESIS_ACCOUNT_ID.clone();
 
-    let instructions: [InstructionBox; 6] = [
-        Register::domain(Domain::new(users_domain.clone())).into(),
-        Register::account(Account::new(user1.clone())).into(),
-        Register::account(Account::new(user2.clone())).into(),
-        Register::domain(Domain::new(foo_domain.clone())).into(),
-        Transfer::domain(genesis_account.clone(), foo_domain.clone(), user1.clone()).into(),
-        Transfer::domain(genesis_account.clone(), users_domain.clone(), user1.clone()).into(),
-    ];
-    let genesis = GenesisBlock::test_with_instructions(instructions, topology);
-
-    let rt = Runtime::test();
-    let builder = PeerBuilder::new().with_genesis(genesis).with_port(11_110);
-    rt.block_on(builder.start_with_peer(&mut peer));
-    let client = Client::test(&peer.api_address);
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new()
+        .with_genesis_instruction(Register::domain(Domain::new(users_domain.clone())))
+        .with_genesis_instruction(Register::account(Account::new(user1.clone())))
+        .with_genesis_instruction(Register::account(Account::new(user2.clone())))
+        .with_genesis_instruction(Register::domain(Domain::new(foo_domain.clone())))
+        .with_genesis_instruction(Transfer::domain(
+            genesis_account.clone(),
+            foo_domain.clone(),
+            user1.clone(),
+        ))
+        .with_genesis_instruction(Transfer::domain(
+            genesis_account.clone(),
+            users_domain.clone(),
+            user1.clone(),
+        ))
+        .start_blocking()?;
+    let client = network.client();
 
     let domain = client
         .query(client::domain::all())

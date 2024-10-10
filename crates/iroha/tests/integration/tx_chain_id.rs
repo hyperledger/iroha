@@ -5,8 +5,8 @@ use iroha_test_samples::gen_account_in;
 
 #[test]
 fn send_tx_with_different_chain_id() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_250).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let test_client = network.client();
     // Given
     let (sender_id, sender_keypair) = gen_account_in("wonderland");
     let (receiver_id, _receiver_keypair) = gen_account_in("wonderland");
@@ -31,8 +31,9 @@ fn send_tx_with_different_chain_id() {
             register_asset.into(),
         ])
         .unwrap();
-    let chain_id_0 = ChainId::from("00000000-0000-0000-0000-000000000000"); // Value configured by default
+    let chain_id_0 = network.chain_id();
     let chain_id_1 = ChainId::from("1");
+    assert_ne!(chain_id_0, chain_id_1);
 
     let transfer_instruction = Transfer::asset_numeric(
         AssetId::new("test_asset#wonderland".parse().unwrap(), sender_id.clone()),
@@ -49,6 +50,7 @@ fn send_tx_with_different_chain_id() {
         .submit_transaction_blocking(&asset_transfer_tx_0)
         .unwrap();
     let _err = test_client
-        .submit_transaction_blocking(&asset_transfer_tx_1)
+        // no need for "blocking" - it must be rejected synchronously
+        .submit_transaction(&asset_transfer_tx_1)
         .unwrap_err();
 }

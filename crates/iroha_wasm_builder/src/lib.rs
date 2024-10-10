@@ -361,6 +361,7 @@ impl Output {
 }
 
 // TODO: Remove cargo invocation (#2152)
+#[allow(unreachable_code, unused)]
 fn cargo_command() -> Command {
     const INSTRUMENT_COVERAGE_FLAG: &str = "instrument-coverage";
     for var in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {

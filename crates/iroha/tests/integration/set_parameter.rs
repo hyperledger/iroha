@@ -12,8 +12,10 @@ use iroha_test_network::*;
 
 #[test]
 fn can_change_parameter_value() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_135).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new()
+        .with_default_pipeline_time()
+        .start_blocking()?;
+    let test_client = network.client();
 
     let old_params: Parameters = test_client.query_single(client::parameter::all())?;
     assert_eq!(

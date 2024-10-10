@@ -19,6 +19,8 @@ use crate::{
 
 mod user;
 
+pub use user::Root as UserConfig;
+
 #[allow(missing_docs)]
 pub const DEFAULT_TRANSACTION_TIME_TO_LIVE: Duration = Duration::from_secs(100);
 #[allow(missing_docs)]

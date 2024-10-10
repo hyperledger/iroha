@@ -12,6 +12,7 @@ use iroha_config::parameters::actual::Network as Config;
 use iroha_config_base::WithOrigin;
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::PeerId;
+use iroha_futures::supervisor::ShutdownSignal;
 use iroha_logger::{prelude::*, test_logger};
 use iroha_p2p::{network::message::*, NetworkHandle};
 use iroha_primitives::addr::socket_addr;
@@ -45,7 +46,9 @@ async fn network_create() {
         address: WithOrigin::inline(address.clone()),
         idle_timeout,
     };
-    let (network, _) = NetworkHandle::start(key_pair, config).await.unwrap();
+    let (network, _) = NetworkHandle::start(key_pair, config, ShutdownSignal::new())
+        .await
+        .unwrap();
     tokio::time::sleep(delay).await;
 
     info!("Connecting to peer...");
@@ -156,7 +159,9 @@ async fn two_networks() {
         address: WithOrigin::inline(address1.clone()),
         idle_timeout,
     };
-    let (mut network1, _) = NetworkHandle::start(key_pair1, config1).await.unwrap();
+    let (mut network1, _) = NetworkHandle::start(key_pair1, config1, ShutdownSignal::new())
+        .await
+        .unwrap();
 
     info!("Starting second network...");
     let address2 = socket_addr!(127.0.0.1:12_010);
@@ -164,7 +169,9 @@ async fn two_networks() {
         address: WithOrigin::inline(address2.clone()),
         idle_timeout,
     };
-    let (network2, _) = NetworkHandle::start(key_pair2, config2).await.unwrap();
+    let (network2, _) = NetworkHandle::start(key_pair2, config2, ShutdownSignal::new())
+        .await
+        .unwrap();
 
     let mut messages2 = WaitForN::new(1);
     let actor2 = TestActor::start(messages2.clone());
@@ -239,6 +246,7 @@ async fn multiple_networks() {
         .expect("Failed to convert to u32");
     let mut msgs = WaitForN::new(expected_msgs);
     let barrier = Arc::new(Barrier::new(peers.len()));
+
     peers
         .iter()
         .zip(key_pairs)
@@ -249,6 +257,7 @@ async fn multiple_networks() {
                 peers.clone(),
                 msgs.clone(),
                 Arc::clone(&barrier),
+                ShutdownSignal::new(),
             )
         })
         .collect::<FuturesUnordered<_>>()
@@ -290,6 +299,7 @@ async fn start_network(
     peers: Vec<PeerId>,
     messages: WaitForN,
     barrier: Arc<Barrier>,
+    shutdown_signal: ShutdownSignal,
 ) -> (PeerId, NetworkHandle<TestMessage>) {
     info!(peer_addr = %peer.address, "Starting network");
 
@@ -302,7 +312,9 @@ async fn start_network(
         address: WithOrigin::inline(address),
         idle_timeout,
     };
-    let (mut network, _) = NetworkHandle::start(key_pair, config).await.unwrap();
+    let (mut network, _) = NetworkHandle::start(key_pair, config, shutdown_signal)
+        .await
+        .unwrap();
     network.subscribe_to_peers_messages(actor);
 
     let _ = barrier.wait().await;

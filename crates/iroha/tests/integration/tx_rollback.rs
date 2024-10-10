@@ -5,8 +5,8 @@ use iroha_test_samples::ALICE_ID;
 
 #[test]
 fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_720).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     //When
     let account_id = ALICE_ID.clone();
