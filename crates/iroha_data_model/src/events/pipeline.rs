@@ -103,6 +103,8 @@ mod model {
     )]
     #[ffi_type(opaque)]
     pub enum BlockStatus {
+        /// Block created (only emitted by the leader node)
+        Created,
         /// Block was approved to participate in consensus
         Approved,
         /// Block was rejected by consensus

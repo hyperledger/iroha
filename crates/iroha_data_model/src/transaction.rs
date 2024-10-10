@@ -29,7 +29,6 @@ use crate::{
 
 #[model]
 mod model {
-    use getset::Getters;
     use iroha_primitives::const_vec::ConstVec;
 
     use super::*;
@@ -144,40 +143,13 @@ mod model {
     #[derive(
         Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
-    #[cfg_attr(not(feature = "std"), display(fmt = "Signed transaction"))]
-    #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
+    #[display(fmt = "{}", "self.hash()")]
     #[ffi_type]
     pub struct SignedTransactionV1 {
         /// Signature of [`Self::payload`].
         pub(super) signature: TransactionSignature,
         /// Payload of the transaction.
         pub(super) payload: TransactionPayload,
-    }
-
-    /// Transaction Value used in Instructions and Queries
-    #[derive(
-        Debug,
-        PartialOrd,
-        Ord,
-        Getters,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[ffi_type]
-    #[getset(get = "pub")]
-    pub struct CommittedTransaction {
-        /// Committed transaction
-        #[getset(skip)]
-        pub value: SignedTransaction,
-        /// Reason of rejection
-        // NOTE: Using `Box` reduces memory use by 10%
-        pub error: Option<Box<error::TransactionRejectionReason>>,
     }
 }
 
@@ -305,15 +277,8 @@ impl From<SignedTransaction> for (AccountId, Executable) {
 }
 
 impl SignedTransactionV1 {
-    #[cfg(feature = "std")]
     fn hash(&self) -> iroha_crypto::HashOf<SignedTransaction> {
         iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::HashOf::new(self).into())
-    }
-}
-
-impl AsRef<SignedTransaction> for CommittedTransaction {
-    fn as_ref(&self) -> &SignedTransaction {
-        &self.value
     }
 }
 
@@ -750,9 +715,7 @@ mod http {
 pub mod prelude {
     #[cfg(feature = "http")]
     pub use super::http::TransactionBuilder;
-    pub use super::{
-        error::prelude::*, CommittedTransaction, Executable, SignedTransaction, WasmSmartContract,
-    };
+    pub use super::{error::prelude::*, Executable, SignedTransaction, WasmSmartContract};
 }
 
 #[cfg(test)]

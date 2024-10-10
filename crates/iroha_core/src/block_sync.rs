@@ -429,8 +429,8 @@ pub mod message {
                     PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
                 let block0: SignedBlock = ValidBlock::new_dummy(&leader_private_key).into();
                 let block1 =
-                    ValidBlock::new_dummy_and_modify_payload(&leader_private_key, |payload| {
-                        payload.header.height = block0.header().height.checked_add(2).unwrap();
+                    ValidBlock::new_dummy_and_modify_header(&leader_private_key, |header| {
+                        header.height = block0.header().height.checked_add(2).unwrap();
                     })
                     .into();
                 let candidate = ShareBlocksCandidate {
@@ -450,9 +450,9 @@ pub mod message {
                     PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
                 let block0: SignedBlock = ValidBlock::new_dummy(&leader_private_key).into();
                 let block1 =
-                    ValidBlock::new_dummy_and_modify_payload(&leader_private_key, |payload| {
-                        payload.header.height = block0.header().height.checked_add(1).unwrap();
-                        payload.header.prev_block_hash =
+                    ValidBlock::new_dummy_and_modify_header(&leader_private_key, |header| {
+                        header.height = block0.header().height.checked_add(1).unwrap();
+                        header.prev_block_hash =
                             Some(HashOf::from_untyped_unchecked(Hash::prehashed([0; 32])));
                     })
                     .into();
@@ -473,9 +473,9 @@ pub mod message {
                     PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
                 let block0: SignedBlock = ValidBlock::new_dummy(&leader_private_key).into();
                 let block1 =
-                    ValidBlock::new_dummy_and_modify_payload(&leader_private_key, |payload| {
-                        payload.header.height = block0.header().height.checked_add(1).unwrap();
-                        payload.header.prev_block_hash = Some(block0.hash());
+                    ValidBlock::new_dummy_and_modify_header(&leader_private_key, |header| {
+                        header.height = block0.header().height.checked_add(1).unwrap();
+                        header.prev_block_hash = Some(block0.hash());
                     })
                     .into();
                 let candidate = ShareBlocksCandidate {

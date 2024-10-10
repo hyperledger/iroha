@@ -1381,15 +1381,14 @@ impl<'state> StateBlock<'state> {
     /// # Errors
     /// Fails if transaction instruction execution fails
     fn execute_transactions(&mut self, block: &CommittedBlock) -> Result<()> {
+        let block = block.as_ref();
+
         // TODO: Should this block panic instead?
-        for tx in block.as_ref().transactions() {
-            if tx.error.is_none() {
+        for (idx, tx) in block.transactions().enumerate() {
+            if block.error(idx).is_none() {
                 // Execute every tx in it's own transaction
                 let mut transaction = self.transaction();
-                transaction.process_executable(
-                    tx.as_ref().instructions(),
-                    tx.as_ref().authority().clone(),
-                )?;
+                transaction.process_executable(tx.instructions(), tx.authority().clone())?;
                 transaction.apply();
             }
         }
@@ -1421,7 +1420,6 @@ impl<'state> StateBlock<'state> {
         block
             .as_ref()
             .transactions()
-            .map(|tx| &tx.value)
             .map(SignedTransaction::hash)
             .for_each(|tx_hash| {
                 self.transactions.insert(tx_hash, block_height);
@@ -2129,7 +2127,6 @@ pub(crate) mod deserialize {
 mod tests {
     use core::num::NonZeroU64;
 
-    use iroha_data_model::block::BlockPayload;
     use iroha_test_samples::gen_account_in;
 
     use super::*;
@@ -2139,12 +2136,12 @@ mod tests {
     };
 
     /// Used to inject faulty payload for testing
-    fn new_dummy_block_with_payload(f: impl FnOnce(&mut BlockPayload)) -> CommittedBlock {
+    fn new_dummy_block_with_payload(f: impl FnOnce(&mut BlockHeader)) -> CommittedBlock {
         let (leader_public_key, leader_private_key) = iroha_crypto::KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
 
-        ValidBlock::new_dummy_and_modify_payload(&leader_private_key, f)
+        ValidBlock::new_dummy_and_modify_header(&leader_private_key, f)
             .commit(&topology)
             .unpack(|_| {})
             .unwrap()
@@ -2161,9 +2158,9 @@ mod tests {
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
-            let block = new_dummy_block_with_payload(|payload| {
-                payload.header.height = NonZeroU64::new(i as u64).unwrap();
-                payload.header.prev_block_hash = block_hashes.last().copied();
+            let block = new_dummy_block_with_payload(|header| {
+                header.height = NonZeroU64::new(i as u64).unwrap();
+                header.prev_block_hash = block_hashes.last().copied();
             });
 
             block_hashes.push(block.as_ref().hash());
@@ -2186,8 +2183,8 @@ mod tests {
         let mut state_block = state.block();
 
         for i in 1..=BLOCK_CNT {
-            let block = new_dummy_block_with_payload(|payload| {
-                payload.header.height = NonZeroU64::new(i as u64).unwrap();
+            let block = new_dummy_block_with_payload(|header| {
+                header.height = NonZeroU64::new(i as u64).unwrap();
             });
 
             let _events = state_block.apply(&block, Vec::new()).unwrap();

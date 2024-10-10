@@ -3,8 +3,10 @@
 //! `Block`s are organised into a linear sequence over time (also known as the block chain).
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, format, string::String, vec::Vec};
 use core::{fmt::Display, time::Duration};
+#[cfg(feature = "std")]
+use std::collections::BTreeMap;
 
 use derive_more::Display;
 use iroha_crypto::{HashOf, MerkleTree, SignatureOf};
@@ -16,7 +18,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::transaction::prelude::*;
+use crate::transaction::{error::TransactionRejectionReason, prelude::*};
 
 #[model]
 mod model {
@@ -42,11 +44,7 @@ mod model {
         Serialize,
         IntoSchema,
     )]
-    #[cfg_attr(
-        feature = "std",
-        display(fmt = "Block №{height} (hash: {});", "HashOf::new(&self)")
-    )]
-    #[cfg_attr(not(feature = "std"), display(fmt = "Block №{height}"))]
+    #[display(fmt = "{} (№{height})", "self.hash()")]
     #[allow(missing_docs)]
     #[ffi_type]
     pub struct BlockHeader {
@@ -76,7 +74,7 @@ mod model {
         /// Block header
         pub header: BlockHeader,
         /// array of transactions, which successfully passed validation and consensus step.
-        pub transactions: Vec<CommittedTransaction>,
+        pub transactions: Vec<SignedTransaction>,
     }
 
     /// Signature of a block
@@ -105,13 +103,19 @@ mod model {
     #[derive(
         Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
-    #[display(fmt = "{}", "self.hash()")]
+    #[display(fmt = "{}", "self.header()")]
     #[ffi_type]
     pub struct SignedBlockV1 {
         /// Signatures of peers which approved this block.
         pub(super) signatures: Vec<BlockSignature>,
         /// Block payload
         pub(super) payload: BlockPayload,
+        /// Collection of rejection reasons for every transaction if exists
+        ///
+        /// # Warning
+        ///
+        /// Transaction errors are not part of the block hash or protected by the block signature.
+        pub(super) errors: BTreeMap<u64, TransactionRejectionReason>,
     }
 }
 
@@ -140,30 +144,62 @@ impl BlockHeader {
     }
 }
 
-impl BlockPayload {
-    /// Create new signed block, using `key_pair` to sign `payload`
-    #[cfg(feature = "transparent_api")]
-    pub fn sign(self, private_key: &iroha_crypto::PrivateKey) -> SignedBlock {
-        let signatures = vec![BlockSignature(
-            0,
-            SignatureOf::new(private_key, &self.header),
-        )];
-
-        SignedBlockV1 {
-            signatures,
-            payload: self,
-        }
-        .into()
-    }
-}
-
 impl SignedBlockV1 {
-    fn hash(&self) -> iroha_crypto::HashOf<BlockHeader> {
+    fn hash(&self) -> HashOf<BlockHeader> {
         self.payload.header.hash()
+    }
+
+    fn header(&self) -> &BlockHeader {
+        &self.payload.header
     }
 }
 
 impl SignedBlock {
+    /// Create new block with a given signature without verifying whether the signature is valid
+    ///
+    /// # Warning
+    ///
+    /// All transactions are categorized as valid
+    #[cfg(feature = "transparent_api")]
+    pub fn presigned_unverified(
+        signature: BlockSignature,
+        header: BlockHeader,
+        transactions: impl IntoIterator<Item = SignedTransaction>,
+    ) -> SignedBlock {
+        let signatures = vec![signature];
+
+        SignedBlockV1 {
+            signatures,
+            payload: BlockPayload {
+                header,
+                transactions: transactions.into_iter().collect(),
+            },
+            errors: BTreeMap::new(),
+        }
+        .into()
+    }
+    /// Return error for the transaction index
+    pub fn error(&self, tx: usize) -> Option<&TransactionRejectionReason> {
+        let SignedBlock::V1(block) = self;
+        block.errors.get(&(tx as u64))
+    }
+
+    /// Setter for transaction errors
+    #[cfg(feature = "transparent_api")]
+    pub fn categorize_transactions(
+        &mut self,
+        errors: impl IntoIterator<Item = (usize, TransactionRejectionReason)>,
+    ) -> &mut Self {
+        let SignedBlock::V1(block) = self;
+
+        block.errors = errors
+            .into_iter()
+            .map(|(idx, error)| (idx as u64, error))
+            .collect();
+
+        self
+    }
+
     /// Block payload. Used for tests
     #[cfg(feature = "transparent_api")]
     pub fn payload(&self) -> &BlockPayload {
@@ -180,16 +216,19 @@ impl SignedBlock {
 
     /// Block transactions
     #[inline]
-    pub fn transactions(&self) -> impl ExactSizeIterator<Item = &CommittedTransaction> {
+    pub fn transactions(&self) -> impl ExactSizeIterator<Item = &SignedTransaction> {
         let SignedBlock::V1(block) = self;
         block.payload.transactions.iter()
     }
 
-    /// Block transactions with mutable access
-    #[inline]
-    pub fn transactions_mut(&mut self) -> &mut [CommittedTransaction] {
+    /// Collection of rejection reasons for every transaction if exists
+    ///
+    /// # Warning
+    ///
+    /// Transaction errors are not part of the block hash or protected by the block signature.
+    pub fn errors(&self) -> impl ExactSizeIterator<Item = (&u64, &TransactionRejectionReason)> {
         let SignedBlock::V1(block) = self;
-        block.payload.transactions.as_mut_slice()
+        block.errors.iter()
     }
 
     /// Signatures of peers which approved this block.
@@ -214,18 +253,12 @@ impl SignedBlock {
     ///
     /// if signature is invalid
     #[cfg(feature = "transparent_api")]
-    pub fn add_signature(
-        &mut self,
-        signature: BlockSignature,
-        public_key: &iroha_crypto::PublicKey,
-    ) -> Result<(), iroha_crypto::Error> {
+    pub fn add_signature(&mut self, signature: BlockSignature) -> Result<(), iroha_crypto::Error> {
         if self.signatures().any(|s| signature.0 == s.0) {
             return Err(iroha_crypto::Error::Signing(
                 "Duplicate signature".to_owned(),
             ));
         }
-
-        signature.1.verify(public_key, &self.payload().header)?;
 
         let SignedBlock::V1(block) = self;
         block.signatures.push(signature);
@@ -234,17 +267,43 @@ impl SignedBlock {
     }
 
     /// Replace signatures without verification
+    ///
+    /// # Errors
+    ///
+    /// if there is a duplicate signature
     #[cfg(feature = "transparent_api")]
-    pub fn replace_signatures_unchecked(
+    pub fn replace_signatures(
         &mut self,
         signatures: Vec<BlockSignature>,
-    ) -> Vec<BlockSignature> {
+    ) -> Result<Vec<BlockSignature>, iroha_crypto::Error> {
+        #[cfg(not(feature = "std"))]
+        use alloc::collections::BTreeSet;
+        #[cfg(feature = "std")]
+        use std::collections::BTreeSet;
+
+        if signatures.is_empty() {
+            return Err(iroha_crypto::Error::Signing("Signatures empty".to_owned()));
+        }
+
+        signatures.iter().map(|signature| signature.0).try_fold(
+            BTreeSet::new(),
+            |mut acc, elem| {
+                if !acc.insert(elem) {
+                    return Err(iroha_crypto::Error::Signing(format!(
+                        "{elem}: Duplicate signature"
+                    )));
+                }
+
+                Ok(acc)
+            },
+        )?;
+
         let SignedBlock::V1(block) = self;
-        std::mem::replace(&mut block.signatures, signatures)
+        Ok(core::mem::replace(&mut block.signatures, signatures))
     }
 
-    /// Add additional signatures to this block
-    #[cfg(all(feature = "std", feature = "transparent_api"))]
+    /// Add additional signature to this block
+    #[cfg(feature = "transparent_api")]
     pub fn sign(&mut self, private_key: &iroha_crypto::PrivateKey, signatory: usize) {
         let SignedBlock::V1(block) = self;
 
@@ -257,18 +316,18 @@ impl SignedBlock {
     /// Creates genesis block signed with genesis private key (and not signed by any peer)
     #[cfg(feature = "std")]
     pub fn genesis(
-        genesis_transactions: Vec<SignedTransaction>,
-        genesis_private_key: &iroha_crypto::PrivateKey,
+        transactions: Vec<SignedTransaction>,
+        private_key: &iroha_crypto::PrivateKey,
     ) -> SignedBlock {
         use nonzero_ext::nonzero;
 
-        let transactions_hash = genesis_transactions
+        let transactions_hash = transactions
             .iter()
             .map(SignedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
             .expect("Tree is not empty");
-        let creation_time_ms = Self::get_genesis_block_creation_time(&genesis_transactions);
+        let creation_time_ms = Self::get_genesis_block_creation_time(&transactions);
         let header = BlockHeader {
             height: nonzero!(1_u64),
             prev_block_hash: None,
@@ -276,34 +335,28 @@ impl SignedBlock {
             creation_time_ms,
             view_change_index: 0,
         };
-        let transactions = genesis_transactions
-            .into_iter()
-            .map(|transaction| CommittedTransaction {
-                value: transaction,
-                error: None,
-            })
-            .collect();
 
+        let signature = BlockSignature(0, SignatureOf::new(private_key, &header));
         let payload = BlockPayload {
             header,
             transactions,
         };
 
-        let signature = BlockSignature(0, SignatureOf::new(genesis_private_key, &payload.header));
         SignedBlockV1 {
             signatures: vec![signature],
             payload,
+            errors: BTreeMap::new(),
         }
         .into()
     }
 
     #[cfg(feature = "std")]
-    fn get_genesis_block_creation_time(genesis_transactions: &[SignedTransaction]) -> u64 {
+    fn get_genesis_block_creation_time(transactions: &[SignedTransaction]) -> u64 {
         use std::time::SystemTime;
 
-        let latest_txn_time = genesis_transactions
+        let latest_txn_time = transactions
             .iter()
-            .map(super::transaction::SignedTransaction::creation_time)
+            .map(SignedTransaction::creation_time)
             .max()
             .expect("INTERNAL BUG: Block empty");
         let now = SystemTime::now()
@@ -340,12 +393,13 @@ mod candidate {
     struct SignedBlockCandidate {
         signatures: Vec<BlockSignature>,
         payload: BlockPayload,
+        errors: BTreeMap<u64, TransactionRejectionReason>,
     }
 
     #[derive(Decode, Deserialize)]
     struct BlockPayloadCandidate {
         header: BlockHeader,
-        transactions: Vec<CommittedTransaction>,
+        transactions: Vec<SignedTransaction>,
     }
 
     impl BlockPayloadCandidate {
@@ -368,7 +422,7 @@ mod candidate {
             let expected_txs_hash = self
                 .transactions
                 .iter()
-                .map(|value| value.as_ref().hash())
+                .map(SignedTransaction::hash)
                 .collect::<MerkleTree<_>>()
                 .hash()
                 .ok_or("Block is empty")?;
@@ -378,7 +432,7 @@ mod candidate {
             }
 
             self.transactions.iter().try_for_each(|tx| {
-                if tx.value.creation_time() >= self.header.creation_time() {
+                if tx.creation_time() >= self.header.creation_time() {
                     return Err("Transaction creation time is ahead of block creation time");
                 }
 
@@ -403,6 +457,7 @@ mod candidate {
             Ok(SignedBlockV1 {
                 signatures: self.signatures,
                 payload: self.payload,
+                errors: self.errors,
             })
         }
 
@@ -433,14 +488,14 @@ mod candidate {
 
         #[cfg(not(target_family = "wasm"))]
         fn validate_genesis(&self) -> Result<(), &'static str> {
-            use crate::isi::InstructionBox;
-
             let transactions = self.payload.transactions.as_slice();
+
+            if !self.errors.is_empty() {
+                return Err("Genesis transaction must not contain errors");
+            }
+
             for transaction in transactions {
-                if transaction.error.is_some() {
-                    return Err("Genesis transaction must not contain errors");
-                }
-                let Executable::Instructions(_) = transaction.value.instructions() else {
+                let Executable::Instructions(_) = transaction.instructions() else {
                     return Err("Genesis transaction must contain instructions");
                 };
             }
@@ -449,11 +504,11 @@ mod candidate {
                 return Err("Genesis block must contain at least one transaction");
             };
             let Executable::Instructions(instructions_executor) =
-                transaction_executor.value.instructions()
+                transaction_executor.instructions()
             else {
                 return Err("Genesis transaction must contain instructions");
             };
-            let [InstructionBox::Upgrade(_)] = instructions_executor.as_ref() else {
+            let [crate::isi::InstructionBox::Upgrade(_)] = instructions_executor.as_ref() else {
                 return Err(
                     "First transaction must contain single `Upgrade` instruction to set executor",
                 );
