@@ -264,7 +264,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction to set key value at the object.
-        #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct SetKeyValue<O: Identifiable> {
             /// Where to set key value.
             pub object: O::Id,
@@ -356,7 +355,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction to remove key value at the object.
-        #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct RemoveKeyValue<O: Identifiable> {
             /// From where to remove key value.
             pub object: O::Id,
@@ -437,7 +435,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for a registration of an object to the identifiable destination.
-        #[schema(bounds = "O: Registered, O::With: IntoSchema")]
         #[serde(transparent)]
         pub struct Register<O: Registered> {
             /// The object that should be registered, should be uniquely identifiable by its id.
@@ -524,7 +521,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for an unregistration of an object from the identifiable destination.
-        #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct Unregister<O: Identifiable> {
             /// [`Identifiable::Id`] of the object which should be unregistered.
             pub object: O::Id,
@@ -606,7 +602,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for a mint of an object to the identifiable destination.
-        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
         pub struct Mint<O, D: Identifiable> {
             /// Object which should be minted.
             pub object: O,
@@ -656,7 +651,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for a burn of an object to the identifiable destination.
-        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
         pub struct Burn<O, D: Identifiable> {
             /// Object which should be burned.
             pub object: O,
@@ -706,9 +700,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
-        #[schema(bounds = "S: Identifiable, S::Id: IntoSchema, \
-                           O: IntoSchema, \
-                           D: Identifiable, D::Id: IntoSchema")]
         pub struct Transfer<S: Identifiable, O, D: Identifiable> {
             /// Source object `Id`.
             pub source: S::Id,
@@ -802,7 +793,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for granting permission to an entity.
-        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
         pub struct Grant<O, D: Identifiable> {
             /// Object to grant.
             pub object: O,
@@ -863,7 +853,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for revoking permission from an entity.
-        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
         pub struct Revoke<O, D: Identifiable> {
             /// Object to revoke.
             pub object: O,
