@@ -128,9 +128,9 @@ mv = { version = "0.1.0" }
 [workspace.lints]
 rustdoc.private_doc_tests = "deny"
 
-rust.future_incompatible = {level = "deny", priority = -1 }
-rust.nonstandard_style = {level = "deny", priority = -1 }
-rust.rust_2018_idioms = {level = "deny", priority = -1 }
+rust.future_incompatible = { level = "deny", priority = -1 }
+rust.nonstandard_style = { level = "deny", priority = -1 }
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rust.unused = { level = "deny", priority = -1 }
 
 rust.anonymous_parameters = "deny"
@@ -149,6 +149,12 @@ rust.single_use_lifetimes = "warn"
 rust.unused_lifetimes = "warn"
 # TODO: reenable
 # rust.unsafe_op_in_unsafe_fn = "deny"
+rust.unexpected_cfgs = { level = "warn", check-cfg = [
+    # FIXME: https://github.com/hyperledger/iroha/issues/3102
+    'cfg(feature, values("ffi_import"))',
+    # It is set by `cargo-llvm-cov`
+    'cfg(coverage)'
+] }
 
 # pedantic
 clippy.pedantic = { level = "warn", priority = -1 }

@@ -15,7 +15,7 @@ workspace = true
 # Should not be enabled on production builds.
 dev-telemetry = []
 # Export Prometheus metrics. See https://prometheus.io/.
-metric-instrumentation = []
+metric-instrumentation = ["iroha_telemetry_derive/metric-instrumentation"]
 
 [dependencies]
 iroha_telemetry_derive = { path = "../iroha_telemetry_derive" }
