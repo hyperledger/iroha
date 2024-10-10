@@ -437,9 +437,11 @@ mod tests {
                 .chain(0, &mut state_block)
                 .sign(&peer_private_key)
                 .unpack(|_| {})
+                .categorize(&mut state_block)
+                .unpack(|_| {})
                 .commit(&topology)
                 .unpack(|_| {})
-                .expect("Block is valid");
+                .unwrap();
 
             let _events = state_block.apply(&first_block, topology.as_ref().to_owned())?;
             kura.store_block(first_block);
@@ -448,6 +450,8 @@ mod tests {
                 let block = BlockBuilder::new(transactions.clone())
                     .chain(0, &mut state_block)
                     .sign(&peer_private_key)
+                    .unpack(|_| {})
+                    .categorize(&mut state_block)
                     .unpack(|_| {})
                     .commit(&topology)
                     .unpack(|_| {})
@@ -609,9 +613,11 @@ mod tests {
             .chain(0, &mut state_block)
             .sign(ALICE_KEYPAIR.private_key())
             .unpack(|_| {})
+            .categorize(&mut state_block)
+            .unpack(|_| {})
             .commit(&topology)
             .unpack(|_| {})
-            .expect("Block is valid");
+            .unwrap();
 
         let _events = state_block.apply(&vcb, topology.as_ref().to_owned())?;
         kura.store_block(vcb);

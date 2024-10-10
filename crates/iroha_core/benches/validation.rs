@@ -173,7 +173,7 @@ fn sign_blocks(criterion: &mut Criterion) {
         b.iter_batched(
             || block.clone(),
             |block| {
-                let _: ValidBlock = block.sign(&peer_private_key).unpack(|_| {});
+                let _: NewBlock = block.sign(&peer_private_key).unpack(|_| {});
                 count += 1;
             },
             BatchSize::SmallInput,

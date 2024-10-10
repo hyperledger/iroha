@@ -144,8 +144,7 @@ mod model {
     #[derive(
         Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
-    #[cfg_attr(not(feature = "std"), display(fmt = "Signed transaction"))]
-    #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
+    #[display(fmt = "{}", "self.hash()")]
     #[ffi_type]
     pub struct SignedTransactionV1 {
         /// Signature of [`Self::payload`].
@@ -305,7 +304,6 @@ impl From<SignedTransaction> for (AccountId, Executable) {
 }
 
 impl SignedTransactionV1 {
-    #[cfg(feature = "std")]
     fn hash(&self) -> iroha_crypto::HashOf<SignedTransaction> {
         iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::HashOf::new(self).into())
     }

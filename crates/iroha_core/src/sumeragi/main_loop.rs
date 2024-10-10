@@ -282,7 +282,7 @@ impl Sumeragi {
 
     fn init_commit_genesis(
         &mut self,
-        genesis: GenesisBlock,
+        GenesisBlock(genesis): GenesisBlock,
         genesis_account: &AccountId,
         state: &State,
     ) {
@@ -295,9 +295,13 @@ impl Sumeragi {
         }
 
         let mut state_block = state.block();
-        state_block.world.genesis_creation_time_ms = Some(genesis.0.header().creation_time_ms);
+        state_block.world.genesis_creation_time_ms = Some(genesis.header().creation_time_ms);
+
+        let msg = BlockCreated::from(&genesis);
+        self.broadcast_packet(msg);
+
         let genesis = ValidBlock::validate(
-            genesis.0,
+            genesis,
             &self.topology,
             &self.chain_id,
             genesis_account,
@@ -314,13 +318,10 @@ impl Sumeragi {
         // NOTE: By this time genesis block is executed and list of trusted peers is updated
         self.topology = Topology::new(state_block.world.trusted_peers_ids.clone());
 
-        let msg = BlockCreated::from(&genesis);
         let genesis = genesis
             .commit(&self.topology)
             .unpack(|e| self.send_event(e))
             .expect("Genesis invalid");
-
-        self.broadcast_packet(msg);
         self.commit_block(genesis, state_block);
     }
 
@@ -386,20 +387,13 @@ impl Sumeragi {
 
     fn validate_block<'state>(
         &self,
+        block: SignedBlock,
         state: &'state State,
         topology: &Topology,
         genesis_account: &AccountId,
-        BlockCreated { block }: BlockCreated,
         existing_voting_block: &mut Option<VotingBlock>,
     ) -> Option<VotingBlock<'state>> {
-        if state.view().height() == 1 && block.header().height.get() == 1 {
-            // Consider our peer has genesis,
-            // and some other peer has genesis and broadcast it to our peer,
-            // then we can ignore such genesis block because we already has genesis.
-            // Note: `ValidBlock::validate` also checks it,
-            // but we don't want warning to be printed since this is correct behaviour.
-            return None;
-        }
+        assert!(!block.header().is_genesis());
 
         ValidBlock::validate_keep_voting_block(
             block,
@@ -539,11 +533,11 @@ impl Sumeragi {
                     }
                 }
             }
-            (BlockMessage::BlockCreated(block_created), Role::ValidatingPeer) => {
+            (BlockMessage::BlockCreated(BlockCreated { block }), Role::ValidatingPeer) => {
                 info!(
                     peer_id=%self.peer_id,
                     role=%self.role(),
-                    block=%block_created.block.hash(),
+                    block=%block.hash(),
                     "Block received"
                 );
 
@@ -552,13 +546,9 @@ impl Sumeragi {
                     .is_consensus_required()
                     .expect("INTERNAL BUG: Consensus required for validating peer");
 
-                if let Some(mut v_block) = self.validate_block(
-                    state,
-                    topology,
-                    genesis_account,
-                    block_created,
-                    voting_block,
-                ) {
+                if let Some(mut v_block) =
+                    self.validate_block(block, state, topology, genesis_account, voting_block)
+                {
                     v_block.block.sign(&self.key_pair, topology);
 
                     let msg = BlockSigned::from(&v_block.block);
@@ -573,11 +563,11 @@ impl Sumeragi {
                     *voting_block = Some(v_block);
                 }
             }
-            (BlockMessage::BlockCreated(block_created), Role::ObservingPeer) => {
+            (BlockMessage::BlockCreated(BlockCreated { block }), Role::ObservingPeer) => {
                 info!(
                     peer_id=%self.peer_id,
                     role=%self.role(),
-                    block=%block_created.block.hash(),
+                    block=%block.hash(),
                     "Block received"
                 );
 
@@ -586,13 +576,9 @@ impl Sumeragi {
                     .is_consensus_required()
                     .expect("INTERNAL BUG: Consensus required for observing peer");
 
-                if let Some(mut v_block) = self.validate_block(
-                    state,
-                    topology,
-                    genesis_account,
-                    block_created,
-                    voting_block,
-                ) {
+                if let Some(mut v_block) =
+                    self.validate_block(block, state, topology, genesis_account, voting_block)
+                {
                     if view_change_index >= 1 {
                         v_block.block.sign(&self.key_pair, topology);
 
@@ -610,20 +596,16 @@ impl Sumeragi {
                     *voting_block = Some(v_block);
                 }
             }
-            (BlockMessage::BlockCreated(block_created), Role::ProxyTail) => {
+            (BlockMessage::BlockCreated(BlockCreated { block }), Role::ProxyTail) => {
                 info!(
                     peer_id=%self.peer_id,
                     role=%self.role(),
-                    block=%block_created.block.hash(),
+                    block=%block.hash(),
                     "Block received"
                 );
-                if let Some(mut valid_block) = self.validate_block(
-                    state,
-                    &self.topology,
-                    genesis_account,
-                    block_created,
-                    voting_block,
-                ) {
+                if let Some(mut valid_block) =
+                    self.validate_block(block, state, &self.topology, genesis_account, voting_block)
+                {
                     // NOTE: Up until this point it was unknown which block is expected to be received,
                     // therefore all the signatures (of any hash) were collected and will now be pruned
                     for signature in core::mem::take(voting_signatures) {
@@ -859,7 +841,6 @@ impl Sumeragi {
     fn try_create_block<'state>(
         &mut self,
         state: &'state State,
-        genesis_account: &AccountId,
         voting_block: &mut Option<VotingBlock<'state>>,
     ) {
         assert_eq!(self.role(), Role::Leader);
@@ -872,67 +853,56 @@ impl Sumeragi {
             .max_transactions
             .try_into()
             .expect("INTERNAL BUG: transactions in block exceed usize::MAX");
-        let block_time = if self.topology.view_change_index() > 0 {
-            Duration::from_secs(0)
-        } else {
-            state.world.view().parameters.sumeragi.block_time()
-        };
+
         let tx_cache_full = self.transaction_cache.len() >= max_transactions.get();
+        let view_change_in_progress = self.topology.view_change_index() > 0;
+        let block_time = state.world.view().parameters.sumeragi.block_time();
         let deadline_reached = self.round_start_time.elapsed() > block_time;
         let tx_cache_non_empty = !self.transaction_cache.is_empty();
 
-        if tx_cache_full || (deadline_reached && tx_cache_non_empty) {
+        if tx_cache_full || tx_cache_non_empty && (view_change_in_progress || deadline_reached) {
             let transactions = self
                 .transaction_cache
                 .iter()
                 .map(|tx| tx.deref().clone())
                 .collect::<Vec<_>>();
 
-            let pre_signed_block = BlockBuilder::new_unverified(
-                state.view().latest_block().as_deref(),
-                self.topology.view_change_index(),
-                transactions,
-            )
-            .sign(self.key_pair.private_key());
-
-            let block_created_msg = BlockCreated {
-                block: pre_signed_block,
-            };
-            if self.topology.is_consensus_required().is_some() {
-                self.broadcast_packet(block_created_msg.clone());
-            }
+            let mut state_block = state.block();
+            let unverified_block = BlockBuilder::new(transactions)
+                .chain(self.topology.view_change_index(), &mut state_block)
+                .sign(self.key_pair.private_key())
+                .unpack(|e| self.send_event(e));
 
             info!(
                 peer_id=%self.peer_id,
+                block_hash=%unverified_block.header.hash(),
+                txns=%unverified_block.transactions.len(),
                 view_change_index=%self.topology.view_change_index(),
-                block_hash=%block_created_msg.block.hash(),
-                txns=%block_created_msg.block.transactions().len(),
                 "Block created"
             );
 
-            let new_voting_block = self
-                .validate_block(
-                    state,
-                    &self.topology,
-                    genesis_account,
-                    block_created_msg,
-                    voting_block,
-                )
-                .expect("We just created this block ourselves, it has to be valid.");
-
             if self.topology.is_consensus_required().is_some() {
-                *voting_block = Some(new_voting_block);
+                let msg = BlockCreated::from(&unverified_block);
+                self.broadcast_packet(msg);
+            }
+
+            let block = unverified_block
+                .categorize(&mut state_block)
+                .unpack(|e| self.send_event(e));
+
+            *voting_block = if self.topology.is_consensus_required().is_some() {
+                Some(VotingBlock::new(block, state_block))
             } else {
-                let committed_block = new_voting_block
-                    .block
+                let committed_block = block
                     .commit(&self.topology)
                     .unpack(|e| self.send_event(e))
-                    .expect("INTERNAL BUG: Leader failed to commit created block");
+                    .expect("INTERNAL BUG: Leader failed to commit block");
 
                 let msg = BlockCommitted::from(&committed_block);
                 self.broadcast_packet(msg);
-                self.commit_block(committed_block, new_voting_block.state_block);
-                *voting_block = None;
+                self.commit_block(committed_block, state_block);
+
+                None
             }
         }
     }
@@ -1136,7 +1106,8 @@ pub(crate) fn run(
 
         // We broadcast our view change suggestion after having processed the latest from others inside `receive_network_packet`
         let block_expected = !sumeragi.transaction_cache.is_empty();
-        if (block_expected || view_change_index > 0)
+        let view_change_in_progress = view_change_index > 0;
+        if (block_expected || view_change_in_progress)
             && last_view_change_time.elapsed() > view_change_time
         {
             if block_expected {
@@ -1225,7 +1196,7 @@ pub(crate) fn run(
             .set(sumeragi.topology.view_change_index() as u64);
 
         if sumeragi.role() == Role::Leader && voting_block.is_none() {
-            sumeragi.try_create_block(&state, &genesis_account, &mut voting_block);
+            sumeragi.try_create_block(&state, &mut voting_block);
         }
     }
 }
@@ -1416,6 +1387,7 @@ fn categorize_block_sync(
 
 #[cfg(test)]
 mod tests {
+    use iroha_crypto::SignatureOf;
     use iroha_data_model::{isi::InstructionBox, transaction::TransactionBuilder};
     use iroha_genesis::GENESIS_DOMAIN_ID;
     use iroha_test_samples::gen_account_in;
@@ -1426,22 +1398,26 @@ mod tests {
     use crate::{query::store::LiveQueryStore, smartcontracts::Registrable};
 
     /// Used to inject faulty payload for testing
-    fn clone_and_modify_payload(
-        block: &SignedBlock,
+    fn clone_and_modify_header(
+        block: &NewBlock,
         private_key: &PrivateKey,
-        f: impl FnOnce(&mut BlockPayload),
-    ) -> SignedBlock {
-        let mut payload = block.payload().clone();
-        f(&mut payload);
+        f: impl FnOnce(&mut BlockHeader),
+    ) -> NewBlock {
+        let mut header = block.header.clone();
+        f(&mut header);
 
-        payload.sign(private_key)
+        NewBlock {
+            signature: BlockSignature(0, SignatureOf::new(private_key, &header)),
+            header,
+            transactions: block.transactions.clone(),
+        }
     }
 
     fn create_data_for_test(
         chain_id: &ChainId,
         topology: &Topology,
         leader_private_key: &PrivateKey,
-    ) -> (State, Arc<Kura>, SignedBlock, AccountId) {
+    ) -> (State, Arc<Kura>, NewBlock, AccountId) {
         // Predefined world state
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
         let genesis_account = AccountId::new(
@@ -1489,15 +1465,16 @@ mod tests {
             .expect("Valid");
 
         // Creating a block of two identical transactions and validating it
-        let block = BlockBuilder::new(vec![peers, tx.clone(), tx])
+        let genesis = BlockBuilder::new(vec![peers, tx.clone(), tx])
             .chain(0, &mut state_block)
             .sign(leader_private_key)
-            .unpack(|_| {});
-
-        let genesis = block
+            .unpack(|_| {})
+            .categorize(&mut state_block)
+            .unpack(|_| {})
             .commit(topology)
             .unpack(|_| {})
             .expect("Block is valid");
+
         let _events = state_block.apply_without_execution(&genesis, topology.as_ref().to_owned());
         state_block.commit();
         kura.store_block(genesis);
@@ -1532,11 +1509,10 @@ mod tests {
                 .unpack(|_| {})
         };
 
-        (state, kura, block.into(), genesis_account)
+        (state, kura, block, genesis_account)
     }
 
     #[test]
-    #[allow(clippy::redundant_clone)]
     async fn block_sync_invalid_block() {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
@@ -1547,10 +1523,10 @@ mod tests {
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         // Malform block to make it invalid
-        let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
-            payload.header.prev_block_hash =
-                Some(HashOf::from_untyped_unchecked(Hash::new([1; 32])));
-        });
+        let block = clone_and_modify_header(&block, &leader_private_key, |header| {
+            header.prev_block_hash = Some(HashOf::from_untyped_unchecked(Hash::new([1; 32])));
+        })
+        .into();
 
         let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
         assert!(matches!(result, Err((_, BlockSyncError::BlockNotValid(_)))))
@@ -1563,33 +1539,28 @@ mod tests {
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let (state, kura, block, genesis_public_key) =
+        let (state, kura, unverified_block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         let mut state_block = state.block();
-        let committed_block = ValidBlock::validate(
-            block.clone(),
-            &topology,
-            &chain_id,
-            &genesis_public_key,
-            &mut state_block,
-        )
-        .unpack(|_| {})
-        .unwrap()
-        .commit(&topology)
-        .unpack(|_| {})
-        .expect("Block is valid");
+        let committed_block = unverified_block
+            .clone()
+            .categorize(&mut state_block)
+            .unpack(|_| {})
+            .commit(&topology)
+            .unpack(|_| {})
+            .expect("Block is valid");
         let _events =
             state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
         state_block.commit();
         kura.store_block(committed_block);
 
         // Malform block to make it invalid
-        let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
-            payload.header.prev_block_hash =
-                Some(HashOf::from_untyped_unchecked(Hash::new([1; 32])));
-            payload.header.view_change_index = 1;
-        });
+        let block = clone_and_modify_header(&unverified_block, &leader_private_key, |header| {
+            header.prev_block_hash = Some(HashOf::from_untyped_unchecked(Hash::new([1; 32])));
+            header.view_change_index = 1;
+        })
+        .into();
 
         let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
         assert!(matches!(
@@ -1599,7 +1570,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::redundant_clone)]
     async fn block_sync_not_proper_height() {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
@@ -1610,9 +1580,10 @@ mod tests {
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         // Change block height
-        let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
-            payload.header.height = nonzero!(42_u64);
-        });
+        let block = clone_and_modify_header(&block, &leader_private_key, |header| {
+            header.height = nonzero!(42_u64);
+        })
+        .into();
 
         let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
 
@@ -1634,7 +1605,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::redundant_clone)]
     async fn block_sync_commit_block() {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
@@ -1643,7 +1613,13 @@ mod tests {
         let topology = Topology::new(vec![peer_id]);
         let (state, _, block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
-        let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
+        let result = handle_block_sync(
+            &chain_id,
+            block.into(),
+            &state,
+            &genesis_public_key,
+            &|_| {},
+        );
         assert!(matches!(result, Ok(BlockSyncOk::CommitBlock(_, _, _))))
     }
 
@@ -1654,38 +1630,31 @@ mod tests {
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let (state, kura, block, genesis_public_key) =
+        let (state, kura, unverified_block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         let mut state_block = state.block();
-        let committed_block = ValidBlock::validate(
-            block.clone(),
-            &topology,
-            &chain_id,
-            &genesis_public_key,
-            &mut state_block,
-        )
-        .unpack(|_| {})
-        .unwrap()
-        .commit(&topology)
-        .unpack(|_| {})
-        .expect("Block is valid");
+        let committed_block = unverified_block
+            .clone()
+            .categorize(&mut state_block)
+            .unpack(|_| {})
+            .commit(&topology)
+            .unpack(|_| {})
+            .unwrap();
         let _events =
             state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
         state_block.commit();
 
         kura.store_block(committed_block);
-        let latest_block = state
-            .view()
-            .latest_block()
-            .expect("INTERNAL BUG: No latest block");
+        let latest_block = state.view().latest_block().unwrap();
         let latest_block_view_change_index = latest_block.header().view_change_index;
         assert_eq!(latest_block_view_change_index, 0);
 
         // Increase block view change index
-        let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
-            payload.header.view_change_index = 42;
-        });
+        let block = clone_and_modify_header(&unverified_block, &leader_private_key, |header| {
+            header.view_change_index = 42;
+        })
+        .into();
 
         let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
         assert!(matches!(result, Ok(BlockSyncOk::ReplaceTopBlock(_, _, _))))
@@ -1702,23 +1671,18 @@ mod tests {
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
         // Increase block view change index
-        let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
-            payload.header.view_change_index = 42;
+        let unverified_block = clone_and_modify_header(&block, &leader_private_key, |header| {
+            header.view_change_index = 42;
         });
 
         let mut state_block = state.block();
-        let committed_block = ValidBlock::validate(
-            block.clone(),
-            &topology,
-            &chain_id,
-            &genesis_public_key,
-            &mut state_block,
-        )
-        .unpack(|_| {})
-        .unwrap()
-        .commit(&topology)
-        .unpack(|_| {})
-        .expect("Block is valid");
+        let committed_block = unverified_block
+            .clone()
+            .categorize(&mut state_block)
+            .unpack(|_| {})
+            .commit(&topology)
+            .unpack(|_| {})
+            .expect("Block is valid");
         let _events =
             state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
         state_block.commit();
@@ -1731,9 +1695,10 @@ mod tests {
         assert_eq!(latest_block_view_change_index, 42);
 
         // Decrease block view change index back
-        let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
-            payload.header.view_change_index = 0;
-        });
+        let block = clone_and_modify_header(&unverified_block, &leader_private_key, |header| {
+            header.view_change_index = 0;
+        })
+        .into();
 
         let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
         assert!(matches!(
@@ -1749,7 +1714,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::redundant_clone)]
     async fn block_sync_genesis_block_do_not_replace() {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
@@ -1761,10 +1725,11 @@ mod tests {
 
         // Change block height and view change index
         // Soft-fork on genesis block is not possible
-        let block = clone_and_modify_payload(&block, &leader_private_key, |payload| {
-            payload.header.view_change_index = 42;
-            payload.header.height = nonzero!(1_u64);
-        });
+        let block = clone_and_modify_header(&block, &leader_private_key, |header| {
+            header.view_change_index = 42;
+            header.height = nonzero!(1_u64);
+        })
+        .into();
 
         let result = handle_block_sync(&chain_id, block, &state, &genesis_public_key, &|_| {});
 
@@ -1786,19 +1751,25 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::redundant_clone)]
     async fn block_sync_commit_err_keep_voting_block() {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), leader_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let (state, _, mut block, genesis_public_key) =
+        let (state, _, unverified_block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
+        let valid_block = unverified_block
+            .categorize(&mut state.block())
+            .unpack(|_| {});
 
         // Malform block signatures so that block going to be rejected
-        block.replace_signatures_unchecked(Vec::new());
-
+        let dummy_signature = BlockSignature(
+            42,
+            valid_block.as_ref().signatures().next().unwrap().1.clone(),
+        );
+        let mut block: SignedBlock = valid_block.into();
+        let _prev_signatures = block.replace_signatures(vec![dummy_signature]).unwrap();
         let mut voting_block = Some(VotingBlock::new(
             ValidBlock::new_dummy(&leader_private_key),
             state.block(),
