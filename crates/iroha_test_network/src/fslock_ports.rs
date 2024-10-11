@@ -1,5 +1,10 @@
 //! [`fslock`]-based socket ports locking for test network peers,
 //! supporting inter-process and intra-process test execution scenarios.
+//!
+//! Known issues:
+//! - `.lock` file persists and is not deleted
+//! - locking and recreating JSON file for each port each time is suboptimal, could be optimised
+//! - _sometimes_ locked ports aren't cleaned after test execution (_usually_ on failures)
 
 use std::{
     collections::BTreeSet,
