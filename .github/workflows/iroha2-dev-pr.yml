@@ -21,6 +21,7 @@ env:
   DOCKER_COMPOSE_PATH: defaults
   WASM_SAMPLES_TARGET_DIR: wasm_samples/target/prebuilt
   TEST_NETWORK_TMP_DIR: /tmp
+  NEXTEST_PROFILE: ci
 
 jobs:
   consistency:
@@ -110,13 +111,11 @@ jobs:
       - name: Test with no default features
         run: >
           mold --run cargo llvm-cov nextest
-          --profile ci
           --no-default-features
           --branch --no-report
       - name: Test with all features
         run: >
           mold --run cargo llvm-cov nextest
-          --profile ci
           --all-features
           --branch --no-report
       - name: Generate lcov report
