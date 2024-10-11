@@ -14,8 +14,6 @@ mod role;
 mod smart_contract;
 
 #[test]
-// FIXME
-#[ignore = "started to fail after #5086?"]
 fn too_big_fetch_size_is_not_allowed() {
     let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
     let client = network.client();
