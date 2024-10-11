@@ -58,14 +58,15 @@ const SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 fn iroha_bin() -> impl AsRef<Path> {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
 
-    PATH.get_or_init(|| match which::which("irohad") {
-        Ok(path) => path,
-        Err(_) => {
+    PATH.get_or_init(|| {
+        if let Ok(path) = which::which("irohad") {
+            path
+        } else {
             eprintln!(
                 "ERROR: could not locate `irohad` binary in $PATH\n  \
-                    It is required to run `iroha_test_network`.\n  \
-                    The easiest way to satisfy this is to run:\n\n    \
-                    cargo install ./crates/irohad --locked"
+                It is required to run `iroha_test_network`.\n  \
+                The easiest way to satisfy this is to run:\n\n    \
+                cargo install ./crates/irohad --locked"
             );
             panic!("could not proceed without `irohad`, see the message above");
         }
@@ -120,7 +121,8 @@ impl Network {
     /// Start all peers, waiting until they are up and have committed genesis (submitted by one of them).
     ///
     /// # Panics
-    /// If some peer was already started
+    /// - If some peer was already started
+    /// - If some peer exists early
     pub async fn start_all(&self) -> &Self {
         timeout(
             PEER_START_TIMEOUT,
@@ -128,13 +130,22 @@ impl Network {
                 .iter()
                 .enumerate()
                 .map(|(i, peer)| async move {
-                    peer.start(
-                        self.config(),
-                        // TODO: make 0 random?
-                        (i == 0).then_some(&self.genesis),
-                    )
-                    .await;
-                    peer.once_block(1).await;
+                    let failure = async move {
+                        peer.once(|e| matches!(e, PeerLifecycleEvent::Terminated { .. }))
+                            .await;
+                        panic!("a peer exited unexpectedly");
+                    };
+
+                    let start = async move {
+                        peer.start(self.config(), (i == 0).then_some(&self.genesis))
+                            .await;
+                        peer.once_block(1).await;
+                    };
+
+                    tokio::select! {
+                        _ = failure => {},
+                        _ = start => {},
+                    }
                 })
                 .collect::<FuturesUnordered<_>>()
                 .collect::<Vec<_>>(),
@@ -602,15 +613,26 @@ impl NetworkPeer {
             });
         }
         {
+            let log_prefix = log_prefix.clone();
             let output = child.stderr.take().unwrap();
-            let mut file = File::create(self.dir.path().join(format!("run-{run_num}-stderr.log")))
-                .await
-                .unwrap();
+            let path = self.dir.path().join(format!("run-{run_num}-stderr.log"));
             tasks.spawn(async move {
-                // TODO: handle panic?
-                tokio::io::copy(&mut BufReader::new(output), &mut file)
+                let mut buffer = String::new();
+                let mut lines = BufReader::new(output).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    buffer.push_str(&line);
+                    buffer.push('\n');
+                }
+
+                if buffer.is_empty() {
+                    return;
+                }
+
+                eprintln!("{log_prefix} STDERR:\n=======\n{buffer}======= END OF STDERR");
+                let mut file = File::create(path).await.expect("should create");
+                file.write_all(buffer.as_bytes())
                     .await
-                    .expect("writing logs to file shouldn't fail");
+                    .expect("should write");
             });
         }
 

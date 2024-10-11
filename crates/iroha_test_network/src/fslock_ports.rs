@@ -46,7 +46,7 @@ impl LockContent {
                 })
                 .unwrap()
         } else {
-            Default::default()
+            LockContent::default()
         };
         Ok(value)
     }
@@ -86,9 +86,7 @@ impl AllocatedPort {
                 break port;
             }
             i += 1;
-            if i == 1000 {
-                panic!("cannot find a free port")
-            }
+            assert!(i < 1000, "cannot find a free port");
         };
 
         value.ports_in_use.insert(port);

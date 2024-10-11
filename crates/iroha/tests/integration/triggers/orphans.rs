@@ -8,7 +8,7 @@ use iroha_test_samples::gen_account_in;
 fn find_trigger(iroha: &Client, trigger_id: &TriggerId) -> Option<TriggerId> {
     iroha
         .query(FindTriggers::new())
-        .filter_with(|trigger| trigger.id.eq(trigger_id))
+        .filter_with(|trigger| trigger.id.eq(trigger_id.clone()))
         .execute_single()
         .ok()
         .map(|trigger| trigger.id)
