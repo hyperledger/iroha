@@ -806,7 +806,10 @@ impl NetworkPeer {
                     .write("chain", config::chain_id())
                     .write(["account", "domain"], account_id.domain())
                     .write(["account", "public_key"], account_id.signatory())
-                    .write(["account", "private_key"], account_private_key.expose())
+                    .write(
+                        ["account", "private_key"],
+                        ExposedPrivateKey(account_private_key.clone()),
+                    )
                     .write("torii_url", format!("http://127.0.0.1:{}", self.port_api)),
             ))
             .read_and_complete::<iroha::config::UserConfig>()

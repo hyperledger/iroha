@@ -64,7 +64,7 @@ pub mod extractors {
     }
 
     /// Extractor of Accept header
-    #[allow(unused)] // unused without `telemetry` feature
+    #[cfg_attr(not(feature = "telemetry"), allow(unused))]
     pub struct ExtractAccept(pub HeaderValue);
 
     #[async_trait]

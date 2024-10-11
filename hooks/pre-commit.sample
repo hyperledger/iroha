@@ -10,8 +10,6 @@ cargo clippy --workspace --benches --tests --examples --all-features
 # cargo clippy --workspace --benches --tests --examples --no-default-features
 # build WASMs
 ./scripts/build_wasm_samples.sh
-# update the default executor
-cp ./wasm_samples/target/prebuilt/default_executor.wasm ./defaults/executor.wasm
 # update the default genesis, assuming the transaction authority is `iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_ID`
 cargo run --bin kagami -- genesis generate --executor-path-in-genesis ./executor.wasm --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 > ./defaults/genesis.json
 # update schema

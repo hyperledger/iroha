@@ -774,11 +774,6 @@ impl PrivateKey {
     pub fn to_bytes(&self) -> (Algorithm, Vec<u8>) {
         (self.algorithm(), self.payload())
     }
-
-    /// Wrap itself into [`ExposedPrivateKey`].
-    pub fn expose(self) -> ExposedPrivateKey {
-        ExposedPrivateKey(self)
-    }
 }
 
 impl FromStr for PrivateKey {
