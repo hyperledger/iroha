@@ -17,9 +17,7 @@ use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 use tokio::{join, time::timeout};
 
-// FIXME
 #[tokio::test]
-#[ignore]
 async fn genesis_transactions_are_validated_by_executor() {
     // `wonderland` domain is owned by Alice,
     //  so the default executor will deny a genesis account to register asset definition.
@@ -38,7 +36,7 @@ async fn genesis_transactions_are_validated_by_executor() {
             peer.once(|event| matches!(event, PeerLifecycleEvent::ServerStarted)),
             // ...but it should shortly exit with an error
             peer.once(|event| match event {
-                // TODO: handle "Invalid genesis" more granular
+                // TODO: handle "Invalid genesis" in a more granular way
                 PeerLifecycleEvent::Terminated { status } => !status.success(),
                 _ => false,
             })
