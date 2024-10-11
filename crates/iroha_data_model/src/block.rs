@@ -42,11 +42,7 @@ mod model {
         Serialize,
         IntoSchema,
     )]
-    #[cfg_attr(
-        feature = "std",
-        display(fmt = "Block №{height} (hash: {});", "HashOf::new(&self)")
-    )]
-    #[cfg_attr(not(feature = "std"), display(fmt = "Block №{height}"))]
+    #[display(fmt = "{} (№{height})", "self.hash()")]
     #[allow(missing_docs)]
     #[ffi_type]
     pub struct BlockHeader {
@@ -105,7 +101,7 @@ mod model {
     #[derive(
         Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
-    #[display(fmt = "{}", "self.hash()")]
+    #[display(fmt = "{}", "self.header()")]
     #[ffi_type]
     pub struct SignedBlockV1 {
         /// Signatures of peers which approved this block.
@@ -140,30 +136,61 @@ impl BlockHeader {
     }
 }
 
-impl BlockPayload {
-    /// Create new signed block, using `key_pair` to sign `payload`
-    #[cfg(feature = "transparent_api")]
-    pub fn sign(self, private_key: &iroha_crypto::PrivateKey) -> SignedBlock {
-        let signatures = vec![BlockSignature(
-            0,
-            SignatureOf::new(private_key, &self.header),
-        )];
-
-        SignedBlockV1 {
-            signatures,
-            payload: self,
-        }
-        .into()
-    }
-}
-
 impl SignedBlockV1 {
-    fn hash(&self) -> iroha_crypto::HashOf<BlockHeader> {
+    fn hash(&self) -> HashOf<BlockHeader> {
         self.payload.header.hash()
+    }
+
+    fn header(&self) -> &BlockHeader {
+        &self.payload.header
     }
 }
 
 impl SignedBlock {
+    /// Create new block with a given signature
+    ///
+    /// # Warning
+    ///
+    /// All transactions are categorized as valid
+    #[cfg(feature = "transparent_api")]
+    pub fn presigned(
+        signature: BlockSignature,
+        header: BlockHeader,
+        transactions: impl IntoIterator<Item = SignedTransaction>,
+    ) -> SignedBlock {
+        let transactions = transactions
+            .into_iter()
+            .map(|tx| CommittedTransaction {
+                value: tx,
+                error: None,
+            })
+            .collect();
+
+        SignedBlockV1 {
+            signatures: vec![signature],
+            payload: BlockPayload {
+                header,
+                transactions,
+            },
+        }
+        .into()
+    }
+
+    /// Setter for transaction errors
+    #[cfg(feature = "transparent_api")]
+    pub fn set_transaction_errors(
+        &mut self,
+        errors: impl IntoIterator<Item = (usize, TransactionRejectionReason)>,
+    ) -> &mut Self {
+        let SignedBlock::V1(block) = self;
+
+        for (tx, error) in errors {
+            block.payload.transactions[tx].error = Some(Box::new(error));
+        }
+
+        self
+    }
+
     /// Block payload. Used for tests
     #[cfg(feature = "transparent_api")]
     pub fn payload(&self) -> &BlockPayload {
@@ -185,13 +212,6 @@ impl SignedBlock {
         block.payload.transactions.iter()
     }
 
-    /// Block transactions with mutable access
-    #[inline]
-    pub fn transactions_mut(&mut self) -> &mut [CommittedTransaction] {
-        let SignedBlock::V1(block) = self;
-        block.payload.transactions.as_mut_slice()
-    }
-
     /// Signatures of peers which approved this block.
     #[inline]
     pub fn signatures(
@@ -208,43 +228,8 @@ impl SignedBlock {
         block.hash()
     }
 
-    /// Add signature to the block
-    ///
-    /// # Errors
-    ///
-    /// if signature is invalid
+    /// Add additional signature to this block
     #[cfg(feature = "transparent_api")]
-    pub fn add_signature(
-        &mut self,
-        signature: BlockSignature,
-        public_key: &iroha_crypto::PublicKey,
-    ) -> Result<(), iroha_crypto::Error> {
-        if self.signatures().any(|s| signature.0 == s.0) {
-            return Err(iroha_crypto::Error::Signing(
-                "Duplicate signature".to_owned(),
-            ));
-        }
-
-        signature.1.verify(public_key, &self.payload().header)?;
-
-        let SignedBlock::V1(block) = self;
-        block.signatures.push(signature);
-
-        Ok(())
-    }
-
-    /// Replace signatures without verification
-    #[cfg(feature = "transparent_api")]
-    pub fn replace_signatures_unchecked(
-        &mut self,
-        signatures: Vec<BlockSignature>,
-    ) -> Vec<BlockSignature> {
-        let SignedBlock::V1(block) = self;
-        std::mem::replace(&mut block.signatures, signatures)
-    }
-
-    /// Add additional signatures to this block
-    #[cfg(all(feature = "std", feature = "transparent_api"))]
     pub fn sign(&mut self, private_key: &iroha_crypto::PrivateKey, signatory: usize) {
         let SignedBlock::V1(block) = self;
 
@@ -254,21 +239,76 @@ impl SignedBlock {
         ));
     }
 
+    /// Add signature to the block
+    ///
+    /// # Errors
+    ///
+    /// if signature is invalid
+    #[cfg(feature = "transparent_api")]
+    pub fn add_signature(&mut self, signature: BlockSignature) -> Result<(), iroha_crypto::Error> {
+        if self.signatures().any(|s| signature.0 == s.0) {
+            return Err(iroha_crypto::Error::Signing(
+                "Duplicate signature".to_owned(),
+            ));
+        }
+
+        let SignedBlock::V1(block) = self;
+        block.signatures.push(signature);
+
+        Ok(())
+    }
+
+    /// Replace signatures without verification
+    ///
+    /// # Errors
+    ///
+    /// if there is a duplicate signature
+    #[cfg(feature = "transparent_api")]
+    pub fn replace_signatures(
+        &mut self,
+        signatures: Vec<BlockSignature>,
+    ) -> Result<Vec<BlockSignature>, iroha_crypto::Error> {
+        #[cfg(not(feature = "std"))]
+        use alloc::collections::BTreeSet;
+        #[cfg(feature = "std")]
+        use std::collections::BTreeSet;
+
+        if signatures.is_empty() {
+            return Err(iroha_crypto::Error::Signing("Signatures empty".to_owned()));
+        }
+
+        signatures.iter().map(|signature| signature.0).try_fold(
+            BTreeSet::new(),
+            |mut acc, elem| {
+                if !acc.insert(elem) {
+                    return Err(iroha_crypto::Error::Signing(format!(
+                        "{elem}: Duplicate signature"
+                    )));
+                }
+
+                Ok(acc)
+            },
+        )?;
+
+        let SignedBlock::V1(block) = self;
+        Ok(core::mem::replace(&mut block.signatures, signatures))
+    }
+
     /// Creates genesis block signed with genesis private key (and not signed by any peer)
     #[cfg(feature = "std")]
     pub fn genesis(
-        genesis_transactions: Vec<SignedTransaction>,
-        genesis_private_key: &iroha_crypto::PrivateKey,
+        transactions: Vec<SignedTransaction>,
+        private_key: &iroha_crypto::PrivateKey,
     ) -> SignedBlock {
         use nonzero_ext::nonzero;
 
-        let transactions_hash = genesis_transactions
+        let transactions_hash = transactions
             .iter()
             .map(SignedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
             .expect("Tree is not empty");
-        let creation_time_ms = Self::get_genesis_block_creation_time(&genesis_transactions);
+        let creation_time_ms = Self::get_genesis_block_creation_time(&transactions);
         let header = BlockHeader {
             height: nonzero!(1_u64),
             prev_block_hash: None,
@@ -276,7 +316,7 @@ impl SignedBlock {
             creation_time_ms,
             view_change_index: 0,
         };
-        let transactions = genesis_transactions
+        let transactions = transactions
             .into_iter()
             .map(|transaction| CommittedTransaction {
                 value: transaction,
@@ -284,12 +324,12 @@ impl SignedBlock {
             })
             .collect();
 
+        let signature = BlockSignature(0, SignatureOf::new(private_key, &header));
         let payload = BlockPayload {
             header,
             transactions,
         };
 
-        let signature = BlockSignature(0, SignatureOf::new(genesis_private_key, &payload.header));
         SignedBlockV1 {
             signatures: vec![signature],
             payload,

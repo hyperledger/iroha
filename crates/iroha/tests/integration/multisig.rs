@@ -19,7 +19,6 @@ use iroha_test_samples::{gen_account_in, load_sample_wasm, ALICE_ID};
 use nonzero_ext::nonzero;
 
 #[test]
-#[expect(clippy::too_many_lines)]
 fn mutlisig() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_400).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);

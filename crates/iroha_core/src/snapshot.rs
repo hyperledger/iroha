@@ -362,8 +362,8 @@ mod tests {
         kura.store_block(committed_block);
 
         let valid_block =
-            ValidBlock::new_dummy_and_modify_payload(peer_key_pair.private_key(), |block| {
-                block.header.height = block.header.height.checked_add(1).unwrap();
+            ValidBlock::new_dummy_and_modify_header(peer_key_pair.private_key(), |header| {
+                header.height = header.height.checked_add(1).unwrap();
             });
         let committed_block = valid_block
             .clone()
@@ -421,8 +421,8 @@ mod tests {
         kura.store_block(committed_block);
 
         let valid_block =
-            ValidBlock::new_dummy_and_modify_payload(peer_key_pair.private_key(), |block| {
-                block.header.height = block.header.height.checked_add(1).unwrap();
+            ValidBlock::new_dummy_and_modify_header(peer_key_pair.private_key(), |header| {
+                header.height = header.height.checked_add(1).unwrap();
             });
         let committed_block = valid_block
             .clone()
@@ -440,9 +440,9 @@ mod tests {
         // Store inside kura different block at the same height with different view change index so that block
         // This case imitate situation when snapshot was created for block which later is discarded as soft-fork
         let valid_block =
-            ValidBlock::new_dummy_and_modify_payload(peer_key_pair.private_key(), |block| {
-                block.header.height = block.header.height.checked_add(1).unwrap();
-                block.header.view_change_index += 1;
+            ValidBlock::new_dummy_and_modify_header(peer_key_pair.private_key(), |header| {
+                header.height = header.height.checked_add(1).unwrap();
+                header.view_change_index += 1;
             });
         let committed_block = valid_block
             .clone()
