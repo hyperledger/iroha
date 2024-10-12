@@ -12,7 +12,7 @@ mod isi {
 
     use iroha_data_model::{
         isi::{CustomInstruction, Instruction, InstructionBox},
-        prelude::JsonValue,
+        prelude::Json,
     };
     use iroha_schema::IntoSchema;
     use serde::{Deserialize, Serialize};
@@ -69,10 +69,10 @@ mod isi {
         }
     }
 
-    impl TryFrom<&JsonValue> for CustomInstructionExpr {
+    impl TryFrom<&Json> for CustomInstructionExpr {
         type Error = serde_json::Error;
 
-        fn try_from(payload: &JsonValue) -> serde_json::Result<Self> {
+        fn try_from(payload: &Json) -> serde_json::Result<Self> {
             serde_json::from_str::<Self>(payload.as_ref())
         }
     }

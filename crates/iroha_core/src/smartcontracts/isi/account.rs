@@ -453,7 +453,7 @@ pub mod query {
             },
         },
     };
-    use iroha_primitives::json::JsonValue;
+    use iroha_primitives::json::Json;
 
     use super::*;
     use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
@@ -508,7 +508,7 @@ pub mod query {
 
     impl ValidSingularQuery for FindAccountMetadata {
         #[metrics(+"find_account_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonValue, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);

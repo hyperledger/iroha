@@ -5,7 +5,7 @@ use alloc::{collections::BTreeSet, format, string::String, vec::Vec};
 use std::collections::BTreeSet;
 
 use iroha_data_model_derive::model;
-use iroha_primitives::json::JsonValue;
+use iroha_primitives::json::Json;
 use iroha_schema::{Ident, IntoSchema};
 
 pub use self::model::*;
@@ -45,13 +45,13 @@ mod model {
         ///
         /// It is JSON-encoded, and its structure must correspond to the structure of
         /// the type defined in [`crate::executor::ExecutorDataModel`].
-        pub payload: JsonValue,
+        pub payload: Json,
     }
 }
 
 impl Permission {
     /// Constructor
-    pub fn new(name: Ident, payload: impl Into<JsonValue>) -> Self {
+    pub fn new(name: Ident, payload: impl Into<Json>) -> Self {
         Self {
             name,
             payload: payload.into(),
@@ -65,7 +65,7 @@ impl Permission {
 
     /// Getter
     // TODO: derive with getset once FFI impl is fixed
-    pub fn payload(&self) -> &JsonValue {
+    pub fn payload(&self) -> &Json {
         &self.payload
     }
 }

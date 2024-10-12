@@ -20,12 +20,12 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
-/// A valid `JsonValue` that consists of valid String of Json type
+/// A valid `Json` that consists of valid String of Json type
 #[derive(Debug, Display, Clone, PartialOrd, PartialEq, Ord, Eq, IntoSchema, Encode, Decode)]
 #[display(fmt = "{_0}")]
-pub struct JsonValue(String);
+pub struct Json(String);
 
-impl JsonValue {
+impl Json {
     /// Constructs [`Self`]
     /// # Errors
     ///
@@ -57,7 +57,7 @@ impl JsonValue {
     }
 }
 
-impl<'de> serde::de::Deserialize<'de> for JsonValue {
+impl<'de> serde::de::Deserialize<'de> for Json {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -67,7 +67,7 @@ impl<'de> serde::de::Deserialize<'de> for JsonValue {
     }
 }
 
-impl serde::ser::Serialize for JsonValue {
+impl serde::ser::Serialize for Json {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -77,77 +77,77 @@ impl serde::ser::Serialize for JsonValue {
     }
 }
 
-impl From<&Value> for JsonValue {
+impl From<&Value> for Json {
     fn from(value: &Value) -> Self {
-        JsonValue(value.to_string())
+        Json(value.to_string())
     }
 }
 
-impl From<Value> for JsonValue {
+impl From<Value> for Json {
     fn from(value: Value) -> Self {
-        JsonValue(value.to_string())
+        Json(value.to_string())
     }
 }
 
-impl From<u32> for JsonValue {
+impl From<u32> for Json {
     fn from(value: u32) -> Self {
-        JsonValue::new(value)
+        Json::new(value)
     }
 }
 
-impl From<u64> for JsonValue {
+impl From<u64> for Json {
     fn from(value: u64) -> Self {
-        JsonValue::new(value)
+        Json::new(value)
     }
 }
 
-impl From<f64> for JsonValue {
+impl From<f64> for Json {
     fn from(value: f64) -> Self {
-        JsonValue::new(value)
+        Json::new(value)
     }
 }
 
-impl From<bool> for JsonValue {
+impl From<bool> for Json {
     fn from(value: bool) -> Self {
-        JsonValue::new(value)
+        Json::new(value)
     }
 }
 
-impl From<&str> for JsonValue {
+impl From<&str> for Json {
     fn from(value: &str) -> Self {
-        value.parse::<JsonValue>().expect("Impossible error")
+        value.parse::<Json>().expect("Impossible error")
     }
 }
 
-impl<T: Into<JsonValue> + Serialize> From<Vec<T>> for JsonValue {
+impl<T: Into<Json> + Serialize> From<Vec<T>> for Json {
     fn from(value: Vec<T>) -> Self {
-        JsonValue::new(value)
+        Json::new(value)
     }
 }
 
 /// Removes extra spaces from object if `&str` is an object
-impl FromStr for JsonValue {
+impl FromStr for Json {
     type Err = serde_json::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Ok(value) = serde_json::from_str::<Value>(s) {
-            Ok(JsonValue(value.to_string()))
+            Ok(Json(value.to_string()))
         } else {
             let json_formatted_string = serde_json::to_string(s)?;
             let value: Value = serde_json::from_str(&json_formatted_string)?;
-            Ok(JsonValue(value.to_string()))
+            Ok(Json(value.to_string()))
         }
     }
 }
 
-impl Default for JsonValue {
+impl Default for Json {
     fn default() -> Self {
         // NOTE: empty string isn't valid JSON
         Self("null".to_string())
     }
 }
 
-impl AsRef<str> for JsonValue {
+impl AsRef<str> for Json {
     fn as_ref(&self) -> &str {
         &self.0
     }
@@ -165,10 +165,10 @@ mod candidate {
         }
     }
 
-    impl<T: Serialize> TryFrom<JsonCandidate<T>> for JsonValue {
+    impl<T: Serialize> TryFrom<JsonCandidate<T>> for Json {
         type Error = serde_json::Error;
         fn try_from(value: JsonCandidate<T>) -> Result<Self, Self::Error> {
-            Ok(JsonValue(serde_json::to_string(&value.0)?))
+            Ok(Json(serde_json::to_string(&value.0)?))
         }
     }
 }

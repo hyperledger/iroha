@@ -83,7 +83,7 @@ fn main(host: Iroha, context: Context) {
     host.submit(&SetKeyValue::trigger(
         trigger_id,
         "signatories".parse().unwrap(),
-        JsonValue::new(&args.signatories),
+        Json::new(&args.signatories),
     ))
     .dbg_unwrap();
 

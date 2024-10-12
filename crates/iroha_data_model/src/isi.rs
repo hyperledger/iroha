@@ -189,7 +189,7 @@ impl BuiltInInstruction for InstructionBox {
 }
 
 mod transparent {
-    use iroha_primitives::json::JsonValue;
+    use iroha_primitives::json::Json;
 
     use super::*;
     use crate::{account::NewAccount, domain::NewDomain, metadata::Metadata};
@@ -270,13 +270,13 @@ mod transparent {
             /// Key.
             pub key: Name,
             /// Value.
-            pub value: JsonValue,
+            pub value: Json,
         }
     }
 
     impl SetKeyValue<Domain> {
         /// Constructs a new [`SetKeyValue`] for a [`Domain`] with the given `key` and `value`.
-        pub fn domain(domain_id: DomainId, key: Name, value: impl Into<JsonValue>) -> Self {
+        pub fn domain(domain_id: DomainId, key: Name, value: impl Into<Json>) -> Self {
             Self {
                 object: domain_id,
                 key,
@@ -287,7 +287,7 @@ mod transparent {
 
     impl SetKeyValue<Account> {
         /// Constructs a new [`SetKeyValue`] for an [`Account`] with the given `key` and `value`.
-        pub fn account(account_id: AccountId, key: Name, value: impl Into<JsonValue>) -> Self {
+        pub fn account(account_id: AccountId, key: Name, value: impl Into<Json>) -> Self {
             Self {
                 object: account_id,
                 key,
@@ -301,7 +301,7 @@ mod transparent {
         pub fn asset_definition(
             asset_definition_id: AssetDefinitionId,
             key: Name,
-            value: impl Into<JsonValue>,
+            value: impl Into<Json>,
         ) -> Self {
             Self {
                 object: asset_definition_id,
@@ -313,7 +313,7 @@ mod transparent {
 
     impl SetKeyValue<Asset> {
         /// Constructs a new [`SetKeyValue`] for an [`Asset`] with the given `key` and `value`.
-        pub fn asset(asset_id: AssetId, key: Name, value: impl Into<JsonValue>) -> Self {
+        pub fn asset(asset_id: AssetId, key: Name, value: impl Into<Json>) -> Self {
             Self {
                 object: asset_id,
                 key,
@@ -324,7 +324,7 @@ mod transparent {
 
     impl SetKeyValue<Trigger> {
         /// Constructs a new [`SetKeyValue`] for a [`Trigger`] with the given `key` and `value`.
-        pub fn trigger(trigger_id: TriggerId, key: Name, value: impl Into<JsonValue>) -> Self {
+        pub fn trigger(trigger_id: TriggerId, key: Name, value: impl Into<Json>) -> Self {
             Self {
                 object: trigger_id,
                 key,
@@ -919,7 +919,7 @@ mod transparent {
             /// Id of a trigger to execute
             pub trigger: TriggerId,
             /// Arguments to trigger execution
-            pub args: JsonValue,
+            pub args: Json,
         }
     }
 
@@ -928,14 +928,14 @@ mod transparent {
         pub fn new(trigger: TriggerId) -> Self {
             Self {
                 trigger,
-                args: JsonValue::default(),
+                args: Json::default(),
             }
         }
 
         /// Add trigger execution args
         #[must_use]
         pub fn with_args<T: serde::Serialize>(mut self, args: &T) -> Self {
-            self.args = JsonValue::new(args);
+            self.args = Json::new(args);
             self
         }
     }
@@ -981,13 +981,13 @@ mod transparent {
         #[display(fmt = "CUSTOM({payload})")]
         pub struct CustomInstruction {
             /// Custom payload
-            pub payload: JsonValue,
+            pub payload: Json,
         }
     }
 
     impl CustomInstruction {
         /// Constructor
-        pub fn new(payload: impl Into<JsonValue>) -> Self {
+        pub fn new(payload: impl Into<Json>) -> Self {
             Self {
                 payload: payload.into(),
             }
