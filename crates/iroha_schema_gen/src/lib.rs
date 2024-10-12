@@ -158,7 +158,7 @@ types!(
     Box<CompoundPredicate<TriggerPredicateBox>>,
     Box<TransactionRejectionReason>,
     BTreeMap<CustomParameterId, CustomParameter>,
-    BTreeMap<Name, JsonString>,
+    BTreeMap<Name, JsonValue>,
     BTreeSet<Permission>,
     BTreeSet<String>,
     BurnBox,
@@ -279,7 +279,7 @@ types!(
     QueryWithFilter<FindPermissionsByAccountId, PermissionPredicateBox>,
     QueryWithFilter<FindRolesByAccountId, RoleIdPredicateBox>,
     QueryWithParams,
-    JsonString,
+    JsonValue,
     Level,
     Log,
     MathError,
@@ -552,7 +552,7 @@ pub mod complete_data_model {
         addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
         const_vec::ConstVec,
         conststr::ConstString,
-        json::JsonString,
+        json::JsonValue,
     };
     pub use iroha_schema::Compact;
 }
