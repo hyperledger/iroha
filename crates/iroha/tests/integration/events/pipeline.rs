@@ -77,5 +77,5 @@ async fn test_with_instruction_and_status(
 #[test]
 #[ignore = "TODO: implement with the help of Kura Inspector, "]
 fn applied_block_must_be_available_in_kura() {
-    unimplemented!();
+    unimplemented!("Take a look at previous implementation and restore this test");
 }

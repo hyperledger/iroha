@@ -30,6 +30,7 @@ mod model {
         Debug,
         Display,
         Clone,
+        Copy,
         PartialEq,
         Eq,
         PartialOrd,
@@ -119,7 +120,6 @@ declare_versioned!(SignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Or
 impl BlockHeader {
     /// Checks if it's a header of a genesis block.
     #[inline]
-    #[cfg(feature = "transparent_api")]
     pub const fn is_genesis(&self) -> bool {
         self.height.get() == 1
     }
@@ -141,8 +141,8 @@ impl SignedBlockV1 {
         self.payload.header.hash()
     }
 
-    fn header(&self) -> &BlockHeader {
-        &self.payload.header
+    fn header(&self) -> BlockHeader {
+        self.payload.header
     }
 }
 
@@ -200,9 +200,9 @@ impl SignedBlock {
 
     /// Block header
     #[inline]
-    pub fn header(&self) -> &BlockHeader {
+    pub fn header(&self) -> BlockHeader {
         let SignedBlock::V1(block) = self;
-        &block.payload.header
+        block.header()
     }
 
     /// Block transactions

@@ -1,5 +1,4 @@
-//! Runtime Executor which allows domain (un-)registration only for users who own
-//! [`CanControlDomainLives`] permission token.
+//! Runtime Executor which allows domain (un-)registration only for users who own [`CanControlDomainLives`] permission token.
 //!
 //! This executor should be applied on top of the blockchain with default validation.
 //!
@@ -85,7 +84,7 @@ impl Executor {
 }
 
 fn visit_register_domain(executor: &mut Executor, isi: &Register<Domain>) {
-    if executor.context().block_height == 0 {
+    if executor.context().curr_block.is_genesis() {
         execute!(executor, isi);
     }
     if CanControlDomainLives.is_owned_by(&executor.context().authority, executor.host()) {
@@ -99,7 +98,7 @@ fn visit_register_domain(executor: &mut Executor, isi: &Register<Domain>) {
 }
 
 fn visit_unregister_domain(executor: &mut Executor, isi: &Unregister<Domain>) {
-    if executor.context().block_height == 0 {
+    if executor.context().curr_block.is_genesis() {
         execute!(executor, isi);
     }
     if CanControlDomainLives.is_owned_by(&executor.context().authority, executor.host()) {

@@ -117,8 +117,6 @@ pub struct WorldBlock<'world> {
     pub(crate) executor_data_model: CellBlock<'world, ExecutorDataModel>,
     /// Events produced during execution of block
     events_buffer: Vec<EventBox>,
-
-    pub(crate) genesis_creation_time_ms: Option<u64>,
 }
 
 /// Struct for single transaction's aggregated changes
@@ -150,8 +148,6 @@ pub struct WorldTransaction<'block, 'world> {
     pub(crate) executor_data_model: CellTransaction<'block, 'world, ExecutorDataModel>,
     /// Events produced during execution of a transaction
     events_buffer: TransactionEventBuffer<'block>,
-
-    pub(crate) genesis_creation_time_ms: Option<u64>,
 }
 
 /// Wrapper for event's buffer to apply transaction rollback
@@ -188,8 +184,6 @@ pub struct WorldView<'world> {
     pub(crate) executor: CellView<'world, Executor>,
     /// Executor-defined data model
     pub(crate) executor_data_model: CellView<'world, ExecutorDataModel>,
-
-    pub(crate) genesis_creation_time_ms: Option<u64>,
 }
 
 /// Current state of the blockchain
@@ -249,6 +243,8 @@ pub struct StateBlock<'state> {
     pub new_tx_amounts: &'state Mutex<Vec<f64>>,
     /// Lock to prevent getting inconsistent view of the state
     view_lock: &'state parking_lot::RwLock<()>,
+
+    pub(crate) curr_block: BlockHeader,
 }
 
 /// Struct for single transaction's aggregated changes
@@ -273,6 +269,8 @@ pub struct StateTransaction<'block, 'state> {
     /// Temporary metrics buffer of amounts of any asset that has been transacted.
     /// TODO: this should be done through events
     pub new_tx_amounts: &'state Mutex<Vec<f64>>,
+
+    pub(crate) curr_block: BlockHeader,
 }
 
 /// Consistent point in time view of the [`State`]
@@ -366,8 +364,6 @@ impl World {
             executor: self.executor.block(),
             executor_data_model: self.executor_data_model.block(),
             events_buffer: Vec::new(),
-
-            genesis_creation_time_ms: None,
         }
     }
 
@@ -387,8 +383,6 @@ impl World {
             executor: self.executor.block_and_revert(),
             executor_data_model: self.executor_data_model.block_and_revert(),
             events_buffer: Vec::new(),
-
-            genesis_creation_time_ms: None,
         }
     }
 
@@ -407,8 +401,6 @@ impl World {
             triggers: self.triggers.view(),
             executor: self.executor.view(),
             executor_data_model: self.executor_data_model.view(),
-
-            genesis_creation_time_ms: None,
         }
     }
 }
@@ -428,8 +420,6 @@ pub trait WorldReadOnly {
     fn triggers(&self) -> &impl TriggerSetReadOnly;
     fn executor(&self) -> &Executor;
     fn executor_data_model(&self) -> &ExecutorDataModel;
-
-    fn genesis_creation_time_ms(&self) -> Option<u64>;
 
     // Domain-related methods
 
@@ -697,10 +687,6 @@ macro_rules! impl_world_ro {
             fn executor_data_model(&self) -> &ExecutorDataModel {
                 &self.executor_data_model
             }
-
-            fn genesis_creation_time_ms(&self) -> Option<u64> {
-                self.genesis_creation_time_ms
-            }
         }
     )*};
 }
@@ -713,8 +699,6 @@ impl<'world> WorldBlock<'world> {
     /// Create struct to apply transaction's changes
     pub fn trasaction(&mut self) -> WorldTransaction<'_, 'world> {
         WorldTransaction {
-            genesis_creation_time_ms: self.genesis_creation_time_ms(),
-
             parameters: self.parameters.transaction(),
             trusted_peers_ids: self.trusted_peers_ids.transaction(),
             domains: self.domains.transaction(),
@@ -751,7 +735,6 @@ impl<'world> WorldBlock<'world> {
             executor,
             executor_data_model,
             events_buffer: _,
-            genesis_creation_time_ms: _,
         } = self;
         // IMPORTANT!!! Commit fields in reverse order, this way consistent results are insured
         executor_data_model.commit();
@@ -787,7 +770,6 @@ impl WorldTransaction<'_, '_> {
             executor,
             executor_data_model,
             mut events_buffer,
-            genesis_creation_time_ms: _,
         } = self;
         executor_data_model.apply();
         executor.apply();
@@ -1100,7 +1082,7 @@ impl State {
     }
 
     /// Create structure to execute a block
-    pub fn block(&self) -> StateBlock<'_> {
+    pub fn block(&self, curr_block: BlockHeader) -> StateBlock<'_> {
         StateBlock {
             world: self.world.block(),
             block_hashes: self.block_hashes.block(),
@@ -1112,11 +1094,12 @@ impl State {
             query_handle: &self.query_handle,
             new_tx_amounts: &self.new_tx_amounts,
             view_lock: &self.view_lock,
+            curr_block,
         }
     }
 
     /// Create structure to execute a block while reverting changes made in the latest block
-    pub fn block_and_revert(&self) -> StateBlock<'_> {
+    pub fn block_and_revert(&self, curr_block: BlockHeader) -> StateBlock<'_> {
         StateBlock {
             world: self.world.block_and_revert(),
             block_hashes: self.block_hashes.block_and_revert(),
@@ -1128,6 +1111,7 @@ impl State {
             query_handle: &self.query_handle,
             new_tx_amounts: &self.new_tx_amounts,
             view_lock: &self.view_lock,
+            curr_block,
         }
     }
 
@@ -1170,7 +1154,7 @@ pub trait StateReadOnly {
         self.height()
             .checked_sub(1)
             .and_then(NonZeroUsize::new)
-            .and_then(|height| self.kura().get_block_by_height(height))
+            .and_then(|height| self.kura().get_block(height))
     }
 
     /// Get a reference to the latest block. Returns none if genesis is not committed.
@@ -1178,7 +1162,7 @@ pub trait StateReadOnly {
     /// If you only need hash of the latest block prefer using [`Self::latest_block_hash`]
     #[inline]
     fn latest_block(&self) -> Option<Arc<SignedBlock>> {
-        NonZeroUsize::new(self.height()).and_then(|height| self.kura().get_block_by_height(height))
+        NonZeroUsize::new(self.height()).and_then(|height| self.kura().get_block(height))
     }
 
     /// Return the hash of the latest block
@@ -1199,49 +1183,15 @@ pub trait StateReadOnly {
     ) -> impl DoubleEndedIterator<Item = Arc<SignedBlock>> + '_ {
         (start.get()..=self.height()).map(|height| {
             NonZeroUsize::new(height)
-                .and_then(|height| self.kura().get_block_by_height(height))
+                .and_then(|height| self.kura().get_block(height))
                 .expect("INTERNAL BUG: Failed to load block")
         })
-    }
-
-    /// Return a vector of blockchain blocks after the block with the given `hash`
-    fn block_hashes_after_hash(
-        &self,
-        hash: Option<HashOf<BlockHeader>>,
-    ) -> Vec<HashOf<BlockHeader>> {
-        hash.map_or_else(
-            || self.block_hashes().to_vec(),
-            |block_hash| {
-                self.block_hashes()
-                    .iter()
-                    .skip_while(|&x| *x != block_hash)
-                    .skip(1)
-                    .copied()
-                    .collect()
-            },
-        )
-    }
-
-    /// Return an iterator over blockchain block hashes starting with the block of the given `height`
-    fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<BlockHeader>> {
-        self.block_hashes()
-            .iter()
-            .skip(height.saturating_sub(1))
-            .copied()
-            .collect()
     }
 
     /// Height of blockchain
     #[inline]
     fn height(&self) -> usize {
         self.block_hashes().len()
-    }
-
-    /// Find a [`SignedBlock`] by hash.
-    fn block_with_tx(&self, hash: &HashOf<SignedTransaction>) -> Option<Arc<SignedBlock>> {
-        self.transactions()
-            .get(hash)
-            .and_then(|&height| self.kura().get_block_by_height(height))
     }
 
     /// Returns [`Some`] milliseconds since the genesis block was
@@ -1253,7 +1203,7 @@ pub trait StateReadOnly {
         } else {
             let opt = self
                 .kura()
-                .get_block_by_height(nonzero!(1_usize))
+                .get_block(nonzero!(1_usize))
                 .map(|genesis_block| genesis_block.header().creation_time());
 
             if opt.is_none() {
@@ -1322,6 +1272,7 @@ impl<'state> StateBlock<'state> {
             kura: self.kura,
             query_handle: self.query_handle,
             new_tx_amounts: self.new_tx_amounts,
+            curr_block: self.curr_block,
         }
     }
 
@@ -1335,10 +1286,7 @@ impl<'state> StateBlock<'state> {
             commit_topology: committed_topology,
             prev_commit_topology: prev_committed_topology,
             view_lock,
-            engine: _,
-            kura: _,
-            query_handle: _,
-            new_tx_amounts: _,
+            ..
         } = self;
         let _view_lock = view_lock.write();
         prev_committed_topology.commit();
@@ -1445,7 +1393,7 @@ impl<'state> StateBlock<'state> {
 
         self.world.events_buffer.push(
             BlockEvent {
-                header: block.as_ref().header().clone(),
+                header: block.as_ref().header(),
                 status: BlockStatus::Applied,
             }
             .into(),
@@ -1528,10 +1476,7 @@ impl StateTransaction<'_, '_> {
             transactions,
             commit_topology: committed_topology,
             prev_commit_topology: prev_committed_topology,
-            engine: _,
-            kura: _,
-            query_handle: _,
-            new_tx_amounts: _,
+            ..
         } = self;
         prev_committed_topology.apply();
         committed_topology.apply();
@@ -2156,7 +2101,6 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::start_test();
         let state = State::new(World::default(), kura, query_handle);
-        let mut state_block = state.block();
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
@@ -2165,12 +2109,20 @@ mod tests {
                 header.prev_block_hash = block_hashes.last().copied();
             });
 
+            let mut state_block = state.block(block.as_ref().header());
             block_hashes.push(block.as_ref().hash());
             let _events = state_block.apply(&block, Vec::new()).unwrap();
+            state_block.commit();
         }
 
-        assert!(state_block
-            .block_hashes_after_hash(Some(block_hashes[6]))
+        assert!(state
+            .view()
+            .block_hashes()
+            .iter()
+            .skip_while(|&x| *x != block_hashes[6])
+            .skip(1)
+            .copied()
+            .collect::<Vec<_>>()
             .into_iter()
             .eq(block_hashes.into_iter().skip(7)));
     }
@@ -2182,19 +2134,21 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::start_test();
         let state = State::new(World::default(), kura.clone(), query_handle);
-        let mut state_block = state.block();
 
         for i in 1..=BLOCK_CNT {
             let block = new_dummy_block_with_payload(|header| {
                 header.height = NonZeroU64::new(i as u64).unwrap();
             });
 
+            let mut state_block = state.block(block.as_ref().header());
             let _events = state_block.apply(&block, Vec::new()).unwrap();
+            state_block.commit();
             kura.store_block(block);
         }
 
         assert_eq!(
-            &state_block
+            &state
+                .view()
                 .all_blocks(nonzero!(8_usize))
                 .map(|block| block.header().height().get())
                 .collect::<Vec<_>>(),

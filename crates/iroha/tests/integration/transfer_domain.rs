@@ -11,7 +11,6 @@ use iroha_executor_data_model::permission::{
     domain::CanUnregisterDomain,
     trigger::CanUnregisterTrigger,
 };
-use iroha_primitives::json::Json;
 use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID, SAMPLE_GENESIS_ACCOUNT_ID};
 

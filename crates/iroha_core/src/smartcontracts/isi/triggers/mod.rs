@@ -44,7 +44,6 @@ pub mod isi {
                 .map(|block| block.header().creation_time());
 
             let engine = state_transaction.engine.clone(); // Cloning engine is cheap
-            let genesis_creation_time_ms = state_transaction.world().genesis_creation_time_ms();
 
             let triggers = &mut state_transaction.world.triggers;
             let trigger_id = new_trigger.id().clone();
@@ -63,25 +62,14 @@ pub mod isi {
                 ),
                 EventFilterBox::Time(time_filter) => {
                     if let ExecutionTime::Schedule(schedule) = time_filter.0 {
-                        match latest_block_time {
+                        let latest_block_time = latest_block_time.unwrap_or_else(|| {
                             // Genesis block
-                            None => {
-                                let genesis_creation_time_ms = genesis_creation_time_ms
-                                    .expect("INTERNAL BUG: genesis creation time not set");
-
-                                if schedule.start_ms < genesis_creation_time_ms {
-                                    return Err(Error::InvalidParameter(
-                                        InvalidParameterError::TimeTriggerInThePast,
-                                    ));
-                                }
-                            }
-                            Some(latest_block_time) => {
-                                if schedule.start() < latest_block_time {
-                                    return Err(Error::InvalidParameter(
-                                        InvalidParameterError::TimeTriggerInThePast,
-                                    ));
-                                }
-                            }
+                            state_transaction.curr_block.creation_time()
+                        });
+                        if schedule.start() < latest_block_time {
+                            return Err(Error::InvalidParameter(
+                                InvalidParameterError::TimeTriggerInThePast,
+                            ));
                         }
                     }
                     triggers.add_time_trigger(

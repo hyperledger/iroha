@@ -38,7 +38,7 @@ impl ValidQuery for FindBlockHeaders {
         Ok(state_ro
             .all_blocks(nonzero!(1_usize))
             .rev()
-            .filter(move |block| filter.applies(block.header()))
-            .map(|block| block.header().clone()))
+            .filter(move |block| filter.applies(&block.header()))
+            .map(|block| block.header()))
     }
 }

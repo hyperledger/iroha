@@ -2,8 +2,7 @@
 //! <https://hyperledger.github.io/iroha-2-docs/guide/rust.html#_2-configuring-iroha-2>
 
 use eyre::{Error, WrapErr};
-use iroha::config::Config;
-use iroha_primitives::numeric::Numeric;
+use iroha::{config::Config, data_model::prelude::Numeric};
 // #region rust_config_crates
 // #endregion rust_config_crates
 
