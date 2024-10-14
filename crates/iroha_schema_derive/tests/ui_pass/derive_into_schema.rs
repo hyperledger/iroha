@@ -47,7 +47,6 @@ pub trait Trait {
 }
 
 #[derive(IntoSchema)]
-#[schema(bounds = "T: Trait, T::Assoc: IntoSchema")]
 pub struct WithComplexGeneric<T: Trait> {
     _value: T::Assoc,
 }

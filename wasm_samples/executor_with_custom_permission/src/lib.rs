@@ -19,8 +19,7 @@ extern crate panic_halt;
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::permissions::CanControlDomainLives;
 use iroha_executor::{
-    data_model::prelude::*, permission::ExecutorPermission as _, prelude::*, smart_contract::query,
-    DataModelBuilder,
+    data_model::prelude::*, permission::ExecutorPermission as _, prelude::*, DataModelBuilder,
 };
 use iroha_executor_data_model::permission::domain::CanUnregisterDomain;
 
@@ -29,7 +28,7 @@ static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 
-#[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
+#[derive(Visit, Execute, Entrypoints)]
 #[visit(custom(
     visit_register_domain,
     visit_unregister_domain,
@@ -41,19 +40,23 @@ getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
     visit_revoke_role_permission
 ))]
 struct Executor {
+    host: Iroha,
+    context: Context,
     verdict: Result,
-    block_height: u64,
 }
 
 impl Executor {
-    fn get_all_accounts_with_can_unregister_domain_permission() -> impl Iterator<Item = Account> {
-        query(FindAccounts)
+    fn get_all_accounts_with_can_unregister_domain_permission(
+        host: &Iroha,
+    ) -> impl Iterator<Item = Account> + '_ {
+        host.query(FindAccounts)
             .execute()
             .expect("INTERNAL BUG: Failed to execute `FindAllAccounts`")
             .filter_map(|res| {
                 let account = res.dbg_unwrap();
 
-                if query(FindPermissionsByAccountId::new(account.id().clone()))
+                if host
+                    .query(FindPermissionsByAccountId::new(account.id().clone()))
                     .execute()
                     .expect("INTERNAL BUG: Failed to execute `FindPermissionsByAccountId`")
                     .filter_map(|res| {
@@ -70,20 +73,22 @@ impl Executor {
             })
     }
 
-    fn replace_token(accounts: &[Account]) {
+    fn replace_token(accounts: &[Account], host: &Iroha) {
         for account in accounts {
-            Grant::account_permission(CanControlDomainLives, account.id().clone())
-                .execute()
-                .dbg_unwrap();
+            host.submit(&Grant::account_permission(
+                CanControlDomainLives,
+                account.id().clone(),
+            ))
+            .dbg_unwrap();
         }
     }
 }
 
-fn visit_register_domain(executor: &mut Executor, authority: &AccountId, isi: &Register<Domain>) {
-    if executor.block_height() == 0 {
+fn visit_register_domain(executor: &mut Executor, isi: &Register<Domain>) {
+    if executor.context().block_height == 0 {
         execute!(executor, isi);
     }
-    if CanControlDomainLives.is_owned_by(authority) {
+    if CanControlDomainLives.is_owned_by(&executor.context().authority, executor.host()) {
         execute!(executor, isi);
     }
 
@@ -93,90 +98,82 @@ fn visit_register_domain(executor: &mut Executor, authority: &AccountId, isi: &R
     );
 }
 
-fn visit_unregister_domain(
-    executor: &mut Executor,
-    authority: &AccountId,
-    isi: &Unregister<Domain>,
-) {
-    if executor.block_height() == 0 {
+fn visit_unregister_domain(executor: &mut Executor, isi: &Unregister<Domain>) {
+    if executor.context().block_height == 0 {
         execute!(executor, isi);
     }
-    if CanControlDomainLives.is_owned_by(authority) {
+    if CanControlDomainLives.is_owned_by(&executor.context().authority, executor.host()) {
         execute!(executor, isi);
     }
 
     deny!(executor, "You don't have permission to unregister domain");
 }
 
-pub fn visit_grant_role_permission<V: Validate + Visit + ?Sized>(
+pub fn visit_grant_role_permission<V: Execute + Visit + ?Sized>(
     executor: &mut V,
-    authority: &AccountId,
     isi: &Grant<Permission, Role>,
 ) {
     let role_id = isi.destination().clone();
 
     if let Ok(permission) = CanControlDomainLives::try_from(isi.object()) {
-        let isi = Grant::role_permission(permission, role_id);
+        let isi = &Grant::role_permission(permission, role_id);
         execute!(executor, isi);
     }
 
-    iroha_executor::default::visit_grant_role_permission(executor, authority, isi)
+    iroha_executor::default::visit_grant_role_permission(executor, isi)
 }
 
-pub fn visit_revoke_role_permission<V: Validate + Visit + ?Sized>(
+pub fn visit_revoke_role_permission<V: Execute + Visit + ?Sized>(
     executor: &mut V,
-    authority: &AccountId,
     isi: &Revoke<Permission, Role>,
 ) {
     let role_id = isi.destination().clone();
 
     if let Ok(permission) = CanControlDomainLives::try_from(isi.object()) {
-        let isi = Revoke::role_permission(permission, role_id);
+        let isi = &Revoke::role_permission(permission, role_id);
         execute!(executor, isi);
     }
 
-    iroha_executor::default::visit_revoke_role_permission(executor, authority, isi)
+    iroha_executor::default::visit_revoke_role_permission(executor, isi)
 }
 
-pub fn visit_grant_account_permission<V: Validate + Visit + ?Sized>(
+pub fn visit_grant_account_permission<V: Execute + Visit + ?Sized>(
     executor: &mut V,
-    authority: &AccountId,
     isi: &Grant<Permission, Account>,
 ) {
     let account_id = isi.destination().clone();
 
     if let Ok(permission) = CanControlDomainLives::try_from(isi.object()) {
-        let isi = Grant::account_permission(permission, account_id);
+        let isi = &Grant::account_permission(permission, account_id);
         execute!(executor, isi);
     }
 
-    iroha_executor::default::visit_grant_account_permission(executor, authority, isi)
+    iroha_executor::default::visit_grant_account_permission(executor, isi)
 }
 
-pub fn visit_revoke_account_permission<V: Validate + Visit + ?Sized>(
+pub fn visit_revoke_account_permission<V: Execute + Visit + ?Sized>(
     executor: &mut V,
-    authority: &AccountId,
     isi: &Revoke<Permission, Account>,
 ) {
     let account_id = isi.destination().clone();
 
     if let Ok(permission) = CanControlDomainLives::try_from(isi.object()) {
-        let isi = Revoke::account_permission(permission, account_id);
+        let isi = &Revoke::account_permission(permission, account_id);
         execute!(executor, isi);
     }
 
-    iroha_executor::default::visit_revoke_account_permission(executor, authority, isi)
+    iroha_executor::default::visit_revoke_account_permission(executor, isi)
 }
 
 #[entrypoint]
-pub fn migrate(_block_height: u64) {
+pub fn migrate(host: Iroha, _context: Context) {
     let accounts =
-        Executor::get_all_accounts_with_can_unregister_domain_permission().collect::<Vec<_>>();
+        Executor::get_all_accounts_with_can_unregister_domain_permission(&host).collect::<Vec<_>>();
 
     DataModelBuilder::with_default_permissions()
         .remove_permission::<CanUnregisterDomain>()
         .add_permission::<CanControlDomainLives>()
-        .build_and_set();
+        .build_and_set(&host);
 
-    Executor::replace_token(&accounts);
+    Executor::replace_token(&accounts, &host);
 }

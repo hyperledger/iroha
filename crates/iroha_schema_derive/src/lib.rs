@@ -3,11 +3,37 @@
 // darling-generated code triggers this lint
 #![allow(clippy::option_if_let_else)]
 
+mod trait_bounds;
+
 use darling::{ast::Style, FromAttributes, FromDeriveInput, FromField, FromMeta, FromVariant};
-use manyhow::{bail, emit, error_message, manyhow, Emitter, Result};
+use iroha_macro_utils::Emitter;
+use manyhow::{emit, error_message, manyhow, Result};
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use syn::parse_quote;
+
+fn add_bounds_to_all_generic_parameters(generics: &mut syn::Generics, bound: syn::Path) {
+    let generic_type_parameters = generics
+        .type_params()
+        .map(|ty_param| ty_param.ident.clone())
+        .collect::<Vec<_>>();
+    if !generic_type_parameters.is_empty() {
+        let where_clause = generics.make_where_clause();
+        for ty in generic_type_parameters {
+            where_clause.predicates.push(parse_quote!(#ty: #bound));
+        }
+    }
+}
+
+fn override_where_clause(
+    emitter: &mut Emitter,
+    where_clause: Option<&syn::WhereClause>,
+    bounds: Option<&String>,
+) -> Option<syn::WhereClause> {
+    bounds
+        .and_then(|bounds| emitter.handle(syn::parse_str(&format!("where {bounds}"))))
+        .unwrap_or_else(|| where_clause.cloned())
+}
 
 /// Derive [`iroha_schema::TypeId`]
 ///
@@ -22,11 +48,9 @@ pub fn type_id_derive(input: TokenStream) -> Result<TokenStream> {
 fn impl_type_id(input: &mut syn::DeriveInput) -> TokenStream {
     let name = &input.ident;
 
-    input.generics.type_params_mut().for_each(|ty_param| {
-        ty_param
-            .bounds
-            .push(syn::parse_quote! {iroha_schema::TypeId});
-    });
+    // Unlike IntoSchema, `TypeId` bounds are required only on the generic type parameters, as in the standard "dumb" algorithm
+    // The schema of the fields are irrelevant here, as we only need the names of the parameters
+    add_bounds_to_all_generic_parameters(&mut input.generics, parse_quote!(iroha_schema::TypeId));
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let type_id_body = trait_body(name, &input.generics, true);
@@ -178,64 +202,71 @@ struct CodegenField {
 /// - If it's impossible to infer the type for transparent attribute
 #[manyhow]
 #[proc_macro_derive(IntoSchema, attributes(schema, codec))]
-pub fn schema_derive(input: TokenStream) -> Result<TokenStream> {
+pub fn schema_derive(input: TokenStream) -> TokenStream {
     let original_input = input.clone();
 
-    let input: syn::DeriveInput = syn::parse2(input)?;
-    let mut input = IntoSchemaInput::from_derive_input(&input)?;
-
-    input.generics.type_params_mut().for_each(|ty_param| {
-        ty_param
-            .bounds
-            .push(parse_quote! {iroha_schema::IntoSchema});
-    });
-
     let mut emitter = Emitter::new();
+
+    let Some(input) = emitter.handle(syn::parse2::<syn::DeriveInput>(input)) else {
+        return emitter.finish_token_stream();
+    };
+    let Some(mut input) = emitter.handle(IntoSchemaInput::from_derive_input(&input)) else {
+        return emitter.finish_token_stream();
+    };
+
+    // first of all, `IntoSchema` impls are required for all generic type parameters to be able to call `type_name` on them
+    add_bounds_to_all_generic_parameters(
+        &mut input.generics,
+        parse_quote!(iroha_schema::IntoSchema),
+    );
+
+    // add trait bounds on field types using the same algorithm that parity scale codec uses
+    emitter.handle(trait_bounds::add(
+        &input.ident,
+        &mut input.generics,
+        &input.data,
+        syn::parse_quote!(iroha_schema::IntoSchema),
+        None,
+        false,
+        &syn::parse_quote!(iroha_schema),
+    ));
 
     let impl_type_id = impl_type_id(&mut syn::parse2(original_input).unwrap());
 
     let impl_schema = match &input.schema_attrs.transparent {
-        Transparent::NotTransparent => impl_into_schema(&input, input.schema_attrs.bounds.as_ref()),
+        Transparent::NotTransparent => {
+            impl_into_schema(&mut emitter, &input, input.schema_attrs.bounds.as_ref())
+        }
         Transparent::Transparent(transparent_type) => {
             let transparent_type = transparent_type
                 .clone()
                 .unwrap_or_else(|| infer_transparent_type(&input.data, &mut emitter));
             impl_transparent_into_schema(
+                &mut emitter,
                 &input,
                 &transparent_type,
                 input.schema_attrs.bounds.as_ref(),
             )
         }
     };
-    let impl_schema = match impl_schema {
-        Ok(impl_schema) => impl_schema,
-        Err(err) => {
-            emitter.emit(err);
-            quote!()
-        }
-    };
 
-    emitter.into_result()?;
-
-    Ok(quote! {
+    emitter.finish_token_stream_with(quote! {
         #impl_type_id
         #impl_schema
     })
 }
 
 fn impl_transparent_into_schema(
+    emitter: &mut Emitter,
     input: &IntoSchemaInput,
     transparent_type: &syn::Type,
     bounds: Option<&String>,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let name = &input.ident;
-    let where_clause: Option<syn::WhereClause> = match bounds {
-        Some(bounds) => Some(syn::parse_str(&format!("where {bounds}"))?),
-        None => where_clause.cloned(),
-    };
+    let where_clause = override_where_clause(emitter, where_clause, bounds);
 
-    Ok(quote! {
+    quote! {
         impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics #where_clause {
             fn update_schema_map(map: &mut iroha_schema::MetaMap) {
                 if !map.contains_key::<Self>() {
@@ -253,20 +284,21 @@ fn impl_transparent_into_schema(
                <#transparent_type as iroha_schema::IntoSchema>::type_name()
             }
         }
-    })
+    }
 }
 
-fn impl_into_schema(input: &IntoSchemaInput, bounds: Option<&String>) -> Result<TokenStream> {
+fn impl_into_schema(
+    emitter: &mut Emitter,
+    input: &IntoSchemaInput,
+    bounds: Option<&String>,
+) -> TokenStream {
     let name = &input.ident;
     let type_name_body = trait_body(name, &input.generics, false);
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let metadata = metadata(&input.data)?;
-    let where_clause: Option<syn::WhereClause> = match bounds {
-        Some(bounds) => Some(syn::parse_str(&format!("where {bounds}"))?),
-        None => where_clause.cloned(),
-    };
+    let metadata = metadata(emitter, &input.data);
+    let where_clause = override_where_clause(emitter, where_clause, bounds);
 
-    Ok(quote! {
+    quote! {
         impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics #where_clause {
             fn type_name() -> String {
                 #type_name_body
@@ -276,7 +308,7 @@ fn impl_into_schema(input: &IntoSchemaInput, bounds: Option<&String>) -> Result<
                #metadata
             }
         }
-    })
+    }
 }
 
 fn infer_transparent_type(input: &IntoSchemaData, emitter: &mut Emitter) -> syn::Type {
@@ -406,9 +438,9 @@ fn trait_body(name: &syn::Ident, generics: &syn::Generics, is_type_id_trait: boo
 }
 
 /// Returns schema method body
-fn metadata(data: &IntoSchemaData) -> Result<TokenStream> {
+fn metadata(emitter: &mut Emitter, data: &IntoSchemaData) -> TokenStream {
     let (types, expr) = match &data {
-        IntoSchemaData::Enum(variants) => metadata_for_enums(variants)?,
+        IntoSchemaData::Enum(variants) => metadata_for_enums(emitter, variants),
         IntoSchemaData::Struct(IntoSchemaFields {
             style: Style::Struct,
             fields,
@@ -433,13 +465,13 @@ fn metadata(data: &IntoSchemaData) -> Result<TokenStream> {
         }
     };
 
-    Ok(quote! {
+    quote! {
         if !map.contains_key::<Self>() {
             map.insert::<Self>(#expr); #(
 
             <#types as iroha_schema::IntoSchema>::update_schema_map(map); )*
         }
-    })
+    }
 }
 
 /// Returns types for which schema should be called and metadata for tuplestruct
@@ -483,51 +515,65 @@ fn metadata_for_structs(fields: &[IntoSchemaField]) -> (Vec<syn::Type>, syn::Exp
 }
 
 /// Takes variant fields and gets its type
-fn variant_field(fields: &IntoSchemaFields) -> Result<Option<syn::Type>> {
+fn variant_field(emitter: &mut Emitter, fields: &IntoSchemaFields) -> Option<syn::Type> {
     let field = match fields.style {
-        Style::Unit => return Ok(None),
+        Style::Unit => return None,
         Style::Tuple if fields.len() == 1 => fields.iter().next().unwrap(),
         Style::Tuple => {
-            bail!("Use at most 1 field in unnamed enum variants. Check out styleguide");
+            emit!(
+                emitter,
+                "Use at most 1 field in unnamed enum variants. Check out styleguide"
+            );
+            fields.iter().next().unwrap()
         }
         Style::Struct => {
-            bail!("Please don't use named fields on enums. It is against Iroha styleguide")
+            emit!(
+                emitter,
+                "Please don't use named fields on enums. It is against Iroha styleguide"
+            );
+            fields.iter().next().unwrap()
         }
     };
-    Ok(convert_field_to_codegen(field).map(|this_field| this_field.ty))
+    convert_field_to_codegen(field).map(|this_field| this_field.ty)
 }
 
 /// Returns types for which schema should be called and metadata for struct
-fn metadata_for_enums(variants: &[IntoSchemaVariant]) -> Result<(Vec<syn::Type>, syn::Expr)> {
+fn metadata_for_enums(
+    emitter: &mut Emitter,
+    variants: &[IntoSchemaVariant],
+) -> (Vec<syn::Type>, syn::Expr) {
     let variant_exprs: Vec<_> = variants
         .iter()
         .enumerate()
         .filter(|(_, variant)| !variant.codec_attrs.skip)
         .map(|(discriminant, variant)| {
-            let discriminant = variant_index(variant, discriminant)?;
+            let discriminant = variant_index(emitter, variant, discriminant);
             if variant.discriminant.is_some() {
-                bail!("Fieldless enums with explicit discriminants are not allowed")
+                emit!(
+                    emitter,
+                    "Fieldless enums with explicit discriminants are not allowed"
+                );
             }
 
             let name = &variant.ident;
-            let ty = variant_field(&variant.fields)?.map_or_else(
+            let ty = variant_field(emitter, &variant.fields).map_or_else(
                 || quote! { None },
                 |ty| quote! { Some(core::any::TypeId::of::<#ty>()) },
             );
-            Ok(quote! {
+            quote! {
                 iroha_schema::EnumVariant {
                     tag: String::from(stringify!(#name)),
                     discriminant: #discriminant,
                     ty: #ty,
                 }
-            })
+            }
         })
-        .collect::<Result<_>>()?;
+        .collect();
     let fields_ty = variants
         .iter()
         .filter(|variant| !variant.codec_attrs.skip)
-        .filter_map(|variant| variant_field(&variant.fields).transpose())
-        .collect::<Result<_>>()?;
+        .filter_map(|variant| variant_field(emitter, &variant.fields))
+        .collect::<_>();
     let expr = parse_quote! {
         iroha_schema::Metadata::Enum(iroha_schema::EnumMeta {
             variants: {
@@ -538,7 +584,7 @@ fn metadata_for_enums(variants: &[IntoSchemaVariant]) -> Result<(Vec<syn::Type>,
         })
     };
 
-    Ok((fields_ty, expr))
+    (fields_ty, expr)
 }
 
 /// Generates declaration for field
@@ -556,18 +602,20 @@ fn field_to_declaration(field: &CodegenField) -> TokenStream {
 
 /// Look for a `#[codec(index = $int)]` attribute on a variant. If no attribute
 /// is found, fall back to the discriminant or just the variant index.
-fn variant_index(v: &IntoSchemaVariant, i: usize) -> Result<TokenStream> {
-    Ok(match (v.codec_attrs.index, v.discriminant.as_ref()) {
+fn variant_index(emitter: &mut Emitter, v: &IntoSchemaVariant, i: usize) -> TokenStream {
+    match (v.codec_attrs.index, v.discriminant.as_ref()) {
         // first, try to use index from the `codec` attribute
         (Some(index), _) => index.to_token_stream(),
         // then try to use explicit discriminant
         (_, Some(discriminant)) => discriminant.to_token_stream(),
         // then fallback to just variant index
         (_, _) => {
-            let index = u8::try_from(i).map_err(|_| error_message!("Too many enum variants"))?;
+            let index = emitter.handle_or_default(u8::try_from(i).map_err(|_| {
+                error_message!("Too many enum variants. Maximum supported number is 256")
+            }));
             index.to_token_stream()
         }
-    })
+    }
 }
 
 /// Convert field to the codegen representation, filtering out skipped fields.

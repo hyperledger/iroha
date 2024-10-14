@@ -189,7 +189,7 @@ impl BuiltInInstruction for InstructionBox {
 }
 
 mod transparent {
-    use iroha_primitives::json::JsonString;
+    use iroha_primitives::json::JsonValue;
 
     use super::*;
     use crate::{account::NewAccount, domain::NewDomain, metadata::Metadata};
@@ -264,20 +264,19 @@ mod transparent {
 
     isi! {
         /// Generic instruction to set key value at the object.
-        #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct SetKeyValue<O: Identifiable> {
             /// Where to set key value.
             pub object: O::Id,
             /// Key.
             pub key: Name,
             /// Value.
-            pub value: JsonString,
+            pub value: JsonValue,
         }
     }
 
     impl SetKeyValue<Domain> {
         /// Constructs a new [`SetKeyValue`] for a [`Domain`] with the given `key` and `value`.
-        pub fn domain(domain_id: DomainId, key: Name, value: impl Into<JsonString>) -> Self {
+        pub fn domain(domain_id: DomainId, key: Name, value: impl Into<JsonValue>) -> Self {
             Self {
                 object: domain_id,
                 key,
@@ -288,7 +287,7 @@ mod transparent {
 
     impl SetKeyValue<Account> {
         /// Constructs a new [`SetKeyValue`] for an [`Account`] with the given `key` and `value`.
-        pub fn account(account_id: AccountId, key: Name, value: impl Into<JsonString>) -> Self {
+        pub fn account(account_id: AccountId, key: Name, value: impl Into<JsonValue>) -> Self {
             Self {
                 object: account_id,
                 key,
@@ -302,7 +301,7 @@ mod transparent {
         pub fn asset_definition(
             asset_definition_id: AssetDefinitionId,
             key: Name,
-            value: impl Into<JsonString>,
+            value: impl Into<JsonValue>,
         ) -> Self {
             Self {
                 object: asset_definition_id,
@@ -314,7 +313,7 @@ mod transparent {
 
     impl SetKeyValue<Asset> {
         /// Constructs a new [`SetKeyValue`] for an [`Asset`] with the given `key` and `value`.
-        pub fn asset(asset_id: AssetId, key: Name, value: impl Into<JsonString>) -> Self {
+        pub fn asset(asset_id: AssetId, key: Name, value: impl Into<JsonValue>) -> Self {
             Self {
                 object: asset_id,
                 key,
@@ -325,7 +324,7 @@ mod transparent {
 
     impl SetKeyValue<Trigger> {
         /// Constructs a new [`SetKeyValue`] for a [`Trigger`] with the given `key` and `value`.
-        pub fn trigger(trigger_id: TriggerId, key: Name, value: impl Into<JsonString>) -> Self {
+        pub fn trigger(trigger_id: TriggerId, key: Name, value: impl Into<JsonValue>) -> Self {
             Self {
                 object: trigger_id,
                 key,
@@ -356,7 +355,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction to remove key value at the object.
-        #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct RemoveKeyValue<O: Identifiable> {
             /// From where to remove key value.
             pub object: O::Id,
@@ -437,7 +435,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for a registration of an object to the identifiable destination.
-        #[schema(bounds = "O: Registered, O::With: IntoSchema")]
         #[serde(transparent)]
         pub struct Register<O: Registered> {
             /// The object that should be registered, should be uniquely identifiable by its id.
@@ -524,7 +521,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for an unregistration of an object from the identifiable destination.
-        #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
         pub struct Unregister<O: Identifiable> {
             /// [`Identifiable::Id`] of the object which should be unregistered.
             pub object: O::Id,
@@ -606,7 +602,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for a mint of an object to the identifiable destination.
-        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
         pub struct Mint<O, D: Identifiable> {
             /// Object which should be minted.
             pub object: O,
@@ -656,7 +651,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for a burn of an object to the identifiable destination.
-        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
         pub struct Burn<O, D: Identifiable> {
             /// Object which should be burned.
             pub object: O,
@@ -706,9 +700,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
-        #[schema(bounds = "S: Identifiable, S::Id: IntoSchema, \
-                           O: IntoSchema, \
-                           D: Identifiable, D::Id: IntoSchema")]
         pub struct Transfer<S: Identifiable, O, D: Identifiable> {
             /// Source object `Id`.
             pub source: S::Id,
@@ -802,7 +793,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for granting permission to an entity.
-        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
         pub struct Grant<O, D: Identifiable> {
             /// Object to grant.
             pub object: O,
@@ -863,7 +853,6 @@ mod transparent {
 
     isi! {
         /// Generic instruction for revoking permission from an entity.
-        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
         pub struct Revoke<O, D: Identifiable> {
             /// Object to revoke.
             pub object: O,
@@ -930,7 +919,7 @@ mod transparent {
             /// Id of a trigger to execute
             pub trigger: TriggerId,
             /// Arguments to trigger execution
-            pub args: Option<JsonString>,
+            pub args: JsonValue,
         }
     }
 
@@ -939,14 +928,14 @@ mod transparent {
         pub fn new(trigger: TriggerId) -> Self {
             Self {
                 trigger,
-                args: None,
+                args: JsonValue::default(),
             }
         }
 
         /// Add trigger execution args
         #[must_use]
         pub fn with_args<T: serde::Serialize>(mut self, args: &T) -> Self {
-            self.args = Some(JsonString::new(args));
+            self.args = JsonValue::new(args);
             self
         }
     }
@@ -992,13 +981,13 @@ mod transparent {
         #[display(fmt = "CUSTOM({payload})")]
         pub struct CustomInstruction {
             /// Custom payload
-            pub payload: JsonString,
+            pub payload: JsonValue,
         }
     }
 
     impl CustomInstruction {
         /// Constructor
-        pub fn new(payload: impl Into<JsonString>) -> Self {
+        pub fn new(payload: impl Into<JsonValue>) -> Self {
             Self {
                 payload: payload.into(),
             }

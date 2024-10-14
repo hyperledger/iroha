@@ -73,7 +73,7 @@ fn get_assets(iroha: &Client, id: &AccountId) -> Vec<Asset> {
 fn permissions_disallow_asset_transfer() {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
-    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
+    let (_rt, _peer, iroha) = <PeerBuilder>::new().with_port(10_725).start_with_runtime();
     wait_for_genesis_committed(&[iroha.clone()], 0);
 
     // Given
@@ -261,7 +261,7 @@ fn permissions_differ_not_only_by_names() {
         .submit_blocking(SetKeyValue::asset(
             mouse_hat_id,
             "color".parse().expect("Valid"),
-            "red".parse::<JsonString>().expect("Valid"),
+            "red".parse::<JsonValue>().expect("Valid"),
         ))
         .expect("Failed to modify Mouse's hats");
 
@@ -270,7 +270,7 @@ fn permissions_differ_not_only_by_names() {
     let set_shoes_color = SetKeyValue::asset(
         mouse_shoes_id.clone(),
         "color".parse().expect("Valid"),
-        "yellow".parse::<JsonString>().expect("Valid"),
+        "yellow".parse::<JsonValue>().expect("Valid"),
     );
     let _err = client
         .submit_blocking(set_shoes_color.clone())
@@ -318,7 +318,7 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
         .expect("Failed to register mouse");
 
     // Allow alice to mint mouse asset and mint initial value
-    let value_json = JsonString::from_string_unchecked(format!(
+    let value_json = JsonValue::from_string_unchecked(format!(
         // NOTE: Permissions is created explicitly as a json string to introduce additional whitespace
         // This way, if the executor compares permissions just as JSON strings, the test will fail
         r##"{{ "asset"   :   "xor#wonderland#{mouse_id}" }}"##
@@ -341,7 +341,7 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
     let set_key_value = SetKeyValue::asset(
         mouse_asset,
         "color".parse()?,
-        "red".parse::<JsonString>().expect("Valid"),
+        "red".parse::<JsonValue>().expect("Valid"),
     );
     iroha
         .submit_blocking(set_key_value)

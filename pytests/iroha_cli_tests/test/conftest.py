@@ -20,7 +20,7 @@ from ..common.helpers import (
     random,
     string,
 )
-from ..common.settings import PEERS_CONFIGS_PATH
+from ..common.settings import PEER_CONFIGS_PATH
 from ..models import Account, Asset, AssetDefinition, Domain
 from ..src.iroha_cli import iroha_cli, config
 
@@ -31,7 +31,7 @@ def before_all():
     """Initial setup for all test sessions.
     This fixture generates configurations based on peers and is automatically
     used for every test session."""
-    config.generate_by_peers(PEERS_CONFIGS_PATH)
+    config.generate_by_peers(PEER_CONFIGS_PATH)
     yield
 
 

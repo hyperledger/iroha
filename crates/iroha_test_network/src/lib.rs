@@ -14,7 +14,7 @@ pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair};
 use iroha_data_model::{asset::AssetDefinitionId, isi::InstructionBox, ChainId};
 use iroha_executor_data_model::permission::{
-    asset::CanMintAssetsWithDefinition, domain::CanUnregisterDomain, executor::CanUpgradeExecutor,
+    asset::CanMintAssetWithDefinition, domain::CanUnregisterDomain, executor::CanUpgradeExecutor,
     peer::CanManagePeers, role::CanManageRoles,
 };
 use iroha_futures::supervisor::ShutdownSignal;
@@ -97,7 +97,7 @@ impl TestGenesis for GenesisBlock {
         let rose_definition_id = "rose#wonderland".parse::<AssetDefinitionId>().unwrap();
 
         let grant_modify_rose_permission = Grant::account_permission(
-            CanMintAssetsWithDefinition {
+            CanMintAssetWithDefinition {
                 asset_definition: rose_definition_id.clone(),
             },
             ALICE_ID.clone(),
@@ -849,25 +849,4 @@ impl TestClient for Client {
     fn poll(&self, f: impl FnOnce(&Self) -> Result<bool> + Clone) -> eyre::Result<()> {
         self.poll_with_period(Config::pipeline_time() / 2, 10, f)
     }
-}
-
-/// Construct executor from path.
-///
-/// `relative_path` should be relative to `CARGO_MANIFEST_DIR`.
-///
-/// # Errors
-///
-/// - Failed to create temp dir for executor output
-/// - Failed to build executor
-/// - Failed to optimize executor
-pub fn construct_executor<P>(relative_path: &P) -> eyre::Result<Executor>
-where
-    P: AsRef<Path> + ?Sized,
-{
-    let wasm_blob = iroha_wasm_builder::Builder::new(relative_path)
-        .build()?
-        .optimize()?
-        .into_bytes()?;
-
-    Ok(Executor::new(WasmSmartContract::from_compiled(wasm_blob)))
 }

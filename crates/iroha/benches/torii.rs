@@ -9,10 +9,8 @@ use iroha::{
 };
 use iroha_genesis::GenesisBuilder;
 use iroha_primitives::unique_vec;
-use iroha_test_network::{
-    construct_executor, get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime,
-};
-use iroha_test_samples::gen_account_in;
+use iroha_test_network::{get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
+use iroha_test_samples::{gen_account_in, load_sample_wasm};
 use irohad::samples::get_config;
 use tokio::runtime::Runtime;
 
@@ -31,8 +29,7 @@ fn query_requests(criterion: &mut Criterion) {
     );
 
     let rt = Runtime::test();
-    let executor = construct_executor("../../wasm_samples/default_executor")
-        .expect("Failed to construct executor");
+    let executor = Executor::new(load_sample_wasm("default_executor"));
     let topology = vec![peer.id.clone()];
     let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
@@ -73,10 +70,10 @@ fn query_requests(criterion: &mut Criterion) {
         format!("http://{}", peer.api_address).parse().unwrap(),
     );
 
-    let iroha = Client::new(client_config);
+    let client = Client::new(client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
 
-    let _ = iroha
+    let _ = client
         .submit_all::<InstructionBox>([
             create_domain.into(),
             create_account.into(),
@@ -85,7 +82,7 @@ fn query_requests(criterion: &mut Criterion) {
         ])
         .expect("Failed to prepare state");
 
-    let query = iroha
+    let query = client
         .query(asset::all())
         .filter_with(|asset| asset.id.account.eq(account_id));
     thread::sleep(std::time::Duration::from_millis(1500));
@@ -133,8 +130,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         get_key_pair(iroha_test_network::Signatory::Peer),
         genesis_key_pair.public_key(),
     );
-    let executor = construct_executor("../../wasm_samples/default_executor")
-        .expect("Failed to construct executor");
+    let executor = Executor::new(load_sample_wasm("default_executor"));
     let genesis = GenesisBuilder::default()
         .domain("wonderland".parse().expect("Valid"))
         .account(configuration.common.key_pair.public_key().clone())
@@ -155,9 +151,9 @@ fn instruction_submits(criterion: &mut Criterion) {
         get_key_pair(iroha_test_network::Signatory::Alice),
         format!("http://{}", peer.api_address).parse().unwrap(),
     );
-    let iroha = Client::new(client_config);
+    let client = Client::new(client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
-    let _ = iroha
+    let _ = client
         .submit_all::<InstructionBox>([create_domain.into(), create_account.into()])
         .expect("Failed to create role.");
     thread::sleep(std::time::Duration::from_millis(500));
@@ -169,7 +165,7 @@ fn instruction_submits(criterion: &mut Criterion) {
                 200u32,
                 AssetId::new(asset_definition_id.clone(), account_id.clone()),
             );
-            match iroha.submit(mint_asset) {
+            match client.submit(mint_asset) {
                 Ok(_) => success_count += 1,
                 Err(e) => {
                     eprintln!("Failed to execute instruction: {e}");

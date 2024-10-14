@@ -9,6 +9,7 @@ on:
       - '**/tests/ui.rs'
       - '**/tests/ui_*/**'
       - 'rust-toolchain.toml'
+      - '.github/workflows/iroha2-pr-ui.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -18,8 +19,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  tests:
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     timeout-minutes: 60
@@ -27,12 +28,7 @@ jobs:
       matrix:
         feature_flag: [all-features, no-default-features]
     steps:
-      - name: Maximize build space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Run tests, with ${{ matrix.feature_flag }}
-        run: |
-          mold --run cargo test --test ui --${{ matrix.feature_flag }}
+      - uses: taiki-e/install-action@nextest
+      - name: Run UI tests, with ${{ matrix.feature_flag }}
+        run: mold --run cargo nextest run --no-fail-fast  -E 'test(ui)' --${{ matrix.feature_flag }}

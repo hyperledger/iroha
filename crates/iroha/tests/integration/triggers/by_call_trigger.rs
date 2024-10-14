@@ -7,16 +7,15 @@ use iroha::{
     crypto::KeyPair,
     data_model::{
         prelude::*,
-        query::error::FindError,
-        transaction::{Executable, WasmSmartContract},
+        query::{builder::SingleQueryError, error::FindError, trigger::FindTriggers},
+        transaction::Executable,
     },
 };
-use iroha_data_model::query::{builder::SingleQueryError, trigger::FindTriggers};
 use iroha_executor_data_model::permission::trigger::CanRegisterTrigger;
 use iroha_genesis::GenesisBlock;
 use iroha_logger::info;
 use iroha_test_network::{Peer as TestPeer, *};
-use iroha_test_samples::ALICE_ID;
+use iroha_test_samples::{load_sample_wasm, ALICE_ID};
 use tokio::runtime::Runtime;
 
 const TRIGGER_NAME: &str = "mint_rose";
@@ -409,41 +408,16 @@ fn unregister_trigger() -> Result<()> {
     Ok(())
 }
 
-/// Register wasm-trigger in genesis and execute it.
-///
-/// Not very representable from end-user point of view.
-/// It's the problem of all ours *"integration"* tests that they are not really
-/// integration.
-/// Here it's easier to use the approach with `GenesisNetwork::test()` function
-/// and extra isi insertion instead of a hardcoded genesis config.
-/// This allows to not to update the hardcoded genesis every time
-/// instructions/genesis API is changing.
-///
-/// Despite this simplification this test should really check
-/// if we have the ability to pass a base64-encoded WASM trigger in the genesis.
 #[test]
-fn trigger_in_genesis_using_base64() -> Result<()> {
-    // Building wasm trigger
-
-    info!("Building trigger");
-    let wasm = iroha_wasm_builder::Builder::new("../../wasm_samples/mint_rose_trigger")
-        .show_output()
-        .build()?
-        .optimize()?
-        .into_bytes()?;
-
-    info!("WASM size is {} bytes", wasm.len());
-
-    let engine = base64::engine::general_purpose::STANDARD;
-    let wasm_base64 = serde_json::json!(base64::engine::Engine::encode(&engine, wasm)).to_string();
+fn trigger_in_genesis() -> Result<()> {
+    let wasm = load_sample_wasm("mint_rose_trigger");
     let account_id = ALICE_ID.clone();
     let trigger_id = "genesis_trigger".parse::<TriggerId>()?;
 
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(
-            serde_json::from_str::<WasmSmartContract>(&wasm_base64)
-                .wrap_err("Can't deserialize wasm using base64")?,
+            wasm,
             Repeats::Indefinitely,
             account_id.clone(),
             ExecuteTriggerEventFilter::new()
@@ -591,18 +565,11 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
     let first_trigger_id = "mint_rose_1".parse::<TriggerId>()?;
     let second_trigger_id = "mint_rose_2".parse::<TriggerId>()?;
 
-    let wasm = iroha_wasm_builder::Builder::new("../../wasm_samples/mint_rose_trigger")
-        .show_output()
-        .build()?
-        .optimize()?
-        .into_bytes()?;
-    let wasm = WasmSmartContract::from_compiled(wasm);
-
     let build_trigger = |trigger_id: TriggerId| {
         Trigger::new(
             trigger_id.clone(),
             Action::new(
-                wasm.clone(),
+                load_sample_wasm("mint_rose_trigger"),
                 Repeats::Indefinitely,
                 account_id.clone(),
                 ExecuteTriggerEventFilter::new()
@@ -675,16 +642,10 @@ fn call_execute_trigger_with_args() -> Result<()> {
     let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
     let trigger_id = TRIGGER_NAME.parse::<TriggerId>()?;
-    let wasm = iroha_wasm_builder::Builder::new("../../wasm_samples/mint_rose_trigger_args")
-        .show_output()
-        .build()?
-        .optimize()?
-        .into_bytes()?;
-    let wasm = WasmSmartContract::from_compiled(wasm);
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(
-            wasm,
+            load_sample_wasm("mint_rose_trigger_args"),
             Repeats::Indefinitely,
             account_id.clone(),
             ExecuteTriggerEventFilter::new()
@@ -695,8 +656,8 @@ fn call_execute_trigger_with_args() -> Result<()> {
 
     test_client.submit_blocking(Register::trigger(trigger))?;
 
-    let args: MintRoseArgs = MintRoseArgs { val: 42 };
-    let call_trigger = ExecuteTrigger::new(trigger_id).with_args(&args);
+    let args = &MintRoseArgs { val: 42 };
+    let call_trigger = ExecuteTrigger::new(trigger_id).with_args(args);
     test_client.submit_blocking(call_trigger)?;
 
     let new_value = get_asset_value(&mut test_client, asset_id);

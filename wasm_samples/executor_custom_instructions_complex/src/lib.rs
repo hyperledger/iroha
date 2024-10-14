@@ -24,18 +24,19 @@ static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 
-#[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
+#[derive(Visit, Execute, Entrypoints)]
 #[visit(custom(visit_custom))]
 struct Executor {
+    host: Iroha,
+    context: iroha_executor::prelude::Context,
     verdict: Result,
-    block_height: u64,
 }
 
-fn visit_custom(executor: &mut Executor, _authority: &AccountId, isi: &CustomInstruction) {
+fn visit_custom(executor: &mut Executor, isi: &CustomInstruction) {
     let Ok(isi) = CustomInstructionExpr::try_from(isi.payload()) else {
         deny!(executor, "Failed to parse custom instruction");
     };
-    match execute_custom_instruction(isi) {
+    match execute_custom_instruction(isi, executor.host()) {
         Ok(()) => return,
         Err(err) => {
             deny!(executor, err);
@@ -43,44 +44,48 @@ fn visit_custom(executor: &mut Executor, _authority: &AccountId, isi: &CustomIns
     }
 }
 
-fn execute_custom_instruction(isi: CustomInstructionExpr) -> Result<(), ValidationFail> {
+fn execute_custom_instruction(
+    isi: CustomInstructionExpr,
+    host: &Iroha,
+) -> Result<(), ValidationFail> {
     match isi {
-        CustomInstructionExpr::Core(isi) => execute_core(isi),
-        CustomInstructionExpr::If(isi) => execute_if(*isi),
+        CustomInstructionExpr::Core(isi) => execute_core(isi, host),
+        CustomInstructionExpr::If(isi) => execute_if(*isi, host),
     }
 }
 
-fn execute_core(isi: CoreExpr) -> Result<(), ValidationFail> {
-    let isi = isi.object.evaluate(&Context)?;
-    isi.execute()
+fn execute_core(isi: CoreExpr, host: &Iroha) -> Result<(), ValidationFail> {
+    let isi = &isi.object.evaluate(&Context { host })?;
+    host.submit(isi)
 }
 
-fn execute_if(isi: ConditionalExpr) -> Result<(), ValidationFail> {
-    let condition = isi.condition.evaluate(&Context)?;
+fn execute_if(isi: ConditionalExpr, host: &Iroha) -> Result<(), ValidationFail> {
+    let condition = isi.condition.evaluate(&Context { host })?;
     if condition {
-        execute_custom_instruction(isi.then)
+        execute_custom_instruction(isi.then, host)
     } else {
         Ok(())
     }
 }
 
-struct Context;
+struct Context<'i> {
+    host: &'i Iroha,
+}
 
-impl executor_custom_data_model::complex_isi::Context for Context {
+impl executor_custom_data_model::complex_isi::Context for Context<'_> {
     fn query(&self, q: &NumericQuery) -> Result<Value, ValidationFail> {
         let result = match q.clone() {
-            NumericQuery::FindAssetQuantityById(q) => {
-                iroha_executor::smart_contract::query_single(q)
-            }
+            NumericQuery::FindAssetQuantityById(q) => self.host.query_single(q),
             NumericQuery::FindTotalAssetQuantityByAssetDefinitionId(asset_definition_id) => {
-                let asset_definition =
-                    iroha_executor::smart_contract::query(FindAssetsDefinitions::new())
-                        .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id))
-                        .execute_single()
-                        .map_err(|e| match e {
-                            SingleQueryError::QueryError(e) => e,
-                            _ => unreachable!(),
-                        })?;
+                let asset_definition = self
+                    .host
+                    .query(FindAssetsDefinitions::new())
+                    .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id))
+                    .execute_single()
+                    .map_err(|e| match e {
+                        SingleQueryError::QueryError(e) => e,
+                        _ => unreachable!(),
+                    })?;
 
                 Ok(*asset_definition.total_quantity())
             }
@@ -91,10 +96,10 @@ impl executor_custom_data_model::complex_isi::Context for Context {
 }
 
 #[entrypoint]
-fn migrate(_block_height: u64) {
+fn migrate(host: Iroha, _context: iroha_executor::prelude::Context) {
     DataModelBuilder::with_default_permissions()
         .add_instruction::<CustomInstructionExpr>()
         .add_instruction::<CoreExpr>()
         .add_instruction::<ConditionalExpr>()
-        .build_and_set();
+        .build_and_set(&host);
 }

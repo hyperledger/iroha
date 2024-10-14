@@ -18,6 +18,10 @@ is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledg
 is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
 maintenance = { status = "actively-developed" }
 
+[features]
+# FIXME: it doesn't work https://github.com/hyperledger/iroha/issues/5134
+metric-instrumentation = []
+
 [dependencies]
 syn = { workspace = true }
 quote = { workspace = true }

@@ -6,7 +6,7 @@ use alloc::{collections::BTreeSet, format, string::String, vec::Vec};
 use std::collections::BTreeSet;
 
 use iroha_data_model_derive::model;
-use iroha_primitives::json::JsonString;
+use iroha_primitives::json::JsonValue;
 use iroha_schema::{Ident, IntoSchema};
 
 pub use self::model::*;
@@ -89,7 +89,7 @@ mod model {
         /// Ids of permission tokens supported by the executor.
         pub permissions: BTreeSet<Ident>,
         /// Schema of executor defined data types (instructions, parameters, permissions)
-        pub schema: JsonString,
+        pub schema: JsonValue,
     }
 
     // TODO: Client doesn't need structures defined inside this macro. When dynamic linking is
@@ -105,7 +105,7 @@ impl ExecutorDataModel {
     }
 
     /// Getter
-    pub fn schema(&self) -> &JsonString {
+    pub fn schema(&self) -> &JsonValue {
         &self.schema
     }
 }

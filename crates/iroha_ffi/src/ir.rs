@@ -51,9 +51,10 @@ pub unsafe trait Transmute {
     unsafe fn is_valid(target: &Self::Target) -> bool;
 }
 
-/// Marker trait for a type whose [`Transmute::is_valid`] always returns true. The main
-/// use of this trait is to guard against the use of `&mut T` in FFI where the caller
-/// can set the underlying `T` to a trap representation and cause UB.
+/// Marker trait for a type whose [`Transmute::is_valid`] always returns true.
+///
+/// Main use of this trait is to guard against the use of `&mut T` in FFI where
+/// the caller can set the underlying `T` to a trap representation and cause UB.
 ///
 /// # Safety
 ///

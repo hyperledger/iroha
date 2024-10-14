@@ -25,6 +25,7 @@ struct Foo {
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn compact() {
     use alloc::collections::BTreeMap;
 

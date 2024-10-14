@@ -10,6 +10,7 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use clap::Parser;
@@ -34,7 +35,7 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::{block::SignedBlock, prelude::*};
-use iroha_futures::supervisor::{ShutdownSignal, Supervisor};
+use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal, Supervisor};
 use iroha_genesis::GenesisBlock;
 use iroha_logger::{actor::LoggerHandle, InitConfig as LoggerInitConfig};
 use iroha_primitives::addr::SocketAddr;
@@ -323,10 +324,18 @@ impl Iroha {
             #[cfg(feature = "telemetry")]
             metrics_reporter,
         )
-        .start(&supervisor.shutdown_signal())
-        .await
-        .map_err(|report| report.change_context(StartError::StartTorii))?;
-        supervisor.monitor(tokio::spawn(torii_run));
+        .start(supervisor.shutdown_signal());
+        supervisor.monitor(Child::new(
+            tokio::spawn(async move {
+                if let Err(err) = torii_run.await {
+                    iroha_logger::error!(?err, "Torii failed to terminate gracefully");
+                    // TODO: produce non-zero exit code or something
+                } else {
+                    iroha_logger::debug!("Torii exited normally");
+                };
+            }),
+            OnShutdown::Wait(Duration::from_secs(5)),
+        ));
 
         supervisor.monitor(tokio::task::spawn(config_updates_relay(kiso, logger)));
 
@@ -535,7 +544,13 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     // maybe validate only if snapshot mode is enabled
     validate_directory_path(&mut emitter, &config.snapshot.store_dir);
 
-    if config.genesis.file.is_none() && !config.sumeragi.contains_other_trusted_peers() {
+    if config.genesis.file.is_none()
+        && !config
+            .sumeragi
+            .trusted_peers
+            .value()
+            .contains_other_trusted_peers()
+    {
         emitter.emit(Report::new(ConfigError::LonePeer).attach_printable("\
             Reason: the network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
             Since `genesis.file` is not set, there is no way to receive the genesis block.\n\

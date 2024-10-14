@@ -9,7 +9,7 @@ use alloc::format;
 
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::parameters::DomainLimits;
-use iroha_executor::{prelude::*, smart_contract::query_single, DataModelBuilder};
+use iroha_executor::{prelude::*, smart_contract::Iroha, DataModelBuilder};
 use iroha_executor_data_model::parameter::Parameter;
 
 #[global_allocator]
@@ -17,15 +17,16 @@ static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 
-#[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
+#[derive(Visit, Execute, Entrypoints)]
 #[visit(custom(visit_register_domain))]
 struct Executor {
+    host: Iroha,
+    context: Context,
     verdict: Result,
-    block_height: u64,
 }
 
-fn visit_register_domain(executor: &mut Executor, _authority: &AccountId, isi: &Register<Domain>) {
-    let parameters = query_single(FindParameters).dbg_unwrap();
+fn visit_register_domain(executor: &mut Executor, isi: &Register<Domain>) {
+    let parameters = executor.host().query_single(FindParameters).dbg_unwrap();
 
     let domain_limits: DomainLimits = parameters
         .custom()
@@ -43,8 +44,8 @@ fn visit_register_domain(executor: &mut Executor, _authority: &AccountId, isi: &
 }
 
 #[entrypoint]
-fn migrate(_block_height: u64) {
+fn migrate(host: Iroha, _context: Context) {
     DataModelBuilder::with_default_permissions()
         .add_parameter(DomainLimits::default())
-        .build_and_set();
+        .build_and_set(&host);
 }

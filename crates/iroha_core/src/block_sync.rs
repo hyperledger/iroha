@@ -328,6 +328,12 @@ pub mod message {
             blocks: Vec<SignedBlock>,
         }
 
+        enum ShareBlocksError {
+            HeightMissed,
+            PrevBlockHashMismatch,
+            Empty,
+        }
+
         impl GetBlocksAfterCandidate {
             fn validate(self) -> Result<GetBlocksAfter, parity_scale_codec::Error> {
                 if self.prev_hash.is_some() && self.latest_hash.is_none() {
@@ -345,20 +351,34 @@ pub mod message {
             }
         }
 
+        impl From<ShareBlocksError> for parity_scale_codec::Error {
+            fn from(value: ShareBlocksError) -> Self {
+                match value {
+                    ShareBlocksError::Empty => "Blocks are empty",
+                    ShareBlocksError::HeightMissed => "There is a gap between blocks",
+                    ShareBlocksError::PrevBlockHashMismatch => {
+                        "Mismatch between previous block in the header and actual hash"
+                    }
+                }
+                .into()
+            }
+        }
+
         impl ShareBlocksCandidate {
-            fn validate(self) -> Result<ShareBlocks, parity_scale_codec::Error> {
+            fn validate(self) -> Result<ShareBlocks, ShareBlocksError> {
                 if self.blocks.is_empty() {
-                    return Err(parity_scale_codec::Error::from("Blocks are empty"));
+                    return Err(ShareBlocksError::Empty);
                 }
 
-                if !self.blocks.windows(2).all(|wnd| {
-                    wnd[1].header().height.get() == wnd[0].header().height.get() - 1
-                        && wnd[1].header().prev_block_hash == Some(wnd[0].hash())
-                }) {
-                    return Err(parity_scale_codec::Error::from(
-                        "Blocks are not ordered correctly",
-                    ));
-                }
+                self.blocks.windows(2).try_for_each(|wnd| {
+                    if wnd[1].header().height.get() != wnd[0].header().height.get() + 1 {
+                        return Err(ShareBlocksError::HeightMissed);
+                    }
+                    if wnd[1].header().prev_block_hash != Some(wnd[0].hash()) {
+                        return Err(ShareBlocksError::PrevBlockHashMismatch);
+                    }
+                    Ok(())
+                })?;
 
                 Ok(ShareBlocks {
                     peer_id: self.peer,
@@ -380,6 +400,89 @@ pub mod message {
                 GetBlocksAfterCandidate::decode(input)?
                     .validate()
                     .map_err(Into::into)
+            }
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use iroha_crypto::{Hash, KeyPair};
+
+            use super::*;
+            use crate::block::ValidBlock;
+
+            #[test]
+            fn candidate_empty() {
+                let (leader_public_key, _) = KeyPair::random().into_parts();
+                let leader_peer_id =
+                    PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
+                let candidate = ShareBlocksCandidate {
+                    blocks: Vec::new(),
+                    peer: leader_peer_id,
+                };
+                assert!(matches!(candidate.validate(), Err(ShareBlocksError::Empty)))
+            }
+
+            #[test]
+            fn candidate_height_missed() {
+                let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
+                let leader_peer_id =
+                    PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
+                let block0: SignedBlock = ValidBlock::new_dummy(&leader_private_key).into();
+                let block1 =
+                    ValidBlock::new_dummy_and_modify_header(&leader_private_key, |header| {
+                        header.height = block0.header().height.checked_add(2).unwrap();
+                    })
+                    .into();
+                let candidate = ShareBlocksCandidate {
+                    blocks: vec![block0, block1],
+                    peer: leader_peer_id,
+                };
+                assert!(matches!(
+                    candidate.validate(),
+                    Err(ShareBlocksError::HeightMissed)
+                ))
+            }
+
+            #[test]
+            fn candidate_prev_block_hash_mismatch() {
+                let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
+                let leader_peer_id =
+                    PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
+                let block0: SignedBlock = ValidBlock::new_dummy(&leader_private_key).into();
+                let block1 =
+                    ValidBlock::new_dummy_and_modify_header(&leader_private_key, |header| {
+                        header.height = block0.header().height.checked_add(1).unwrap();
+                        header.prev_block_hash =
+                            Some(HashOf::from_untyped_unchecked(Hash::prehashed([0; 32])));
+                    })
+                    .into();
+                let candidate = ShareBlocksCandidate {
+                    blocks: vec![block0, block1],
+                    peer: leader_peer_id,
+                };
+                assert!(matches!(
+                    candidate.validate(),
+                    Err(ShareBlocksError::PrevBlockHashMismatch)
+                ))
+            }
+
+            #[test]
+            fn candidate_ok() {
+                let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
+                let leader_peer_id =
+                    PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
+                let block0: SignedBlock = ValidBlock::new_dummy(&leader_private_key).into();
+                let block1 =
+                    ValidBlock::new_dummy_and_modify_header(&leader_private_key, |header| {
+                        header.height = block0.header().height.checked_add(1).unwrap();
+                        header.prev_block_hash = Some(block0.hash());
+                    })
+                    .into();
+                let candidate = ShareBlocksCandidate {
+                    blocks: vec![block0, block1],
+                    peer: leader_peer_id,
+                };
+                assert!(candidate.validate().is_ok())
             }
         }
     }

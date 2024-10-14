@@ -65,7 +65,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let set_key_value = SetKeyValue::account(
         mouse_id,
         "key".parse::<Name>()?,
-        "value".parse::<JsonString>()?,
+        "value".parse::<JsonValue>()?,
     );
     test_client.submit_blocking(set_key_value)?;
 
@@ -222,7 +222,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
     let set_key_value = SetKeyValue::account(
         mouse_id.clone(),
         "key".parse()?,
-        "value".parse::<JsonString>()?,
+        "value".parse::<JsonValue>()?,
     );
     let can_set_key_value_in_mouse = CanModifyAccountMetadata {
         account: mouse_id.clone(),

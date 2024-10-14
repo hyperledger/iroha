@@ -40,3 +40,4 @@ stderrlog = "0.6.0"
 [dev-dependencies]
 expect-test = { workspace = true }
 assertables = { workspace = true }
+iroha_crypto = { workspace = true, features = ["rand"] }

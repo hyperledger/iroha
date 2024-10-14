@@ -11,7 +11,7 @@ use erased_serde::Serialize;
 use error_stack::{fmt::ColorMode, IntoReportCompat, ResultExt};
 use eyre::{eyre, Error, Result, WrapErr};
 use iroha::{client::Client, config::Config, data_model::prelude::*};
-use iroha_primitives::{addr::SocketAddr, json::JsonString};
+use iroha_primitives::{addr::SocketAddr, json::JsonValue};
 use thiserror::Error;
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
@@ -58,7 +58,7 @@ pub struct MetadataValueArg {
     /// Booleans: false/true
     /// Objects: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
     #[arg(short, long)]
-    value: JsonString,
+    value: JsonValue,
 }
 
 impl FromStr for MetadataValueArg {
@@ -66,7 +66,7 @@ impl FromStr for MetadataValueArg {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(MetadataValueArg {
-            value: JsonString::from_str(s)?,
+            value: JsonValue::from_str(s)?,
         })
     }
 }
@@ -233,15 +233,15 @@ fn submit(
     metadata: Metadata,
     context: &mut dyn RunContext,
 ) -> Result<()> {
-    let iroha = context.client_from_config();
+    let client = context.client_from_config();
     let instructions = instructions.into();
-    let tx = iroha.build_transaction(instructions, metadata);
+    let tx = client.build_transaction(instructions, metadata);
 
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to submit transaction.";
     #[cfg(debug_assertions)]
     let err_msg = format!("Failed to submit transaction {tx:?}");
-    let hash = iroha.submit_transaction_blocking(&tx).wrap_err(err_msg)?;
+    let hash = client.submit_transaction_blocking(&tx).wrap_err(err_msg)?;
     context.print_data(&hash)?;
 
     Ok(())
@@ -333,9 +333,9 @@ mod events {
 
     fn listen(filter: impl Into<EventFilterBox>, context: &mut dyn RunContext) -> Result<()> {
         let filter = filter.into();
-        let iroha = context.client_from_config();
+        let client = context.client_from_config();
         eprintln!("Listening to events with filter: {filter:?}");
-        iroha
+        client
             .listen_for_events([filter])
             .wrap_err("Failed to listen for events.")?
             .try_for_each(|event| context.print_data(&event?))?;
@@ -363,9 +363,9 @@ mod blocks {
     }
 
     fn listen(height: NonZeroU64, context: &mut dyn RunContext) -> Result<()> {
-        let iroha = context.client_from_config();
+        let client = context.client_from_config();
         eprintln!("Listening to blocks from height: {height}");
-        iroha
+        client
             .listen_for_blocks(height)
             .wrap_err("Failed to listen for blocks.")?
             .try_for_each(|event| context.print_data(&event?))?;
@@ -909,8 +909,8 @@ mod asset {
     impl RunArgs for Get {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { id: asset_id } = self;
-            let iroha = context.client_from_config();
-            let asset = iroha
+            let client = context.client_from_config();
+            let asset = client
                 .query(asset::all())
                 .filter_with(|asset| asset.id.eq(asset_id))
                 .execute_single()
@@ -1212,12 +1212,12 @@ mod tests {
         }
 
         // Boolean values
-        case!("true", JsonString::new(true));
-        case!("false", JsonString::new(false));
+        case!("true", JsonValue::new(true));
+        case!("false", JsonValue::new(false));
 
         // Numeric values
-        case!("\"123\"", JsonString::new(numeric!(123)));
-        case!("\"123.0\"", JsonString::new(numeric!(123.0)));
+        case!("\"123\"", JsonValue::new(numeric!(123)));
+        case!("\"123.0\"", JsonValue::new(numeric!(123.0)));
 
         // JSON Value
         let json_str = r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#;

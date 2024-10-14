@@ -47,7 +47,7 @@ class Config:
             self._config = tomlkit.load(config_file)
         self.file = path_config_iroha_cli
 
-    def generate_by_peers(self, peers_configs_dir):
+    def generate_by_peers(self, peer_configs_dir):
         """
         Generate configuration files for each port in the range from port_min to port_max.
         """
@@ -59,13 +59,13 @@ class Config:
         if self.port_min >= self.port_max:
             raise ValueError("port_min must be less than port_max.")
 
-        os.makedirs(peers_configs_dir, exist_ok=True)
+        os.makedirs(peer_configs_dir, exist_ok=True)
 
         for port in range(self.port_min, self.port_max + 1):
             config_copy = self._config.copy()
             config_copy["TORII_API_URL"] = f"http://localhost:{port}"
             file_name = f"config_to_peer_{port}.json"
-            file_path = os.path.join(peers_configs_dir, file_name)
+            file_path = os.path.join(peer_configs_dir, file_name)
             with open(file_path, "w", encoding="utf-8") as config_file:
                 json.dump(config_copy, config_file, indent=4)
 
@@ -76,13 +76,13 @@ class Config:
 
         :return: None
         """
-        peers_configs = glob.glob("path/to/peers/configs/*.json")
-        if not peers_configs:
+        peer_configs = glob.glob("path/to/peer/configs/*.json")
+        if not peer_configs:
             raise ValueError(
                 "Peer configuration files not found. First generate them using generate_by_peers."
             )
 
-        chosen_config_file = random.choice(peers_configs)
+        chosen_config_file = random.choice(peer_configs)
 
         self.load(chosen_config_file)
 

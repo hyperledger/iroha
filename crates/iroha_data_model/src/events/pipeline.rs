@@ -103,6 +103,8 @@ mod model {
     )]
     #[ffi_type(opaque)]
     pub enum BlockStatus {
+        /// Block created (only emitted by the leader node)
+        Created,
         /// Block was approved to participate in consensus
         Approved,
         /// Block was rejected by consensus
@@ -357,7 +359,6 @@ mod tests {
                 )),
                 creation_time_ms: 0,
                 view_change_index: 0,
-                consensus_estimation_ms: 0,
             }
         }
     }

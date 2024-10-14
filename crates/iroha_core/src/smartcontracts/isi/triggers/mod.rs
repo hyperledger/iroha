@@ -39,9 +39,9 @@ pub mod isi {
                 }
             }
 
-            let last_block_estimation = state_transaction.latest_block().map(|block| {
-                block.header().creation_time() + block.header().consensus_estimation()
-            });
+            let latest_block_time = state_transaction
+                .latest_block()
+                .map(|block| block.header().creation_time());
 
             let engine = state_transaction.engine.clone(); // Cloning engine is cheap
             let genesis_creation_time_ms = state_transaction.world().genesis_creation_time_ms();
@@ -63,7 +63,7 @@ pub mod isi {
                 ),
                 EventFilterBox::Time(time_filter) => {
                     if let ExecutionTime::Schedule(schedule) = time_filter.0 {
-                        match last_block_estimation {
+                        match latest_block_time {
                             // Genesis block
                             None => {
                                 let genesis_creation_time_ms = genesis_creation_time_ms
@@ -75,8 +75,8 @@ pub mod isi {
                                     ));
                                 }
                             }
-                            Some(latest_block_estimation) => {
-                                if schedule.start() < latest_block_estimation {
+                            Some(latest_block_time) => {
+                                if schedule.start() < latest_block_time {
                                     return Err(Error::InvalidParameter(
                                         InvalidParameterError::TimeTriggerInThePast,
                                     ));
@@ -329,7 +329,7 @@ pub mod query {
         },
         trigger::{Trigger, TriggerId},
     };
-    use iroha_primitives::json::JsonString;
+    use iroha_primitives::json::JsonValue;
 
     use super::*;
     use crate::{
@@ -380,7 +380,7 @@ pub mod query {
 
     impl ValidSingularQuery for FindTriggerMetadata {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonString, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonValue, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);

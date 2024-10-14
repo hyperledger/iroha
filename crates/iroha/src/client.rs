@@ -230,8 +230,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit<I: Instruction>(&self, instruction: I) -> Result<HashOf<SignedTransaction>> {
-        let isi = instruction.into();
+    pub fn submit<I: Instruction>(&self, isi: I) -> Result<HashOf<SignedTransaction>> {
         self.submit_all([isi])
     }
 
@@ -716,14 +715,23 @@ pub mod stream_api {
     impl<E> Drop for SyncIterator<E> {
         fn drop(&mut self) {
             let mut close = || -> eyre::Result<()> {
-                self.stream.close(None)?;
-                let msg = self.stream.read()?;
-                if !msg.is_close() {
-                    return Err(eyre!(
-                        "Server hasn't sent `Close` message for websocket handshake"
-                    ));
+                match self.stream.close(None) {
+                    Ok(()) => {}
+                    Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
+                        return Ok(())
+                    }
+                    Err(error) => Err(error)?,
                 }
-                Ok(())
+                // NOTE: drive close handshake to completion
+                loop {
+                    match self.stream.read() {
+                        Ok(_) => {}
+                        Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
+                            return Ok(())
+                        }
+                        Err(error) => Err(error)?,
+                    }
+                }
             };
 
             trace!("Closing WebSocket connection");
@@ -776,17 +784,12 @@ pub mod stream_api {
         /// - Closing the websocket connection itself fails.
         pub async fn close(mut self) {
             let close = async {
-                self.stream.close(None).await?;
-                if let Some(msg) = self.stream.next().await {
-                    if !msg?.is_close() {
-                        eyre::bail!("Server hasn't sent `Close` message for websocket handshake");
-                    }
-                }
+                <_ as SinkExt<_>>::close(&mut self.stream).await?;
                 Ok(())
             };
 
             trace!("Closing WebSocket connection");
-            let _ = close.await.map_err(|e| error!(%e));
+            let _ = close.await.map_err(|e: eyre::Report| error!(%e));
             trace!("WebSocket connection closed");
         }
     }
@@ -798,13 +801,15 @@ pub mod stream_api {
             mut self: std::pin::Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Option<Self::Item>> {
-            match futures_util::ready!(self.stream.poll_next_unpin(cx)) {
-                Some(Ok(WebSocketMessage::Binary(message))) => {
-                    std::task::Poll::Ready(Some(self.handler.message(message)))
-                }
-                Some(Ok(_)) => std::task::Poll::Pending,
-                Some(Err(err)) => std::task::Poll::Ready(Some(Err(err.into()))),
-                None => std::task::Poll::Ready(None),
+            loop {
+                break match futures_util::ready!(self.stream.poll_next_unpin(cx)) {
+                    Some(Ok(WebSocketMessage::Binary(message))) => {
+                        std::task::Poll::Ready(Some(self.handler.message(message)))
+                    }
+                    Some(Ok(_)) => continue,
+                    Some(Err(err)) => std::task::Poll::Ready(Some(Err(err.into()))),
+                    None => std::task::Poll::Ready(None),
+                };
             }
         }
     }

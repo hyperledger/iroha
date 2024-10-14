@@ -7,8 +7,6 @@ extern crate alloc;
 use alloc::boxed::Box;
 use core::fmt::Debug;
 
-#[cfg(not(test))]
-use data_model::smart_contract::payloads;
 use data_model::{
     isi::BuiltInInstruction,
     prelude::*,
@@ -28,6 +26,152 @@ use iroha_smart_contract_utils::{
     decode_with_length_prefix_from_raw, encode_and_execute,
 };
 use parity_scale_codec::{Decode, Encode};
+
+/// An iterable query cursor for use in smart contracts.
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct QueryCursor {
+    cursor: ForwardCursor,
+}
+
+/// Client for the host environment
+#[derive(Debug, Clone, Encode, Decode)]
+#[allow(missing_copy_implementations)]
+pub struct Iroha;
+
+impl Iroha {
+    /// Submits one Iroha Special Instruction
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
+    pub fn submit<I: BuiltInInstruction + Encode>(&self, isi: &I) -> Result<(), ValidationFail> {
+        self.submit_all([isi])
+    }
+
+    /// Submits several Iroha Special Instructions
+    ///
+    /// # Errors
+    /// Fails if sending transaction to peer fails or if it response with error
+    #[expect(clippy::unused_self)]
+    pub fn submit_all<'isi, I: BuiltInInstruction + Encode + 'isi>(
+        &self,
+        instructions: impl IntoIterator<Item = &'isi I>,
+    ) -> Result<(), ValidationFail> {
+        instructions.into_iter().try_for_each(|isi| {
+            #[cfg(not(test))]
+            use host::execute_instruction as host_execute_instruction;
+            #[cfg(test)]
+            use tests::_iroha_smart_contract_execute_instruction_mock as host_execute_instruction;
+
+            let bytes = isi.encode_as_instruction_box();
+            // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
+            unsafe {
+                decode_with_length_prefix_from_raw::<Result<_, ValidationFail>>(
+                    host_execute_instruction(bytes.as_ptr(), bytes.len()),
+                )
+            }
+        })?;
+
+        Ok(())
+    }
+
+    /// Build an iterable query for execution in a smart contract.
+    pub fn query<Q>(
+        &self,
+        query: Q,
+    ) -> QueryBuilder<Self, Q, <<Q as Query>::Item as HasPredicateBox>::PredicateBoxType>
+    where
+        Q: Query,
+    {
+        QueryBuilder::new(self, query)
+    }
+
+    /// Run a singular query in a smart contract.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query execution fails.
+    pub fn query_single<Q>(&self, query: Q) -> Result<Q::Output, ValidationFail>
+    where
+        Q: SingularQuery,
+        SingularQueryBox: From<Q>,
+        Q::Output: TryFrom<SingularQueryOutputBox>,
+        <Q::Output as TryFrom<SingularQueryOutputBox>>::Error: Debug,
+    {
+        let query = SingularQueryBox::from(query);
+
+        let result = self.execute_singular_query(query)?;
+
+        Ok(result
+            .try_into()
+            .expect("BUG: iroha returned unexpected type in singular query"))
+    }
+
+    fn execute_query(query: &QueryRequest) -> Result<QueryResponse, ValidationFail> {
+        #[cfg(not(test))]
+        use host::execute_query as host_execute_query;
+        #[cfg(test)]
+        use tests::_iroha_smart_contract_execute_query_mock as host_execute_query;
+
+        // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
+        //         - ownership of the returned result is transferred into `_decode_from_raw`
+        unsafe {
+            decode_with_length_prefix_from_raw(encode_and_execute(&query, host_execute_query))
+        }
+    }
+}
+
+impl QueryExecutor for Iroha {
+    type Cursor = QueryCursor;
+    type Error = ValidationFail;
+
+    fn execute_singular_query(
+        &self,
+        query: SingularQueryBox,
+    ) -> Result<SingularQueryOutputBox, Self::Error> {
+        let QueryResponse::Singular(output) = Self::execute_query(&QueryRequest::Singular(query))?
+        else {
+            dbg_panic("BUG: iroha returned unexpected type in singular query");
+        };
+
+        Ok(output)
+    }
+
+    fn start_query(
+        &self,
+        query: QueryWithParams,
+    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
+        let QueryResponse::Iterable(output) = Self::execute_query(&QueryRequest::Start(query))?
+        else {
+            dbg_panic("BUG: iroha returned unexpected type in iterable query");
+        };
+
+        let (batch, remaining_items, cursor) = output.into_parts();
+
+        Ok((
+            batch,
+            remaining_items,
+            cursor.map(|cursor| QueryCursor { cursor }),
+        ))
+    }
+
+    fn continue_query(
+        cursor: Self::Cursor,
+    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
+        let QueryResponse::Iterable(output) =
+            Self::execute_query(&QueryRequest::Continue(cursor.cursor))?
+        else {
+            dbg_panic("BUG: iroha returned unexpected type in iterable query");
+        };
+
+        let (batch, remaining_items, cursor) = output.into_parts();
+
+        Ok((
+            batch,
+            remaining_items,
+            cursor.map(|cursor| QueryCursor { cursor }),
+        ))
+    }
+}
 
 #[no_mangle]
 extern "C" fn _iroha_smart_contract_alloc(len: usize) -> *const u8 {
@@ -81,149 +225,11 @@ pub fn stub_getrandom(_dest: &mut [u8]) -> Result<(), getrandom::Error> {
     unimplemented!("{ERROR_MESSAGE}")
 }
 
-/// Implementing instructions can be executed on the host
-pub trait ExecuteOnHost {
-    /// Execute instruction on the host
-    ///
-    /// # Errors
-    ///
-    /// - If instruction validation failed
-    /// - If instruction execution failed
-    fn execute(&self) -> Result<(), ValidationFail>;
-}
-
-impl<I: BuiltInInstruction + Encode> ExecuteOnHost for I {
-    fn execute(&self) -> Result<(), ValidationFail> {
-        #[cfg(not(test))]
-        use host::execute_instruction as host_execute_instruction;
-        #[cfg(test)]
-        use tests::_iroha_smart_contract_execute_instruction_mock as host_execute_instruction;
-
-        let bytes = self.encode_as_instruction_box();
-        // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
-        unsafe {
-            decode_with_length_prefix_from_raw(host_execute_instruction(
-                bytes.as_ptr(),
-                bytes.len(),
-            ))
-        }
-    }
-}
-
-/// An iterable query cursor for use in smart contracts.
-#[derive(Clone, Debug, Encode, Decode)]
-pub struct QueryCursor {
-    cursor: ForwardCursor,
-}
-
-fn execute_query(query: &QueryRequest) -> Result<QueryResponse, ValidationFail> {
-    #[cfg(not(test))]
-    use host::execute_query as host_execute_query;
-    #[cfg(test)]
-    use tests::_iroha_smart_contract_execute_query_mock as host_execute_query;
-
-    // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
-    //         - ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(encode_and_execute(&query, host_execute_query)) }
-}
-
-/// A [`QueryExecutor`] for use in smart contracts.
-#[derive(Copy, Clone, Debug)]
-pub struct SmartContractQueryExecutor;
-
-impl QueryExecutor for SmartContractQueryExecutor {
-    type Cursor = QueryCursor;
-    type Error = ValidationFail;
-
-    fn execute_singular_query(
-        &self,
-        query: SingularQueryBox,
-    ) -> Result<SingularQueryOutputBox, Self::Error> {
-        let QueryResponse::Singular(output) = execute_query(&QueryRequest::Singular(query))? else {
-            dbg_panic("BUG: iroha returned unexpected type in singular query");
-        };
-
-        Ok(output)
-    }
-
-    fn start_query(
-        &self,
-        query: QueryWithParams,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
-        let QueryResponse::Iterable(output) = execute_query(&QueryRequest::Start(query))? else {
-            dbg_panic("BUG: iroha returned unexpected type in iterable query");
-        };
-
-        let (batch, remaining_items, cursor) = output.into_parts();
-
-        Ok((
-            batch,
-            remaining_items,
-            cursor.map(|cursor| QueryCursor { cursor }),
-        ))
-    }
-
-    fn continue_query(
-        cursor: Self::Cursor,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
-        let QueryResponse::Iterable(output) =
-            execute_query(&QueryRequest::Continue(cursor.cursor))?
-        else {
-            dbg_panic("BUG: iroha returned unexpected type in iterable query");
-        };
-
-        let (batch, remaining_items, cursor) = output.into_parts();
-
-        Ok((
-            batch,
-            remaining_items,
-            cursor.map(|cursor| QueryCursor { cursor }),
-        ))
-    }
-}
-
-/// Build an iterable query for execution in a smart contract.
-pub fn query<Q>(
-    query: Q,
-) -> QueryBuilder<
-    'static,
-    SmartContractQueryExecutor,
-    Q,
-    <Q::Item as HasPredicateBox>::PredicateBoxType,
->
-where
-    Q: Query,
-    Q::Item: HasPredicateBox,
-{
-    QueryBuilder::new(&SmartContractQueryExecutor, query)
-}
-
-/// Run a singular query in a smart contract.
-///
-/// # Errors
-///
-/// Returns an error if the query execution fails.
-pub fn query_single<Q>(query: Q) -> Result<Q::Output, ValidationFail>
-where
-    Q: SingularQuery,
-    SingularQueryBox: From<Q>,
-    Q::Output: TryFrom<SingularQueryOutputBox>,
-    <Q::Output as TryFrom<SingularQueryOutputBox>>::Error: Debug,
-{
-    let query = SingularQueryBox::from(query);
-
-    let result = SmartContractQueryExecutor.execute_singular_query(query)?;
-
-    Ok(result
-        .try_into()
-        .expect("BUG: iroha returned unexpected type in singular query"))
-}
-
-/// Get payload for smart contract `main()` entrypoint.
+/// Get context for smart contract `main()` entrypoint.
 #[cfg(not(test))]
-pub fn get_smart_contract_payload() -> payloads::SmartContract {
+pub fn get_smart_contract_context() -> data_model::smart_contract::payloads::SmartContractContext {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_smart_contract_payload()) }
+    unsafe { decode_with_length_prefix_from_raw(host::get_smart_contract_context()) }
 }
 
 #[cfg(not(test))]
@@ -248,11 +254,11 @@ mod host {
         /// but it does transfer ownership of the result to the caller
         pub(super) fn execute_instruction(ptr: *const u8, len: usize) -> *const u8;
 
-        /// Get payload for smart contract `main()` entrypoint.
+        /// Get context for smart contract `main()` entrypoint.
         /// # Warning
         ///
-        /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_smart_contract_payload() -> *const u8;
+        /// This function transfers ownership of the result to the caller
+        pub(super) fn get_smart_contract_context() -> *const u8;
     }
 }
 
@@ -261,7 +267,10 @@ pub mod prelude {
     pub use iroha_smart_contract_derive::main;
     pub use iroha_smart_contract_utils::debug::DebugUnwrapExt;
 
-    pub use crate::{data_model::prelude::*, ExecuteOnHost};
+    pub use crate::{
+        data_model::{prelude::*, smart_contract::payloads::SmartContractContext as Context},
+        Iroha,
+    };
 }
 
 #[cfg(test)]
@@ -321,11 +330,13 @@ mod tests {
 
     #[webassembly_test]
     fn execute_instruction() {
-        get_test_instruction().execute().unwrap();
+        let host = Iroha;
+        host.submit(&get_test_instruction()).unwrap();
     }
 
     #[webassembly_test]
     fn execute_query() {
-        assert_eq!(query_single(get_test_query()), QUERY_RESULT);
+        let host = Iroha;
+        assert_eq!(host.query_single(get_test_query()), QUERY_RESULT);
     }
 }

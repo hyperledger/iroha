@@ -75,7 +75,7 @@ pub fn build_schemas() -> MetaMap {
         permission::asset_definition::CanModifyAssetDefinitionMetadata,
         permission::asset::CanRegisterAssetWithDefinition,
         permission::asset::CanUnregisterAssetWithDefinition,
-        permission::asset::CanTransferAssetsWithDefinition,
+        permission::asset::CanTransferAssetWithDefinition,
         permission::asset::CanRegisterAsset,
         permission::asset::CanUnregisterAsset,
         permission::asset::CanMintAsset,
@@ -158,7 +158,7 @@ types!(
     Box<CompoundPredicate<TriggerPredicateBox>>,
     Box<TransactionRejectionReason>,
     BTreeMap<CustomParameterId, CustomParameter>,
-    BTreeMap<Name, JsonString>,
+    BTreeMap<Name, JsonValue>,
     BTreeSet<Permission>,
     BTreeSet<String>,
     BurnBox,
@@ -279,7 +279,7 @@ types!(
     QueryWithFilter<FindPermissionsByAccountId, PermissionPredicateBox>,
     QueryWithFilter<FindRolesByAccountId, RoleIdPredicateBox>,
     QueryWithParams,
-    JsonString,
+    JsonValue,
     Level,
     Log,
     MathError,
@@ -315,7 +315,6 @@ types!(
     Option<HashOf<BlockHeader>>,
     Option<HashOf<SignedTransaction>>,
     Option<IpfsPath>,
-    Option<JsonString>,
     Option<Name>,
     Option<NonZeroU32>,
     Option<NonZeroU64>,
@@ -323,7 +322,6 @@ types!(
     Option<Parameters>,
     Option<PeerId>,
     Option<RoleId>,
-    Option<TimeInterval>,
     Option<Box<TransactionRejectionReason>>,
     Option<TransactionStatus>,
     Option<TriggerCompletedOutcomeType>,
@@ -554,7 +552,7 @@ pub mod complete_data_model {
         addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
         const_vec::ConstVec,
         conststr::ConstString,
-        json::JsonString,
+        json::JsonValue,
     };
     pub use iroha_schema::Compact;
 }
@@ -614,7 +612,7 @@ mod tests {
             iroha_executor_data_model::permission::asset::CanUnregisterAssetWithDefinition
         );
         insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanTransferAssetsWithDefinition
+            iroha_executor_data_model::permission::asset::CanTransferAssetWithDefinition
         );
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanRegisterAsset);
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanUnregisterAsset);

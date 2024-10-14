@@ -22,3 +22,31 @@ pub enum MultisigArgs {
     /// Accept vote for certain instructions
     Vote(HashOf<Vec<InstructionBox>>),
 }
+
+impl From<MultisigRegisterArgs> for JsonValue {
+    fn from(details: MultisigRegisterArgs) -> Self {
+        JsonValue::new(details)
+    }
+}
+
+impl TryFrom<&JsonValue> for MultisigRegisterArgs {
+    type Error = serde_json::Error;
+
+    fn try_from(payload: &JsonValue) -> serde_json::Result<Self> {
+        serde_json::from_str::<Self>(payload.as_ref())
+    }
+}
+
+impl From<MultisigArgs> for JsonValue {
+    fn from(details: MultisigArgs) -> Self {
+        JsonValue::new(details)
+    }
+}
+
+impl TryFrom<&JsonValue> for MultisigArgs {
+    type Error = serde_json::Error;
+
+    fn try_from(payload: &JsonValue) -> serde_json::Result<Self> {
+        serde_json::from_str::<Self>(payload.as_ref())
+    }
+}

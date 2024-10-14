@@ -19,11 +19,7 @@ env:
   CARGO_TERM_COLOR: always
   IROHA_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
   DOCKER_COMPOSE_PATH: defaults
-  TEST_DIR: "tmp/test"
-  IROHA_BIN: "iroha"
-  IROHA_CONTAINER: "defaults-irohad0-1"
-  PYTHON_VERSION: "3.11"
-  POETRY_PATH: "/root/.local/bin/poetry"
+  WASM_SAMPLES_TARGET_DIR: wasm_samples/target/prebuilt
 
 jobs:
   consistency:
@@ -32,7 +28,6 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
       - name: Check genesis.json
         if: always()
         run: ./scripts/tests/consistency.sh genesis
@@ -43,90 +38,148 @@ jobs:
         if: always()
         run: ./scripts/tests/consistency.sh docker-compose
 
-  build_executor:
+  fmt_and_clippy:
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-09-09
+    steps:
+      - uses: actions/checkout@v4
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Lints without features
+        if: always()
+        run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
+      - name: Lints with all features enabled
+        if: always()
+        run: cargo clippy --workspace --benches --tests --examples --all-features --quiet --message-format=json | tee clippy.json
+      - name: Documentation
+        if: always()
+        run: cargo doc --no-deps --quiet
+      - name: Upload clippy report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-clippy
+          path: clippy.json
+
+  build_wasm_samples:
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Build iroha executor
-        run: cargo run --bin iroha_wasm_builder -- build ./wasm_samples/default_executor --optimize --out-file ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
-      - name: Upload executor to reuse in other jobs
+      - name: Build
+        run: ./scripts/build_wasm_samples.sh
+      - name: Upload all built WASMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm_samples
+          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
+          retention-days: 1
+      - name: Upload executor.wasm specifically
         uses: actions/upload-artifact@v4
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
           retention-days: 1
 
-  # exclude: iroha/tests/integration/
-  with_coverage:
+  unit_tests_with_coverage:
     runs-on: [self-hosted, Linux, iroha2]
-    needs: build_executor
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
+    needs: build_wasm_samples
+    env:
+      LLVM_PROFILE_FILE_NAME: "iroha-%p-%m.profraw"
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Download executor.wasm file
+      - name: Download executor.wasm
         uses: actions/download-artifact@v4
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
-      - name: Run tests, with coverage
-        run: |
-          mold --run cargo test --all-features --no-fail-fast --workspace --exclude iroha
-          mold --run cargo test --all-features --no-fail-fast -p iroha -- --skip integration
-        env:
-          RUSTFLAGS: "-C instrument-coverage"
-          LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
+      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Run unit tests (no default features)
+        run: >
+          mold --run cargo llvm-cov nextest
+          --no-fail-fast
+          --workspace --lib
+          --no-default-features
+          --branch
+          --no-report
+      - name: Run unit tests (all features)
+        run: >
+          mold --run cargo llvm-cov nextest
+          --no-fail-fast
+          --workspace --lib
+          --all-features
+          --branch
+          --no-report
       - name: Generate lcov report
-        if: always()
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "crates/iroha_cli" --ignore "**/main.rs" -o lcov.info
-      - name: Upload lcov report artifact
-        if: always()
+        run: cargo llvm-cov report --lcov --output-path lcov.info
+      - name: Upload lcov report
         uses: actions/upload-artifact@v4
         with:
-          name: lcov.info
+          name: report-coverage
           path: lcov.info
 
   # include: iroha/tests/integration/
   # exclude: iroha/tests/integration/extra_functional
   integration:
     runs-on: [self-hosted, Linux, iroha2]
-    needs: build_executor
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
+    needs: build_wasm_samples
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Download executor.wasm file
+      - name: Download executor.wasm
         uses: actions/download-artifact@v4
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
-      - name: Run tests, with no-default-features
-        run: mold --run cargo test --no-default-features --no-fail-fast -p iroha integration -- --skip extra_functional
+      - name: Download the rest of WASM samples
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm_samples
+          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
+      - uses: taiki-e/install-action@nextest
+      - name: Run integration tests, with all features
+        run: >
+          mold --run cargo nextest run 
+          --all-features
+          --no-fail-fast 
+          --failure-output immediate-final 
+          -E 'package(iroha) and test(integration) and not test(extra_functional)'
 
   # include: iroha/tests/integration/extra_functional
   extra_functional:
     runs-on: [self-hosted, Linux, iroha2]
-    needs: build_executor
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
+    needs: build_wasm_samples
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Download executor.wasm file
+      - name: Download executor.wasm
         uses: actions/download-artifact@v4
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
-      - name: Run tests
-        run: mold --run cargo test --no-default-features --no-fail-fast -p iroha extra_functional -- --test-threads=1
+      - name: Download the rest of WASM samples
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm_samples
+          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
+      - uses: taiki-e/install-action@nextest
+      - name: Run integration tests, with all features
+        run: >
+          mold --run cargo nextest run 
+          --all-features
+          --no-fail-fast 
+          --failure-output final 
+          --test-threads 1
+          -E 'test(extra_functional)'
 
   # Run the job to check that the docker containers are properly buildable
   pr-generator-build:
@@ -161,54 +214,36 @@ jobs:
           # This context specification is required
           context: .
 
-  workspace_analysis_clippy:
-    runs-on: ubuntu-latest
-    needs: build_executor
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-09-09
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Download executor.wasm file
-        uses: actions/download-artifact@v4
-        with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Lints without features
-        if: always()
-        run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
-      - name: Lints with all features enabled
-        if: always()
-        run: cargo clippy --workspace --benches --tests --examples --all-features --quiet --message-format=json | tee clippy.json
-      - name: Documentation
-        if: always()
-        run: cargo doc --no-deps --quiet
-      - name: Upload clippy report artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: clippy.json
-          path: clippy.json
-
-  torii-api-client-cli-tests:
+  docker-compose-and-pytests:
+    needs: build_wasm_samples
     runs-on: [self-hosted, Linux, iroha2]
-    needs: build_executor
     timeout-minutes: 60
+    env:
+      PYTHON_VERSION: "3.11"
+      POETRY_PATH: "/root/.local/bin/poetry"
+      TEST_DIR: "tmp/test"
+      IROHA_BIN: "iroha"
+      IROHA_CONTAINER: "defaults-irohad0-1"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Download executor.wasm file
+      - name: Download executor.wasm
         uses: actions/download-artifact@v4
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
-      - name: Set up Docker Buildx
+      - name: Install Python and Poetry
+        run: |
+          yum install -y python${{ env.PYTHON_VERSION }} python${{ env.PYTHON_VERSION }}-devel
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo 'export PATH="${{ env.POETRY_PATH }}:$PATH"' >> /etc/profile
+          source /etc/profile
+      - name: Set up Docker buildx
         id: buildx
         uses: docker/setup-buildx-action@v3
         with:
           install: true
-      - name: Build and Tag Docker Images
+      - name: Build and tag Docker images
         uses: docker/build-push-action@v6
         if: always()
         with:
@@ -230,39 +265,37 @@ jobs:
           docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml down
       - name: Run docker-compose.yml containers
         run: docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml up --wait || exit 1
-
-      - name: Install Python and Poetry
-        run: |
-          yum install -y python${{ env.PYTHON_VERSION }} python${{ env.PYTHON_VERSION }}-devel
-          curl -sSL https://install.python-poetry.org | python3 -
-          echo 'export PATH="${{ env.POETRY_PATH }}:$PATH"' >> /etc/profile
-          source /etc/profile
-
-      - name: Install Torii API Dependencies
+      - name: Install Torii pytest dependencies
         working-directory: pytests/iroha_torii_tests
         run: ${{ env.POETRY_PATH }} install
-      - name: Run Torii API Tests
+      - name: Run Torii pytests
         working-directory: pytests/iroha_torii_tests
         run: ${{ env.POETRY_PATH }} run pytest
-
-      - name: Copy Client CLI Binary from Iroha Container
+      - name: Copy client binary from Iroha container
         if: always()
         run: |
           mkdir -p ${{ env.TEST_DIR }}
-          docker cp ${{ env.IROHA_CONTAINER }}:/usr/local/bin/${{ env.IROHA_BIN }} ${{ env.TEST_DIR }}
           cp ./defaults/client.toml ${{ env.TEST_DIR }}
-      - name: Make Binaries Executable
-        run: chmod +x ${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
-      - name: Install Client CLI Dependencies
+          docker cp ${{ env.IROHA_CONTAINER }}:/usr/local/bin/${{ env.IROHA_BIN }} ${{ env.TEST_DIR }}
+          chmod +x ${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
+      - name: Install client pytest dependencies
         working-directory: pytests/iroha_cli_tests
         run: ${{ env.POETRY_PATH }} install
-      - name: Run Client CLI Tests
-        working-directory: pytests/iroha_cli_tests
+      - name: Run client pytests
+        uses: nick-fields/retry@v3
         env:
-          IROHA_CLI_BINARY: ../../${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
-          IROHA_CLI_CONFIG: ../../${{ env.TEST_DIR }}/client.toml
-        run: ${{ env.POETRY_PATH }} run pytest
-
+          TMP_DIR: ../../${{ env.TEST_DIR }}
+          IROHA_CLI_BINARY: ${{ env.IROHA_BIN }}
+          IROHA_CLI_CONFIG: client.toml
+        with:
+          timeout_minutes: 10
+          max_attempts: 5
+          command: |
+            cd pytests/iroha_cli_tests
+            ${{ env.POETRY_PATH }} run pytest
+          on_retry_command: |
+            docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml down
+            docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml up --wait || exit 1
       - name: Wipe docker-compose.yml containers
         if: always()
         run: docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml down

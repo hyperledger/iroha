@@ -2906,7 +2906,6 @@ dependencies = [
  "iroha_test_samples",
  "iroha_torii_const",
  "iroha_version",
- "iroha_wasm_builder",
  "irohad",
  "nonzero_ext",
  "parity-scale-codec",
@@ -3442,6 +3441,7 @@ name = "iroha_schema_derive"
 version = "2.0.0-rc.1.0"
 dependencies = [
  "darling",
+ "iroha_macro_utils",
  "iroha_schema",
  "manyhow",
  "proc-macro2",
@@ -3630,6 +3630,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tower-http",
+ "tungstenite",
 ]
 
 [[package]]

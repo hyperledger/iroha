@@ -66,8 +66,9 @@ The test model has the following structure:
 3. Configure the tests by creating the following `.env` file in _this_ (`<repo root>/pytests/iroha_cli_tests/`) directory:
 
 	 ```shell
-     IROHA_CLI_BINARY=/path/to/iroha_cli
-     IROHA_CLI_CONFIG=/path/to/client.toml
+     TMP_DIR=/path/to/tmp_dir
+     IROHA_CLI_BINARY=iroha # relative to TMP_DIR
+     IROHA_CLI_CONFIG=client.toml # relative to TMP_DIR
 	 TORII_API_PORT_MIN=8080
 	 TORII_API_PORT_MAX=8083
 	 ```

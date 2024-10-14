@@ -5,7 +5,7 @@
 use std::{borrow::Borrow, num::NonZeroU64};
 
 use error::*;
-use import::traits::{ExecuteOperations as _, GetExecutorPayloads as _, SetDataModel as _};
+use import::traits::{ExecuteOperations as _, SetDataModel as _};
 use iroha_data_model::{
     account::AccountId,
     executor::{self, ExecutorDataModel},
@@ -13,21 +13,30 @@ use iroha_data_model::{
     parameter::SmartContractParameters as Config,
     prelude::*,
     query::{parameters::QueryId, AnyQueryBox, QueryOutput, QueryRequest, QueryResponse},
-    smart_contract::payloads::{self, Validate},
+    smart_contract::payloads,
     Level as LogLevel, ValidationFail,
 };
 use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span};
 use iroha_wasm_codec::{self as codec, WasmUsize};
+use parity_scale_codec::Encode;
 use wasmtime::{
-    Caller, Config as WasmtimeConfig, Engine, Linker, Module, Store, StoreLimits,
+    Caller, Config as WasmtimeConfig, Engine, Instance, Linker, Module, Store, StoreLimits,
     StoreLimitsBuilder, TypedFunc,
 };
 
 use crate::{
     query::store::LiveQueryStoreHandle,
-    smartcontracts::{query::ValidQueryRequest, Execute},
+    smartcontracts::{
+        query::ValidQueryRequest,
+        wasm::state::{
+            chain_state::WithMut,
+            specific::executor::{Migrate, Validate},
+            CommonState,
+        },
+        Execute,
+    },
     state::{StateReadOnly, StateTransaction, WorldReadOnly},
 };
 
@@ -38,12 +47,8 @@ const WASM_MODULE: &str = "iroha";
 mod export {
     pub const EXECUTE_ISI: &str = "execute_instruction";
     pub const EXECUTE_QUERY: &str = "execute_query";
-    pub const GET_SMART_CONTRACT_PAYLOAD: &str = "get_smart_contract_payload";
-    pub const GET_TRIGGER_PAYLOAD: &str = "get_trigger_payload";
-    pub const GET_MIGRATE_PAYLOAD: &str = "get_migrate_payload";
-    pub const GET_VALIDATE_TRANSACTION_PAYLOAD: &str = "get_validate_transaction_payload";
-    pub const GET_VALIDATE_INSTRUCTION_PAYLOAD: &str = "get_validate_instruction_payload";
-    pub const GET_VALIDATE_QUERY_PAYLOAD: &str = "get_validate_query_payload";
+    pub const GET_SMART_CONTRACT_CONTEXT: &str = "get_smart_contract_context";
+    pub const GET_TRIGGER_CONTEXT: &str = "get_trigger_context";
     pub const SET_DATA_MODEL: &str = "set_data_model";
 
     pub const DBG: &str = "dbg";
@@ -57,18 +62,15 @@ mod import {
 
     pub const TRIGGER_MAIN: &str = "_iroha_trigger_main";
 
-    pub const EXECUTOR_VALIDATE_TRANSACTION: &str = "_iroha_executor_validate_transaction";
-    pub const EXECUTOR_VALIDATE_INSTRUCTION: &str = "_iroha_executor_validate_instruction";
+    pub const EXECUTOR_EXECUTE_TRANSACTION: &str = "_iroha_executor_execute_transaction";
+    pub const EXECUTOR_EXECUTE_INSTRUCTION: &str = "_iroha_executor_execute_instruction";
     pub const EXECUTOR_VALIDATE_QUERY: &str = "_iroha_executor_validate_query";
     pub const EXECUTOR_MIGRATE: &str = "_iroha_executor_migrate";
 
     pub mod traits {
         //! Traits which some [Runtime]s should implement to import functions from Iroha to WASM
 
-        use iroha_data_model::{
-            query::{QueryRequest, QueryResponse},
-            smart_contract::payloads::Validate,
-        };
+        use iroha_data_model::query::{QueryRequest, QueryResponse};
 
         use super::super::*;
 
@@ -86,20 +88,6 @@ mod import {
                 instruction: InstructionBox,
                 state: &mut S,
             ) -> Result<(), ValidationFail>;
-        }
-
-        pub trait GetExecutorPayloads<S> {
-            #[codec::wrap_trait_fn]
-            fn get_migrate_payload(state: &S) -> payloads::Migrate;
-
-            #[codec::wrap_trait_fn]
-            fn get_validate_transaction_payload(state: &S) -> Validate<SignedTransaction>;
-
-            #[codec::wrap_trait_fn]
-            fn get_validate_instruction_payload(state: &S) -> Validate<InstructionBox>;
-
-            #[codec::wrap_trait_fn]
-            fn get_validate_query_payload(state: &S) -> Validate<AnyQueryBox>;
         }
 
         pub trait SetDataModel<S> {
@@ -481,14 +469,14 @@ pub mod state {
                 pub(in super::super::super::super) to_validate: T,
             }
 
-            /// State kind for executing `validate_transaction()` entrypoint of executor
-            pub type ValidateTransaction = Validate<SignedTransaction>;
+            /// State kind for executing `execute_transaction()` entrypoint of executor
+            pub type ExecuteTransaction = Validate<SignedTransaction>;
 
             /// State kind for executing `validate_query()` entrypoint of executor
             pub type ValidateQuery = Validate<AnyQueryBox>;
 
-            /// State kind for executing `validate_instruction()` entrypoint of executor
-            pub type ValidateInstruction = Validate<InstructionBox>;
+            /// State kind for executing `execute_instruction()` entrypoint of executor
+            pub type ExecuteInstruction = Validate<InstructionBox>;
 
             /// State kind for executing `migrate()` entrypoint of executor
             #[derive(Copy, Clone)]
@@ -537,20 +525,20 @@ pub mod state {
 
         use super::*;
 
-        /// State for executing `validate_transaction()` entrypoint
-        pub type ValidateTransaction<'wrld, 'block, 'state> = CommonState<
+        /// State for executing `execute_transaction()` entrypoint
+        pub type ExecuteTransaction<'wrld, 'block, 'state> = CommonState<
             chain_state::WithMut<'wrld, 'block, 'state>,
-            specific::executor::ValidateTransaction,
+            specific::executor::ExecuteTransaction,
         >;
 
         /// State for executing `validate_query()` entrypoint
         pub type ValidateQuery<'wrld, S> =
             CommonState<chain_state::WithConst<'wrld, S>, specific::executor::ValidateQuery>;
 
-        /// State for executing `validate_instruction()` entrypoint
-        pub type ValidateInstruction<'wrld, 'block, 'state> = CommonState<
+        /// State for executing `execute_instruction()` entrypoint
+        pub type ExecuteInstruction<'wrld, 'block, 'state> = CommonState<
             chain_state::WithMut<'wrld, 'block, 'state>,
-            specific::executor::ValidateInstruction,
+            specific::executor::ExecuteInstruction,
         >;
 
         /// State for executing `migrate()` entrypoint
@@ -572,8 +560,8 @@ pub mod state {
         }
 
         impl_blank_validate_operations!(
-            ValidateTransaction<'_, '_, '_>,
-            ValidateInstruction<'_, '_, '_>,
+            ExecuteTransaction<'_, '_, '_>,
+            ExecuteInstruction<'_, '_, '_>,
             Migrate<'_, '_, '_>,
         );
 
@@ -613,7 +601,7 @@ impl<S> Runtime<S> {
             .ok_or_else(|| ExportError::not_found(import::SMART_CONTRACT_ALLOC))?
             .into_func()
             .ok_or_else(|| ExportError::not_a_function(import::SMART_CONTRACT_ALLOC))?
-            .typed::<WasmUsize, WasmUsize>(caller)
+            .typed(caller)
             .map_err(|_error| {
                 ExportError::wrong_signature::<WasmUsize, WasmUsize>(import::SMART_CONTRACT_ALLOC)
             })
@@ -627,7 +615,7 @@ impl<S> Runtime<S> {
         instance
             .get_func(&mut store, func_name)
             .ok_or_else(|| ExportError::not_found(func_name))?
-            .typed::<P, R>(&mut store)
+            .typed(&mut store)
             .map_err(|_error| ExportError::wrong_signature::<P, R>(func_name))
     }
 
@@ -672,6 +660,23 @@ impl<S> Runtime<S> {
         )?;
 
         Ok(())
+    }
+
+    fn encode_payload<T: Encode>(
+        instance: &Instance,
+        store: &mut Store<S>,
+        payload: T,
+    ) -> WasmUsize {
+        let memory =
+            Self::get_memory(&mut (instance, &mut *store)).expect("Checked at instantiation step");
+        let alloc_fn = Self::get_typed_func::<WasmUsize, WasmUsize>(
+            instance,
+            &mut *store,
+            import::SMART_CONTRACT_ALLOC,
+        )
+        .expect("Checked at instantiation step");
+        iroha_wasm_codec::encode_into_memory(&payload, &memory, &alloc_fn, &mut *store)
+            .expect("Can't encode payload")
     }
 
     /// Host-defined function which prints the given string. When this function
@@ -749,21 +754,25 @@ impl<W, S> Runtime<state::CommonState<W, S>> {
     }
 }
 
-impl<W: state::chain_state::ConstState, S> Runtime<state::CommonState<W, S>> {
-    fn execute_executor_validate_internal(
+impl<W: state::chain_state::ConstState, T: Clone> Runtime<state::CommonState<W, Validate<T>>>
+where
+    payloads::Validate<T>: Encode,
+{
+    fn execute_executor_execute_internal(
         &self,
         module: &wasmtime::Module,
-        state: state::CommonState<W, S>,
+        state: state::CommonState<W, Validate<T>>,
         validate_fn_name: &'static str,
     ) -> Result<executor::Result> {
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
         let validate_fn = Self::get_typed_func(&instance, &mut store, validate_fn_name)?;
+        let payload = Self::get_validate_payload(&instance, &mut store);
 
         // NOTE: This function takes ownership of the pointer
         let offset = validate_fn
-            .call(&mut store, ())
+            .call(&mut store, payload)
             .map_err(ExportFnCallError::from)?;
 
         let memory =
@@ -783,6 +792,21 @@ impl<W: state::chain_state::ConstState, S> Runtime<state::CommonState<W, S>> {
         );
 
         Ok(validation_res)
+    }
+
+    fn get_validate_payload(
+        instance: &Instance,
+        store: &mut Store<CommonState<W, Validate<T>>>,
+    ) -> WasmUsize {
+        let state = store.data();
+        let payload = payloads::Validate {
+            context: payloads::ExecutorContext {
+                authority: state.authority.clone(),
+                block_height: state.state.state().height() as u64,
+            },
+            target: state.specific_state.to_validate.clone(),
+        };
+        Runtime::encode_payload(instance, store, payload)
     }
 }
 
@@ -851,7 +875,7 @@ impl<'wrld, 'state, 'block, S>
             .world
             .executor
             .clone() // Cloning executor is a cheap operation
-            .validate_instruction(state.state.0, &authority, instruction)
+            .execute_instruction(state.state.0, &authority, instruction)
     }
 }
 
@@ -915,7 +939,7 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::SmartContract<'wrld, '
         let mut store = self.create_store(state);
         let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
-        let main_fn: TypedFunc<(), ()> =
+        let main_fn: TypedFunc<_, ()> =
             Self::get_typed_func(&smart_contract, &mut store, import::SMART_CONTRACT_MAIN)?;
 
         // NOTE: This function takes ownership of the pointer
@@ -930,9 +954,9 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::SmartContract<'wrld, '
     }
 
     #[codec::wrap]
-    fn get_smart_contract_payload(state: &state::SmartContract) -> payloads::SmartContract {
-        payloads::SmartContract {
-            owner: state.authority.clone(),
+    fn get_smart_contract_context(state: &state::SmartContract) -> payloads::SmartContractContext {
+        payloads::SmartContractContext {
+            authority: state.authority.clone(),
         }
     }
 }
@@ -989,7 +1013,7 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::Trigger<'wrld, 'block,
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
-        let main_fn: TypedFunc<(), ()> =
+        let main_fn: TypedFunc<_, ()> =
             Self::get_typed_func(&instance, &mut store, import::TRIGGER_MAIN)?;
 
         // NOTE: This function takes ownership of the pointer
@@ -1005,10 +1029,10 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::Trigger<'wrld, 'block,
     }
 
     #[codec::wrap]
-    fn get_trigger_payload(state: &state::Trigger) -> payloads::Trigger {
-        payloads::Trigger {
+    fn get_trigger_context(state: &state::Trigger) -> payloads::TriggerContext {
+        payloads::TriggerContext {
             id: state.specific_state.id.clone(),
-            owner: state.authority.clone(),
+            authority: state.authority.clone(),
             event: state.specific_state.triggering_event.clone(),
         }
     }
@@ -1096,8 +1120,8 @@ where
     }
 }
 
-impl<'wrld, 'block, 'state> Runtime<state::executor::ValidateTransaction<'wrld, 'block, 'state>> {
-    /// Execute `validate_transaction()` entrypoint of the given module of runtime executor
+impl<'wrld, 'block, 'state> Runtime<state::executor::ExecuteTransaction<'wrld, 'block, 'state>> {
+    /// Execute `execute_transaction()` entrypoint of the given module of runtime executor
     ///
     /// # Errors
     ///
@@ -1105,79 +1129,40 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::ValidateTransaction<'wrld, 
     /// - if unable to find expected function export
     /// - if the execution of the smartcontract fails
     /// - if unable to decode [`executor::Result`]
-    pub fn execute_executor_validate_transaction(
+    pub fn execute_executor_execute_transaction(
         &self,
         state_transaction: &'wrld mut StateTransaction<'block, 'state>,
         authority: &AccountId,
         module: &wasmtime::Module,
         transaction: SignedTransaction,
     ) -> Result<executor::Result> {
-        let span = wasm_log_span!("Running `validate_transaction()`");
+        let span = wasm_log_span!("Running `execute_transaction()`");
 
-        self.execute_executor_validate_internal(
-            module,
-            state::executor::ValidateTransaction::new(
-                authority.clone(),
-                self.config,
-                span,
-                state::chain_state::WithMut(state_transaction),
-                state::specific::executor::ValidateTransaction::new(transaction),
-            ),
-            import::EXECUTOR_VALIDATE_TRANSACTION,
-        )
+        let state = state::executor::ExecuteTransaction::new(
+            authority.clone(),
+            self.config,
+            span,
+            state::chain_state::WithMut(state_transaction),
+            state::specific::executor::ExecuteTransaction::new(transaction),
+        );
+
+        self.execute_executor_execute_internal(module, state, import::EXECUTOR_EXECUTE_TRANSACTION)
     }
 }
 
-impl<'wrld> ExecuteOperationsAsExecutorMut<state::executor::ValidateTransaction<'wrld, '_, '_>>
-    for Runtime<state::executor::ValidateTransaction<'wrld, '_, '_>>
+impl<'wrld> ExecuteOperationsAsExecutorMut<state::executor::ExecuteTransaction<'wrld, '_, '_>>
+    for Runtime<state::executor::ExecuteTransaction<'wrld, '_, '_>>
 {
 }
 
-impl<'wrld, 'block, 'state>
-    import::traits::GetExecutorPayloads<state::executor::ValidateTransaction<'wrld, 'block, 'state>>
-    for Runtime<state::executor::ValidateTransaction<'wrld, 'block, 'state>>
+impl<'wrld> FakeSetExecutorDataModel<state::executor::ExecuteTransaction<'wrld, '_, '_>>
+    for Runtime<state::executor::ExecuteTransaction<'wrld, '_, '_>>
 {
-    #[codec::wrap]
-    fn get_migrate_payload(
-        _state: &state::executor::ValidateTransaction<'wrld, 'block, 'state>,
-    ) -> payloads::Migrate {
-        panic!("Executor `validate_transaction()` entrypoint should not query payload for `migrate()` entrypoint")
-    }
-
-    #[codec::wrap]
-    fn get_validate_transaction_payload(
-        state: &state::executor::ValidateTransaction<'wrld, 'block, 'state>,
-    ) -> Validate<SignedTransaction> {
-        Validate {
-            authority: state.authority.clone(),
-            block_height: state.state.0.height() as u64,
-            target: state.specific_state.to_validate.clone(),
-        }
-    }
-
-    #[codec::wrap]
-    fn get_validate_instruction_payload(
-        _state: &state::executor::ValidateTransaction<'wrld, 'block, 'state>,
-    ) -> Validate<InstructionBox> {
-        panic!("Executor `validate_transaction()` entrypoint should not query payload for `validate_instruction()` entrypoint")
-    }
-
-    #[codec::wrap]
-    fn get_validate_query_payload(
-        _state: &state::executor::ValidateTransaction<'wrld, 'block, 'state>,
-    ) -> Validate<AnyQueryBox> {
-        panic!("Executor `validate_transaction()` entrypoint should not query payload for `validate_query()` entrypoint")
-    }
+    const ENTRYPOINT_FN_NAME: &'static str = "execute_transaction";
 }
 
-impl<'wrld> FakeSetExecutorDataModel<state::executor::ValidateTransaction<'wrld, '_, '_>>
-    for Runtime<state::executor::ValidateTransaction<'wrld, '_, '_>>
-{
-    const ENTRYPOINT_FN_NAME: &'static str = "validate_transaction";
-}
-
-impl<'wrld, 'block, 'state> Runtime<state::executor::ValidateInstruction<'wrld, 'block, 'state>> {
-    /// Execute `validate_instruction()` entrypoint of the given module of runtime executor
+impl<'wrld, 'block, 'state> Runtime<state::executor::ExecuteInstruction<'wrld, 'block, 'state>> {
+    /// Execute `execute_instruction()` entrypoint of the given module of runtime executor
     ///
     /// # Errors
     ///
@@ -1185,75 +1170,36 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::ValidateInstruction<'wrld, 
     /// - if unable to find expected function export
     /// - if the execution of the smartcontract fails
     /// - if unable to decode [`executor::Result`]
-    pub fn execute_executor_validate_instruction(
+    pub fn execute_executor_execute_instruction(
         &self,
         state_transaction: &'wrld mut StateTransaction<'block, 'state>,
         authority: &AccountId,
         module: &wasmtime::Module,
         instruction: InstructionBox,
     ) -> Result<executor::Result> {
-        let span = wasm_log_span!("Running `validate_instruction()`");
+        let span = wasm_log_span!("Running `execute_instruction()`");
 
-        self.execute_executor_validate_internal(
-            module,
-            state::executor::ValidateInstruction::new(
-                authority.clone(),
-                self.config,
-                span,
-                state::chain_state::WithMut(state_transaction),
-                state::specific::executor::ValidateInstruction::new(instruction),
-            ),
-            import::EXECUTOR_VALIDATE_INSTRUCTION,
-        )
+        let state = state::executor::ExecuteInstruction::new(
+            authority.clone(),
+            self.config,
+            span,
+            state::chain_state::WithMut(state_transaction),
+            state::specific::executor::ExecuteInstruction::new(instruction),
+        );
+
+        self.execute_executor_execute_internal(module, state, import::EXECUTOR_EXECUTE_INSTRUCTION)
     }
 }
 
-impl<'wrld> ExecuteOperationsAsExecutorMut<state::executor::ValidateInstruction<'wrld, '_, '_>>
-    for Runtime<state::executor::ValidateInstruction<'wrld, '_, '_>>
+impl<'wrld> ExecuteOperationsAsExecutorMut<state::executor::ExecuteInstruction<'wrld, '_, '_>>
+    for Runtime<state::executor::ExecuteInstruction<'wrld, '_, '_>>
 {
 }
 
-impl<'wrld, 'block, 'state>
-    import::traits::GetExecutorPayloads<state::executor::ValidateInstruction<'wrld, 'block, 'state>>
-    for Runtime<state::executor::ValidateInstruction<'wrld, 'block, 'state>>
+impl<'wrld> FakeSetExecutorDataModel<state::executor::ExecuteInstruction<'wrld, '_, '_>>
+    for Runtime<state::executor::ExecuteInstruction<'wrld, '_, '_>>
 {
-    #[codec::wrap]
-    fn get_migrate_payload(
-        _state: &state::executor::ValidateInstruction<'wrld, 'block, 'state>,
-    ) -> payloads::Migrate {
-        panic!("Executor `validate_instruction()` entrypoint should not query payload for `migrate()` entrypoint")
-    }
-
-    #[codec::wrap]
-    fn get_validate_transaction_payload(
-        _state: &state::executor::ValidateInstruction<'wrld, 'block, 'state>,
-    ) -> Validate<SignedTransaction> {
-        panic!("Executor `validate_instruction()` entrypoint should not query payload for `validate_transaction()` entrypoint")
-    }
-
-    #[codec::wrap]
-    fn get_validate_instruction_payload(
-        state: &state::executor::ValidateInstruction<'wrld, 'block, 'state>,
-    ) -> Validate<InstructionBox> {
-        Validate {
-            authority: state.authority.clone(),
-            block_height: state.state.0.height() as u64,
-            target: state.specific_state.to_validate.clone(),
-        }
-    }
-
-    #[codec::wrap]
-    fn get_validate_query_payload(
-        _state: &state::executor::ValidateInstruction<'wrld, 'block, 'state>,
-    ) -> Validate<AnyQueryBox> {
-        panic!("Executor `validate_instruction()` entrypoint should not query payload for `validate_query()` entrypoint")
-    }
-}
-
-impl<'wrld> FakeSetExecutorDataModel<state::executor::ValidateInstruction<'wrld, '_, '_>>
-    for Runtime<state::executor::ValidateInstruction<'wrld, '_, '_>>
-{
-    const ENTRYPOINT_FN_NAME: &'static str = "validate_instruction";
+    const ENTRYPOINT_FN_NAME: &'static str = "execute_instruction";
 }
 
 impl<'wrld, S: StateReadOnly> Runtime<state::executor::ValidateQuery<'wrld, S>> {
@@ -1274,17 +1220,15 @@ impl<'wrld, S: StateReadOnly> Runtime<state::executor::ValidateQuery<'wrld, S>> 
     ) -> Result<executor::Result> {
         let span = wasm_log_span!("Running `validate_query()`");
 
-        self.execute_executor_validate_internal(
-            module,
-            state::executor::ValidateQuery::new(
-                authority.clone(),
-                self.config,
-                span,
-                state::chain_state::WithConst(state_ro),
-                state::specific::executor::ValidateQuery::new(query),
-            ),
-            import::EXECUTOR_VALIDATE_QUERY,
-        )
+        let state = state::executor::ValidateQuery::new(
+            authority.clone(),
+            self.config,
+            span,
+            state::chain_state::WithConst(state_ro),
+            state::specific::executor::ValidateQuery::new(query),
+        );
+
+        self.execute_executor_execute_internal(module, state, import::EXECUTOR_VALIDATE_QUERY)
     }
 }
 
@@ -1308,41 +1252,6 @@ impl<'wrld, S: StateReadOnly>
         _state: &mut state::executor::ValidateQuery<'wrld, S>,
     ) -> Result<(), ValidationFail> {
         panic!("Executor `validate_query()` entrypoint should not execute instructions")
-    }
-}
-
-impl<'wrld, S: StateReadOnly>
-    import::traits::GetExecutorPayloads<state::executor::ValidateQuery<'wrld, S>>
-    for Runtime<state::executor::ValidateQuery<'wrld, S>>
-{
-    #[codec::wrap]
-    fn get_migrate_payload(_state: &state::executor::ValidateQuery<'wrld, S>) -> payloads::Migrate {
-        panic!("Executor `validate_query()` entrypoint should not query payload for `migrate()` entrypoint")
-    }
-
-    #[codec::wrap]
-    fn get_validate_transaction_payload(
-        _state: &state::executor::ValidateQuery<'wrld, S>,
-    ) -> Validate<SignedTransaction> {
-        panic!("Executor `validate_query()` entrypoint should not query payload for `validate_transaction()` entrypoint")
-    }
-
-    #[codec::wrap]
-    fn get_validate_instruction_payload(
-        _state: &state::executor::ValidateQuery<'wrld, S>,
-    ) -> Validate<InstructionBox> {
-        panic!("Executor `validate_query()` entrypoint should not query payload for `validate_instruction()` entrypoint")
-    }
-
-    #[codec::wrap]
-    fn get_validate_query_payload(
-        state: &state::executor::ValidateQuery<'wrld, S>,
-    ) -> Validate<AnyQueryBox> {
-        Validate {
-            authority: state.authority.clone(),
-            block_height: state.state.0.height() as u64,
-            target: state.specific_state.to_validate.clone(),
-        }
     }
 }
 
@@ -1378,64 +1287,32 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::Migrate<'wrld, 'block, 'sta
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
-        let migrate_fn: TypedFunc<(), ()> =
+        let migrate_fn: TypedFunc<WasmUsize, ()> =
             Self::get_typed_func(&instance, &mut store, import::EXECUTOR_MIGRATE)?;
+        let payload = Self::get_migrate_payload(&instance, &mut store);
 
         migrate_fn
-            .call(&mut store, ())
+            .call(&mut store, payload)
             .map_err(ExportFnCallError::from)?;
 
         Ok(())
+    }
+
+    fn get_migrate_payload(
+        instance: &Instance,
+        store: &mut Store<CommonState<WithMut<'wrld, 'block, 'state>, Migrate>>,
+    ) -> WasmUsize {
+        let payload = payloads::ExecutorContext {
+            authority: store.data().authority.clone(),
+            block_height: store.data().state.0.height() as u64,
+        };
+        Self::encode_payload(instance, store, payload)
     }
 }
 
 impl<'wrld> ExecuteOperationsAsExecutorMut<state::executor::Migrate<'wrld, '_, '_>>
     for Runtime<state::executor::Migrate<'wrld, '_, '_>>
 {
-}
-
-/// Fake implementation of [`import_traits::GetValidationPayloads`].
-///
-/// This is needed because `migrate()` entrypoint exists in the same binary as
-/// `validate_*()` entrypoints.
-///
-/// # Panics
-///
-/// Panics with error message if called, because it should never be called from
-/// `migrate()` entrypoint.
-impl<'wrld, 'block, 'state>
-    import::traits::GetExecutorPayloads<state::executor::Migrate<'wrld, 'block, 'state>>
-    for Runtime<state::executor::Migrate<'wrld, 'block, 'state>>
-{
-    #[codec::wrap]
-    fn get_migrate_payload(
-        state: &state::executor::Migrate<'wrld, 'block, 'state>,
-    ) -> payloads::Migrate {
-        payloads::Migrate {
-            block_height: state.state.0.height() as u64,
-        }
-    }
-
-    #[codec::wrap]
-    fn get_validate_transaction_payload(
-        _state: &state::executor::Migrate<'wrld, 'block, 'state>,
-    ) -> Validate<SignedTransaction> {
-        panic!("Executor `migrate()` entrypoint should not query payload for `validate_transaction()` entrypoint")
-    }
-
-    #[codec::wrap]
-    fn get_validate_instruction_payload(
-        _state: &state::executor::Migrate<'wrld, 'block, 'state>,
-    ) -> Validate<InstructionBox> {
-        panic!("Executor `migrate()` entrypoint should not query payload for `validate_instruction()` entrypoint")
-    }
-
-    #[codec::wrap]
-    fn get_validate_query_payload(
-        _state: &state::executor::Migrate<'wrld, 'block, 'state>,
-    ) -> Validate<AnyQueryBox> {
-        panic!("Executor `migrate()` entrypoint should not query payload for `validate_query()` entrypoint")
-    }
 }
 
 impl<'wrld, 'block, 'state>
@@ -1546,7 +1423,7 @@ impl<'wrld, 'block, 'state> RuntimeBuilder<state::SmartContract<'wrld, 'block, '
             create_imports!(linker, state::SmartContract<'wrld, 'block, 'state>,
                 export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::SmartContract<'wrld, 'block, 'state>>, offset, len| Runtime::execute_instruction(caller, offset, len),
                 export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::SmartContract<'wrld, 'block, 'state>>, offset, len| Runtime::execute_query(caller, offset, len),
-                export::GET_SMART_CONTRACT_PAYLOAD => |caller: ::wasmtime::Caller<state::SmartContract<'wrld, 'block, 'state>>| Runtime::get_smart_contract_payload(caller),
+                export::GET_SMART_CONTRACT_CONTEXT => |caller: ::wasmtime::Caller<state::SmartContract<'wrld, 'block, 'state>>| Runtime::get_smart_contract_context(caller),
             )?;
             Ok(linker)
         })
@@ -1566,7 +1443,7 @@ impl<'wrld, 'block, 'state> RuntimeBuilder<state::Trigger<'wrld, 'block, 'state>
             create_imports!(linker, state::Trigger<'wrld, 'block, 'state>,
                 export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::Trigger<'wrld, 'block, 'state>>, offset, len| Runtime::execute_instruction(caller, offset, len),
                 export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::Trigger<'wrld, 'block, 'state>>, offset, len| Runtime::execute_query(caller, offset, len),
-                export::GET_TRIGGER_PAYLOAD => |caller: ::wasmtime::Caller<state::Trigger<'wrld, 'block, 'state>>| Runtime::get_trigger_payload(caller),
+                export::GET_TRIGGER_CONTEXT => |caller: ::wasmtime::Caller<state::Trigger<'wrld, 'block, 'state>>| Runtime::get_trigger_context(caller),
             )?;
             Ok(linker)
         })
@@ -1574,27 +1451,23 @@ impl<'wrld, 'block, 'state> RuntimeBuilder<state::Trigger<'wrld, 'block, 'state>
 }
 
 impl<'wrld, 'block, 'state>
-    RuntimeBuilder<state::executor::ValidateTransaction<'wrld, 'block, 'state>>
+    RuntimeBuilder<state::executor::ExecuteTransaction<'wrld, 'block, 'state>>
 {
-    /// Builds the [`Runtime`] for *Executor* `validate_transaction()` execution
+    /// Builds the [`Runtime`] for *Executor* `execute_transaction()` execution
     ///
     /// # Errors
     ///
     /// Fails if failed to create default linker.
     pub fn build(
         self,
-    ) -> Result<Runtime<state::executor::ValidateTransaction<'wrld, 'block, 'state>>> {
+    ) -> Result<Runtime<state::executor::ExecuteTransaction<'wrld, 'block, 'state>>> {
         self.finalize(|engine| {
             let mut linker = Linker::new(engine);
 
-            create_imports!(linker, state::executor::ValidateTransaction<'wrld, 'block, 'state>,
-                export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>, offset, len| Runtime::execute_instruction(caller, offset, len),
-                export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>, offset, len| Runtime::execute_query(caller, offset, len),
-                export::GET_MIGRATE_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>| Runtime::get_migrate_payload(caller),
-                export::GET_VALIDATE_TRANSACTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>| Runtime::get_validate_transaction_payload(caller),
-                export::GET_VALIDATE_INSTRUCTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>| Runtime::get_validate_instruction_payload(caller),
-                export::GET_VALIDATE_QUERY_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>| Runtime::get_validate_query_payload(caller),
-                export::SET_DATA_MODEL => |caller: ::wasmtime::Caller<state::executor::ValidateTransaction<'wrld, 'block, 'state>>, offset, len| Runtime::set_data_model(caller, offset, len),
+            create_imports!(linker, state::executor::ExecuteTransaction<'wrld, 'block, 'state>,
+                export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::executor::ExecuteTransaction<'wrld, 'block, 'state>>, offset, len| Runtime::execute_instruction(caller, offset, len),
+                export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::executor::ExecuteTransaction<'wrld, 'block, 'state>>, offset, len| Runtime::execute_query(caller, offset, len),
+                export::SET_DATA_MODEL => |caller: ::wasmtime::Caller<state::executor::ExecuteTransaction<'wrld, 'block, 'state>>, offset, len| Runtime::set_data_model(caller, offset, len),
             )?;
             Ok(linker)
         })
@@ -1602,27 +1475,23 @@ impl<'wrld, 'block, 'state>
 }
 
 impl<'wrld, 'block, 'state>
-    RuntimeBuilder<state::executor::ValidateInstruction<'wrld, 'block, 'state>>
+    RuntimeBuilder<state::executor::ExecuteInstruction<'wrld, 'block, 'state>>
 {
-    /// Builds the [`Runtime`] for *Executor* `validate_instruction()` execution
+    /// Builds the [`Runtime`] for *Executor* `execute_instruction()` execution
     ///
     /// # Errors
     ///
     /// Fails if failed to create default linker.
     pub fn build(
         self,
-    ) -> Result<Runtime<state::executor::ValidateInstruction<'wrld, 'block, 'state>>> {
+    ) -> Result<Runtime<state::executor::ExecuteInstruction<'wrld, 'block, 'state>>> {
         self.finalize(|engine| {
             let mut linker = Linker::new(engine);
 
-            create_imports!(linker, state::executor::ValidateInstruction<'wrld, 'block, 'state>,
-                export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>, offset, len| Runtime::execute_instruction(caller, offset, len),
-                export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>, offset, len| Runtime::execute_query(caller, offset, len),
-                export::GET_MIGRATE_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>| Runtime::get_migrate_payload(caller),
-                export::GET_VALIDATE_TRANSACTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>| Runtime::get_validate_transaction_payload(caller),
-                export::GET_VALIDATE_INSTRUCTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>| Runtime::get_validate_instruction_payload(caller),
-                export::GET_VALIDATE_QUERY_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>| Runtime::get_validate_query_payload(caller),
-                export::SET_DATA_MODEL => |caller: ::wasmtime::Caller<state::executor::ValidateInstruction<'wrld, 'block, 'state>>, offset, len| Runtime::set_data_model(caller, offset, len),
+            create_imports!(linker, state::executor::ExecuteInstruction<'wrld, 'block, 'state>,
+                export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::executor::ExecuteInstruction<'wrld, 'block, 'state>>, offset, len| Runtime::execute_instruction(caller, offset, len),
+                export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::executor::ExecuteInstruction<'wrld, 'block, 'state>>, offset, len| Runtime::execute_query(caller, offset, len),
+                export::SET_DATA_MODEL => |caller: ::wasmtime::Caller<state::executor::ExecuteInstruction<'wrld, 'block, 'state>>, offset, len| Runtime::set_data_model(caller, offset, len),
             )?;
             Ok(linker)
         })
@@ -1643,10 +1512,6 @@ impl<'wrld, S: StateReadOnly> RuntimeBuilder<state::executor::ValidateQuery<'wrl
             create_imports!(linker, state::executor::ValidateQuery<'_, S>,
                 export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>, offset, len| Runtime::execute_instruction(caller, offset, len),
                 export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>, offset, len| Runtime::execute_query(caller, offset, len),
-                export::GET_MIGRATE_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_migrate_payload(caller),
-                export::GET_VALIDATE_TRANSACTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_validate_transaction_payload(caller),
-                export::GET_VALIDATE_INSTRUCTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_validate_instruction_payload(caller),
-                export::GET_VALIDATE_QUERY_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>| Runtime::get_validate_query_payload(caller),
                 export::SET_DATA_MODEL => |caller: ::wasmtime::Caller<state::executor::ValidateQuery<'_, S>>, offset, len| Runtime::set_data_model(caller, offset, len),
             )?;
             Ok(linker)
@@ -1668,10 +1533,6 @@ impl<'wrld, 'block, 'state> RuntimeBuilder<state::executor::Migrate<'wrld, 'bloc
             create_imports!(linker, state::executor::Migrate<'wrld, 'block, 'state>,
                 export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>, offset, len| Runtime::execute_instruction(caller, offset, len),
                 export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>, offset, len| Runtime::execute_query(caller, offset, len),
-                export::GET_MIGRATE_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>| Runtime::get_migrate_payload(caller),
-                export::GET_VALIDATE_TRANSACTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>| Runtime::get_validate_transaction_payload(caller),
-                export::GET_VALIDATE_INSTRUCTION_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>| Runtime::get_validate_instruction_payload(caller),
-                export::GET_VALIDATE_QUERY_PAYLOAD => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>| Runtime::get_validate_query_payload(caller),
                 export::SET_DATA_MODEL => |caller: ::wasmtime::Caller<state::executor::Migrate<'wrld, 'block, 'state>>, offset, len| Runtime::set_data_model(caller, offset, len),
             )?;
             Ok(linker)
@@ -2025,7 +1886,7 @@ mod tests {
                     drop))
             "#,
             main_fn_name = import::SMART_CONTRACT_MAIN,
-            get_trigger_payload_fn_name = export::GET_TRIGGER_PAYLOAD,
+            get_trigger_payload_fn_name = export::GET_TRIGGER_CONTEXT,
             // this test doesn't use the memory
             memory_and_alloc = memory_and_alloc(""),
         );
