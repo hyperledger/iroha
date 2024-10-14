@@ -118,7 +118,6 @@ mod pending {
     use nonzero_ext::nonzero;
 
     use super::*;
-    use crate::state::StateBlock;
 
     /// First stage in the life-cycle of a [`Block`].
     /// In the beginning the block is assumed to be verified and to contain only accepted transactions.
@@ -211,14 +210,10 @@ mod pending {
         pub fn chain(
             self,
             view_change_index: usize,
-            state: &mut StateBlock<'_>,
+            latest_block: Option<&SignedBlock>,
         ) -> BlockBuilder<Chained> {
             BlockBuilder(Chained {
-                header: Self::make_header(
-                    state.latest_block().as_deref(),
-                    view_change_index,
-                    &self.0.transactions,
-                ),
+                header: Self::make_header(latest_block, view_change_index, &self.0.transactions),
                 transactions: self.0.transactions,
             })
         }
@@ -263,9 +258,9 @@ mod new {
     /// Transactions in this block are not categorized.
     #[derive(Debug, Clone)]
     pub struct NewBlock {
-        pub(crate) signature: BlockSignature,
-        pub(crate) header: BlockHeader,
-        pub(crate) transactions: Vec<AcceptedTransaction>,
+        pub(super) signature: BlockSignature,
+        pub(super) header: BlockHeader,
+        pub(super) transactions: Vec<AcceptedTransaction>,
     }
 
     impl NewBlock {
@@ -295,6 +290,32 @@ mod new {
             let mut block: SignedBlock = self.into();
             block.set_transaction_errors(errors);
             WithEvents::new(ValidBlock(block))
+        }
+
+        /// Block signature
+        pub fn signature(&self) -> &BlockSignature {
+            &self.signature
+        }
+
+        /// Block header
+        pub fn header(&self) -> BlockHeader {
+            self.header
+        }
+
+        /// Block transactions
+        pub fn transactions(&self) -> &[AcceptedTransaction] {
+            &self.transactions
+        }
+
+        #[cfg(test)]
+        pub(crate) fn update_header(self, header: BlockHeader, private_key: &PrivateKey) -> Self {
+            let signature = BlockSignature(0, iroha_crypto::SignatureOf::new(private_key, &header));
+
+            Self {
+                signature,
+                header,
+                transactions: self.transactions,
+            }
         }
     }
 
@@ -470,9 +491,9 @@ mod valid {
             // Release block writer before creating new one
             let _ = voting_block.take();
             let mut state_block = if soft_fork {
-                state.block_and_revert()
+                state.block_and_revert(block.header())
             } else {
-                state.block()
+                state.block(block.header())
             };
 
             if let Err(error) = Self::categorize(
@@ -1062,7 +1083,7 @@ mod event {
     impl EventProducer for NewBlock {
         fn produce_events(&self) -> impl Iterator<Item = PipelineEventBox> {
             let block_event = BlockEvent {
-                header: self.header.clone(),
+                header: self.header,
                 status: BlockStatus::Created,
             };
 
@@ -1088,7 +1109,7 @@ mod event {
             });
 
             let block_event = core::iter::once(BlockEvent {
-                header: self.as_ref().header().clone(),
+                header: self.as_ref().header(),
                 status: BlockStatus::Approved,
             });
 
@@ -1101,7 +1122,7 @@ mod event {
     impl EventProducer for CommittedBlock {
         fn produce_events(&self) -> impl Iterator<Item = PipelineEventBox> {
             let block_event = core::iter::once(BlockEvent {
-                header: self.as_ref().header().clone(),
+                header: self.as_ref().header(),
                 status: BlockStatus::Committed,
             });
 
@@ -1172,8 +1193,6 @@ mod tests {
             let params = state_view.parameters();
             (params.sumeragi().max_clock_drift(), params.transaction)
         };
-        let mut state_block = state.block();
-
         // Creating an instruction
         let asset_definition_id = "xor#wonderland".parse().expect("Valid");
         let create_asset_definition =
@@ -1188,12 +1207,14 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];
-        let valid_block = BlockBuilder::new(transactions)
-            .chain(0, &mut state_block)
+        let unverified_block = BlockBuilder::new(transactions)
+            .chain(0, state.view().latest_block().as_deref())
             .sign(alice_keypair.private_key())
-            .unpack(|_| {})
-            .categorize(&mut state_block)
             .unpack(|_| {});
+
+        let mut state_block = state.block(unverified_block.header);
+        let valid_block = unverified_block.categorize(&mut state_block).unpack(|_| {});
+        state_block.commit();
 
         // The first transaction should be confirmed
         assert!(valid_block
@@ -1232,8 +1253,6 @@ mod tests {
             let params = state_view.parameters();
             (params.sumeragi().max_clock_drift(), params.transaction)
         };
-        let mut state_block = state.block();
-
         // Creating an instruction
         let asset_definition_id = "xor#wonderland"
             .parse::<AssetDefinitionId>()
@@ -1270,12 +1289,13 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx0, tx, tx2];
-        let valid_block = BlockBuilder::new(transactions)
-            .chain(0, &mut state_block)
+        let unverified_block = BlockBuilder::new(transactions)
+            .chain(0, state.view().latest_block().as_deref())
             .sign(alice_keypair.private_key())
-            .unpack(|_| {})
-            .categorize(&mut state_block)
             .unpack(|_| {});
+        let mut state_block = state.block(unverified_block.header);
+        let valid_block = unverified_block.categorize(&mut state_block).unpack(|_| {});
+        state_block.commit();
 
         // The first transaction should fail
         assert!(valid_block
@@ -1314,8 +1334,6 @@ mod tests {
             let params = state_view.parameters();
             (params.sumeragi().max_clock_drift(), params.transaction)
         };
-        let mut state_block = state.block();
-
         let domain_id = "domain".parse().expect("Valid");
         let create_domain = Register::domain(Domain::new(domain_id));
         let asset_definition_id = "coin#domain".parse().expect("Valid");
@@ -1336,12 +1354,14 @@ mod tests {
 
         // Creating a block of where first transaction must fail and second one fully executed
         let transactions = vec![tx_fail, tx_accept];
-        let valid_block = BlockBuilder::new(transactions)
-            .chain(0, &mut state_block)
+        let unverified_block = BlockBuilder::new(transactions)
+            .chain(0, state.view().latest_block().as_deref())
             .sign(alice_keypair.private_key())
-            .unpack(|_| {})
-            .categorize(&mut state_block)
             .unpack(|_| {});
+
+        let mut state_block = state.block(unverified_block.header);
+        let valid_block = unverified_block.categorize(&mut state_block).unpack(|_| {});
+        state_block.commit();
 
         // The first transaction should be rejected
         assert!(
@@ -1391,7 +1411,6 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::start_test();
         let state = State::new(world, kura, query_handle);
-        let mut state_block = state.block();
 
         // Creating an instruction
         let isi = Log::new(
@@ -1412,16 +1431,19 @@ mod tests {
         let (peer_public_key, _) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let valid_block = BlockBuilder::new(transactions)
-            .chain(0, &mut state_block)
+        let unverified_block = BlockBuilder::new(transactions)
+            .chain(0, state.view().latest_block().as_deref())
             .sign(genesis_correct_key.private_key())
-            .unpack(|_| {})
-            .categorize(&mut state_block)
             .unpack(|_| {});
+
+        let mut state_block = state.block(unverified_block.header);
+        let valid_block = unverified_block.categorize(&mut state_block).unpack(|_| {});
+        state_block.commit();
 
         // Validate genesis block
         // Use correct genesis key and check if transaction is rejected
         let block: SignedBlock = valid_block.into();
+        let mut state_block = state.block(block.header());
         let (_, error) = ValidBlock::validate(
             block,
             &topology,
@@ -1431,6 +1453,7 @@ mod tests {
         )
         .unpack(|_| {})
         .unwrap_err();
+        state_block.commit();
 
         // The first transaction should be rejected
         assert_eq!(

@@ -1038,7 +1038,7 @@ pub(crate) struct OnlyGenesis;
 
 impl PassCondition for OnlyGenesis {
     fn validate(&self, _authority: &AccountId, _host: &Iroha, context: &Context) -> Result {
-        if context.block_height == 0 {
+        if context.curr_block.is_genesis() {
             Ok(())
         } else {
             Err(ValidationFail::NotPermitted(

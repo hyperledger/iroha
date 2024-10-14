@@ -71,7 +71,7 @@ impl MetricsReporter {
                         .checked_add(1)
                         .expect("INTERNAL BUG: Blockchain height exceeds usize::MAX"),
                 )
-                .and_then(|index| self.kura.get_block_by_height(index)) else {
+                .and_then(|index| self.kura.get_block(index)) else {
                     break;
                 };
                 block_index += 1;

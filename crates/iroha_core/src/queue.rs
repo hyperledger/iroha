@@ -417,6 +417,7 @@ pub mod tests {
 
     use super::*;
     use crate::{
+        block::ValidBlock,
         kura::Kura,
         query::store::LiveQueryStore,
         smartcontracts::isi::Registrable as _,
@@ -567,7 +568,10 @@ pub mod tests {
         let state = State::new(world_with_test_domains(), kura, query_handle);
         let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
         let tx = accepted_tx_by_someone(&time_source);
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         state_block
             .transactions
             .insert(tx.as_ref().hash(), nonzero!(1_usize));
@@ -594,7 +598,10 @@ pub mod tests {
         let queue = Queue::test(config_factory(), &time_source);
         let queue = Arc::new(queue);
         queue.push(tx.clone(), state.view()).unwrap();
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         state_block
             .transactions
             .insert(tx.as_ref().hash(), nonzero!(1_usize));
@@ -762,13 +769,16 @@ pub mod tests {
 
         // Spawn a thread where we get_transactions_for_block and add them to state
         let get_txs_handle = {
+            let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+                .as_ref()
+                .header();
             let queue = Arc::clone(&queue);
 
             thread::spawn(move || {
                 while start_time.elapsed() < run_for {
                     for tx in queue.collect_transactions_for_block(&state.view(), max_txs_in_block)
                     {
-                        let mut state_block = state.block();
+                        let mut state_block = state.block(block_header);
                         state_block
                             .transactions
                             .insert(tx.as_ref().hash(), nonzero!(1_usize));
@@ -855,7 +865,10 @@ pub mod tests {
 
         let transactions = queue.collect_transactions_for_block(&state.view(), nonzero!(10_usize));
         assert_eq!(transactions.len(), 2);
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         for transaction in transactions {
             // Put transaction hashes into state as if they were in the blockchain
             state_block

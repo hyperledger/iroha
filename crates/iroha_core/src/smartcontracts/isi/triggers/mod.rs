@@ -13,6 +13,8 @@ pub mod specialized;
 /// - TODO: authorities.
 /// - TODO: authority permissions.
 pub mod isi {
+    use std::time::Duration;
+
     use iroha_data_model::{
         events::EventFilter,
         isi::error::{InvalidParameterError, RepetitionError},
@@ -44,7 +46,6 @@ pub mod isi {
                 .map(|block| block.header().creation_time());
 
             let engine = state_transaction.engine.clone(); // Cloning engine is cheap
-            let genesis_creation_time_ms = state_transaction.world().genesis_creation_time_ms();
 
             let triggers = &mut state_transaction.world.triggers;
             let trigger_id = new_trigger.id().clone();
@@ -66,10 +67,9 @@ pub mod isi {
                         match latest_block_time {
                             // Genesis block
                             None => {
-                                let genesis_creation_time_ms = genesis_creation_time_ms
-                                    .expect("INTERNAL BUG: genesis creation time not set");
-
-                                if schedule.start_ms < genesis_creation_time_ms {
+                                if Duration::from_millis(schedule.start_ms)
+                                    < state_transaction.curr_block.creation_time()
+                                {
                                     return Err(Error::InvalidParameter(
                                         InvalidParameterError::TimeTriggerInThePast,
                                     ));

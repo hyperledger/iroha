@@ -461,12 +461,15 @@ pub mod state {
         pub mod executor {
             //! States related to *Executor* execution.
 
+            use iroha_data_model::block::BlockHeader;
+
             use super::*;
 
             /// Struct to encapsulate common state kinds for `validate_*` entrypoints
             #[derive(Constructor)]
             pub struct Validate<T> {
                 pub(in super::super::super::super) to_validate: T,
+                pub(in super::super::super::super) curr_block: BlockHeader,
             }
 
             /// State kind for executing `execute_transaction()` entrypoint of executor
@@ -802,7 +805,7 @@ where
         let payload = payloads::Validate {
             context: payloads::ExecutorContext {
                 authority: state.authority.clone(),
-                block_height: state.state.state().height() as u64,
+                curr_block: state.specific_state.curr_block,
             },
             target: state.specific_state.to_validate.clone(),
         };
@@ -957,6 +960,7 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::SmartContract<'wrld, '
     fn get_smart_contract_context(state: &state::SmartContract) -> payloads::SmartContractContext {
         payloads::SmartContractContext {
             authority: state.authority.clone(),
+            curr_block: state.state.0.curr_block,
         }
     }
 }
@@ -1033,6 +1037,7 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::Trigger<'wrld, 'block,
         payloads::TriggerContext {
             id: state.specific_state.id.clone(),
             authority: state.authority.clone(),
+            curr_block: state.state.0.curr_block,
             event: state.specific_state.triggering_event.clone(),
         }
     }
@@ -1137,13 +1142,14 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::ExecuteTransaction<'wrld, '
         transaction: SignedTransaction,
     ) -> Result<executor::Result> {
         let span = wasm_log_span!("Running `execute_transaction()`");
+        let curr_block = state_transaction.curr_block;
 
         let state = state::executor::ExecuteTransaction::new(
             authority.clone(),
             self.config,
             span,
             state::chain_state::WithMut(state_transaction),
-            state::specific::executor::ExecuteTransaction::new(transaction),
+            state::specific::executor::ExecuteTransaction::new(transaction, curr_block),
         );
 
         self.execute_executor_execute_internal(module, state, import::EXECUTOR_EXECUTE_TRANSACTION)
@@ -1178,13 +1184,14 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::ExecuteInstruction<'wrld, '
         instruction: InstructionBox,
     ) -> Result<executor::Result> {
         let span = wasm_log_span!("Running `execute_instruction()`");
+        let curr_block = state_transaction.curr_block;
 
         let state = state::executor::ExecuteInstruction::new(
             authority.clone(),
             self.config,
             span,
             state::chain_state::WithMut(state_transaction),
-            state::specific::executor::ExecuteInstruction::new(instruction),
+            state::specific::executor::ExecuteInstruction::new(instruction, curr_block),
         );
 
         self.execute_executor_execute_internal(module, state, import::EXECUTOR_EXECUTE_INSTRUCTION)
@@ -1220,12 +1227,18 @@ impl<'wrld, S: StateReadOnly> Runtime<state::executor::ValidateQuery<'wrld, S>> 
     ) -> Result<executor::Result> {
         let span = wasm_log_span!("Running `validate_query()`");
 
+        let Some(latest_block) = state_ro.latest_block() else {
+            return Ok(Err(ValidationFail::NotPermitted(
+                "Genesis not committed".to_owned(),
+            )));
+        };
+
         let state = state::executor::ValidateQuery::new(
             authority.clone(),
             self.config,
             span,
             state::chain_state::WithConst(state_ro),
-            state::specific::executor::ValidateQuery::new(query),
+            state::specific::executor::ValidateQuery::new(query, latest_block.as_ref().header()),
         );
 
         self.execute_executor_execute_internal(module, state, import::EXECUTOR_VALIDATE_QUERY)
@@ -1304,7 +1317,7 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::Migrate<'wrld, 'block, 'sta
     ) -> WasmUsize {
         let payload = payloads::ExecutorContext {
             authority: store.data().authority.clone(),
-            block_height: store.data().state.0.height() as u64,
+            curr_block: store.data().state.0.curr_block,
         };
         Self::encode_payload(instance, store, payload)
     }
@@ -1559,6 +1572,7 @@ impl<C: wasmtime::AsContextMut> GetExport for (&wasmtime::Instance, C) {
 
 #[cfg(test)]
 mod tests {
+    use iroha_crypto::KeyPair;
     use iroha_test_samples::gen_account_in;
     use nonzero_ext::nonzero;
     use parity_scale_codec::Encode;
@@ -1566,8 +1580,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _,
-        state::State, World,
+        block::ValidBlock, kura::Kura, query::store::LiveQueryStore,
+        smartcontracts::isi::Registrable as _, state::State, World,
     };
 
     fn world_with_test_account(authority: &AccountId) -> World {
@@ -1657,9 +1671,16 @@ mod tests {
             isi_len = isi_hex.len() / 3,
         );
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
+        let mut state_transaction = state_block.transaction();
         runtime
-            .execute(&mut state.block().transaction(), authority, wat)
+            .execute(&mut state_transaction, authority, wat)
             .expect("Execution failed");
+        state_transaction.apply();
+        state_block.commit();
 
         Ok(())
     }
@@ -1697,9 +1718,16 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
+        let mut state_transaction = state_block.transaction();
         runtime
-            .execute(&mut state.block().transaction(), authority, wat)
+            .execute(&mut state_transaction, authority, wat)
             .expect("Execution failed");
+        state_transaction.apply();
+        state_block.commit();
 
         Ok(())
     }
@@ -1741,12 +1769,14 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let res = runtime.validate(
-            &mut state.block().transaction(),
-            authority,
-            wat,
-            nonzero!(1_u64),
-        );
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
+        let mut state_transaction = state_block.transaction();
+        let res = runtime.validate(&mut state_transaction, authority, wat, nonzero!(1_u64));
+        state_transaction.apply();
+        state_block.commit();
 
         if let Error::ExportFnCall(ExportFnCallError::Other(report)) =
             res.expect_err("Execution should fail")
@@ -1795,12 +1825,14 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let res = runtime.validate(
-            &mut state.block().transaction(),
-            authority,
-            wat,
-            nonzero!(1_u64),
-        );
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
+        let mut state_transaction = state_block.transaction();
+        let res = runtime.validate(&mut state_transaction, authority, wat, nonzero!(1_u64));
+        state_transaction.apply();
+        state_block.commit();
 
         if let Error::ExportFnCall(ExportFnCallError::HostExecution(report)) =
             res.expect_err("Execution should fail")
@@ -1846,12 +1878,14 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let res = runtime.validate(
-            &mut state.block().transaction(),
-            authority,
-            wat,
-            nonzero!(1_u64),
-        );
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
+        let mut state_transaction = state_block.transaction();
+        let res = runtime.validate(&mut state_transaction, authority, wat, nonzero!(1_u64));
+        state_transaction.apply();
+        state_block.commit();
 
         if let Error::ExportFnCall(ExportFnCallError::HostExecution(report)) =
             res.expect_err("Execution should fail")
@@ -1892,9 +1926,16 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
+        let mut state_transaction = state_block.transaction();
         let err = runtime
-            .execute(&mut state.block().transaction(), authority, wat)
+            .execute(&mut state_transaction, authority, wat)
             .expect_err("Execution should fail");
+        state_transaction.apply();
+        state_block.commit();
 
         assert!(matches!(
             err,

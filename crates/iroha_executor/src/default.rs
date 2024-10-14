@@ -131,7 +131,7 @@ pub mod peer {
         executor: &mut V,
         isi: &Register<Peer>,
     ) {
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         if CanManagePeers.is_owned_by(&executor.context().authority, executor.host()) {
@@ -145,7 +145,7 @@ pub mod peer {
         executor: &mut V,
         isi: &Unregister<Peer>,
     ) {
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         if CanManagePeers.is_owned_by(&executor.context().authority, executor.host()) {
@@ -171,7 +171,7 @@ pub mod domain {
         executor: &mut V,
         isi: &Register<Domain>,
     ) {
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         if CanRegisterDomain.is_owned_by(&executor.context().authority, executor.host()) {
@@ -187,7 +187,7 @@ pub mod domain {
     ) {
         let domain_id = isi.object();
 
-        if is_genesis(executor)
+        if executor.context().curr_block.is_genesis()
             || match is_domain_owner(domain_id, &executor.context().authority, executor.host()) {
                 Err(err) => deny!(executor, err),
                 Ok(is_domain_owner) => is_domain_owner,
@@ -236,7 +236,7 @@ pub mod domain {
         let source_id = isi.source();
         let domain_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_account_owner(source_id, &executor.context().authority, executor.host()) {
@@ -259,7 +259,7 @@ pub mod domain {
     ) {
         let domain_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_domain_owner(domain_id, &executor.context().authority, executor.host()) {
@@ -285,7 +285,7 @@ pub mod domain {
     ) {
         let domain_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_domain_owner(domain_id, &executor.context().authority, executor.host()) {
@@ -426,7 +426,7 @@ pub mod account {
     ) {
         let account_id = isi.object();
 
-        if is_genesis(executor)
+        if executor.context().curr_block.is_genesis()
             || match is_account_owner(account_id, &executor.context().authority, executor.host()) {
                 Err(err) => deny!(executor, err),
                 Ok(is_account_owner) => is_account_owner,
@@ -474,7 +474,7 @@ pub mod account {
     ) {
         let account_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_account_owner(account_id, &executor.context().authority, executor.host()) {
@@ -503,7 +503,7 @@ pub mod account {
     ) {
         let account_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_account_owner(account_id, &executor.context().authority, executor.host()) {
@@ -619,7 +619,7 @@ pub mod asset_definition {
     ) {
         let asset_definition_id = isi.object();
 
-        if is_genesis(executor)
+        if executor.context().curr_block.is_genesis()
             || match is_asset_definition_owner(
                 asset_definition_id,
                 &executor.context().authority,
@@ -675,7 +675,7 @@ pub mod asset_definition {
         let source_id = isi.source();
         let asset_definition_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_account_owner(source_id, &executor.context().authority, executor.host()) {
@@ -705,7 +705,7 @@ pub mod asset_definition {
     ) {
         let asset_definition_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_asset_definition_owner(
@@ -738,7 +738,7 @@ pub mod asset_definition {
     ) {
         let asset_definition_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_asset_definition_owner(
@@ -850,7 +850,7 @@ pub mod asset {
     ) {
         let asset = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_asset_definition_owner(
@@ -890,7 +890,7 @@ pub mod asset {
     ) {
         let asset_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
@@ -934,7 +934,7 @@ pub mod asset {
         Mint<Q, Asset>: BuiltInInstruction + Encode,
     {
         let asset_id = isi.destination();
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_asset_definition_owner(
@@ -981,7 +981,7 @@ pub mod asset {
         Burn<Q, Asset>: BuiltInInstruction + Encode,
     {
         let asset_id = isi.destination();
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
@@ -1030,7 +1030,7 @@ pub mod asset {
         Transfer<Asset, Q, Account>: BuiltInInstruction + Encode,
     {
         let asset_id = isi.source();
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
@@ -1086,7 +1086,7 @@ pub mod asset {
     ) {
         let asset_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
@@ -1116,7 +1116,7 @@ pub mod asset {
     ) {
         let asset_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
@@ -1146,7 +1146,7 @@ pub mod parameter {
     use super::*;
 
     pub fn visit_set_parameter<V: Execute + Visit + ?Sized>(executor: &mut V, isi: &SetParameter) {
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         if CanSetParameters.is_owned_by(&executor.context().authority, executor.host()) {
@@ -1170,7 +1170,7 @@ pub mod role {
         ($executor:ident, $isi:ident) => {
             let role_id = $isi.object();
 
-            if is_genesis($executor)
+            if $executor.context().curr_block.is_genesis()
                 || find_account_roles($executor.context().authority.clone(), $executor.host())
                     .any(|authority_role_id| authority_role_id == *role_id)
             {
@@ -1187,7 +1187,7 @@ pub mod role {
             let permission = $isi.object();
 
             if let Ok(any_permission) = AnyPermission::try_from(permission) {
-                if !is_genesis($executor) {
+                if !$executor.context().curr_block.is_genesis() {
                     if !find_account_roles($executor.context().authority.clone(), $executor.host())
                         .any(|authority_role_id| authority_role_id == role_id)
                     {
@@ -1235,7 +1235,7 @@ pub mod role {
             iroha_smart_contract::debug!(&format!("Checking `{permission:?}`"));
 
             if let Ok(any_permission) = AnyPermission::try_from(permission) {
-                if !is_genesis(executor) {
+                if !executor.context().curr_block.is_genesis() {
                     if let Err(error) = crate::permission::ValidateGrantRevoke::validate_grant(
                         &any_permission,
                         role.grant_to(),
@@ -1255,7 +1255,7 @@ pub mod role {
             }
         }
 
-        if is_genesis(executor)
+        if executor.context().curr_block.is_genesis()
             || CanManageRoles.is_owned_by(&executor.context().authority, executor.host())
         {
             let grant_role = &Grant::account_role(role.id().clone(), role.grant_to().clone());
@@ -1275,7 +1275,7 @@ pub mod role {
         executor: &mut V,
         isi: &Unregister<Role>,
     ) {
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         if CanManageRoles.is_owned_by(&executor.context().authority, executor.host()) {
@@ -1332,7 +1332,7 @@ pub mod trigger {
     ) {
         let trigger = isi.object();
 
-        if is_genesis(executor)
+        if executor.context().curr_block.is_genesis()
             || {
                 match is_domain_owner(
                     trigger.action().authority().domain(),
@@ -1362,7 +1362,7 @@ pub mod trigger {
     ) {
         let trigger_id = isi.object();
 
-        if is_genesis(executor)
+        if executor.context().curr_block.is_genesis()
             || match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
                 Err(err) => deny!(executor, err),
                 Ok(is_trigger_owner) => is_trigger_owner,
@@ -1413,7 +1413,7 @@ pub mod trigger {
     ) {
         let trigger_id = isi.destination();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
@@ -1440,7 +1440,7 @@ pub mod trigger {
     ) {
         let trigger_id = isi.destination();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
@@ -1467,7 +1467,7 @@ pub mod trigger {
     ) {
         let trigger_id = isi.trigger();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
@@ -1491,7 +1491,7 @@ pub mod trigger {
     ) {
         let trigger_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
@@ -1520,7 +1520,7 @@ pub mod trigger {
     ) {
         let trigger_id = isi.object();
 
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
@@ -1592,7 +1592,7 @@ pub mod permission {
             let permission = $isi.object();
 
             if let Ok(any_permission) = AnyPermission::try_from(permission) {
-                if !is_genesis($executor) {
+                if !$executor.context().curr_block.is_genesis() {
                     if let Err(error) = crate::permission::ValidateGrantRevoke::$method(
                         &any_permission,
                         &$executor.context().authority,
@@ -1635,7 +1635,7 @@ pub mod executor {
     use super::*;
 
     pub fn visit_upgrade<V: Execute + Visit + ?Sized>(executor: &mut V, isi: &Upgrade) {
-        if is_genesis(executor) {
+        if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
         if CanUpgradeExecutor.is_owned_by(&executor.context().authority, executor.host()) {
@@ -1663,8 +1663,4 @@ pub mod custom {
             "Custom instructions should be handled in custom executor"
         )
     }
-}
-
-fn is_genesis<V: Execute + Visit + ?Sized>(executor: &V) -> bool {
-    executor.context().block_height == 0
 }

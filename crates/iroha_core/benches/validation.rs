@@ -36,10 +36,10 @@ fn build_test_transaction(chain_id: ChainId) -> TransactionBuilder {
 fn build_test_and_transient_state() -> State {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
+    let (account_id, key_pair) = gen_account_in(&*STARTER_DOMAIN);
 
     let state = State::new(
         {
-            let (account_id, _account_keypair) = gen_account_in(&*STARTER_DOMAIN);
             let domain = Domain::new(STARTER_DOMAIN.clone()).build(&account_id);
             let account = Account::new(account_id.clone()).build(&account_id);
             World::with([domain], [account], [])
@@ -49,7 +49,26 @@ fn build_test_and_transient_state() -> State {
     );
 
     {
-        let mut state_block = state.block();
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
+        let transaction = TransactionBuilder::new(chain_id.clone(), account_id.clone())
+            .with_instructions(Vec::<InstructionBox>::new())
+            .sign(key_pair.private_key());
+        let (max_clock_drift, tx_limits) = {
+            let state_view = state.view();
+            let params = state_view.world.parameters();
+            (params.sumeragi().max_clock_drift(), params.transaction)
+        };
+        let unverified_block = BlockBuilder::new(vec![AcceptedTransaction::accept(
+            transaction,
+            &chain_id,
+            max_clock_drift,
+            tx_limits,
+        )
+        .unwrap()])
+        .chain(0, state.view().latest_block().as_deref())
+        .sign(key_pair.private_key())
+        .unpack(|_| {});
+        let mut state_block = state.block(unverified_block.header());
         let mut state_transaction = state_block.transaction();
         let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../defaults/executor.wasm");
@@ -117,12 +136,26 @@ fn sign_transaction(criterion: &mut Criterion) {
 fn validate_transaction(criterion: &mut Criterion) {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
     let state = build_test_and_transient_state();
+
+    let (account_id, key_pair) = gen_account_in(&*STARTER_DOMAIN);
+    let transaction = TransactionBuilder::new(chain_id.clone(), account_id.clone())
+        .with_instructions(Vec::<InstructionBox>::new())
+        .sign(key_pair.private_key());
     let (max_clock_drift, tx_limits) = {
-        let state_view = state.world.view();
-        let params = state_view.parameters();
+        let state_view = state.view();
+        let params = state_view.world.parameters();
         (params.sumeragi().max_clock_drift(), params.transaction)
     };
-
+    let unverified_block = BlockBuilder::new(vec![AcceptedTransaction::accept(
+        transaction,
+        &chain_id,
+        max_clock_drift,
+        tx_limits,
+    )
+    .unwrap()])
+    .chain(0, state.view().latest_block().as_deref())
+    .sign(key_pair.private_key())
+    .unpack(|_| {});
     let transaction = AcceptedTransaction::accept(
         build_test_transaction(chain_id.clone()).sign(STARTER_KEYPAIR.private_key()),
         &chain_id,
@@ -132,15 +165,14 @@ fn validate_transaction(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failure_count = 0;
-    let _ = criterion.bench_function("validate", move |b| {
-        b.iter(|| {
-            let mut state_block = state.block();
-            match state_block.validate(transaction.clone()) {
-                Ok(_) => success_count += 1,
-                Err(_) => failure_count += 1,
-            }
+    let mut state_block = state.block(unverified_block.header());
+    let _ = criterion.bench_function("validate", |b| {
+        b.iter(|| match state_block.validate(transaction.clone()) {
+            Ok(_) => success_count += 1,
+            Err(_) => failure_count += 1,
         });
     });
+    state_block.commit();
     println!("Success count: {success_count}, Failure count: {failure_count}");
 }
 
@@ -166,8 +198,8 @@ fn sign_blocks(criterion: &mut Criterion) {
 
     let mut count = 0;
 
-    let mut state_block = state.block();
-    let block = BlockBuilder::new(vec![transaction]).chain(0, &mut state_block);
+    let block =
+        BlockBuilder::new(vec![transaction]).chain(0, state.view().latest_block().as_deref());
 
     let _ = criterion.bench_function("sign_block", |b| {
         b.iter_batched(
