@@ -99,8 +99,6 @@ impl AllocatedPort {
         value.write().expect("should be able to write the data");
         lock.unlock().expect("this handle still holds the lock");
 
-        // eprintln!("[unique port] allocated {port}");
-
         Self(port)
     }
 }
@@ -113,7 +111,5 @@ impl Drop for AllocatedPort {
         value.ports_in_use.remove(&self.0);
         value.write().expect("should save the result filne");
         lock.unlock().expect("still holds it");
-
-        // eprintln!("[unique port] released {}", self.0);
     }
 }

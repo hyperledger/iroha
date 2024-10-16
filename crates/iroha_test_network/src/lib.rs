@@ -591,7 +591,6 @@ impl NetworkPeer {
         let mut tasks = JoinSet::<()>::new();
 
         {
-            // let mut events_tx = self.events.clone();
             let output = child.stdout.take().unwrap();
             let mut file = File::create(self.dir.path().join(format!("run-{run_num}-stdout.log")))
                 .await
@@ -599,10 +598,6 @@ impl NetworkPeer {
             tasks.spawn(async move {
                 let mut lines = BufReader::new(output).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    // let value: serde_json::Value =
-                    //     serde_json::from_str(&line).expect("each log line is a valid JSON");
-                    // handle_peer_log_message(&value, &mut events_tx);
-
                     file.write_all(line.as_bytes())
                         .await
                         .expect("writing logs to file shouldn't fail");
@@ -617,20 +612,18 @@ impl NetworkPeer {
             let output = child.stderr.take().unwrap();
             let path = self.dir.path().join(format!("run-{run_num}-stderr.log"));
             tasks.spawn(async move {
-                let mut buffer = String::new();
+                let mut in_memory = PeerStderrBuffer {
+                    log_prefix,
+                    buffer: String::new(),
+                };
                 let mut lines = BufReader::new(output).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    buffer.push_str(&line);
-                    buffer.push('\n');
+                    in_memory.buffer.push_str(&line);
+                    in_memory.buffer.push('\n');
                 }
 
-                if buffer.is_empty() {
-                    return;
-                }
-
-                eprintln!("{log_prefix} STDERR:\n=======\n{buffer}======= END OF STDERR");
                 let mut file = File::create(path).await.expect("should create");
-                file.write_all(buffer.as_bytes())
+                file.write_all(in_memory.buffer.as_bytes())
                     .await
                     .expect("should write");
             });
@@ -681,10 +674,7 @@ impl NetworkPeer {
                 eprintln!("{log_prefix} server started, {status:?}");
 
                 let mut events = client
-                    .listen_for_events_async([
-                        EventFilterBox::from(BlockEventFilter::default()),
-                        // TransactionEventFilter::default().into(),
-                    ])
+                    .listen_for_events_async([EventFilterBox::from(BlockEventFilter::default())])
                     .await
                     .unwrap_or_else(|err| {
                         eprintln!("{log_prefix} failed to subscribe on events: {err}");
@@ -693,7 +683,6 @@ impl NetworkPeer {
 
                 while let Some(Ok(event)) = events.next().await {
                     if let EventBox::Pipeline(PipelineEventBox::Block(block)) = event {
-                        // FIXME: should we wait for `Applied` event instead?
                         if *block.status() == BlockStatus::Applied {
                             let height = block.header().height().get();
                             eprintln!("{log_prefix} BlockStatus::Applied height={height}",);
@@ -844,38 +833,28 @@ impl PartialEq for NetworkPeer {
     }
 }
 
-// fn handle_peer_log_message(log: &serde_json::Value, tx: &broadcast::Sender<PeerLifecycleEvent>) {
-//     let is_info = log
-//         .get("level")
-//         .map(|level| level.as_str().map(|value| value == "INFO"))
-//         .flatten()
-//         .unwrap_or(false);
-//
-//     let message = log
-//         .get("fields")
-//         .map(|fields| fields.get("message"))
-//         .flatten()
-//         .map(|v| v.as_str())
-//         .flatten();
-//
-//     if is_info && message.map(|x| x == "Block committed").unwrap_or(false) {
-//         let height: u64 = log
-//             .get("fields")
-//             .expect("exists")
-//             .get("new_height")
-//             .expect("should exist for this message")
-//             .as_str()
-//             .expect("it is a string")
-//             .parse()
-//             .expect("it is a valid integer");
-//
-//         let _ = tx.send(PeerLifecycleEvent::LogBlockCommitted { height });
-//     }
-// }
-
 impl From<NetworkPeer> for Box<Peer> {
     fn from(val: NetworkPeer) -> Self {
         Box::new(Peer::new(val.id.clone()))
+    }
+}
+
+/// Prints collected STDERR on drop.
+///
+/// Used to avoid loss of useful data in case of task abortion before it is printed directly.
+struct PeerStderrBuffer {
+    log_prefix: String,
+    buffer: String,
+}
+
+impl Drop for PeerStderrBuffer {
+    fn drop(&mut self) {
+        if !self.buffer.is_empty() {
+            eprintln!(
+                "{} STDERR:\n=======\n{}======= END OF STDERR",
+                self.log_prefix, self.buffer
+            );
+        }
     }
 }
 
