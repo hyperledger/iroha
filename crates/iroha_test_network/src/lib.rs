@@ -163,10 +163,6 @@ impl Network {
         self.block_time + self.commit_time
     }
 
-    pub fn consensus_estimation(&self) -> Duration {
-        self.block_time + self.commit_time / 2
-    }
-
     pub fn sync_timeout(&self) -> Duration {
         SYNC_TIMEOUT
     }

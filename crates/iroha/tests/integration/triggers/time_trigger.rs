@@ -30,7 +30,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
         .start_blocking()?;
     let test_client = network.client();
     // Sleep to certainly bypass time interval analyzed by genesis
-    std::thread::sleep(network.consensus_estimation());
+    std::thread::sleep(network.pipeline_time());
 
     let asset_definition_id = "rose#wonderland"
         .parse::<AssetDefinitionId>()
@@ -45,7 +45,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
     let start_time = curr_time();
     const GAP: Duration = Duration::from_secs(3);
     assert!(
-        GAP < network.consensus_estimation(),
+        GAP < network.pipeline_time(),
         "Schedule should be in the future but within block estimation"
     );
     let schedule = TimeSchedule::starting_at(start_time + GAP);
@@ -69,7 +69,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
     assert_eq!(init_quantity, after_registration_quantity);
 
     // Sleep long enough that trigger start is in the past
-    std::thread::sleep(network.consensus_estimation());
+    std::thread::sleep(network.pipeline_time());
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
 
     let after_wait_quantity = test_client.query_single(FindAssetQuantityById {
