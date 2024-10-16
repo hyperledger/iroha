@@ -75,31 +75,7 @@ async fn test_with_instruction_and_status(
 }
 
 #[test]
-#[ignore = "unclear how to test it while treating Iroha as a block box"]
+#[ignore = "TODO: implement with the help of Kura Inspector, "]
 fn applied_block_must_be_available_in_kura() {
-    // let (_rt, peer, client) = <PeerBuilder>::new().with_port(11_040).start_with_runtime();
-    // wait_for_genesis_committed(&[client.clone()], 0);
-    //
-    // let event_filter = BlockEventFilter::default().for_status(BlockStatus::Applied);
-    // let mut event_iter = client
-    //     .listen_for_events([event_filter])
-    //     .expect("Failed to subscribe for events");
-    //
-    // client
-    //     .submit(Unregister::domain("dummy".parse().unwrap()))
-    //     .expect("Failed to submit transaction");
-    //
-    // let event: BlockEvent = event_iter
-    //     .next()
-    //     .expect("Block must be committed")
-    //     .expect("Block must be committed")
-    //     .try_into()
-    //     .expect("Received unexpected event");
-    //
-    // peer.irohad
-    //     .as_ref()
-    //     .expect("Must be some")
-    //     .kura()
-    //     .get_block_by_height(event.header().height().try_into().unwrap())
-    //     .expect("Block applied event was received earlier");
+    unimplemented!();
 }
