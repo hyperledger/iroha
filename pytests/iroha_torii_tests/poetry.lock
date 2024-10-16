@@ -230,13 +230,13 @@ files = [
 
 [[package]]
 name = "faker"
-version = "30.3.0"
+version = "30.5.0"
 description = "Faker is a Python package that generates fake data for you."
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "Faker-30.3.0-py3-none-any.whl", hash = "sha256:e8a15fd1b0f72992b008f5ea94c70d3baa0cb51b0d5a0e899c17b1d1b23d2771"},
-    {file = "faker-30.3.0.tar.gz", hash = "sha256:8760fbb34564fbb2f394345eef24aec5b8f6506b6cfcefe8195ed66dd1032bdb"},
+    {file = "Faker-30.5.0-py3-none-any.whl", hash = "sha256:98016e0b181d0510ebdcbd5b80d72ca19b34202954dd58a8cf2fb8e4df6f71de"},
+    {file = "faker-30.5.0.tar.gz", hash = "sha256:30b7a2c6dbb13eb3c7c99f99df92516047e97540fec5d3d031d1fd9ea4bc587c"},
 ]
 
 [package.dependencies]
@@ -742,13 +742,13 @@ files = [
 
 [[package]]
 name = "types-requests"
-version = "2.32.0.20240914"
+version = "2.32.0.20241016"
 description = "Typing stubs for requests"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "types-requests-2.32.0.20240914.tar.gz", hash = "sha256:2850e178db3919d9bf809e434eef65ba49d0e7e33ac92d588f4a5e295fffd405"},
-    {file = "types_requests-2.32.0.20240914-py3-none-any.whl", hash = "sha256:59c2f673eb55f32a99b2894faf6020e1a9f4a402ad0f192bfee0b64469054310"},
+    {file = "types-requests-2.32.0.20241016.tar.gz", hash = "sha256:0d9cad2f27515d0e3e3da7134a1b6f28fb97129d86b867f24d9c726452634d95"},
+    {file = "types_requests-2.32.0.20241016-py3-none-any.whl", hash = "sha256:4195d62d6d3e043a4eaaf08ff8a62184584d2e8684e9d2aa178c7915a7da3747"},
 ]
 
 [package.dependencies]
@@ -812,4 +812,4 @@ test = ["websockets"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "6a3908cccad1e2107d42e69d440e3abe1f0422b02b1adc8a07a69f7e8f0348ed"
+content-hash = "c60edc8e27a014a9146dc21593c2fcf02d7577e28227585577dc79dcd3baf538"
