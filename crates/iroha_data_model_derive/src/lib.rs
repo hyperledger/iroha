@@ -95,19 +95,19 @@ pub fn enum_ref(input: TokenStream) -> Result<TokenStream> {
 ///         pub item1: u32,
 ///         #[cfg(not(feature = "transparent_api"))]
 ///         pub(crate) item1: u32,
-///         pub(super) item2: u64
+///         item2: u64
 ///     }
 ///
 ///     #[cfg(not(feature = "transparent_api"))]
 ///     pub struct DataModel2 {
 ///         pub item1: u32,
-///         pub(super) item2: u64
+///         item2: u64
 ///     }
 ///
 ///     #[cfg(feature = "transparent_api")]
 ///     struct DataModel2 {
 ///         pub item1: u32,
-///         pub(super) item2: u64
+///         item2: u64
 ///     }
 /// }
 /// */
