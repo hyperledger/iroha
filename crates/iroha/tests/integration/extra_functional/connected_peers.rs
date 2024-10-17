@@ -118,6 +118,31 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn unregister_single_peer() -> Result<()> {
+    let (_rt, network, _) = Network::start_test_with_runtime(7, None);
+    wait_for_genesis_committed(&network.clients(), 0);
+
+    let peer_clients: Vec<_> = Network::peers(&network)
+        .zip(Network::clients(&network))
+        .collect();
+
+    // Unregister a peer
+    let removed_peer_idx = rand::thread_rng().gen_range(0..peer_clients.len());
+    let (removed_peer, _) = &peer_clients[removed_peer_idx];
+    let unregister_peer = Unregister::peer(removed_peer.id.clone());
+    peer_clients
+        .choose(&mut thread_rng())
+        .unwrap()
+        .1
+        .submit_blocking(unregister_peer)?;
+
+    let pipeline_time = Config::pipeline_time();
+
+    thread::sleep(pipeline_time * 2);
+    Ok(())
+}
+
 fn check_status(peer_clients: &[(&Peer, Client)], expected_blocks: u64) {
     let n_peers = peer_clients.len() as u64;
 
