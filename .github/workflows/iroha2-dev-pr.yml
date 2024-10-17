@@ -126,7 +126,7 @@ jobs:
           name: report-coverage
           path: coverage.txt
       - name: Upload test network artifacts
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: test_network_runs
