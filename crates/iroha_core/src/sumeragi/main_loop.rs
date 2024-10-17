@@ -628,6 +628,16 @@ impl Sumeragi {
                 );
 
                 if let Ok(signatory_idx) = usize::try_from(signature.0) {
+                    if signatory_idx >= self.topology.as_ref().len() {
+                        error!(
+                            peer_id=%self.peer_id,
+                            role=%self.role(),
+                            ?signatory_idx,
+                            topology_size=%self.topology.as_ref().len(),
+                            "Signature index is out of range."
+                        );
+                        return;
+                    }
                     let signatory = &self.topology.as_ref()[signatory_idx];
 
                     match self.topology.role(signatory) {
