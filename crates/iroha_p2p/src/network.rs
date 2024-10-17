@@ -223,7 +223,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     #[log(skip(self, shutdown_signal), fields(listen_addr=%self.listen_addr, public_key=%self.key_pair.public_key()))]
     async fn run(mut self, shutdown_signal: ShutdownSignal) {
         // TODO: probably should be configuration parameter
-        let mut update_topology_interval = tokio::time::interval(Duration::from_millis(100));
+        let mut update_topology_interval = tokio::time::interval(Duration::from_millis(1000));
         loop {
             tokio::select! {
                 // Select is biased because we want to service messages to take priority over data messages.
