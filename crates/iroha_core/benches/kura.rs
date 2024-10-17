@@ -53,13 +53,15 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
     let topology = Topology::new(vec![peer_id]);
     let mut block = {
-        let mut state_block = state.block();
-        BlockBuilder::new(vec![tx])
-            .chain(0, &mut state_block)
+        let unverified_block = BlockBuilder::new(vec![tx])
+            .chain(0, state.view().latest_block().as_deref())
             .sign(&peer_private_key)
-            .unpack(|_| {})
-            .categorize(&mut state_block)
-            .unpack(|_| {})
+            .unpack(|_| {});
+
+        let mut state_block = state.block(unverified_block.header());
+        let block = unverified_block.categorize(&mut state_block).unpack(|_| {});
+        state_block.commit();
+        block
     };
 
     let key_pair = KeyPair::random();

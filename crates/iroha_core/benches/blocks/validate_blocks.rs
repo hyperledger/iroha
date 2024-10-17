@@ -74,9 +74,8 @@ impl StateValidateBlocks {
         }: Self,
     ) {
         for (instructions, i) in instructions.into_iter().zip(1..) {
-            let mut state_block = state.block();
-            let block = create_block(
-                &mut state_block,
+            let (block, mut state_block) = create_block(
+                &state,
                 instructions,
                 account_id.clone(),
                 &account_private_key,

@@ -160,22 +160,22 @@ pub fn try_read_snapshot(
         });
     }
     for height in 1..=snapshot_height {
-        let kura_block_hash = NonZeroUsize::new(height)
-            .and_then(|height| kura.get_block_hash(height))
+        let kura_block = NonZeroUsize::new(height)
+            .and_then(|height| kura.get_block(height))
             .expect("Kura has height at least as large as state height");
         let snapshot_block_hash = state_view.block_hashes[height - 1];
-        if kura_block_hash != snapshot_block_hash {
+        if kura_block.hash() != snapshot_block_hash {
             // If last block hash is different it might mean that snapshot was crated for soft-fork block so just drop changes made by this block
             if height == snapshot_height {
                 iroha_logger::warn!(
                     "Snapshot has incorrect latest block hash, discarding changes made by this block"
                 );
-                state.block_and_revert().commit();
+                state.block_and_revert(kura_block.header()).commit();
             } else {
                 return Err(TryReadError::MismatchedHash {
                     height,
                     snapshot_block_hash,
-                    kura_block_hash,
+                    kura_block_hash: kura_block.hash(),
                 });
             }
         }
@@ -354,7 +354,7 @@ mod tests {
             .unwrap();
 
         {
-            let mut state_block = state.block();
+            let mut state_block = state.block(committed_block.as_ref().header());
             let _events =
                 state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
             state_block.commit();
@@ -372,7 +372,7 @@ mod tests {
             .unwrap();
 
         {
-            let mut state_block = state.block();
+            let mut state_block = state.block(committed_block.as_ref().header());
             let _events =
                 state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
             state_block.commit();
@@ -413,7 +413,7 @@ mod tests {
             .unwrap();
 
         {
-            let mut state_block = state.block();
+            let mut state_block = state.block(committed_block.as_ref().header());
             let _events =
                 state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
             state_block.commit();
@@ -431,7 +431,7 @@ mod tests {
             .unwrap();
 
         {
-            let mut state_block = state.block();
+            let mut state_block = state.block(committed_block.as_ref().header());
             let _events =
                 state_block.apply_without_execution(&committed_block, topology.as_ref().to_owned());
             state_block.commit();
