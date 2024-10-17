@@ -110,15 +110,14 @@ impl Config {
             .view();
         let mut blocks =
             state_view.all_blocks(NonZeroUsize::new(blocks_out_of_measure as usize + 1).unwrap());
-        let (txs_accepted, txs_rejected) = (0..self.blocks)
+        let (txs_rejected, txs_accepted) = (0..self.blocks)
             .map(|_| {
                 let block = blocks
                     .next()
                     .expect("The block is not yet in state. Need more sleep?");
-                (
-                    block.transactions().filter(|tx| tx.error.is_none()).count(),
-                    block.transactions().filter(|tx| tx.error.is_some()).count(),
-                )
+
+                let rejected = block.errors().count();
+                (rejected, block.transactions().count() - rejected)
             })
             .fold((0, 0), |acc, pair| (acc.0 + pair.0, acc.1 + pair.1));
         #[allow(clippy::float_arithmetic, clippy::cast_precision_loss)]
