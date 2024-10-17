@@ -392,8 +392,6 @@ impl Sumeragi {
         genesis_account: &AccountId,
         existing_voting_block: &mut Option<VotingBlock>,
     ) -> Option<VotingBlock<'state>> {
-        assert!(!block.header().is_genesis());
-
         ValidBlock::validate_keep_voting_block(
             block,
             topology,
