@@ -131,6 +131,7 @@ jobs:
         with:
           name: test_network_runs
           path: ${{ env.TEST_NETWORK_TMP_DIR }}/irohad_test_network_*
+          retention-days: 3
 
   # Run the job to check that the docker containers are properly buildable
   pr-generator-build:
