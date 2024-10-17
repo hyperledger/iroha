@@ -1,5 +1,3 @@
-// use std::thread;
-
 use eyre::Result;
 use iroha::{
     client,

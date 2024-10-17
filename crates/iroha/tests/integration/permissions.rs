@@ -285,7 +285,6 @@ fn permissions_differ_not_only_by_names() {
 }
 
 #[test]
-// #[allow(deprecated)]
 fn stored_vs_granted_permission_payload() -> Result<()> {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
@@ -339,7 +338,6 @@ fn stored_vs_granted_permission_payload() -> Result<()> {
 }
 
 #[test]
-// #[allow(deprecated)]
 fn permissions_are_unified() {
     let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
     let iroha = network.client();
