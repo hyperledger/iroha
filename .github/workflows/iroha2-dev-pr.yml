@@ -116,12 +116,12 @@ jobs:
           --branch
           --no-report
       - name: Generate lcov report
-        run: cargo llvm-cov report --lcov --output-path lcov.info
+        run: cargo llvm-cov report --text --output-path coverage.txt
       - name: Upload lcov report
         uses: actions/upload-artifact@v4
         with:
           name: report-coverage
-          path: lcov.info
+          path: coverage.txt
 
   # include: iroha/tests/integration/
   # exclude: iroha/tests/integration/extra_functional
