@@ -124,14 +124,26 @@ pub trait IrTypeFamily {
 }
 
 impl<R: Cloned> IrTypeFamily for R {
-    type Ref<'itm> = &'itm Self where Self: 'itm;
+    type Ref<'itm>
+        = &'itm Self
+    where
+        Self: 'itm;
     // NOTE: Unused
-    type RefMut<'itm> = () where Self: 'itm;
+    type RefMut<'itm>
+        = ()
+    where
+        Self: 'itm;
     type Box = Box<Self>;
     type BoxedSlice = Box<[Self]>;
-    type RefSlice<'itm> = &'itm [Self] where Self: 'itm;
+    type RefSlice<'itm>
+        = &'itm [Self]
+    where
+        Self: 'itm;
     // NOTE: Unused
-    type RefMutSlice<'itm> = () where Self: 'itm;
+    type RefMutSlice<'itm>
+        = ()
+    where
+        Self: 'itm;
     type Vec = Vec<Self>;
     type Arr<const N: usize> = [Self; N];
 }
@@ -166,22 +178,46 @@ impl IrTypeFamily for Transparent {
     type Arr<const N: usize> = Self;
 }
 impl IrTypeFamily for &Extern {
-    type Ref<'itm> = &'itm Self where Self: 'itm;
-    type RefMut<'itm> = &'itm mut Self where Self: 'itm;
+    type Ref<'itm>
+        = &'itm Self
+    where
+        Self: 'itm;
+    type RefMut<'itm>
+        = &'itm mut Self
+    where
+        Self: 'itm;
     type Box = Box<Self>;
     type BoxedSlice = Box<[Self]>;
-    type RefSlice<'itm> = &'itm [Self] where Self: 'itm;
-    type RefMutSlice<'itm> = &'itm mut [Self] where Self: 'itm;
+    type RefSlice<'itm>
+        = &'itm [Self]
+    where
+        Self: 'itm;
+    type RefMutSlice<'itm>
+        = &'itm mut [Self]
+    where
+        Self: 'itm;
     type Vec = Vec<Self>;
     type Arr<const N: usize> = [Self; N];
 }
 impl IrTypeFamily for &mut Extern {
-    type Ref<'itm> = &'itm Self where Self: 'itm;
-    type RefMut<'itm> = &'itm mut Self where Self: 'itm;
+    type Ref<'itm>
+        = &'itm Self
+    where
+        Self: 'itm;
+    type RefMut<'itm>
+        = &'itm mut Self
+    where
+        Self: 'itm;
     type Box = Box<Self>;
     type BoxedSlice = Box<[Self]>;
-    type RefSlice<'itm> = &'itm [Self] where Self: 'itm;
-    type RefMutSlice<'itm> = &'itm mut [Self] where Self: 'itm;
+    type RefSlice<'itm>
+        = &'itm [Self]
+    where
+        Self: 'itm;
+    type RefMutSlice<'itm>
+        = &'itm mut [Self]
+    where
+        Self: 'itm;
     type Vec = Vec<Self>;
     type Arr<const N: usize> = [Self; N];
 }

@@ -304,19 +304,22 @@ fn list_types<W: io::Write>(map: &ConverterMap, writer: &mut W) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use iroha_data_model::prelude::*;
-    use iroha_test_samples::ALICE_ID;
 
     use super::*;
 
     #[test]
     fn decode_account_sample() {
+        let account_id =
+            "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+                .parse()
+                .unwrap();
         let mut metadata = Metadata::default();
         metadata.insert(
             "hat".parse().expect("Valid"),
             "white".parse::<Json>().expect("Valid"),
         );
-        let account = Account::new(ALICE_ID.clone()).with_metadata(metadata);
 
+        let account = Account::new(account_id).with_metadata(metadata);
         decode_sample("account.bin", String::from("NewAccount"), &account);
     }
 
@@ -337,20 +340,24 @@ mod tests {
 
     #[test]
     fn decode_trigger_sample() {
+        let account_id =
+            "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+                .parse::<AccountId>()
+                .unwrap();
         let rose_definition_id = AssetDefinitionId::new(
             "wonderland".parse().expect("Valid"),
             "rose".parse().expect("Valid"),
         );
-        let rose_id = AssetId::new(rose_definition_id, ALICE_ID.clone());
+        let rose_id = AssetId::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
         let action = Action::new(
             vec![Mint::asset_numeric(1u32, rose_id)],
             Repeats::Indefinitely,
-            ALICE_ID.clone(),
+            account_id,
             DomainEventFilter::new().for_events(DomainEventSet::AnyAccount),
         );
-        let trigger = Trigger::new(trigger_id, action);
 
+        let trigger = Trigger::new(trigger_id, action);
         decode_sample("trigger.bin", String::from("Trigger"), &trigger);
     }
 
