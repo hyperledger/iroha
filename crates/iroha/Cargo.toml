@@ -51,8 +51,7 @@ tls-rustls-webpki-roots = [
 iroha_config = { workspace = true }
 iroha_config_base = { workspace = true }
 iroha_crypto = { workspace = true }
-# FIXME: should remove `transparent_api` feature. Check the other FIXME comment in dev-dependencies
-iroha_data_model = { workspace = true, features = ["http", "transparent_api"] }
+iroha_data_model = { workspace = true, features = ["http"] }
 iroha_primitives = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_telemetry = { workspace = true }
