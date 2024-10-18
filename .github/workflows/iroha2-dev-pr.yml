@@ -109,11 +109,13 @@ jobs:
       - name: Install irohad
         run: which irohad || cargo install --path crates/irohad --locked
       - name: Test with no default features
+        id: test_no_features
         run: >
           mold --run cargo llvm-cov nextest
           --no-default-features
           --branch --no-report
       - name: Test with all features
+        id: test_all_features
         run: >
           mold --run cargo llvm-cov nextest
           --all-features
@@ -126,7 +128,7 @@ jobs:
           name: report-coverage
           path: coverage.txt
       - name: Upload test network artifacts
-        if: failure()
+        if: failure() && (steps.test_no_features.outcome == 'failure' || steps.test_all_features.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: test_network_runs
