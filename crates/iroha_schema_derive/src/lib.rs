@@ -221,15 +221,15 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
     );
 
     // add trait bounds on field types using the same algorithm that parity scale codec uses
-    emitter.handle(trait_bounds::add(
+    trait_bounds::add(
         &input.ident,
         &mut input.generics,
         &input.data,
-        syn::parse_quote!(iroha_schema::IntoSchema),
+        &syn::parse_quote!(iroha_schema::IntoSchema),
         None,
         false,
         &syn::parse_quote!(iroha_schema),
-    ));
+    );
 
     let impl_type_id = impl_type_id(&mut syn::parse2(original_input).unwrap());
 
