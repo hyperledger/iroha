@@ -35,6 +35,3 @@ parity-scale-codec = { workspace = true }
 serde_json = { workspace = true, features = ["std"]}
 serde = { workspace = true }
 eyre = { workspace = true }
-
-[dev-dependencies]
-iroha_test_samples = { workspace = true }

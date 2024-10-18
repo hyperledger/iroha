@@ -588,7 +588,7 @@
 - hyperledger#1998 Add filters to queries.
 - hyperledger#2276 Include current Block hash into BlockHeaderValue.
 - hyperledger#2161 Handle id and shared FFI fns.
-  - add handle id and implement FFI equivalents of shared traits (Clone, Eq, Ord)
+- add handle id and implement FFI equivalents of shared traits (Clone, Eq, Ord)
 - hyperledger#1638 `configuration` return doc sub-tree.
 - hyperledger#2132 Add `endpointN` proc macro.
 - hyperledger#2257 Revoke<Role> emits RoleRevoked event.
