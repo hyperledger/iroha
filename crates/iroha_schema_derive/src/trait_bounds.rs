@@ -130,7 +130,7 @@ pub fn add(
     // = match custom_trait_bound {
     //     Some(CustomTraitBound::SpecifiedBounds { bounds, .. }) => {
     //         generics.make_where_clause().predicates.extend(bounds);
-    //         return Ok(());
+    //         return;
     //     }
     //     Some(CustomTraitBound::SkipTypeParams { type_names, .. }) => {
     //         type_names.into_iter().collect::<Vec<_>>()
