@@ -15,8 +15,8 @@ mod smart_contract;
 
 #[test]
 fn too_big_fetch_size_is_not_allowed() {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_130).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let client = network.client();
 
     let err = client
         .query(client::asset::all())

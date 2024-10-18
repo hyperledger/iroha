@@ -1,36 +1,34 @@
-use std::time::Duration;
-
 use eyre::Result;
 use iroha::{
     client,
     data_model::{
-        parameter::{Parameter, Parameters, SumeragiParameter, SumeragiParameters},
+        parameter::{Parameter, Parameters},
         prelude::*,
     },
 };
+use iroha_data_model::parameter::BlockParameter;
 use iroha_test_network::*;
+use nonzero_ext::nonzero;
 
 #[test]
 fn can_change_parameter_value() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_135).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new()
+        .with_genesis_instruction(SetParameter(Parameter::Block(
+            BlockParameter::MaxTransactions(nonzero!(16u64)),
+        )))
+        .start_blocking()?;
+    let test_client = network.client();
 
     let old_params: Parameters = test_client.query_single(client::parameter::all())?;
-    assert_eq!(
-        old_params.sumeragi().block_time(),
-        SumeragiParameters::default().block_time()
-    );
+    assert_eq!(old_params.block.max_transactions, nonzero!(16u64));
 
-    let block_time = 40_000;
-    let parameter = Parameter::Sumeragi(SumeragiParameter::BlockTimeMs(block_time));
-    let set_param_isi = SetParameter::new(parameter);
-    test_client.submit_blocking(set_param_isi)?;
+    let new_value = nonzero!(32u64);
+    test_client.submit_blocking(SetParameter(Parameter::Block(
+        BlockParameter::MaxTransactions(new_value),
+    )))?;
 
-    let sumeragi_params = test_client.query_single(client::parameter::all())?.sumeragi;
-    assert_eq!(
-        sumeragi_params.block_time(),
-        Duration::from_millis(block_time)
-    );
+    let params = test_client.query_single(client::parameter::all())?;
+    assert_eq!(params.block.max_transactions, new_value);
 
     Ok(())
 }

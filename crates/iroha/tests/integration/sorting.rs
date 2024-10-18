@@ -33,8 +33,8 @@ fn correct_pagination_assets_after_creating_new_one() {
     let sorting = Sorting::by_metadata_key(sort_by_metadata_key.clone());
     let account_id = ALICE_ID.clone();
 
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_635).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let test_client = network.client();
 
     let mut tester_assets = vec![];
     let mut register_asset_definitions = vec![];
@@ -120,8 +120,8 @@ fn correct_pagination_assets_after_creating_new_one() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn correct_sorting_of_entities() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_640).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let test_client = network.client();
 
     let sort_by_metadata_key = "test_sort".parse::<Name>().expect("Valid");
 
@@ -294,8 +294,8 @@ fn correct_sorting_of_entities() {
 fn sort_only_elements_which_have_sorting_key() -> Result<()> {
     const TEST_DOMAIN: &str = "neverland";
 
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_680).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let test_client = network.client();
 
     let domain_id: DomainId = TEST_DOMAIN.parse().unwrap();
     test_client

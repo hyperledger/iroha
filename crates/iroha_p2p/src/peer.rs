@@ -128,11 +128,11 @@ mod run {
             let peer = match tokio::time::timeout(idle_timeout, peer.handshake()).await {
                 Ok(Ok(ready)) => ready,
                 Ok(Err(error)) => {
-                    iroha_logger::error!(%error, "Failure during handshake.");
+                    iroha_logger::warn!(?error, "Failure during handshake.");
                     return;
                 },
                 Err(_) => {
-                    iroha_logger::error!(timeout=?idle_timeout, "Other peer has been idle during handshake");
+                    iroha_logger::warn!(timeout=?idle_timeout, "Other peer has been idle during handshake");
                     return;
                 }
             };

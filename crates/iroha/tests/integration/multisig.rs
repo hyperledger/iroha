@@ -20,17 +20,15 @@ use nonzero_ext::nonzero;
 
 #[test]
 fn mutlisig() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_400).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
-
-    test_client.submit_all_blocking([
-        SetParameter::new(Parameter::SmartContract(SmartContractParameter::Fuel(
-            nonzero!(100_000_000_u64),
-        ))),
-        SetParameter::new(Parameter::Executor(SmartContractParameter::Fuel(nonzero!(
-            100_000_000_u64
-        )))),
-    ])?;
+    let (network, _rt) = NetworkBuilder::new()
+        .with_genesis_instruction(SetParameter::new(Parameter::SmartContract(
+            SmartContractParameter::Fuel(nonzero!(100_000_000_u64)),
+        )))
+        .with_genesis_instruction(SetParameter::new(Parameter::Executor(
+            SmartContractParameter::Fuel(nonzero!(100_000_000_u64)),
+        )))
+        .start_blocking()?;
+    let test_client = network.client();
 
     let account_id = ALICE_ID.clone();
     let multisig_register_trigger_id = "multisig_register".parse::<TriggerId>()?;

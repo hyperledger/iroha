@@ -17,6 +17,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  NEXTEST_PROFILE: ci
 
 jobs:
   tests:
@@ -31,4 +32,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@nextest
       - name: Run UI tests, with ${{ matrix.feature_flag }}
-        run: mold --run cargo nextest run --no-fail-fast  -E 'test(ui)' --${{ matrix.feature_flag }}
+        run: mold --run cargo nextest run -E 'test(ui)' --${{ matrix.feature_flag }}

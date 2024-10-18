@@ -5,8 +5,8 @@ use iroha_test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 fn must_execute_both_triggers() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_650).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let test_client = network.client();
 
     let account_id = ALICE_ID.clone();
     let asset_definition_id = "rose#wonderland".parse()?;

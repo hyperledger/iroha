@@ -18,8 +18,6 @@ categories.workspace = true
 workspace = true
 
 [features]
-default = ["telemetry"]
-
 # Support lightweight telemetry, including diagnostics
 telemetry = []
 # Support Prometheus metrics. See https://prometheus.io/.

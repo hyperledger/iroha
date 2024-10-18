@@ -1,142 +1,126 @@
-use std::thread;
+use std::time::Duration;
 
+use assert_matches::assert_matches;
 use eyre::Result;
 use iroha::{
     client,
+    client::Client,
     data_model::{parameter::BlockParameter, prelude::*},
 };
-use iroha_config::parameters::actual::Root as Config;
-use iroha_test_network::*;
+use iroha_test_network::{NetworkBuilder, NetworkPeer};
 use iroha_test_samples::gen_account_in;
 use nonzero_ext::nonzero;
+use tokio::{task::spawn_blocking, time::sleep};
 
-// Note the test is marked as `unstable`,  not the network.
-#[ignore = "ignore, more in #2851"]
-#[test]
-fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
+#[tokio::test]
+async fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
+    const PIPELINE_TIME: Duration = Duration::from_millis(300);
+
     // Given a network
-    let (rt, network, genesis_client, pipeline_time, account_id, asset_definition_id) = init()?;
-    wait_for_genesis_committed(&network.clients(), 0);
+    let mut network = NetworkBuilder::new()
+        .with_pipeline_time(PIPELINE_TIME)
+        .with_peers(4)
+        .with_genesis_instruction(SetParameter::new(Parameter::Block(
+            BlockParameter::MaxTransactions(nonzero!(1_u64)),
+        )))
+        .start()
+        .await?;
+    let client = network.client();
+
+    let (account, _account_keypair) = gen_account_in("domain");
+    let asset_def: AssetDefinitionId = "xor#domain".parse()?;
+    {
+        let client = client.clone();
+        let account = account.clone();
+        let asset_def = asset_def.clone();
+        spawn_blocking(move || {
+            client.submit_all_blocking::<InstructionBox>([
+                Register::domain(Domain::new("domain".parse()?)).into(),
+                Register::account(Account::new(account)).into(),
+                Register::asset_definition(AssetDefinition::numeric(asset_def)).into(),
+            ])
+        })
+        .await??; // blocks=2
+    }
 
     // When assets are minted
-    mint(
-        &asset_definition_id,
-        &account_id,
-        &genesis_client,
-        pipeline_time,
-        numeric!(100),
-    )?;
+    mint(&client, &asset_def, &account, numeric!(100)).await?;
+    network.ensure_blocks(3).await?;
     // and a new peer is registered
-    let (peer, peer_client) = rt.block_on(network.add_peer());
+    let new_peer = NetworkPeer::generate();
+    let new_peer_id = new_peer.id();
+    let new_peer_client = new_peer.client();
+    network.add_peer(&new_peer);
+    new_peer.start(network.config(), None).await;
+    {
+        let client = client.clone();
+        let id = new_peer_id.clone();
+        spawn_blocking(move || client.submit_blocking(Register::peer(Peer::new(id)))).await??;
+    }
+    network.ensure_blocks(4).await?;
     // Then the new peer should already have the mint result.
-    check_assets(
-        &peer_client,
-        &account_id,
-        &asset_definition_id,
-        numeric!(100),
+    assert_eq!(
+        find_asset(&new_peer_client, &account, &asset_def).await?,
+        numeric!(100)
     );
-    // Also, when a peer is unregistered
-    let remove_peer = Unregister::peer(peer.id.clone());
-    genesis_client.submit(remove_peer)?;
-    thread::sleep(pipeline_time * 2);
-    // We can mint without error.
-    mint(
-        &asset_definition_id,
-        &account_id,
-        &genesis_client,
-        pipeline_time,
-        numeric!(200),
-    )?;
+
+    // When a peer is unregistered
+    {
+        let client = client.clone();
+        spawn_blocking(move || client.submit_blocking(Unregister::peer(new_peer_id))).await??;
+        // blocks=6
+    }
+    network.remove_peer(&new_peer);
+    // We can mint without an error.
+    mint(&client, &asset_def, &account, numeric!(200)).await?;
     // Assets are increased on the main network.
-    check_assets(
-        &genesis_client,
-        &account_id,
-        &asset_definition_id,
-        numeric!(300),
+    network.ensure_blocks(6).await?;
+    assert_eq!(
+        find_asset(&client, &account, &asset_def).await?,
+        numeric!(300)
     );
     // But not on the unregistered peer's network.
-    check_assets(
-        &peer_client,
-        &account_id,
-        &asset_definition_id,
-        numeric!(100),
+    sleep(PIPELINE_TIME * 5).await;
+    assert_eq!(
+        find_asset(&new_peer_client, &account, &asset_def).await?,
+        numeric!(100)
     );
+
     Ok(())
 }
 
-fn check_assets(
-    iroha: &client::Client,
-    account_id: &AccountId,
-    asset_definition_id: &AssetDefinitionId,
-    quantity: Numeric,
-) {
-    iroha
-        .poll_with_period(Config::block_sync_gossip_time(), 15, |client| {
-            let assets = client
-                .query(client::asset::all())
-                .filter_with(|asset| asset.id.account.eq(account_id.clone()))
-                .execute_all()?;
+async fn find_asset(
+    client: &Client,
+    account: &AccountId,
+    asset_definition: &AssetDefinitionId,
+) -> Result<Numeric> {
+    let account_id = account.clone();
+    let client = client.clone();
+    let asset = spawn_blocking(move || {
+        client
+            .query(client::asset::all())
+            .filter_with(|asset| asset.id.account.eq(account_id.clone()))
+            .execute_all()
+    })
+    .await??
+    .into_iter()
+    .find(|asset| asset.id().definition() == asset_definition)
+    .expect("asset should be there");
 
-            Ok(assets.iter().any(|asset| {
-                asset.id().definition() == asset_definition_id
-                    && *asset.value() == AssetValue::Numeric(quantity)
-            }))
-        })
-        .expect("Test case failure");
+    assert_matches!(asset.value(), AssetValue::Numeric(quantity) => Ok(*quantity))
 }
 
-fn mint(
+async fn mint(
+    client: &Client,
     asset_definition_id: &AssetDefinitionId,
     account_id: &AccountId,
-    client: &client::Client,
-    pipeline_time: std::time::Duration,
     quantity: Numeric,
-) -> Result<Numeric, color_eyre::Report> {
+) -> Result<()> {
     let mint_asset = Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
-    client.submit(mint_asset)?;
-    thread::sleep(pipeline_time * 5);
-    iroha_logger::info!("Mint");
-    Ok(quantity)
-}
-
-fn init() -> Result<(
-    tokio::runtime::Runtime,
-    iroha_test_network::Network,
-    iroha::client::Client,
-    std::time::Duration,
-    AccountId,
-    AssetDefinitionId,
-)> {
-    let (rt, network, client) = Network::start_test_with_runtime(4, Some(10_925));
-    let pipeline_time = Config::pipeline_time();
-    iroha_logger::info!("Started");
-
-    let set_max_txns_in_block = SetParameter::new(Parameter::Block(
-        BlockParameter::MaxTransactions(nonzero!(1_u64)),
-    ));
-
-    let create_domain = Register::domain(Domain::new("domain".parse()?));
-    let (account_id, _account_keypair) = gen_account_in("domain");
-    let create_account = Register::account(Account::new(account_id.clone()));
-    let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
-    let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    client.submit_all_blocking::<InstructionBox>([
-        set_max_txns_in_block.into(),
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ])?;
-    iroha_logger::info!("Init");
-    Ok((
-        rt,
-        network,
-        client,
-        pipeline_time,
-        account_id,
-        asset_definition_id,
-    ))
+    let client = client.clone();
+    spawn_blocking(move || client.submit_blocking(mint_asset)).await??;
+    Ok(())
 }

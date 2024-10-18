@@ -7,8 +7,8 @@ use iroha_test_samples::{gen_account_in, ALICE_ID};
 
 #[test]
 fn find_accounts_with_asset() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_760).start_with_runtime();
-    wait_for_genesis_committed(&[test_client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let test_client = network.client();
 
     // Registering new asset definition
     let definition_id = "test_coin#wonderland"

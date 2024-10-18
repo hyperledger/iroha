@@ -28,8 +28,8 @@ fn executor_upgrade_should_work() -> Result<()> {
         .parse::<iroha::crypto::PrivateKey>()
         .unwrap();
 
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_795).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     // Register `admin` domain and account
     let admin_domain = Domain::new(admin_id.domain().clone());
@@ -68,8 +68,8 @@ fn executor_upgrade_should_work() -> Result<()> {
 
 #[test]
 fn executor_upgrade_should_run_migration() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_990).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     // Check that `CanUnregisterDomain` exists
     assert!(client
@@ -121,8 +121,8 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
 
 #[test]
 fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_030).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     // Permission which will be removed by executor
     let can_unregister_domain = CanUnregisterDomain {
@@ -205,8 +205,8 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 fn executor_custom_instructions_simple() -> Result<()> {
     use executor_custom_data_model::simple_isi::MintAssetForAllAccounts;
 
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_270).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     upgrade_executor(&client, "executor_custom_instructions_simple")?;
 
@@ -244,8 +244,8 @@ fn executor_custom_instructions_complex() -> Result<()> {
         ConditionalExpr, CoreExpr, EvaluatesTo, Expression, Greater,
     };
 
-    let (_rt, _peer, client) = PeerBuilder::new().with_port(11_275).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     let executor_fuel_limit = SetParameter::new(Parameter::Executor(SmartContractParameter::Fuel(
         nonzero!(1_000_000_000_u64),
@@ -300,8 +300,8 @@ fn executor_custom_instructions_complex() -> Result<()> {
 
 #[test]
 fn migration_fail_should_not_cause_any_effects() {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_980).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let client = network.client();
 
     let assert_domain_does_not_exist = |client: &Client, domain_id: &DomainId| {
         assert!(
@@ -333,8 +333,8 @@ fn migration_fail_should_not_cause_any_effects() {
 
 #[test]
 fn migration_should_cause_upgrade_event() {
-    let (rt, _peer, client) = <PeerBuilder>::new().with_port(10_995).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, rt) = NetworkBuilder::new().start_blocking().unwrap();
+    let client = network.client();
 
     let events_client = client.clone();
     let task = rt.spawn(async move {
@@ -367,14 +367,14 @@ fn migration_should_cause_upgrade_event() {
 fn define_custom_parameter() -> Result<()> {
     use executor_custom_data_model::parameters::DomainLimits;
 
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(11_325).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
+    let client = network.client();
 
     let long_domain_name = "0".repeat(2_usize.pow(5)).parse::<DomainId>()?;
     let create_domain = Register::domain(Domain::new(long_domain_name));
     client.submit_blocking(create_domain)?;
 
-    upgrade_executor(&client, "executor_with_custom_parameter").unwrap();
+    upgrade_executor(&client, "executor_with_custom_parameter")?;
 
     let too_long_domain_name = "1".repeat(2_usize.pow(5)).parse::<DomainId>()?;
     let create_domain = Register::domain(Domain::new(too_long_domain_name));
