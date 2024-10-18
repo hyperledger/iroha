@@ -3,7 +3,7 @@ use iroha::{
     client,
     crypto::KeyPair,
     data_model::{
-        asset::{AssetId, AssetType, AssetValue},
+        asset::AssetId,
         isi::error::{InstructionEvaluationError, InstructionExecutionError, Mismatch, TypeError},
         prelude::*,
         transaction::error::TransactionRejectionReason,
@@ -15,123 +15,23 @@ use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID};
 
 #[test]
 // This test is also covered at the UI level in the iroha_cli tests
-// in test_register_asset_definitions.py
-fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
-    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
-    let test_client = network.client();
-
-    // Given
-    let account_id = ALICE_ID.clone();
-
-    let asset_definition_id = "test_asset#wonderland"
-        .parse::<AssetDefinitionId>()
-        .expect("Valid");
-    let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let register_asset = Register::asset(Asset::new(
-        AssetId::new(asset_definition_id.clone(), account_id.clone()),
-        0_u32,
-    ));
-
-    test_client.submit_all_blocking::<InstructionBox>([
-        create_asset.into(),
-        register_asset.clone().into(),
-    ])?;
-
-    // Registering an asset to an account which doesn't have one
-    // should result in asset being created
-    let asset = test_client
-        .query(client::asset::all())
-        .filter_with(|asset| asset.id.account.eq(account_id))
-        .execute_all()?
-        .into_iter()
-        .find(|asset| *asset.id().definition() == asset_definition_id)
-        .unwrap();
-    assert_eq!(*asset.value(), AssetValue::Numeric(Numeric::ZERO));
-
-    // But registering an asset to account already having one should fail
-    assert!(test_client.submit_blocking(register_asset).is_err());
-
-    Ok(())
-}
-
-#[test]
-fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
-    let (network, _rt) = NetworkBuilder::new().start_blocking()?;
-    let test_client = network.client();
-
-    // Given
-    let account_id = ALICE_ID.clone();
-
-    let asset_definition_id = "test_asset#wonderland"
-        .parse::<AssetDefinitionId>()
-        .expect("Valid");
-    let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
-    let create_asset: InstructionBox =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone())).into();
-    let register_asset = Register::asset(Asset::new(asset_id.clone(), 0_u32)).into();
-    let unregister_asset = Unregister::asset(asset_id);
-
-    test_client.submit_all_blocking([create_asset, register_asset])?;
-
-    // Check for asset to be registered
-    let assets = test_client
-        .query(client::asset::all())
-        .filter_with(|asset| asset.id.account.eq(account_id.clone()))
-        .execute_all()?;
-
-    assert!(assets
-        .iter()
-        .any(|asset| *asset.id().definition() == asset_definition_id));
-
-    test_client.submit_blocking(unregister_asset)?;
-
-    // ... and check that it is removed after Unregister
-    let assets = test_client
-        .query(client::asset::all())
-        .filter_with(|asset| asset.id.account.eq(account_id.clone()))
-        .execute_all()?;
-
-    assert!(assets
-        .iter()
-        .all(|asset| *asset.id().definition() != asset_definition_id));
-
-    Ok(())
-}
-
-#[test]
-// This test is also covered at the UI level in the iroha_cli tests
 // in test_mint_assets.py
-fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
+fn mint_asset_should_increase_asset_amount() -> Result<()> {
     let (network, _rt) = NetworkBuilder::new().start_blocking()?;
     let test_client = network.client();
-
     // Given
-    let account_id = ALICE_ID.clone();
-    let asset_definition_id = "xor#wonderland"
-        .parse::<AssetDefinitionId>()
-        .expect("Valid");
-    let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let metadata = iroha::data_model::metadata::Metadata::default();
+    let account = ALICE_ID.clone();
+    let asset_definition = "xor#wonderland".parse::<AssetDefinitionId>()?;
+    let define_asset = Register::asset_definition(AssetDefinition::new(asset_definition.clone()));
     //When
+    let asset_id = AssetId::new(asset_definition.clone(), account.clone());
     let quantity = numeric!(200);
-    let mint = Mint::asset_numeric(
+    let mint = Mint::asset_numeric(quantity, asset_id.clone());
+    test_client.submit_all_blocking::<InstructionBox>([define_asset.into(), mint.into()])?;
+    assert_eq!(
         quantity,
-        AssetId::new(asset_definition_id.clone(), account_id.clone()),
+        test_client.query_single(FindAssetQuantityById::new(asset_id))?
     );
-    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions, metadata);
-    test_client.submit_transaction_blocking(&tx)?;
-
-    let asset = test_client
-        .query(client::asset::all())
-        .filter_with(|asset| asset.id.account.eq(account_id))
-        .execute_all()?
-        .into_iter()
-        .find(|asset| *asset.id().definition() == asset_definition_id)
-        .unwrap();
-    assert_eq!(*asset.value(), AssetValue::Numeric(quantity));
     Ok(())
 }
 
@@ -141,31 +41,18 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     let test_client = network.client();
 
     // Given
-    let account_id = ALICE_ID.clone();
-    let asset_definition_id = "xor#wonderland"
-        .parse::<AssetDefinitionId>()
-        .expect("Valid");
-    let create_asset =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let metadata = iroha::data_model::metadata::Metadata::default();
-    // When
+    let account = ALICE_ID.clone();
+    let asset_definition = "xor#wonderland".parse::<AssetDefinitionId>()?;
+    let create_asset = Register::asset_definition(AssetDefinition::new(asset_definition.clone()));
+    //When
     let quantity = Numeric::new(2_u128.pow(65), 0);
-    let mint = Mint::asset_numeric(
+    let asset_id = AssetId::new(asset_definition, account);
+    let mint = Mint::asset_numeric(quantity, asset_id.clone());
+    test_client.submit_all_blocking::<InstructionBox>([create_asset.into(), mint.into()])?;
+    assert_eq!(
         quantity,
-        AssetId::new(asset_definition_id.clone(), account_id.clone()),
+        test_client.query_single(FindAssetQuantityById::new(asset_id))?
     );
-    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions, metadata);
-    test_client.submit_transaction_blocking(&tx)?;
-
-    let asset = test_client
-        .query(client::asset::all())
-        .filter_with(|asset| asset.id.account.eq(account_id))
-        .execute_all()?
-        .into_iter()
-        .find(|asset| *asset.id().definition() == asset_definition_id)
-        .unwrap();
-    assert_eq!(*asset.value(), AssetValue::Numeric(quantity));
     Ok(())
 }
 
@@ -175,54 +62,31 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let test_client = network.client();
 
     // Given
-    let account_id = ALICE_ID.clone();
-    let asset_definition_id = "xor#wonderland"
-        .parse::<AssetDefinitionId>()
-        .expect("Valid");
-    let asset_definition = AssetDefinition::numeric(asset_definition_id.clone());
-    let create_asset = Register::asset_definition(asset_definition);
-    let metadata = iroha::data_model::metadata::Metadata::default();
+    let account = ALICE_ID.clone();
+    let asset_definition = "xor#wonderland".parse::<AssetDefinitionId>()?;
+    let define_asset = Register::asset_definition(AssetDefinition::new(asset_definition.clone()));
 
     //When
     let quantity = numeric!(123.456);
-    let mint = Mint::asset_numeric(
-        quantity,
-        AssetId::new(asset_definition_id.clone(), account_id.clone()),
-    );
-    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions, metadata);
-    test_client.submit_transaction_blocking(&tx)?;
-
-    let asset = test_client
-        .query(client::asset::all())
-        .filter_with(|asset| asset.id.account.eq(account_id.clone()))
-        .execute_all()?
-        .into_iter()
-        .find(|asset| *asset.id().definition() == asset_definition_id)
-        .unwrap();
-    assert_eq!(*asset.value(), AssetValue::Numeric(quantity));
+    let asset_id = AssetId::new(asset_definition.clone(), account.clone());
+    let mint = Mint::asset_numeric(quantity, asset_id.clone());
+    test_client
+        .submit_all_blocking::<InstructionBox>([define_asset.into(), mint.clone().into()])?;
+    {
+        let value = test_client.query_single(FindAssetQuantityById::new(asset_id.clone()))?;
+        assert_eq!(value, quantity)
+    }
 
     // Add some fractional part
-    let quantity2 = numeric!(0.55);
-    let mint = Mint::asset_numeric(
-        quantity2,
-        AssetId::new(asset_definition_id.clone(), account_id.clone()),
-    );
-    // and check that it is added without errors
-    let sum = quantity
-        .checked_add(quantity2)
-        .ok_or_else(|| eyre::eyre!("overflow"))?;
+    let incremint = numeric!(0.55);
+    let mint = Mint::asset_numeric(incremint, asset_id.clone());
     test_client.submit_blocking(mint)?;
-
-    let asset = test_client
-        .query(client::asset::all())
-        .filter_with(|asset| asset.id.account.eq(account_id))
-        .execute_all()?
-        .into_iter()
-        .find(|asset| *asset.id().definition() == asset_definition_id)
-        .unwrap();
-    assert_eq!(*asset.value(), AssetValue::Numeric(sum));
-
+    // and check that it is added without errors
+    let sum = quantity.checked_add(incremint).unwrap();
+    {
+        let value = test_client.query_single(FindAssetQuantityById::new(asset_id.clone()))?;
+        assert_eq!(value, sum)
+    }
     Ok(())
 }
 
@@ -333,7 +197,7 @@ fn transfer_asset_definition() {
     let asset_definition_id: AssetDefinitionId = "asset#wonderland".parse().expect("Valid");
 
     test_client
-        .submit_blocking(Register::asset_definition(AssetDefinition::numeric(
+        .submit_blocking(Register::asset_definition(AssetDefinition::new(
             asset_definition_id.clone(),
         )))
         .expect("Failed to submit transaction");
@@ -371,10 +235,8 @@ fn fail_if_dont_satisfy_spec() {
     let asset_definition_id: AssetDefinitionId = "asset#wonderland".parse().expect("Valid");
     let asset_id: AssetId = AssetId::new(asset_definition_id.clone(), alice_id.clone());
     // Create asset definition which accepts only integers
-    let asset_definition = AssetDefinition::new(
-        asset_definition_id.clone(),
-        AssetType::Numeric(NumericSpec::integer()),
-    );
+    let asset_definition =
+        AssetDefinition::new(asset_definition_id).with_numeric_spec(NumericSpec::integer());
 
     test_client
         .submit_blocking(Register::asset_definition(asset_definition))
@@ -382,7 +244,7 @@ fn fail_if_dont_satisfy_spec() {
 
     let isi = |value: Numeric| {
         [
-            Register::asset(Asset::new(asset_id.clone(), value)).into(),
+            Mint::asset_numeric(value, asset_id.clone()).into(),
             Mint::asset_numeric(value, asset_id.clone()).into(),
             Burn::asset_numeric(value, asset_id.clone()).into(),
             Transfer::asset_numeric(asset_id.clone(), value, bob_id.clone()).into(),
@@ -406,8 +268,8 @@ fn fail_if_dont_satisfy_spec() {
             &TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
                 InstructionExecutionError::Evaluate(InstructionEvaluationError::Type(
                     TypeError::from(Mismatch {
-                        expected: AssetType::Numeric(NumericSpec::integer()),
-                        actual: AssetType::Numeric(NumericSpec::fractional(2))
+                        expected: NumericSpec::integer(),
+                        actual: NumericSpec::fractional(2)
                     })
                 ))
             ))
@@ -436,7 +298,7 @@ mod register {
     }
 
     pub fn asset_definition_numeric(id: &str) -> Register<AssetDefinition> {
-        Register::asset_definition(AssetDefinition::numeric(
+        Register::asset_definition(AssetDefinition::new(
             id.parse().expect("should parse to AssetDefinitionId"),
         ))
     }

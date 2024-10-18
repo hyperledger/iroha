@@ -290,7 +290,7 @@ mod tests {
 
     fn get_test_instruction() -> InstructionBox {
         let new_asset_id: AssetId = "tulip##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse().unwrap();
-        Register::asset(Asset::new(new_asset_id, 1_u32)).into()
+        Mint::asset_numeric(1_u32, new_asset_id).into()
     }
 
     fn get_test_query() -> FindAssetQuantityById {

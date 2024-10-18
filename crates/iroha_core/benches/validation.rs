@@ -24,7 +24,7 @@ fn build_test_transaction(chain_id: ChainId) -> TransactionBuilder {
     let create_domain = Register::domain(Domain::new(domain_id.clone()));
     let create_account = Register::account(Account::new(gen_account_in(&domain_id).0));
     let asset_definition_id = "xor#domain".parse().unwrap();
-    let create_asset = Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
+    let create_asset = Register::asset_definition(AssetDefinition::new(asset_definition_id));
 
     TransactionBuilder::new(chain_id, STARTER_ID.clone()).with_instructions::<InstructionBox>([
         create_domain.into(),

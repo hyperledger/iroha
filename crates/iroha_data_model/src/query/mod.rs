@@ -138,7 +138,6 @@ mod model {
 
         FindDomainMetadata(FindDomainMetadata),
         FindAccountMetadata(FindAccountMetadata),
-        FindAssetMetadata(FindAssetMetadata),
         FindAssetDefinitionMetadata(FindAssetDefinitionMetadata),
         FindTriggerMetadata(FindTriggerMetadata),
     }
@@ -572,7 +571,6 @@ impl_iter_queries! {
 impl_singular_queries! {
     FindAccountMetadata => Json,
     FindAssetQuantityById => Numeric,
-    FindAssetMetadata => Json,
     FindAssetDefinitionMetadata => Json,
     FindDomainMetadata => Json,
     FindParameters => crate::parameter::Parameters,
@@ -765,18 +763,6 @@ pub mod asset {
             pub id: AssetId,
         }
 
-        /// [`FindAssetMetadata`] Iroha Query gets [`AssetId`] and key as input and finds [`MetadataValue`]
-        /// of the key-value pair stored in this asset.
-        #[derive(Display)]
-        #[display(fmt = "Find metadata value with `{key}` key in `{id}` asset")]
-        #[ffi_type]
-        pub struct FindAssetMetadata {
-            /// `Id` of an [`Asset`] acting as [`Store`](crate::asset::AssetValue::Store).
-            pub id: AssetId,
-            /// The key of the key-value pair stored in the asset.
-            pub key: Name,
-        }
-
         /// [`FindAssetDefinitionMetadata`] Iroha Query gets [`AssetDefinitionId`] and key as input and finds [`MetadataValue`]
         /// of the key-value pair stored in this asset definition.
         #[derive(Display)]
@@ -793,8 +779,7 @@ pub mod asset {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAssetDefinitionMetadata, FindAssetMetadata, FindAssetQuantityById, FindAssets,
-            FindAssetsDefinitions,
+            FindAssetDefinitionMetadata, FindAssetQuantityById, FindAssets, FindAssetsDefinitions,
         };
     }
 }

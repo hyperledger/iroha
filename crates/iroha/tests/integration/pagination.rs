@@ -90,7 +90,7 @@ fn register_assets(client: &Client) -> Result<()> {
         .map(|c| c.to_string())
         .map(|name| (name + "#wonderland").parse().expect("Valid"))
         .map(|asset_definition_id| {
-            Register::asset_definition(AssetDefinition::numeric(asset_definition_id))
+            Register::asset_definition(AssetDefinition::new(asset_definition_id))
         })
         .collect();
     let _ = client.submit_all_blocking(register)?;
