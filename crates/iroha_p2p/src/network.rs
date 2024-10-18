@@ -10,7 +10,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_config::parameters::actual::Network as Config;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::PeerId;
-use iroha_futures::supervisor::{Child, OnShutdown};
+use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use iroha_logger::prelude::*;
 use iroha_primitives::addr::SocketAddr;
 use parity_scale_codec::Encode as _;
@@ -69,13 +69,14 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
     ///
     /// # Errors
     /// - If binding to address fail
-    #[log(skip(key_pair))]
+    #[log(skip(key_pair, shutdown_signal))]
     pub async fn start(
         key_pair: KeyPair,
         Config {
             address: listen_addr,
             idle_timeout,
         }: Config,
+        shutdown_signal: ShutdownSignal,
     ) -> Result<(Self, Child), Error> {
         // TODO: enhance the error by reporting the origin of `listen_addr`
         let listener = TcpListener::bind(listen_addr.value().to_socket_addrs()?.as_slice()).await?;
@@ -109,7 +110,10 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             _key_exchange: core::marker::PhantomData::<K>,
             _encryptor: core::marker::PhantomData::<E>,
         };
-        let child = Child::new(tokio::task::spawn(network.run()), OnShutdown::Abort);
+        let child = Child::new(
+            tokio::task::spawn(network.run(shutdown_signal)),
+            OnShutdown::Wait(Duration::from_secs(5)),
+        );
         Ok((
             Self {
                 subscribe_to_peers_messages_sender,
@@ -216,8 +220,8 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
 
 impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     /// [`Self`] task.
-    #[log(skip(self), fields(listen_addr=%self.listen_addr, public_key=%self.key_pair.public_key()))]
-    async fn run(mut self) {
+    #[log(skip(self, shutdown_signal), fields(listen_addr=%self.listen_addr, public_key=%self.key_pair.public_key()))]
+    async fn run(mut self, shutdown_signal: ShutdownSignal) {
         // TODO: probably should be configuration parameter
         let mut update_topology_interval = tokio::time::interval(Duration::from_millis(100));
         loop {
@@ -251,7 +255,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                 // they will be exhaust at some point given opportunity for incoming message to being processed
                 network_message = self.network_message_receiver.recv() => {
                     let Some(network_message) = network_message else {
-                        iroha_logger::info!("All handles to network actor are dropped. Shutting down...");
+                        iroha_logger::debug!("All handles to network actor are dropped. Shutting down...");
                         break;
                     };
                     let network_message_receiver_len = self.network_message_receiver.len();
@@ -280,7 +284,14 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                 Some(peer_message) = self.peer_message_receiver.recv() => {
                     self.peer_message(peer_message).await;
                 }
-                else => break,
+                () = shutdown_signal.receive() => {
+                    iroha_logger::debug!("Shutting down due to signal");
+                    break
+                }
+                else => {
+                    iroha_logger::debug!("All receivers are dropped, shutting down");
+                    break
+                },
             }
             tokio::task::yield_now().await;
         }
