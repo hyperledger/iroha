@@ -2,11 +2,10 @@ use eyre::Result;
 use iroha::{
     client,
     data_model::{
-        parameter::{Parameter, Parameters},
+        parameter::{BlockParameter, Parameter, Parameters},
         prelude::*,
     },
 };
-use iroha_data_model::parameter::BlockParameter;
 use iroha_test_network::*;
 use nonzero_ext::nonzero;
 

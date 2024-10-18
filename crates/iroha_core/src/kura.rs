@@ -167,7 +167,9 @@ impl Kura {
                 Ok(()) => match SignedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
                         if prev_block_hash != decoded_block.header().prev_block_hash {
-                            error!("Block has wrong previous block hash. Not reading any blocks beyond this height.");
+                            error!(expected=?prev_block_hash, actual=?decoded_block.header().prev_block_hash,
+                                "Block has wrong previous block hash. Not reading any blocks beyond this height."
+                            );
                             break;
                         }
                         let decoded_block_hash = decoded_block.hash();
@@ -302,7 +304,7 @@ impl Kura {
     }
 
     /// Get a reference to block by height, loading it from disk if needed.
-    pub fn get_block_by_height(&self, block_height: NonZeroUsize) -> Option<Arc<SignedBlock>> {
+    pub fn get_block(&self, block_height: NonZeroUsize) -> Option<Arc<SignedBlock>> {
         let mut data_array_guard = self.block_data.lock();
 
         if data_array_guard.len() < block_height.get() {
@@ -833,7 +835,7 @@ mod tests {
         smartcontracts::Registrable,
         state::State,
         sumeragi::network_topology::Topology,
-        World,
+        StateReadOnly, World,
     };
 
     fn indices<const N: usize>(value: [(u64, u64); N]) -> [BlockIndex; N] {
@@ -1047,15 +1049,15 @@ mod tests {
             assert_eq!(block_count.0, 3);
 
             assert_eq!(
-                kura.get_block_by_height(nonzero!(1_usize)),
+                kura.get_block(nonzero!(1_usize)),
                 Some(Arc::new(block_genesis.into()))
             );
             assert_eq!(
-                kura.get_block_by_height(nonzero!(2_usize)),
+                kura.get_block(nonzero!(2_usize)),
                 Some(Arc::new(block_soft_fork.into()))
             );
             assert_eq!(
-                kura.get_block_by_height(nonzero!(3_usize)),
+                kura.get_block(nonzero!(3_usize)),
                 Some(Arc::new(block_next.into()))
             );
         }
@@ -1121,9 +1123,9 @@ mod tests {
         );
 
         {
-            let mut state_block = state.block();
+            let mut state_block = state.block(genesis.0.header());
             let block_genesis = ValidBlock::validate(
-                genesis.0,
+                genesis.0.clone(),
                 &topology,
                 &chain_id,
                 &genesis_id,
@@ -1138,7 +1140,7 @@ mod tests {
                 state_block.apply_without_execution(&block_genesis, topology.as_ref().to_owned());
             state_block.commit();
             blocks.push(block_genesis.clone());
-            kura.store_block(block_genesis);
+            kura.store_block(block_genesis.clone());
         }
 
         let (max_clock_drift, tx_limits) = {
@@ -1158,11 +1160,13 @@ mod tests {
             crate::AcceptedTransaction::accept(tx2, &chain_id, max_clock_drift, tx_limits).unwrap();
 
         {
-            let mut state_block = state.block();
-            let block = BlockBuilder::new(vec![tx1.clone()])
-                .chain(0, &mut state_block)
+            let unverified_block = BlockBuilder::new(vec![tx1.clone()])
+                .chain(0, state.view().latest_block().as_deref())
                 .sign(&leader_private_key)
-                .unpack(|_| {})
+                .unpack(|_| {});
+
+            let mut state_block = state.block(unverified_block.header());
+            let block = unverified_block
                 .categorize(&mut state_block)
                 .unpack(|_| {})
                 .commit(&topology)
@@ -1176,11 +1180,13 @@ mod tests {
         thread::sleep(BLOCK_FLUSH_TIMEOUT);
 
         {
-            let mut state_block = state.block_and_revert();
-            let block_soft_fork = BlockBuilder::new(vec![tx1])
-                .chain(1, &mut state_block)
+            let unverified_block_soft_fork = BlockBuilder::new(vec![tx1])
+                .chain(1, Some(&genesis.0))
                 .sign(&leader_private_key)
-                .unpack(|_| {})
+                .unpack(|_| {});
+
+            let mut state_block = state.block_and_revert(unverified_block_soft_fork.header());
+            let block_soft_fork = unverified_block_soft_fork
                 .categorize(&mut state_block)
                 .unpack(|_| {})
                 .commit(&topology)
@@ -1195,11 +1201,13 @@ mod tests {
         thread::sleep(BLOCK_FLUSH_TIMEOUT);
 
         {
-            let mut state_block: crate::state::StateBlock = state.block();
-            let block_next = BlockBuilder::new(vec![tx2])
-                .chain(0, &mut state_block)
+            let unverified_block_next = BlockBuilder::new(vec![tx2])
+                .chain(0, state.view().latest_block().as_deref())
                 .sign(&leader_private_key)
-                .unpack(|_| {})
+                .unpack(|_| {});
+
+            let mut state_block = state.block(unverified_block_next.header());
+            let block_next = unverified_block_next
                 .categorize(&mut state_block)
                 .unpack(|_| {})
                 .commit(&topology)

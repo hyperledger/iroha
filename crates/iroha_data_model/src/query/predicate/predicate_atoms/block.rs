@@ -73,7 +73,7 @@ impl_predicate_box!(SignedBlock: SignedBlockPredicateBox);
 impl EvaluatePredicate<SignedBlock> for SignedBlockPredicateBox {
     fn applies(&self, input: &SignedBlock) -> bool {
         match self {
-            SignedBlockPredicateBox::Header(header) => header.applies(input.header()),
+            SignedBlockPredicateBox::Header(header) => header.applies(&input.header()),
         }
     }
 }

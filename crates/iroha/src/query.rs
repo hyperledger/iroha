@@ -4,25 +4,24 @@ use std::{collections::HashMap, fmt::Debug};
 
 use eyre::{eyre, Context, Result};
 use http::StatusCode;
-use iroha_crypto::KeyPair;
-use iroha_data_model::{
-    account::AccountId,
-    query::{
-        builder::{QueryBuilder, QueryExecutor},
-        parameters::ForwardCursor,
-        predicate::HasPredicateBox,
-        QueryOutput, QueryOutputBatchBox, QueryRequest, QueryResponse, QueryWithParams,
-        SingularQuery, SingularQueryBox, SingularQueryOutputBox,
-    },
-    ValidationFail,
-};
 use iroha_torii_const::uri as torii_uri;
 use parity_scale_codec::{DecodeAll, Encode};
 use url::Url;
 
 use crate::{
     client::{join_torii_url, Client, QueryResult, ResponseReport},
-    data_model::query::Query,
+    crypto::KeyPair,
+    data_model::{
+        account::AccountId,
+        query::{
+            builder::{QueryBuilder, QueryExecutor},
+            parameters::ForwardCursor,
+            predicate::HasPredicateBox,
+            Query, QueryOutput, QueryOutputBatchBox, QueryRequest, QueryResponse, QueryWithParams,
+            SingularQuery, SingularQueryBox, SingularQueryOutputBox,
+        },
+        ValidationFail,
+    },
     http::{Method as HttpMethod, RequestBuilder},
     http_default::DefaultRequestBuilder,
 };

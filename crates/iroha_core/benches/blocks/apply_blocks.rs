@@ -48,9 +48,8 @@ impl StateApplyBlocks {
             instructions
                 .into_iter()
                 .map(|instructions| {
-                    let mut state_block = state.block();
-                    let block = create_block(
-                        &mut state_block,
+                    let (block, mut state_block) = create_block(
+                        &state,
                         instructions,
                         alice_id.clone(),
                         alice_keypair.private_key(),
@@ -88,10 +87,10 @@ impl StateApplyBlocks {
         }: &Self,
     ) -> Result<()> {
         for (block, i) in blocks.iter().zip(1..) {
-            let mut state_block = state.block();
+            let mut state_block = state.block(block.as_ref().header());
             let _events = state_block.apply(block, topology.as_ref().to_owned())?;
-            assert_eq!(state_block.height(), i);
             state_block.commit();
+            assert_eq!(state.view().height(), i);
         }
 
         Ok(())

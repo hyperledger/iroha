@@ -412,7 +412,6 @@ mod tests {
                 (params.sumeragi().max_clock_drift(), params.transaction)
             };
 
-            let mut state_block = state.block();
             let valid_tx = {
                 let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                     .with_instructions::<InstructionBox>([])
@@ -433,10 +432,12 @@ mod tests {
             let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
             let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
             let topology = Topology::new(vec![peer_id]);
-            let first_block = BlockBuilder::new(transactions.clone())
-                .chain(0, &mut state_block)
+            let unverified_first_block = BlockBuilder::new(transactions.clone())
+                .chain(0, state.view().latest_block().as_deref())
                 .sign(&peer_private_key)
-                .unpack(|_| {})
+                .unpack(|_| {});
+            let mut state_block = state.block(unverified_first_block.header());
+            let first_block = unverified_first_block
                 .categorize(&mut state_block)
                 .unpack(|_| {})
                 .commit(&topology)
@@ -445,12 +446,16 @@ mod tests {
 
             let _events = state_block.apply(&first_block, topology.as_ref().to_owned())?;
             kura.store_block(first_block);
+            state_block.commit();
 
             for _ in 1u64..blocks {
-                let block = BlockBuilder::new(transactions.clone())
-                    .chain(0, &mut state_block)
+                let unverified_block = BlockBuilder::new(transactions.clone())
+                    .chain(0, state.view().latest_block().as_deref())
                     .sign(&peer_private_key)
-                    .unpack(|_| {})
+                    .unpack(|_| {});
+                let mut state_block = state.block(unverified_block.header());
+
+                let block = unverified_block
                     .categorize(&mut state_block)
                     .unpack(|_| {})
                     .commit(&topology)
@@ -459,8 +464,8 @@ mod tests {
 
                 let _events = state_block.apply(&block, topology.as_ref().to_owned())?;
                 kura.store_block(block);
+                state_block.commit();
             }
-            state_block.commit();
         }
 
         Ok(state)
@@ -540,7 +545,7 @@ mod tests {
                 .expect("Query execution should not fail")
                 .next()
                 .expect("Query should return a block header"),
-            *block.header()
+            block.header()
         );
         assert!(
             FindBlockHeaders::new()
@@ -599,7 +604,6 @@ mod tests {
             (params.sumeragi().max_clock_drift(), params.transaction)
         };
 
-        let mut state_block = state.block();
         let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
             .with_instructions::<InstructionBox>([])
             .sign(ALICE_KEYPAIR.private_key());
@@ -609,10 +613,12 @@ mod tests {
         let (peer_public_key, _) = KeyPair::random().into_parts();
         let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
         let topology = Topology::new(vec![peer_id]);
-        let vcb = BlockBuilder::new(vec![va_tx.clone()])
-            .chain(0, &mut state_block)
+        let unverified_block = BlockBuilder::new(vec![va_tx.clone()])
+            .chain(0, state.view().latest_block().as_deref())
             .sign(ALICE_KEYPAIR.private_key())
-            .unpack(|_| {})
+            .unpack(|_| {});
+        let mut state_block = state.block(unverified_block.header());
+        let vcb = unverified_block
             .categorize(&mut state_block)
             .unpack(|_| {})
             .commit(&topology)

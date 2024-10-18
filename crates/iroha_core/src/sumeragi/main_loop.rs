@@ -229,9 +229,7 @@ impl Sumeragi {
                         }
                     };
 
-                    let mut state_block = state.block();
-                    state_block.world.genesis_creation_time_ms =
-                        Some(block.header().creation_time_ms);
+                    let mut state_block = state.block(block.header());
                     let block = match ValidBlock::validate(
                         block,
                         &self.topology,
@@ -293,8 +291,7 @@ impl Sumeragi {
             assert_eq!(state_view.latest_block_hash(), None);
         }
 
-        let mut state_block = state.block();
-        state_block.world.genesis_creation_time_ms = Some(genesis.header().creation_time_ms);
+        let mut state_block = state.block(genesis.header());
 
         let msg = BlockCreated::from(&genesis);
         self.broadcast_packet(msg);
@@ -864,16 +861,17 @@ impl Sumeragi {
                 .map(|tx| tx.deref().clone())
                 .collect::<Vec<_>>();
 
-            let mut state_block = state.block();
             let unverified_block = BlockBuilder::new(transactions)
-                .chain(self.topology.view_change_index(), &mut state_block)
+                .chain(
+                    self.topology.view_change_index(),
+                    state.view().latest_block().as_deref(),
+                )
                 .sign(self.key_pair.private_key())
                 .unpack(|e| self.send_event(e));
-
             info!(
                 peer_id=%self.peer_id,
-                block_hash=%unverified_block.header.hash(),
-                txns=%unverified_block.transactions.len(),
+                block_hash=%unverified_block.header().hash(),
+                txns=%unverified_block.transactions().len(),
                 view_change_index=%self.topology.view_change_index(),
                 "Block created"
             );
@@ -883,6 +881,7 @@ impl Sumeragi {
                 self.broadcast_packet(msg);
             }
 
+            let mut state_block = state.block(unverified_block.header());
             let block = unverified_block
                 .categorize(&mut state_block)
                 .unpack(|e| self.send_event(e));
@@ -1405,7 +1404,6 @@ fn categorize_block_sync(
 
 #[cfg(test)]
 mod tests {
-    use iroha_crypto::SignatureOf;
     use iroha_data_model::{isi::InstructionBox, transaction::TransactionBuilder};
     use iroha_genesis::GENESIS_DOMAIN_ID;
     use iroha_test_samples::gen_account_in;
@@ -1421,14 +1419,10 @@ mod tests {
         private_key: &PrivateKey,
         f: impl FnOnce(&mut BlockHeader),
     ) -> NewBlock {
-        let mut header = block.header.clone();
+        let mut header = block.header();
         f(&mut header);
 
-        NewBlock {
-            signature: BlockSignature(0, SignatureOf::new(private_key, &header)),
-            header,
-            transactions: block.transactions.clone(),
-        }
+        block.clone().update_header(header, private_key)
     }
 
     fn create_data_for_test(
@@ -1459,8 +1453,6 @@ mod tests {
             let params = state_view.parameters();
             (params.sumeragi().max_clock_drift(), params.transaction)
         };
-        let mut state_block = state.block();
-
         // Making two transactions that have the same instruction
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_isi])
@@ -1483,10 +1475,13 @@ mod tests {
             .expect("Valid");
 
         // Creating a block of two identical transactions and validating it
-        let genesis = BlockBuilder::new(vec![peers, tx.clone(), tx])
-            .chain(0, &mut state_block)
+        let unverified_genesis = BlockBuilder::new(vec![peers, tx.clone(), tx])
+            .chain(0, state.view().latest_block().as_deref())
             .sign(leader_private_key)
-            .unpack(|_| {})
+            .unpack(|_| {});
+
+        let mut state_block = state.block(unverified_genesis.header());
+        let genesis = unverified_genesis
             .categorize(&mut state_block)
             .unpack(|_| {})
             .commit(topology)
@@ -1498,7 +1493,6 @@ mod tests {
         kura.store_block(genesis);
 
         let block = {
-            let mut state_block = state.block();
             // Making two transactions that have the same instruction
             let create_asset_definition1 = Register::asset_definition(AssetDefinition::numeric(
                 "xor1#wonderland".parse().expect("Valid"),
@@ -1522,7 +1516,7 @@ mod tests {
 
             // Creating a block of two identical transactions and validating it
             BlockBuilder::new(vec![tx1, tx2])
-                .chain(0, &mut state_block)
+                .chain(0, state.view().latest_block().as_deref())
                 .sign(leader_private_key)
                 .unpack(|_| {})
         };
@@ -1560,7 +1554,7 @@ mod tests {
         let (state, kura, unverified_block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
-        let mut state_block = state.block();
+        let mut state_block = state.block(unverified_block.header());
         let committed_block = unverified_block
             .clone()
             .categorize(&mut state_block)
@@ -1651,7 +1645,7 @@ mod tests {
         let (state, kura, unverified_block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
 
-        let mut state_block = state.block();
+        let mut state_block = state.block(unverified_block.header());
         let committed_block = unverified_block
             .clone()
             .categorize(&mut state_block)
@@ -1693,7 +1687,7 @@ mod tests {
             header.view_change_index = 42;
         });
 
-        let mut state_block = state.block();
+        let mut state_block = state.block(unverified_block.header());
         let committed_block = unverified_block
             .clone()
             .categorize(&mut state_block)
@@ -1777,9 +1771,9 @@ mod tests {
         let topology = Topology::new(vec![peer_id]);
         let (state, _, unverified_block, genesis_public_key) =
             create_data_for_test(&chain_id, &topology, &leader_private_key);
-        let valid_block = unverified_block
-            .categorize(&mut state.block())
-            .unpack(|_| {});
+        let mut state_block = state.block(unverified_block.header());
+        let valid_block = unverified_block.categorize(&mut state_block).unpack(|_| {});
+        state_block.commit();
 
         // Malform block signatures so that block going to be rejected
         let dummy_signature = BlockSignature(
@@ -1788,10 +1782,9 @@ mod tests {
         );
         let mut block: SignedBlock = valid_block.into();
         let _prev_signatures = block.replace_signatures(vec![dummy_signature]).unwrap();
-        let mut voting_block = Some(VotingBlock::new(
-            ValidBlock::new_dummy(&leader_private_key),
-            state.block(),
-        ));
+        let dummy_block = ValidBlock::new_dummy(&leader_private_key);
+        let dummy_state_block = state.block(dummy_block.as_ref().header());
+        let mut voting_block = Some(VotingBlock::new(dummy_block, dummy_state_block));
 
         let block_sync_type = categorize_block_sync(&block, &state.view());
         let result = handle_categorized_block_sync(

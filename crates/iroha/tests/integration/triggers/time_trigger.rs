@@ -25,6 +25,8 @@ fn curr_time() -> Duration {
 
 #[test]
 fn mint_asset_after_3_sec() -> Result<()> {
+    const GAP: Duration = Duration::from_secs(3);
+
     let (network, _rt) = NetworkBuilder::new()
         .with_default_pipeline_time()
         .start_blocking()?;
@@ -43,7 +45,6 @@ fn mint_asset_after_3_sec() -> Result<()> {
     })?;
 
     let start_time = curr_time();
-    const GAP: Duration = Duration::from_secs(3);
     assert!(
         GAP < network.pipeline_time(),
         "Schedule should be in the future but within block estimation"

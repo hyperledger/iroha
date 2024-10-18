@@ -1,5 +1,10 @@
+#[allow(clippy::module_inception)]
+#[path = "../../common/mod.rs"]
+mod common;
+
 use std::num::NonZeroU64;
 
+pub use common::*;
 use iroha_core::{
     block::{BlockBuilder, CommittedBlock},
     prelude::*,
@@ -23,50 +28,46 @@ use iroha_executor_data_model::permission::{
 };
 
 /// Create block
-pub fn create_block<'a>(
-    state: &'a State,
+pub fn create_block(
+    state: &mut StateBlock<'_>,
     instructions: Vec<InstructionBox>,
     account_id: AccountId,
     account_private_key: &PrivateKey,
     topology: &Topology,
     peer_private_key: &PrivateKey,
-) -> (CommittedBlock, StateBlock<'a>) {
+) -> CommittedBlock {
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
     let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)
         .sign(account_private_key);
     let (max_clock_drift, tx_limits) = {
-        let state_view = state.view();
-        let params = state_view.world.parameters();
+        let params = state.world.parameters();
         (params.sumeragi().max_clock_drift(), params.transaction)
     };
 
-    let unverified_block = BlockBuilder::new(vec![AcceptedTransaction::accept(
+    let block = BlockBuilder::new(vec![AcceptedTransaction::accept(
         transaction,
         &chain_id,
         max_clock_drift,
         tx_limits,
     )
     .unwrap()])
-    .chain(0, state.view().latest_block().as_deref())
+    .chain(0, state)
     .sign(peer_private_key)
-    .unpack(|_| {});
-
-    let mut state_block = state.block(unverified_block.header());
-    let block = unverified_block
-        .categorize(&mut state_block)
-        .unpack(|_| {})
-        .commit(topology)
-        .unpack(|_| {})
-        .unwrap();
+    .unpack(|_| {})
+    .categorize(state)
+    .unpack(|_| {})
+    .commit(topology)
+    .unpack(|_| {})
+    .unwrap();
 
     // Verify that transactions are valid
     for tx in block.as_ref().transactions() {
         assert_eq!(tx.error, None);
     }
 
-    (block, state_block)
+    block
 }
 
 pub fn populate_state(
@@ -205,27 +206,7 @@ pub fn build_state(rt: &tokio::runtime::Handle, account_id: &AccountId) -> State
     );
 
     {
-        let private_key = KeyPair::random().into_parts().1;
-        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-        let transaction = TransactionBuilder::new(chain_id.clone(), account_id.clone())
-            .with_instructions(Vec::<InstructionBox>::new())
-            .sign(&private_key);
-        let (max_clock_drift, tx_limits) = {
-            let state_view = state.view();
-            let params = state_view.world.parameters();
-            (params.sumeragi().max_clock_drift(), params.transaction)
-        };
-        let unverified_block = BlockBuilder::new(vec![AcceptedTransaction::accept(
-            transaction,
-            &chain_id,
-            max_clock_drift,
-            tx_limits,
-        )
-        .unwrap()])
-        .chain(0, state.view().latest_block().as_deref())
-        .sign(&private_key)
-        .unpack(|_| {});
-        let mut state_block = state.block(unverified_block.header());
+        let mut state_block = state.block();
 
         state_block.world.parameters.transaction =
             TransactionParameters::new(NonZeroU64::MAX, NonZeroU64::MAX);

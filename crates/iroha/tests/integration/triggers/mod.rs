@@ -1,8 +1,11 @@
 use assert_matches::assert_matches;
-use iroha::{client, client::Client};
-use iroha_data_model::{
-    asset::{AssetId, AssetValue},
-    prelude::{Numeric, QueryBuilderExt},
+use iroha::{
+    client,
+    client::Client,
+    data_model::{
+        asset::{AssetId, AssetValue},
+        prelude::{Numeric, QueryBuilderExt},
+    },
 };
 
 mod by_call_trigger;

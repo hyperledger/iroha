@@ -55,7 +55,7 @@ impl<'ws> Consumer<'ws> {
     /// Can fail due to timeout. Also receiving might fail
     #[iroha_futures::telemetry_future]
     pub async fn consume(&mut self) -> Result<()> {
-        if let Some(block) = self.kura.get_block_by_height(
+        if let Some(block) = self.kura.get_block(
             self.height
                 .try_into()
                 .expect("INTERNAL BUG: Number of blocks exceeds usize::MAX"),

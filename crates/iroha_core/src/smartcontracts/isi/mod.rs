@@ -235,6 +235,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        block::ValidBlock,
         kura::Kura,
         query::store::LiveQueryStore,
         state::{State, World},
@@ -246,7 +247,10 @@ mod tests {
         let query_handle = LiveQueryStore::start_test();
         let state = State::new(world, kura.clone(), query_handle);
         let asset_definition_id = "rose#wonderland".parse()?;
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         let mut state_transaction = state_block.transaction();
         Register::domain(Domain::new("wonderland".parse()?))
             .execute(&SAMPLE_GENESIS_ACCOUNT_ID, &mut state_transaction)?;
@@ -263,7 +267,10 @@ mod tests {
     async fn asset_store() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         let mut state_transaction = state_block.transaction();
         let account_id = ALICE_ID.clone();
         let asset_definition_id = "rose#wonderland".parse()?;
@@ -271,7 +278,9 @@ mod tests {
         let key = "Bytes".parse::<Name>()?;
         SetKeyValue::asset(asset_id.clone(), key.clone(), vec![1_u32, 2_u32, 3_u32])
             .execute(&account_id, &mut state_transaction)?;
-        let asset = state_transaction.world.asset(&asset_id)?;
+        state_transaction.apply();
+        state_block.commit();
+        let asset = state.view().world.asset(&asset_id)?;
         let AssetValue::Store(store) = &asset.value else {
             panic!("expected store asset");
         };
@@ -284,13 +293,19 @@ mod tests {
     async fn account_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         let mut state_transaction = state_block.transaction();
         let account_id = ALICE_ID.clone();
         let key = "Bytes".parse::<Name>()?;
         SetKeyValue::account(account_id.clone(), key.clone(), vec![1_u32, 2_u32, 3_u32])
             .execute(&account_id, &mut state_transaction)?;
-        let bytes = state_transaction
+        state_transaction.apply();
+        state_block.commit();
+        let bytes = state
+            .view()
             .world
             .map_account(&account_id, |account| account.metadata().get(&key).cloned())?;
         assert_eq!(bytes, Some(vec![1_u32, 2_u32, 3_u32,].into()));
@@ -301,7 +316,10 @@ mod tests {
     async fn asset_definition_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         let mut state_transaction = state_block.transaction();
         let definition_id = "rose#wonderland".parse::<AssetDefinitionId>()?;
         let account_id = ALICE_ID.clone();
@@ -312,7 +330,10 @@ mod tests {
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(&account_id, &mut state_transaction)?;
-        let value = state_transaction
+        state_transaction.apply();
+        state_block.commit();
+        let value = state
+            .view()
             .world
             .asset_definition(&definition_id)?
             .metadata()
@@ -326,14 +347,20 @@ mod tests {
     async fn domain_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         let mut state_transaction = state_block.transaction();
         let domain_id = "wonderland".parse::<DomainId>()?;
         let account_id = ALICE_ID.clone();
         let key = "Bytes".parse::<Name>()?;
         SetKeyValue::domain(domain_id.clone(), key.clone(), vec![1_u32, 2_u32, 3_u32])
             .execute(&account_id, &mut state_transaction)?;
-        let bytes = state_transaction
+        state_transaction.apply();
+        state_block.commit();
+        let bytes = state
+            .view()
             .world
             .domain(&domain_id)?
             .metadata()
@@ -347,7 +374,10 @@ mod tests {
     async fn executing_unregistered_trigger_should_return_error() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         let mut state_transaction = state_block.transaction();
         let account_id = ALICE_ID.clone();
         let trigger_id = "test_trigger_id".parse()?;
@@ -359,6 +389,9 @@ mod tests {
             Error::Find(_)
         ));
 
+        state_transaction.apply();
+        state_block.commit();
+
         Ok(())
     }
 
@@ -366,7 +399,10 @@ mod tests {
     async fn unauthorized_trigger_execution_should_return_error() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         let mut state_transaction = state_block.transaction();
         let account_id = ALICE_ID.clone();
         let (fake_account_id, _fake_account_keypair) = gen_account_in("wonderland");
@@ -402,6 +438,9 @@ mod tests {
             Error::InvariantViolation(_)
         ));
 
+        state_transaction.apply();
+        state_block.commit();
+
         Ok(())
     }
 
@@ -409,7 +448,10 @@ mod tests {
     async fn not_allowed_to_register_genesis_domain_or_account() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
-        let mut state_block = state.block();
+        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
+            .as_ref()
+            .header();
+        let mut state_block = state.block(block_header);
         let mut state_transaction = state_block.transaction();
         let account_id = ALICE_ID.clone();
         assert!(matches!(
@@ -425,6 +467,9 @@ mod tests {
                 .expect_err("Error expected"),
             Error::InvariantViolation(_)
         ));
+        state_transaction.apply();
+        state_block.commit();
+
         Ok(())
     }
 

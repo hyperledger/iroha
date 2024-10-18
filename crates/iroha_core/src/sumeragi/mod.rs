@@ -97,10 +97,6 @@ impl SumeragiHandle {
         // NOTE: topology need to be updated up to block's view_change_index
         topology.nth_rotation(block.header().view_change_index as usize);
 
-        if block.header().is_genesis() {
-            state_block.world.genesis_creation_time_ms = Some(block.header().creation_time_ms);
-        }
-
         let block = ValidBlock::validate(
             block.clone(),
             topology,
@@ -168,7 +164,7 @@ impl SumeragiStartArgs {
             let state_view = state.view();
             let skip_block_count = state_view.height();
             blocks_iter = (skip_block_count + 1..=block_count).map(|block_height| {
-                NonZeroUsize::new(block_height).and_then(|height| kura.get_block_by_height(height)).expect(
+                NonZeroUsize::new(block_height).and_then(|height| kura.get_block(height)).expect(
                     "Sumeragi should be able to load the block that was reported as presented. \
                     If not, the block storage was probably disconnected.",
                 )
@@ -192,7 +188,7 @@ impl SumeragiStartArgs {
         );
 
         for block in blocks_iter {
-            let mut state_block = state.block();
+            let mut state_block = state.block(block.header());
             SumeragiHandle::replay_block(
                 &common_config.chain,
                 &genesis_account,
