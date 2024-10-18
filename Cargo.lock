@@ -3072,7 +3072,6 @@ dependencies = [
  "iroha_primitives",
  "iroha_schema",
  "iroha_schema_gen",
- "iroha_test_samples",
  "iroha_version",
  "parity-scale-codec",
  "serde",
