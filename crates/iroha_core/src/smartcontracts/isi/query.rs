@@ -26,29 +26,29 @@ pub trait SortableQueryOutput {
     /// Get the sorting key for the output, from metadata
     ///
     /// If the type doesn't have metadata or metadata key doesn't exist - return None
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<JsonValue>;
+    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json>;
 }
 
 impl SortableQueryOutput for Account {
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json> {
         self.metadata.get(key).cloned()
     }
 }
 
 impl SortableQueryOutput for Domain {
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json> {
         self.metadata.get(key).cloned()
     }
 }
 
 impl SortableQueryOutput for AssetDefinition {
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json> {
         self.metadata.get(key).cloned()
     }
 }
 
 impl SortableQueryOutput for Asset {
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json> {
         match &self.value {
             AssetValue::Numeric(_) => None,
             AssetValue::Store(metadata) => metadata.get(key).cloned(),
@@ -57,55 +57,55 @@ impl SortableQueryOutput for Asset {
 }
 
 impl SortableQueryOutput for Role {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
 }
 
 impl SortableQueryOutput for RoleId {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
 }
 
 impl SortableQueryOutput for TransactionQueryOutput {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
 }
 
 impl SortableQueryOutput for Peer {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
 }
 
 impl SortableQueryOutput for Permission {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
 }
 
 impl SortableQueryOutput for Trigger {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
 }
 
 impl SortableQueryOutput for TriggerId {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
 }
 
 impl SortableQueryOutput for iroha_data_model::block::SignedBlock {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
 }
 
 impl SortableQueryOutput for iroha_data_model::block::BlockHeader {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<JsonValue> {
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
 }
@@ -138,7 +138,7 @@ where
     // sort & paginate, erase the iterator with QueryBatchedErasedIterator
     let output = if let Some(key) = &sorting.sort_by_metadata_key {
         // if sorting was requested, we need to retrieve all the results first
-        let mut pairs: Vec<(Option<JsonValue>, I::Item)> = iter
+        let mut pairs: Vec<(Option<Json>, I::Item)> = iter
             .map(|value| {
                 let key = value.get_metadata_sorting_key(key);
                 (key, value)
@@ -340,7 +340,7 @@ impl ValidQueryRequest {
 mod tests {
     use iroha_crypto::{Hash, KeyPair};
     use iroha_data_model::query::predicate::CompoundPredicate;
-    use iroha_primitives::json::JsonValue;
+    use iroha_primitives::json::Json;
     use iroha_test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use nonzero_ext::nonzero;
     use tokio::test;
@@ -475,7 +475,7 @@ mod tests {
         let asset_definition_id = "rose#wonderland".parse()?;
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
         let bytes = FindAssetMetadata::new(asset_id, "Bytes".parse()?).execute(&state.view())?;
-        assert_eq!(JsonValue::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
+        assert_eq!(Json::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
 
@@ -487,7 +487,7 @@ mod tests {
 
         let bytes =
             FindAccountMetadata::new(ALICE_ID.clone(), "Bytes".parse()?).execute(&state.view())?;
-        assert_eq!(JsonValue::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
+        assert_eq!(Json::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
 
@@ -684,7 +684,7 @@ mod tests {
         let domain_id = "wonderland".parse()?;
         let key = "Bytes".parse()?;
         let bytes = FindDomainMetadata::new(domain_id, key).execute(&state.view())?;
-        assert_eq!(JsonValue::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
+        assert_eq!(Json::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
 }

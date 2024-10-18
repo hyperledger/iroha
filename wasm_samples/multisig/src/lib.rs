@@ -55,14 +55,14 @@ fn main(host: Iroha, context: Context) {
             host.submit(&SetKeyValue::trigger(
                 trigger_id.clone(),
                 instructions_metadata_key.clone(),
-                JsonValue::new(&instructions),
+                Json::new(&instructions),
             ))
             .dbg_unwrap();
 
             host.submit(&SetKeyValue::trigger(
                 trigger_id.clone(),
                 votes_metadata_key.clone(),
-                JsonValue::new(&votes),
+                Json::new(&votes),
             ))
             .dbg_unwrap();
 
@@ -83,7 +83,7 @@ fn main(host: Iroha, context: Context) {
             host.submit(&SetKeyValue::trigger(
                 trigger_id.clone(),
                 votes_metadata_key.clone(),
-                JsonValue::new(&votes),
+                Json::new(&votes),
             ))
             .dbg_unwrap();
 

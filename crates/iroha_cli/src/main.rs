@@ -11,7 +11,7 @@ use erased_serde::Serialize;
 use error_stack::{fmt::ColorMode, IntoReportCompat, ResultExt};
 use eyre::{eyre, Error, Result, WrapErr};
 use iroha::{client::Client, config::Config, data_model::prelude::*};
-use iroha_primitives::{addr::SocketAddr, json::JsonValue};
+use iroha_primitives::{addr::SocketAddr, json::Json};
 use thiserror::Error;
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
@@ -58,7 +58,7 @@ pub struct MetadataValueArg {
     /// Booleans: false/true
     /// Objects: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
     #[arg(short, long)]
-    value: JsonValue,
+    value: Json,
 }
 
 impl FromStr for MetadataValueArg {
@@ -66,7 +66,7 @@ impl FromStr for MetadataValueArg {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(MetadataValueArg {
-            value: JsonValue::from_str(s)?,
+            value: Json::from_str(s)?,
         })
     }
 }
@@ -1212,12 +1212,12 @@ mod tests {
         }
 
         // Boolean values
-        case!("true", JsonValue::new(true));
-        case!("false", JsonValue::new(false));
+        case!("true", Json::new(true));
+        case!("false", Json::new(false));
 
         // Numeric values
-        case!("\"123\"", JsonValue::new(numeric!(123)));
-        case!("\"123.0\"", JsonValue::new(numeric!(123.0)));
+        case!("\"123\"", Json::new(numeric!(123)));
+        case!("\"123.0\"", Json::new(numeric!(123.0)));
 
         // JSON Value
         let json_str = r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#;
