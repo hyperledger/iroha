@@ -43,7 +43,7 @@ fn client_has_rejected_and_accepted_txs_should_return_tx_history() -> Result<()>
 
     let transactions = client
         .query(transaction::all())
-        .filter_with(|tx| tx.transaction.value.authority.eq(account_id.clone()))
+        .filter_with(|tx| tx.value.authority.eq(account_id.clone()))
         .with_pagination(Pagination {
             limit: Some(nonzero!(50_u64)),
             offset: 1,
@@ -52,15 +52,11 @@ fn client_has_rejected_and_accepted_txs_should_return_tx_history() -> Result<()>
     assert_eq!(transactions.len(), 50);
 
     let mut prev_creation_time = core::time::Duration::from_millis(0);
-    transactions
-        .iter()
-        .map(AsRef::as_ref)
-        .map(AsRef::as_ref)
-        .for_each(|tx| {
-            assert_eq!(tx.authority(), &account_id);
-            //check sorted
-            assert!(tx.creation_time() >= prev_creation_time);
-            prev_creation_time = tx.creation_time();
-        });
+    transactions.iter().map(AsRef::as_ref).for_each(|tx| {
+        assert_eq!(tx.authority(), &account_id);
+        //check sorted
+        assert!(tx.creation_time() >= prev_creation_time);
+        prev_creation_time = tx.creation_time();
+    });
     Ok(())
 }

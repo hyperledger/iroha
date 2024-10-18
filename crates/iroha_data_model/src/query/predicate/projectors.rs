@@ -8,9 +8,7 @@ use core::marker::PhantomData;
 
 use super::{AstPredicate, CompoundPredicate};
 use crate::{
-    prelude::{
-        BlockHeaderPredicateBox, SignedBlockPredicateBox, TransactionQueryOutputPredicateBox,
-    },
+    prelude::{BlockHeaderPredicateBox, SignedBlockPredicateBox},
     query::predicate::{
         predicate_atoms::{
             account::{AccountIdPredicateBox, AccountPredicateBox},
@@ -214,9 +212,6 @@ proj!(SignedTransactionHashProjector(SignedTransactionHashProjection): Transacti
 proj!(SignedTransactionAuthorityProjector(SignedTransactionAuthorityProjection): AccountIdPredicateBox => SignedTransactionPredicateBox::Authority);
 
 // projections on CommittedTransaction
+proj!(CommittedTransactionBlockHashProjector(CommittedTransactionBlockHashProjection): BlockHashPredicateBox => CommittedTransactionPredicateBox::BlockHash);
 proj!(CommittedTransactionValueProjector(CommittedTransactionValueProjection): SignedTransactionPredicateBox => CommittedTransactionPredicateBox::Value);
 proj!(CommittedTransactionErrorProjector(CommittedTransactionErrorProjection): TransactionErrorPredicateBox => CommittedTransactionPredicateBox::Error);
-
-// projections on TransactionQueryOutput
-proj!(TransactionQueryOutputTransactionProjector(TransactionQueryOutputTransactionProjection): CommittedTransactionPredicateBox => TransactionQueryOutputPredicateBox::Transaction);
-proj!(TransactionQueryOutputBlockHashProjector(TransactionQueryOutputBlockHashProjection): BlockHashPredicateBox => TransactionQueryOutputPredicateBox::BlockHash);
