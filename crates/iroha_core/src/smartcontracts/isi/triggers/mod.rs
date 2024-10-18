@@ -329,7 +329,7 @@ pub mod query {
         },
         trigger::{Trigger, TriggerId},
     };
-    use iroha_primitives::json::JsonValue;
+    use iroha_primitives::json::Json;
 
     use super::*;
     use crate::{
@@ -380,7 +380,7 @@ pub mod query {
 
     impl ValidSingularQuery for FindTriggerMetadata {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<JsonValue, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);

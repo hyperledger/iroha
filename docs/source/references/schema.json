@@ -1359,7 +1359,7 @@
     "Struct": [
       {
         "name": "payload",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -1371,7 +1371,7 @@
       },
       {
         "name": "payload",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -1699,7 +1699,7 @@
       },
       {
         "name": "args",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -1715,7 +1715,7 @@
       },
       {
         "name": "args",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -1768,7 +1768,7 @@
       },
       {
         "name": "schema",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -2336,7 +2336,7 @@
   "IpfsPath": "String",
   "Ipv4Addr": "Array<u8, 4>",
   "Ipv6Addr": "Array<u16, 8>",
-  "JsonValue": "String",
+  "Json": "String",
   "Level": {
     "Enum": [
       {
@@ -2409,7 +2409,7 @@
   "MerkleTree<SignedTransaction>": {
     "Vec": "HashOf<SignedTransaction>"
   },
-  "Metadata": "SortedMap<Name, JsonValue>",
+  "Metadata": "SortedMap<Name, Json>",
   "MetadataChanged<AccountId>": {
     "Struct": [
       {
@@ -2422,7 +2422,7 @@
       },
       {
         "name": "value",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -2438,7 +2438,7 @@
       },
       {
         "name": "value",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -2454,7 +2454,7 @@
       },
       {
         "name": "value",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -2470,7 +2470,7 @@
       },
       {
         "name": "value",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -2486,7 +2486,7 @@
       },
       {
         "name": "value",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -2882,7 +2882,7 @@
       },
       {
         "name": "payload",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -3825,7 +3825,7 @@
       },
       {
         "name": "value",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -3841,7 +3841,7 @@
       },
       {
         "name": "value",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -3857,7 +3857,7 @@
       },
       {
         "name": "value",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -3873,7 +3873,7 @@
       },
       {
         "name": "value",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -3889,7 +3889,7 @@
       },
       {
         "name": "value",
-        "type": "JsonValue"
+        "type": "Json"
       }
     ]
   },
@@ -4079,7 +4079,7 @@
       {
         "tag": "Json",
         "discriminant": 2,
-        "type": "JsonValue"
+        "type": "Json"
       },
       {
         "tag": "Trigger",
@@ -4190,10 +4190,10 @@
       "value": "CustomParameter"
     }
   },
-  "SortedMap<Name, JsonValue>": {
+  "SortedMap<Name, Json>": {
     "Map": {
       "key": "Name",
-      "value": "JsonValue"
+      "value": "Json"
     }
   },
   "SortedVec<Permission>": {

@@ -3,7 +3,7 @@
 
 use getset::Getters;
 use iroha_data_model_derive::{model, EventSet, HasOrigin};
-use iroha_primitives::{json::JsonValue, numeric::Numeric};
+use iroha_primitives::{json::Json, numeric::Numeric};
 
 pub use self::model::*;
 use super::*;
@@ -60,7 +60,7 @@ mod model {
     pub struct MetadataChanged<Id> {
         pub target: Id,
         pub key: Name,
-        pub value: JsonValue,
+        pub value: Json,
     }
 
     /// Event
@@ -653,7 +653,7 @@ impl<Id> MetadataChanged<Id> {
     }
 
     /// Getter for `value`
-    pub fn value(&self) -> &JsonValue {
+    pub fn value(&self) -> &Json {
         &self.value
     }
 }

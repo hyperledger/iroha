@@ -78,14 +78,14 @@ pub async fn handle_health() -> &'static str {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "schema")]
-pub async fn handle_schema() -> Json<iroha_schema::MetaMap> {
-    Json(iroha_schema_gen::build_schemas())
+pub async fn handle_schema() -> axum::Json<iroha_schema::MetaMap> {
+    axum::Json(iroha_schema_gen::build_schemas())
 }
 
 #[iroha_futures::telemetry_future]
-pub async fn handle_get_configuration(kiso: KisoHandle) -> Result<Json<ConfigDTO>> {
+pub async fn handle_get_configuration(kiso: KisoHandle) -> Result<axum::Json<ConfigDTO>> {
     let dto = kiso.get_dto().await?;
-    Ok(Json(dto))
+    Ok(axum::Json(dto))
 }
 
 #[iroha_futures::telemetry_future]
@@ -301,13 +301,13 @@ pub fn handle_status(
             .try_fold(&value, serde_json::Value::get)
             .wrap_err_with(|| eyre!("Path not found: \"{}\"", tail))
             .map_err(Error::StatusSegmentNotFound)
-            .map(|segment| Json(segment).into_response())?;
+            .map(|segment| axum::Json(segment).into_response())?;
 
         Ok(reply)
     } else if accept.is_some_and(|x| x.as_ref() == utils::PARITY_SCALE_MIME_TYPE.as_bytes()) {
         Ok(Scale(status).into_response())
     } else {
-        Ok(Json(status).into_response())
+        Ok(axum::Json(status).into_response())
     }
 }
 
