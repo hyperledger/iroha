@@ -16,7 +16,6 @@ proc-macro = true
 [dependencies]
 syn.workspace = true
 quote.workspace = true
-darling.workspace = true
 proc-macro2.workspace = true
 manyhow.workspace = true
 

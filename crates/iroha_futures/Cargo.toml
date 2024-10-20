@@ -27,7 +27,6 @@ serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "signal"] }
 tokio-util = { workspace = true }
 thiserror = { workspace = true }
-futures = { workspace = true, features = ["std", "alloc"] }
 
 [dev-dependencies]
 tokio-stream = { version = "0.1.15", features = ["sync"] }

@@ -53,7 +53,6 @@ iroha_config_base = { workspace = true }
 iroha_crypto = { workspace = true }
 # FIXME: should remove `transparent_api` feature. Check the other FIXME comment in dev-dependencies
 iroha_data_model = { workspace = true, features = ["http", "transparent_api"] }
-iroha_executor_data_model = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_telemetry = { workspace = true }
@@ -82,9 +81,10 @@ toml = { workspace = true }
 nonzero_ext = { workspace = true }
 
 [dev-dependencies]
-iroha_test_samples = { workspace = true }
 iroha_genesis = { workspace = true }
+iroha_test_samples = { workspace = true }
 iroha_test_network = { workspace = true }
+iroha_executor_data_model = { workspace = true }
 executor_custom_data_model = { version = "=2.0.0-rc.1.0", path = "../../wasm_samples/executor_custom_data_model" }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }

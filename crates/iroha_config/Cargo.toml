@@ -15,7 +15,6 @@ iroha_config_base = { workspace = true }
 iroha_data_model = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_crypto = { workspace = true }
-iroha_genesis = { workspace = true }
 
 error-stack = { workspace = true }
 tracing = { workspace = true }
