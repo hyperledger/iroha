@@ -130,7 +130,7 @@ mod model {
         /// The total amount of this asset in existence.
         ///
         /// For numeric assets - it is the sum of all asset values. For store assets - it is the count of all assets.
-        #[getset(get = "pub")]
+        #[getset(get_copy = "pub")]
         pub total_quantity: Numeric,
     }
 

@@ -78,7 +78,7 @@ fn find_asset_total_quantity() -> Result<()> {
             .query(FindAssetsDefinitions::new())
             .filter_with(|asset_definition| asset_definition.id.eq(definition_id.clone()))
             .execute_single()?
-            .total_quantity)
+            .total_quantity())
     };
 
     // Assert that initial total quantity before any registrations and unregistrations is zero
@@ -154,7 +154,7 @@ where
             .query(FindAssetsDefinitions::new())
             .filter_with(|asset_definition| asset_definition.id.eq(definition_id.clone()))
             .execute_single()?
-            .total_quantity)
+            .total_quantity())
     };
 
     // Assert that initial total quantity before any burns and mints is zero

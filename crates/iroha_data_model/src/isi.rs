@@ -1232,6 +1232,7 @@ pub mod error {
 
     #[model]
     mod model {
+        use getset::Getters;
         use serde::{Deserialize, Serialize};
 
         use super::*;
@@ -1469,6 +1470,7 @@ pub mod error {
             Eq,
             PartialOrd,
             Ord,
+            Getters,
             Deserialize,
             Serialize,
             Decode,
@@ -1479,9 +1481,24 @@ pub mod error {
         #[ffi_type]
         pub struct RepetitionError {
             /// Instruction type
+            #[getset(get = "pub")]
             pub instruction: InstructionType,
             /// Id of the object being repeated
             pub id: IdBox,
+        }
+    }
+
+    impl<T: Debug> Mismatch<T> {
+        /// The value that is needed for normal execution
+        pub fn expected(&self) -> &T {
+            &self.expected
+        }
+    }
+
+    impl<T: Debug> Mismatch<T> {
+        /// The value that caused the error
+        pub fn actual(&self) -> &T {
+            &self.actual
         }
     }
 
