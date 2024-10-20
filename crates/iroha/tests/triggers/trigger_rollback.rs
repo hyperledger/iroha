@@ -36,9 +36,7 @@ fn failed_trigger_revert() -> Result<()> {
     client.submit_blocking(call_trigger)?;
 
     //Then
-    let query_result = client
-        .query(FindAssetsDefinitions::new())
-        .execute_all()?;
+    let query_result = client.query(FindAssetsDefinitions::new()).execute_all()?;
     assert!(query_result
         .iter()
         .all(|asset_definition| asset_definition.id() != &asset_definition_id));

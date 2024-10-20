@@ -29,7 +29,6 @@ path = "src/main.rs"
 [dependencies]
 iroha = { workspace = true }
 iroha_primitives = { workspace = true }
-iroha_config_base = { workspace = true }
 
 thiserror = { workspace = true }
 error-stack = { workspace = true, features = ["eyre"] }

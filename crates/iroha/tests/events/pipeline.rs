@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use assert_matches::assert_matches;
 use eyre::Result;
 use futures_util::StreamExt;
 use iroha::data_model::{
@@ -54,20 +53,20 @@ async fn test_with_instruction_and_status(
 
     // Then
     timeout(Duration::from_secs(5), async move {
-        assert_matches!(
-            events.next().await.unwrap().unwrap(),
-            EventBox::Pipeline(PipelineEventBox::Transaction(TransactionEvent {
-                status: TransactionStatus::Queued,
-                ..
-            }))
-        );
-        assert_matches!(
-            events.next().await.unwrap().unwrap(),
-            EventBox::Pipeline(PipelineEventBox::Transaction(TransactionEvent {
-                status,
-                ..
-            })) if status == *should_be
-        );
+        let EventBox::Pipeline(PipelineEventBox::Transaction(event)) =
+            events.next().await.unwrap().unwrap()
+        else {
+            panic!("Expected transaction event");
+        };
+        assert_eq!(*event.status(), TransactionStatus::Queued);
+
+        let EventBox::Pipeline(PipelineEventBox::Transaction(event)) =
+            events.next().await.unwrap().unwrap()
+        else {
+            panic!("Expected transaction event");
+        };
+
+        assert_eq!(event.status(), should_be);
     })
     .await?;
 

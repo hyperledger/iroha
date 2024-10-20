@@ -17,8 +17,6 @@ use thiserror::Error;
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
 /// Should be combined with `#[command(flatten)]` attr.
 #[derive(clap::Args, Debug, Clone)]
-// FIXME: `pub` is needed because Rust complains about "leaking private types"
-//        when this type is used inside of modules. I don't know how to fix it.
 pub struct MetadataArgs {
     /// The JSON/JSON5 file with key-value metadata pairs
     #[arg(short, long, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]

@@ -160,8 +160,8 @@ pub mod action {
         /// The repeating scheme of the action. It's kept as part of the
         /// action and not inside the [`Trigger`] type, so that further
         /// sanity checking can be done.
-        pub fn repeats(&self) -> &Repeats {
-            &self.repeats
+        pub fn repeats(&self) -> Repeats {
+            self.repeats
         }
         /// Account executing this action
         pub fn authority(&self) -> &AccountId {

@@ -15,10 +15,7 @@ fn limits_should_work() -> Result<()> {
 
     let vec = client
         .query(FindAssetsDefinitions::new())
-        .with_pagination(Pagination {
-            limit: Some(nonzero!(7_u64)),
-            offset: 1,
-        })
+        .with_pagination(Pagination::new(Some(nonzero!(7_u64)), 1))
         .execute_all()?;
     assert_eq!(vec.len(), 7);
     Ok(())
@@ -33,10 +30,7 @@ fn reported_length_should_be_accurate() -> Result<()> {
 
     let mut iter = client
         .query(FindAssetsDefinitions::new())
-        .with_pagination(Pagination {
-            limit: Some(nonzero!(7_u64)),
-            offset: 1,
-        })
+        .with_pagination(Pagination::new(Some(nonzero!(7_u64)), 1))
         .with_fetch_size(FetchSize::new(Some(nonzero!(3_u64))))
         .execute()?;
 
@@ -68,10 +62,7 @@ fn fetch_size_should_work() -> Result<()> {
     let query = QueryWithParams::new(
         QueryWithFilter::new(FindAssetsDefinitions::new(), CompoundPredicate::PASS).into(),
         QueryParams::new(
-            Pagination {
-                limit: Some(nonzero!(7_u64)),
-                offset: 1,
-            },
+            Pagination::new(Some(nonzero!(7_u64)), 1),
             Sorting::default(),
             FetchSize::new(Some(nonzero!(3_u64))),
         ),

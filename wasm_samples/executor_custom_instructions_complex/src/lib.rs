@@ -87,7 +87,7 @@ impl executor_custom_data_model::complex_isi::Context for Context<'_> {
                         _ => unreachable!(),
                     })?;
 
-                Ok(*asset_definition.total_quantity())
+                Ok(asset_definition.total_quantity())
             }
         };
 

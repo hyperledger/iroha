@@ -3,7 +3,7 @@ use iroha::{
     crypto::KeyPair,
     data_model::{
         asset::{AssetId, AssetType, AssetValue},
-        isi::error::{InstructionEvaluationError, InstructionExecutionError, Mismatch, TypeError},
+        isi::error::{InstructionEvaluationError, InstructionExecutionError, TypeError},
         prelude::*,
         transaction::error::TransactionRejectionReason,
     },
@@ -400,16 +400,21 @@ fn fail_if_dont_satisfy_spec() {
             .downcast_ref::<TransactionRejectionReason>()
             .unwrap_or_else(|| panic!("Error {err} is not TransactionRejectionReason"));
 
+        let TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
+            InstructionExecutionError::Evaluate(InstructionEvaluationError::Type(
+                TypeError::AssetType(rejection_reason),
+            )),
+        )) = rejection_reason
+        else {
+            panic!("Wrong rejection reason");
+        };
         assert_eq!(
-            rejection_reason,
-            &TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
-                InstructionExecutionError::Evaluate(InstructionEvaluationError::Type(
-                    TypeError::from(Mismatch {
-                        expected: AssetType::Numeric(NumericSpec::integer()),
-                        actual: AssetType::Numeric(NumericSpec::fractional(2))
-                    })
-                ))
-            ))
+            *rejection_reason.expected(),
+            AssetType::Numeric(NumericSpec::integer()),
+        );
+        assert_eq!(
+            *rejection_reason.actual(),
+            AssetType::Numeric(NumericSpec::fractional(2))
         );
     }
 
