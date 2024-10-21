@@ -182,7 +182,7 @@ struct GenesisEnv<'a> {
     genesis_private_key: &'a iroha_crypto::ExposedPrivateKey,
     genesis: ContainerFile<'a>,
     #[serde_as(as = "serde_with::json::JsonString")]
-    topology: std::collections::BTreeSet<&'a iroha_data_model::peer::Peer>,
+    topology: std::collections::BTreeSet<&'a iroha_data_model::peer::PeerId>,
 }
 
 impl<'a> GenesisEnv<'a> {
@@ -197,7 +197,7 @@ impl<'a> GenesisEnv<'a> {
             base: PeerEnv::new(key_pair, ports, chain, genesis_public_key, topology),
             genesis_private_key,
             genesis: CONTAINER_SIGNED_GENESIS,
-            topology: topology.iter().collect(),
+            topology: topology.iter().map(|peer| peer.id()).collect(),
         }
     }
 }

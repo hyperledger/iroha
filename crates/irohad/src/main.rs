@@ -19,6 +19,7 @@ use iroha_core::{
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
     kiso::KisoHandle,
     kura::Kura,
+    peers_gossiper::{PeersGossiper, PeersGossiperHandle},
     query::store::LiveQueryStore,
     queue::Queue,
     smartcontracts::isi::Registrable as _,
@@ -132,6 +133,7 @@ struct NetworkRelay {
     sumeragi: SumeragiHandle,
     block_sync: BlockSynchronizerHandle,
     tx_gossiper: TransactionGossiperHandle,
+    peers_gossiper: PeersGossiperHandle,
     network: IrohaNetwork,
 }
 
@@ -157,6 +159,7 @@ impl NetworkRelay {
             }
             BlockSync(data) => self.block_sync.message(*data).await,
             TransactionGossiper(data) => self.tx_gossiper.gossip(*data).await,
+            PeersGossiper(data) => self.peers_gossiper.gossip(*data).await,
             Health => {}
         }
     }
@@ -299,11 +302,19 @@ impl Iroha {
         .start(supervisor.shutdown_signal());
         supervisor.monitor(child);
 
+        let (peers_gossiper, child) = PeersGossiper::start(
+            config.sumeragi.trusted_peers.value().clone(),
+            network.clone(),
+            supervisor.shutdown_signal(),
+        );
+        supervisor.monitor(child);
+
         supervisor.monitor(task::spawn(
             NetworkRelay {
                 sumeragi,
                 block_sync,
                 tx_gossiper,
+                peers_gossiper,
                 network,
             }
             .run(),
@@ -726,6 +737,7 @@ mod tests {
                 .write("public_key", pubkey)
                 .write("private_key", ExposedPrivateKey(privkey))
                 .write(["network", "address"], socket_addr!(127.0.0.1:1337))
+                .write(["network", "external_port"], 1337)
                 .write(["torii", "address"], socket_addr!(127.0.0.1:8080))
                 .write(["genesis", "public_key"], genesis_public_key);
             table
