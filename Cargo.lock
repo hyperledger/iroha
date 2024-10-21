@@ -3094,7 +3094,6 @@ dependencies = [
  "iroha_config_base",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_genesis",
  "iroha_primitives",
  "json5",
  "nonzero_ext",
@@ -3316,7 +3315,6 @@ dependencies = [
 name = "iroha_executor_data_model_derive"
 version = "2.0.0-rc.1.0"
 dependencies = [
- "darling",
  "iroha_executor_data_model",
  "manyhow",
  "proc-macro2",
@@ -3367,7 +3365,6 @@ dependencies = [
 name = "iroha_futures"
 version = "2.0.0-rc.1.0"
 dependencies = [
- "futures",
  "iroha_config",
  "iroha_futures_derive",
  "iroha_logger",
@@ -3404,7 +3401,6 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "serde_json",
- "tracing",
 ]
 
 [[package]]
@@ -3414,7 +3410,6 @@ dependencies = [
  "clap",
  "color-eyre",
  "derive_more",
- "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
  "iroha_executor_data_model",
@@ -3715,7 +3710,6 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "serde",
- "toml",
 ]
 
 [[package]]

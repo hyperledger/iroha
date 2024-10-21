@@ -18,7 +18,6 @@ iroha_crypto = { workspace = true }
 iroha_data_model = { workspace = true }
 
 serde = { workspace = true, features = ["derive"] }
-toml = { workspace = true }
 
 [lints]
 workspace = true
