@@ -18,8 +18,9 @@ use iroha_data_model::{
     ChainId,
 };
 use iroha_executor_data_model::permission::{
-    account::CanUnregisterAccount, asset_definition::CanUnregisterAssetDefinition,
-    domain::CanUnregisterDomain,
+    account::CanUnregisterAccount,
+    asset_definition::CanUnregisterAssetDefinition,
+    domain::{CanRegisterDomain, CanUnregisterDomain},
 };
 
 /// Create block
@@ -75,7 +76,8 @@ pub fn populate_state(
     asset_definitions: &[AssetDefinitionId],
     owner_id: &AccountId,
 ) -> Vec<InstructionBox> {
-    let mut instructions: Vec<InstructionBox> = Vec::new();
+    let mut instructions: Vec<InstructionBox> =
+        vec![Grant::account_permission(CanRegisterDomain, owner_id.clone()).into()];
 
     for domain_id in domains {
         let domain = Domain::new(domain_id.clone());

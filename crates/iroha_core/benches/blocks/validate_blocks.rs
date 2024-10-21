@@ -1,11 +1,10 @@
-use iroha_core::{prelude::*, state::State, sumeragi::network_topology::Topology};
-use iroha_data_model::{isi::InstructionBox, prelude::*};
-use iroha_test_samples::gen_account_in;
-
 #[path = "./common.rs"]
 mod common;
 
 use common::*;
+use iroha_core::{prelude::*, state::State, sumeragi::network_topology::Topology};
+use iroha_data_model::{isi::InstructionBox, prelude::*};
+use iroha_test_samples::gen_account_in;
 
 pub struct StateValidateBlocks {
     state: State,

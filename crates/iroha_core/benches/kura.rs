@@ -49,13 +49,16 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     };
     let tx = AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits)
         .expect("Failed to accept Transaction.");
-    let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
-    let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+    let peer_key_pair = KeyPair::random();
+    let peer_id = PeerId::new(
+        "127.0.0.1:8080".parse().unwrap(),
+        peer_key_pair.public_key().clone(),
+    );
     let topology = Topology::new(vec![peer_id]);
     let mut block = {
         let unverified_block = BlockBuilder::new(vec![tx])
             .chain(0, state.view().latest_block().as_deref())
-            .sign(&peer_private_key)
+            .sign(peer_key_pair.private_key())
             .unpack(|_| {});
 
         let mut state_block = state.block(unverified_block.header());
@@ -64,9 +67,8 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
         block
     };
 
-    let key_pair = KeyPair::random();
     for _ in 1..n_executors {
-        block.sign(&key_pair, &topology);
+        block.sign(&peer_key_pair, &topology);
     }
     let mut block_store = BlockStore::new(dir.path());
     block_store.create_files_if_they_do_not_exist().unwrap();
