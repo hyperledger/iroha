@@ -99,6 +99,13 @@ fn minimal_config_snapshot() {
                         path: "tests/fixtures/base.toml",
                     },
                 },
+                external_port: WithOrigin {
+                    value: 1337,
+                    origin: File {
+                        id: ParameterId(network.external_port),
+                        path: "tests/fixtures/base.toml",
+                    },
+                },
                 idle_timeout: 60s,
             },
             genesis: Genesis {
