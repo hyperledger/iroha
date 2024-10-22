@@ -820,7 +820,7 @@ dependencies = [
  "eyre",
  "indenter",
  "once_cell",
- "owo-colors",
+ "owo-colors 3.5.0",
  "tracing-error",
 ]
 
@@ -831,7 +831,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd6be1b2a7e382e2b98b43b2adcca6bb0e465af0bdd38123873ae61eb17a72c2"
 dependencies = [
  "once_cell",
- "owo-colors",
+ "owo-colors 3.5.0",
  "tracing-core",
  "tracing-error",
 ]
@@ -3528,7 +3528,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_primitives",
  "nonzero_ext",
- "owo-colors",
+ "owo-colors 4.1.0",
  "path-absolutize",
  "pathdiff",
  "serde",
@@ -3720,7 +3720,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "eyre",
- "owo-colors",
+ "owo-colors 4.1.0",
  "path-absolutize",
  "serde_json",
  "sha256",
@@ -3778,7 +3778,7 @@ dependencies = [
  "iroha_torii",
  "iroha_version",
  "json5",
- "owo-colors",
+ "owo-colors 4.1.0",
  "path-absolutize",
  "serial_test",
  "supports-color 2.1.0",
@@ -4434,8 +4434,15 @@ name = "owo-colors"
 version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1b04fb49957986fdce4d6ee7a65027d55d4b6d2265e5848bbb507b58ccfdb6f"
+
+[[package]]
+name = "owo-colors"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb37767f6569cd834a413442455e0f066d0d522de8630436e2a1761d9726ba56"
 dependencies = [
- "supports-color 1.3.1",
+ "supports-color 2.1.0",
+ "supports-color 3.0.1",
 ]
 
 [[package]]
