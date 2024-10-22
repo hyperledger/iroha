@@ -622,7 +622,19 @@ impl Sumeragi {
                 );
 
                 if let Ok(signatory_idx) = usize::try_from(signature.0) {
-                    let signatory = &self.topology.as_ref()[signatory_idx];
+                    let signatory = if let Some(s) = self.topology.as_ref().get(signatory_idx) {
+                        s
+                    } else {
+                        error!(
+                            peer_id=%self.peer_id,
+                            role=%self.role(),
+                            ?signatory_idx,
+                            topology_size=%self.topology.as_ref().len(),
+                            "Unknown signatory"
+                        );
+
+                        return;
+                    };
 
                     match self.topology.role(signatory) {
                         Role::Leader => error!(
