@@ -1,6 +1,5 @@
 #![allow(missing_docs)]
 
-use byte_unit::{Byte, UnitType};
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_config::{
     base::WithOrigin,
@@ -75,8 +74,8 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     block_store.append_block_to_chain(&block.into()).unwrap();
 
     let metadata = fs::metadata(dir.path().join("blocks.data")).await.unwrap();
-    let file_size = Byte::from(metadata.len()).get_appropriate_unit(UnitType::Decimal);
-    println!("For {n_executors} executors: {file_size}");
+    let file_size = metadata.len();
+    println!("For {n_executors} executors: {file_size} bytes");
 }
 
 async fn measure_block_size_async() {
