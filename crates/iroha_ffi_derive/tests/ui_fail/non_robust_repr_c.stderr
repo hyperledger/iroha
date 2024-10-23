@@ -16,3 +16,7 @@ error[E0277]: the trait bound `bool: ReprC` is not satisfied
           and $N others
   = help: see issue #48214
   = note: this error originates in the derive macro `FfiType` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: add `#![feature(trivial_bounds)]` to the crate attributes to enable
+  |
+1 + #![feature(trivial_bounds)]
+  |
