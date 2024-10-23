@@ -2,14 +2,14 @@ error[E0119]: conflicting implementations of trait `TryFrom<Enum>` for type `i32
  --> tests/ui_fail/from_variant_same_type.rs:4:5
   |
 3 |     Variant1(i32),
-  |     ------------ first implementation here
+  |     -------- first implementation here
 4 |     Variant2(i32),
-  |     ^^^^^^^^^^^^ conflicting implementation for `i32`
+  |     ^^^^^^^^ conflicting implementation for `i32`
 
 error[E0119]: conflicting implementations of trait `From<i32>` for type `Enum`
  --> tests/ui_fail/from_variant_same_type.rs:4:5
   |
 3 |     Variant1(i32),
-  |     ------------- first implementation here
+  |     -------- first implementation here
 4 |     Variant2(i32),
-  |     ^^^^^^^^^^^^^ conflicting implementation for `Enum`
+  |     ^^^^^^^^ conflicting implementation for `Enum`

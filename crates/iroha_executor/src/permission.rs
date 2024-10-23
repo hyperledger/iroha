@@ -541,7 +541,7 @@ pub mod asset_definition {
         host: &Iroha,
     ) -> Result<bool> {
         let asset_definition = host
-            .query(FindAssetsDefinitions)
+            .query(FindAllAssetDefinitions)
             .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
             .execute_single()
             .map_err(|e| match e {

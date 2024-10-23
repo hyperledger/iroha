@@ -2,7 +2,7 @@ error: Unknown field: `derive`
  --> tests/ui_fail/unknown_field_in_version_attribute.rs:7:62
   |
 7 | #[version(version = 1, versioned_alias = "VersionedMessage", derive = "Clone")]
-  |                                                              ^^^^^^^^^^^^^^^^
+  |                                                              ^^^^^^
 
 error[E0412]: cannot find type `_VersionedMessageV1` in this scope
  --> tests/ui_fail/unknown_field_in_version_attribute.rs:5:1

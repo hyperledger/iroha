@@ -2,4 +2,4 @@ error: #[skip_from] attribute should be applied to the field, not variant
  --> tests/ui_fail/from_variant_incorrect_attr_placement.rs:6:5
   |
 6 |     #[skip_from]
-  |     ^^^^^^^^^^^^
+  |     ^

@@ -2,7 +2,7 @@ error[E0119]: conflicting implementations of trait `From<Variant1>` for type `En
  --> tests/ui_fail/../ui_pass/enum_from_variant.rs
   |
   |     Variant1(Variant1),
-  |     ^^^^^^^^^^^^^^^^^^ conflicting implementation for `Enum`
+  |     ^^^^^^^^ conflicting implementation for `Enum`
   |
  ::: tests/ui_fail/from_variant_conflicting_implementation.rs:3:1
   |

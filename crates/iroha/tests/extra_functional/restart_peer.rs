@@ -54,7 +54,7 @@ async fn restarted_peer_should_restore_its_state() -> Result<()> {
     let client = peer_b.client();
     let asset = spawn_blocking(move || {
         client
-            .query(client::asset::all())
+            .query(FindAssets::new())
             .filter_with(|asset| asset.id.account.eq(ALICE_ID.clone()))
             .execute_all()
     })

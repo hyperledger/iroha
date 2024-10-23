@@ -195,7 +195,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         let start_pattern = "nft_number_";
         let end_pattern = format!("_for_{}#{}", account_id.signatory(), account_id.domain());
         let assets = test_client
-            .query(client::asset::all())
+            .query(FindAssets::new())
             .filter_with(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()?;
         let count: u64 = assets

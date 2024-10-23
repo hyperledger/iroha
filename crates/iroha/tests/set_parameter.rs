@@ -1,10 +1,7 @@
 use eyre::Result;
-use iroha::{
-    client,
-    data_model::{
-        parameter::{BlockParameter, Parameter, Parameters},
-        prelude::*,
-    },
+use iroha::data_model::{
+    parameter::{BlockParameter, Parameter, Parameters},
+    prelude::*,
 };
 use iroha_test_network::*;
 use nonzero_ext::nonzero;
@@ -18,7 +15,7 @@ fn can_change_parameter_value() -> Result<()> {
         .start_blocking()?;
     let test_client = network.client();
 
-    let old_params: Parameters = test_client.query_single(client::parameter::all())?;
+    let old_params: Parameters = test_client.query_single(FindParameters::new())?;
     assert_eq!(old_params.block.max_transactions, nonzero!(16u64));
 
     let new_value = nonzero!(32u64);
@@ -26,7 +23,7 @@ fn can_change_parameter_value() -> Result<()> {
         BlockParameter::MaxTransactions(new_value),
     )))?;
 
-    let params = test_client.query_single(client::parameter::all())?;
+    let params = test_client.query_single(FindParameters::new())?;
     assert_eq!(params.block.max_transactions, new_value);
 
     Ok(())

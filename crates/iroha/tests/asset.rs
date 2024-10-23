@@ -1,6 +1,5 @@
 use eyre::Result;
 use iroha::{
-    client,
     crypto::KeyPair,
     data_model::{
         asset::{AssetId, AssetType, AssetValue},
@@ -41,7 +40,7 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
     // Registering an asset to an account which doesn't have one
     // should result in asset being created
     let asset = test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id))
         .execute_all()?
         .into_iter()
@@ -76,7 +75,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
 
     // Check for asset to be registered
     let assets = test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id.clone()))
         .execute_all()?;
 
@@ -88,7 +87,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
 
     // ... and check that it is removed after Unregister
     let assets = test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id.clone()))
         .execute_all()?;
 
@@ -125,7 +124,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     test_client.submit_transaction_blocking(&tx)?;
 
     let asset = test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id))
         .execute_all()?
         .into_iter()
@@ -159,7 +158,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     test_client.submit_transaction_blocking(&tx)?;
 
     let asset = test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id))
         .execute_all()?
         .into_iter()
@@ -194,7 +193,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     test_client.submit_transaction_blocking(&tx)?;
 
     let asset = test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id.clone()))
         .execute_all()?
         .into_iter()
@@ -215,7 +214,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     test_client.submit_blocking(mint)?;
 
     let asset = test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id))
         .execute_all()?
         .into_iter()
@@ -339,7 +338,7 @@ fn transfer_asset_definition() {
         .expect("Failed to submit transaction");
 
     let asset_definition = test_client
-        .query(client::asset::all_definitions())
+        .query(FindAllAssetDefinitions::new())
         .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
         .execute_single()
         .expect("Failed to execute Iroha Query");
@@ -354,7 +353,7 @@ fn transfer_asset_definition() {
         .expect("Failed to submit transaction");
 
     let asset_definition = test_client
-        .query(client::asset::all_definitions())
+        .query(FindAllAssetDefinitions::new())
         .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id))
         .execute_single()
         .expect("Failed to execute Iroha Query");

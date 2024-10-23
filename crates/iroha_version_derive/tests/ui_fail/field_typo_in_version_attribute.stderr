@@ -2,7 +2,7 @@ error: Unknown field: `versiond_alias`. Did you mean `versioned_alias`?
  --> tests/ui_fail/field_typo_in_version_attribute.rs:7:24
   |
 7 | #[version(version = 1, versiond_alias = "VersionedMessage")]
-  |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |                        ^^^^^^^^^^^^^^
 
 error: Missing field `versioned_alias`
  --> tests/ui_fail/field_typo_in_version_attribute.rs:7:1

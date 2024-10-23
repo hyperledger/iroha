@@ -1,8 +1,5 @@
 use eyre::Result;
-use iroha::{
-    client::transaction,
-    data_model::{prelude::*, query::parameters::Pagination},
-};
+use iroha::data_model::{prelude::*, query::parameters::Pagination};
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
 use nonzero_ext::nonzero;
@@ -42,7 +39,7 @@ fn client_has_rejected_and_accepted_txs_should_return_tx_history() -> Result<()>
     }
 
     let transactions = client
-        .query(transaction::all())
+        .query(FindTransactions::new())
         .filter_with(|tx| tx.transaction.value.authority.eq(account_id.clone()))
         .with_pagination(Pagination {
             limit: Some(nonzero!(50_u64)),

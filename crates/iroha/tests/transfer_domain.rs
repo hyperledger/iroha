@@ -1,6 +1,5 @@
 use eyre::Result;
 use iroha::{
-    client,
     crypto::KeyPair,
     data_model::{prelude::*, transaction::error::TransactionRejectionReason},
 };
@@ -331,7 +330,7 @@ fn domain_owner_transfer() -> Result<()> {
     test_client.submit_blocking(Register::account(bob))?;
 
     let domain = test_client
-        .query(client::domain::all())
+        .query(FindDomains::new())
         .filter_with(|domain| domain.id.eq(kingdom_id.clone()))
         .execute_single()?;
 
@@ -346,7 +345,7 @@ fn domain_owner_transfer() -> Result<()> {
         .expect("Failed to submit transaction");
 
     let domain = test_client
-        .query(client::domain::all())
+        .query(FindDomains::new())
         .filter_with(|domain| domain.id.eq(kingdom_id.clone()))
         .execute_single()?;
     assert_eq!(domain.owned_by(), &bob_id);
@@ -381,7 +380,7 @@ fn not_allowed_to_transfer_other_user_domain() -> Result<()> {
     let client = network.client();
 
     let domain = client
-        .query(client::domain::all())
+        .query(FindDomains::new())
         .filter_with(|domain| domain.id.eq(foo_domain.clone()))
         .execute_single()?;
     assert_eq!(domain.owned_by(), &user1);

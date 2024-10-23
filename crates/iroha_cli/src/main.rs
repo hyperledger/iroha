@@ -374,8 +374,6 @@ mod blocks {
 }
 
 mod domain {
-    use iroha::client;
-
     use super::*;
 
     /// Arguments for domain subcommand
@@ -430,7 +428,7 @@ mod domain {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let query = client.query(client::domain::all());
+            let query = client.query(FindDomains::new());
 
             let query = match self {
                 List::All => query,
@@ -545,8 +543,6 @@ mod domain {
 mod account {
     use std::fmt::Debug;
 
-    use iroha::client::{self};
-
     use super::{Permission as DataModelPermission, *};
 
     /// subcommands for account subcommand
@@ -606,7 +602,7 @@ mod account {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let query = client.query(client::account::all());
+            let query = client.query(FindAccounts::new());
 
             let query = match self {
                 List::All => query,
@@ -686,10 +682,7 @@ mod account {
 }
 
 mod asset {
-    use iroha::{
-        client::{self, asset},
-        data_model::name::Name,
-    };
+    use iroha::data_model::name::Name;
 
     use super::*;
 
@@ -799,7 +792,7 @@ mod asset {
             fn run(self, context: &mut dyn RunContext) -> Result<()> {
                 let client = context.client_from_config();
 
-                let query = client.query(client::asset::all_definitions());
+                let query = client.query(FindAllAssetDefinitions::new());
 
                 let query = match self {
                     List::All => query,
@@ -911,7 +904,7 @@ mod asset {
             let Self { id: asset_id } = self;
             let client = context.client_from_config();
             let asset = client
-                .query(asset::all())
+                .query(FindAssets::new())
                 .filter_with(|asset| asset.id.eq(asset_id))
                 .execute_single()
                 .wrap_err("Failed to get asset.")?;
@@ -933,7 +926,7 @@ mod asset {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
 
-            let query = client.query(client::asset::all());
+            let query = client.query(FindAssets::new());
 
             let query = match self {
                 List::All => query,

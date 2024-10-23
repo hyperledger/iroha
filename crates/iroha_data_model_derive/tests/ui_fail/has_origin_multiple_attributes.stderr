@@ -1,6 +1,5 @@
 error: Only one #[has_origin] attribute is allowed!
  --> tests/ui_fail/has_origin_multiple_attributes.rs:5:1
   |
-5 | / #[has_origin(origin = Object)]
-6 | | #[has_origin(origin = Object)]
-  | |______________________________^
+5 | #[has_origin(origin = Object)]
+  | ^

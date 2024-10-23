@@ -2,4 +2,4 @@ error: Fieldless enums with explicit discriminants are prohibited
  --> tests/ui_fail/fieldless_enum_with_explicit_discriminant.rs:6:5
   |
 6 |     A = 1,
-  |     ^^^^^
+  |     ^

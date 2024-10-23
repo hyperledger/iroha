@@ -1,5 +1,5 @@
 use eyre::Result;
-use iroha::{client, data_model::prelude::*};
+use iroha::data_model::prelude::*;
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
 
@@ -21,16 +21,14 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
 
     //Then;
     let query_result = client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id))
         .execute_all()?;
 
     assert!(query_result
         .iter()
         .all(|asset| *asset.id().definition() != wrong_asset_definition_id));
-    let definition_query_result = client
-        .query(client::asset::all_definitions())
-        .execute_all()?;
+    let definition_query_result = client.query(FindAllAssetDefinitions::new()).execute_all()?;
     assert!(definition_query_result
         .iter()
         .all(|asset| *asset.id() != wrong_asset_definition_id));

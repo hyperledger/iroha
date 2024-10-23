@@ -43,7 +43,7 @@ fn transactions_should_be_applied() -> Result<()> {
     iroha.submit_blocking(mint_asset)?;
 
     iroha
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.eq(asset_id))
         .execute_single()?;
 

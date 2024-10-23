@@ -42,7 +42,7 @@ fn main(host: Iroha, _context: Context) {
 
     // genesis registers some more asset definitions, but we apply a filter to find only the ones from the `looking_glass` domain
     let cursor = host
-        .query(FindAssetsDefinitions)
+        .query(FindAllAssetDefinitions)
         .filter_with(|asset_definition| asset_definition.id.domain_id.eq(domain_id))
         .execute()
         .dbg_unwrap();

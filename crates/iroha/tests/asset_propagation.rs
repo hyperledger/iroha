@@ -1,8 +1,5 @@
 use eyre::Result;
-use iroha::{
-    client,
-    data_model::{parameter::BlockParameter, prelude::*},
-};
+use iroha::data_model::{parameter::BlockParameter, prelude::*};
 use iroha_test_network::*;
 use iroha_test_samples::gen_account_in;
 use nonzero_ext::nonzero;
@@ -46,7 +43,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     // Then
     let asset = peer_b
         .client()
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id))
         .execute_all()?
         .into_iter()

@@ -2,7 +2,7 @@ use executor_custom_data_model::permissions::CanControlDomainLives;
 use eyre::Result;
 use futures_util::TryStreamExt as _;
 use iroha::{
-    client::{self, Client},
+    client::Client,
     data_model::{
         parameter::{Parameter, SmartContractParameter},
         prelude::*,
@@ -81,7 +81,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
     // Check that Alice has permission to unregister Wonderland
     let alice_id = ALICE_ID.clone();
     let alice_permissions = client
-        .query(client::permission::by_account_id(alice_id.clone()))
+        .query(FindPermissionsByAccountId::new(alice_id.clone()))
         .execute_all()?;
     let can_unregister_domain = CanUnregisterDomain {
         domain: "wonderland".parse()?,
@@ -108,7 +108,7 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
 
     // Check that Alice has `CanControlDomainLives` permission
     let alice_permissions = client
-        .query(client::permission::by_account_id(alice_id.clone()))
+        .query(FindPermissionsByAccountId::new(alice_id.clone()))
         .execute_all()?;
     let can_control_domain_lives = CanControlDomainLives;
     assert!(alice_permissions.iter().any(|permission| {
@@ -143,7 +143,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that `TEST_ROLE` has permission
     assert!(client
-        .query(client::role::all())
+        .query(FindRoles::new())
         .execute_all()?
         .into_iter()
         .find(|role| role.id == test_role_id)
@@ -158,7 +158,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
     // Check that Alice has permission
     let alice_id = ALICE_ID.clone();
     assert!(client
-        .query(client::permission::by_account_id(alice_id.clone()))
+        .query(FindPermissionsByAccountId::new(alice_id.clone()))
         .execute_all()?
         .iter()
         .any(|permission| {
@@ -176,7 +176,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that `TEST_ROLE` doesn't have permission
     assert!(!client
-        .query(client::role::all())
+        .query(FindRoles::new())
         .execute_all()?
         .into_iter()
         .find(|role| role.id == test_role_id)
@@ -190,7 +190,7 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
 
     // Check that Alice doesn't have permission
     assert!(!client
-        .query(client::permission::by_account_id(alice_id.clone()))
+        .query(FindPermissionsByAccountId::new(alice_id.clone()))
         .execute_all()?
         .iter()
         .any(|permission| {
@@ -306,7 +306,7 @@ fn migration_fail_should_not_cause_any_effects() {
     let assert_domain_does_not_exist = |client: &Client, domain_id: &DomainId| {
         assert!(
             client
-                .query(client::domain::all())
+                .query(FindDomains::new())
                 .filter_with(|domain| domain.id.eq(domain_id.clone()))
                 .execute_single_opt()
                 .expect("Query failed")
