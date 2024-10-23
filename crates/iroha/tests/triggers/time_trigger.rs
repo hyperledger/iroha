@@ -13,7 +13,7 @@ use iroha::{
 use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, load_sample_wasm, ALICE_ID};
 
-use crate::integration::triggers::get_asset_value;
+use crate::triggers::get_asset_value;
 
 fn curr_time() -> Duration {
     use std::time::SystemTime;
