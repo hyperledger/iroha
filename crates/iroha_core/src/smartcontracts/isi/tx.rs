@@ -22,12 +22,14 @@ use nonzero_ext::nonzero;
 use super::*;
 use crate::smartcontracts::ValidQuery;
 
+/// Iterates transactions of a block in reverse order
 pub(crate) struct BlockTransactionIter(Arc<SignedBlock>, usize);
 pub(crate) struct BlockTransactionRef(Arc<SignedBlock>, usize);
 
 impl BlockTransactionIter {
     fn new(block: Arc<SignedBlock>) -> Self {
-        Self(block, 0)
+        let n_transactions = block.transactions().len();
+        Self(block, n_transactions)
     }
 }
 
@@ -35,11 +37,9 @@ impl Iterator for BlockTransactionIter {
     type Item = BlockTransactionRef;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.1 < self.0.transactions().len() {
-            let res = Some(BlockTransactionRef(Arc::clone(&self.0), self.1));
-
-            self.1 += 1;
-            return res;
+        if self.1 != 0 {
+            self.1 -= 1;
+            return Some(BlockTransactionRef(Arc::clone(&self.0), self.1));
         }
 
         None
@@ -69,6 +69,7 @@ impl ValidQuery for FindTransactions {
     ) -> Result<impl Iterator<Item = Self::Item>, QueryExecutionFail> {
         Ok(state_ro
             .all_blocks(nonzero!(1_usize))
+            .rev()
             .flat_map(BlockTransactionIter::new)
             .map(|tx| TransactionQueryOutput {
                 block_hash: tx.block_hash(),
