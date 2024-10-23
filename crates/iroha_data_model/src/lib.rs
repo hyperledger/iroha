@@ -126,7 +126,7 @@ mod seal {
         FindAccountMetadata,
         FindAccountsWithAsset,
         FindAssets,
-        FindAllAssetDefinitions,
+        FindAssetsDefinitions,
         FindAssetQuantityById,
         FindAssetMetadata,
         FindAssetDefinitionMetadata,

@@ -338,7 +338,7 @@ fn transfer_asset_definition() {
         .expect("Failed to submit transaction");
 
     let asset_definition = test_client
-        .query(FindAllAssetDefinitions::new())
+        .query(FindAssetsDefinitions::new())
         .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
         .execute_single()
         .expect("Failed to execute Iroha Query");
@@ -353,7 +353,7 @@ fn transfer_asset_definition() {
         .expect("Failed to submit transaction");
 
     let asset_definition = test_client
-        .query(FindAllAssetDefinitions::new())
+        .query(FindAssetsDefinitions::new())
         .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id))
         .execute_single()
         .expect("Failed to execute Iroha Query");

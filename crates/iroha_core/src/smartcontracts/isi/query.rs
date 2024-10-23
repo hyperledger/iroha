@@ -275,7 +275,7 @@ impl ValidQueryRequest {
                         ValidQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,
-                    QueryBox::FindAllAssetDefinitions(q) => apply_query_postprocessing(
+                    QueryBox::FindAssetsDefinitions(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
                         &iter_query.params,
                     )?,

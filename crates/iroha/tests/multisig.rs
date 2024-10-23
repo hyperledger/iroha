@@ -119,7 +119,7 @@ fn mutlisig() -> Result<()> {
 
     // Check that asset definition isn't created yet
     let err = test_client
-        .query(FindAllAssetDefinitions::new())
+        .query(FindAssetsDefinitions::new())
         .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
         .execute_single()
         .expect_err("asset definition shouldn't be created before enough votes are collected");
@@ -137,7 +137,7 @@ fn mutlisig() -> Result<()> {
 
     // Check that new asset definition was created and multisig account is owner
     let asset_definition = test_client
-        .query(FindAllAssetDefinitions::new())
+        .query(FindAssetsDefinitions::new())
         .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id.clone()))
         .execute_single()
         .expect("asset definition should be created after enough votes are collected");

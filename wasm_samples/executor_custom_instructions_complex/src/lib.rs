@@ -79,7 +79,7 @@ impl executor_custom_data_model::complex_isi::Context for Context<'_> {
             NumericQuery::FindTotalAssetQuantityByAssetDefinitionId(asset_definition_id) => {
                 let asset_definition = self
                     .host
-                    .query(FindAllAssetDefinitions::new())
+                    .query(FindAssetsDefinitions::new())
                     .filter_with(|asset_definition| asset_definition.id.eq(asset_definition_id))
                     .execute_single()
                     .map_err(|e| match e {

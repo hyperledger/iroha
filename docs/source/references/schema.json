@@ -1871,7 +1871,7 @@
     ]
   },
   "FindAssets": null,
-  "FindAllAssetDefinitions": null,
+  "FindAssetsDefinitions": null,
   "FindBlockHeaders": null,
   "FindBlocks": null,
   "FindDomainMetadata": {
@@ -2956,9 +2956,9 @@
         "type": "QueryWithFilter<FindAssets, AssetPredicateBox>"
       },
       {
-        "tag": "FindAllAssetDefinitions",
+        "tag": "FindAssetsDefinitions",
         "discriminant": 3,
-        "type": "QueryWithFilter<FindAllAssetDefinitions, AssetDefinitionPredicateBox>"
+        "type": "QueryWithFilter<FindAssetsDefinitions, AssetDefinitionPredicateBox>"
       },
       {
         "tag": "FindRoles",
@@ -3255,11 +3255,11 @@
       }
     ]
   },
-  "QueryWithFilter<FindAllAssetDefinitions, AssetDefinitionPredicateBox>": {
+  "QueryWithFilter<FindAssetsDefinitions, AssetDefinitionPredicateBox>": {
     "Struct": [
       {
         "name": "query",
-        "type": "FindAllAssetDefinitions"
+        "type": "FindAssetsDefinitions"
       },
       {
         "name": "predicate",

@@ -88,7 +88,7 @@ mod model {
         FindDomains(QueryWithFilterFor<FindDomains>),
         FindAccounts(QueryWithFilterFor<FindAccounts>),
         FindAssets(QueryWithFilterFor<FindAssets>),
-        FindAllAssetDefinitions(QueryWithFilterFor<FindAllAssetDefinitions>),
+        FindAssetsDefinitions(QueryWithFilterFor<FindAssetsDefinitions>),
         FindRoles(QueryWithFilterFor<FindRoles>),
 
         FindRoleIds(QueryWithFilterFor<FindRoleIds>),
@@ -558,7 +558,7 @@ impl_iter_queries! {
     FindPermissionsByAccountId => crate::permission::Permission,
     FindAccounts => crate::account::Account,
     FindAssets => crate::asset::Asset,
-    FindAllAssetDefinitions => crate::asset::AssetDefinition,
+    FindAssetsDefinitions => crate::asset::AssetDefinition,
     FindDomains => crate::domain::Domain,
     FindPeers => crate::peer::Peer,
     FindActiveTriggerIds => crate::trigger::TriggerId,
@@ -746,12 +746,12 @@ pub mod asset {
         #[ffi_type]
         pub struct FindAssets;
 
-        /// [`FindAllAssetDefinitions`] Iroha Query finds all [`AssetDefinition`]s presented
+        /// [`FindAssetsDefinitions`] Iroha Query finds all [`AssetDefinition`]s presented
         /// in Iroha Peer.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all asset definitions")]
         #[ffi_type]
-        pub struct FindAllAssetDefinitions;
+        pub struct FindAssetsDefinitions;
 
         /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`]
         /// value if [`Asset`] is presented in Iroha Peer.
@@ -793,8 +793,8 @@ pub mod asset {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAllAssetDefinitions, FindAssetDefinitionMetadata, FindAssetMetadata,
-            FindAssetQuantityById, FindAssets,
+            FindAssetDefinitionMetadata, FindAssetMetadata, FindAssetQuantityById, FindAssets,
+            FindAssetsDefinitions,
         };
     }
 }

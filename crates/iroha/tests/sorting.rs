@@ -152,7 +152,7 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .query(FindAllAssetDefinitions::new())
+        .query(FindAssetsDefinitions::new())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
         .filter_with(|asset_definition| asset_definition.id.name.starts_with("xor_"))
         .execute_all()

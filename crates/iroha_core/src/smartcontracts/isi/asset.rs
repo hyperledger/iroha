@@ -452,7 +452,7 @@ pub mod query {
                 .cloned())
         }
     }
-    impl ValidQuery for FindAllAssetDefinitions {
+    impl ValidQuery for FindAssetsDefinitions {
         #[metrics(+"find_asset_definitions")]
         fn execute(
             self,

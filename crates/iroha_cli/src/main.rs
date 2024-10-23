@@ -792,7 +792,7 @@ mod asset {
             fn run(self, context: &mut dyn RunContext) -> Result<()> {
                 let client = context.client_from_config();
 
-                let query = client.query(FindAllAssetDefinitions::new());
+                let query = client.query(FindAssetsDefinitions::new());
 
                 let query = match self {
                     List::All => query,

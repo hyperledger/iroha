@@ -75,7 +75,7 @@ fn find_asset_total_quantity() -> Result<()> {
 
     let get_quantity = || -> Result<Numeric, SingleQueryError<QueryError>> {
         Ok(test_client
-            .query(FindAllAssetDefinitions::new())
+            .query(FindAssetsDefinitions::new())
             .filter_with(|asset_definition| asset_definition.id.eq(definition_id.clone()))
             .execute_single()?
             .total_quantity)
@@ -151,7 +151,7 @@ where
 
     let get_quantity = || -> Result<Numeric, SingleQueryError<QueryError>> {
         Ok(test_client
-            .query(FindAllAssetDefinitions::new())
+            .query(FindAssetsDefinitions::new())
             .filter_with(|asset_definition| asset_definition.id.eq(definition_id.clone()))
             .execute_single()?
             .total_quantity)

@@ -28,7 +28,7 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
     assert!(query_result
         .iter()
         .all(|asset| *asset.id().definition() != wrong_asset_definition_id));
-    let definition_query_result = client.query(FindAllAssetDefinitions::new()).execute_all()?;
+    let definition_query_result = client.query(FindAssetsDefinitions::new()).execute_all()?;
     assert!(definition_query_result
         .iter()
         .all(|asset| *asset.id() != wrong_asset_definition_id));
