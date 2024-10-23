@@ -102,17 +102,12 @@ declare_permissions! {
     iroha_executor_data_model::permission::asset_definition::{CanUnregisterAssetDefinition},
     iroha_executor_data_model::permission::asset_definition::{CanModifyAssetDefinitionMetadata},
 
-    iroha_executor_data_model::permission::asset::{CanRegisterAssetWithDefinition},
-    iroha_executor_data_model::permission::asset::{CanUnregisterAssetWithDefinition},
     iroha_executor_data_model::permission::asset::{CanMintAssetWithDefinition},
     iroha_executor_data_model::permission::asset::{CanBurnAssetWithDefinition},
     iroha_executor_data_model::permission::asset::{CanTransferAssetWithDefinition},
-    iroha_executor_data_model::permission::asset::{CanRegisterAsset},
-    iroha_executor_data_model::permission::asset::{CanUnregisterAsset},
     iroha_executor_data_model::permission::asset::{CanMintAsset},
     iroha_executor_data_model::permission::asset::{CanBurnAsset},
     iroha_executor_data_model::permission::asset::{CanTransferAsset},
-    iroha_executor_data_model::permission::asset::{CanModifyAssetMetadata},
 
     iroha_executor_data_model::permission::parameter::{CanSetParameters},
     iroha_executor_data_model::permission::role::{CanManageRoles},
@@ -291,8 +286,7 @@ pub mod asset {
 
     use iroha_executor_data_model::permission::asset::{
         CanBurnAsset, CanBurnAssetWithDefinition, CanMintAsset, CanMintAssetWithDefinition,
-        CanModifyAssetMetadata, CanRegisterAsset, CanRegisterAssetWithDefinition, CanTransferAsset,
-        CanTransferAssetWithDefinition, CanUnregisterAsset, CanUnregisterAssetWithDefinition,
+        CanTransferAsset, CanTransferAssetWithDefinition,
     };
 
     use super::*;
@@ -326,34 +320,6 @@ pub mod asset {
             Err(ValidationFail::NotPermitted(
                 "Can't access asset owned by another account".to_owned(),
             ))
-        }
-    }
-
-    impl ValidateGrantRevoke for CanRegisterAssetWithDefinition {
-        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, host, context)
-        }
-        fn validate_revoke(
-            &self,
-            authority: &AccountId,
-            context: &Context,
-            host: &Iroha,
-        ) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, host, context)
-        }
-    }
-
-    impl ValidateGrantRevoke for CanUnregisterAssetWithDefinition {
-        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, host, context)
-        }
-        fn validate_revoke(
-            &self,
-            authority: &AccountId,
-            context: &Context,
-            host: &Iroha,
-        ) -> Result {
-            super::asset_definition::Owner::from(self).validate(authority, host, context)
         }
     }
 
@@ -399,34 +365,6 @@ pub mod asset {
         }
     }
 
-    impl ValidateGrantRevoke for CanRegisterAsset {
-        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
-            super::account::Owner::from(self).validate(authority, host, context)
-        }
-        fn validate_revoke(
-            &self,
-            authority: &AccountId,
-            context: &Context,
-            host: &Iroha,
-        ) -> Result {
-            super::account::Owner::from(self).validate(authority, host, context)
-        }
-    }
-
-    impl ValidateGrantRevoke for CanUnregisterAsset {
-        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
-            Owner::from(self).validate(authority, host, context)
-        }
-        fn validate_revoke(
-            &self,
-            authority: &AccountId,
-            context: &Context,
-            host: &Iroha,
-        ) -> Result {
-            Owner::from(self).validate(authority, host, context)
-        }
-    }
-
     impl ValidateGrantRevoke for CanMintAsset {
         fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
             Owner::from(self).validate(authority, host, context)
@@ -469,28 +407,6 @@ pub mod asset {
         }
     }
 
-    impl ValidateGrantRevoke for CanModifyAssetMetadata {
-        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
-            Owner::from(self).validate(authority, host, context)
-        }
-        fn validate_revoke(
-            &self,
-            authority: &AccountId,
-            context: &Context,
-            host: &Iroha,
-        ) -> Result {
-            Owner::from(self).validate(authority, host, context)
-        }
-    }
-
-    impl<'t> From<&'t CanRegisterAsset> for super::account::Owner<'t> {
-        fn from(value: &'t CanRegisterAsset) -> Self {
-            Self {
-                account: &value.owner,
-            }
-        }
-    }
-
     macro_rules! impl_froms {
         ($($name:ty),+ $(,)?) => {$(
             impl<'t> From<&'t $name> for Owner<'t> {
@@ -501,13 +417,7 @@ pub mod asset {
         };
     }
 
-    impl_froms!(
-        CanUnregisterAsset,
-        CanMintAsset,
-        CanBurnAsset,
-        CanTransferAsset,
-        CanModifyAssetMetadata,
-    );
+    impl_froms!(CanMintAsset, CanBurnAsset, CanTransferAsset,);
 }
 
 pub mod asset_definition {
@@ -639,8 +549,6 @@ pub mod asset_definition {
     impl_froms!(
         CanUnregisterAssetDefinition,
         CanModifyAssetDefinitionMetadata,
-        iroha_executor_data_model::permission::asset::CanRegisterAssetWithDefinition,
-        iroha_executor_data_model::permission::asset::CanUnregisterAssetWithDefinition,
         iroha_executor_data_model::permission::asset::CanMintAssetWithDefinition,
         iroha_executor_data_model::permission::asset::CanBurnAssetWithDefinition,
         iroha_executor_data_model::permission::asset::CanTransferAssetWithDefinition,

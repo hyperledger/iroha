@@ -37,7 +37,7 @@ async fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
             client.submit_all_blocking::<InstructionBox>([
                 Register::domain(Domain::new("domain".parse()?)).into(),
                 Register::account(Account::new(account)).into(),
-                Register::asset_definition(AssetDefinition::numeric(asset_def)).into(),
+                Register::asset_definition(AssetDefinition::new(asset_def)).into(),
             ])
         })
         .await??; // blocks=2
@@ -107,7 +107,7 @@ async fn find_asset(
     .find(|asset| asset.id().definition() == asset_definition)
     .expect("asset should be there");
 
-    assert_matches!(asset.value(), AssetValue::Numeric(quantity) => Ok(*quantity))
+    assert_matches!(asset.value(), quantity => Ok(*quantity))
 }
 
 async fn mint(

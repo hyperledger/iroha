@@ -7,9 +7,9 @@ use iroha_schema::IntoSchema;
 use iroha_version::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use super::impl_predicate_box;
+use super::{impl_predicate_box, NumericPredicateBox};
 use crate::{
-    asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId, AssetValue},
+    asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId},
     query::{
         predicate::{
             predicate_ast_extensions::AstPredicateExt as _,
@@ -58,7 +58,7 @@ pub enum AssetPredicateBox {
     /// Checks if a predicate applies to the ID of the input.
     Id(AssetIdPredicateBox),
     /// Checks if a predicate applies to the value of the input.
-    Value(AssetValuePredicateBox),
+    Value(NumericPredicateBox),
 }
 
 impl_predicate_box!(Asset: AssetPredicateBox);
@@ -69,22 +69,6 @@ impl EvaluatePredicate<Asset> for AssetPredicateBox {
             AssetPredicateBox::Id(id) => id.applies(&input.id),
             AssetPredicateBox::Value(value) => value.applies(&input.value),
         }
-    }
-}
-
-/// A predicate that can be applied to an [`AssetValue`].
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub enum AssetValuePredicateBox {
-    // TODO: populate
-    // FIX: Remove all `#[allow(unreachable_patterns)]` from all use sites
-    // once some variants are added into this enum
-}
-
-impl_predicate_box!(AssetValue: AssetValuePredicateBox);
-
-impl EvaluatePredicate<AssetValue> for AssetValuePredicateBox {
-    fn applies(&self, _input: &AssetValue) -> bool {
-        match *self {}
     }
 }
 
@@ -144,6 +128,6 @@ pub mod prelude {
     //! Re-export all predicate boxes for a glob import `(::*)`
     pub use super::{
         AssetDefinitionIdPredicateBox, AssetDefinitionPredicateBox, AssetIdPredicateBox,
-        AssetPredicateBox, AssetValuePredicateBox,
+        AssetPredicateBox,
     };
 }

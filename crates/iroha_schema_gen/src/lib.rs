@@ -73,15 +73,10 @@ pub fn build_schemas() -> MetaMap {
         permission::asset_definition::CanRegisterAssetDefinition,
         permission::asset_definition::CanUnregisterAssetDefinition,
         permission::asset_definition::CanModifyAssetDefinitionMetadata,
-        permission::asset::CanRegisterAssetWithDefinition,
-        permission::asset::CanUnregisterAssetWithDefinition,
         permission::asset::CanTransferAssetWithDefinition,
-        permission::asset::CanRegisterAsset,
-        permission::asset::CanUnregisterAsset,
         permission::asset::CanMintAsset,
         permission::asset::CanBurnAsset,
         permission::asset::CanTransferAsset,
-        permission::asset::CanModifyAssetMetadata,
         permission::parameter::CanSetParameters,
         permission::role::CanManageRoles,
         permission::trigger::CanRegisterTrigger,
@@ -126,10 +121,6 @@ types!(
     AssetId,
     AssetIdPredicateBox,
     AssetPredicateBox,
-    AssetTransferBox,
-    AssetType,
-    AssetValue,
-    AssetValuePredicateBox,
     BlockEvent,
     BlockEventFilter,
     BlockHashPredicateBox,
@@ -232,7 +223,6 @@ types!(
     FindTransactions,
     FindTriggers,
     FindAssetDefinitionMetadata,
-    FindAssetMetadata,
     FindAssetQuantityById,
     FindDomainMetadata,
     FindError,
@@ -287,7 +277,6 @@ types!(
     Metadata,
     MetadataChanged<AccountId>,
     MetadataChanged<AssetDefinitionId>,
-    MetadataChanged<AssetId>,
     MetadataChanged<DomainId>,
     MetadataChanged<TriggerId>,
     MetadataPredicateBox,
@@ -296,7 +285,7 @@ types!(
     MintBox,
     Mint<Numeric, Asset>,
     Mint<u32, Trigger>,
-    Mismatch<AssetType>,
+    Mismatch<NumericSpec>,
     Name,
     NewAccount,
     NewAssetDefinition,
@@ -306,6 +295,7 @@ types!(
     NonZeroU64,
     Numeric,
     NumericSpec,
+    NumericPredicateBox,
     Option<AccountId>,
     Option<AssetDefinitionId>,
     Option<AssetId>,
@@ -350,7 +340,6 @@ types!(
     QueryResponse,
     QuerySignature,
     Register<Account>,
-    Register<Asset>,
     Register<AssetDefinition>,
     RegisterBox,
     Register<Domain>,
@@ -358,7 +347,6 @@ types!(
     Register<Role>,
     Register<Trigger>,
     RemoveKeyValue<Account>,
-    RemoveKeyValue<Asset>,
     RemoveKeyValue<AssetDefinition>,
     RemoveKeyValueBox,
     RemoveKeyValue<Domain>,
@@ -378,7 +366,6 @@ types!(
     RolePermissionChanged,
     RolePredicateBox,
     SetKeyValue<Account>,
-    SetKeyValue<Asset>,
     SetKeyValue<AssetDefinition>,
     SetKeyValueBox,
     SetKeyValue<Domain>,
@@ -428,7 +415,6 @@ types!(
     TransactionStatus,
     Transfer<Account, AssetDefinitionId, Account>,
     Transfer<Account, DomainId, Account>,
-    Transfer<Asset, Metadata, Account>,
     Transfer<Asset, Numeric, Account>,
     TransferBox,
     Trigger,
@@ -445,7 +431,6 @@ types!(
     TriggerNumberOfExecutionsChanged,
     TypeError,
     Unregister<Account>,
-    Unregister<Asset>,
     Unregister<AssetDefinition>,
     UnregisterBox,
     Unregister<Domain>,
@@ -606,20 +591,11 @@ mod tests {
         );
         insert_into_test_map!(iroha_executor_data_model::permission::asset_definition::CanModifyAssetDefinitionMetadata);
         insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanRegisterAssetWithDefinition
-        );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::asset::CanUnregisterAssetWithDefinition
-        );
-        insert_into_test_map!(
             iroha_executor_data_model::permission::asset::CanTransferAssetWithDefinition
         );
-        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanRegisterAsset);
-        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanUnregisterAsset);
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanMintAsset);
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanBurnAsset);
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanTransferAsset);
-        insert_into_test_map!(iroha_executor_data_model::permission::asset::CanModifyAssetMetadata);
         insert_into_test_map!(iroha_executor_data_model::permission::parameter::CanSetParameters);
         insert_into_test_map!(iroha_executor_data_model::permission::role::CanManageRoles);
         insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanRegisterTrigger);

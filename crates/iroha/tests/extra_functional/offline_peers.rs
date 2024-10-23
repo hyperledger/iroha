@@ -52,7 +52,7 @@ async fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
             .iter()
             .find(|asset| *asset.id().definition() == roses)
             .ok_or_eyre("asset should be found")?;
-        assert_eq!(AssetValue::Numeric(alice_has_roses), *asset.value());
+        assert_eq!(alice_has_roses, *asset.value());
         Ok(())
     })
     .await??;

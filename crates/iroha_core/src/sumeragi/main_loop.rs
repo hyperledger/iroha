@@ -1506,10 +1506,10 @@ mod tests {
 
         let block = {
             // Making two transactions that have the same instruction
-            let create_asset_definition1 = Register::asset_definition(AssetDefinition::numeric(
+            let create_asset_definition1 = Register::asset_definition(AssetDefinition::new(
                 "xor1#wonderland".parse().expect("Valid"),
             ));
-            let create_asset_definition2 = Register::asset_definition(AssetDefinition::numeric(
+            let create_asset_definition2 = Register::asset_definition(AssetDefinition::new(
                 "xor2#wonderland".parse().expect("Valid"),
             ));
 

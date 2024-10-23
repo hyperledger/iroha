@@ -18,17 +18,17 @@ fn send_tx_with_different_chain_id() {
     let create_sender_account = Register::account(Account::new(sender_id.clone()));
     let create_receiver_account = Register::account(Account::new(receiver_id.clone()));
     let register_asset_definition =
-        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
-    let register_asset = Register::asset(Asset::new(
-        AssetId::new(asset_definition_id.clone(), sender_id.clone()),
+        Register::asset_definition(AssetDefinition::new(asset_definition_id.clone()));
+    let mint_asset = Mint::asset_numeric(
         numeric!(10),
-    ));
+        AssetId::new(asset_definition_id.clone(), sender_id.clone()),
+    );
     test_client
         .submit_all_blocking::<InstructionBox>([
             create_sender_account.into(),
             create_receiver_account.into(),
             register_asset_definition.into(),
-            register_asset.into(),
+            mint_asset.into(),
         ])
         .unwrap();
     let chain_id_0 = network.chain_id();

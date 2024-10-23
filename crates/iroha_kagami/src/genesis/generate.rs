@@ -96,14 +96,11 @@ pub fn generate_default(
         .domain_with_metadata("wonderland".parse()?, meta.clone())
         .account_with_metadata(ALICE_ID.signatory().clone(), meta.clone())
         .account_with_metadata(BOB_ID.signatory().clone(), meta)
-        .asset("rose".parse()?, AssetType::Numeric(NumericSpec::default()))
+        .asset("rose".parse()?)
         .finish_domain()
         .domain("garden_of_live_flowers".parse()?)
         .account(CARPENTER_ID.signatory().clone())
-        .asset(
-            "cabbage".parse()?,
-            AssetType::Numeric(NumericSpec::default()),
-        )
+        .asset("cabbage".parse()?)
         .finish_domain();
 
     let mint = Mint::asset_numeric(
@@ -176,7 +173,6 @@ fn generate_synthetic(
                 format!("asset_{asset}#{domain_id}").parse()?;
             genesis.append_instruction(Register::asset_definition(AssetDefinition::new(
                 asset_definition_id,
-                AssetType::Numeric(NumericSpec::default()),
             )));
         }
 

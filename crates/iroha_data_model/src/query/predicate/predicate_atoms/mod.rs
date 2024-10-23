@@ -20,6 +20,7 @@ pub mod trigger;
 use alloc::{format, string::String, vec::Vec};
 
 use iroha_crypto::PublicKey;
+use iroha_primitives::numeric::{Numeric, NumericSpec};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -143,6 +144,38 @@ where
     }
 }
 
+/// A predicate that can be applied to a [`Numeric`].
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub enum NumericPredicateBox {
+    /// Checks if the numeric value matches the given [`NumericSpec`].
+    MatchesSpec(NumericSpec),
+    /// Checks if the numeric value is equal to the expected value.
+    Equals(Numeric),
+    /// Checks if the numeric value is less than the expected value.
+    LessThan(Numeric),
+    /// Checks if the numeric value is less than or equal to the expected value.
+    LessThanOrEquals(Numeric),
+    /// Checks if the numeric value is greater than the expected value.
+    GreaterThan(Numeric),
+    /// Checks if the numeric value is greater than or equal to the expected value.
+    GreaterThanOrEquals(Numeric),
+}
+
+impl_predicate_box!(Numeric: NumericPredicateBox);
+
+impl EvaluatePredicate<Numeric> for NumericPredicateBox {
+    fn applies(&self, input: &Numeric) -> bool {
+        match *self {
+            NumericPredicateBox::MatchesSpec(expected) => expected.check(input).is_ok(),
+            NumericPredicateBox::Equals(expected) => input == &expected,
+            NumericPredicateBox::LessThan(expected) => input < &expected,
+            NumericPredicateBox::LessThanOrEquals(expected) => input <= &expected,
+            NumericPredicateBox::GreaterThan(expected) => input > &expected,
+            NumericPredicateBox::GreaterThanOrEquals(expected) => input >= &expected,
+        }
+    }
+}
+
 /// A predicate that can be applied to [`Metadata`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum MetadataPredicateBox {
@@ -182,6 +215,7 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
         parameter::prelude::*, peer::prelude::*, permission::prelude::*, role::prelude::*,
-        trigger::prelude::*, MetadataPredicateBox, PublicKeyPredicateBox, StringPredicateBox,
+        trigger::prelude::*, MetadataPredicateBox, NumericPredicateBox, PublicKeyPredicateBox,
+        StringPredicateBox,
     };
 }

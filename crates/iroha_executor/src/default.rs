@@ -7,11 +7,7 @@ pub use account::{
     visit_register_account, visit_remove_account_key_value, visit_set_account_key_value,
     visit_unregister_account,
 };
-pub use asset::{
-    visit_burn_asset_numeric, visit_mint_asset_numeric, visit_register_asset,
-    visit_remove_asset_key_value, visit_set_asset_key_value, visit_transfer_asset_numeric,
-    visit_transfer_asset_store, visit_unregister_asset,
-};
+pub use asset::{visit_burn_asset_numeric, visit_mint_asset_numeric, visit_transfer_asset_numeric};
 pub use asset_definition::{
     visit_register_asset_definition, visit_remove_asset_definition_key_value,
     visit_set_asset_definition_key_value, visit_transfer_asset_definition,
@@ -323,12 +319,6 @@ pub mod domain {
             AnyPermission::CanModifyAssetDefinitionMetadata(permission) => {
                 permission.asset_definition.domain() == domain_id
             }
-            AnyPermission::CanRegisterAssetWithDefinition(permission) => {
-                permission.asset_definition.domain() == domain_id
-            }
-            AnyPermission::CanUnregisterAssetWithDefinition(permission) => {
-                permission.asset_definition.domain() == domain_id
-            }
             AnyPermission::CanMintAssetWithDefinition(permission) => {
                 permission.asset_definition.domain() == domain_id
             }
@@ -337,15 +327,6 @@ pub mod domain {
             }
             AnyPermission::CanTransferAssetWithDefinition(permission) => {
                 permission.asset_definition.domain() == domain_id
-            }
-            AnyPermission::CanRegisterAsset(permission) => permission.owner.domain() == domain_id,
-            AnyPermission::CanUnregisterAsset(permission) => {
-                permission.asset.definition().domain() == domain_id
-                    || permission.asset.account().domain() == domain_id
-            }
-            AnyPermission::CanModifyAssetMetadata(permission) => {
-                permission.asset.definition().domain() == domain_id
-                    || permission.asset.account().domain() == domain_id
             }
             AnyPermission::CanMintAsset(permission) => {
                 permission.asset.definition().domain() == domain_id
@@ -535,13 +516,6 @@ pub mod account {
             AnyPermission::CanModifyAccountMetadata(permission) => {
                 permission.account == *account_id
             }
-            AnyPermission::CanRegisterAsset(permission) => permission.owner == *account_id,
-            AnyPermission::CanUnregisterAsset(permission) => {
-                permission.asset.account() == account_id
-            }
-            AnyPermission::CanModifyAssetMetadata(permission) => {
-                permission.asset.account() == account_id
-            }
             AnyPermission::CanMintAsset(permission) => permission.asset.account() == account_id,
             AnyPermission::CanBurnAsset(permission) => permission.asset.account() == account_id,
             AnyPermission::CanTransferAsset(permission) => permission.asset.account() == account_id,
@@ -558,8 +532,6 @@ pub mod account {
             | AnyPermission::CanRegisterAssetDefinition(_)
             | AnyPermission::CanUnregisterAssetDefinition(_)
             | AnyPermission::CanModifyAssetDefinitionMetadata(_)
-            | AnyPermission::CanRegisterAssetWithDefinition(_)
-            | AnyPermission::CanUnregisterAssetWithDefinition(_)
             | AnyPermission::CanMintAssetWithDefinition(_)
             | AnyPermission::CanBurnAssetWithDefinition(_)
             | AnyPermission::CanTransferAssetWithDefinition(_)
@@ -779,12 +751,6 @@ pub mod asset_definition {
             AnyPermission::CanModifyAssetDefinitionMetadata(permission) => {
                 &permission.asset_definition == asset_definition_id
             }
-            AnyPermission::CanRegisterAssetWithDefinition(permission) => {
-                &permission.asset_definition == asset_definition_id
-            }
-            AnyPermission::CanUnregisterAssetWithDefinition(permission) => {
-                &permission.asset_definition == asset_definition_id
-            }
             AnyPermission::CanMintAssetWithDefinition(permission) => {
                 &permission.asset_definition == asset_definition_id
             }
@@ -793,12 +759,6 @@ pub mod asset_definition {
             }
             AnyPermission::CanTransferAssetWithDefinition(permission) => {
                 &permission.asset_definition == asset_definition_id
-            }
-            AnyPermission::CanUnregisterAsset(permission) => {
-                permission.asset.definition() == asset_definition_id
-            }
-            AnyPermission::CanModifyAssetMetadata(permission) => {
-                permission.asset.definition() == asset_definition_id
             }
             AnyPermission::CanMintAsset(permission) => {
                 permission.asset.definition() == asset_definition_id
@@ -810,7 +770,6 @@ pub mod asset_definition {
                 permission.asset.definition() == asset_definition_id
             }
             AnyPermission::CanUnregisterAccount(_)
-            | AnyPermission::CanRegisterAsset(_)
             | AnyPermission::CanModifyAccountMetadata(_)
             | AnyPermission::CanRegisterTrigger(_)
             | AnyPermission::CanUnregisterTrigger(_)
@@ -833,106 +792,16 @@ pub mod asset_definition {
 pub mod asset {
     use iroha_executor_data_model::permission::asset::{
         CanBurnAsset, CanBurnAssetWithDefinition, CanMintAsset, CanMintAssetWithDefinition,
-        CanModifyAssetMetadata, CanRegisterAsset, CanRegisterAssetWithDefinition, CanTransferAsset,
-        CanTransferAssetWithDefinition, CanUnregisterAsset, CanUnregisterAssetWithDefinition,
+        CanTransferAsset, CanTransferAssetWithDefinition,
     };
-    use iroha_smart_contract::data_model::{
-        asset::AssetValue, isi::BuiltInInstruction, metadata::Metadata,
-    };
-    use iroha_smart_contract_utils::Encode;
 
     use super::*;
     use crate::permission::{asset::is_asset_owner, asset_definition::is_asset_definition_owner};
 
-    pub fn visit_register_asset<V: Execute + Visit + ?Sized>(
+    pub fn visit_mint_asset_numeric<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        isi: &Register<Asset>,
+        isi: &Mint<Numeric, Asset>,
     ) {
-        let asset = isi.object();
-
-        if executor.context().curr_block.is_genesis() {
-            execute!(executor, isi);
-        }
-        match is_asset_definition_owner(
-            asset.id().definition(),
-            &executor.context().authority,
-            executor.host(),
-        ) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => execute!(executor, isi),
-            Ok(false) => {}
-        }
-        let can_register_assets_with_definition_token = CanRegisterAssetWithDefinition {
-            asset_definition: asset.id().definition().clone(),
-        };
-        if can_register_assets_with_definition_token
-            .is_owned_by(&executor.context().authority, executor.host())
-        {
-            execute!(executor, isi);
-        }
-        let can_register_user_asset_token = CanRegisterAsset {
-            owner: asset.id().account().clone(),
-        };
-        if can_register_user_asset_token.is_owned_by(&executor.context().authority, executor.host())
-        {
-            execute!(executor, isi);
-        }
-
-        deny!(
-            executor,
-            "Can't register assets with definitions registered by other accounts"
-        );
-    }
-
-    pub fn visit_unregister_asset<V: Execute + Visit + ?Sized>(
-        executor: &mut V,
-        isi: &Unregister<Asset>,
-    ) {
-        let asset_id = isi.object();
-
-        if executor.context().curr_block.is_genesis() {
-            execute!(executor, isi);
-        }
-        match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => execute!(executor, isi),
-            Ok(false) => {}
-        }
-        match is_asset_definition_owner(
-            asset_id.definition(),
-            &executor.context().authority,
-            executor.host(),
-        ) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => execute!(executor, isi),
-            Ok(false) => {}
-        }
-        let can_unregister_assets_with_definition_token = CanUnregisterAssetWithDefinition {
-            asset_definition: asset_id.definition().clone(),
-        };
-        if can_unregister_assets_with_definition_token
-            .is_owned_by(&executor.context().authority, executor.host())
-        {
-            execute!(executor, isi);
-        }
-        let can_unregister_user_asset_token = CanUnregisterAsset {
-            asset: asset_id.clone(),
-        };
-        if can_unregister_user_asset_token
-            .is_owned_by(&executor.context().authority, executor.host())
-        {
-            execute!(executor, isi);
-        }
-
-        deny!(executor, "Can't unregister asset from another account");
-    }
-
-    fn execute_mint_asset<V, Q>(executor: &mut V, isi: &Mint<Q, Asset>)
-    where
-        V: Execute + Visit + ?Sized,
-        Q: Into<AssetValue>,
-        Mint<Q, Asset>: BuiltInInstruction + Encode,
-    {
         let asset_id = isi.destination();
         if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
@@ -967,19 +836,10 @@ pub mod asset {
         );
     }
 
-    pub fn visit_mint_asset_numeric<V: Execute + Visit + ?Sized>(
+    pub fn visit_burn_asset_numeric<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        isi: &Mint<Numeric, Asset>,
+        isi: &Burn<Numeric, Asset>,
     ) {
-        execute_mint_asset(executor, isi);
-    }
-
-    fn execute_burn_asset<V, Q>(executor: &mut V, isi: &Burn<Q, Asset>)
-    where
-        V: Execute + Visit + ?Sized,
-        Q: Into<AssetValue>,
-        Burn<Q, Asset>: BuiltInInstruction + Encode,
-    {
         let asset_id = isi.destination();
         if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
@@ -1016,19 +876,10 @@ pub mod asset {
         deny!(executor, "Can't burn assets from another account");
     }
 
-    pub fn visit_burn_asset_numeric<V: Execute + Visit + ?Sized>(
+    pub fn visit_transfer_asset_numeric<V: Execute + Visit + ?Sized>(
         executor: &mut V,
-        isi: &Burn<Numeric, Asset>,
+        isi: &Transfer<Asset, Numeric, Account>,
     ) {
-        execute_burn_asset(executor, isi);
-    }
-
-    fn execute_transfer_asset<V, Q>(executor: &mut V, isi: &Transfer<Asset, Q, Account>)
-    where
-        V: Execute + Visit + ?Sized,
-        Q: Into<AssetValue>,
-        Transfer<Asset, Q, Account>: BuiltInInstruction + Encode,
-    {
         let asset_id = isi.source();
         if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
@@ -1064,79 +915,6 @@ pub mod asset {
         }
 
         deny!(executor, "Can't transfer assets of another account");
-    }
-
-    pub fn visit_transfer_asset_numeric<V: Execute + Visit + ?Sized>(
-        executor: &mut V,
-        isi: &Transfer<Asset, Numeric, Account>,
-    ) {
-        execute_transfer_asset(executor, isi);
-    }
-
-    pub fn visit_transfer_asset_store<V: Execute + Visit + ?Sized>(
-        executor: &mut V,
-        isi: &Transfer<Asset, Metadata, Account>,
-    ) {
-        execute_transfer_asset(executor, isi);
-    }
-
-    pub fn visit_set_asset_key_value<V: Execute + Visit + ?Sized>(
-        executor: &mut V,
-        isi: &SetKeyValue<Asset>,
-    ) {
-        let asset_id = isi.object();
-
-        if executor.context().curr_block.is_genesis() {
-            execute!(executor, isi);
-        }
-        match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => execute!(executor, isi),
-            Ok(false) => {}
-        }
-
-        let can_set_key_value_in_user_asset_token = CanModifyAssetMetadata {
-            asset: asset_id.clone(),
-        };
-        if can_set_key_value_in_user_asset_token
-            .is_owned_by(&executor.context().authority, executor.host())
-        {
-            execute!(executor, isi);
-        }
-
-        deny!(
-            executor,
-            "Can't set value to the asset metadata of another account"
-        );
-    }
-
-    pub fn visit_remove_asset_key_value<V: Execute + Visit + ?Sized>(
-        executor: &mut V,
-        isi: &RemoveKeyValue<Asset>,
-    ) {
-        let asset_id = isi.object();
-
-        if executor.context().curr_block.is_genesis() {
-            execute!(executor, isi);
-        }
-        match is_asset_owner(asset_id, &executor.context().authority, executor.host()) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => execute!(executor, isi),
-            Ok(false) => {}
-        }
-        let can_remove_key_value_in_user_asset_token = CanModifyAssetMetadata {
-            asset: asset_id.clone(),
-        };
-        if can_remove_key_value_in_user_asset_token
-            .is_owned_by(&executor.context().authority, executor.host())
-        {
-            execute!(executor, isi);
-        }
-
-        deny!(
-            executor,
-            "Can't remove value from the asset metadata of another account"
-        );
     }
 }
 
@@ -1565,14 +1343,9 @@ pub mod trigger {
             | AnyPermission::CanModifyAccountMetadata(_)
             | AnyPermission::CanUnregisterAssetDefinition(_)
             | AnyPermission::CanModifyAssetDefinitionMetadata(_)
-            | AnyPermission::CanRegisterAssetWithDefinition(_)
-            | AnyPermission::CanUnregisterAssetWithDefinition(_)
-            | AnyPermission::CanRegisterAsset(_)
-            | AnyPermission::CanUnregisterAsset(_)
             | AnyPermission::CanMintAssetWithDefinition(_)
             | AnyPermission::CanBurnAssetWithDefinition(_)
             | AnyPermission::CanTransferAssetWithDefinition(_)
-            | AnyPermission::CanModifyAssetMetadata(_)
             | AnyPermission::CanMintAsset(_)
             | AnyPermission::CanBurnAsset(_)
             | AnyPermission::CanTransferAsset(_)
