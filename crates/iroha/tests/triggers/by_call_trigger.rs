@@ -15,7 +15,7 @@ use iroha_executor_data_model::permission::trigger::CanRegisterTrigger;
 use iroha_test_network::*;
 use iroha_test_samples::{load_sample_wasm, ALICE_ID};
 
-use crate::integration::triggers::get_asset_value;
+use crate::triggers::get_asset_value;
 
 const TRIGGER_NAME: &str = "mint_rose";
 
