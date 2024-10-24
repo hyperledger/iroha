@@ -9,10 +9,8 @@ use std::{
 };
 
 use eyre::{eyre, Result, WrapErr};
-use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{
-    block::SignedBlock, isi::Instruction, parameter::Parameter, peer::Peer, prelude::*,
-};
+use iroha_crypto::KeyPair;
+use iroha_data_model::{block::SignedBlock, isi::Instruction, prelude::*};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -155,7 +153,6 @@ fn build_transactions(
         let register_peers = build_transaction(
             topology
                 .into_iter()
-                .map(Peer::new)
                 .map(Register::peer)
                 .map(InstructionBox::from)
                 .collect(),

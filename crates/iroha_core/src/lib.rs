@@ -7,6 +7,7 @@ pub mod gossiper;
 pub mod kiso;
 pub mod kura;
 pub mod metrics;
+pub mod peers_gossiper;
 pub mod query;
 pub mod queue;
 pub mod smartcontracts;
@@ -25,6 +26,7 @@ use tokio::sync::broadcast;
 
 use crate::{
     block_sync::message::Message as BlockSyncMessage,
+    peers_gossiper::PeersGossip,
     prelude::*,
     sumeragi::message::{BlockMessage, ControlFlowMessage},
 };
@@ -52,6 +54,8 @@ pub enum NetworkMessage {
     BlockSync(Box<BlockSyncMessage>),
     /// Transaction gossiper message
     TransactionGossiper(Box<TransactionGossip>),
+    /// Peers addresses gossiper message
+    PeersGossiper(Box<PeersGossip>),
     /// Health check message
     Health,
 }

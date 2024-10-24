@@ -38,12 +38,12 @@ pub fn chain() -> iroha_data_model::ChainId {
     iroha_data_model::ChainId::from(crate::CHAIN_ID)
 }
 
-pub fn peer_id(
+pub fn peer(
     name: &str,
     port: u16,
     public_key: iroha_crypto::PublicKey,
-) -> iroha_data_model::peer::PeerId {
-    iroha_data_model::peer::PeerId::new(
+) -> iroha_data_model::peer::Peer {
+    iroha_data_model::peer::Peer::new(
         iroha_primitives::addr::SocketAddrHost {
             host: name.to_owned().into(),
             port,
@@ -56,10 +56,10 @@ pub fn peer_id(
 #[allow(single_use_lifetimes)]
 pub fn topology<'a>(
     peers: impl Iterator<Item = &'a PeerInfo>,
-) -> std::collections::BTreeSet<iroha_data_model::peer::PeerId> {
+) -> std::collections::BTreeSet<iroha_data_model::peer::Peer> {
     peers
         .map(|(service_name, [port_p2p, _], (public_key, _))| {
-            peer_id(service_name, *port_p2p, public_key.clone())
+            peer(service_name, *port_p2p, public_key.clone())
         })
         .collect()
 }

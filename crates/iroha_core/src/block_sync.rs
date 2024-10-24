@@ -49,7 +49,7 @@ impl BlockSynchronizerHandle {
 pub struct BlockSynchronizer {
     sumeragi: SumeragiHandle,
     kura: Arc<Kura>,
-    peer_id: PeerId,
+    peer: Peer,
     gossip_period: Duration,
     gossip_size: NonZeroU32,
     network: IrohaNetwork,
@@ -114,11 +114,11 @@ impl BlockSynchronizer {
 
     /// Get a random online peer.
     #[allow(clippy::disallowed_types)]
-    fn random_peer(peers: &std::collections::HashSet<PeerId>) -> Option<Peer> {
+    fn random_peer(peers: &std::collections::HashSet<Peer>) -> Option<Peer> {
         use rand::{seq::IteratorRandom, SeedableRng};
 
         let rng = &mut rand::rngs::StdRng::from_entropy();
-        peers.iter().choose(rng).map(|id| Peer::new(id.clone()))
+        peers.iter().choose(rng).cloned()
     }
 
     /// Sends request for latest blocks to a chosen peer
@@ -128,7 +128,7 @@ impl BlockSynchronizer {
             (state_view.prev_block_hash(), state_view.latest_block_hash())
         };
         message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
-            self.peer_id.clone(),
+            self.peer.id.clone(),
             prev_hash,
             latest_hash,
             self.seen_blocks
@@ -145,12 +145,12 @@ impl BlockSynchronizer {
         config: &Config,
         sumeragi: SumeragiHandle,
         kura: Arc<Kura>,
-        peer_id: PeerId,
+        peer: Peer,
         network: IrohaNetwork,
         state: Arc<State>,
     ) -> Self {
         Self {
-            peer_id,
+            peer,
             sumeragi,
             kura,
             gossip_period: config.gossip_period,
@@ -245,7 +245,7 @@ pub mod message {
                     let start_height = if let Some(hash) = *prev_hash {
                         let Some(height) = block_sync.kura.get_block_height_by_hash(hash) else {
                             error!(
-                                peer=%block_sync.peer_id,
+                                peer=%block_sync.peer,
                                 block=%hash,
                                 "Block hash not found"
                             );
@@ -273,7 +273,7 @@ pub mod message {
                     if !blocks.is_empty() {
                         trace!(hash=?prev_hash, "Sharing blocks after hash");
 
-                        Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
+                        Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer.id.clone()))
                             .send_to(&block_sync.network, peer_id.clone())
                             .await;
                     }
@@ -413,11 +413,10 @@ pub mod message {
             #[test]
             fn candidate_empty() {
                 let (leader_public_key, _) = KeyPair::random().into_parts();
-                let leader_peer_id =
-                    PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
+                let leader_peer = PeerId::new(leader_public_key);
                 let candidate = ShareBlocksCandidate {
                     blocks: Vec::new(),
-                    peer: leader_peer_id,
+                    peer: leader_peer,
                 };
                 assert!(matches!(candidate.validate(), Err(ShareBlocksError::Empty)))
             }
@@ -425,8 +424,7 @@ pub mod message {
             #[test]
             fn candidate_height_missed() {
                 let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-                let leader_peer_id =
-                    PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
+                let leader_peer_id = PeerId::new(leader_public_key);
                 let block0: SignedBlock = ValidBlock::new_dummy(&leader_private_key).into();
                 let block1 =
                     ValidBlock::new_dummy_and_modify_header(&leader_private_key, |header| {
@@ -446,8 +444,7 @@ pub mod message {
             #[test]
             fn candidate_prev_block_hash_mismatch() {
                 let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-                let leader_peer_id =
-                    PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
+                let leader_peer_id = PeerId::new(leader_public_key);
                 let block0: SignedBlock = ValidBlock::new_dummy(&leader_private_key).into();
                 let block1 =
                     ValidBlock::new_dummy_and_modify_header(&leader_private_key, |header| {
@@ -469,8 +466,7 @@ pub mod message {
             #[test]
             fn candidate_ok() {
                 let (leader_public_key, leader_private_key) = KeyPair::random().into_parts();
-                let leader_peer_id =
-                    PeerId::new("127.0.0.1:1234".parse().unwrap(), leader_public_key);
+                let leader_peer_id = PeerId::new(leader_public_key);
                 let block0: SignedBlock = ValidBlock::new_dummy(&leader_private_key).into();
                 let block1 =
                     ValidBlock::new_dummy_and_modify_header(&leader_private_key, |header| {

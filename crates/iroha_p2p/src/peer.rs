@@ -1,7 +1,6 @@
 //! Tokio actor Peer
 
 use bytes::{Buf, BufMut, BytesMut};
-use iroha_data_model::prelude::PeerId;
 use message::*;
 use parity_scale_codec::{DecodeAll, Encode};
 use tokio::{
@@ -35,6 +34,7 @@ pub mod handles {
     /// Start Peer in [`state::Connecting`] state
     pub fn connecting<T: Pload, K: Kex, E: Enc>(
         peer_addr: SocketAddr,
+        our_external_port: u16,
         key_pair: KeyPair,
         connection_id: ConnectionId,
         service_message_sender: mpsc::Sender<ServiceMessage<T>>,
@@ -42,6 +42,7 @@ pub mod handles {
     ) {
         let peer = state::Connecting {
             peer_addr,
+            our_external_port,
             key_pair,
             connection_id,
         };
@@ -56,6 +57,7 @@ pub mod handles {
     /// Start Peer in [`state::ConnectedFrom`] state
     pub fn connected_from<T: Pload, K: Kex, E: Enc>(
         peer_addr: SocketAddr,
+        our_external_port: u16,
         key_pair: KeyPair,
         connection: Connection,
         service_message_sender: mpsc::Sender<ServiceMessage<T>>,
@@ -63,6 +65,7 @@ pub mod handles {
     ) {
         let peer = state::ConnectedFrom {
             peer_addr,
+            our_external_port,
             key_pair,
             connection,
         };
@@ -125,7 +128,7 @@ mod run {
         // Insure proper termination from every execution path.
         async {
             // Try to do handshake process
-            let peer = match tokio::time::timeout(idle_timeout, peer.handshake()).await {
+            let ready_peer = match tokio::time::timeout(idle_timeout, peer.handshake()).await {
                 Ok(Ok(ready)) => ready,
                 Ok(Err(error)) => {
                     iroha_logger::warn!(?error, "Failure during handshake.");
@@ -138,7 +141,7 @@ mod run {
             };
 
             let Ready {
-                peer_id: new_peer_id,
+                peer: new_peer_id,
                 connection:
                     Connection {
                         read,
@@ -146,7 +149,7 @@ mod run {
                         id: connection_id,
                     },
                 cryptographer,
-            } = peer;
+            } = ready_peer;
             let peer_id = peer_id.insert(new_peer_id);
 
             let disambiguator = cryptographer.disambiguator;
@@ -160,7 +163,7 @@ mod run {
             if service_message_sender
                 .send(ServiceMessage::Connected(Connected {
                     connection_id,
-                    peer_id: peer_id.clone(),
+                    peer: peer_id.clone(),
                     ready_peer_handle,
                     peer_message_sender,
                     disambiguator,
@@ -280,7 +283,10 @@ mod run {
 
         iroha_logger::debug!("Peer is terminated.");
         let _ = service_message_sender
-            .send(ServiceMessage::Terminated(Terminated { peer_id, conn_id }))
+            .send(ServiceMessage::Terminated(Terminated {
+                peer: peer_id,
+                conn_id,
+            }))
             .await;
     }
 
@@ -452,6 +458,7 @@ mod state {
     //! Module for peer stages.
 
     use iroha_crypto::{KeyGenOption, KeyPair, PublicKey, Signature};
+    use iroha_data_model::peer::Peer;
     use iroha_primitives::addr::SocketAddr;
 
     use super::{cryptographer::Cryptographer, *};
@@ -460,6 +467,7 @@ mod state {
     /// outgoing peer.
     pub(super) struct Connecting {
         pub peer_addr: SocketAddr,
+        pub our_external_port: u16,
         pub key_pair: KeyPair,
         pub connection_id: ConnectionId,
     }
@@ -468,6 +476,7 @@ mod state {
         pub(super) async fn connect_to(
             Self {
                 peer_addr,
+                our_external_port,
                 key_pair,
                 connection_id,
             }: Self,
@@ -476,6 +485,7 @@ mod state {
             let connection = Connection::new(connection_id, stream);
             Ok(ConnectedTo {
                 peer_addr,
+                our_external_port,
                 key_pair,
                 connection,
             })
@@ -485,6 +495,7 @@ mod state {
     /// Peer that is being connected to.
     pub(super) struct ConnectedTo {
         peer_addr: SocketAddr,
+        our_external_port: u16,
         key_pair: KeyPair,
         connection: Connection,
     }
@@ -494,6 +505,7 @@ mod state {
         pub(super) async fn send_client_hello<K: Kex, E: Enc>(
             Self {
                 peer_addr,
+                our_external_port,
                 key_pair,
                 mut connection,
             }: Self,
@@ -516,6 +528,7 @@ mod state {
             let cryptographer = Cryptographer::new(&shared_key);
             Ok(SendKey {
                 peer_addr,
+                our_external_port,
                 key_pair,
                 kx_local_pk,
                 kx_remote_pk,
@@ -528,6 +541,7 @@ mod state {
     /// Peer that is being connected from
     pub(super) struct ConnectedFrom {
         pub peer_addr: SocketAddr,
+        pub our_external_port: u16,
         pub key_pair: KeyPair,
         pub connection: Connection,
     }
@@ -537,6 +551,7 @@ mod state {
         pub(super) async fn read_client_hello<K: Kex, E: Enc>(
             Self {
                 peer_addr,
+                our_external_port,
                 key_pair,
                 mut connection,
                 ..
@@ -558,6 +573,7 @@ mod state {
             let cryptographer = Cryptographer::new(&shared_key);
             Ok(SendKey {
                 peer_addr,
+                our_external_port,
                 key_pair,
                 kx_local_pk,
                 kx_remote_pk,
@@ -570,6 +586,7 @@ mod state {
     /// Peer that needs to send key.
     pub(super) struct SendKey<K: Kex, E: Enc> {
         peer_addr: SocketAddr,
+        our_external_port: u16,
         key_pair: KeyPair,
         kx_local_pk: K::PublicKey,
         kx_remote_pk: K::PublicKey,
@@ -581,6 +598,7 @@ mod state {
         pub(super) async fn send_our_public_key(
             Self {
                 peer_addr,
+                our_external_port,
                 key_pair,
                 kx_local_pk,
                 kx_remote_pk,
@@ -592,7 +610,7 @@ mod state {
 
             let payload = create_payload::<K>(&kx_local_pk, &kx_remote_pk);
             let signature = Signature::new(key_pair.private_key(), &payload);
-            let data = (key_pair.public_key(), signature).encode();
+            let data = (key_pair.public_key(), signature, our_external_port).encode();
 
             let data = &cryptographer.encrypt(data.as_slice())?;
 
@@ -625,7 +643,7 @@ mod state {
         /// Read the peer's public key
         pub(super) async fn read_their_public_key(
             Self {
-                peer_addr,
+                mut peer_addr,
                 mut connection,
                 kx_local_pk,
                 kx_remote_pk,
@@ -640,17 +658,18 @@ mod state {
 
             let data = cryptographer.decrypt(data.as_slice())?;
 
-            let (remote_pub_key, signature): (PublicKey, Signature) =
+            let (remote_pub_key, signature, remote_external_port): (PublicKey, Signature, u16) =
                 DecodeAll::decode_all(&mut data.as_slice())?;
 
             // Swap order of keys since we are verifying for other peer order remote/local keys is reversed
             let payload = create_payload::<K>(&kx_remote_pk, &kx_local_pk);
             signature.verify(&remote_pub_key, &payload)?;
 
-            let peer_id = PeerId::new(peer_addr, remote_pub_key);
+            peer_addr.set_port(remote_external_port);
+            let peer = Peer::new(peer_addr, remote_pub_key);
 
             Ok(Ready {
-                peer_id,
+                peer,
                 connection,
                 cryptographer,
             })
@@ -660,7 +679,7 @@ mod state {
     /// Peer that is ready for communication after finishing the
     /// handshake process.
     pub(super) struct Ready<E: Enc> {
-        pub peer_id: PeerId,
+        pub peer: Peer,
         pub connection: Connection,
         pub cryptographer: Cryptographer<E>,
     }
@@ -752,12 +771,14 @@ mod handshake {
 pub mod message {
     //! Module for peer messages
 
+    use iroha_data_model::peer::Peer;
+
     use super::*;
 
     /// Connection and Handshake was successful
     pub struct Connected<T: Pload> {
-        /// Peer Id
-        pub peer_id: PeerId,
+        /// Peer
+        pub peer: Peer,
         /// Connection Id
         pub connection_id: ConnectionId,
         /// Handle for peer to send messages and terminate command
@@ -769,12 +790,12 @@ pub mod message {
     }
 
     /// Messages received from Peer
-    pub struct PeerMessage<T: Pload>(pub PeerId, pub T);
+    pub struct PeerMessage<T: Pload>(pub Peer, pub T);
 
     /// Peer faced error or `Terminate` message, send to indicate that it is terminated
     pub struct Terminated {
-        /// Peer Id
-        pub peer_id: Option<PeerId>,
+        /// Peer
+        pub peer: Option<Peer>,
         /// Connection Id
         pub conn_id: ConnectionId,
     }
