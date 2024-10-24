@@ -121,6 +121,7 @@ jobs:
           --all-features
           --branch --no-report
       - name: Generate lcov report
+        # try new parameter
         run: cargo llvm-cov report --text --output-path coverage.txt
       - name: Upload lcov report
         uses: actions/upload-artifact@v4
