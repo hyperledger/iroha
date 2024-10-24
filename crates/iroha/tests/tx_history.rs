@@ -48,16 +48,18 @@ fn client_has_rejected_and_accepted_txs_should_return_tx_history() -> Result<()>
         .execute_all()?;
     assert_eq!(transactions.len(), 50);
 
-    let mut prev_creation_time = core::time::Duration::from_millis(0);
+    let mut prev_creation_time = None;
     transactions
         .iter()
         .map(AsRef::as_ref)
         .map(AsRef::as_ref)
         .for_each(|tx| {
             assert_eq!(tx.authority(), &account_id);
-            //check sorted
-            assert!(tx.creation_time() >= prev_creation_time);
-            prev_creation_time = tx.creation_time();
+            //check sorted descending
+            if let Some(prev_creation_time) = prev_creation_time {
+                assert!(tx.creation_time() <= prev_creation_time);
+            }
+            prev_creation_time = Some(tx.creation_time());
         });
     Ok(())
 }
