@@ -313,7 +313,7 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
     test_client.submit_blocking(Register::account(rabbit_account))?;
 
     test_client
-        .query(client::account::all())
+        .query(FindAccounts::new())
         .filter_with(|account| account.id.eq(rabbit_account_id.clone()))
         .execute_single()
         .expect("Account not found");

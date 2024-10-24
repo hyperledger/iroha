@@ -97,7 +97,7 @@ async fn multiple_blocks_created() -> Result<()> {
         let definition = asset_definition_id.clone();
         let assets = spawn_blocking(move || {
             client
-                .query(client::asset::all())
+                .query(FindAssets::new())
                 .filter_with(|asset| {
                     asset.id.account.eq(account_id) & asset.id.definition_id.eq(definition)
                 })

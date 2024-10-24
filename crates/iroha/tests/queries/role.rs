@@ -38,7 +38,7 @@ fn find_roles() -> Result<()> {
 
     // Checking results
     let found_role_ids = test_client
-        .query(client::role::all())
+        .query(FindRoles::new())
         .execute_all()?
         .into_iter();
 
@@ -69,7 +69,7 @@ fn find_role_ids() -> Result<()> {
     let role_ids = HashSet::from(role_ids);
 
     // Checking results
-    let found_role_ids = test_client.query(client::role::all_ids()).execute_all()?;
+    let found_role_ids = test_client.query(FindRoleIds::new()).execute_all()?;
     let found_role_ids = found_role_ids.into_iter().collect::<HashSet<_>>();
 
     assert!(role_ids.is_subset(&found_role_ids));
@@ -90,7 +90,7 @@ fn find_role_by_id() -> Result<()> {
     test_client.submit_blocking(register_role)?;
 
     let found_role = test_client
-        .query(client::role::all())
+        .query(FindRoles::new())
         .filter_with(|role| role.id.eq(role_id))
         .execute_single()?;
 
@@ -108,7 +108,7 @@ fn find_unregistered_role_by_id() {
     let role_id: RoleId = "root".parse().expect("Valid");
 
     let found_role = test_client
-        .query(client::role::all())
+        .query(FindRoles::new())
         .filter_with(|role| role.id.eq(role_id))
         .execute_single();
 
@@ -146,7 +146,7 @@ fn find_roles_by_account_id() -> Result<()> {
 
     // Checking results
     let found_role_ids = test_client
-        .query(client::role::by_account_id(alice_id))
+        .query(FindRolesByAccountId::new(alice_id))
         .execute_all()?;
     let found_role_ids = found_role_ids.into_iter().collect::<HashSet<_>>();
 

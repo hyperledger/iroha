@@ -37,7 +37,7 @@ fn failed_trigger_revert() -> Result<()> {
 
     //Then
     let query_result = client
-        .query(client::asset::all_definitions())
+        .query(FindAssetsDefinitions::new())
         .execute_all()?;
     assert!(query_result
         .iter()

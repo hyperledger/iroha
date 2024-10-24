@@ -1,12 +1,9 @@
-use iroha::{
-    client,
-    data_model::{
-        account::{Account, AccountId},
-        asset::{Asset, AssetDefinition},
-        isi::{Instruction, InstructionBox},
-        prelude::*,
-        Registered,
-    },
+use iroha::data_model::{
+    account::{Account, AccountId},
+    asset::{Asset, AssetDefinition},
+    isi::{Instruction, InstructionBox},
+    prelude::*,
+    Registered,
 };
 use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, ALICE_ID};
@@ -58,7 +55,7 @@ fn simulate_transfer_store_asset() {
         .submit_blocking(transfer_asset)
         .expect("Failed to transfer asset.");
     assert!(iroha
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(mouse_id.clone()))
         .execute_all()
         .unwrap()
@@ -112,7 +109,7 @@ fn simulate_transfer<T>(
         .submit_blocking(transfer_asset)
         .expect("Failed to transfer asset.");
     assert!(iroha
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(mouse_id.clone()))
         .execute_all()
         .unwrap()

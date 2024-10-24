@@ -45,7 +45,7 @@ async fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
         .client();
     spawn_blocking(move || -> Result<()> {
         let assets = client
-            .query(client::asset::all())
+            .query(FindAssets::new())
             .filter_with(|asset| asset.id.account.eq(alice_id))
             .execute_all()?;
         let asset = assets

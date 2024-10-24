@@ -1,8 +1,5 @@
 use eyre::Result;
-use iroha::{
-    client,
-    data_model::{isi::InstructionBox, prelude::*},
-};
+use iroha::data_model::{isi::InstructionBox, prelude::*};
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
 
@@ -33,7 +30,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     // We can register and mint the non-mintable token
     test_client.submit_transaction_blocking(&tx)?;
     assert!(test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id.clone()))
         .execute_all()?
         .iter()
@@ -72,7 +69,7 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
         register_asset.clone().into(),
     ])?;
     assert!(test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id.clone()))
         .execute_all()?
         .iter()
@@ -116,7 +113,7 @@ fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()
         mint.into(),
     ])?;
     assert!(test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.account.eq(account_id.clone()))
         .execute_all()?
         .iter()

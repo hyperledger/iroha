@@ -1,6 +1,6 @@
 use eyre::Result;
 use iroha::{
-    client::{asset, Client},
+    client::Client,
     data_model::{asset::AssetDefinition, prelude::*},
 };
 use iroha_test_network::*;
@@ -14,7 +14,7 @@ fn limits_should_work() -> Result<()> {
     register_assets(&client)?;
 
     let vec = client
-        .query(asset::all_definitions())
+        .query(FindAssetsDefinitions::new())
         .with_pagination(Pagination {
             limit: Some(nonzero!(7_u64)),
             offset: 1,
@@ -32,7 +32,7 @@ fn reported_length_should_be_accurate() -> Result<()> {
     register_assets(&client)?;
 
     let mut iter = client
-        .query(asset::all_definitions())
+        .query(FindAssetsDefinitions::new())
         .with_pagination(Pagination {
             limit: Some(nonzero!(7_u64)),
             offset: 1,
@@ -66,7 +66,7 @@ fn fetch_size_should_work() -> Result<()> {
     register_assets(&client)?;
 
     let query = QueryWithParams::new(
-        QueryWithFilter::new(asset::all_definitions(), CompoundPredicate::PASS).into(),
+        QueryWithFilter::new(FindAssetsDefinitions::new(), CompoundPredicate::PASS).into(),
         QueryParams::new(
             Pagination {
                 limit: Some(nonzero!(7_u64)),
