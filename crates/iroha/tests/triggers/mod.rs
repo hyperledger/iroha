@@ -1,10 +1,9 @@
 use assert_matches::assert_matches;
 use iroha::{
-    client,
     client::Client,
     data_model::{
         asset::{AssetId, AssetValue},
-        prelude::{Numeric, QueryBuilderExt},
+        prelude::{FindAssets, Numeric, QueryBuilderExt},
     },
 };
 

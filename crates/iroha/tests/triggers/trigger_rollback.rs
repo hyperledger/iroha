@@ -1,8 +1,5 @@
 use eyre::Result;
-use iroha::{
-    client,
-    data_model::{prelude::*, trigger::TriggerId},
-};
+use iroha::data_model::{prelude::*, trigger::TriggerId};
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
 
@@ -36,9 +33,7 @@ fn failed_trigger_revert() -> Result<()> {
     client.submit_blocking(call_trigger)?;
 
     //Then
-    let query_result = client
-        .query(FindAssetsDefinitions::new())
-        .execute_all()?;
+    let query_result = client.query(FindAssetsDefinitions::new()).execute_all()?;
     assert!(query_result
         .iter()
         .all(|asset_definition| asset_definition.id() != &asset_definition_id));

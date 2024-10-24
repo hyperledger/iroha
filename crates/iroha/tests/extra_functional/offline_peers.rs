@@ -1,7 +1,6 @@
 use eyre::{OptionExt, Result};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use iroha::{
-    client::{self},
     crypto::KeyPair,
     data_model::{
         peer::{Peer as DataModelPeer, PeerId},

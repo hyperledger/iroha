@@ -2,13 +2,10 @@ use std::{num::NonZero, time::Duration};
 
 use eyre::Result;
 use futures_util::StreamExt;
-use iroha::{
-    client::{self},
-    data_model::{
-        events::pipeline::{BlockEventFilter, TransactionEventFilter},
-        parameter::BlockParameter,
-        prelude::*,
-    },
+use iroha::data_model::{
+    events::pipeline::{BlockEventFilter, TransactionEventFilter},
+    parameter::BlockParameter,
+    prelude::*,
 };
 use iroha_test_network::*;
 use iroha_test_samples::gen_account_in;
