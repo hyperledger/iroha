@@ -18,7 +18,7 @@ mod trigger_rollback;
 
 fn get_asset_value(client: &Client, asset_id: AssetId) -> Numeric {
     let asset = client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter_with(|asset| asset.id.eq(asset_id))
         .execute_single()
         .unwrap();

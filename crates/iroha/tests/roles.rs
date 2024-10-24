@@ -1,9 +1,6 @@
 use executor_custom_data_model::permissions::CanControlDomainLives;
 use eyre::Result;
-use iroha::{
-    client,
-    data_model::{prelude::*, transaction::error::TransactionRejectionReason},
-};
+use iroha::data_model::{prelude::*, transaction::error::TransactionRejectionReason};
 use iroha_executor_data_model::permission::account::CanModifyAccountMetadata;
 use iroha_test_network::*;
 use iroha_test_samples::{gen_account_in, ALICE_ID};
@@ -66,7 +63,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
     // Making request to find Alice's roles
     let found_role_ids = test_client
-        .query(client::role::by_account_id(alice_id))
+        .query(FindRolesByAccountId::new(alice_id))
         .execute_all()?;
     assert!(found_role_ids.contains(&role_id));
 
@@ -99,7 +96,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     // Check that Mouse has root role
     let found_mouse_roles = test_client
-        .query(client::role::by_account_id(mouse_id.clone()))
+        .query(FindRolesByAccountId::new(mouse_id.clone()))
         .execute_all()?;
     assert!(found_mouse_roles.contains(&role_id));
 
@@ -109,7 +106,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     // Check that Mouse doesn't have the root role
     let found_mouse_roles = test_client
-        .query(client::role::by_account_id(mouse_id.clone()))
+        .query(FindRolesByAccountId::new(mouse_id.clone()))
         .execute_all()?;
     assert!(!found_mouse_roles.contains(&role_id));
 
@@ -169,7 +166,7 @@ fn role_permissions_are_deduplicated() {
         .expect("failed to register role");
 
     let role = test_client
-        .query(client::role::all())
+        .query(FindRoles::new())
         .filter_with(|role| role.id.eq(role_id))
         .execute_single()
         .expect("failed to find role");
@@ -224,7 +221,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
 
     // Alice can't modify Mouse's metadata without proper permission
     assert!(!test_client
-        .query(client::permission::by_account_id(alice_id.clone()))
+        .query(FindPermissionsByAccountId::new(alice_id.clone()))
         .execute_all()?
         .iter()
         .any(|permission| {
@@ -241,7 +238,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&grant_role_permission_tx)?;
     assert!(test_client
-        .query(client::role::by_account_id(alice_id.clone()))
+        .query(FindRolesByAccountId::new(alice_id.clone()))
         .execute_all()?
         .iter()
         .any(|account_role_id| *account_role_id == role_id));
@@ -253,7 +250,7 @@ fn grant_revoke_role_permissions() -> Result<()> {
         .sign(mouse_keypair.private_key());
     test_client.submit_transaction_blocking(&revoke_role_permission_tx)?;
     assert!(!test_client
-        .query(client::permission::by_account_id(alice_id.clone()))
+        .query(FindPermissionsByAccountId::new(alice_id.clone()))
         .execute_all()?
         .iter()
         .any(|permission| {

@@ -751,7 +751,7 @@ pub mod asset {
         #[derive(Copy, Display)]
         #[display(fmt = "Find all asset definitions")]
         #[ffi_type]
-        pub struct FindAssetsDefinitions; // TODO: Should it be renamed to [`FindAllAssetDefinitions`?
+        pub struct FindAssetsDefinitions;
 
         /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`]
         /// value if [`Asset`] is presented in Iroha Peer.

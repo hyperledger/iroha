@@ -98,7 +98,7 @@ async fn find_asset(
     let client = client.clone();
     let asset = spawn_blocking(move || {
         client
-            .query(client::asset::all())
+            .query(FindAssets::new())
             .filter_with(|asset| asset.id.account.eq(account_id.clone()))
             .execute_all()
     })
