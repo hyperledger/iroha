@@ -1,8 +1,5 @@
 use eyre::Result;
-use iroha::{
-    client::{self},
-    data_model::prelude::*,
-};
+use iroha::data_model::prelude::*;
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
 use tokio::{task::spawn_blocking, time::timeout};
