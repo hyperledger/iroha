@@ -24,3 +24,5 @@ parity-scale-codec = { workspace = true }
 [dev-dependencies]
 iroha_crypto = { workspace = true, features = ["rand"] }
 iroha_test_samples = { workspace = true }
+
+tempfile = { workspace = true }

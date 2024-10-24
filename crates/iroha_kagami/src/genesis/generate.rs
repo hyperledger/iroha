@@ -59,18 +59,16 @@ impl<T: Write> RunArgs<T> for Args {
             mode,
         } = self;
 
-        let builder = GenesisBuilder::default();
+        let chain = ChainId::from("00000000-0000-0000-0000-000000000000");
+        let builder = GenesisBuilder::new(chain, executor_path_in_genesis.into());
         let genesis = match mode.unwrap_or_default() {
-            Mode::Default => {
-                generate_default(builder, executor_path_in_genesis, genesis_public_key)
-            }
+            Mode::Default => generate_default(builder, genesis_public_key),
             Mode::Synthetic {
                 domains,
                 accounts_per_domain,
                 assets_per_domain,
             } => generate_synthetic(
                 builder,
-                executor_path_in_genesis,
                 genesis_public_key,
                 domains,
                 accounts_per_domain,
@@ -85,7 +83,6 @@ impl<T: Write> RunArgs<T> for Args {
 #[allow(clippy::too_many_lines)]
 pub fn generate_default(
     builder: GenesisBuilder,
-    executor_path: PathBuf,
     genesis_public_key: PublicKey,
 ) -> color_eyre::Result<RawGenesisTransaction> {
     let genesis_account_id = AccountId::new(GENESIS_DOMAIN_ID.clone(), genesis_public_key);
@@ -149,32 +146,28 @@ pub fn generate_default(
         builder = builder.append_instruction(isi);
     }
 
-    // Will be replaced with actual topology either in scripts/test_env.py or in iroha_swarm
-    let topology = vec![];
-    let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
-    let genesis = builder.build_raw(chain_id, executor_path, topology);
-    Ok(genesis)
+    Ok(builder.build_raw())
 }
 
 fn generate_synthetic(
     builder: GenesisBuilder,
-    executor_path: PathBuf,
     genesis_public_key: PublicKey,
     domains: u64,
     accounts_per_domain: u64,
     assets_per_domain: u64,
 ) -> color_eyre::Result<RawGenesisTransaction> {
     // Synthetic genesis is extension of default one
-    let mut genesis = generate_default(builder, executor_path, genesis_public_key)?;
+    let default_genesis = generate_default(builder, genesis_public_key)?;
+    let mut builder = default_genesis.into_builder();
 
     for domain in 0..domains {
         let domain_id: DomainId = format!("domain_{domain}").parse()?;
-        genesis.append_instruction(Register::domain(Domain::new(domain_id.clone())));
+        builder = builder.append_instruction(Register::domain(Domain::new(domain_id.clone())));
 
         for asset in 0..assets_per_domain {
             let asset_definition_id: AssetDefinitionId =
                 format!("asset_{asset}#{domain_id}").parse()?;
-            genesis.append_instruction(Register::asset_definition(AssetDefinition::new(
+            builder = builder.append_instruction(Register::asset_definition(AssetDefinition::new(
                 asset_definition_id,
                 AssetType::Numeric(NumericSpec::default()),
             )));
@@ -182,7 +175,8 @@ fn generate_synthetic(
 
         for _ in 0..accounts_per_domain {
             let (account_id, _account_keypair) = gen_account_in(&domain_id);
-            genesis.append_instruction(Register::account(Account::new(account_id.clone())));
+            builder =
+                builder.append_instruction(Register::account(Account::new(account_id.clone())));
 
             // FIXME: Should `assets_per_domain` be renamed to `asset_definitions_per_domain`?
             //        https://github.com/hyperledger/iroha/issues/3508
@@ -194,10 +188,10 @@ fn generate_synthetic(
                         account_id.clone(),
                     ),
                 );
-                genesis.append_instruction(mint);
+                builder = builder.append_instruction(mint);
             }
         }
     }
 
-    Ok(genesis)
+    Ok(builder.build_raw())
 }
