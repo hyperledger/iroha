@@ -1,0 +1,22 @@
+[package]
+name = "multisig_domains"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_trigger.workspace = true
+iroha_executor_data_model.workspace = true
+
+panic-halt.workspace = true
+dlmalloc.workspace = true
+getrandom.workspace = true
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, default-features = false }

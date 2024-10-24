@@ -27,6 +27,45 @@
     {
       "Register": {
         "Domain": {
+          "id": "system",
+          "logo": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "Register": {
+        "Account": {
+          "id": "ed0120D8B64D62FD8E09B9F29FE04D9C63E312EFB1CB29F1BF6AF00EBC263007AE75F7@system",
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "Grant": {
+        "Permission": {
+          "object": {
+            "name": "CanRegisterAnyTrigger",
+            "payload": null
+          },
+          "destination": "ed0120D8B64D62FD8E09B9F29FE04D9C63E312EFB1CB29F1BF6AF00EBC263007AE75F7@system"
+        }
+      }
+    },
+    {
+      "Grant": {
+        "Permission": {
+          "object": {
+            "name": "CanUnregisterAnyTrigger",
+            "payload": null
+          },
+          "destination": "ed0120D8B64D62FD8E09B9F29FE04D9C63E312EFB1CB29F1BF6AF00EBC263007AE75F7@system"
+        }
+      }
+    },
+    {
+      "Register": {
+        "Domain": {
           "id": "wonderland",
           "logo": null,
           "metadata": {
@@ -147,6 +186,41 @@
             "payload": null
           },
           "destination": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland"
+        }
+      }
+    }
+  ],
+  "wasm_triggers": [
+    {
+      "id": "multisig_domains",
+      "action": {
+        "executable": "../wasm/target/prebuilt/libs/multisig_domains.wasm",
+        "repeats": "Indefinitely",
+        "authority": "ed0120D8B64D62FD8E09B9F29FE04D9C63E312EFB1CB29F1BF6AF00EBC263007AE75F7@system",
+        "filter": {
+          "Data": {
+            "Domain": {
+              "id_matcher": null,
+              "event_set": [
+                "Created",
+                "OwnerChanged"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "multisig_accounts_wonderland",
+      "action": {
+        "executable": "../wasm/target/prebuilt/libs/multisig_accounts.wasm",
+        "repeats": "Indefinitely",
+        "authority": "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland",
+        "filter": {
+          "ExecuteTrigger": {
+            "trigger_id": "multisig_accounts_wonderland",
+            "authority": null
+          }
         }
       }
     }

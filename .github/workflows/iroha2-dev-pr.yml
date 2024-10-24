@@ -19,7 +19,7 @@ env:
   CARGO_TERM_COLOR: always
   IROHA_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
   DOCKER_COMPOSE_PATH: defaults
-  WASM_SAMPLES_TARGET_DIR: wasm_samples/target/prebuilt
+  WASM_TARGET_DIR: wasm/target/prebuilt
   TEST_NETWORK_TMP_DIR: /tmp
   NEXTEST_PROFILE: ci
 
@@ -63,7 +63,7 @@ jobs:
           name: report-clippy
           path: clippy.json
 
-  build_wasm_samples:
+  build_wasm:
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
@@ -71,12 +71,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: ./scripts/build_wasm_samples.sh
+        run: ./scripts/build_wasm.sh
       - name: Upload all built WASMs
         uses: actions/upload-artifact@v4
         with:
-          name: wasm_samples
-          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
+          name: wasm
+          path: ${{ env.WASM_TARGET_DIR }}
           retention-days: 1
       - name: Upload executor.wasm specifically
         uses: actions/upload-artifact@v4
@@ -89,7 +89,7 @@ jobs:
     runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
-    needs: build_wasm_samples
+    needs: build_wasm
     env:
       LLVM_PROFILE_FILE_NAME: "iroha-%p-%m.profraw"
     steps:
@@ -101,11 +101,11 @@ jobs:
         with:
           name: executor.wasm
           path: ${{ env.DOCKER_COMPOSE_PATH }}
-      - name: Download the rest of WASM samples
+      - name: Download the rest of WASM
         uses: actions/download-artifact@v4
         with:
-          name: wasm_samples
-          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
+          name: wasm
+          path: ${{ env.WASM_TARGET_DIR }}
       - name: Install irohad
         run: which irohad || cargo install --path crates/irohad --locked
       - name: Test with no default features
@@ -169,7 +169,7 @@ jobs:
           context: .
 
   docker-compose-and-pytests:
-    needs: build_wasm_samples
+    needs: build_wasm
     runs-on: [self-hosted, Linux, iroha2]
     timeout-minutes: 60
     env:

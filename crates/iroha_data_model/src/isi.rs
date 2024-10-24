@@ -873,7 +873,7 @@ mod transparent {
 
     impl Revoke<RoleId, Account> {
         /// Constructs a new [`Revoke`] for a [`Role`].
-        pub fn role(role_id: RoleId, from: AccountId) -> Self {
+        pub fn account_role(role_id: RoleId, from: AccountId) -> Self {
             Self {
                 object: role_id,
                 destination: from,

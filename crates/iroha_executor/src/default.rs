@@ -368,7 +368,9 @@ pub mod domain {
             AnyPermission::CanRegisterTrigger(permission) => {
                 permission.authority.domain() == domain_id
             }
-            AnyPermission::CanUnregisterTrigger(_)
+            AnyPermission::CanRegisterAnyTrigger(_)
+            | AnyPermission::CanUnregisterAnyTrigger(_)
+            | AnyPermission::CanUnregisterTrigger(_)
             | AnyPermission::CanExecuteTrigger(_)
             | AnyPermission::CanModifyTrigger(_)
             | AnyPermission::CanModifyTriggerMetadata(_)
@@ -546,7 +548,9 @@ pub mod account {
             AnyPermission::CanBurnAsset(permission) => permission.asset.account() == account_id,
             AnyPermission::CanTransferAsset(permission) => permission.asset.account() == account_id,
             AnyPermission::CanRegisterTrigger(permission) => permission.authority == *account_id,
-            AnyPermission::CanUnregisterTrigger(_)
+            AnyPermission::CanRegisterAnyTrigger(_)
+            | AnyPermission::CanUnregisterAnyTrigger(_)
+            | AnyPermission::CanUnregisterTrigger(_)
             | AnyPermission::CanExecuteTrigger(_)
             | AnyPermission::CanModifyTrigger(_)
             | AnyPermission::CanModifyTriggerMetadata(_)
@@ -812,6 +816,8 @@ pub mod asset_definition {
             AnyPermission::CanUnregisterAccount(_)
             | AnyPermission::CanRegisterAsset(_)
             | AnyPermission::CanModifyAccountMetadata(_)
+            | AnyPermission::CanRegisterAnyTrigger(_)
+            | AnyPermission::CanUnregisterAnyTrigger(_)
             | AnyPermission::CanRegisterTrigger(_)
             | AnyPermission::CanUnregisterTrigger(_)
             | AnyPermission::CanExecuteTrigger(_)
@@ -1161,7 +1167,7 @@ pub mod parameter {
 }
 
 pub mod role {
-    use iroha_executor_data_model::permission::role::CanManageRoles;
+    use iroha_executor_data_model::permission::{role::CanManageRoles, trigger::CanExecuteTrigger};
     use iroha_smart_contract::{data_model::role::Role, Iroha};
 
     use super::*;
@@ -1231,6 +1237,41 @@ pub mod role {
         let role = isi.object();
         let mut new_role = Role::new(role.id().clone(), role.grant_to().clone());
 
+        // Exception for multisig roles
+        let mut is_multisig_role = false;
+        if let Some(tail) = role
+            .id()
+            .name()
+            .as_ref()
+            .strip_prefix("multisig_signatory_")
+        {
+            let Ok(account_id) = tail.replacen('_', "@", 1).parse::<AccountId>() else {
+                deny!(executor, "Violates multisig role format")
+            };
+            if crate::permission::domain::is_domain_owner(
+                account_id.domain(),
+                &executor.context().authority,
+                executor.host(),
+            )
+            .unwrap_or_default()
+            {
+                // Bind this role to this permission here, regardless of the given contains
+                let permission = CanExecuteTrigger {
+                    trigger: format!(
+                        "multisig_transactions_{}_{}",
+                        account_id.signatory(),
+                        account_id.domain()
+                    )
+                    .parse()
+                    .unwrap(),
+                };
+                new_role = new_role.add_permission(permission);
+                is_multisig_role = true;
+            } else {
+                deny!(executor, "Can't register multisig role")
+            }
+        }
+
         for permission in role.inner().permissions() {
             iroha_smart_contract::debug!(&format!("Checking `{permission:?}`"));
 
@@ -1257,9 +1298,9 @@ pub mod role {
 
         if executor.context().curr_block.is_genesis()
             || CanManageRoles.is_owned_by(&executor.context().authority, executor.host())
+            || is_multisig_role
         {
             let grant_role = &Grant::account_role(role.id().clone(), role.grant_to().clone());
-
             let isi = &Register::role(new_role);
             if let Err(err) = executor.host().submit(isi) {
                 executor.deny(err);
@@ -1316,8 +1357,8 @@ pub mod role {
 
 pub mod trigger {
     use iroha_executor_data_model::permission::trigger::{
-        CanExecuteTrigger, CanModifyTrigger, CanModifyTriggerMetadata, CanRegisterTrigger,
-        CanUnregisterTrigger,
+        CanExecuteTrigger, CanModifyTrigger, CanModifyTriggerMetadata, CanRegisterAnyTrigger,
+        CanRegisterTrigger, CanUnregisterAnyTrigger, CanUnregisterTrigger,
     };
     use iroha_smart_contract::data_model::trigger::Trigger;
 
@@ -1331,8 +1372,40 @@ pub mod trigger {
         isi: &Register<Trigger>,
     ) {
         let trigger = isi.object();
+        let is_genesis = executor.context().curr_block.is_genesis();
 
-        if executor.context().curr_block.is_genesis()
+        let trigger_name = trigger.id().name().as_ref();
+
+        #[allow(clippy::option_if_let_else)] // clippy suggestion spoils readability
+        let naming_is_ok = if let Some(tail) = trigger_name.strip_prefix("multisig_accounts_") {
+            let system_account: AccountId =
+                // predefined in `GenesisBuilder::default`
+                "ed0120D8B64D62FD8E09B9F29FE04D9C63E312EFB1CB29F1BF6AF00EBC263007AE75F7@system"
+                    .parse()
+                    .unwrap();
+            tail.parse::<DomainId>().is_ok()
+                && (is_genesis || executor.context().authority == system_account)
+        } else if let Some(tail) = trigger_name.strip_prefix("multisig_transactions_") {
+            tail.replacen('_', "@", 1)
+                .parse::<AccountId>()
+                .ok()
+                .and_then(|account_id| {
+                    is_domain_owner(
+                        account_id.domain(),
+                        &executor.context().authority,
+                        executor.host(),
+                    )
+                    .ok()
+                })
+                .unwrap_or_default()
+        } else {
+            true
+        };
+        if !naming_is_ok {
+            deny!(executor, "Violates trigger naming restrictions");
+        }
+
+        if is_genesis
             || {
                 match is_domain_owner(
                     trigger.action().authority().domain(),
@@ -1350,6 +1423,7 @@ pub mod trigger {
                 can_register_user_trigger_token
                     .is_owned_by(&executor.context().authority, executor.host())
             }
+            || CanRegisterAnyTrigger.is_owned_by(&executor.context().authority, executor.host())
         {
             execute!(executor, isi)
         }
@@ -1374,6 +1448,7 @@ pub mod trigger {
                 can_unregister_user_trigger_token
                     .is_owned_by(&executor.context().authority, executor.host())
             }
+            || CanUnregisterAnyTrigger.is_owned_by(&executor.context().authority, executor.host())
         {
             let mut err = None;
             for (owner_id, permission) in accounts_permissions(executor.host()) {
@@ -1470,7 +1545,8 @@ pub mod trigger {
         if executor.context().curr_block.is_genesis() {
             execute!(executor, isi);
         }
-        match is_trigger_owner(trigger_id, &executor.context().authority, executor.host()) {
+        let authority = &executor.context().authority;
+        match is_trigger_owner(trigger_id, authority, executor.host()) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -1478,7 +1554,21 @@ pub mod trigger {
         let can_execute_trigger_token = CanExecuteTrigger {
             trigger: trigger_id.clone(),
         };
-        if can_execute_trigger_token.is_owned_by(&executor.context().authority, executor.host()) {
+        if can_execute_trigger_token.is_owned_by(authority, executor.host()) {
+            execute!(executor, isi);
+        }
+        // Any account in domain can call multisig accounts registry to register any multisig account in the domain
+        // TODO Restrict access to the multisig signatories?
+        // TODO Impose proposal and approval process?
+        if trigger_id
+            .name()
+            .as_ref()
+            .strip_prefix("multisig_accounts_")
+            .and_then(|s| s.parse::<DomainId>().ok())
+            .map_or(false, |registry_domain| {
+                *authority.domain() == registry_domain
+            })
+        {
             execute!(executor, isi);
         }
 
@@ -1554,7 +1644,9 @@ pub mod trigger {
             AnyPermission::CanModifyTriggerMetadata(permission) => {
                 &permission.trigger == trigger_id
             }
-            AnyPermission::CanRegisterTrigger(_)
+            AnyPermission::CanRegisterAnyTrigger(_)
+            | AnyPermission::CanUnregisterAnyTrigger(_)
+            | AnyPermission::CanRegisterTrigger(_)
             | AnyPermission::CanManagePeers(_)
             | AnyPermission::CanRegisterDomain(_)
             | AnyPermission::CanUnregisterDomain(_)

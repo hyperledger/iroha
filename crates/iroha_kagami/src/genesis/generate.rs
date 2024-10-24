@@ -9,7 +9,9 @@ use iroha_data_model::{isi::InstructionBox, parameter::Parameters, prelude::*};
 use iroha_executor_data_model::permission::{
     domain::CanRegisterDomain, parameter::CanSetParameters,
 };
-use iroha_genesis::{GenesisBuilder, RawGenesisTransaction, GENESIS_DOMAIN_ID};
+use iroha_genesis::{
+    GenesisBuilder, GenesisWasmAction, GenesisWasmTrigger, RawGenesisTransaction, GENESIS_DOMAIN_ID,
+};
 use iroha_test_samples::{gen_account_in, ALICE_ID, BOB_ID, CARPENTER_ID};
 
 use crate::{Outcome, RunArgs};
@@ -130,9 +132,8 @@ pub fn generate_default(
     );
 
     let parameters = Parameters::default();
-    let parameters = parameters.parameters();
 
-    for parameter in parameters {
+    for parameter in parameters.parameters() {
         builder = builder.append_parameter(parameter);
     }
 
@@ -149,10 +150,29 @@ pub fn generate_default(
         builder = builder.append_instruction(isi);
     }
 
+    // Manually register a multisig accounts registry for wonderland whose creation in genesis does not trigger the initializer
+    let multisig_accounts_registry_for_wonderland = {
+        let domain_owner = ALICE_ID.clone();
+        let registry_id = "multisig_accounts_wonderland".parse::<TriggerId>().unwrap();
+
+        GenesisWasmTrigger::new(
+            registry_id.clone(),
+            GenesisWasmAction::new(
+                "../wasm/target/prebuilt/libs/multisig_accounts.wasm",
+                Repeats::Indefinitely,
+                domain_owner,
+                ExecuteTriggerEventFilter::new().for_trigger(registry_id),
+            ),
+        )
+    };
+
+    builder = builder.append_wasm_trigger(multisig_accounts_registry_for_wonderland);
+
     // Will be replaced with actual topology either in scripts/test_env.py or in iroha_swarm
     let topology = vec![];
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
     let genesis = builder.build_raw(chain_id, executor_path, topology);
+
     Ok(genesis)
 }
 

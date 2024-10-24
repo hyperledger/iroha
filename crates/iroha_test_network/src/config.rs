@@ -48,7 +48,7 @@ pub fn genesis<T: Instruction>(
         Err(err) => {
             eprintln!(
                 "ERROR: cannot load genesis from `defaults/genesis.json`\n  \
-                    If `executor.wasm` is not found, make sure to run `scripts/build_wasm_samples.sh` first\n  \
+                    If `executor.wasm` is not found, make sure to run `scripts/build_wasm.sh` first\n  \
                     Full error: {err}"
             );
             panic!("cannot proceed without genesis, see the error above");

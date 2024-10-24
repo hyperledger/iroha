@@ -9,22 +9,8 @@ license = "Apache-2.0"
 [workspace]
 resolver = "2"
 members = [
-    "default_executor",
-    "create_nft_for_every_user_trigger",
-    "mint_rose_trigger",
-    "mint_rose_trigger_args",
-    "executor_with_admin",
-    "executor_with_custom_permission",
-    "executor_with_custom_parameter",
-    "executor_remove_permission",
-    "executor_with_migration_fail",
-    "executor_custom_instructions_simple",
-    "executor_custom_instructions_complex",
-    "executor_custom_data_model",
-    "query_assets_and_save_cursor",
-    "smart_contract_can_filter_queries",
-    "multisig_register",
-    "multisig",
+    "libs/*",
+    "samples/*",
 ]
 
 [profile.dev]
@@ -38,7 +24,7 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [workspace.dependencies]
-executor_custom_data_model = { path = "executor_custom_data_model" }
+executor_custom_data_model = { path = "samples/executor_custom_data_model" }
 
 iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_smart_contract", features = ["debug"] }
 iroha_trigger = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_trigger", features = ["debug"] }
@@ -46,6 +32,7 @@ iroha_executor = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_executor",
 iroha_schema = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_schema" }
 iroha_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_data_model", default-features = false }
 iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_executor_data_model" }
+iroha_multisig_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_multisig_data_model" }
 
 parity-scale-codec = { version = "3.2.1", default-features = false }
 anyhow = { version = "1.0.71", default-features = false }

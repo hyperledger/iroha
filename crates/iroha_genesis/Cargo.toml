@@ -14,6 +14,7 @@ workspace = true
 iroha_crypto = { workspace = true }
 iroha_schema = { workspace = true }
 iroha_data_model = { workspace = true, features = ["http"] }
+iroha_executor_data_model = { workspace = true }
 
 derive_more = { workspace = true, features = ["deref"] }
 serde = { workspace = true, features = ["derive"] }

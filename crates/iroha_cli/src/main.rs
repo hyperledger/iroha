@@ -110,6 +110,9 @@ enum Subcommand {
     Blocks(blocks::Args),
     /// The subcommand related to multi-instructions as Json or Json5
     Json(json::Args),
+    /// The subcommand related to multisig accounts and transactions
+    #[clap(subcommand)]
+    Multisig(multisig::Args),
 }
 
 /// Context inside which command is executed
@@ -165,7 +168,7 @@ macro_rules! match_all {
 impl RunArgs for Subcommand {
     fn run(self, context: &mut dyn RunContext) -> Result<()> {
         use Subcommand::*;
-        match_all!((self, context), { Domain, Account, Asset, Peer, Events, Wasm, Blocks, Json })
+        match_all!((self, context), { Domain, Account, Asset, Peer, Events, Wasm, Blocks, Json, Multisig })
     }
 }
 
@@ -1195,6 +1198,238 @@ mod json {
                 }
             }
         }
+    }
+}
+
+mod multisig {
+    use std::io::{BufReader, Read as _};
+
+    use iroha::multisig_data_model::{
+        MultisigAccountArgs, MultisigTransactionArgs, DEFAULT_MULTISIG_TTL_MS,
+    };
+
+    use super::*;
+
+    /// Arguments for multisig subcommand
+    #[derive(Debug, clap::Subcommand)]
+    pub enum Args {
+        /// Register a multisig account
+        Register(Register),
+        /// Propose a multisig transaction
+        Propose(Propose),
+        /// Approve a multisig transaction
+        Approve(Approve),
+        /// List pending multisig transactions relevant to you
+        #[clap(subcommand)]
+        List(List),
+    }
+
+    impl RunArgs for Args {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all!((self, context), { Args::Register, Args::Propose, Args::Approve, Args::List })
+        }
+    }
+    /// Args to register a multisig account
+    #[derive(Debug, clap::Args)]
+    pub struct Register {
+        /// ID of the multisig account to be registered
+        #[arg(short, long)]
+        pub account: AccountId,
+        /// Signatories of the multisig account
+        #[arg(short, long, num_args(2..))]
+        pub signatories: Vec<AccountId>,
+        /// Relative weights of responsibility of respective signatories
+        #[arg(short, long, num_args(2..))]
+        pub weights: Vec<u8>,
+        /// Threshold of total weight at which the multisig is considered authenticated
+        #[arg(short, long)]
+        pub quorum: u16,
+        /// Time-to-live of multisig transactions made by the multisig account
+        #[arg(short, long, default_value_t = default_transaction_ttl())]
+        pub transaction_ttl: humantime::Duration,
+    }
+
+    fn default_transaction_ttl() -> humantime::Duration {
+        std::time::Duration::from_millis(DEFAULT_MULTISIG_TTL_MS).into()
+    }
+
+    impl RunArgs for Register {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let Self {
+                account,
+                signatories,
+                weights,
+                quorum,
+                transaction_ttl,
+            } = self;
+            if signatories.len() != weights.len() {
+                return Err(eyre!("signatories and weights must be equal in length"));
+            }
+            let registry_id: TriggerId = format!("multisig_accounts_{}", account.domain())
+                .parse()
+                .unwrap();
+            let args = MultisigAccountArgs {
+                account: account.signatory.clone(),
+                signatories: signatories.into_iter().zip(weights).collect(),
+                quorum,
+                transaction_ttl_ms: transaction_ttl
+                    .as_millis()
+                    .try_into()
+                    .expect("ttl must be within 584942417 years"),
+            };
+            let register_multisig_account =
+                iroha::data_model::isi::ExecuteTrigger::new(registry_id).with_args(&args);
+
+            submit([register_multisig_account], Metadata::default(), context)
+                .wrap_err("Failed to register multisig account")
+        }
+    }
+
+    /// Args to propose a multisig transaction
+    #[derive(Debug, clap::Args)]
+    pub struct Propose {
+        /// Multisig authority of the multisig transaction
+        #[arg(short, long)]
+        pub account: AccountId,
+    }
+
+    impl RunArgs for Propose {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let Self { account } = self;
+            let registry_id: TriggerId = format!(
+                "multisig_transactions_{}_{}",
+                account.signatory(),
+                account.domain()
+            )
+            .parse()
+            .unwrap();
+            let instructions: Vec<InstructionBox> = {
+                let mut reader = BufReader::new(stdin());
+                let mut raw_content = Vec::new();
+                reader.read_to_end(&mut raw_content)?;
+                let string_content = String::from_utf8(raw_content)?;
+                json5::from_str(&string_content)?
+            };
+            let instructions_hash = HashOf::new(&instructions);
+            println!("{instructions_hash}");
+            let args = MultisigTransactionArgs::Propose(instructions);
+            let propose_multisig_transaction =
+                iroha::data_model::isi::ExecuteTrigger::new(registry_id).with_args(&args);
+
+            submit([propose_multisig_transaction], Metadata::default(), context)
+                .wrap_err("Failed to propose transaction")
+        }
+    }
+
+    /// Args to approve a multisig transaction
+    #[derive(Debug, clap::Args)]
+    pub struct Approve {
+        /// Multisig authority of the multisig transaction
+        #[arg(short, long)]
+        pub account: AccountId,
+        /// Instructions to approve
+        #[arg(short, long)]
+        pub instructions_hash: HashOf<Vec<InstructionBox>>,
+    }
+
+    impl RunArgs for Approve {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let Self {
+                account,
+                instructions_hash,
+            } = self;
+            let registry_id: TriggerId = format!(
+                "multisig_transactions_{}_{}",
+                account.signatory(),
+                account.domain()
+            )
+            .parse()
+            .unwrap();
+            let args = MultisigTransactionArgs::Approve(instructions_hash);
+            let approve_multisig_transaction =
+                iroha::data_model::isi::ExecuteTrigger::new(registry_id).with_args(&args);
+
+            submit([approve_multisig_transaction], Metadata::default(), context)
+                .wrap_err("Failed to approve transaction")
+        }
+    }
+
+    /// List pending multisig transactions relevant to you
+    #[derive(clap::Subcommand, Debug, Clone)]
+    pub enum List {
+        /// All pending multisig transactions relevant to you
+        All,
+    }
+
+    impl RunArgs for List {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let client = context.client_from_config();
+            let me = client.account.clone();
+
+            trace_back_from(me, &client, context)
+        }
+    }
+
+    /// Recursively trace back to the root multisig account
+    fn trace_back_from(
+        account: AccountId,
+        client: &Client,
+        context: &mut dyn RunContext,
+    ) -> Result<()> {
+        let Ok(multisig_roles) = client
+            .query(FindRolesByAccountId::new(account))
+            .filter_with(|role_id| role_id.name.starts_with("multisig_signatory_"))
+            .execute_all()
+        else {
+            return Ok(());
+        };
+
+        for role_id in multisig_roles {
+            let super_account: AccountId = role_id
+                .name
+                .as_ref()
+                .strip_prefix("multisig_signatory_")
+                .unwrap()
+                .replacen('_', "@", 1)
+                .parse()
+                .unwrap();
+
+            trace_back_from(super_account, client, context)?;
+
+            let transactions_registry_id: TriggerId = role_id
+                .name
+                .as_ref()
+                .replace("signatory", "transactions")
+                .parse()
+                .unwrap();
+
+            context.print_data(&transactions_registry_id)?;
+
+            let transactions_registry = client
+                .query(FindTriggers::new())
+                .filter_with(|trigger| trigger.id.eq(transactions_registry_id))
+                .execute_single()?;
+            let proposal_kvs = transactions_registry
+                .action()
+                .metadata()
+                .iter()
+                .filter(|kv| kv.0.as_ref().starts_with("proposals"));
+
+            proposal_kvs.fold("", |acc, (k, v)| {
+                let mut path = k.as_ref().split('/');
+                let hash = path.nth(1).unwrap();
+
+                if acc != hash {
+                    context.print_data(&hash).unwrap();
+                }
+                path.for_each(|seg| context.print_data(&seg).unwrap());
+                context.print_data(&v).unwrap();
+
+                hash
+            });
+        }
+
+        Ok(())
     }
 }
 #[cfg(test)]

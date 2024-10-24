@@ -884,6 +884,7 @@
       }
     ]
   },
+  "CanRegisterAnyTrigger": null,
   "CanRegisterAsset": {
     "Struct": [
       {
@@ -941,6 +942,7 @@
       }
     ]
   },
+  "CanUnregisterAnyTrigger": null,
   "CanUnregisterAsset": {
     "Struct": [
       {
@@ -1998,6 +2000,38 @@
       }
     ]
   },
+  "GenesisWasmAction": {
+    "Struct": [
+      {
+        "name": "executable",
+        "type": "String"
+      },
+      {
+        "name": "repeats",
+        "type": "Repeats"
+      },
+      {
+        "name": "authority",
+        "type": "AccountId"
+      },
+      {
+        "name": "filter",
+        "type": "EventFilterBox"
+      }
+    ]
+  },
+  "GenesisWasmTrigger": {
+    "Struct": [
+      {
+        "name": "id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "action",
+        "type": "GenesisWasmAction"
+      }
+    ]
+  },
   "Grant<Permission, Account>": {
     "Struct": [
       {
@@ -2057,6 +2091,7 @@
   "HashOf<BlockHeader>": "Hash",
   "HashOf<MerkleTree<SignedTransaction>>": "Hash",
   "HashOf<SignedTransaction>": "Hash",
+  "HashOf<Vec<InstructionBox>>": "Hash",
   "IdBox": {
     "Enum": [
       {
@@ -2568,6 +2603,40 @@
       {
         "name": "actual",
         "type": "AssetType"
+      }
+    ]
+  },
+  "MultisigAccountArgs": {
+    "Struct": [
+      {
+        "name": "account",
+        "type": "PublicKey"
+      },
+      {
+        "name": "signatories",
+        "type": "SortedMap<AccountId, u8>"
+      },
+      {
+        "name": "quorum",
+        "type": "u16"
+      },
+      {
+        "name": "transaction_ttl_ms",
+        "type": "u64"
+      }
+    ]
+  },
+  "MultisigTransactionArgs": {
+    "Enum": [
+      {
+        "tag": "Propose",
+        "discriminant": 0,
+        "type": "Vec<InstructionBox>"
+      },
+      {
+        "tag": "Approve",
+        "discriminant": 1,
+        "type": "HashOf<Vec<InstructionBox>>"
       }
     ]
   },
@@ -3418,6 +3487,10 @@
         "type": "Vec<InstructionBox>"
       },
       {
+        "name": "wasm_triggers",
+        "type": "Vec<GenesisWasmTrigger>"
+      },
+      {
         "name": "topology",
         "type": "Vec<PeerId>"
       }
@@ -4183,6 +4256,12 @@
         "type": "u16"
       }
     ]
+  },
+  "SortedMap<AccountId, u8>": {
+    "Map": {
+      "key": "AccountId",
+      "value": "u8"
+    }
   },
   "SortedMap<CustomParameterId, CustomParameter>": {
     "Map": {
@@ -4953,6 +5032,9 @@
   },
   "Vec<EventFilterBox>": {
     "Vec": "EventFilterBox"
+  },
+  "Vec<GenesisWasmTrigger>": {
+    "Vec": "GenesisWasmTrigger"
   },
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"

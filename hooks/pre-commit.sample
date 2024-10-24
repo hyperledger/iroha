@@ -3,7 +3,7 @@
 set -e
 # format checks
 cargo fmt --all -- --check
-cargo fmt --manifest-path ./wasm_samples/Cargo.toml --all -- --check
+cargo fmt --manifest-path ./wasm/Cargo.toml --all -- --check
 # lints
 cargo clippy --workspace --benches --tests --examples --all-features
 # TODO: fails, re-enable

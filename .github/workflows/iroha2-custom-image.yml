@@ -50,7 +50,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.CHECKOUT_REF }}
       - name: Build iroha executor
-        run: mold --run cargo run --bin iroha_wasm_builder -- build ./wasm_samples/default_executor --optimize --out-file ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
+        run: mold --run cargo run --bin iroha_wasm_builder -- build ./wasm/libs/default_executor --optimize --out-file ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
       - name: Upload executor to reuse in other jobs
         uses: actions/upload-artifact@v4
         with:

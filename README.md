@@ -114,7 +114,7 @@ Iroha project mainly consists of the following crates:
 * [`iroha_logger`](crates/iroha_logger) uses `tracing` to provide logging facilities.
 * [`iroha_macro`](crates/iroha_macro) provides the convenience macros.
 * [`iroha_p2p`](crates/iroha_p2p) defines peer creation and handshake logic.
-* [`iroha_default_executor`](wasm_samples/default_executor) defines runtime validation logic.
+* [`iroha_default_executor`](wasm/libs/default_executor) defines runtime validation logic.
 * [`iroha_telemetry`](crates/iroha_telemetry) is used for monitoring and analysis of telemetry data.
 * [`iroha_version`](crates/iroha_version) provides message versioning for non-simultaneous system updates.
 
