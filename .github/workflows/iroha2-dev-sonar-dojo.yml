@@ -37,6 +37,7 @@ jobs:
           args: >
             -Dcommunity.rust.clippy.reportPaths=lints/clippy.json
             -Dsonar.cfamily.llvm-cov.reportPath=lints/coverage.txt
+            -Dsonar.cfamily.gcov.reportsPath=lints/coverage.txt
             -Dsonar.pullrequest.key=${{ github.event.workflow_run.pull_requests[0].number }}
             -Dsonar.pullrequest.base=${{ github.event.workflow_run.pull_requests[0].base.ref }}
             -Dsonar.pullrequest.branch=${{ github.event.workflow_run.pull_requests[0].head.ref }}
