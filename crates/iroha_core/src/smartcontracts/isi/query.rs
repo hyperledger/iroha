@@ -6,9 +6,9 @@ use eyre::Result;
 use iroha_data_model::{
     prelude::*,
     query::{
-        error::QueryExecutionFail as Error, parameters::QueryParams, QueryBox, QueryOutputBatchBox,
-        QueryRequest, QueryRequestWithAuthority, QueryResponse, SingularQueryBox,
-        SingularQueryOutputBox,
+        error::QueryExecutionFail as Error, parameters::QueryParams, CommittedTransaction,
+        QueryBox, QueryOutputBatchBox, QueryRequest, QueryRequestWithAuthority, QueryResponse,
+        SingularQueryBox, SingularQueryOutputBox,
     },
 };
 
@@ -68,7 +68,7 @@ impl SortableQueryOutput for RoleId {
     }
 }
 
-impl SortableQueryOutput for TransactionQueryOutput {
+impl SortableQueryOutput for CommittedTransaction {
     fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
@@ -576,15 +576,11 @@ mod tests {
 
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(
-            txs.iter()
-                .filter(|txn| txn.transaction.error.is_some())
-                .count() as u64,
+            txs.iter().filter(|txn| txn.error.is_some()).count() as u64,
             num_blocks
         );
         assert_eq!(
-            txs.iter()
-                .filter(|txn| txn.transaction.error.is_none())
-                .count() as u64,
+            txs.iter().filter(|txn| txn.error.is_none()).count() as u64,
             num_blocks
         );
 
@@ -638,9 +634,7 @@ mod tests {
 
         let not_found = FindTransactions::new()
             .execute(
-                TransactionQueryOutputPredicateBox::build(|tx| {
-                    tx.transaction.value.hash.eq(wrong_hash)
-                }),
+                CommittedTransactionPredicateBox::build(|tx| tx.value.hash.eq(wrong_hash)),
                 &state_view,
             )
             .expect("Query execution should not fail")
@@ -649,8 +643,8 @@ mod tests {
 
         let found_accepted = FindTransactions::new()
             .execute(
-                TransactionQueryOutputPredicateBox::build(|tx| {
-                    tx.transaction.value.hash.eq(va_tx.as_ref().hash())
+                CommittedTransactionPredicateBox::build(|tx| {
+                    tx.value.hash.eq(va_tx.as_ref().hash())
                 }),
                 &state_view,
             )
@@ -658,11 +652,8 @@ mod tests {
             .next()
             .expect("Query should return a transaction");
 
-        if found_accepted.transaction.error.is_none() {
-            assert_eq!(
-                va_tx.as_ref().hash(),
-                found_accepted.as_ref().as_ref().hash()
-            )
+        if found_accepted.error.is_none() {
+            assert_eq!(va_tx.as_ref().hash(), found_accepted.as_ref().hash())
         }
         Ok(())
     }

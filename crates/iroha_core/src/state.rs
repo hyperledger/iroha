@@ -1329,15 +1329,14 @@ impl<'state> StateBlock<'state> {
     /// # Errors
     /// Fails if transaction instruction execution fails
     fn execute_transactions(&mut self, block: &CommittedBlock) -> Result<()> {
+        let block = block.as_ref();
+
         // TODO: Should this block panic instead?
-        for tx in block.as_ref().transactions() {
-            if tx.error.is_none() {
+        for (idx, tx) in block.transactions().enumerate() {
+            if block.error(idx).is_none() {
                 // Execute every tx in it's own transaction
                 let mut transaction = self.transaction();
-                transaction.process_executable(
-                    tx.as_ref().instructions(),
-                    tx.as_ref().authority().clone(),
-                )?;
+                transaction.process_executable(tx.instructions(), tx.authority().clone())?;
                 transaction.apply();
             }
         }
@@ -1369,7 +1368,6 @@ impl<'state> StateBlock<'state> {
         block
             .as_ref()
             .transactions()
-            .map(|tx| &tx.value)
             .map(SignedTransaction::hash)
             .for_each(|tx_hash| {
                 self.transactions.insert(tx_hash, block_height);
