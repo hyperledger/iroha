@@ -423,7 +423,7 @@ mod tests {
         // First transaction
         {
             let transaction = transactions[0];
-            let instructions = transaction.value.instructions();
+            let instructions = transaction.as_ref().instructions();
             let Executable::Instructions(instructions) = instructions else {
                 panic!("Expected instructions");
             };
@@ -434,7 +434,7 @@ mod tests {
 
         // Second transaction
         let transaction = transactions[1];
-        let instructions = transaction.value.instructions();
+        let instructions = transaction.as_ref().instructions();
         let Executable::Instructions(instructions) = instructions else {
             panic!("Expected instructions");
         };

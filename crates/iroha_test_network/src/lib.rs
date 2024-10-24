@@ -23,7 +23,6 @@ use iroha_config::base::{
     read::ConfigReader,
     toml::{TomlSource, WriteExt as _, Writer as TomlWriter},
 };
-pub use iroha_core::state::StateReadOnly;
 use iroha_crypto::{ExposedPrivateKey, KeyPair, PrivateKey};
 use iroha_data_model::{
     events::pipeline::BlockEventFilter,
@@ -328,10 +327,10 @@ impl NetworkBuilder {
             block_time = duration / 3;
             commit_time = duration / 2;
             extra_isi.extend([
-                InstructionBox::SetParameter(SetParameter(Parameter::Sumeragi(
+                InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
                     SumeragiParameter::BlockTimeMs(block_time.as_millis() as u64),
                 ))),
-                InstructionBox::SetParameter(SetParameter(Parameter::Sumeragi(
+                InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
                     SumeragiParameter::CommitTimeMs(commit_time.as_millis() as u64),
                 ))),
             ]);
@@ -342,10 +341,10 @@ impl NetworkBuilder {
 
         let genesis = config::genesis(
             [
-                InstructionBox::SetParameter(SetParameter(Parameter::Sumeragi(
+                InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
                     SumeragiParameter::BlockTimeMs(block_time.as_millis() as u64),
                 ))),
-                InstructionBox::SetParameter(SetParameter(Parameter::Sumeragi(
+                InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
                     SumeragiParameter::CommitTimeMs(commit_time.as_millis() as u64),
                 ))),
             ]

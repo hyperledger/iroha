@@ -146,10 +146,9 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
         .query(FindRoles::new())
         .execute_all()?
         .into_iter()
-        .find(|role| role.id == test_role_id)
+        .find(|role| *role.id() == test_role_id)
         .expect("Failed to find Role")
-        .permissions
-        .iter()
+        .permissions()
         .any(|permission| {
             CanUnregisterDomain::try_from(permission)
                 .is_ok_and(|permission| permission == can_unregister_domain)
@@ -179,10 +178,9 @@ fn executor_upgrade_should_revoke_removed_permissions() -> Result<()> {
         .query(FindRoles::new())
         .execute_all()?
         .into_iter()
-        .find(|role| role.id == test_role_id)
+        .find(|role| *role.id() == test_role_id)
         .expect("Failed to find Role")
-        .permissions
-        .iter()
+        .permissions()
         .any(|permission| {
             CanUnregisterDomain::try_from(permission)
                 .is_ok_and(|permission| permission == can_unregister_domain)
@@ -343,11 +341,10 @@ fn migration_should_cause_upgrade_event() {
             .await
             .unwrap();
         while let Some(event) = stream.try_next().await.unwrap() {
-            if let EventBox::Data(DataEvent::Executor(ExecutorEvent::Upgraded(ExecutorUpgrade {
-                new_data_model,
-            }))) = event
+            if let EventBox::Data(DataEvent::Executor(ExecutorEvent::Upgraded(executor_upgrade))) =
+                event
             {
-                assert!(!new_data_model.permissions.is_empty());
+                assert!(!executor_upgrade.new_data_model().permissions().is_empty());
                 break;
             }
         }

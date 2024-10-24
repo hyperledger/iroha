@@ -40,9 +40,7 @@ fn mint_asset_after_3_sec() -> Result<()> {
     let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
 
-    let init_quantity = test_client.query_single(FindAssetQuantityById {
-        id: asset_id.clone(),
-    })?;
+    let init_quantity = test_client.query_single(FindAssetQuantityById::new(asset_id.clone()))?;
 
     let start_time = curr_time();
     assert!(
@@ -64,18 +62,16 @@ fn mint_asset_after_3_sec() -> Result<()> {
 
     // Schedule start is in the future so trigger isn't executed after creating a new block
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
-    let after_registration_quantity = test_client.query_single(FindAssetQuantityById {
-        id: asset_id.clone(),
-    })?;
+    let after_registration_quantity =
+        test_client.query_single(FindAssetQuantityById::new(asset_id.clone()))?;
     assert_eq!(init_quantity, after_registration_quantity);
 
     // Sleep long enough that trigger start is in the past
     std::thread::sleep(network.pipeline_time());
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
 
-    let after_wait_quantity = test_client.query_single(FindAssetQuantityById {
-        id: asset_id.clone(),
-    })?;
+    let after_wait_quantity =
+        test_client.query_single(FindAssetQuantityById::new(asset_id.clone()))?;
     // Schedule is in the past now so trigger is executed
     assert_eq!(
         init_quantity.checked_add(1u32.into()).unwrap(),
@@ -168,7 +164,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let start_time = curr_time() + offset;
     let schedule = TimeSchedule::starting_at(start_time).with_period(TRIGGER_PERIOD);
 
-    let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
+    let filter = TimeEventFilter::new(ExecutionTime::Schedule(schedule));
     let register_trigger = Register::trigger(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(

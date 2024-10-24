@@ -332,7 +332,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             .iter()
             // Peer is not connected but should
             .filter_map(|(peer, is_active)| {
-                (!self.peers.contains_key(&peer.public_key)
+                (!self.peers.contains_key(peer.public_key())
                     && !self
                         .connecting_peers
                         .values()
@@ -362,7 +362,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
 
     fn connect_peer(&mut self, peer: &PeerId) {
         iroha_logger::trace!(
-            listen_addr = %self.listen_addr, peer.id.address = %peer.address,
+            listen_addr = %self.listen_addr, peer.id.address = %peer.address(),
             "Creating new peer actor",
         );
 
@@ -372,7 +372,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         let service_message_sender = self.service_message_sender.clone();
         connecting::<T, K, E>(
             // NOTE: we intentionally use peer's address and our public key, it's used during handshake
-            peer.address.clone(),
+            peer.address().clone(),
             self.key_pair.clone(),
             conn_id,
             service_message_sender,
@@ -410,7 +410,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         }
 
         //  Insert peer if peer not in peers yet or replace peer if it's disambiguator value is smaller than new one (simultaneous connections resolution rule)
-        match self.peers.get(&peer_id.public_key) {
+        match self.peers.get(peer_id.public_key()) {
             Some(peer) if peer.disambiguator > disambiguator => {
                 iroha_logger::debug!(
                     "Peer is disconnected due to simultaneous connection resolution policy"
@@ -428,7 +428,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         let ref_peer = RefPeer {
             handle: ready_peer_handle,
             conn_id: connection_id,
-            p2p_addr: peer_id.address.clone(),
+            p2p_addr: peer_id.address().clone(),
             disambiguator,
         };
         let _ = peer_message_sender.send(self.peer_message_sender.clone());
@@ -439,10 +439,10 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     fn peer_terminated(&mut self, Terminated { peer_id, conn_id }: Terminated) {
         self.connecting_peers.remove(&conn_id);
         if let Some(peer_id) = peer_id {
-            if let Some(peer) = self.peers.get(&peer_id.public_key) {
+            if let Some(peer) = self.peers.get(peer_id.public_key()) {
                 if peer.conn_id == conn_id {
                     iroha_logger::debug!(conn_id, peer=%peer_id, "Peer terminated");
-                    self.peers.remove(&peer_id.public_key);
+                    self.peers.remove(peer_id.public_key());
                     Self::remove_online_peer(&self.online_peers_sender, &peer_id);
                 }
             }
@@ -451,11 +451,11 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
 
     fn post(&mut self, Post { data, peer_id }: Post<T>) {
         iroha_logger::trace!(peer=%peer_id, "Post message");
-        match self.peers.get(&peer_id.public_key) {
+        match self.peers.get(peer_id.public_key()) {
             Some(peer) => {
                 if peer.handle.post(data).is_err() {
                     iroha_logger::error!(peer=%peer_id, "Failed to send message to peer");
-                    self.peers.remove(&peer_id.public_key);
+                    self.peers.remove(peer_id.public_key());
                     Self::remove_online_peer(&self.online_peers_sender, &peer_id);
                 }
             }
