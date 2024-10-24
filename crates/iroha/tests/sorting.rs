@@ -15,11 +15,10 @@ use nonzero_ext::nonzero;
 use rand::{seq::SliceRandom, thread_rng};
 
 #[test]
-#[ignore]
 #[allow(clippy::cast_possible_truncation)]
 fn correct_pagination_assets_after_creating_new_one() {
     // FIXME transaction is rejected for more than a certain number of instructions
-    const N_ASSETS: usize = 12;
+    const N_ASSETS: usize = 9;
     // 0 < pagination.start < missing_idx < pagination.end < N_ASSETS
     let missing_indices = vec![N_ASSETS / 2];
     let pagination = Pagination {
@@ -77,7 +76,7 @@ fn correct_pagination_assets_after_creating_new_one() {
         .expect("Valid");
 
     let queried_assets = test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter(xor_filter.clone())
         .with_pagination(pagination)
         .with_sorting(sorting.clone())
@@ -102,7 +101,7 @@ fn correct_pagination_assets_after_creating_new_one() {
         .expect("Valid");
 
     let queried_assets = test_client
-        .query(client::asset::all())
+        .query(FindAssets::new())
         .filter(xor_filter)
         .with_pagination(pagination)
         .with_sorting(sorting)
