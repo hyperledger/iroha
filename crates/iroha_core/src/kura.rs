@@ -817,10 +817,9 @@ mod tests {
     use iroha_data_model::{
         account::Account,
         domain::{Domain, DomainId},
-        executor::Executor,
         isi::Log,
         peer::PeerId,
-        transaction::{TransactionBuilder, WasmSmartContract},
+        transaction::TransactionBuilder,
         ChainId, Level,
     };
     use iroha_genesis::GenesisBuilder;
@@ -1111,16 +1110,11 @@ mod tests {
             live_query_store,
         );
 
-        let executor = {
-            let executor_blob = std::fs::read("../../defaults/executor.wasm").unwrap();
-            Executor::new(WasmSmartContract::from_compiled(executor_blob))
-        };
-        let genesis = GenesisBuilder::default().build_and_sign(
-            chain_id.clone(),
-            executor,
-            topology.as_ref().to_owned(),
-            &genesis_key_pair,
-        );
+        let executor_path = PathBuf::from("../../defaults/executor.wasm").into();
+        let genesis = GenesisBuilder::new(chain_id.clone(), executor_path)
+            .set_topology(topology.as_ref().to_owned())
+            .build_and_sign(&genesis_key_pair)
+            .expect("genesis block should be built");
 
         {
             let mut state_block = state.block(genesis.0.header());

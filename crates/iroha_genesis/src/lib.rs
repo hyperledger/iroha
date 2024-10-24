@@ -10,9 +10,7 @@ use std::{
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{
-    block::SignedBlock, isi::Instruction, parameter::Parameter, peer::Peer, prelude::*,
-};
+use iroha_data_model::{block::SignedBlock, parameter::Parameter, peer::Peer, prelude::*};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -23,8 +21,7 @@ pub static GENESIS_DOMAIN_ID: LazyLock<DomainId> = LazyLock::new(|| "genesis".pa
 /// Genesis block.
 ///
 /// First transaction must contain single [`Upgrade`] instruction to set executor.
-/// Second transaction must contain all other instructions.
-/// If there are no other instructions, second transaction will be omitted.
+/// Subsequent transactions can be parameter settings, instructions, topology change, in this order if they exist.
 #[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct GenesisBlock(pub SignedBlock);
@@ -55,14 +52,22 @@ pub struct ExecutorPath(PathBuf);
 impl RawGenesisTransaction {
     const WARN_ON_GENESIS_GTE: u64 = 1024 * 1024 * 1024; // 1Gb
 
-    /// Construct a genesis block from a `.json` file at the specified
-    /// path-like object.
+    /// Construct [`RawGenesisTransaction`] from a json file at `json_path`,
+    /// resolving relative paths to `json_path`.
     ///
     /// # Errors
-    /// If file not found or deserialization from file fails.
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(&path)
-            .wrap_err_with(|| eyre!("failed to open genesis at {}", path.as_ref().display()))?;
+    ///
+    /// - file not found
+    /// - metadata access to the file failed
+    /// - deserialization failed
+    pub fn from_path(json_path: impl AsRef<Path>) -> Result<Self> {
+        let here = json_path
+            .as_ref()
+            .parent()
+            .expect("json file should be in some directory");
+        let file = File::open(&json_path).wrap_err_with(|| {
+            eyre!("failed to open genesis at {}", json_path.as_ref().display())
+        })?;
         let size = file
             .metadata()
             .wrap_err("failed to access genesis file metadata")?
@@ -71,168 +76,147 @@ impl RawGenesisTransaction {
             eprintln!("Genesis is quite large, it will take some time to process it (size = {}, threshold = {})", size, Self::WARN_ON_GENESIS_GTE);
         }
         let reader = BufReader::new(file);
+
         let mut value: Self = serde_json::from_reader(reader).wrap_err_with(|| {
             eyre!(
                 "failed to deserialize raw genesis block from {}",
-                path.as_ref().display()
+                json_path.as_ref().display()
             )
         })?;
-        value.executor = ExecutorPath(
-            path.as_ref()
-                .parent()
-                .expect("genesis must be a file in some directory")
-                .join(value.executor.0),
-        );
+
+        value.executor.resolve(here);
+
         Ok(value)
     }
 
-    /// Add new instruction to the genesis block.
-    pub fn append_instruction(&mut self, instruction: impl Instruction) {
-        self.instructions.push(instruction.into());
-    }
+    /// Revert to builder to add modifications.
+    pub fn into_builder(self) -> GenesisBuilder {
+        let parameters = self
+            .parameters
+            .map_or(Vec::new(), |parameters| parameters.parameters().collect());
 
-    /// Change topology
-    #[must_use]
-    pub fn with_topology(mut self, topology: Vec<PeerId>) -> Self {
-        self.topology = topology;
-        self
+        GenesisBuilder {
+            chain: self.chain,
+            executor: self.executor,
+            instructions: self.instructions,
+            parameters,
+            topology: self.topology,
+        }
     }
 
     /// Build and sign genesis block.
     ///
     /// # Errors
-    /// If executor couldn't be read from provided path
+    ///
+    /// Fails if [`RawGenesisTransaction::parse`] fails.
     pub fn build_and_sign(self, genesis_key_pair: &KeyPair) -> Result<GenesisBlock> {
-        let executor = get_executor(&self.executor.0)?;
-        let parameters = self
-            .parameters
-            .map_or(Vec::new(), |parameters| parameters.parameters().collect());
-        let genesis = build_and_sign_genesis(
-            self.instructions,
-            executor,
-            self.chain,
-            genesis_key_pair,
-            self.topology,
-            parameters,
-        );
-        Ok(genesis)
+        let chain = self.chain.clone();
+        let mut transactions = vec![];
+        for instructions in self.parse()? {
+            let transaction = build_transaction(instructions, chain.clone(), genesis_key_pair);
+            transactions.push(transaction);
+        }
+        let block = SignedBlock::genesis(transactions, genesis_key_pair.private_key());
+
+        Ok(GenesisBlock(block))
     }
-}
 
-fn build_and_sign_genesis(
-    instructions: Vec<InstructionBox>,
-    executor: Executor,
-    chain_id: ChainId,
-    genesis_key_pair: &KeyPair,
-    topology: Vec<PeerId>,
-    parameters: Vec<Parameter>,
-) -> GenesisBlock {
-    let transactions = build_transactions(
-        instructions,
-        executor,
-        parameters,
-        topology,
-        chain_id,
-        genesis_key_pair,
-    );
-    let block = SignedBlock::genesis(transactions, genesis_key_pair.private_key());
-    GenesisBlock(block)
-}
+    /// Parse [`RawGenesisTransaction`] to the list of source instructions of the genesis transactions
+    ///
+    /// # Errors
+    ///
+    /// Fails if `self.executor` path fails to load [`Executor`].
+    fn parse(self) -> Result<Vec<Vec<InstructionBox>>> {
+        let mut instructions_list = vec![];
 
-fn build_transactions(
-    instructions: Vec<InstructionBox>,
-    executor: Executor,
-    parameters: Vec<Parameter>,
-    topology: Vec<PeerId>,
-    chain_id: ChainId,
-    genesis_key_pair: &KeyPair,
-) -> Vec<SignedTransaction> {
-    let upgrade_isi = Upgrade::new(executor).into();
-    let transaction_executor =
-        build_transaction(vec![upgrade_isi], chain_id.clone(), genesis_key_pair);
-    let mut transactions = vec![transaction_executor];
-    if !topology.is_empty() {
-        let register_peers = build_transaction(
-            topology
+        let upgrade_executor = Upgrade::new(self.executor.try_into()?).into();
+        instructions_list.push(vec![upgrade_executor]);
+
+        if let Some(parameters) = self.parameters {
+            let instructions = parameters
+                .parameters()
+                .map(SetParameter::new)
+                .map(InstructionBox::from)
+                .collect();
+            instructions_list.push(instructions);
+        }
+
+        if !self.instructions.is_empty() {
+            instructions_list.push(self.instructions);
+        }
+
+        if !self.topology.is_empty() {
+            let instructions = self
+                .topology
                 .into_iter()
                 .map(Peer::new)
                 .map(Register::peer)
                 .map(InstructionBox::from)
-                .collect(),
-            chain_id.clone(),
-            genesis_key_pair,
-        );
-        transactions.push(register_peers)
+                .collect();
+            instructions_list.push(instructions)
+        }
+
+        Ok(instructions_list)
     }
-    if !parameters.is_empty() {
-        let parameters = build_transaction(
-            parameters
-                .into_iter()
-                .map(SetParameter::new)
-                .map(InstructionBox::from)
-                .collect(),
-            chain_id.clone(),
-            genesis_key_pair,
-        );
-        transactions.push(parameters);
-    }
-    if !instructions.is_empty() {
-        let transaction_instructions = build_transaction(instructions, chain_id, genesis_key_pair);
-        transactions.push(transaction_instructions);
-    }
-    transactions
 }
 
+/// Build a transaction and sign as the genesis account.
 fn build_transaction(
     instructions: Vec<InstructionBox>,
-    chain_id: ChainId,
+    chain: ChainId,
     genesis_key_pair: &KeyPair,
 ) -> SignedTransaction {
-    let genesis_account_id = AccountId::new(
+    let genesis_account = AccountId::new(
         GENESIS_DOMAIN_ID.clone(),
         genesis_key_pair.public_key().clone(),
     );
-    TransactionBuilder::new(chain_id, genesis_account_id)
+
+    TransactionBuilder::new(chain, genesis_account)
         .with_instructions(instructions)
         .sign(genesis_key_pair.private_key())
 }
 
-fn get_executor(file: &Path) -> Result<Executor> {
-    let wasm = fs::read(file)
-        .wrap_err_with(|| eyre!("failed to read the executor from {}", file.display()))?;
-    Ok(Executor::new(WasmSmartContract::from_compiled(wasm)))
-}
-
-/// Builder type for [`GenesisBlock`]/[`RawGenesisTransaction`].
-///
-/// that does not perform any correctness checking on the block produced.
-/// Use with caution in tests and other things to register domains and accounts.
+/// Builder to build [`RawGenesisTransaction`] and [`GenesisBlock`].
+/// No guarantee of validity of the built genesis transactions and block.
 #[must_use]
-#[derive(Default)]
 pub struct GenesisBuilder {
+    chain: ChainId,
+    executor: ExecutorPath,
     instructions: Vec<InstructionBox>,
     parameters: Vec<Parameter>,
+    topology: Vec<PeerId>,
 }
 
-/// `Domain` subsection of the [`GenesisBuilder`]. Makes
-/// it easier to create accounts and assets without needing to
-/// provide a `DomainId`.
+/// Domain editing mode of the [`GenesisBuilder`] to register accounts and assets under the domain.
 #[must_use]
 pub struct GenesisDomainBuilder {
-    instructions: Vec<InstructionBox>,
+    chain: ChainId,
+    executor: ExecutorPath,
     parameters: Vec<Parameter>,
+    instructions: Vec<InstructionBox>,
+    topology: Vec<PeerId>,
     domain_id: DomainId,
 }
 
 impl GenesisBuilder {
-    /// Create a domain and return a domain builder which can
-    /// be used to create assets and accounts.
+    /// Construct [`GenesisBuilder`].
+    #[expect(clippy::new_without_default)]
+    pub fn new(chain: ChainId, executor: ExecutorPath) -> Self {
+        Self {
+            chain,
+            executor,
+            parameters: Vec::new(),
+            instructions: Vec::new(),
+            topology: Vec::new(),
+        }
+    }
+
+    /// Entry a domain registration and transition to [`GenesisDomainBuilder`].
     pub fn domain(self, domain_name: Name) -> GenesisDomainBuilder {
         self.domain_with_metadata(domain_name, Metadata::default())
     }
 
-    /// Create a domain and return a domain builder which can
-    /// be used to create assets and accounts.
+    /// Same as [`GenesisBuilder::domain`], but attach a metadata to the domain.
     pub fn domain_with_metadata(
         mut self,
         domain_name: Name,
@@ -240,72 +224,74 @@ impl GenesisBuilder {
     ) -> GenesisDomainBuilder {
         let domain_id = DomainId::new(domain_name);
         let new_domain = Domain::new(domain_id.clone()).with_metadata(metadata);
+
         self.instructions.push(Register::domain(new_domain).into());
+
         GenesisDomainBuilder {
-            instructions: self.instructions,
+            chain: self.chain,
+            executor: self.executor,
             parameters: self.parameters,
+            instructions: self.instructions,
+            topology: self.topology,
             domain_id,
         }
     }
 
-    /// Add instruction to the end of genesis transaction
-    pub fn append_instruction(mut self, instruction: impl Into<InstructionBox>) -> Self {
-        self.instructions.push(instruction.into());
-        self
-    }
-
-    /// Add parameter to the end of parameter list
+    /// Entry a parameter setting to the end of entries.
     pub fn append_parameter(mut self, parameter: Parameter) -> Self {
         self.parameters.push(parameter);
         self
     }
 
+    /// Entry a instruction to the end of entries.
+    pub fn append_instruction(mut self, instruction: impl Into<InstructionBox>) -> Self {
+        self.instructions.push(instruction.into());
+        self
+    }
+
+    /// Overwrite the initial topology.
+    #[must_use]
+    pub fn set_topology(mut self, topology: Vec<PeerId>) -> Self {
+        self.topology = topology;
+        self
+    }
+
     /// Finish building, sign, and produce a [`GenesisBlock`].
-    pub fn build_and_sign(
-        self,
-        chain_id: ChainId,
-        executor_blob: Executor,
-        topology: Vec<PeerId>,
-        genesis_key_pair: &KeyPair,
-    ) -> GenesisBlock {
-        build_and_sign_genesis(
-            self.instructions,
-            executor_blob,
-            chain_id,
-            genesis_key_pair,
-            topology,
-            self.parameters,
-        )
+    pub fn build_and_sign(self, genesis_key_pair: &KeyPair) -> Result<GenesisBlock> {
+        self.build_raw().build_and_sign(genesis_key_pair)
     }
 
     /// Finish building and produce a [`RawGenesisTransaction`].
-    pub fn build_raw(
-        self,
-        chain_id: ChainId,
-        executor_file: PathBuf,
-        topology: Vec<PeerId>,
-    ) -> RawGenesisTransaction {
+    pub fn build_raw(self) -> RawGenesisTransaction {
+        let parameters = (!self.parameters.is_empty()).then(|| {
+            let mut res = Parameters::default();
+            res.extend(self.parameters);
+            res
+        });
+
         RawGenesisTransaction {
+            chain: self.chain,
+            executor: self.executor,
+            parameters,
             instructions: self.instructions,
-            executor: ExecutorPath(executor_file),
-            parameters: convert_parameters(self.parameters),
-            chain: chain_id,
-            topology,
+            topology: self.topology,
         }
     }
 }
 
 impl GenesisDomainBuilder {
-    /// Finish this domain and return to
-    /// genesis block building.
+    /// Finish this domain and return to genesis block building.
     pub fn finish_domain(self) -> GenesisBuilder {
         GenesisBuilder {
-            instructions: self.instructions,
+            chain: self.chain,
+            executor: self.executor,
             parameters: self.parameters,
+            instructions: self.instructions,
+            topology: self.topology,
         }
     }
 
-    /// Add an account to this domain
+    /// Add an account to this domain.
     pub fn account(self, signatory: PublicKey) -> Self {
         self.account_with_metadata(signatory, Metadata::default())
     }
@@ -318,7 +304,7 @@ impl GenesisDomainBuilder {
         self
     }
 
-    /// Add [`AssetDefinition`] to current domain.
+    /// Add [`AssetDefinition`] to this domain.
     pub fn asset(mut self, asset_name: Name, asset_type: AssetType) -> Self {
         let asset_definition_id = AssetDefinitionId::new(self.domain_id.clone(), asset_name);
         let asset_definition = AssetDefinition::new(asset_definition_id, asset_type);
@@ -326,18 +312,6 @@ impl GenesisDomainBuilder {
             .push(Register::asset_definition(asset_definition).into());
         self
     }
-}
-
-fn convert_parameters(parameters: Vec<Parameter>) -> Option<Parameters> {
-    if parameters.is_empty() {
-        return None;
-    }
-    let mut result = Parameters::default();
-    for parameter in parameters {
-        result.set_parameter(parameter);
-    }
-
-    Some(result)
 }
 
 impl Encode for ExecutorPath {
@@ -357,33 +331,74 @@ impl Decode for ExecutorPath {
     }
 }
 
+impl From<PathBuf> for ExecutorPath {
+    fn from(value: PathBuf) -> Self {
+        Self(value)
+    }
+}
+
+impl TryFrom<ExecutorPath> for Executor {
+    type Error = eyre::Report;
+
+    fn try_from(value: ExecutorPath) -> Result<Self, Self::Error> {
+        let wasm = fs::read(&value.0)
+            .wrap_err_with(|| eyre!("failed to read the executor from {}", value.0.display()))?;
+
+        Ok(Executor::new(WasmSmartContract::from_compiled(wasm)))
+    }
+}
+
+impl ExecutorPath {
+    /// Resolve `self` to `here/self`,
+    /// assuming `self` is an unresolved relative path to `here`.
+    /// Must be applied once.
+    fn resolve(&mut self, here: impl AsRef<Path>) {
+        self.0 = here.as_ref().join(&self.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use iroha_test_samples::{ALICE_KEYPAIR, BOB_KEYPAIR};
+    use tempfile::TempDir;
 
     use super::*;
 
-    fn dummy_executor() -> Executor {
-        Executor::new(WasmSmartContract::from_compiled(vec![1, 2, 3]))
+    fn dummy_executor() -> (TempDir, ExecutorPath) {
+        let tmp_dir = TempDir::new().unwrap();
+        let wasm = WasmSmartContract::from_compiled(vec![1, 2, 3]);
+        let executor_path = tmp_dir.path().join("executor.wasm");
+        std::fs::write(&executor_path, wasm).unwrap();
+
+        (tmp_dir, executor_path.into())
+    }
+
+    fn test_builder() -> (TempDir, GenesisBuilder) {
+        let (tmp_dir, executor_path) = dummy_executor();
+        let chain = ChainId::from("00000000-0000-0000-0000-000000000000");
+        let builder = GenesisBuilder::new(chain, executor_path);
+
+        (tmp_dir, builder)
     }
 
     #[test]
     fn load_new_genesis_block() -> Result<()> {
-        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let genesis_key_pair = KeyPair::random();
         let (alice_public_key, _) = KeyPair::random().into_parts();
+        let (_tmp_dir, builder) = test_builder();
 
-        let _genesis_block = GenesisBuilder::default()
+        let _genesis_block = builder
             .domain("wonderland".parse()?)
             .account(alice_public_key)
             .finish_domain()
-            .build_and_sign(chain_id, dummy_executor(), vec![], &genesis_key_pair);
+            .build_and_sign(&genesis_key_pair)?;
+
         Ok(())
     }
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn genesis_block_builder_example() {
+    fn genesis_block_builder_example() -> Result<()> {
         let public_key: std::collections::HashMap<&'static str, PublicKey> = [
             ("alice", ALICE_KEYPAIR.public_key().clone()),
             ("bob", BOB_KEYPAIR.public_key().clone()),
@@ -392,7 +407,8 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let mut genesis_builder = GenesisBuilder::default();
+        let (_tmp_dir, mut genesis_builder) = test_builder();
+        let executor_path = genesis_builder.executor.clone();
 
         genesis_builder = genesis_builder
             .domain("wonderland".parse().unwrap())
@@ -411,30 +427,28 @@ mod tests {
             .finish_domain();
 
         // In real cases executor should be constructed from a wasm blob
-        let finished_genesis = genesis_builder.build_and_sign(
-            ChainId::from("00000000-0000-0000-0000-000000000000"),
-            dummy_executor(),
-            vec![],
-            &KeyPair::random(),
-        );
+        let finished_genesis = genesis_builder.build_and_sign(&KeyPair::random())?;
 
         let transactions = &finished_genesis.0.transactions().collect::<Vec<_>>();
 
         // First transaction
         {
             let transaction = transactions[0];
-            let instructions = transaction.value.instructions();
+            let instructions = transaction.as_ref().instructions();
             let Executable::Instructions(instructions) = instructions else {
                 panic!("Expected instructions");
             };
 
-            assert_eq!(instructions[0], Upgrade::new(dummy_executor()).into());
+            assert_eq!(
+                instructions[0],
+                Upgrade::new(executor_path.try_into()?).into()
+            );
             assert_eq!(instructions.len(), 1);
         }
 
         // Second transaction
         let transaction = transactions[1];
-        let instructions = transaction.value.instructions();
+        let instructions = transaction.as_ref().instructions();
         let Executable::Instructions(instructions) = instructions else {
             panic!("Expected instructions");
         };
@@ -499,6 +513,8 @@ mod tests {
                 .into()
             );
         }
+
+        Ok(())
     }
 
     #[test]
@@ -506,11 +522,11 @@ mod tests {
         fn test(parameters: &str) {
             let genesis_json = format!(
                 r#"{{
-              "parameters": {parameters},
-              "chain": "0",
-              "executor": "./executor.wasm",
-              "topology": [],
-              "instructions": []
+                "chain": "0",
+                "executor": "./executor.wasm",
+                "parameters": {parameters},
+                "instructions": [],
+                "topology": []
             }}"#
             );
 

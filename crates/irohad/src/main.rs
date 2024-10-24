@@ -710,9 +710,11 @@ mod tests {
     mod config_integration {
         use assertables::{assert_contains, assert_contains_as_result};
         use iroha_crypto::{ExposedPrivateKey, KeyPair};
+        use iroha_genesis::ExecutorPath;
         use iroha_primitives::addr::socket_addr;
         use iroha_version::Encode;
         use path_absolutize::Absolutize as _;
+        use tempfile::TempDir;
 
         use super::*;
 
@@ -730,8 +732,21 @@ mod tests {
             table
         }
 
-        fn dummy_executor() -> Executor {
-            Executor::new(WasmSmartContract::from_compiled(vec![1, 2, 3]))
+        fn dummy_executor() -> (TempDir, ExecutorPath) {
+            let tmp_dir = TempDir::new().unwrap();
+            let wasm = WasmSmartContract::from_compiled(vec![1, 2, 3]);
+            let executor_path = tmp_dir.path().join("executor.wasm");
+            std::fs::write(&executor_path, wasm).unwrap();
+
+            (tmp_dir, executor_path.into())
+        }
+
+        fn test_builder() -> (TempDir, GenesisBuilder) {
+            let (tmp_dir, executor_path) = dummy_executor();
+            let chain = ChainId::from("00000000-0000-0000-0000-000000000000");
+            let builder = GenesisBuilder::new(chain, executor_path);
+
+            (tmp_dir, builder)
         }
 
         #[test]
@@ -739,12 +754,8 @@ mod tests {
             // Given
 
             let genesis_key_pair = KeyPair::random();
-            let genesis = GenesisBuilder::default().build_and_sign(
-                ChainId::from("00000000-0000-0000-0000-000000000000"),
-                dummy_executor(),
-                vec![],
-                &genesis_key_pair,
-            );
+            let (_tmp_dir, builder) = test_builder();
+            let genesis = builder.build_and_sign(&genesis_key_pair)?;
 
             let mut config = config_factory(genesis_key_pair.public_key());
             iroha_config::base::toml::Writer::new(&mut config)

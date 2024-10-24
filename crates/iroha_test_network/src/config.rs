@@ -41,7 +41,7 @@ pub fn genesis<T: Instruction>(
     topology: UniqueVec<PeerId>,
 ) -> GenesisBlock {
     // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
-    let mut genesis = match RawGenesisTransaction::from_path(
+    let genesis = match RawGenesisTransaction::from_path(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../defaults/genesis.json"),
     ) {
         Ok(x) => x,
@@ -54,6 +54,7 @@ pub fn genesis<T: Instruction>(
             panic!("cannot proceed without genesis, see the error above");
         }
     };
+    let mut builder = genesis.into_builder();
 
     let rose_definition_id = "rose#wonderland".parse::<AssetDefinitionId>().unwrap();
     let grant_modify_rose_permission = Grant::account_permission(
@@ -79,16 +80,17 @@ pub fn genesis<T: Instruction>(
         grant_unregister_wonderland_domain,
         grant_upgrade_executor_permission,
     ] {
-        genesis.append_instruction(isi);
+        builder = builder.append_instruction(isi);
     }
 
     for isi in extra_isi {
-        genesis.append_instruction(isi);
+        builder = builder.append_instruction(isi);
     }
 
     let genesis_key_pair = SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone();
-    genesis
-        .with_topology(topology.into())
+
+    builder
+        .set_topology(topology.into())
         .build_and_sign(&genesis_key_pair)
         .expect("genesis should load fine")
 }

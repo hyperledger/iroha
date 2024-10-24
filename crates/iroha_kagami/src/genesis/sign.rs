@@ -47,12 +47,13 @@ pub struct Args {
 impl<T: Write> RunArgs<T> for Args {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
         let genesis_key_pair = self.get_key_pair()?;
-        let mut genesis = RawGenesisTransaction::from_path(&self.genesis_file)?;
+        let genesis = RawGenesisTransaction::from_path(&self.genesis_file)?;
+        let mut builder = genesis.into_builder();
         if let Some(topology) = self.topology {
             let topology = serde_json::from_str(&topology).expect("Failed to parse topology");
-            genesis = genesis.with_topology(topology);
+            builder = builder.set_topology(topology);
         }
-        let genesis_transaction = genesis.build_and_sign(&genesis_key_pair)?;
+        let genesis_transaction = builder.build_and_sign(&genesis_key_pair)?;
 
         let mut writer: Box<dyn Write> = match self.out_file {
             None => Box::new(writer),
