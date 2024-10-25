@@ -27,12 +27,13 @@ async fn genesis_transactions_are_validated_by_executor() {
     let network = NetworkBuilder::new()
         .with_genesis_instruction(invalid_instruction)
         .build();
+    let genesis = genesis_factory(network.genesis_isi().clone(), network.topology());
     let peer = network.peer();
 
     timeout(Duration::from_secs(3), async {
         join!(
             // Peer should start...
-            peer.start(network.config(), Some(network.genesis())),
+            peer.start(network.config(), Some(&genesis)),
             peer.once(|event| matches!(event, PeerLifecycleEvent::ServerStarted)),
             // ...but it should shortly exit with an error
             peer.once(|event| match event {

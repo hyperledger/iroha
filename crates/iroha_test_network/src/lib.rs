@@ -1,7 +1,7 @@
 //! Puppeteer for `irohad`, to create test networks
 
 mod config;
-mod fslock_ports;
+pub mod fslock_ports;
 
 use core::{fmt::Debug, time::Duration};
 use std::{
@@ -48,11 +48,13 @@ use tokio::{
 };
 use toml::Table;
 
+pub use crate::config::genesis as genesis_factory;
+
 const INSTANT_PIPELINE_TIME: Duration = Duration::from_millis(10);
 const DEFAULT_BLOCK_SYNC: Duration = Duration::from_millis(150);
 const PEER_START_TIMEOUT: Duration = Duration::from_secs(30);
 const PEER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
-const SYNC_TIMEOUT: Duration = Duration::from_secs(30);
+const SYNC_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn iroha_bin() -> impl AsRef<Path> {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -86,7 +88,7 @@ fn tempdir_in() -> Option<impl AsRef<Path>> {
 pub struct Network {
     peers: Vec<NetworkPeer>,
 
-    genesis: GenesisBlock,
+    genesis_isi: Vec<InstructionBox>,
     block_time: Duration,
     commit_time: Duration,
 
@@ -136,7 +138,7 @@ impl Network {
                     };
 
                     let start = async move {
-                        peer.start(self.config(), (i == 0).then_some(&self.genesis))
+                        peer.start(self.config(), (i == 0).then_some(&self.genesis()))
                             .await;
                         peer.once_block(1).await;
                     };
@@ -190,8 +192,16 @@ impl Network {
     }
 
     /// Network genesis block.
-    pub fn genesis(&self) -> &GenesisBlock {
-        &self.genesis
+    ///
+    /// It uses the basic [`genesis_factory`] with [`Self::genesis_isi`] +
+    /// topology of the network peers.
+    pub fn genesis(&self) -> GenesisBlock {
+        genesis_factory(self.genesis_isi.clone(), self.topology())
+    }
+
+    /// Base network instructions included into the genesis block.
+    pub fn genesis_isi(&self) -> &Vec<InstructionBox> {
+        &self.genesis_isi
     }
 
     /// Shutdown running peers
@@ -216,12 +226,7 @@ impl Network {
     pub async fn ensure_blocks(&self, height: u64) -> Result<&Self> {
         timeout(
             self.sync_timeout(),
-            self.peers
-                .iter()
-                .filter(|x| x.is_running())
-                .map(|x| x.once_block(height))
-                .collect::<FuturesUnordered<_>>()
-                .collect::<Vec<_>>(),
+            once_blocks_sync(self.peers.iter().filter(|x| x.is_running()), height),
         )
         .await
         .wrap_err_with(|| {
@@ -239,7 +244,7 @@ pub struct NetworkBuilder {
     n_peers: usize,
     config: Table,
     pipeline_time: Option<Duration>,
-    extra_isi: Vec<InstructionBox>,
+    genesis_isi: Vec<InstructionBox>,
 }
 
 impl Default for NetworkBuilder {
@@ -256,7 +261,7 @@ impl NetworkBuilder {
             n_peers: 1,
             config: config::base_iroha_config(),
             pipeline_time: Some(INSTANT_PIPELINE_TIME),
-            extra_isi: vec![],
+            genesis_isi: vec![],
         }
     }
 
@@ -308,7 +313,7 @@ impl NetworkBuilder {
 
     /// Append an instruction to genesis.
     pub fn with_genesis_instruction(mut self, isi: impl Into<InstructionBox>) -> Self {
-        self.extra_isi.push(isi.into());
+        self.genesis_isi.push(isi.into());
         self
     }
 
@@ -316,46 +321,33 @@ impl NetworkBuilder {
     pub fn build(self) -> Network {
         let peers: Vec<_> = (0..self.n_peers).map(|_| NetworkPeer::generate()).collect();
 
-        let topology: UniqueVec<_> = peers.iter().map(|peer| peer.peer_id()).collect();
-
         let block_sync_gossip_period = DEFAULT_BLOCK_SYNC;
 
-        let mut extra_isi = vec![];
         let block_time;
         let commit_time;
         if let Some(duration) = self.pipeline_time {
             block_time = duration / 3;
             commit_time = duration / 2;
-            extra_isi.extend([
-                InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
-                    SumeragiParameter::BlockTimeMs(block_time.as_millis() as u64),
-                ))),
-                InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
-                    SumeragiParameter::CommitTimeMs(commit_time.as_millis() as u64),
-                ))),
-            ]);
         } else {
             block_time = SumeragiParameters::default().block_time();
             commit_time = SumeragiParameters::default().commit_time();
         }
 
-        let genesis = config::genesis(
-            [
-                InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
-                    SumeragiParameter::BlockTimeMs(block_time.as_millis() as u64),
-                ))),
-                InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
-                    SumeragiParameter::CommitTimeMs(commit_time.as_millis() as u64),
-                ))),
-            ]
-            .into_iter()
-            .chain(self.extra_isi),
-            topology,
-        );
+        let genesis_isi = [
+            InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::BlockTimeMs(block_time.as_millis() as u64),
+            ))),
+            InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::CommitTimeMs(commit_time.as_millis() as u64),
+            ))),
+        ]
+        .into_iter()
+        .chain(self.genesis_isi)
+        .collect();
 
         Network {
             peers,
-            genesis,
+            genesis_isi,
             block_time,
             commit_time,
             config: self.config.write(
@@ -507,9 +499,10 @@ impl NetworkPeer {
         };
 
         eprintln!(
-            "{} generated peer, dir: {}",
+            "{} generated peer\n  dir: {}\n  public key: {}",
             result.log_prefix(),
-            result.dir.path().display()
+            result.dir.path().display(),
+            result.key_pair.public_key(),
         );
 
         result
@@ -906,6 +899,15 @@ impl PeerExit {
         .wrap_err("didn't terminate after SIGKILL")?
         .wrap_err("wait failure")
     }
+}
+
+/// Wait until [`NetworkPeer::once_block`] resolves for all the peers.
+pub async fn once_blocks_sync(peers: impl Iterator<Item = &NetworkPeer>, height: u64) {
+    peers
+        .map(|x| x.once_block(height))
+        .collect::<FuturesUnordered<_>>()
+        .collect::<Vec<_>>()
+        .await;
 }
 
 #[cfg(test)]

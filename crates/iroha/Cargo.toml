@@ -95,3 +95,4 @@ hex = { workspace = true }
 assertables = { workspace = true }
 trybuild = { workspace = true }
 assert_matches = "1.5.0"
+ascii_table = "4.0.4"
