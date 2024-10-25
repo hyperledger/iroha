@@ -259,6 +259,13 @@ impl Iroha {
             queue.clone(),
         );
 
+        let (peers_gossiper, child) = PeersGossiper::start(
+            config.sumeragi.trusted_peers.value().clone(),
+            network.clone(),
+            supervisor.shutdown_signal(),
+        );
+        supervisor.monitor(child);
+
         let (sumeragi, child) = SumeragiStartArgs {
             sumeragi_config: config.sumeragi.clone(),
             common_config: config.common.clone(),
@@ -267,6 +274,7 @@ impl Iroha {
             queue: queue.clone(),
             kura: kura.clone(),
             network: network.clone(),
+            peers_gossiper: peers_gossiper.clone(),
             genesis_network: GenesisWithPubKey {
                 genesis,
                 public_key: config.genesis.public_key.clone(),
@@ -300,13 +308,6 @@ impl Iroha {
             Arc::clone(&state),
         )
         .start(supervisor.shutdown_signal());
-        supervisor.monitor(child);
-
-        let (peers_gossiper, child) = PeersGossiper::start(
-            config.sumeragi.trusted_peers.value().clone(),
-            network.clone(),
-            supervisor.shutdown_signal(),
-        );
         supervisor.monitor(child);
 
         supervisor.monitor(task::spawn(

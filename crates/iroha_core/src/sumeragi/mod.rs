@@ -28,7 +28,10 @@ pub mod network_topology;
 pub mod view_change;
 
 use self::{message::*, view_change::ProofChain};
-use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, NetworkMessage};
+use crate::{
+    kura::Kura, peers_gossiper::PeersGossiperHandle, prelude::*, queue::Queue, EventsSender,
+    IrohaNetwork, NetworkMessage,
+};
 
 /// Handle to `Sumeragi` actor
 #[derive(Clone)]
@@ -144,6 +147,7 @@ impl SumeragiStartArgs {
             queue,
             kura,
             network,
+            peers_gossiper,
             genesis_network,
             block_count: BlockCount(block_count),
             #[cfg(feature = "telemetry")]
@@ -217,6 +221,7 @@ impl SumeragiStartArgs {
             events_sender,
             kura: Arc::clone(&kura),
             network: network.clone(),
+            peers_gossiper,
             control_message_receiver,
             message_receiver,
             debug_force_soft_fork,
@@ -297,6 +302,7 @@ pub struct SumeragiStartArgs {
     pub queue: Arc<Queue>,
     pub kura: Arc<Kura>,
     pub network: IrohaNetwork,
+    pub peers_gossiper: PeersGossiperHandle,
     pub genesis_network: GenesisWithPubKey,
     pub block_count: BlockCount,
     #[cfg(feature = "telemetry")]

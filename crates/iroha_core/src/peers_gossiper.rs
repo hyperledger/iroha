@@ -11,7 +11,7 @@ use std::{
 use iroha_config::parameters::actual::TrustedPeers;
 use iroha_data_model::peer::{Peer, PeerId};
 use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
-use iroha_p2p::{Broadcast, UpdatePeers};
+use iroha_p2p::{Broadcast, UpdatePeers, UpdateTopology};
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use iroha_version::{Decode, Encode};
 use parity_scale_codec::{Error, Input};
@@ -23,6 +23,7 @@ use crate::{IrohaNetwork, NetworkMessage};
 #[derive(Clone)]
 pub struct PeersGossiperHandle {
     message_sender: mpsc::Sender<PeersGossip>,
+    update_topology_sender: mpsc::UnboundedSender<UpdateTopology>,
 }
 
 impl PeersGossiperHandle {
@@ -33,6 +34,13 @@ impl PeersGossiperHandle {
             .await
             .expect("Gossiper must handle messages until there is at least one handle to it")
     }
+
+    /// Send [`UpdateTopology`] message on network actor.
+    pub fn update_topology(&self, topology: UpdateTopology) {
+        self.update_topology_sender
+            .send(topology)
+            .expect("Gossiper must accept messages until there is at least one handle to it")
+    }
 }
 
 /// Actor which gossips peers addresses.
@@ -41,6 +49,7 @@ pub struct PeersGossiper {
     initial_peers: HashMap<PeerId, SocketAddr>,
     /// Peers received via gossiping from other peers
     gossip_peers: HashMap<PeerId, SocketAddr>,
+    current_topology: HashSet<PeerId>,
     network: IrohaNetwork,
 }
 
@@ -69,15 +78,24 @@ impl PeersGossiper {
         let gossiper = Self {
             initial_peers,
             gossip_peers: HashMap::new(),
+            current_topology: HashSet::new(),
             network,
         };
         gossiper.network_update_peers_addresses();
 
         let (message_sender, message_receiver) = mpsc::channel(1);
+        let (update_topology_sender, update_topology_receiver) = mpsc::unbounded_channel();
         (
-            PeersGossiperHandle { message_sender },
+            PeersGossiperHandle {
+                message_sender,
+                update_topology_sender,
+            },
             Child::new(
-                tokio::task::spawn(gossiper.run(message_receiver, shutdown_signal)),
+                tokio::task::spawn(gossiper.run(
+                    message_receiver,
+                    update_topology_receiver,
+                    shutdown_signal,
+                )),
                 OnShutdown::Abort,
             ),
         )
@@ -86,11 +104,15 @@ impl PeersGossiper {
     async fn run(
         mut self,
         mut message_receiver: mpsc::Receiver<PeersGossip>,
+        mut update_topology_receiver: mpsc::UnboundedReceiver<UpdateTopology>,
         shutdown_signal: ShutdownSignal,
     ) {
         let mut gossip_period = tokio::time::interval(Duration::from_secs(60));
         loop {
             tokio::select! {
+                Some(update_topology) = update_topology_receiver.recv() => {
+                    self.set_current_topology(update_topology);
+                }
                 _ = gossip_period.tick() => {
                     self.gossip_peers()
                 }
@@ -109,6 +131,11 @@ impl PeersGossiper {
         }
     }
 
+    fn set_current_topology(&mut self, UpdateTopology(topology): UpdateTopology) {
+        self.gossip_peers.retain(|peer, _| topology.contains(peer));
+        self.current_topology = topology;
+    }
+
     fn gossip_peers(&self) {
         let online_peers = self.network.online_peers(Clone::clone);
         let online_peers = UniqueVec::from_iter(online_peers);
@@ -118,7 +145,9 @@ impl PeersGossiper {
 
     fn handle_peers_gossip(&mut self, PeersGossip(peers): PeersGossip) {
         for peer in peers {
-            self.gossip_peers.insert(peer.id, peer.address);
+            if self.current_topology.contains(&peer.id) {
+                self.gossip_peers.insert(peer.id, peer.address);
+            }
         }
         self.network_update_peers_addresses();
     }

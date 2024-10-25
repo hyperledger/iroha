@@ -1,5 +1,9 @@
 //! The main event loop that powers sumeragi.
-use std::{collections::BTreeSet, ops::Deref, sync::mpsc};
+use std::{
+    collections::{BTreeSet, HashSet},
+    ops::Deref,
+    sync::mpsc,
+};
 
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{block::*, events::pipeline::PipelineEventBox, peer::PeerId};
@@ -8,7 +12,10 @@ use iroha_p2p::UpdateTopology;
 use tracing::{span, Level};
 
 use super::{view_change::ProofBuilder, *};
-use crate::{block::*, queue::TransactionGuard, sumeragi::tracing::instrument};
+use crate::{
+    block::*, peers_gossiper::PeersGossiperHandle, queue::TransactionGuard,
+    sumeragi::tracing::instrument,
+};
 
 /// `Sumeragi` is the implementation of the consensus.
 pub struct Sumeragi {
@@ -26,6 +33,8 @@ pub struct Sumeragi {
     pub kura: Arc<Kura>,
     /// [`iroha_p2p::Network`] actor address
     pub network: IrohaNetwork,
+    /// Peers gossiper
+    pub peers_gossiper: PeersGossiperHandle,
     /// Receiver channel, for control flow messages.
     pub control_message_receiver: mpsc::Receiver<ControlFlowMessage>,
     /// Receiver channel.
@@ -112,8 +121,9 @@ impl Sumeragi {
 
     /// Connect or disconnect peers according to the current network topology.
     fn connect_peers(&self, topology: &Topology) {
-        let peers = topology.iter().cloned().collect();
-        self.network.update_topology(UpdateTopology(peers));
+        let peers = topology.iter().cloned().collect::<HashSet<_>>();
+        self.network.update_topology(UpdateTopology(peers.clone()));
+        self.peers_gossiper.update_topology(UpdateTopology(peers));
     }
 
     fn send_event(&self, event: impl Into<EventBox>) {
