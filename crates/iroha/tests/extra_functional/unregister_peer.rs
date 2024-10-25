@@ -3,7 +3,6 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use eyre::Result;
 use iroha::{
-    client,
     client::Client,
     data_model::{parameter::BlockParameter, prelude::*},
 };

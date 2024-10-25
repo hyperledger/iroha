@@ -3,7 +3,6 @@ use std::{sync::mpsc, thread, time::Duration};
 use executor_custom_data_model::mint_rose_args::MintRoseArgs;
 use eyre::{eyre, Result, WrapErr};
 use iroha::{
-    client::{self},
     crypto::KeyPair,
     data_model::{
         prelude::*,

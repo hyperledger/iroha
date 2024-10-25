@@ -1,8 +1,5 @@
 use eyre::Result;
-use iroha::{
-    client,
-    data_model::{asset::AssetDefinitionId, parameter::BlockParameter, prelude::*},
-};
+use iroha::data_model::{asset::AssetDefinitionId, parameter::BlockParameter, prelude::*};
 use iroha_test_network::*;
 use nonzero_ext::nonzero;
 

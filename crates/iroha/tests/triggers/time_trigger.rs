@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use eyre::Result;
 use iroha::{
-    client::{self, Client},
+    client::Client,
     data_model::{
         asset::AssetId,
         events::pipeline::{BlockEventFilter, BlockStatus},

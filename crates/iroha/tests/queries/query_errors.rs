@@ -1,6 +1,6 @@
-use iroha::{
-    client,
-    data_model::{prelude::QueryBuilderExt, query::builder::SingleQueryError},
+use iroha::data_model::{
+    prelude::{FindAccounts, QueryBuilderExt},
+    query::builder::SingleQueryError,
 };
 use iroha_test_network::NetworkBuilder;
 use iroha_test_samples::gen_account_in;

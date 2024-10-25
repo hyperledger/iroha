@@ -1,5 +1,5 @@
 use iroha::{
-    client::{self, QueryError},
+    client::QueryError,
     data_model::{
         prelude::*,
         query::{error::QueryExecutionFail, parameters::MAX_FETCH_SIZE},
