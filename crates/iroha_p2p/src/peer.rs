@@ -643,7 +643,7 @@ mod state {
         /// Read the peer's public key
         pub(super) async fn read_their_public_key(
             Self {
-                mut peer_addr,
+                peer_addr,
                 mut connection,
                 kx_local_pk,
                 kx_remote_pk,
@@ -665,7 +665,7 @@ mod state {
             let payload = create_payload::<K>(&kx_remote_pk, &kx_local_pk);
             signature.verify(&remote_pub_key, &payload)?;
 
-            peer_addr.set_port(remote_external_port);
+            let peer_addr = peer_addr.change_port(remote_external_port);
             let peer = Peer::new(peer_addr, remote_pub_key);
 
             Ok(Ready {

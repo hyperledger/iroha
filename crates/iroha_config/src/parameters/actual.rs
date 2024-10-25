@@ -12,7 +12,7 @@ use iroha_config_base::{read::ConfigReader, toml::TomlSource, util::Bytes, WithO
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     peer::{Peer, PeerId},
-    ChainId,
+    ChainId, Identifiable,
 };
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use url::Url;

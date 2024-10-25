@@ -1,5 +1,7 @@
 //! Docker Compose schema.
 
+use iroha_data_model::Identifiable;
+
 use crate::{path, peer, ImageSettings, PeerSettings};
 
 mod serde_impls;
@@ -167,7 +169,7 @@ impl<'a> PeerEnv<'a> {
             genesis_public_key,
             trusted_peers: topology
                 .iter()
-                .filter(|&peer| peer.public_key() != public_key)
+                .filter(|&peer| peer.id.public_key() != public_key)
                 .collect(),
         }
     }

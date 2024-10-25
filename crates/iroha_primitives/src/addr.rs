@@ -446,12 +446,14 @@ impl SocketAddr {
     }
 
     /// Changes port value
-    pub fn set_port(&mut self, new_port: u16) {
-        match self {
+    pub fn change_port(&self, new_port: u16) -> SocketAddr {
+        let mut result = self.clone();
+        match &mut result {
             SocketAddr::Ipv4(addr) => addr.port = new_port,
             SocketAddr::Ipv6(addr) => addr.port = new_port,
             SocketAddr::Host(addr) => addr.port = new_port,
         }
+        result
     }
 
     /// Serialize the data contained in this [`SocketAddr`] for use in hashing.

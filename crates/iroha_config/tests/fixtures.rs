@@ -11,6 +11,7 @@ use error_stack::ResultExt;
 use expect_test::expect;
 use iroha_config::parameters::{actual::Root as Config, user::Root as UserConfig};
 use iroha_config_base::{env::MockEnv, read::ConfigReader};
+use iroha_data_model::Identifiable;
 use thiserror::Error;
 
 fn fixtures_dir() -> PathBuf {
@@ -82,13 +83,7 @@ fn minimal_config_snapshot() {
                 },
                 peer: Peer {
                     address: 127.0.0.1:1337,
-                    id: PeerId {
-                        public_key: PublicKey(
-                            ed25519(
-                                "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
-                            ),
-                        ),
-                    },
+                    id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
                 },
             },
             network: Network {
@@ -144,25 +139,13 @@ fn minimal_config_snapshot() {
                     value: TrustedPeers {
                         myself: Peer {
                             address: 127.0.0.1:1337,
-                            id: PeerId {
-                                public_key: PublicKey(
-                                    ed25519(
-                                        "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
-                                    ),
-                                ),
-                            },
+                            id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
                         },
                         others: UniqueVec(
                             [
                                 Peer {
                                     address: 127.0.0.1:1338,
-                                    id: PeerId {
-                                        public_key: PublicKey(
-                                            ed25519(
-                                                "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
-                                            ),
-                                        ),
-                                    },
+                                    id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
                                 },
                             ],
                         ),

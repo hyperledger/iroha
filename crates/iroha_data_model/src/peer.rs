@@ -2,9 +2,9 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{borrow::Borrow, hash::Hash};
+use core::hash::Hash;
 
-use derive_more::Display;
+use derive_more::{Constructor, DebugCustom, Display};
 use iroha_data_model_derive::model;
 use iroha_primitives::addr::SocketAddr;
 
@@ -26,9 +26,10 @@ mod model {
     /// Equality is tested by `public_key` field only.
     /// Each peer should have a unique public key.
     #[derive(
-        Debug,
+        DebugCustom,
         Display,
         Clone,
+        Constructor,
         Ord,
         PartialOrd,
         Eq,
@@ -42,6 +43,7 @@ mod model {
         Getters,
     )]
     #[display(fmt = "{public_key}")]
+    #[debug(fmt = "{public_key}")]
     #[getset(get = "pub")]
     #[serde(transparent)]
     #[repr(transparent)]
@@ -66,22 +68,14 @@ mod model {
         Getters,
     )]
     #[display(fmt = "{id}@@{address}")]
-    #[getset(get = "pub")]
     #[ffi_type]
     pub struct Peer {
         /// Address of the [`Peer`]'s entrypoint.
+        #[getset(get = "pub")]
         pub address: SocketAddr,
         #[serde(rename = "public_key")]
         /// Peer Identification.
         pub id: PeerId,
-    }
-}
-
-impl PeerId {
-    /// Construct [`PeerId`] given `public_key`.
-    #[inline]
-    pub fn new(public_key: PublicKey) -> Self {
-        Self { public_key }
     }
 }
 
@@ -99,17 +93,6 @@ impl Peer {
             address,
             id: id.into(),
         }
-    }
-
-    /// Get peer public key
-    pub fn public_key(&self) -> &PublicKey {
-        &self.id.public_key
-    }
-}
-
-impl Borrow<PeerId> for Peer {
-    fn borrow(&self) -> &PeerId {
-        &self.id
     }
 }
 

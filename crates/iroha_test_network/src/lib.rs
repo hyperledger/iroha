@@ -186,7 +186,7 @@ impl Network {
     pub fn config(&self) -> Table {
         self.config
             .clone()
-            .write(["sumeragi", "trusted_peers"], self.trusted_peers())
+            .write(["sumeragi", "trusted_peers"], self.topology())
     }
 
     /// Network genesis block.
@@ -206,7 +206,7 @@ impl Network {
         self
     }
 
-    fn trusted_peers(&self) -> UniqueVec<Peer> {
+    fn topology(&self) -> UniqueVec<Peer> {
         self.peers.iter().map(|x| x.id.clone()).collect()
     }
 
@@ -549,7 +549,7 @@ impl NetworkPeer {
                 ["network", "address"],
                 format!("127.0.0.1:{}", self.port_p2p),
             )
-            .write(["network", "external_port"], self.port_p2p.0)
+            .write(["network", "external_port"], self.port_p2p.deref().deref())
             .write(["torii", "address"], format!("127.0.0.1:{}", self.port_api))
             .write(["logger", "format"], "json");
 

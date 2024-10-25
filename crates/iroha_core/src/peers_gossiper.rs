@@ -14,6 +14,7 @@ use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use iroha_p2p::{Broadcast, UpdatePeers};
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use iroha_version::{Decode, Encode};
+use parity_scale_codec::{Error, Input};
 use tokio::sync::mpsc;
 
 use crate::{IrohaNetwork, NetworkMessage};
@@ -147,5 +148,17 @@ impl PeersGossiper {
 }
 
 /// Message for gossiping peers addresses.
-#[derive(Decode, Encode, Debug, Clone)]
+#[derive(Encode, Debug, Clone)]
 pub struct PeersGossip(UniqueVec<Peer>);
+
+impl Decode for PeersGossip {
+    fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
+        let peers = Vec::<Peer>::decode(input)?;
+        let peers_len = peers.len();
+        let peers = UniqueVec::from_iter(peers);
+        if peers.len() != peers_len {
+            Err("Duplicated peers in the gossip message")?;
+        }
+        Ok(Self(peers))
+    }
+}
