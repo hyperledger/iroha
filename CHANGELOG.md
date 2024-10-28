@@ -2,6 +2,90 @@
 
 ## [Unreleased]
 
+## [2.0.0-rc.1.0] - 2024-12-06
+
+### Added
+
+- implement query projections (#5242)
+- use persistent executor (#5082)
+- add listen timeouts to iroha cli (#5241)
+- add /peers API endpoint to torii (#5235)
+- address agnostic p2p (#5176)
+- improve multisig utility and usability (#5027)
+- protect `BasicAuth::password` from being printed (#5195)
+- sort descending in `FindTransactions` query (#5190)
+- introduce block header into every smart contract execution context (#5151)
+- dynamic commit time based on view change index (#4957)
+- define default permission set (#5075)
+- add implementation of Niche for `Option<Box<R>>` (#5094)
+- transaction and block predicates (#5025)
+- report amount of remaining items in query (#5016)
+- bounded discrete time (#4928)
+- don't validate transactions inside WASM (#4995)
+- add missing mathematical operations to `Numeric` (#4976)
+- validate block sync messages (#4965)
+- query filters (#4833)
+
+### Changed
+
+- simplify peer id parsing (#5228)
+- move transaction error out of block payload (#5118)
+- rename JsonString to Json (#5154)
+- add client entity to smart contracts (#5073)
+- leader as transaction ordering service (#4967)
+- directly provide payload to WASM entrypoints (#5113)
+- make kura drop old blocks from memory (#5103)
+- use `ConstVec` for instructions in `Executable` (#5096)
+- gossip txs at most once (#5079)
+- reduce memory usage of `CommittedTransaction` (#5089)
+- make query cursor errors more specific (#5086)
+- make `PublicKey` decoding lazy inside WASM (#5048)
+- reorganize crates (#4970)
+- introduce `FindTriggers` query, remove `FindTriggerById` (#5040)
+- dont depend on signatures for update (#5039)
+- change parameters format in genesis.json (#5020)
+- only send current and previous view change proof (#4929)
+- disable sending message when not ready to prevent busy loop (#5032)
+- move total asset quantity to asset definition (#5029)
+- sign only block's header, not the whole payload (#5000)
+- use `HashOf<BlockHeader>` as the type of the block hash (#4998)
+- simplify `/health` and `/api_version` (#4960)
+- unnest wasm samples from `client`, exclude it from workspace (#4863)
+- rename `configs` to `defaults`, remove `swarm` (#4862)
+
+### Fixed
+
+- flatten inner role in json (#5198)
+- fix `cargo audit` warnings (#5183)
+- add range check to signature index (#5157)
+- fix model macro example in docs (#5149)
+- close ws properly in blocks/events stream (#5101)
+- broken trusted peers check (#5121)
+- check that next block has height +1 (#5111)
+- fix timestamp of genesis block (#5098)
+- fix `iroha_genesis` compilation without `transparent_api` feature (#5056)
+- serialize WASM code for snapshots (#5009)
+- correctly handle `replace_top_block` (#4870)
+- fix cloning of executor (#4955)
+- display more error details (#4973)
+- use `GET` for blocks stream (#4990)
+- improve queue transactions handling (#4947)
+- prevent redundant blocksync block messages (#4909)
+- prevent deadlock on simultaneous sending large message (#4948)
+- remove expired transaction from cache (#4922)
+- fix torii url with path (#4903)
+
+### Removed
+
+- remove module-based api from client (#5184)
+- remove `riffle_iter` (#5181)
+- remove unused dependencies (#5173)
+- remove `max` prefix from `blocks_in_memory` (#5145)
+- remove consensus estimation (#5116)
+- remove `event_recommendations` from block (#4932)
+
+### Security
+
 ## [2.0.0-pre-rc.22.1] - 2024-07-30
 
 ### Fixed
