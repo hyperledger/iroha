@@ -3308,6 +3308,7 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

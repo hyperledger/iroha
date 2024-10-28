@@ -165,7 +165,11 @@ impl Client {
         mut headers: HashMap<String, String>,
     ) -> Self {
         if let Some(basic_auth) = basic_auth {
-            let credentials = format!("{}:{}", basic_auth.web_login, basic_auth.password);
+            let credentials = format!(
+                "{}:{}",
+                basic_auth.web_login,
+                basic_auth.password.expose_secret()
+            );
             let engine = base64::engine::general_purpose::STANDARD;
             let encoded = base64::engine::Engine::encode(&engine, credentials);
             headers.insert(String::from("Authorization"), format!("Basic {encoded}"));
@@ -974,11 +978,13 @@ mod blocks_api {
 
 #[cfg(test)]
 mod tests {
-    use iroha_primitives::small::SmallStr;
     use iroha_test_samples::gen_account_in;
 
     use super::*;
-    use crate::config::{BasicAuth, Config};
+    use crate::{
+        config::{BasicAuth, Config},
+        secrecy::SecretString,
+    };
 
     const LOGIN: &str = "mad_hatter";
     const PASSWORD: &str = "ilovetea";
@@ -1035,7 +1041,7 @@ mod tests {
         let client = Client::new(Config {
             basic_auth: Some(BasicAuth {
                 web_login: LOGIN.parse().expect("Failed to create valid `WebLogin`"),
-                password: SmallStr::from_str(PASSWORD),
+                password: SecretString::new(PASSWORD.to_owned()),
             }),
             ..config_factory()
         });

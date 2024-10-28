@@ -5,6 +5,7 @@ pub mod config;
 pub mod http;
 mod http_default;
 pub mod query;
+mod secrecy;
 
 pub use iroha_crypto as crypto;
 pub use iroha_data_model as data_model;

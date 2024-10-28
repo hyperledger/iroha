@@ -21,6 +21,8 @@ mod user;
 
 pub use user::Root as UserConfig;
 
+use crate::secrecy::SecretString;
+
 #[allow(missing_docs)]
 pub const DEFAULT_TRANSACTION_TIME_TO_LIVE: Duration = Duration::from_secs(100);
 #[allow(missing_docs)]
@@ -49,12 +51,12 @@ impl FromStr for WebLogin {
 }
 
 /// Basic Authentication credentials
-#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct BasicAuth {
     /// Login for Basic Authentication
     pub web_login: WebLogin,
     /// Password for Basic Authentication
-    pub password: SmallStr,
+    pub password: SecretString,
 }
 
 /// Complete client configuration

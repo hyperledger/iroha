@@ -443,6 +443,15 @@ impl Default for SmartContractParameters {
     }
 }
 
+impl FromIterator<Parameter> for Parameters {
+    fn from_iter<T: IntoIterator<Item = Parameter>>(iter: T) -> Self {
+        iter.into_iter().fold(Parameters::default(), |mut acc, x| {
+            acc.set_parameter(x);
+            acc
+        })
+    }
+}
+
 impl Parameters {
     /// Convert [`Self`] into iterator of individual parameters
     pub fn parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
