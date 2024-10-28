@@ -12,14 +12,14 @@ use crate::{
         predicate_atoms::block::{
             BlockHashPredicateBox, BlockHeaderPredicateBox, CommittedTransactionPredicateBox,
             SignedBlockPredicateBox, SignedTransactionPredicateBox, TransactionErrorPredicateBox,
-            TransactionHashPredicateBox, TransactionQueryOutputPredicateBox,
+            TransactionHashPredicateBox,
         },
         predicate_combinators::NotAstPredicate,
         projectors::{
-            BlockHeaderHashProjector, CommittedTransactionErrorProjector,
-            CommittedTransactionValueProjector, ObjectProjector, SignedBlockHeaderProjector,
-            SignedTransactionAuthorityProjector, SignedTransactionHashProjector,
-            TransactionQueryOutputBlockHashProjector, TransactionQueryOutputTransactionProjector,
+            BlockHeaderHashProjector, CommittedTransactionBlockHashProjector,
+            CommittedTransactionErrorProjector, CommittedTransactionValueProjector,
+            ObjectProjector, SignedBlockHeaderProjector, SignedTransactionAuthorityProjector,
+            SignedTransactionHashProjector,
         },
         prototypes::account::AccountIdPrototype,
         AstPredicate, HasPrototype,
@@ -123,25 +123,15 @@ where
     }
 }
 
-/// A prototype of [`crate::transaction::CommittedTransaction`]
-#[derive(Default, Copy, Clone)]
+/// A prototype of [`crate::query::CommittedTransaction`] for predicate construction.
+#[derive(Default, Clone)]
 pub struct CommittedTransactionPrototype<Projector> {
-    /// Build a predicate on the signed transaction inside
+    /// Build a predicate on the block hash inside
+    pub block_hash: BlockHashPrototype<CommittedTransactionBlockHashProjector<Projector>>,
+    /// Build a predicate on the transaction inside
     pub value: SignedTransactionPrototype<CommittedTransactionValueProjector<Projector>>,
     /// Build a predicate on the transaction error
     pub error: TransactionErrorPrototype<CommittedTransactionErrorProjector<Projector>>,
 }
 
 impl_prototype!(CommittedTransactionPrototype: CommittedTransactionPredicateBox);
-
-/// A prototype of [`crate::query::TransactionQueryOutput`] for predicate construction.
-#[derive(Default, Copy, Clone)]
-pub struct TransactionQueryOutputPrototype<Projector> {
-    /// Build a predicate on the transaction inside
-    pub transaction:
-        CommittedTransactionPrototype<TransactionQueryOutputTransactionProjector<Projector>>,
-    /// Build a predicate on the block hash inside
-    pub block_hash: BlockHashPrototype<TransactionQueryOutputBlockHashProjector<Projector>>,
-}
-
-impl_prototype!(TransactionQueryOutputPrototype: TransactionQueryOutputPredicateBox);
