@@ -2,8 +2,8 @@
 set -e;
 
 DEFAULTS_DIR="defaults"
-CRATES_DIR="wasm"
-TARGET_DIR="wasm/target/prebuilt"
+CARGO_DIR="wasm"
+TARGET_DIR="$CARGO_DIR/target/prebuilt"
 
 build() {
     case $1 in
@@ -18,7 +18,7 @@ build() {
             ;;
         "samples")
             NAMES=($(
-                cargo metadata --no-deps --manifest-path "$CRATES_DIR/Cargo.toml" --format-version=1 |
+                cargo metadata --no-deps --manifest-path "$CARGO_DIR/Cargo.toml" --format-version=1 |
                 jq '.packages | map(select(.targets[].kind | contains(["cdylib"]))) | map(.manifest_path | split("/")) | map(select(.[-3] == "samples")) | map(.[-2]) | .[]' -r
             ))
     esac
@@ -26,7 +26,7 @@ build() {
     mkdir -p "$TARGET_DIR/$1"
     for name in ${NAMES[@]}; do
         out_file="$TARGET_DIR/$1/$name.wasm"
-        cargo run --bin iroha_wasm_builder -- build "$CRATES_DIR/$1/$name" --optimize --out-file "$out_file"
+        cargo run --bin iroha_wasm_builder -- build "$CARGO_DIR/$1/$name" --optimize --out-file "$out_file"
     done
     echo "info: WASM $1 build complete"
     echo "artifacts written to $TARGET_DIR/$1/"
