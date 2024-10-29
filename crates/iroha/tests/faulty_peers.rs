@@ -3,11 +3,17 @@ use std::time::Duration;
 use eyre::Result;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use iroha_config_base::toml::WriteExt;
+use iroha_data_model::{
+    asset::AssetDefinition, isi::Register, parameter::BlockParameter, prelude::*,
+};
 use iroha_test_network::{
     genesis_factory, once_blocks_sync, Network, NetworkBuilder, PeerLifecycleEvent,
 };
+use iroha_test_samples::ALICE_ID;
+use nonzero_ext::nonzero;
+use rand::{prelude::SliceRandom, thread_rng};
 use relay::P2pRelay;
-use tokio::{self, time::timeout};
+use tokio::{self, task::spawn_blocking, time::timeout};
 
 mod relay {
     use std::{
@@ -360,4 +366,154 @@ async fn suspending_works() -> Result<()> {
     timeout(SYNC, last_peer.once_block(1)).await?;
 
     Ok(())
+}
+
+// ======= ACTUAL TESTS BEGIN HERE =======
+
+struct UnstableNetwork {
+    n_peers: usize,
+    n_faulty_peers: usize,
+    n_transactions: usize,
+    force_soft_fork: bool,
+}
+
+impl UnstableNetwork {
+    async fn run(self) -> Result<()> {
+        assert!(self.n_peers > self.n_faulty_peers);
+
+        let account_id = ALICE_ID.clone();
+        let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
+
+        let network = NetworkBuilder::new()
+            .with_peers(self.n_peers)
+            .with_config(|cfg| {
+                if self.force_soft_fork {
+                    cfg.write(["sumeragi", "debug_force_soft_fork"], true);
+                }
+            })
+            .with_genesis_instruction(SetParameter(Parameter::Block(
+                BlockParameter::MaxTransactions(nonzero!(1u64)),
+            )))
+            .build();
+        let mut relay = start_network_with_relay(&network).await?;
+
+        relay.start();
+        {
+            let client = network.client();
+            let isi =
+                Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+            spawn_blocking(move || client.submit_blocking(isi)).await??;
+        }
+        let init_blocks = 2;
+        network.ensure_blocks(init_blocks).await?;
+
+        for i in 0..self.n_transactions {
+            // Make random peers faulty.
+            let faulty: Vec<_> = network
+                .peers()
+                .choose_multiple(&mut thread_rng(), self.n_faulty_peers)
+                .map(|peer| peer.id())
+                .collect();
+            for peer in &faulty {
+                relay.suspend(peer).activate();
+            }
+
+            // When minted
+            let quantity = Numeric::ONE;
+            let mint_asset = Mint::asset_numeric(
+                quantity,
+                AssetId::new(asset_definition_id.clone(), account_id.clone()),
+            );
+            let client = network
+                .peers()
+                .iter()
+                .find(|x| faulty.contains(&x.id()))
+                .expect("there should be some working peers")
+                .client();
+            spawn_blocking(move || client.submit_blocking(mint_asset)).await??;
+
+            // Then all non-faulty peers get the new block
+            timeout(
+                network.sync_timeout(),
+                once_blocks_sync(
+                    network.peers().iter().filter(|x| !faulty.contains(&x.id())),
+                    init_blocks + (i as u64),
+                ),
+            )
+            .await?;
+
+            // Return all peers to normal function.
+            for peer in &faulty {
+                relay.suspend(peer).deactivate();
+            }
+        }
+
+        // When network is sync at last
+        network
+            .ensure_blocks(init_blocks + self.n_transactions as u64)
+            .await?;
+
+        // Then there are N assets minted
+        let client = network.client();
+        let asset = spawn_blocking(move || {
+            client
+                .query(FindAssets)
+                .filter_with(|asset| asset.id.definition_id.eq(asset_definition_id))
+                .execute_all()
+        })
+        .await??
+        .into_iter()
+        .next()
+        .expect("there should be 1 result");
+        assert_eq!(
+            asset.value,
+            AssetValue::Numeric(Numeric::new(self.n_transactions as u128 + 1, 0))
+        );
+
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn unstable_network_5_peers_1_fault() -> Result<()> {
+    UnstableNetwork {
+        n_peers: 5,
+        n_faulty_peers: 1,
+        n_transactions: 20,
+        force_soft_fork: false,
+    }
+    .run()
+    .await
+}
+
+// #[tokio::test]
+// async fn soft_fork() {
+//     let n_peers = 4;
+//     let n_transactions = 20;
+//     unstable_network(n_peers, 0, n_transactions, true, 10_830);
+// }
+
+#[tokio::test]
+async fn unstable_network_8_peers_1_fault() -> Result<()> {
+    UnstableNetwork {
+        n_peers: 8,
+        n_faulty_peers: 1,
+        n_transactions: 20,
+        force_soft_fork: false,
+    }
+    .run()
+    .await
+}
+
+#[tokio::test]
+// #[ignore = "This test does not guarantee to have positive outcome given a fixed time."]
+async fn unstable_network_9_peers_2_faults() -> Result<()> {
+    UnstableNetwork {
+        n_peers: 9,
+        n_faulty_peers: 2,
+        n_transactions: 5,
+        force_soft_fork: false,
+    }
+    .run()
+    .await
 }
