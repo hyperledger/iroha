@@ -778,6 +778,7 @@ pub mod message {
     }
 
     /// Messages received from Peer
+    #[derive(Clone)]
     pub struct PeerMessage<T: Pload>(pub Peer, pub T);
 
     /// Peer faced error or `Terminate` message, send to indicate that it is terminated

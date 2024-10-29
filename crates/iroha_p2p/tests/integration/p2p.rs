@@ -14,7 +14,7 @@ use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::Peer;
 use iroha_futures::supervisor::ShutdownSignal;
 use iroha_logger::{prelude::*, test_logger};
-use iroha_p2p::{network::message::*, NetworkHandle};
+use iroha_p2p::{network::message::*, peer::message::PeerMessage, NetworkHandle};
 use iroha_primitives::addr::socket_addr;
 use parity_scale_codec::{Decode, Encode};
 use tokio::{
@@ -121,18 +121,18 @@ impl Future for WaitForN {
 #[derive(Debug)]
 pub struct TestActor {
     messages: WaitForN,
-    receiver: mpsc::Receiver<TestMessage>,
+    receiver: mpsc::Receiver<PeerMessage<TestMessage>>,
 }
 
 impl TestActor {
-    fn start(messages: WaitForN) -> mpsc::Sender<TestMessage> {
+    fn start(messages: WaitForN) -> mpsc::Sender<PeerMessage<TestMessage>> {
         let (sender, receiver) = mpsc::channel(10);
         let mut test_actor = Self { messages, receiver };
         tokio::task::spawn(async move {
             loop {
                 tokio::select! {
-                    Some(msg) = test_actor.receiver.recv() => {
-                        info!(?msg, "Actor received message");
+                    Some(PeerMessage(peer, msg)) = test_actor.receiver.recv() => {
+                        info!(?msg, "Actor received message from {peer}");
                         test_actor.messages.inc();
                     },
                     else => break,

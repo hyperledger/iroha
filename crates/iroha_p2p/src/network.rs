@@ -40,7 +40,7 @@ use crate::{
 #[debug(fmt = "core::any::type_name::<Self>()")]
 pub struct NetworkBaseHandle<T: Pload, K: Kex, E: Enc> {
     /// Sender to subscribe for messages received form other peers in the network
-    subscribe_to_peers_messages_sender: mpsc::UnboundedSender<mpsc::Sender<T>>,
+    subscribe_to_peers_messages_sender: mpsc::UnboundedSender<mpsc::Sender<PeerMessage<T>>>,
     /// Receiver of `OnlinePeer` message
     online_peers_receiver: watch::Receiver<OnlinePeers>,
     /// [`UpdateTopology`] message sender
@@ -139,7 +139,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
     }
 
     /// Subscribe to messages received from other peers in the network
-    pub fn subscribe_to_peers_messages(&self, sender: mpsc::Sender<T>) {
+    pub fn subscribe_to_peers_messages(&self, sender: mpsc::Sender<PeerMessage<T>>) {
         self.subscribe_to_peers_messages_sender
             .send(sender)
             .expect("NetworkBase must accept messages until there is at least one handle to it")
@@ -208,9 +208,9 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
     /// Our app-level key pair
     key_pair: KeyPair,
     /// Recipients of messages received from other peers in the network.
-    subscribers_to_peers_messages: Vec<mpsc::Sender<T>>,
+    subscribers_to_peers_messages: Vec<mpsc::Sender<PeerMessage<T>>>,
     /// Receiver to subscribe for messages received from other peers in the network.
-    subscribe_to_peers_messages_receiver: mpsc::UnboundedReceiver<mpsc::Sender<T>>,
+    subscribe_to_peers_messages_receiver: mpsc::UnboundedReceiver<mpsc::Sender<PeerMessage<T>>>,
     /// Sender of `OnlinePeer` message
     online_peers_sender: watch::Sender<OnlinePeers>,
     /// [`UpdateTopology`] message receiver
@@ -512,9 +512,9 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         });
     }
 
-    async fn peer_message(&mut self, PeerMessage(peer_id, msg): PeerMessage<T>) {
+    async fn peer_message(&mut self, msg: PeerMessage<T>) {
         // TODO: consider broadcast channel instead
-        iroha_logger::trace!(peer=%peer_id, "Received peer message");
+        iroha_logger::trace!(peer=%msg.0, "Received peer message");
         if self.subscribers_to_peers_messages.is_empty() {
             iroha_logger::warn!("No subscribers to send message to");
             return;
@@ -535,7 +535,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             .await;
     }
 
-    fn subscribe_to_peers_messages(&mut self, subscriber: mpsc::Sender<T>) {
+    fn subscribe_to_peers_messages(&mut self, subscriber: mpsc::Sender<PeerMessage<T>>) {
         self.subscribers_to_peers_messages.push(subscriber);
         iroha_logger::trace!(
             subscribers = self.subscribers_to_peers_messages.len(),

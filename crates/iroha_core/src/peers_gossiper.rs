@@ -22,15 +22,15 @@ use crate::{IrohaNetwork, NetworkMessage};
 /// [`Gossiper`] actor handle.
 #[derive(Clone)]
 pub struct PeersGossiperHandle {
-    message_sender: mpsc::Sender<PeersGossip>,
+    message_sender: mpsc::Sender<(PeersGossip, Peer)>,
     update_topology_sender: mpsc::UnboundedSender<UpdateTopology>,
 }
 
 impl PeersGossiperHandle {
     /// Send [`PeersGossip`] to actor
-    pub async fn gossip(&self, gossip: PeersGossip) {
+    pub async fn gossip(&self, gossip: PeersGossip, peer: Peer) {
         self.message_sender
-            .send(gossip)
+            .send((gossip, peer))
             .await
             .expect("Gossiper must handle messages until there is at least one handle to it")
     }
@@ -48,7 +48,9 @@ pub struct PeersGossiper {
     /// Peers provided at startup
     initial_peers: HashMap<PeerId, SocketAddr>,
     /// Peers received via gossiping from other peers
-    gossip_peers: HashMap<PeerId, SocketAddr>,
+    /// First-level key corresponds to SocketAddr
+    /// Second-level key - peer from which such SocketAddr was received
+    gossip_peers: HashMap<PeerId, HashMap<PeerId, SocketAddr>>,
     current_topology: HashSet<PeerId>,
     network: IrohaNetwork,
 }
@@ -103,7 +105,7 @@ impl PeersGossiper {
 
     async fn run(
         mut self,
-        mut message_receiver: mpsc::Receiver<PeersGossip>,
+        mut message_receiver: mpsc::Receiver<(PeersGossip, Peer)>,
         mut update_topology_receiver: mpsc::UnboundedReceiver<UpdateTopology>,
         shutdown_signal: ShutdownSignal,
     ) {
@@ -119,8 +121,8 @@ impl PeersGossiper {
                 _ = self.network.wait_online_peers_update(|_| ()) => {
                     self.gossip_peers();
                 }
-                Some(peers_gossip) = message_receiver.recv() => {
-                    self.handle_peers_gossip(peers_gossip);
+                Some((peers_gossip, peer)) = message_receiver.recv() => {
+                    self.handle_peers_gossip(peers_gossip, peer);
                 }
                 () = shutdown_signal.receive() => {
                     iroha_logger::debug!("Shutting down peers gossiper");
@@ -132,7 +134,15 @@ impl PeersGossiper {
     }
 
     fn set_current_topology(&mut self, UpdateTopology(topology): UpdateTopology) {
-        self.gossip_peers.retain(|peer, _| topology.contains(peer));
+        self.gossip_peers.retain(|peer, map| {
+            if !topology.contains(peer) {
+                return false;
+            }
+
+            map.retain(|peer, _| topology.contains(peer));
+            !map.is_empty()
+        });
+
         self.current_topology = topology;
     }
 
@@ -143,10 +153,17 @@ impl PeersGossiper {
         self.network.broadcast(Broadcast { data });
     }
 
-    fn handle_peers_gossip(&mut self, PeersGossip(peers): PeersGossip) {
+    fn handle_peers_gossip(&mut self, PeersGossip(peers): PeersGossip, from_peer: Peer) {
+        if !self.current_topology.contains(&from_peer.id) {
+            return;
+        }
         for peer in peers {
             if self.current_topology.contains(&peer.id) {
-                self.gossip_peers.insert(peer.id, peer.address);
+                let map = self
+                    .gossip_peers
+                    .entry(peer.id)
+                    .or_insert_with(HashMap::new);
+                map.insert(from_peer.id.clone(), peer.address);
             }
         }
         self.network_update_peers_addresses();
@@ -165,15 +182,28 @@ impl PeersGossiper {
                 peers.push((id.clone(), address.clone()));
             }
         }
-        for (id, address) in &self.gossip_peers {
+        for (id, addresses) in &self.gossip_peers {
             if !online_peers_ids.contains(id) {
-                peers.push((id.clone(), address.clone()));
+                peers.push((id.clone(), choose_address_majority_rule(addresses)));
             }
         }
 
         let update = UpdatePeers(peers);
         self.network.update_peers_addresses(update);
     }
+}
+
+fn choose_address_majority_rule(addresses: &HashMap<PeerId, SocketAddr>) -> SocketAddr {
+    let mut count_map = HashMap::new();
+    for address in addresses.values() {
+        *count_map.entry(address).or_insert(0) += 1;
+    }
+    count_map
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(address, _)| address)
+        .expect("There must be no empty inner HashMap in addresses")
+        .clone()
 }
 
 /// Message for gossiping peers addresses.

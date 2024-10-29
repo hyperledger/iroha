@@ -142,12 +142,12 @@ impl NetworkRelay {
         let (sender, mut receiver) = mpsc::channel(1);
         self.network.subscribe_to_peers_messages(sender);
         while let Some(msg) = receiver.recv().await {
-            self.handle_message(msg).await;
+            self.handle_message(msg.0, msg.1).await;
         }
         iroha_logger::debug!("Exiting the network relay");
     }
 
-    async fn handle_message(&mut self, msg: iroha_core::NetworkMessage) {
+    async fn handle_message(&mut self, peer: Peer, msg: iroha_core::NetworkMessage) {
         use iroha_core::NetworkMessage::*;
 
         match msg {
@@ -159,7 +159,7 @@ impl NetworkRelay {
             }
             BlockSync(data) => self.block_sync.message(*data).await,
             TransactionGossiper(data) => self.tx_gossiper.gossip(*data).await,
-            PeersGossiper(data) => self.peers_gossiper.gossip(*data).await,
+            PeersGossiper(data) => self.peers_gossiper.gossip(*data, peer).await,
             Health => {}
         }
     }
