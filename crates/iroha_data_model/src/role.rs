@@ -83,6 +83,7 @@ mod model {
     pub struct NewRole {
         #[allow(missing_docs)]
         #[id(transparent)]
+        #[serde(flatten)]
         pub inner: Role,
         /// First owner
         pub grant_to: AccountId,
