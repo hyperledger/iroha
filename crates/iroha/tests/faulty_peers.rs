@@ -4,7 +4,7 @@ use eyre::Result;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use iroha_config_base::toml::WriteExt;
 use iroha_data_model::{
-    asset::AssetDefinition, isi::Register, parameter::BlockParameter, prelude::*,
+    asset::AssetDefinition, isi::Register, parameter::BlockParameter, prelude::*, Level,
 };
 use iroha_test_network::{
     genesis_factory, once_blocks_sync, Network, NetworkBuilder, PeerLifecycleEvent,
@@ -112,6 +112,7 @@ mod relay {
                 .mock_outgoing
                 .iter()
                 .map(|(other, (addr, _port))| PeerId::new(addr.clone(), other.public_key().clone()))
+                .chain(Some(peer.clone()))
                 .collect()
         }
 
@@ -289,10 +290,15 @@ async fn start_network_with_relay(network: &Network) -> Result<P2pRelay> {
                 let config = network
                     .config()
                     .write(["sumeragi", "trusted_peers"], &topology);
-                let genesis = genesis_factory(network.genesis_isi().clone(), topology);
+                // FIXME: the topology in genesis is part of the chain.
+                //        After peers used their `sumeragi.trusted_peers` to connect and to receive the genesis,
+                //        they all replace their topologies with the one from genesis. This breaks our intention of having different topologies for each peer.
+                //        Should be fixed by #5117
+                let genesis =
+                    (i == 0).then(|| genesis_factory(network.genesis_isi().clone(), topology));
                 async move {
-                    // FIXME: parallel
-                    peer.start(config, (i == 0).then_some(&genesis)).await;
+                    // FIXME: await in parallel
+                    peer.start(config, genesis.as_ref()).await;
                     peer.once(|e| matches!(e, PeerLifecycleEvent::ServerStarted))
                         .await;
                 }
@@ -364,6 +370,35 @@ async fn suspending_works() -> Result<()> {
     // unsuspend, the last peer should get the block too
     suspend.deactivate();
     timeout(SYNC, last_peer.once_block(1)).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn block_after_genesis_is_synced() -> Result<()> {
+    let network = NetworkBuilder::new().with_peers(4).build();
+    let mut relay = start_network_with_relay(&network).await?;
+
+    relay.start();
+    network.ensure_blocks(1).await?;
+
+    for peer in network.peers() {
+        relay.suspend(&peer.id()).activate();
+    }
+    let client = network.client();
+    spawn_blocking(move || client.submit(Log::new(Level::INFO, "tick".to_owned()))).await??;
+    let Err(_) = timeout(
+        Duration::from_secs(3),
+        once_blocks_sync(network.peers().iter(), 2),
+    )
+    .await
+    else {
+        panic!("should not sync with relay being suspended")
+    };
+    for peer in network.peers() {
+        relay.suspend(&peer.id()).deactivate();
+    }
+    network.ensure_blocks(2).await?;
 
     Ok(())
 }
