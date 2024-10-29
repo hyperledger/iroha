@@ -41,10 +41,7 @@ fn client_has_rejected_and_accepted_txs_should_return_tx_history() -> Result<()>
     let transactions = client
         .query(FindTransactions::new())
         .filter_with(|tx| tx.value.authority.eq(account_id.clone()))
-        .with_pagination(Pagination {
-            limit: Some(nonzero!(50_u64)),
-            offset: 1,
-        })
+        .with_pagination(Pagination::new(Some(nonzero!(50_u64)), 1))
         .execute_all()?;
     assert_eq!(transactions.len(), 50);
 
