@@ -21,7 +21,6 @@ services:
     - 1337:1337
     - 8080:8080
     volumes:
-    - ./genesis.json:/config/genesis.json:ro
     - ./client.toml:/config/client.toml:ro
     init: true
     healthcheck:
@@ -32,12 +31,10 @@ services:
       start_period: 4s
     command: |-
       /bin/bash -c "
-          EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
-          EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+          kagami genesis generate --executor ../config/executor.wasm --wasm-dir ../config/libs --genesis-public-key $$GENESIS_PUBLIC_KEY > /tmp/genesis.default.json
           jq \\
-              --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
               --argjson topology \"$$TOPOLOGY\" \\
-              '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+              '.topology = $$topology' /tmp/genesis.default.json \\
               >/tmp/genesis.json && \\
           kagami genesis sign /tmp/genesis.json \\
               --public-key $$GENESIS_PUBLIC_KEY \\

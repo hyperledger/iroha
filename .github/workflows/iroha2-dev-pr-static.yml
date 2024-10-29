@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DOCKER_COMPOSE_PATH: defaults
+  DEFAULTS_DIR: defaults
 
 jobs:
   smart_contracts_analysis:
@@ -24,8 +24,8 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     steps:
       - uses: actions/checkout@v4
-      - name: cargo fmt (wasm_samples)
-        working-directory: wasm_samples
+      - name: cargo fmt (wasm)
+        working-directory: wasm
         run: cargo fmt --all -- --check
 
   python_static_analysis:

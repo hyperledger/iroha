@@ -3,8 +3,8 @@ set -e
 
 case $1 in
     "genesis")
-        cargo run --release --bin kagami -- genesis generate --executor-path-in-genesis ./executor.wasm --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 | diff - defaults/genesis.json || {
-            echo 'Please re-generate the default genesis with `cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 > ./defaults/genesis.json`'
+        cargo run --release --bin kagami -- genesis generate --executor executor.wasm --wasm-dir libs --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 | diff - defaults/genesis.json || {
+            echo 'Please re-generate the default genesis with `cargo run --release --bin kagami -- genesis --executor executor.wasm --wasm-dir libs --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 > ./defaults/genesis.json`'
             echo 'The assumption here is that the authority of the default genesis transaction is `iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_ID`'
             exit 1
         };;

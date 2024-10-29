@@ -37,7 +37,7 @@ updates:
     target-branch: "main"
     directories:
       - /
-      - /wasm_samples
+      - /wasm
     schedule:
       interval: "daily"
     commit-message:

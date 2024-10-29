@@ -1110,11 +1110,12 @@ mod tests {
             live_query_store,
         );
 
-        let executor_path = PathBuf::from("../../defaults/executor.wasm").into();
-        let genesis = GenesisBuilder::new(chain_id.clone(), executor_path)
-            .set_topology(topology.as_ref().to_owned())
-            .build_and_sign(&genesis_key_pair)
-            .expect("genesis block should be built");
+        let executor_path = "../../defaults/executor.wasm";
+        let genesis =
+            GenesisBuilder::new(chain_id.clone(), executor_path, "wasm/libs/not/installed")
+                .set_topology(topology.as_ref().to_owned())
+                .build_and_sign(&genesis_key_pair)
+                .expect("genesis block should be built");
 
         {
             let mut state_block = state.block(genesis.0.header());
