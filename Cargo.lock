@@ -2931,6 +2931,7 @@ dependencies = [
  "iroha_test_samples",
  "iroha_torii_const",
  "iroha_version",
+ "mint_rose_trigger_data_model",
  "nonzero_ext",
  "parity-scale-codec",
  "rand",
@@ -4164,6 +4165,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2d80299ef12ff69b16a84bb182e3b9df68b5a91574d3d4fa6e41b65deec4df1"
 dependencies = [
  "adler2",
+]
+
+[[package]]
+name = "mint_rose_trigger_data_model"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "iroha_data_model",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

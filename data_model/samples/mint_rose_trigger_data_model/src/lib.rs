@@ -1,4 +1,5 @@
 //! Arguments to mint rose with args trigger
+#![no_std]
 
 use iroha_data_model::prelude::Json;
 use serde::{Deserialize, Serialize};

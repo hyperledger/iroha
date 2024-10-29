@@ -8,7 +8,7 @@ extern crate panic_halt;
 use alloc::{format, string::ToString};
 
 use dlmalloc::GlobalDlmalloc;
-use iroha_trigger::prelude::*;
+use iroha_trigger::{debug::dbg_panic, prelude::*};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
@@ -16,9 +16,12 @@ static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 
 #[iroha_trigger::main]
-fn main(host: Iroha, _context: Context) {
+fn main(host: Iroha, context: Context) {
     iroha_trigger::log::info!("Executing trigger");
-    let accounts_cursor = host.query(FindAccounts).execute().dbg_unwrap();
+
+    if !matches!(context.event, EventBox::Time(_)) {
+        dbg_panic("Only work as a by call trigger");
+    };
 
     let bad_domain_ids: [DomainId; 3] = [
         "system".parse().dbg_unwrap(),
@@ -26,7 +29,7 @@ fn main(host: Iroha, _context: Context) {
         "garden_of_live_flowers".parse().dbg_unwrap(),
     ];
 
-    for account in accounts_cursor {
+    for account in host.query(FindAccounts).execute().dbg_unwrap() {
         let account = account.dbg_unwrap();
 
         if bad_domain_ids.contains(account.id().domain()) {
