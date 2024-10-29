@@ -256,7 +256,7 @@ impl Sumeragi {
                         }
                     };
 
-                    if block.as_ref().transactions().any(|tx| tx.error.is_some()) {
+                    if block.as_ref().errors().next().is_some() {
                         error!(
                             peer_id=%self.peer_id,
                             role=%self.role(),
@@ -307,7 +307,7 @@ impl Sumeragi {
         .expect("Genesis invalid");
 
         assert!(
-            !genesis.as_ref().transactions().any(|tx| tx.error.is_some()),
+            genesis.as_ref().errors().next().is_none(),
             "Genesis contains invalid transactions"
         );
 
@@ -540,21 +540,21 @@ impl Sumeragi {
                     .is_consensus_required()
                     .expect("INTERNAL BUG: Consensus required for validating peer");
 
-                if let Some(mut v_block) =
+                if let Some(mut valid_block) =
                     self.validate_block(block, state, topology, genesis_account, voting_block)
                 {
-                    v_block.block.sign(&self.key_pair, topology);
+                    valid_block.block.sign(&self.key_pair, topology);
 
-                    let msg = BlockSigned::from(&v_block.block);
+                    let msg = BlockSigned::from(&valid_block.block);
                     self.broadcast_packet_to(msg, [topology.proxy_tail()]);
 
                     info!(
                         peer_id=%self.peer_id,
                         role=%self.role(),
-                        block=%v_block.block.as_ref().hash(),
+                        block=%valid_block.block.as_ref().hash(),
                         "Voted for the block"
                     );
-                    *voting_block = Some(v_block);
+                    *voting_block = Some(valid_block);
                 }
             }
             (BlockMessage::BlockCreated(BlockCreated { block }), Role::ObservingPeer) => {
@@ -570,24 +570,24 @@ impl Sumeragi {
                     .is_consensus_required()
                     .expect("INTERNAL BUG: Consensus required for observing peer");
 
-                if let Some(mut v_block) =
+                if let Some(mut valid_block) =
                     self.validate_block(block, state, topology, genesis_account, voting_block)
                 {
                     if view_change_index >= 1 {
-                        v_block.block.sign(&self.key_pair, topology);
+                        valid_block.block.sign(&self.key_pair, topology);
 
-                        let msg = BlockSigned::from(&v_block.block);
+                        let msg = BlockSigned::from(&valid_block.block);
                         self.broadcast_packet_to(msg, [topology.proxy_tail()]);
 
                         info!(
                             peer_id=%self.peer_id,
                             role=%self.role(),
-                            block=%v_block.block.as_ref().hash(),
+                            block=%valid_block.block.as_ref().hash(),
                             "Voted for the block"
                         );
                     }
 
-                    *voting_block = Some(v_block);
+                    *voting_block = Some(valid_block);
                 }
             }
             (BlockMessage::BlockCreated(BlockCreated { block }), Role::ProxyTail) => {

@@ -9,12 +9,10 @@ use iroha_data_model::{
     prelude::*,
     query::{
         error::QueryExecutionFail,
-        predicate::{
-            predicate_atoms::block::TransactionQueryOutputPredicateBox, CompoundPredicate,
-        },
-        TransactionQueryOutput,
+        predicate::{predicate_atoms::block::CommittedTransactionPredicateBox, CompoundPredicate},
+        CommittedTransaction,
     },
-    transaction::CommittedTransaction,
+    transaction::error::TransactionRejectionReason,
 };
 use iroha_telemetry::metrics;
 use nonzero_ext::nonzero;
@@ -51,12 +49,15 @@ impl BlockTransactionRef {
         self.0.hash()
     }
 
-    fn value(&self) -> CommittedTransaction {
-        self.0
-            .transactions()
-            .nth(self.1)
-            .expect("The transaction is not found")
-            .clone()
+    fn value(&self) -> (SignedTransaction, Option<TransactionRejectionReason>) {
+        (
+            self.0
+                .transactions()
+                .nth(self.1)
+                .expect("INTERNAL BUG: The transaction is not found")
+                .clone(),
+            self.0.error(self.1).cloned(),
+        )
     }
 }
 
@@ -64,16 +65,21 @@ impl ValidQuery for FindTransactions {
     #[metrics(+"find_transactions")]
     fn execute(
         self,
-        filter: CompoundPredicate<TransactionQueryOutputPredicateBox>,
+        filter: CompoundPredicate<CommittedTransactionPredicateBox>,
         state_ro: &impl StateReadOnly,
     ) -> Result<impl Iterator<Item = Self::Item>, QueryExecutionFail> {
         Ok(state_ro
             .all_blocks(nonzero!(1_usize))
             .rev()
             .flat_map(BlockTransactionIter::new)
-            .map(|tx| TransactionQueryOutput {
-                block_hash: tx.block_hash(),
-                transaction: tx.value(),
+            .map(|tx| {
+                let (value, error) = tx.value();
+
+                CommittedTransaction {
+                    block_hash: tx.block_hash(),
+                    value,
+                    error,
+                }
             })
             .filter(move |tx| filter.applies(tx)))
     }
