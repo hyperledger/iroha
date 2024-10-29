@@ -445,17 +445,6 @@ impl SocketAddr {
         }
     }
 
-    /// Changes port value
-    pub fn change_port(&self, new_port: u16) -> SocketAddr {
-        let mut result = self.clone();
-        match &mut result {
-            SocketAddr::Ipv4(addr) => addr.port = new_port,
-            SocketAddr::Ipv6(addr) => addr.port = new_port,
-            SocketAddr::Host(addr) => addr.port = new_port,
-        }
-        result
-    }
-
     /// Serialize the data contained in this [`SocketAddr`] for use in hashing.
     pub fn payload(&self) -> Vec<u8> {
         let mut bytes = Vec::new();

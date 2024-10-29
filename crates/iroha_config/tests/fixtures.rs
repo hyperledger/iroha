@@ -94,10 +94,10 @@ fn minimal_config_snapshot() {
                         path: "tests/fixtures/base.toml",
                     },
                 },
-                external_port: WithOrigin {
-                    value: 1337,
+                public_address: WithOrigin {
+                    value: 127.0.0.1:1337,
                     origin: File {
-                        id: ParameterId(network.external_port),
+                        id: ParameterId(network.public_address),
                         path: "tests/fixtures/base.toml",
                     },
                 },

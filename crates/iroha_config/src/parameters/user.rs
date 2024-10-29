@@ -273,8 +273,8 @@ pub struct Network {
     /// Peer-to-peer address
     #[config(env = "P2P_ADDRESS")]
     pub address: WithOrigin<SocketAddr>,
-    #[config(env = "P2P_EXTERNAL_PORT")]
-    pub external_port: WithOrigin<u16>,
+    #[config(env = "P2P_PUBLIC_ADDRESS")]
+    pub public_address: WithOrigin<SocketAddr>,
     #[config(default = "defaults::network::BLOCK_GOSSIP_SIZE")]
     pub block_gossip_size: NonZeroU32,
     #[config(default = "defaults::network::BLOCK_GOSSIP_PERIOD.into()")]
@@ -298,7 +298,7 @@ impl Network {
     ) {
         let Self {
             address,
-            external_port,
+            public_address,
             block_gossip_size,
             block_gossip_period_ms: block_gossip_period,
             transaction_gossip_size,
@@ -309,7 +309,7 @@ impl Network {
         (
             actual::Network {
                 address,
-                external_port,
+                public_address,
                 idle_timeout: idle_timeout.get(),
             },
             actual::BlockSync {

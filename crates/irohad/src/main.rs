@@ -738,7 +738,7 @@ mod tests {
                 .write("public_key", pubkey)
                 .write("private_key", ExposedPrivateKey(privkey))
                 .write(["network", "address"], socket_addr!(127.0.0.1:1337))
-                .write(["network", "external_port"], 1337)
+                .write(["network", "public_address"], socket_addr!(127.0.0.1:1337))
                 .write(["torii", "address"], socket_addr!(127.0.0.1:8080))
                 .write(["genesis", "public_key"], genesis_public_key);
             table

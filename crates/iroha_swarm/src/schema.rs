@@ -142,7 +142,7 @@ struct PeerEnv<'a> {
     chain: &'a iroha_data_model::ChainId,
     public_key: &'a iroha_crypto::PublicKey,
     private_key: &'a iroha_crypto::ExposedPrivateKey,
-    p2p_external_port: u16,
+    p2p_public_address: iroha_primitives::addr::SocketAddr,
     p2p_address: iroha_primitives::addr::SocketAddr,
     api_address: iroha_primitives::addr::SocketAddr,
     genesis_public_key: &'a iroha_crypto::PublicKey,
@@ -159,11 +159,17 @@ impl<'a> PeerEnv<'a> {
         genesis_public_key: &'a iroha_crypto::PublicKey,
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::Peer>,
     ) -> Self {
+        let p2p_public_address = topology
+            .iter()
+            .find(|&peer| peer.id.public_key() == public_key)
+            .unwrap()
+            .address
+            .clone();
         Self {
             chain,
             public_key,
             private_key,
-            p2p_external_port: port_p2p,
+            p2p_public_address,
             p2p_address: iroha_primitives::addr::socket_addr!(0.0.0.0:port_p2p),
             api_address: iroha_primitives::addr::socket_addr!(0.0.0.0:port_api),
             genesis_public_key,

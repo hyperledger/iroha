@@ -79,7 +79,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
         key_pair: KeyPair,
         Config {
             address: listen_addr,
-            external_port,
+            public_address,
             idle_timeout,
         }: Config,
         shutdown_signal: ShutdownSignal,
@@ -98,7 +98,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
         let (service_message_sender, service_message_receiver) = mpsc::channel(1);
         let network = NetworkBase {
             listen_addr: listen_addr.into_value(),
-            external_port: external_port.into_value(),
+            public_address: public_address.into_value(),
             listener,
             peers: HashMap::new(),
             connecting_peers: HashMap::new(),
@@ -197,8 +197,8 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
 struct NetworkBase<T: Pload, K: Kex, E: Enc> {
     /// Listening address for incoming connections. Must parse into [`std::net::SocketAddr`]
     listen_addr: SocketAddr,
-    /// Might be different from port of `listen_addr` in case when peer is inside docker or behind reverse proxy.
-    external_port: u16,
+    /// External address of the peer (as seen by other peers)
+    public_address: SocketAddr,
     /// Current [`Peer`]s in [`Peer::Ready`] state.
     peers: HashMap<PeerId, RefPeer<T>>,
     /// [`Peer`]s in process of being connected.
@@ -302,7 +302,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                         Ok((stream, addr)) => {
                             iroha_logger::debug!(from_addr = %addr, "Accepted connection");
                             // Handle creation of new peer
-                            self.accept_new_peer(stream, &addr.into());
+                            self.accept_new_peer(stream);
                         },
                         Err(error) => {
                             iroha_logger::warn!(%error, "Error accepting connection");
@@ -326,12 +326,11 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         }
     }
 
-    fn accept_new_peer(&mut self, stream: TcpStream, addr: &SocketAddr) {
+    fn accept_new_peer(&mut self, stream: TcpStream) {
         let conn_id = self.get_conn_id();
         let service_message_sender = self.service_message_sender.clone();
         connected_from::<T, K, E>(
-            addr.clone(),
-            self.external_port,
+            self.public_address.clone(),
             self.key_pair.clone(),
             Connection::new(conn_id, stream),
             service_message_sender,
@@ -400,7 +399,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         connecting::<T, K, E>(
             // NOTE: we intentionally use peer's address and our public key, it's used during handshake
             peer.address().clone(),
-            self.external_port,
+            self.public_address.clone(),
             self.key_pair.clone(),
             conn_id,
             service_message_sender,

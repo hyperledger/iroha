@@ -549,7 +549,10 @@ impl NetworkPeer {
                 ["network", "address"],
                 format!("127.0.0.1:{}", self.port_p2p),
             )
-            .write(["network", "external_port"], self.port_p2p.deref().deref())
+            .write(
+                ["network", "public_address"],
+                format!("127.0.0.1:{}", self.port_p2p),
+            )
             .write(["torii", "address"], format!("127.0.0.1:{}", self.port_api))
             .write(["logger", "format"], "json");
 

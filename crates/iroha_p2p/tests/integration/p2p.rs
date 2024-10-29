@@ -45,7 +45,7 @@ async fn network_create() {
     let idle_timeout = Duration::from_secs(60);
     let config = Config {
         address: WithOrigin::inline(address.clone()),
-        external_port: WithOrigin::inline(address.port()),
+        public_address: WithOrigin::inline(address.clone()),
         idle_timeout,
     };
     let (network, _) = NetworkHandle::start(key_pair, config, ShutdownSignal::new())
@@ -158,7 +158,7 @@ async fn two_networks() {
     let address1 = socket_addr!(127.0.0.1:12_005);
     let config1 = Config {
         address: WithOrigin::inline(address1.clone()),
-        external_port: WithOrigin::inline(address1.port()),
+        public_address: WithOrigin::inline(address1.clone()),
         idle_timeout,
     };
     let (mut network1, _) = NetworkHandle::start(key_pair1, config1, ShutdownSignal::new())
@@ -169,7 +169,7 @@ async fn two_networks() {
     let address2 = socket_addr!(127.0.0.1:12_010);
     let config2 = Config {
         address: WithOrigin::inline(address2.clone()),
-        external_port: WithOrigin::inline(address2.port()),
+        public_address: WithOrigin::inline(address2.clone()),
         idle_timeout,
     };
     let (network2, _) = NetworkHandle::start(key_pair2, config2, ShutdownSignal::new())
@@ -304,7 +304,7 @@ async fn start_network(
     let idle_timeout = Duration::from_secs(60);
     let config = Config {
         address: WithOrigin::inline(address.clone()),
-        external_port: WithOrigin::inline(address.port()),
+        public_address: WithOrigin::inline(address.clone()),
         idle_timeout,
     };
     let (mut network, _) = NetworkHandle::start(key_pair, config, shutdown_signal)

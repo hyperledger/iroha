@@ -77,7 +77,7 @@ pub struct Common {
 #[derive(Debug, Clone)]
 pub struct Network {
     pub address: WithOrigin<SocketAddr>,
-    pub external_port: WithOrigin<u16>,
+    pub public_address: WithOrigin<SocketAddr>,
     pub idle_timeout: Duration,
 }
 
