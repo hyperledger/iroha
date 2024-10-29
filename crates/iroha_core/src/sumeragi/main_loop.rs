@@ -1,9 +1,5 @@
 //! The main event loop that powers sumeragi.
-use std::{
-    collections::{BTreeSet, HashSet},
-    ops::Deref,
-    sync::mpsc,
-};
+use std::{collections::BTreeSet, ops::Deref, sync::mpsc};
 
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{block::*, events::pipeline::PipelineEventBox, peer::PeerId};
@@ -121,9 +117,9 @@ impl Sumeragi {
 
     /// Connect or disconnect peers according to the current network topology.
     fn connect_peers(&self, topology: &Topology) {
-        let peers = topology.iter().cloned().collect::<HashSet<_>>();
-        self.network.update_topology(UpdateTopology(peers.clone()));
-        self.peers_gossiper.update_topology(UpdateTopology(peers));
+        let update = UpdateTopology(topology.iter().cloned().collect());
+        self.network.update_topology(update.clone());
+        self.peers_gossiper.update_topology(update);
     }
 
     fn send_event(&self, event: impl Into<EventBox>) {

@@ -4,7 +4,7 @@
 //! and then peer B will broadcast address of peer A to other peers.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     time::Duration,
 };
 
@@ -46,12 +46,12 @@ impl PeersGossiperHandle {
 /// Actor which gossips peers addresses.
 pub struct PeersGossiper {
     /// Peers provided at startup
-    initial_peers: HashMap<PeerId, SocketAddr>,
+    initial_peers: BTreeMap<PeerId, SocketAddr>,
     /// Peers received via gossiping from other peers
-    /// First-level key corresponds to SocketAddr
-    /// Second-level key - peer from which such SocketAddr was received
-    gossip_peers: HashMap<PeerId, HashMap<PeerId, SocketAddr>>,
-    current_topology: HashSet<PeerId>,
+    /// First-level key corresponds to `SocketAddr`
+    /// Second-level key - peer from which such `SocketAddr` was received
+    gossip_peers: BTreeMap<PeerId, BTreeMap<PeerId, SocketAddr>>,
+    current_topology: BTreeSet<PeerId>,
     network: IrohaNetwork,
 }
 
@@ -79,8 +79,8 @@ impl PeersGossiper {
             .collect();
         let gossiper = Self {
             initial_peers,
-            gossip_peers: HashMap::new(),
-            current_topology: HashSet::new(),
+            gossip_peers: BTreeMap::new(),
+            current_topology: BTreeSet::new(),
             network,
         };
         gossiper.network_update_peers_addresses();
@@ -118,11 +118,11 @@ impl PeersGossiper {
                 _ = gossip_period.tick() => {
                     self.gossip_peers()
                 }
-                _ = self.network.wait_online_peers_update(|_| ()) => {
+                () = self.network.wait_online_peers_update(|_| ()) => {
                     self.gossip_peers();
                 }
                 Some((peers_gossip, peer)) = message_receiver.recv() => {
-                    self.handle_peers_gossip(peers_gossip, peer);
+                    self.handle_peers_gossip(peers_gossip, &peer);
                 }
                 () = shutdown_signal.receive() => {
                     iroha_logger::debug!("Shutting down peers gossiper");
@@ -143,7 +143,7 @@ impl PeersGossiper {
             !map.is_empty()
         });
 
-        self.current_topology = topology;
+        self.current_topology = topology.into_iter().collect();
     }
 
     fn gossip_peers(&self) {
@@ -153,16 +153,13 @@ impl PeersGossiper {
         self.network.broadcast(Broadcast { data });
     }
 
-    fn handle_peers_gossip(&mut self, PeersGossip(peers): PeersGossip, from_peer: Peer) {
+    fn handle_peers_gossip(&mut self, PeersGossip(peers): PeersGossip, from_peer: &Peer) {
         if !self.current_topology.contains(&from_peer.id) {
             return;
         }
         for peer in peers {
             if self.current_topology.contains(&peer.id) {
-                let map = self
-                    .gossip_peers
-                    .entry(peer.id)
-                    .or_insert_with(HashMap::new);
+                let map = self.gossip_peers.entry(peer.id).or_default();
                 map.insert(from_peer.id.clone(), peer.address);
             }
         }
@@ -174,7 +171,7 @@ impl PeersGossiper {
         let online_peers_ids = online_peers
             .into_iter()
             .map(|peer| peer.id)
-            .collect::<HashSet<_>>();
+            .collect::<BTreeSet<_>>();
 
         let mut peers = Vec::new();
         for (id, address) in &self.initial_peers {
@@ -193,8 +190,8 @@ impl PeersGossiper {
     }
 }
 
-fn choose_address_majority_rule(addresses: &HashMap<PeerId, SocketAddr>) -> SocketAddr {
-    let mut count_map = HashMap::new();
+fn choose_address_majority_rule(addresses: &BTreeMap<PeerId, SocketAddr>) -> SocketAddr {
+    let mut count_map = BTreeMap::new();
     for address in addresses.values() {
         *count_map.entry(address).or_insert(0) += 1;
     }
@@ -202,7 +199,7 @@ fn choose_address_majority_rule(addresses: &HashMap<PeerId, SocketAddr>) -> Sock
         .into_iter()
         .max_by_key(|(_, count)| *count)
         .map(|(address, _)| address)
-        .expect("There must be no empty inner HashMap in addresses")
+        .expect("There must be no empty inner map in addresses")
         .clone()
 }
 

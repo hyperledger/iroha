@@ -161,7 +161,7 @@ impl<'a> PeerEnv<'a> {
     ) -> Self {
         let p2p_public_address = topology
             .iter()
-            .find(|&peer| peer.id.public_key() == public_key)
+            .find(|&peer| peer.id().public_key() == public_key)
             .unwrap()
             .address
             .clone();
@@ -175,7 +175,7 @@ impl<'a> PeerEnv<'a> {
             genesis_public_key,
             trusted_peers: topology
                 .iter()
-                .filter(|&peer| peer.id.public_key() != public_key)
+                .filter(|&peer| peer.id().public_key() != public_key)
                 .collect(),
         }
     }
@@ -205,7 +205,10 @@ impl<'a> GenesisEnv<'a> {
             base: PeerEnv::new(key_pair, ports, chain, genesis_public_key, topology),
             genesis_private_key,
             genesis: CONTAINER_SIGNED_GENESIS,
-            topology: topology.iter().map(|peer| peer.id()).collect(),
+            topology: topology
+                .iter()
+                .map(iroha_data_model::prelude::Peer::id)
+                .collect(),
         }
     }
 }

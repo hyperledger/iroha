@@ -11,7 +11,7 @@ use futures::{prelude::*, stream::FuturesUnordered, task::AtomicWaker};
 use iroha_config::parameters::actual::Network as Config;
 use iroha_config_base::WithOrigin;
 use iroha_crypto::KeyPair;
-use iroha_data_model::prelude::Peer;
+use iroha_data_model::{prelude::Peer, Identifiable};
 use iroha_futures::supervisor::ShutdownSignal;
 use iroha_logger::{prelude::*, test_logger};
 use iroha_p2p::{network::message::*, peer::message::PeerMessage, NetworkHandle};
@@ -21,7 +21,6 @@ use tokio::{
     sync::{mpsc, Barrier},
     time::Duration,
 };
-use iroha_data_model::Identifiable;
 
 #[derive(Clone, Debug, Decode, Encode)]
 struct TestMessage(String);
@@ -55,7 +54,7 @@ async fn network_create() {
 
     info!("Connecting to peer...");
     let peer1 = Peer::new(address.clone(), public_key.clone());
-    update_topology_and_peers_addresses(&network, vec![peer1.clone()]);
+    update_topology_and_peers_addresses(&network, &[peer1.clone()]);
     tokio::time::sleep(delay).await;
 
     info!("Posting message...");
@@ -184,8 +183,8 @@ async fn two_networks() {
     let peer1 = Peer::new(address1.clone(), public_key1);
     let peer2 = Peer::new(address2.clone(), public_key2);
     // Connect peers with each other
-    update_topology_and_peers_addresses(&network1, vec![peer2.clone()]);
-    update_topology_and_peers_addresses(&network2, vec![peer1.clone()]);
+    update_topology_and_peers_addresses(&network1, &[peer2.clone()]);
+    update_topology_and_peers_addresses(&network2, &[peer1.clone()]);
 
     tokio::time::timeout(Duration::from_millis(2000), async {
         let mut connections = network1.wait_online_peers_update(HashSet::len).await;
@@ -315,7 +314,7 @@ async fn start_network(
     let _ = barrier.wait().await;
     let peers = peers.into_iter().filter(|p| p != &peer).collect::<Vec<_>>();
     let conn_count = peers.len();
-    update_topology_and_peers_addresses(&network, peers);
+    update_topology_and_peers_addresses(&network, &peers);
 
     let _ = barrier.wait().await;
     tokio::time::timeout(Duration::from_millis(10_000), async {
@@ -340,7 +339,7 @@ async fn start_network(
     (peer, network)
 }
 
-fn update_topology_and_peers_addresses(network: &NetworkHandle<TestMessage>, peers: Vec<Peer>) {
+fn update_topology_and_peers_addresses(network: &NetworkHandle<TestMessage>, peers: &[Peer]) {
     let topology = peers.iter().map(|peer| peer.id().clone()).collect();
     network.update_topology(UpdateTopology(topology));
 

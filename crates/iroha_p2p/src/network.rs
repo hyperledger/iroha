@@ -234,6 +234,7 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
     /// Can have two addresses for same `PeerId`.
     /// * One initially provided via config
     /// * Second received from other peers via gossiping
+    ///
     /// Will try to establish connection via both addresses.
     current_peers_addresses: Vec<(PeerId, SocketAddr)>,
     /// Duration after which terminate connection with idle peer
@@ -431,12 +432,12 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         self.connecting_peers.remove(&connection_id);
 
         if !self.current_topology.contains(peer.id()) {
-            iroha_logger::warn!(%peer.id, topology=?self.current_topology, "Peer not present in topology is trying to connect");
+            iroha_logger::warn!(peer=%peer.id(), topology=?self.current_topology, "Peer not present in topology is trying to connect");
             return;
         }
 
         //  Insert peer if peer not in peers yet or replace peer if it's disambiguator value is smaller than new one (simultaneous connections resolution rule)
-        match self.peers.get(&peer.id()) {
+        match self.peers.get(peer.id()) {
             Some(peer) if peer.disambiguator > disambiguator => {
                 iroha_logger::debug!(
                     "Peer is disconnected due to simultaneous connection resolution policy"
@@ -458,18 +459,18 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             disambiguator,
         };
         let _ = peer_message_sender.send(self.peer_message_sender.clone());
-        self.peers.insert(peer.id.clone(), ref_peer);
+        self.peers.insert(peer.id().clone(), ref_peer);
         Self::add_online_peer(&self.online_peers_sender, peer);
     }
 
     fn peer_terminated(&mut self, Terminated { peer, conn_id }: Terminated) {
         self.connecting_peers.remove(&conn_id);
         if let Some(peer) = peer {
-            if let Some(ref_peer) = self.peers.get(&peer.id()) {
+            if let Some(ref_peer) = self.peers.get(peer.id()) {
                 if ref_peer.conn_id == conn_id {
                     iroha_logger::debug!(conn_id, peer=%peer, "Peer terminated");
-                    self.peers.remove(&peer.id());
-                    Self::remove_online_peer(&self.online_peers_sender, &peer.id);
+                    self.peers.remove(peer.id());
+                    Self::remove_online_peer(&self.online_peers_sender, peer.id());
                 }
             }
         }
@@ -504,7 +505,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             if ref_peer.handle.post(data.clone()).is_err() {
                 let peer = Peer::new(ref_peer.p2p_addr.clone(), public_key.clone());
                 iroha_logger::error!(peer=%peer, "Failed to send message to peer");
-                Self::remove_online_peer(online_peers_sender, &peer.id);
+                Self::remove_online_peer(online_peers_sender, peer.id());
                 false
             } else {
                 true
