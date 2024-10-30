@@ -27,7 +27,7 @@ on:
         required: true
         default: main
       PROFILER_NAME:
-        description: "Profiler value as the image tag part"
+        description: "Profiler value (glibc/alpine) as the image tag part"
         required: true
         default: glibc
 
@@ -181,7 +181,7 @@ jobs:
         if: always()
         with:
           push: true
-          tags: docker.soramitsu.co.jp/iroha2/iroha:${{ github.sha }}
+          tags: docker.soramitsu.co.jp/iroha2/iroha:${{ inputs.PROFILER_NAME }}-${{ github.sha }}
           labels: commit=${{ github.sha }}
           file: Dockerfile
           context: .
