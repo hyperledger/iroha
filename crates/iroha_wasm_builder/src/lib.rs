@@ -45,6 +45,7 @@ pub struct Builder<'path, 'out_dir> {
     out_dir: Option<&'out_dir Path>,
     /// Flag controlling whether to show output of the build process
     show_output: bool,
+    release: bool,
 }
 
 impl<'path, 'out_dir> Builder<'path, 'out_dir> {
@@ -59,6 +60,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
             path: relative_path.as_ref(),
             out_dir: None,
             show_output: false,
+            release: false,
         }
     }
 
@@ -80,6 +82,14 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     /// Disabled by default.
     pub fn show_output(mut self) -> Self {
         self.show_output = true;
+        self
+    }
+
+    /// Enable release build optimizations.
+    ///
+    /// Disabled by default.
+    pub fn release(mut self) -> Self {
+        self.release = true;
         self
     }
 
@@ -114,6 +124,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
                 |out_dir| Ok(Cow::Borrowed(out_dir)),
             )?,
             show_output: self.show_output,
+            release: self.release,
         })
     }
 
@@ -167,6 +178,7 @@ mod internal {
         pub absolute_path: PathBuf,
         pub out_dir: Cow<'out_dir, Path>,
         pub show_output: bool,
+        pub release: bool,
     }
 
     impl Builder<'_> {
@@ -189,9 +201,9 @@ mod internal {
             })
         }
 
-        fn build_options() -> impl Iterator<Item = &'static str> {
+        fn build_options(&self) -> impl Iterator<Item = &'static str> {
             [
-                "--release",
+                if self.release { "--release" } else { "" },
                 "-Z",
                 "build-std",
                 "-Z",
@@ -202,6 +214,7 @@ mod internal {
                 "wasm32-unknown-unknown",
             ]
             .into_iter()
+            .filter(|&arg| !arg.is_empty())
         }
 
         fn get_base_command(&self, cmd: &'static str) -> std::process::Command {
@@ -210,7 +223,7 @@ mod internal {
                 .current_dir(&self.absolute_path)
                 .stderr(Stdio::inherit())
                 .arg(cmd)
-                .args(Self::build_options());
+                .args(self.build_options());
 
             command
         }

@@ -21,7 +21,7 @@ enum Cli {
         common: CommonArgs,
         /// Optimize WASM output.
         #[arg(long)]
-        optimize: bool,
+        release: bool,
         /// Where to store the output WASM. If the file exists, it will be overwritten.
         #[arg(long)]
         out_file: PathBuf,
@@ -44,10 +44,12 @@ fn main() -> color_eyre::Result<()> {
         }
         Cli::Build {
             common: CommonArgs { path },
-            optimize,
+            release,
             out_file,
         } => {
             let builder = Builder::new(&path).show_output();
+
+            let builder = if release {builder.release()} else {builder};
 
             let output = {
                 // not showing the spinner here, cargo does a progress bar for us
@@ -58,7 +60,7 @@ fn main() -> color_eyre::Result<()> {
                 }
             };
 
-            let output = if optimize {
+            let output = if release {
                 let mut sp = spinoff::Spinner::new_with_stream(
                     spinoff::spinners::Binary,
                     "Optimizing the output",
