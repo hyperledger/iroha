@@ -40,4 +40,4 @@ displaydoc = { workspace = true }
 rust_decimal = { version = "1.35", default-features = false, features = ["serde", "serde-with-str"] }
 
 [dev-dependencies]
-serde_json = { workspace = true, features = ["alloc"] }
+serde_json = { workspace = true }

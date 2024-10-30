@@ -25,7 +25,7 @@ iroha_version = { workspace = true, features = ["scale", "json"] }
 iroha_macro = { workspace = true }
 
 parity-scale-codec = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true, features = ["alloc"] }
+serde_json = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
 trybuild = { workspace = true }
