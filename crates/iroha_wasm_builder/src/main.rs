@@ -49,7 +49,7 @@ fn main() -> color_eyre::Result<()> {
         } => {
             let builder = Builder::new(&path).show_output();
 
-            let builder = if release {builder.release()} else {builder};
+            let builder = if release { builder.release() } else { builder };
 
             let output = {
                 // not showing the spinner here, cargo does a progress bar for us
