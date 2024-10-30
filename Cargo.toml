@@ -69,7 +69,6 @@ parking_lot = { version = "0.12.3" }
 
 tempfile = "3.10.1"
 path-absolutize = "3.1.1"
-pathdiff = "0.2.1"
 bytes = "1.6.1"
 
 vergen = { version = "8.3.1", default-features = false }
@@ -86,7 +85,6 @@ prometheus = { version = "0.13.4", default-features = false }
 clap = "4.5.11"
 owo-colors = "4.1.0"
 supports-color = "2.1.0"
-inquire = "0.6.2"
 spinoff = "0.8.0"
 humantime = "2.1.0"
 
@@ -119,7 +117,6 @@ rustc-hash = "1.1.0"
 
 serde = { version = "1.0.204", default-features = false }
 serde_json = { version = "1.0.121", default-features = false }
-serde_yaml = "0.9.34"
 serde_with = { version = "3.9.0", default-features = false }
 parity-scale-codec = { version = "3.6.12", default-features = false }
 json5 = "0.4.1"

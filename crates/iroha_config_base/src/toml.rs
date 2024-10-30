@@ -289,6 +289,7 @@ impl<'a> From<&'a mut Table> for Writer<'a> {
 /// Extension trait to implement writing with [`Writer`] directly into [`Table`] in a chained manner.
 pub trait WriteExt: Sized {
     /// See [`Writer::write`].
+    #[must_use]
     fn write<P: WritePath, T: Serialize>(self, path: P, value: T) -> Self;
 }
 
