@@ -61,20 +61,28 @@ fn main() -> color_eyre::Result<()> {
             };
 
             let output = if release {
-                let mut sp = spinoff::Spinner::new_with_stream(
-                    spinoff::spinners::Binary,
-                    "Optimizing the output",
-                    None,
-                    spinoff::Streams::Stderr,
-                );
+                let sp = if std::env::var("CI").is_err() {
+                    Some(spinoff::Spinner::new_with_stream(
+                        spinoff::spinners::Binary,
+                        "Optimizing the output",
+                        None,
+                        spinoff::Streams::Stderr,
+                    ))
+                } else {
+                    None
+                };
 
                 match output.optimize() {
                     Ok(optimized) => {
-                        sp.success("Output is optimized");
+                        if let Some(mut sp) = sp {
+                            sp.success("Output is optimized");
+                        }
                         optimized
                     }
                     err => {
-                        sp.fail("Optimization failed");
+                        if let Some(mut sp) = sp {
+                            sp.fail("Optimization failed");
+                        }
                         err?
                     }
                 }
