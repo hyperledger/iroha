@@ -22,7 +22,7 @@ manyhow = { workspace = true }
 iroha_macro_utils = { workspace = true }
 
 [dev-dependencies]
-iroha_data_model = { workspace = true, features = ["http"] }
+iroha_data_model = { workspace = true }
 iroha_schema = { workspace = true }
 parity-scale-codec = { workspace = true }
 derive_more = { workspace = true }

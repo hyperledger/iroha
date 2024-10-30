@@ -9,8 +9,6 @@ use core::{
 };
 
 use derive_more::{DebugCustom, Display};
-#[cfg(feature = "http")]
-pub use http::*;
 use iroha_crypto::{Signature, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
@@ -29,7 +27,6 @@ use crate::{
 
 #[model]
 mod model {
-    use getset::Getters;
     use iroha_primitives::const_vec::ConstVec;
 
     use super::*;
@@ -153,30 +150,13 @@ mod model {
         pub(super) payload: TransactionPayload,
     }
 
-    /// Transaction Value used in Instructions and Queries
-    #[derive(
-        Debug,
-        PartialOrd,
-        Ord,
-        Getters,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[ffi_type]
-    #[getset(get = "pub")]
-    pub struct CommittedTransaction {
-        /// Committed transaction
-        #[getset(skip)]
-        pub value: SignedTransaction,
-        /// Reason of rejection
-        // NOTE: Using `Box` reduces memory use by 10%
-        pub error: Option<Box<error::TransactionRejectionReason>>,
+    /// Structure that represents the initial state of a transaction before the transaction receives any signatures.
+    #[derive(Debug, Clone)]
+    #[repr(transparent)]
+    #[must_use]
+    pub struct TransactionBuilder {
+        /// [`Transaction`] payload.
+        pub(super) payload: TransactionPayload,
     }
 }
 
@@ -309,16 +289,136 @@ impl SignedTransactionV1 {
     }
 }
 
-impl AsRef<SignedTransaction> for CommittedTransaction {
-    fn as_ref(&self) -> &SignedTransaction {
-        &self.value
-    }
-}
-
 impl TransactionSignature {
     /// Signature itself
     pub fn payload(&self) -> &Signature {
         &self.0
+    }
+}
+
+impl TransactionBuilder {
+    #[cfg(feature = "std")]
+    fn new_with_time(chain: ChainId, authority: AccountId, creation_time_ms: u64) -> Self {
+        Self {
+            payload: TransactionPayload {
+                chain,
+                authority,
+                creation_time_ms,
+                nonce: None,
+                time_to_live_ms: None,
+                instructions: Vec::<InstructionBox>::new().into(),
+                metadata: Metadata::default(),
+            },
+        }
+    }
+
+    /// Construct [`Self`], using the time from [`TimeSource`]
+    // we don't want to expose this to non-tests
+    #[inline]
+    #[cfg(all(feature = "std", feature = "transparent_api"))]
+    pub fn new_with_time_source(
+        chain_id: ChainId,
+        authority: AccountId,
+        time_source: &iroha_primitives::time::TimeSource,
+    ) -> Self {
+        let creation_time_ms = time_source
+            .get_unix_time()
+            .as_millis()
+            .try_into()
+            .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
+
+        Self::new_with_time(chain_id, authority, creation_time_ms)
+    }
+
+    /// Construct [`Self`].
+    #[inline]
+    #[cfg(feature = "std")]
+    pub fn new(chain_id: ChainId, authority: AccountId) -> Self {
+        use std::time::SystemTime;
+
+        // can't delegate to `new_with_time_source`, because it's gated behind "transparent_api"
+        let creation_time_ms = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            .try_into()
+            .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
+        Self::new_with_time(chain_id, authority, creation_time_ms)
+    }
+}
+
+impl TransactionBuilder {
+    /// Set instructions for this transaction
+    pub fn with_instructions<T: Instruction>(
+        mut self,
+        instructions: impl IntoIterator<Item = T>,
+    ) -> Self {
+        self.payload.instructions = instructions
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<InstructionBox>>()
+            .into();
+        self
+    }
+
+    /// Add wasm to this transaction
+    pub fn with_wasm(mut self, wasm: WasmSmartContract) -> Self {
+        self.payload.instructions = wasm.into();
+        self
+    }
+
+    /// Set executable for this transaction
+    pub fn with_executable(mut self, executable: Executable) -> Self {
+        self.payload.instructions = executable;
+        self
+    }
+
+    /// Adds metadata to the `Transaction`
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.payload.metadata = metadata;
+        self
+    }
+
+    /// Set nonce for [`Transaction`]
+    pub fn set_nonce(&mut self, nonce: NonZeroU32) -> &mut Self {
+        self.payload.nonce = Some(nonce);
+        self
+    }
+
+    /// Set time-to-live for [`Transaction`]
+    pub fn set_ttl(&mut self, time_to_live: Duration) -> &mut Self {
+        let ttl: u64 = time_to_live
+            .as_millis()
+            .try_into()
+            .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
+
+        self.payload.time_to_live_ms = if ttl == 0 {
+            // TODO: This is not correct, 0 is not the same as None
+            None
+        } else {
+            Some(NonZeroU64::new(ttl).expect("Can't be 0"))
+        };
+
+        self
+    }
+
+    /// Set creation time of transaction
+    pub fn set_creation_time(&mut self, value: Duration) -> &mut Self {
+        self.payload.creation_time_ms = u64::try_from(value.as_millis())
+            .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
+        self
+    }
+
+    /// Sign transaction with provided key pair.
+    #[must_use]
+    pub fn sign(self, private_key: &iroha_crypto::PrivateKey) -> SignedTransaction {
+        let signature = TransactionSignature(SignatureOf::new(private_key, &self.payload));
+
+        SignedTransactionV1 {
+            signature,
+            payload: self.payload,
+        }
+        .into()
     }
 }
 
@@ -598,158 +698,10 @@ pub mod error {
     }
 }
 
-#[cfg(feature = "http")]
-mod http {
-    pub use self::model::*;
-    use super::*;
-
-    #[model]
-    mod model {
-        use super::*;
-
-        /// Structure that represents the initial state of a transaction before the transaction receives any signatures.
-        #[derive(Debug, Clone)]
-        #[repr(transparent)]
-        #[must_use]
-        pub struct TransactionBuilder {
-            /// [`Transaction`] payload.
-            pub(super) payload: TransactionPayload,
-        }
-    }
-
-    impl TransactionBuilder {
-        #[cfg(feature = "std")]
-        fn new_with_time(chain: ChainId, authority: AccountId, creation_time_ms: u64) -> Self {
-            Self {
-                payload: TransactionPayload {
-                    chain,
-                    authority,
-                    creation_time_ms,
-                    nonce: None,
-                    time_to_live_ms: None,
-                    instructions: Vec::<InstructionBox>::new().into(),
-                    metadata: Metadata::default(),
-                },
-            }
-        }
-
-        /// Construct [`Self`], using the time from [`TimeSource`]
-        // we don't want to expose this to non-tests
-        #[inline]
-        #[cfg(all(feature = "std", feature = "transparent_api"))]
-        pub fn new_with_time_source(
-            chain_id: ChainId,
-            authority: AccountId,
-            time_source: &iroha_primitives::time::TimeSource,
-        ) -> Self {
-            let creation_time_ms = time_source
-                .get_unix_time()
-                .as_millis()
-                .try_into()
-                .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
-
-            Self::new_with_time(chain_id, authority, creation_time_ms)
-        }
-
-        /// Construct [`Self`].
-        #[inline]
-        #[cfg(feature = "std")]
-        pub fn new(chain_id: ChainId, authority: AccountId) -> Self {
-            use std::time::SystemTime;
-
-            // can't delegate to `new_with_time_source`, because it's gated behind "transparent_api"
-            let creation_time_ms = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-                .try_into()
-                .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
-            Self::new_with_time(chain_id, authority, creation_time_ms)
-        }
-    }
-
-    impl TransactionBuilder {
-        /// Set instructions for this transaction
-        pub fn with_instructions<T: Instruction>(
-            mut self,
-            instructions: impl IntoIterator<Item = T>,
-        ) -> Self {
-            self.payload.instructions = instructions
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<InstructionBox>>()
-                .into();
-            self
-        }
-
-        /// Add wasm to this transaction
-        pub fn with_wasm(mut self, wasm: WasmSmartContract) -> Self {
-            self.payload.instructions = wasm.into();
-            self
-        }
-
-        /// Set executable for this transaction
-        pub fn with_executable(mut self, executable: Executable) -> Self {
-            self.payload.instructions = executable;
-            self
-        }
-
-        /// Adds metadata to the `Transaction`
-        pub fn with_metadata(mut self, metadata: Metadata) -> Self {
-            self.payload.metadata = metadata;
-            self
-        }
-
-        /// Set nonce for [`Transaction`]
-        pub fn set_nonce(&mut self, nonce: NonZeroU32) -> &mut Self {
-            self.payload.nonce = Some(nonce);
-            self
-        }
-
-        /// Set time-to-live for [`Transaction`]
-        pub fn set_ttl(&mut self, time_to_live: Duration) -> &mut Self {
-            let ttl: u64 = time_to_live
-                .as_millis()
-                .try_into()
-                .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
-
-            self.payload.time_to_live_ms = if ttl == 0 {
-                // TODO: This is not correct, 0 is not the same as None
-                None
-            } else {
-                Some(NonZeroU64::new(ttl).expect("Can't be 0"))
-            };
-
-            self
-        }
-
-        /// Set creation time of transaction
-        pub fn set_creation_time(&mut self, value: Duration) -> &mut Self {
-            self.payload.creation_time_ms = u64::try_from(value.as_millis())
-                .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
-            self
-        }
-
-        /// Sign transaction with provided key pair.
-        #[must_use]
-        pub fn sign(self, private_key: &iroha_crypto::PrivateKey) -> SignedTransaction {
-            let signature = TransactionSignature(SignatureOf::new(private_key, &self.payload));
-
-            SignedTransactionV1 {
-                signature,
-                payload: self.payload,
-            }
-            .into()
-        }
-    }
-}
-
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
-    #[cfg(feature = "http")]
-    pub use super::http::TransactionBuilder;
     pub use super::{
-        error::prelude::*, CommittedTransaction, Executable, SignedTransaction, WasmSmartContract,
+        error::prelude::*, Executable, SignedTransaction, TransactionBuilder, WasmSmartContract,
     };
 }
 

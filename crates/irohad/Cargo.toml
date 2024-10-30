@@ -40,7 +40,7 @@ maintenance = { status = "actively-developed" }
 iroha_core = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_futures = { workspace = true }
-iroha_data_model = { workspace = true, features = ["http"] }
+iroha_data_model = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_telemetry = { workspace = true, optional = true }
 iroha_config = { workspace = true }

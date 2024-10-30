@@ -274,6 +274,14 @@ impl<T: Encode> HashOf<T> {
     }
 }
 
+impl<T> FromStr for HashOf<T> {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(s.parse::<Hash>().map(Self::from_untyped_unchecked)?)
+    }
+}
+
 impl<T: IntoSchema> IntoSchema for HashOf<T> {
     fn type_name() -> String {
         format!("HashOf<{}>", T::type_name())

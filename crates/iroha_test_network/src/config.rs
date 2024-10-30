@@ -41,19 +41,12 @@ pub fn genesis<T: Instruction>(
     topology: UniqueVec<PeerId>,
 ) -> GenesisBlock {
     // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
-    let genesis = match RawGenesisTransaction::from_path(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../defaults/genesis.json"),
-    ) {
-        Ok(x) => x,
-        Err(err) => {
-            eprintln!(
-                "ERROR: cannot load genesis from `defaults/genesis.json`\n  \
-                    If `executor.wasm` is not found, make sure to run `scripts/build_wasm_samples.sh` first\n  \
-                    Full error: {err}"
-            );
-            panic!("cannot proceed without genesis, see the error above");
-        }
-    };
+    let json_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../defaults/genesis.json")
+        .canonicalize()
+        .unwrap();
+    let genesis = RawGenesisTransaction::from_path(&json_path)
+        .unwrap_or_else(|err| panic!("failed to parse {}\n{err}", json_path.display()));
     let mut builder = genesis.into_builder();
 
     let rose_definition_id = "rose#wonderland".parse::<AssetDefinitionId>().unwrap();
@@ -92,5 +85,13 @@ pub fn genesis<T: Instruction>(
     builder
         .set_topology(topology.into())
         .build_and_sign(&genesis_key_pair)
-        .expect("genesis should load fine")
+        .unwrap_or_else(|err| {
+            panic!(
+                "\
+                failed to build a genesis block from {}\n\
+                have you run `scripts/build_wasm.sh` to get wasm blobs?\n\
+                {err}",
+                json_path.display()
+            );
+        })
 }

@@ -1,6 +1,6 @@
-//! Algorithm for generating trait bounds in IntoSchema derive
+//! Algorithm for generating trait bounds in `IntoSchema` derive
 //!
-//! Based on https://github.com/paritytech/parity-scale-codec/blob/2c61d4ab70dfa157556430546441cd2deb5031f2/derive/src/trait_bounds.rs
+//! Based on <https://github.com/paritytech/parity-scale-codec/blob/2c61d4ab70dfa157556430546441cd2deb5031f2/derive/src/trait_bounds.rs>
 
 use std::iter;
 
@@ -8,7 +8,7 @@ use proc_macro2::Ident;
 use syn::{
     parse_quote,
     visit::{self, Visit},
-    Generics, Result, Type, TypePath,
+    Generics, Type, TypePath,
 };
 
 use crate::{IntoSchemaData, IntoSchemaField};
@@ -119,18 +119,18 @@ pub fn add(
     generics: &mut Generics,
     data: &IntoSchemaData,
     // custom_trait_bound: Option<CustomTraitBound<N>>,
-    codec_bound: syn::Path,
-    codec_skip_bound: Option<syn::Path>,
+    codec_bound: &syn::Path,
+    codec_skip_bound: Option<&syn::Path>,
     dumb_trait_bounds: bool,
     crate_path: &syn::Path,
-) -> Result<()> {
+) {
     let skip_type_params = Vec::<Ident>::new();
     // NOTE: not implementing custom trait bounds for now
     // can be implemented later if needed
     // = match custom_trait_bound {
     //     Some(CustomTraitBound::SpecifiedBounds { bounds, .. }) => {
     //         generics.make_where_clause().predicates.extend(bounds);
-    //         return Ok(());
+    //         return;
     //     }
     //     Some(CustomTraitBound::SkipTypeParams { type_names, .. }) => {
     //         type_names.into_iter().collect::<Vec<_>>()
@@ -144,13 +144,13 @@ pub fn add(
         .map(|tp| tp.ident.clone())
         .collect::<Vec<_>>();
     if ty_params.is_empty() {
-        return Ok(());
+        return;
     }
 
     let codec_types =
-        get_types_to_add_trait_bound(input_ident, data, &ty_params, dumb_trait_bounds)?;
+        get_types_to_add_trait_bound(input_ident, data, &ty_params, dumb_trait_bounds);
 
-    let compact_types = collect_types(data, |t| t.codec_attrs.compact)?
+    let compact_types = collect_types(data, |t| t.codec_attrs.compact)
         .into_iter()
         // Only add a bound if the type uses a generic
         .filter(|ty| type_contain_idents(ty, &ty_params))
@@ -158,7 +158,7 @@ pub fn add(
 
     let skip_types = if codec_skip_bound.is_some() {
         let needs_default_bound = |f: &IntoSchemaField| f.codec_attrs.skip;
-        collect_types(data, needs_default_bound)?
+        collect_types(data, needs_default_bound)
             .into_iter()
             // Only add a bound if the type uses a generic
             .filter(|ty| type_contain_idents(ty, &ty_params))
@@ -170,27 +170,24 @@ pub fn add(
     if !codec_types.is_empty() || !compact_types.is_empty() || !skip_types.is_empty() {
         let where_clause = generics.make_where_clause();
 
-        codec_types.into_iter().for_each(|ty| {
+        for ty in codec_types {
             where_clause
                 .predicates
                 .push(parse_quote!(#ty : #codec_bound))
-        });
+        }
 
-        compact_types.into_iter().for_each(|ty| {
+        for ty in compact_types {
             where_clause
                 .predicates
                 .push(parse_quote!(#crate_path::Compact<#ty> : #codec_bound))
-        });
+        }
 
-        skip_types.into_iter().for_each(|ty| {
-            let codec_skip_bound = codec_skip_bound.as_ref();
+        for ty in skip_types {
             where_clause
                 .predicates
                 .push(parse_quote!(#ty : #codec_skip_bound))
-        });
+        }
     }
-
-    Ok(())
 }
 
 /// Returns all types that must be added to the where clause with the respective trait bound.
@@ -199,16 +196,16 @@ fn get_types_to_add_trait_bound(
     data: &IntoSchemaData,
     ty_params: &[Ident],
     dumb_trait_bound: bool,
-) -> Result<Vec<Type>> {
+) -> Vec<Type> {
     if dumb_trait_bound {
-        Ok(ty_params.iter().map(|t| parse_quote!( #t )).collect())
+        ty_params.iter().map(|t| parse_quote!( #t )).collect()
     } else {
         let needs_codec_bound = |f: &IntoSchemaField| {
             !f.codec_attrs.compact
-                && true // utils::get_encoded_as_type(f).is_none()
+                // utils::get_encoded_as_type(f).is_none()
                 && !f.codec_attrs.skip
         };
-        let res = collect_types(data, needs_codec_bound)?
+        collect_types(data, needs_codec_bound)
             .into_iter()
             // Only add a bound if the type uses a generic
             .filter(|ty| type_contain_idents(ty, ty_params))
@@ -226,16 +223,11 @@ fn get_types_to_add_trait_bound(
             // Remove all remaining types that start/contain the input ident to not have them in the
             // where clause.
             .filter(|ty| !type_or_sub_type_path_starts_with_ident(ty, input_ident))
-            .collect();
-
-        Ok(res)
+            .collect()
     }
 }
 
-fn collect_types(
-    data: &IntoSchemaData,
-    type_filter: fn(&IntoSchemaField) -> bool,
-) -> Result<Vec<Type>> {
+fn collect_types(data: &IntoSchemaData, type_filter: fn(&IntoSchemaField) -> bool) -> Vec<Type> {
     let types = match *data {
         IntoSchemaData::Struct(ref data) => data
             .fields
@@ -258,5 +250,5 @@ fn collect_types(
             .collect(),
     };
 
-    Ok(types)
+    types
 }

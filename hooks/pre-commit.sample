@@ -3,13 +3,13 @@
 set -e
 # format checks
 cargo fmt --all -- --check
-cargo fmt --manifest-path ./wasm_samples/Cargo.toml --all -- --check
+cargo fmt --manifest-path ./wasm/Cargo.toml --all -- --check
 # lints
 cargo clippy --workspace --benches --tests --examples --all-features
 # TODO: fails, re-enable
 # cargo clippy --workspace --benches --tests --examples --no-default-features
 # update the default genesis, assuming the transaction authority is `iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_ID`
-cargo run --bin kagami -- genesis generate --executor-path-in-genesis ./executor.wasm --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 > ./defaults/genesis.json
+cargo run --bin kagami -- genesis generate --executor executor.wasm --wasm-dir libs --genesis-public-key ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4 > ./defaults/genesis.json
 # update schema
 cargo run --bin kagami -- schema > ./docs/source/references/schema.json
 # update docker compose files

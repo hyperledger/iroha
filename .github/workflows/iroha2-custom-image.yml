@@ -37,10 +37,11 @@ env:
   IROHA2_RUSTFLAGS: -C force-frame-pointers=on
   IROHA2_FEATURES: profiling
   IROHA2_CARGOFLAGS: -Z build-std
-  DOCKER_COMPOSE_PATH: defaults
+  DEFAULTS_DIR: defaults
+  WASM_TARGET_DIR: wasm/target/prebuilt
 
 jobs:
-  build_executor:
+  build_wasm_libs:
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
@@ -49,30 +50,32 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.CHECKOUT_REF }}
-      - name: Build iroha executor
-        run: mold --run cargo run --bin iroha_wasm_builder -- build ./wasm_samples/default_executor --optimize --out-file ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
-      - name: Upload executor to reuse in other jobs
+      - name: Build wasm libs
+        run: ./scripts/build_wasm.sh libs
+      - name: Upload wasm libs to reuse in other jobs
         uses: actions/upload-artifact@v4
         with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
+          name: wasm-libs
+          path: ${{ env.WASM_TARGET_DIR }}/libs
           retention-days: 1
 
   registry-profiling-image:
     if: ${{ inputs.BUILD_GLIBC_IMAGE == 'false' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'false' }}
     runs-on: [self-hosted, Linux, iroha2]
-    needs: build_executor
+    needs: build_wasm_libs
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.CHECKOUT_REF }}
-      - name: Download executor.wasm file
+      - name: Download wasm libs
         uses: actions/download-artifact@v4
         with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}
+          name: wasm-libs
+          path: ${{ env.DEFAULTS_DIR }}/libs
+      - name: Move the default executor
+        run: mv ${{ env.DEFAULTS_DIR }}/libs/default_executor.wasm ${{ env.DEFAULTS_DIR }}/executor.wasm
       - name: Get the release tag
         run: |
           RELEASE_VERSION=${{ github.ref_name }}
@@ -115,18 +118,20 @@ jobs:
   registry-glibc-image:
     if: ${{ inputs.BUILD_GLIBC_IMAGE == 'true' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'false' }}
     runs-on: [self-hosted, Linux, iroha2]
-    needs: build_executor
+    needs: build_wasm_libs
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.CHECKOUT_REF }}
-      - name: Download executor.wasm file
+      - name: Download wasm libs
         uses: actions/download-artifact@v4
         with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}
+          name: wasm-libs
+          path: ${{ env.DEFAULTS_DIR }}/libs
+      - name: Move the default executor
+        run: mv ${{ env.DEFAULTS_DIR }}/libs/default_executor.wasm ${{ env.DEFAULTS_DIR }}/executor.wasm
       - name: Login to Soramitsu Harbor
         uses: docker/login-action@v3
         with:
@@ -152,18 +157,20 @@ jobs:
   registry-alpine-image:
     if: ${{ inputs.BUILD_GLIBC_IMAGE == 'false' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'true' }}
     runs-on: [self-hosted, Linux, iroha2]
-    needs: build_executor
+    needs: build_wasm_libs
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.CHECKOUT_REF }}
-      - name: Download executor.wasm file
+      - name: Download wasm libs
         uses: actions/download-artifact@v4
         with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}
+          name: wasm-libs
+          path: ${{ env.DEFAULTS_DIR }}/libs
+      - name: Move the default executor
+        run: mv ${{ env.DEFAULTS_DIR }}/libs/default_executor.wasm ${{ env.DEFAULTS_DIR }}/executor.wasm
       - name: Login to Soramitsu Harbor
         uses: docker/login-action@v3
         with:
