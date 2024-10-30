@@ -239,7 +239,8 @@ mod internal {
                 .retrieve_package_name()
                 .wrap_err("Failed to retrieve package name")?;
 
-            let full_out_dir = self.out_dir.join("wasm32-unknown-unknown/release/");
+            let build_mode_dir = if self.release { "release" } else { "debug" };
+            let full_out_dir = self.out_dir.join(format!("wasm32-unknown-unknown/{build_mode_dir}/"));
             let wasm_file = full_out_dir.join(package_name).with_extension("wasm");
 
             let previous_hash = if wasm_file.exists() {
