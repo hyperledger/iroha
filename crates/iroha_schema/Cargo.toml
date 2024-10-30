@@ -17,5 +17,5 @@ serde = { workspace = true, features = ["derive", "alloc"] }
 
 [dev-dependencies]
 parity-scale-codec = { workspace = true, default-features = false, features = ["derive", "full"] }
-serde_json = { workspace = true, features = ["alloc"] }
+serde_json = { workspace = true }
 impls = { workspace = true }

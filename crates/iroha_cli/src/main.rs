@@ -1260,7 +1260,7 @@ mod multisig {
                 .parse()
                 .unwrap();
             let args = MultisigAccountArgs {
-                account: account.signatory.clone(),
+                account: account.signatory().clone(),
                 signatories: signatories.into_iter().zip(weights).collect(),
                 quorum,
                 transaction_ttl_ms: transaction_ttl
@@ -1377,7 +1377,7 @@ mod multisig {
 
         for role_id in multisig_roles {
             let super_account: AccountId = role_id
-                .name
+                .name()
                 .as_ref()
                 .strip_prefix("multisig_signatory_")
                 .unwrap()
@@ -1388,7 +1388,7 @@ mod multisig {
             trace_back_from(super_account, client, context)?;
 
             let transactions_registry_id: TriggerId = role_id
-                .name
+                .name()
                 .as_ref()
                 .replace("signatory", "transactions")
                 .parse()
