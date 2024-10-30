@@ -18,7 +18,7 @@ main() {
     for arg in "$@"; do
         case $arg in
             "--release")
-                OPTIMIZE_FLAG="--release"
+                RELEASE_FLAG="--release"
                 ;;
             "--help")
                 SHOW_HELP=true
