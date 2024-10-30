@@ -36,7 +36,7 @@ command() {
     case $1 in
         "libs")
             build $1
-            cp -r "$TARGET_DIR/$1" "$DEFAULTS_DIR/$1"
+            cp -r "$TARGET_DIR/$1" "$DEFAULTS_DIR/"
             mv "$DEFAULTS_DIR/$1/default_executor.wasm" "$DEFAULTS_DIR/executor.wasm"
             echo "info: copied wasm $1 to $DEFAULTS_DIR/$1/"
             echo "info: copied default executor to $DEFAULTS_DIR/executor.wasm"
