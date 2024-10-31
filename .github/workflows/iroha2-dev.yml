@@ -10,6 +10,7 @@ env:
   WASM_TARGET_DIR: wasm/target/prebuilt
   ARTIFACTS_DIR: tmp/artifacts
   BIN_PATH: /usr/local/bin
+  PROFILE: profiling
 
 jobs:
   build_wasm_libs:
@@ -20,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build wasm libs
-        run: ./scripts/build_wasm.sh libs
+        run: ./scripts/build_wasm.sh --profile=${{ env.PROFILE }} --target=libs
       - name: Upload wasm libs to reuse in other jobs
         uses: actions/upload-artifact@v4
         with:

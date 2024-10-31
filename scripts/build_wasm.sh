@@ -4,26 +4,42 @@ set -e;
 DEFAULTS_DIR="defaults"
 CRATES_DIR="wasm"
 TARGET_DIR="wasm/target/prebuilt"
-
-# Default options
-DEFAULT_RELEASE_FLAG=""
-DEFAULT_SHOW_HELP=false
-
-# Build options
-RELEASE_FLAG=$DEFAULT_RELEASE_FLAG
-SHOW_HELP=$DEFAULT_SHOW_HELP
+PROFILE="profiling"
+TARGET="all"
+SHOW_HELP=false
 
 main() {
     # Parse args
     for arg in "$@"; do
         case $arg in
-            "--release")
-                RELEASE_FLAG="--release"
+            --profile=*)
+                PROFILE="${arg#*=}"
                 ;;
-            "--help")
+            --help)
                 SHOW_HELP=true
+                ;;
+            --target=*)
+                TARGET="${arg#*=}"
+                ;;
+            *)
+                echo "error: unrecognized arg: $arg"
+                exit 1
+                ;;
         esac
     done
+
+    case $PROFILE in
+        "deploy")
+            RELEASE_FLAG="--release"
+            ;;
+        "profiling")
+            RELEASE_FLAG=""
+            ;;
+        *)
+            echo "error: unrecognized profile: $PROFILE. Profile can be either [deploy, profiling]"
+            exit 1
+            ;;
+    esac
 
     if $SHOW_HELP; then
         print_help
@@ -31,17 +47,19 @@ main() {
     fi
 
     # Parse target
-    case ${!#} in
+    case $TARGET in
         "libs")
             command "libs"
             ;;
         "samples")
             command "samples"
             ;;
-        *)
+        "all")
             command "libs"
             command "samples"
             ;;
+        *)
+            echo "error: unrecognized target: $TARGET. Target can be either [libs, samples, all]"
     esac
 }
 
@@ -89,16 +107,16 @@ command() {
 
 print_help() {
     cat << END
-Usage: build_wasm.sh [OPTIONS] [TARGET]
+Usage: $0 [OPTIONS]
 
 Options:
-  --help           Show help message.
-  --release        Enable release and size optimizations for the build.
+  --profile=<value>   Specify build profile (default: profiling)
+                      Possible values: profiling, deploy
 
-Targets:
-  libs             Specify to build libs.
-  samples          Specify to build samples.
-                   If omitted, both libraries and samples will be built.
+  --target=<value>    Specify build target (default: all)
+                      Possible values: samples, libs, all
+
+  --help              Show help message
 END
 }
 

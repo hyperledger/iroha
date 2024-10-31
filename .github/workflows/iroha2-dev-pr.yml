@@ -22,6 +22,7 @@ env:
   WASM_TARGET_DIR: wasm/target/prebuilt
   TEST_NETWORK_TMP_DIR: /tmp
   NEXTEST_PROFILE: ci
+  PROFILE: profiling
 
 jobs:
   consistency:
@@ -71,7 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: ./scripts/build_wasm.sh
+        run: ./scripts/build_wasm.sh --profile=${{ env.PROFILE }} 
       - name: Upload all built WASMs
         uses: actions/upload-artifact@v4
         with:

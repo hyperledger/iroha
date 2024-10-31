@@ -51,7 +51,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.CHECKOUT_REF }}
       - name: Build wasm libs
-        run: ./scripts/build_wasm.sh libs
+        run: ./scripts/build_wasm.sh --profile=${{ env.IROHA2_PROFILE }} --target=libs
       - name: Upload wasm libs to reuse in other jobs
         uses: actions/upload-artifact@v4
         with:

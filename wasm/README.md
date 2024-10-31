@@ -11,11 +11,11 @@ bash scripts/build_wasm.sh
 ## WASM libraries only
 
 ```bash
-bash scripts/build_wasm.sh libs
+bash scripts/build_wasm.sh --target=libs
 ```
 
 ## WASM samples only
 
 ```bash
-bash scripts/build_wasm.sh samples
+bash scripts/build_wasm.sh --target=samples
 ```
