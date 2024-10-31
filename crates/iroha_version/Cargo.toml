@@ -28,7 +28,7 @@ iroha_version_derive = { path = "../iroha_version_derive", default-features = fa
 iroha_macro = { workspace = true }
 
 parity-scale-codec = { workspace = true, optional = true, features = ["derive"] }
-serde_json = { workspace = true, optional = true, features = ["alloc"] }
+serde_json = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 thiserror = { workspace = true, optional = true }
 

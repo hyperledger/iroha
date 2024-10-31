@@ -433,7 +433,7 @@ impl TryFrom<WasmPath> for WasmSmartContract {
 impl WasmPath {
     /// Resolve `self` to `here/self`,
     /// assuming `self` is an unresolved relative path to `here`.
-    /// Must be applied once.
+    /// In case `self` is absolute, it replaces `here` i.e. this method mutates nothing.
     fn resolve(&mut self, here: impl AsRef<Path>) {
         self.0 = here.as_ref().join(&self.0)
     }

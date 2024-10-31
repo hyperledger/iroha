@@ -243,12 +243,14 @@ impl std::fmt::Display for ContainerFile<'_> {
     }
 }
 
+const GENESIS_FILE: Filename = Filename("genesis.json");
 const CONFIG_FILE: Filename = Filename("client.toml");
 const GENESIS_SIGNED_SCALE: Filename = Filename("genesis.signed.scale");
 
 const CONTAINER_CONFIG_DIR: ContainerPath = ContainerPath("/config/");
 const CONTAINER_TMP_DIR: ContainerPath = ContainerPath("/tmp/");
 
+const CONTAINER_GENESIS_CONFIG: ContainerFile = ContainerFile(CONTAINER_CONFIG_DIR, GENESIS_FILE);
 const CONTAINER_CLIENT_CONFIG: ContainerFile = ContainerFile(CONTAINER_CONFIG_DIR, CONFIG_FILE);
 const CONTAINER_SIGNED_GENESIS: ContainerFile =
     ContainerFile(CONTAINER_TMP_DIR, GENESIS_SIGNED_SCALE);
@@ -261,7 +263,7 @@ struct ReadOnly;
 struct PathMapping<'a>(HostFile<'a>, ContainerFile<'a>, ReadOnly);
 
 /// Mapping between host and container paths.
-type Volumes<'a> = [PathMapping<'a>; 1];
+type Volumes<'a> = [PathMapping<'a>; 2];
 
 /// Healthcheck parameters.
 #[derive(Debug)]
@@ -326,10 +328,15 @@ where
 struct SignAndSubmitGenesis;
 
 const SIGN_AND_SUBMIT_GENESIS: &str = r#"/bin/bash -c "
-    kagami genesis generate --executor ../config/executor.wasm --wasm-dir ../config/libs --genesis-public-key $$GENESIS_PUBLIC_KEY > /tmp/genesis.default.json
+    EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+    EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+    WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+    WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
     jq \\
+        --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+        --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
         --argjson topology \"$$TOPOLOGY\" \\
-        '.topology = $$topology' /tmp/genesis.default.json \\
+        '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
         >/tmp/genesis.json && \\
     kagami genesis sign /tmp/genesis.json \\
         --public-key $$GENESIS_PUBLIC_KEY \\
@@ -528,11 +535,18 @@ impl<'a> DockerCompose<'a> {
         }: &'a PeerSettings,
     ) -> Self {
         let image = ImageId(name);
-        let volumes = [PathMapping(
-            HostFile(config_dir, CONFIG_FILE),
-            CONTAINER_CLIENT_CONFIG,
-            ReadOnly,
-        )];
+        let volumes = [
+            PathMapping(
+                HostFile(config_dir, GENESIS_FILE),
+                CONTAINER_GENESIS_CONFIG,
+                ReadOnly,
+            ),
+            PathMapping(
+                HostFile(config_dir, CONFIG_FILE),
+                CONTAINER_CLIENT_CONFIG,
+                ReadOnly,
+            ),
+        ];
         Self {
             services: build_dir.as_ref().map_or_else(
                 || {

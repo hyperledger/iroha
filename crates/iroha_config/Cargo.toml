@@ -13,8 +13,8 @@ workspace = true
 [dependencies]
 iroha_config_base = { workspace = true }
 iroha_data_model = { workspace = true }
-iroha_primitives = { workspace = true }
-iroha_crypto = { workspace = true }
+iroha_primitives = { workspace = true, features = ["std"] }
+iroha_crypto = { workspace = true, features = ["std"] }
 
 error-stack = { workspace = true }
 tracing = { workspace = true }
@@ -23,7 +23,7 @@ url = { workspace = true, features = ["serde"] }
 
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true }
-strum = { workspace = true, features = ["derive"] }
+strum = { workspace = true, features = ["derive", "std"] }
 serde_json = { workspace = true }
 json5 = { workspace = true }
 thiserror = { workspace = true }
