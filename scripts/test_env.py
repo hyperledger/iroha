@@ -58,7 +58,7 @@ class Network:
             tomli_w.dump(shared_config, f)
 
         copy_or_prompt_build_bin("irohad", args.root_dir, peers_dir)
-        generate_genesis_json_and_change_topology(args, genesis_path, genesis_public_key, trusted_peers)
+        copy_genesis_json_and_change_topology(args, genesis_path, trusted_peers)
         sign_genesis_with_kagami(args, genesis_path, genesis_public_key, genesis_private_key)
 
 
@@ -194,28 +194,22 @@ def kagami_generate_key_pair(out_dir: pathlib.Path, seed: str = None):
     # dict with `{ public_key: string, private_key: string }`
     return json.loads(kagami.stdout)
 
-def generate_genesis_json_and_change_topology(args: argparse.Namespace, genesis_path, genesis_public_key, topology):
-    genesis_dir_abs = genesis_path.parent.resolve()
-    executor_abs = (args.root_dir / SWARM_CONFIGS_DIRECTORY / "executor.wasm").resolve()
-    wasm_dir_abs = (args.root_dir / SWARM_CONFIGS_DIRECTORY / "libs").resolve()
-    executor_rel = executor_abs.relative_to(genesis_dir_abs, walk_up=True)
-    wasm_dir_rel = wasm_dir_abs.relative_to(genesis_dir_abs, walk_up=True)
-
-    command = [
-        args.out_dir / "kagami",
-        "genesis",
-        "generate",
-        "--executor", executor_rel,
-        "--wasm-dir", wasm_dir_rel,
-        "--genesis-public-key", genesis_public_key
-    ]
-    kagami = subprocess.run(command, capture_output=True)
-    if kagami.returncode:
-        logging.error("Kagami failed to generate genesis.json")
+def copy_genesis_json_and_change_topology(args: argparse.Namespace, genesis_path, topology):
+    source_path = args.root_dir / SWARM_CONFIGS_DIRECTORY / "genesis.json"
+    try:
+        with open(source_path, 'r') as f:
+            genesis = json.load(f)
+    except FileNotFoundError:
+        logging.error(f"genesis config not found at {source_path}")
         sys.exit(1)
 
-    genesis = json.loads(kagami.stdout)
+    # Early resolution to absolute paths:
+    # When the resulting genesis.json parsed, the second resolution doesn't affect them
+    executor_abs = (args.root_dir / SWARM_CONFIGS_DIRECTORY / genesis["executor"]).resolve()
+    wasm_dir_abs = (args.root_dir / SWARM_CONFIGS_DIRECTORY / genesis["wasm_dir"]).resolve()
 
+    genesis["executor"] = str(executor_abs)
+    genesis["wasm_dir"] = str(wasm_dir_abs)
     genesis["topology"] = topology
 
     with open(genesis_path, 'w') as f:

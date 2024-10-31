@@ -196,14 +196,20 @@ mod tests {
                 - 1337:1337
                 - 8080:8080
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 command: |-
                   /bin/bash -c "
-                      kagami genesis generate --executor ../config/executor.wasm --wasm-dir ../config/libs --genesis-public-key $$GENESIS_PUBLIC_KEY > /tmp/genesis.default.json
+                      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+                      WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
                       jq \\
+                          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
                           --argjson topology \"$$TOPOLOGY\" \\
-                          '.topology = $$topology' /tmp/genesis.default.json \\
+                          '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
                           >/tmp/genesis.json && \\
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
@@ -246,14 +252,20 @@ mod tests {
                 - 1337:1337
                 - 8080:8080
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 command: |-
                   /bin/bash -c "
-                      kagami genesis generate --executor ../config/executor.wasm --wasm-dir ../config/libs --genesis-public-key $$GENESIS_PUBLIC_KEY > /tmp/genesis.default.json
+                      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+                      WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
                       jq \\
+                          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
                           --argjson topology \"$$TOPOLOGY\" \\
-                          '.topology = $$topology' /tmp/genesis.default.json \\
+                          '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
                           >/tmp/genesis.json && \\
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
@@ -296,14 +308,20 @@ mod tests {
                 - 1337:1337
                 - 8080:8080
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 command: |-
                   /bin/bash -c "
-                      kagami genesis generate --executor ../config/executor.wasm --wasm-dir ../config/libs --genesis-public-key $$GENESIS_PUBLIC_KEY > /tmp/genesis.default.json
+                      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+                      WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
                       jq \\
+                          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
                           --argjson topology \"$$TOPOLOGY\" \\
-                          '.topology = $$topology' /tmp/genesis.default.json \\
+                          '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
                           >/tmp/genesis.json && \\
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
@@ -329,6 +347,7 @@ mod tests {
                 - 1338:1338
                 - 8081:8081
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
               irohad2:
@@ -348,6 +367,7 @@ mod tests {
                 - 1339:1339
                 - 8082:8082
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
               irohad3:
@@ -367,6 +387,7 @@ mod tests {
                 - 1340:1340
                 - 8083:8083
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
         "##]).assert_eq(&build_as_string(
@@ -398,6 +419,7 @@ mod tests {
                 - 1337:1337
                 - 8080:8080
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 healthcheck:
@@ -408,10 +430,15 @@ mod tests {
                   start_period: 4s
                 command: |-
                   /bin/bash -c "
-                      kagami genesis generate --executor ../config/executor.wasm --wasm-dir ../config/libs --genesis-public-key $$GENESIS_PUBLIC_KEY > /tmp/genesis.default.json
+                      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+                      WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
                       jq \\
+                          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
                           --argjson topology \"$$TOPOLOGY\" \\
-                          '.topology = $$topology' /tmp/genesis.default.json \\
+                          '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
                           >/tmp/genesis.json && \\
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
@@ -451,6 +478,7 @@ mod tests {
                 - 1337:1337
                 - 8080:8080
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 healthcheck:
@@ -461,10 +489,15 @@ mod tests {
                   start_period: 4s
                 command: |-
                   /bin/bash -c "
-                      kagami genesis generate --executor ../config/executor.wasm --wasm-dir ../config/libs --genesis-public-key $$GENESIS_PUBLIC_KEY > /tmp/genesis.default.json
+                      EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
+                      EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+                      WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
                       jq \\
+                          --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
                           --argjson topology \"$$TOPOLOGY\" \\
-                          '.topology = $$topology' /tmp/genesis.default.json \\
+                          '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
                           >/tmp/genesis.json && \\
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
@@ -488,6 +521,7 @@ mod tests {
                 - 1338:1338
                 - 8081:8081
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 healthcheck:
@@ -511,6 +545,7 @@ mod tests {
                 - 1339:1339
                 - 8082:8082
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 healthcheck:
@@ -534,6 +569,7 @@ mod tests {
                 - 1340:1340
                 - 8083:8083
                 volumes:
+                - ./genesis.json:/config/genesis.json:ro
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 healthcheck:
