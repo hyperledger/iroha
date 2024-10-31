@@ -270,9 +270,11 @@ pub struct SumeragiDebug {
 
 #[derive(Debug, Clone, ReadConfig)]
 pub struct Network {
-    /// Peer-to-peer address
+    /// Peer-to-peer address (internal, will be used only to bind to it).
     #[config(env = "P2P_ADDRESS")]
     pub address: WithOrigin<SocketAddr>,
+    /// Peer-to-peer address (external, as seen by other peers).
+    /// Will be gossiped to connected peers so that they can gossip it to other peers.
     #[config(env = "P2P_PUBLIC_ADDRESS")]
     pub public_address: WithOrigin<SocketAddr>,
     #[config(default = "defaults::network::BLOCK_GOSSIP_SIZE")]

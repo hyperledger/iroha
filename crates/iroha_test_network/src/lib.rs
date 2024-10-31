@@ -316,7 +316,7 @@ impl NetworkBuilder {
     pub fn build(self) -> Network {
         let peers: Vec<_> = (0..self.n_peers).map(|_| NetworkPeer::generate()).collect();
 
-        let topology: UniqueVec<_> = peers.iter().map(|peer| peer.id()).collect();
+        let topology: UniqueVec<_> = peers.iter().map(|peer| peer.peer_id()).collect();
 
         let block_sync_gossip_period = DEFAULT_BLOCK_SYNC;
 
@@ -782,7 +782,7 @@ impl NetworkPeer {
     }
 
     /// Generated [`PeerId`]
-    pub fn id(&self) -> PeerId {
+    pub fn peer_id(&self) -> PeerId {
         self.id.id.clone()
     }
 
