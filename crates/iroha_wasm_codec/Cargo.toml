@@ -14,4 +14,4 @@ iroha_wasm_codec_derive = { path = "../iroha_wasm_codec_derive" }
 
 thiserror = { workspace = true }
 wasmtime = { workspace = true }
-parity-scale-codec = { workspace = true, features = ["derive"] }
+parity-scale-codec = { workspace = true, features = ["derive", "std"] }
