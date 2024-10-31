@@ -11,13 +11,8 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-iroha_data_model = { workspace = true, features = ["http"] }
-iroha_executor_data_model = { workspace = true }
-iroha_primitives = { workspace = true }
 iroha_schema = { workspace = true }
 iroha_schema_gen = { workspace = true }
-iroha_crypto = { workspace = true }
-iroha_version = { workspace = true }
 iroha_genesis = { workspace = true }
 
 clap = { workspace = true, features = ["derive", "cargo", "env", "string"] }
@@ -27,6 +22,9 @@ colored = "2.1.0"
 serde_json = { workspace = true, features = ["std"]}
 serde = { workspace = true }
 supports-color = { workspace = true }
+
+[dev-dependencies]
+iroha_data_model = { workspace = true }
 
 [build-dependencies]
 iroha_data_model = { workspace = true }

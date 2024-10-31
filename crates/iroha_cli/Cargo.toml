@@ -29,12 +29,12 @@ path = "src/main.rs"
 [dependencies]
 iroha = { workspace = true }
 iroha_primitives = { workspace = true }
-iroha_config_base = { workspace = true }
 
 thiserror = { workspace = true }
 error-stack = { workspace = true, features = ["eyre"] }
 eyre = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+humantime = { workspace = true }
 json5 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

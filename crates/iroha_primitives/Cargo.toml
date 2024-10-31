@@ -47,5 +47,4 @@ serde_json = { workspace = true }
 
 
 [dev-dependencies]
-serde_json = { workspace = true, features = ["alloc"] }
 trybuild = { workspace = true }

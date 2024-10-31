@@ -37,6 +37,7 @@ class Network:
 
         logging.info("Generating shared configuration...")
         trusted_peers = [{"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key} for peer in self.peers]
+        genesis_path = pathlib.Path(args.out_dir) / "genesis.json"
         genesis_key_pair = kagami_generate_key_pair(args.out_dir, seed="Irohagenesis")
         genesis_public_key = genesis_key_pair["public_key"]
         genesis_private_key = genesis_key_pair["private_key"]
@@ -57,8 +58,8 @@ class Network:
             tomli_w.dump(shared_config, f)
 
         copy_or_prompt_build_bin("irohad", args.root_dir, peers_dir)
-        copy_genesis_json_and_change_topology(args, trusted_peers)
-        sign_genesis_with_kagami(args, genesis_public_key, genesis_private_key)
+        copy_genesis_json_and_change_topology(args, genesis_path, trusted_peers)
+        sign_genesis_with_kagami(args, genesis_path, genesis_public_key, genesis_private_key)
 
 
     def wait_for_genesis(self, n_tries: int):
@@ -193,25 +194,28 @@ def kagami_generate_key_pair(out_dir: pathlib.Path, seed: str = None):
     # dict with `{ public_key: string, private_key: string }`
     return json.loads(kagami.stdout)
 
-def copy_genesis_json_and_change_topology(args: argparse.Namespace, topology):
+def copy_genesis_json_and_change_topology(args: argparse.Namespace, genesis_path, topology):
+    source_path = args.root_dir / SWARM_CONFIGS_DIRECTORY / "genesis.json"
     try:
-        with open(args.root_dir / SWARM_CONFIGS_DIRECTORY / "genesis.json", 'r') as f:
+        with open(source_path, 'r') as f:
             genesis = json.load(f)
     except FileNotFoundError:
-        target = args.root_dir / SWARM_CONFIGS_DIRECTORY
-        logging.error(f"`genesis.json` config file is missing in the `{target}` directory")
+        logging.error(f"genesis config not found at {source_path}")
         sys.exit(1)
 
-    executor_path = args.root_dir / SWARM_CONFIGS_DIRECTORY / genesis["executor"]
-    genesis["executor"] = str(executor_path.resolve())
+    # Early resolution to absolute paths:
+    # When the resulting genesis.json parsed, the second resolution doesn't affect them
+    executor_abs = (args.root_dir / SWARM_CONFIGS_DIRECTORY / genesis["executor"]).resolve()
+    wasm_dir_abs = (args.root_dir / SWARM_CONFIGS_DIRECTORY / genesis["wasm_dir"]).resolve()
+
+    genesis["executor"] = str(executor_abs)
+    genesis["wasm_dir"] = str(wasm_dir_abs)
     genesis["topology"] = topology
 
-    with open(args.out_dir / "genesis.json", 'w') as f:
+    with open(genesis_path, 'w') as f:
         json.dump(genesis, f, indent=4)
 
-def sign_genesis_with_kagami(args: argparse.Namespace, genesis_public_key, genesis_private_key):
-    genesis_path = args.out_dir / "genesis.json"
-
+def sign_genesis_with_kagami(args: argparse.Namespace, genesis_path, genesis_public_key, genesis_private_key):
     command = [
         args.out_dir / "kagami",
         "genesis",

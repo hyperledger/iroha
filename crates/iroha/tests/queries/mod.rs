@@ -41,9 +41,9 @@ fn find_blocks_reversed() -> eyre::Result<()> {
 
     let blocks = client.query(FindBlocks).execute_all()?;
     assert_eq!(blocks.len(), 2);
-    assert_eq!(blocks[1].header().prev_block_hash, None);
+    assert_eq!(blocks[1].header().prev_block_hash(), None);
     assert_eq!(
-        blocks[0].header().prev_block_hash,
+        blocks[0].header().prev_block_hash(),
         Some(blocks[1].header().hash())
     );
 

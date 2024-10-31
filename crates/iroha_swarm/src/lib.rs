@@ -203,10 +203,13 @@ mod tests {
                   /bin/bash -c "
                       EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
                       EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+                      WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
                       jq \\
                           --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
                           --argjson topology \"$$TOPOLOGY\" \\
-                          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                          '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
                           >/tmp/genesis.json && \\
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
@@ -256,10 +259,13 @@ mod tests {
                   /bin/bash -c "
                       EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
                       EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+                      WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
                       jq \\
                           --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
                           --argjson topology \"$$TOPOLOGY\" \\
-                          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                          '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
                           >/tmp/genesis.json && \\
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
@@ -309,10 +315,13 @@ mod tests {
                   /bin/bash -c "
                       EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
                       EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+                      WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
                       jq \\
                           --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
                           --argjson topology \"$$TOPOLOGY\" \\
-                          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                          '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
                           >/tmp/genesis.json && \\
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
@@ -423,10 +432,13 @@ mod tests {
                   /bin/bash -c "
                       EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
                       EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+                      WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
                       jq \\
                           --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
                           --argjson topology \"$$TOPOLOGY\" \\
-                          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                          '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
                           >/tmp/genesis.json && \\
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\
@@ -479,10 +491,13 @@ mod tests {
                   /bin/bash -c "
                       EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
                       EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
+                      WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
+                      WASM_DIR_ABSOLUTE_PATH=$(realpath \"/config/$$WASM_DIR_RELATIVE_PATH\") && \\
                       jq \\
                           --arg executor \"$$EXECUTOR_ABSOLUTE_PATH\" \\
+                          --arg wasm_dir \"$$WASM_DIR_ABSOLUTE_PATH\" \\
                           --argjson topology \"$$TOPOLOGY\" \\
-                          '.executor = $$executor | .topology = $$topology' /config/genesis.json \\
+                          '.executor = $$executor | .wasm_dir = $$wasm_dir | .topology = $$topology' /config/genesis.json \\
                           >/tmp/genesis.json && \\
                       kagami genesis sign /tmp/genesis.json \\
                           --public-key $$GENESIS_PUBLIC_KEY \\

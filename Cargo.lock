@@ -2924,6 +2924,7 @@ dependencies = [
  "iroha_executor_data_model",
  "iroha_genesis",
  "iroha_logger",
+ "iroha_multisig_data_model",
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_test_network",
@@ -2956,8 +2957,8 @@ dependencies = [
  "erased-serde",
  "error-stack",
  "eyre",
+ "humantime",
  "iroha",
- "iroha_config_base",
  "iroha_primitives",
  "json5",
  "serde",
@@ -2974,14 +2975,10 @@ dependencies = [
  "clap",
  "colored",
  "eyre",
- "iroha_crypto",
  "iroha_data_model",
- "iroha_executor_data_model",
  "iroha_genesis",
- "iroha_primitives",
  "iroha_schema",
  "iroha_schema_gen",
- "iroha_version",
  "parity-scale-codec",
  "serde",
  "serde_json",
@@ -3303,6 +3300,7 @@ dependencies = [
  "eyre",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_schema",
  "iroha_test_samples",
  "parity-scale-codec",
@@ -3369,6 +3367,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_multisig_data_model"
+version = "2.0.0-rc.1.0"
+dependencies = [
+ "iroha_data_model",
+ "iroha_schema",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "iroha_numeric"
 version = "2.0.0-rc.1.0"
 dependencies = [
@@ -3400,7 +3409,6 @@ dependencies = [
  "iroha_futures",
  "iroha_logger",
  "iroha_primitives",
- "iroha_test_network",
  "parity-scale-codec",
  "rand",
  "thiserror",
@@ -3474,6 +3482,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_executor_data_model",
  "iroha_genesis",
+ "iroha_multisig_data_model",
  "iroha_primitives",
  "iroha_schema",
 ]
@@ -3568,7 +3577,6 @@ dependencies = [
 name = "iroha_telemetry_derive"
 version = "2.0.0-rc.1.0"
 dependencies = [
- "iroha_core",
  "iroha_macro_utils",
  "manyhow",
  "proc-macro2",
@@ -3588,7 +3596,6 @@ dependencies = [
  "futures",
  "iroha",
  "iroha_config",
- "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
  "iroha_executor_data_model",

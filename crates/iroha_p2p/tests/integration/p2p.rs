@@ -301,12 +301,12 @@ async fn start_network(
     barrier: Arc<Barrier>,
     shutdown_signal: ShutdownSignal,
 ) -> (PeerId, NetworkHandle<TestMessage>) {
-    info!(peer_addr = %peer.address, "Starting network");
+    info!(peer_addr = %peer.address(), "Starting network");
 
     // This actor will get the messages from other peers and increment the counter
     let actor = TestActor::start(messages);
 
-    let PeerId { address, .. } = peer.clone();
+    let address = peer.address().clone();
     let idle_timeout = Duration::from_secs(60);
     let config = Config {
         address: WithOrigin::inline(address),
@@ -329,14 +329,14 @@ async fn start_network(
     tokio::time::timeout(Duration::from_millis(10_000), async {
         let mut connections = network.wait_online_peers_update(HashSet::len).await;
         while conn_count != connections {
-            info!(peer_addr = %peer.address, %connections);
+            info!(peer_addr = %peer.address(), %connections);
             connections = network.wait_online_peers_update(HashSet::len).await;
         }
     })
     .await
     .expect("Failed to get all connections");
 
-    info!(peer_addr = %peer.address, %conn_count, "Got all connections!");
+    info!(peer_addr = %peer.address(), %conn_count, "Got all connections!");
 
     (peer, network)
 }

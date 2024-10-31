@@ -341,7 +341,7 @@ fn only_account_with_permission_can_register_trigger() -> Result<()> {
         .filter_with(|trigger| trigger.id.eq(trigger_id.clone()))
         .execute_single()?;
 
-    assert_eq!(found_trigger.id, trigger_id);
+    assert_eq!(*found_trigger.id(), trigger_id);
 
     Ok(())
 }
@@ -374,17 +374,17 @@ fn unregister_trigger() -> Result<()> {
         .query(FindTriggers::new())
         .filter_with(|trigger| trigger.id.eq(trigger_id.clone()))
         .execute_single()?;
-    let found_action = found_trigger.action;
-    let Executable::Instructions(found_instructions) = found_action.executable else {
+    let found_action = found_trigger.action();
+    let Executable::Instructions(found_instructions) = found_action.executable() else {
         panic!("Expected instructions");
     };
     let found_trigger = Trigger::new(
-        found_trigger.id,
+        found_trigger.id().clone(),
         Action::new(
-            Executable::Instructions(found_instructions),
-            found_action.repeats,
-            found_action.authority,
-            found_action.filter,
+            Executable::Instructions(found_instructions.to_owned()),
+            found_action.repeats(),
+            found_action.authority().clone(),
+            found_action.filter().clone(),
         ),
     );
     assert_eq!(found_trigger, trigger);

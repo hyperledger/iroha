@@ -26,7 +26,7 @@ async fn multiple_blocks_created() -> Result<()> {
     // Given
     let network = NetworkBuilder::new()
         .with_peers(4)
-        .with_genesis_instruction(SetParameter(Parameter::Block(
+        .with_genesis_instruction(SetParameter::new(Parameter::Block(
             BlockParameter::MaxTransactions(NonZero::new(N_MAX_TXS_PER_BLOCK).expect("valid")),
         )))
         .with_pipeline_time(Duration::from_secs(1))

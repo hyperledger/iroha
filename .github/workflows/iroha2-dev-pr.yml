@@ -18,8 +18,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   IROHA_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
-  DOCKER_COMPOSE_PATH: defaults
-  WASM_SAMPLES_TARGET_DIR: wasm_samples/target/prebuilt
+  DEFAULTS_DIR: defaults
+  WASM_TARGET_DIR: wasm/target/prebuilt
   TEST_NETWORK_TMP_DIR: /tmp
   NEXTEST_PROFILE: ci
 
@@ -63,7 +63,7 @@ jobs:
           name: report-clippy
           path: clippy.json
 
-  build_wasm_samples:
+  build_wasm:
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
@@ -71,41 +71,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: ./scripts/build_wasm_samples.sh
+        run: ./scripts/build_wasm.sh
       - name: Upload all built WASMs
         uses: actions/upload-artifact@v4
         with:
-          name: wasm_samples
-          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
-          retention-days: 1
-      - name: Upload executor.wasm specifically
-        uses: actions/upload-artifact@v4
-        with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}/executor.wasm
+          name: wasm
+          path: ${{ env.WASM_TARGET_DIR }}
           retention-days: 1
 
   test_with_coverage:
     runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
-    needs: build_wasm_samples
+    needs: build_wasm
     env:
       LLVM_PROFILE_FILE_NAME: "iroha-%p-%m.profraw"
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@nextest
       - uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Download executor.wasm
+      - name: Download wasm
         uses: actions/download-artifact@v4
         with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}
-      - name: Download the rest of WASM samples
-        uses: actions/download-artifact@v4
-        with:
-          name: wasm_samples
-          path: ${{ env.WASM_SAMPLES_TARGET_DIR }}
+          name: wasm
+          path: ${{ env.WASM_TARGET_DIR }}
+      - name: Move wasm libs
+        run: |
+          mv ${{ env.WASM_TARGET_DIR }}/libs ${{ env.DEFAULTS_DIR }}/libs
+          mv ${{ env.DEFAULTS_DIR }}/libs/default_executor.wasm ${{ env.DEFAULTS_DIR }}/executor.wasm
       - name: Install irohad
         run: which irohad || cargo install --path crates/irohad --locked
       - name: Test with no default features
@@ -169,7 +162,7 @@ jobs:
           context: .
 
   docker-compose-and-pytests:
-    needs: build_wasm_samples
+    needs: build_wasm
     runs-on: [self-hosted, Linux, iroha2]
     timeout-minutes: 60
     env:
@@ -181,11 +174,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Download executor.wasm
+      - name: Download wasm libs
         uses: actions/download-artifact@v4
         with:
-          name: executor.wasm
-          path: ${{ env.DOCKER_COMPOSE_PATH }}
+          name: wasm
+          path: ${{ env.WASM_TARGET_DIR }}
+      - name: Move wasm libs
+        run: |
+          mv ${{ env.WASM_TARGET_DIR }}/libs ${{ env.DEFAULTS_DIR }}/libs
+          mv ${{ env.DEFAULTS_DIR }}/libs/default_executor.wasm ${{ env.DEFAULTS_DIR }}/executor.wasm
       - name: Install Python and Poetry
         run: |
           yum install -y python${{ env.PYTHON_VERSION }} python${{ env.PYTHON_VERSION }}-devel
@@ -211,14 +208,14 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Test docker-compose.single.yml
         run: |
-          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.single.yml up --wait || exit 1
-          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.single.yml down
+          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml up --wait || exit 1
+          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml down
       - name: Test docker-compose.local.yml
         run: |
-          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml up --wait || exit 1
-          docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml down
+          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml up --wait || exit 1
+          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml down
       - name: Run docker-compose.yml containers
-        run: docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml up --wait || exit 1
+        run: docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.yml up --wait || exit 1
       - name: Install Torii pytest dependencies
         working-directory: pytests/iroha_torii_tests
         run: ${{ env.POETRY_PATH }} install
@@ -248,8 +245,8 @@ jobs:
             cd pytests/iroha_cli_tests
             ${{ env.POETRY_PATH }} run pytest
           on_retry_command: |
-            docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml down
-            docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.local.yml up --wait || exit 1
+            docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.yml down
+            docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml up --wait || exit 1
       - name: Wipe docker-compose.yml containers
         if: always()
-        run: docker compose -f ${{ env.DOCKER_COMPOSE_PATH }}/docker-compose.yml down
+        run: docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.yml down
