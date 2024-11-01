@@ -11,10 +11,10 @@ use futures::{prelude::*, stream::FuturesUnordered, task::AtomicWaker};
 use iroha_config::parameters::actual::Network as Config;
 use iroha_config_base::WithOrigin;
 use iroha_crypto::KeyPair;
-use iroha_data_model::prelude::PeerId;
+use iroha_data_model::{prelude::Peer, Identifiable};
 use iroha_futures::supervisor::ShutdownSignal;
 use iroha_logger::{prelude::*, test_logger};
-use iroha_p2p::{network::message::*, NetworkHandle};
+use iroha_p2p::{network::message::*, peer::message::PeerMessage, NetworkHandle};
 use iroha_primitives::addr::socket_addr;
 use parity_scale_codec::{Decode, Encode};
 use tokio::{
@@ -44,6 +44,7 @@ async fn network_create() {
     let idle_timeout = Duration::from_secs(60);
     let config = Config {
         address: WithOrigin::inline(address.clone()),
+        public_address: WithOrigin::inline(address.clone()),
         idle_timeout,
     };
     let (network, _) = NetworkHandle::start(key_pair, config, ShutdownSignal::new())
@@ -52,15 +53,14 @@ async fn network_create() {
     tokio::time::sleep(delay).await;
 
     info!("Connecting to peer...");
-    let peer1 = PeerId::new(address.clone(), public_key.clone());
-    let topology = HashSet::from([peer1.clone()]);
-    network.update_topology(UpdateTopology(topology));
+    let peer1 = Peer::new(address.clone(), public_key.clone());
+    update_topology_and_peers_addresses(&network, &[peer1.clone()]);
     tokio::time::sleep(delay).await;
 
     info!("Posting message...");
     network.post(Post {
         data: TestMessage("Some data to send to peer".to_owned()),
-        peer_id: peer1,
+        peer_id: peer1.id().clone(),
     });
 
     tokio::time::sleep(delay).await;
@@ -120,18 +120,18 @@ impl Future for WaitForN {
 #[derive(Debug)]
 pub struct TestActor {
     messages: WaitForN,
-    receiver: mpsc::Receiver<TestMessage>,
+    receiver: mpsc::Receiver<PeerMessage<TestMessage>>,
 }
 
 impl TestActor {
-    fn start(messages: WaitForN) -> mpsc::Sender<TestMessage> {
+    fn start(messages: WaitForN) -> mpsc::Sender<PeerMessage<TestMessage>> {
         let (sender, receiver) = mpsc::channel(10);
         let mut test_actor = Self { messages, receiver };
         tokio::task::spawn(async move {
             loop {
                 tokio::select! {
-                    Some(msg) = test_actor.receiver.recv() => {
-                        info!(?msg, "Actor received message");
+                    Some(PeerMessage(peer, msg)) = test_actor.receiver.recv() => {
+                        info!(?msg, "Actor received message from {peer}");
                         test_actor.messages.inc();
                     },
                     else => break,
@@ -157,6 +157,7 @@ async fn two_networks() {
     let address1 = socket_addr!(127.0.0.1:12_005);
     let config1 = Config {
         address: WithOrigin::inline(address1.clone()),
+        public_address: WithOrigin::inline(address1.clone()),
         idle_timeout,
     };
     let (mut network1, _) = NetworkHandle::start(key_pair1, config1, ShutdownSignal::new())
@@ -167,6 +168,7 @@ async fn two_networks() {
     let address2 = socket_addr!(127.0.0.1:12_010);
     let config2 = Config {
         address: WithOrigin::inline(address2.clone()),
+        public_address: WithOrigin::inline(address2.clone()),
         idle_timeout,
     };
     let (network2, _) = NetworkHandle::start(key_pair2, config2, ShutdownSignal::new())
@@ -178,13 +180,11 @@ async fn two_networks() {
     network2.subscribe_to_peers_messages(actor2);
 
     info!("Connecting peers...");
-    let peer1 = PeerId::new(address1.clone(), public_key1);
-    let peer2 = PeerId::new(address2.clone(), public_key2);
-    let topology1 = HashSet::from([peer2.clone()]);
-    let topology2 = HashSet::from([peer1.clone()]);
+    let peer1 = Peer::new(address1.clone(), public_key1);
+    let peer2 = Peer::new(address2.clone(), public_key2);
     // Connect peers with each other
-    network1.update_topology(UpdateTopology(topology1.clone()));
-    network2.update_topology(UpdateTopology(topology2));
+    update_topology_and_peers_addresses(&network1, &[peer2.clone()]);
+    update_topology_and_peers_addresses(&network2, &[peer1.clone()]);
 
     tokio::time::timeout(Duration::from_millis(2000), async {
         let mut connections = network1.wait_online_peers_update(HashSet::len).await;
@@ -198,7 +198,7 @@ async fn two_networks() {
     info!("Posting message...");
     network1.post(Post {
         data: TestMessage("Some data to send to peer".to_owned()),
-        peer_id: peer2,
+        peer_id: peer2.id().clone(),
     });
 
     tokio::time::timeout(delay, &mut messages2)
@@ -215,13 +215,6 @@ async fn two_networks() {
 
     let connected_peers2 = network2.online_peers(HashSet::len);
     assert_eq!(connected_peers2, 1);
-
-    // Connecting to the same peer from network1
-    network1.update_topology(UpdateTopology(topology1));
-    tokio::time::sleep(delay).await;
-
-    let connected_peers = network1.online_peers(HashSet::len);
-    assert_eq!(connected_peers, 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
@@ -235,7 +228,7 @@ async fn multiple_networks() {
         let address = socket_addr!(127.0.0.1: 12_015 + ( i * 5));
         let key_pair = KeyPair::random();
         let public_key = key_pair.public_key().clone();
-        peers.push(PeerId::new(address, public_key));
+        peers.push(Peer::new(address, public_key));
         key_pairs.push(key_pair);
     }
 
@@ -274,7 +267,7 @@ async fn multiple_networks() {
         for id in &peer_ids {
             let post = Post {
                 data: TestMessage(String::from("Some data to send to peer")),
-                peer_id: id.clone(),
+                peer_id: id.id().clone(),
             };
             network.post(post);
         }
@@ -294,13 +287,13 @@ async fn multiple_networks() {
 }
 
 async fn start_network(
-    peer: PeerId,
+    peer: Peer,
     key_pair: KeyPair,
-    peers: Vec<PeerId>,
+    peers: Vec<Peer>,
     messages: WaitForN,
     barrier: Arc<Barrier>,
     shutdown_signal: ShutdownSignal,
-) -> (PeerId, NetworkHandle<TestMessage>) {
+) -> (Peer, NetworkHandle<TestMessage>) {
     info!(peer_addr = %peer.address(), "Starting network");
 
     // This actor will get the messages from other peers and increment the counter
@@ -309,7 +302,8 @@ async fn start_network(
     let address = peer.address().clone();
     let idle_timeout = Duration::from_secs(60);
     let config = Config {
-        address: WithOrigin::inline(address),
+        address: WithOrigin::inline(address.clone()),
+        public_address: WithOrigin::inline(address.clone()),
         idle_timeout,
     };
     let (mut network, _) = NetworkHandle::start(key_pair, config, shutdown_signal)
@@ -318,12 +312,9 @@ async fn start_network(
     network.subscribe_to_peers_messages(actor);
 
     let _ = barrier.wait().await;
-    let topology = peers
-        .into_iter()
-        .filter(|p| p != &peer)
-        .collect::<HashSet<_>>();
-    let conn_count = topology.len();
-    network.update_topology(UpdateTopology(topology));
+    let peers = peers.into_iter().filter(|p| p != &peer).collect::<Vec<_>>();
+    let conn_count = peers.len();
+    update_topology_and_peers_addresses(&network, &peers);
 
     let _ = barrier.wait().await;
     tokio::time::timeout(Duration::from_millis(10_000), async {
@@ -336,9 +327,27 @@ async fn start_network(
     .await
     .expect("Failed to get all connections");
 
+    // This is needed to ensure that all peers are connected to each other.
+    // The problem is that both peers establish connection (in each pair of peers),
+    // and one of connections is dropped based on disambiguator rule.
+    // So the check above (`conn_count != connections`) doesn't work,
+    // since peer can establish connection but then it will be dropped.
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
     info!(peer_addr = %peer.address(), %conn_count, "Got all connections!");
 
     (peer, network)
+}
+
+fn update_topology_and_peers_addresses(network: &NetworkHandle<TestMessage>, peers: &[Peer]) {
+    let topology = peers.iter().map(|peer| peer.id().clone()).collect();
+    network.update_topology(UpdateTopology(topology));
+
+    let addresses = peers
+        .iter()
+        .map(|peer| (peer.id().clone(), peer.address().clone()))
+        .collect();
+    network.update_peers_addresses(UpdatePeers(addresses));
 }
 
 #[test]

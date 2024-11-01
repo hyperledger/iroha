@@ -74,7 +74,7 @@ impl SortableQueryOutput for CommittedTransaction {
     }
 }
 
-impl SortableQueryOutput for Peer {
+impl SortableQueryOutput for PeerId {
     fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
         None
     }
@@ -430,7 +430,7 @@ mod tests {
             transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
             let (peer_public_key, peer_private_key) = KeyPair::random().into_parts();
-            let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+            let peer_id = PeerId::new(peer_public_key);
             let topology = Topology::new(vec![peer_id]);
             let unverified_first_block = BlockBuilder::new(transactions.clone())
                 .chain(0, state.view().latest_block().as_deref())
@@ -607,7 +607,7 @@ mod tests {
         let va_tx = AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits)?;
 
         let (peer_public_key, _) = KeyPair::random().into_parts();
-        let peer_id = PeerId::new("127.0.0.1:8080".parse().unwrap(), peer_public_key);
+        let peer_id = PeerId::new(peer_public_key);
         let topology = Topology::new(vec![peer_id]);
         let unverified_block = BlockBuilder::new(vec![va_tx.clone()])
             .chain(0, state.view().latest_block().as_deref())

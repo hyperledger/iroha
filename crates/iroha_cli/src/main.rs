@@ -11,7 +11,7 @@ use erased_serde::Serialize;
 use error_stack::{fmt::ColorMode, IntoReportCompat, ResultExt};
 use eyre::{eyre, Error, Result, WrapErr};
 use iroha::{client::Client, config::Config, data_model::prelude::*};
-use iroha_primitives::{addr::SocketAddr, json::Json};
+use iroha_primitives::json::Json;
 use thiserror::Error;
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
@@ -1033,9 +1033,6 @@ mod peer {
     /// Register subcommand of peer
     #[derive(clap::Args, Debug)]
     pub struct Register {
-        /// P2P address of the peer e.g. `127.0.0.1:1337`
-        #[arg(short, long)]
-        pub address: SocketAddr,
         /// Public key of the peer
         #[arg(short, long)]
         pub key: PublicKey,
@@ -1045,13 +1042,8 @@ mod peer {
 
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self {
-                address,
-                key,
-                metadata,
-            } = self;
-            let register_peer =
-                iroha::data_model::isi::Register::peer(Peer::new(PeerId::new(address, key)));
+            let Self { key, metadata } = self;
+            let register_peer = iroha::data_model::isi::Register::peer(key.into());
             submit([register_peer], metadata.load()?, context).wrap_err("Failed to register peer")
         }
     }
@@ -1059,9 +1051,6 @@ mod peer {
     /// Unregister subcommand of peer
     #[derive(clap::Args, Debug)]
     pub struct Unregister {
-        /// P2P address of the peer e.g. `127.0.0.1:1337`
-        #[arg(short, long)]
-        pub address: SocketAddr,
         /// Public key of the peer
         #[arg(short, long)]
         pub key: PublicKey,
@@ -1071,13 +1060,8 @@ mod peer {
 
     impl RunArgs for Unregister {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self {
-                address,
-                key,
-                metadata,
-            } = self;
-            let unregister_peer =
-                iroha::data_model::isi::Unregister::peer(PeerId::new(address, key));
+            let Self { key, metadata } = self;
+            let unregister_peer = iroha::data_model::isi::Unregister::peer(key.into());
             submit([unregister_peer], metadata.load()?, context)
                 .wrap_err("Failed to unregister peer")
         }

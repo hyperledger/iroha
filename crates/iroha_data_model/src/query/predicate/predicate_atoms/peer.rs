@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::impl_predicate_box;
 use crate::{
-    peer::Peer,
+    peer::PeerId,
     query::predicate::{
         predicate_ast_extensions::AstPredicateExt as _,
         predicate_combinators::{AndAstPredicate, NotAstPredicate, OrAstPredicate},
@@ -24,10 +24,10 @@ pub enum PeerPredicateBox {
     // nothing here yet
 }
 
-impl_predicate_box!(Peer: PeerPredicateBox);
+impl_predicate_box!(PeerId: PeerPredicateBox);
 
-impl EvaluatePredicate<Peer> for PeerPredicateBox {
-    fn applies(&self, _input: &Peer) -> bool {
+impl EvaluatePredicate<PeerId> for PeerPredicateBox {
+    fn applies(&self, _input: &PeerId) -> bool {
         match *self {}
     }
 }

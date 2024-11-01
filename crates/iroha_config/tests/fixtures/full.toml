@@ -10,6 +10,7 @@ file = "genesis.signed.scale"
 
 [network]
 address = "localhost:3840"
+public_address = "localhost:3840"
 block_gossip_period_ms = 10_000
 block_gossip_size = 4
 transaction_gossip_period_ms = 1_000
