@@ -251,17 +251,6 @@ impl GenesisBuilder {
 
     /// Entry system entities to serve standard functionality.
     pub fn install_libs(self) -> Self {
-        // Register a trigger that reacts to domain creation (or owner changes) and registers (or replaces) a multisig accounts registry for the domain
-        let multisig_domains_initializer = GenesisWasmTrigger::new(
-            "multisig_domains".parse().unwrap(),
-            GenesisWasmAction::new(
-                "multisig_domains.wasm",
-                Repeats::Indefinitely,
-                SYSTEM_ACCOUNT_ID.clone(),
-                DomainEventFilter::new()
-                    .for_events(DomainEventSet::Created | DomainEventSet::OwnerChanged),
-            ),
-        );
         let instructions = vec![
             Register::domain(Domain::new(SYSTEM_DOMAIN_ID.clone())).into(),
             Register::account(Account::new(SYSTEM_ACCOUNT_ID.clone())).into(),
@@ -269,13 +258,15 @@ impl GenesisBuilder {
             Grant::account_permission(CanUnregisterAnyTrigger, SYSTEM_ACCOUNT_ID.clone()).into(),
         ];
 
+        let wasm_triggers = vec![];
+
         Self {
             chain: self.chain,
             executor: self.executor,
             parameters: self.parameters,
             instructions,
             wasm_dir: self.wasm_dir,
-            wasm_triggers: vec![multisig_domains_initializer],
+            wasm_triggers,
             topology: self.topology,
         }
     }

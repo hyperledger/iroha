@@ -11,6 +11,7 @@ crate-type = ['cdylib']
 
 [dependencies]
 iroha_executor.workspace = true
+iroha_multisig_data_model.workspace = true
 
 panic-halt.workspace = true
 dlmalloc.workspace = true

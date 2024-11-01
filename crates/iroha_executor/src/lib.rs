@@ -265,6 +265,10 @@ pub trait Execute {
     /// Represents the current state of the world
     fn context(&self) -> &prelude::Context;
 
+    /// Mutable context for e.g. switching to another authority after validation before execution.
+    /// Note that mutations are persistent to the instance unless reset
+    fn context_mut(&mut self) -> &mut prelude::Context;
+
     /// Executor verdict.
     fn verdict(&self) -> &Result;
 
@@ -282,8 +286,8 @@ pub mod prelude {
 
     pub use super::{
         data_model::{
-            executor::Result, smart_contract::payloads::ExecutorContext as Context, visit::Visit,
-            ValidationFail,
+            executor::Result, isi::Instruction,
+            smart_contract::payloads::ExecutorContext as Context, visit::Visit, ValidationFail,
         },
         deny, execute, DataModelBuilder, Execute,
     };

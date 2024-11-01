@@ -783,7 +783,7 @@ impl NetworkPeer {
 
     /// Generated [`PeerId`]
     pub fn peer_id(&self) -> PeerId {
-        self.id.id.clone()
+        self.id.id().clone()
     }
 
     /// Check whether the peer is running

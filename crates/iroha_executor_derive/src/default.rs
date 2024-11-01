@@ -235,6 +235,10 @@ pub fn impl_derive_execute(emitter: &mut Emitter, input: &syn::DeriveInput) -> T
                 &self.context
             }
 
+            fn context_mut(&mut self) -> &mut ::iroha_executor::prelude::Context {
+                &mut self.context
+            }
+
             fn verdict(&self) -> &::iroha_executor::prelude::Result {
                 &self.verdict
             }

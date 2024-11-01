@@ -94,9 +94,11 @@ pub fn build_schemas() -> MetaMap {
         permission::trigger::CanModifyTriggerMetadata,
         permission::executor::CanUpgradeExecutor,
 
-        // Arguments attached to multi-signature operations
-        multisig::MultisigAccountArgs,
-        multisig::MultisigTransactionArgs,
+        // Multi-signature operations
+        multisig::MultisigInstructionBox,
+        multisig::MultisigRegister,
+        multisig::MultisigPropose,
+        multisig::MultisigApprove,
 
         // Genesis file - used by SDKs to generate the genesis block
         // TODO: IMO it could/should be removed from the schema
@@ -287,8 +289,10 @@ types!(
     MintabilityError,
     Mintable,
     Mismatch<AssetType>,
-    MultisigAccountArgs,
-    MultisigTransactionArgs,
+    MultisigInstructionBox,
+    MultisigRegister,
+    MultisigPropose,
+    MultisigApprove,
     Name,
     NewAccount,
     NewAssetDefinition,
@@ -551,7 +555,9 @@ pub mod complete_data_model {
         Level,
     };
     pub use iroha_genesis::{GenesisWasmAction, GenesisWasmTrigger, WasmPath};
-    pub use iroha_multisig_data_model::{MultisigAccountArgs, MultisigTransactionArgs};
+    pub use iroha_multisig_data_model::{
+        MultisigApprove, MultisigInstructionBox, MultisigPropose, MultisigRegister,
+    };
     pub use iroha_primitives::{const_vec::ConstVec, conststr::ConstString, json::Json};
     pub use iroha_schema::Compact;
 }

@@ -14,6 +14,7 @@ workspace = true
 iroha_data_model.workspace = true
 iroha_schema.workspace = true
 
+derive_more = { workspace = true, features = ["constructor", "from"] }
 parity-scale-codec = { workspace = true, features = ["derive"] }
 serde.workspace = true
 serde_json.workspace = true
