@@ -113,11 +113,6 @@ jobs:
           mold --run cargo llvm-cov nextest
           --all-features
           --branch --no-report
-      - name: Doc test with no default features
-        run: >
-          mold --run cargo llvm-cov --doc
-          --no-default-features
-          --branch --no-report
       - name: Doc test with all features
         run: >
           mold --run cargo llvm-cov --doc
