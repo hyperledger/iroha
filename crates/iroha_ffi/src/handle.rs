@@ -67,7 +67,7 @@ macro_rules! def_ffi_fns {
                 Err(err) => err.into(),
             },
             Err(_) => {
-                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                // TODO: Implement error handling (https://github.com/hyperledger-iroha/iroha/issues/2252)
                 $crate::FfiReturn::UnrecoverableError
             },
         }
@@ -97,7 +97,7 @@ macro_rules! def_ffi_fns {
                         let handle_ref: &$other = $crate::FfiConvert::try_from_ffi(handle_ptr as <&$other as $crate::FfiType>::ReprC, &mut ())?;
                         <$other as $crate::FfiOutPtrWrite>::write_out(Clone::clone(handle_ref), out_ptr.cast::<<$other as $crate::FfiType>::ReprC>());
                     } )+
-                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    // TODO: Implement error handling (https://github.com/hyperledger-iroha/iroha/issues/2252)
                     _ => return Err($crate::FfiReturn::UnknownHandle),
                 }
 
@@ -126,7 +126,7 @@ macro_rules! def_ffi_fns {
                         let out_ptr = out_ptr.cast::<<$other as $crate::FfiType>::ReprC>();
                         <$other as $crate::FfiOutPtrWrite>::write_out(default_value, out_ptr);
                     } )+
-                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    // TODO: Implement error handling (https://github.com/hyperledger-iroha/iroha/issues/2252)
                     _ => return Err($crate::FfiReturn::UnknownHandle),
                 }
 
@@ -164,7 +164,7 @@ macro_rules! def_ffi_fns {
 
                         <bool as $crate::FfiOutPtrWrite>::write_out(lhandle == rhandle, out_ptr);
                     } )+
-                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    // TODO: Implement error handling (https://github.com/hyperledger-iroha/iroha/issues/2252)
                     _ => return Err($crate::FfiReturn::UnknownHandle),
                 }
 
@@ -202,7 +202,7 @@ macro_rules! def_ffi_fns {
 
                         <core::cmp::Ordering as $crate::FfiOutPtrWrite>::write_out(lhandle.cmp(rhandle), out_ptr);
                     } )+
-                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    // TODO: Implement error handling (https://github.com/hyperledger-iroha/iroha/issues/2252)
                     _ => return Err($crate::FfiReturn::UnknownHandle),
                 }
 
@@ -228,7 +228,7 @@ macro_rules! def_ffi_fns {
                         let handle_ptr = handle_ptr as <$other as $crate::FfiType>::ReprC;
                         let _handle: $other = $crate::FfiConvert::try_from_ffi(handle_ptr, &mut ())?;
                     } )+
-                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    // TODO: Implement error handling (https://github.com/hyperledger-iroha/iroha/issues/2252)
                     _ => return Err($crate::FfiReturn::UnknownHandle),
                 }
 

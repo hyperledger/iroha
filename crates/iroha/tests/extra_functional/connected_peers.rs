@@ -43,7 +43,7 @@ async fn register_new_peer() -> Result<()> {
 }
 
 /// Test the number of connected peers, changing the number of faults tolerated down and up
-// Note: sometimes fails due to https://github.com/hyperledger/iroha/issues/5104
+// Note: sometimes fails due to https://github.com/hyperledger-iroha/iroha/issues/5104
 async fn connected_peers_with_f(faults: usize) -> Result<()> {
     let n_peers = 3 * faults + 1;
 

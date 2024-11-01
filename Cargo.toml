@@ -5,8 +5,8 @@ version = "2.0.0-rc.1.0"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 
 description = "Efficient, simple, Byzantine-fault-tolerant DLT inspired by the Kaizen principle"
-repository = "https://github.com/hyperledger/iroha/tree/iroha2-lts"
-documentation = "https://hyperledger.github.io/iroha-2-docs"
+repository = "https://github.com/hyperledger-iroha/iroha"
+documentation = "https://docs.iroha.tech"
 homepage = "https://iroha.tech"
 
 license = "Apache-2.0"
@@ -149,7 +149,7 @@ rust.unused_lifetimes = "warn"
 # TODO: reenable
 # rust.unsafe_op_in_unsafe_fn = "deny"
 rust.unexpected_cfgs = { level = "warn", check-cfg = [
-    # FIXME: https://github.com/hyperledger/iroha/issues/3102
+    # FIXME: https://github.com/hyperledger-iroha/iroha/issues/3102
     'cfg(feature, values("ffi_import"))',
     # It is set by `cargo-llvm-cov`
     'cfg(coverage)'

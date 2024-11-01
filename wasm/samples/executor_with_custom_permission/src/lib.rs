@@ -32,7 +32,7 @@ getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
     visit_register_domain,
     visit_unregister_domain,
 
-    // FIXME: Don't derive manually (https://github.com/hyperledger/iroha/issues/3834)
+    // FIXME: Don't derive manually (https://github.com/hyperledger-iroha/iroha/issues/3834)
     visit_grant_role_permission,
     visit_grant_role_permission,
     visit_revoke_role_permission,

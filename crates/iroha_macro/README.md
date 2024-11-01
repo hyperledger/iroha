@@ -9,7 +9,7 @@ This crate contains macros and attributes for Iroha projects:
 Add the following to the manifest file of your Rust project:
 
 ```toml
-iroha_derive = { git = "https://github.com/hyperledger/iroha/", branch="main" }
+iroha_derive = { git = "https://github.com/hyperledger-iroha/iroha" }
 ```
 
 ## Examples

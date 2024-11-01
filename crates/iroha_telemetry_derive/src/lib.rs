@@ -271,7 +271,7 @@ fn impl_metrics(
     )
 }
 
-// FIXME: metrics were removed https://github.com/hyperledger/iroha/issues/5134
+// FIXME: metrics were removed https://github.com/hyperledger-iroha/iroha/issues/5134
 #[cfg(feature = "metric-instrumentation")]
 fn write_metrics(
     metric_arg_ident: proc_macro2::Ident,

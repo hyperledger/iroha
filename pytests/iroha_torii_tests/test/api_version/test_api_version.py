@@ -26,7 +26,7 @@ def test_api_version_responce_presence(
 
 
 @allure.id("1032")
-@pytest.mark.xfail(reason="https://github.com/hyperledger/iroha/issues/4218")
+@pytest.mark.xfail(reason="https://github.com/hyperledger-iroha/iroha/issues/4218")
 def test_api_version_response_pattern(GIVEN_get_request_to_api_version_enpoint_is_sent):
     with allure.step("WHEN I get the response"):
         response = GIVEN_get_request_to_api_version_enpoint_is_sent
@@ -37,7 +37,7 @@ def test_api_version_response_pattern(GIVEN_get_request_to_api_version_enpoint_i
 
 
 @allure.id("1026")
-@pytest.mark.xfail(reason="https://github.com/hyperledger/iroha/issues/4218")
+@pytest.mark.xfail(reason="https://github.com/hyperledger-iroha/iroha/issues/4218")
 def test_api_version_request_with_unexpected_param(
     GIVEN_get_request_with_unexpected_param_to_api_version_enpoint_is_sent,
 ):
@@ -55,7 +55,7 @@ def test_api_version_request_with_unexpected_param(
 
 
 @allure.id("1033")
-@pytest.mark.xfail(reason="https://github.com/hyperledger/iroha/issues/4218")
+@pytest.mark.xfail(reason="https://github.com/hyperledger-iroha/iroha/issues/4218")
 def test_api_version_response_content_type(
     GIVEN_get_request_to_api_version_enpoint_is_sent,
 ):
@@ -68,7 +68,7 @@ def test_api_version_response_content_type(
 
 
 @allure.id("1037")
-@pytest.mark.xfail(reason="https://github.com/hyperledger/iroha/issues/4218")
+@pytest.mark.xfail(reason="https://github.com/hyperledger-iroha/iroha/issues/4218")
 def test_api_version_response_format(GIVEN_get_request_to_api_version_enpoint_is_sent):
     with allure.step("WHEN I get the response"):
         response = GIVEN_get_request_to_api_version_enpoint_is_sent
@@ -89,7 +89,7 @@ def test_api_version_response_time():
 
 
 @allure.id("1024")
-@pytest.mark.xfail(reason="https://github.com/hyperledger/iroha/issues/4218")
+@pytest.mark.xfail(reason="https://github.com/hyperledger-iroha/iroha/issues/4218")
 def test_api_version_response_content_length(
     GIVEN_get_request_to_api_version_enpoint_is_sent,
 ):

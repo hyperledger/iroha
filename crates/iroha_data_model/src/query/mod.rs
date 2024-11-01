@@ -40,7 +40,7 @@ pub mod parameters;
 pub mod predicate;
 
 /// A query that either returns a single value or errors out
-// NOTE: we are planning to remove this class of queries (https://github.com/hyperledger/iroha/issues/4933)
+// NOTE: we are planning to remove this class of queries (https://github.com/hyperledger-iroha/iroha/issues/4933)
 pub trait SingularQuery: Sealed {
     /// The type of the output of the query
     type Output;

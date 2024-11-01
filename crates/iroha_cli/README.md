@@ -20,7 +20,7 @@ cargo build
 
 The above command will produce the `iroha` ELF executable file for Linux/BSD, the `iroha` executable for MacOS, and the `iroha.exe` executable for Windows, depending on your platform and configuration.
 
-Check [build and installation instructions](https://hyperledger.github.io/iroha-2-docs/guide/build-and-install.html) for more details.
+Alternatively, check out the [documentation](https://docs.iroha.tech/get-started/install-iroha-2.html) for system-wide installation instructions.
 
 ## Usage
 
@@ -50,9 +50,9 @@ iroha [OPTIONS] <SUBCOMMAND>
 | `wasm`    | Execute commands related to WASM                                                                                                            |
 | `help`    | Print the help message for `iroha` and/or the current subcommand other than `help` subcommand                                    |
 
-Refer to [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions.html) for more information about Iroha instructions such as register, mint, grant, and so on.
+Refer to [Iroha Special Instructions](https://docs.iroha.tech/blockchain/instructions.html) for more information about Iroha instructions such as register, mint, grant, and so on.
 
-Check the [Bash guide in Iroha Tutorial](https://hyperledger.github.io/iroha-2-docs/guide/bash.html) for detailed instructions on working with Iroha Client CLI.
+Check the [getting started guide](https://docs.iroha.tech/get-started/operate-iroha-2-via-cli.html) for detailed instructions on working with Iroha Client CLI.
 
 ## Examples
 

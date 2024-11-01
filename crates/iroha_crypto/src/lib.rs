@@ -367,7 +367,7 @@ impl PublicKeyInner {
 /// `PublicKey` will be lazily deserialized inside WASM.
 /// This is needed for performance reasons, since `PublicKeyInner::from_bytes` is quite slow.
 /// However inside WASM in most cases `PublicKey` is used only for comparisons (==).
-/// See https://github.com/hyperledger/iroha/issues/5038 for details.
+/// See https://github.com/hyperledger-iroha/iroha/issues/5038 for details.
 #[cfg(target_family = "wasm")]
 mod lazy {
     use alloc::{boxed::Box, vec::Vec};

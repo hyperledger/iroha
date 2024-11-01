@@ -578,14 +578,14 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     #[cfg(not(feature = "telemetry"))]
     if config.telemetry.is_some() {
         // TODO: use a centralized configuration logging
-        //       https://github.com/hyperledger/iroha/issues/4300
+        //       https://github.com/hyperledger-iroha/iroha/issues/4300
         eprintln!("`telemetry` config is specified, but ignored, because Iroha is compiled without `telemetry` feature enabled");
     }
 
     #[cfg(not(feature = "dev-telemetry"))]
     if config.dev_telemetry.out_file.is_some() {
         // TODO: use a centralized configuration logging
-        //       https://github.com/hyperledger/iroha/issues/4300
+        //       https://github.com/hyperledger-iroha/iroha/issues/4300
         eprintln!("`dev_telemetry.out_file` config is specified, but ignored, because Iroha is compiled without `dev-telemetry` feature enabled");
     }
 

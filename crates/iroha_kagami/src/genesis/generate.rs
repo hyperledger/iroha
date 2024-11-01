@@ -202,7 +202,7 @@ fn generate_synthetic(
                 builder.append_instruction(Register::account(Account::new(account_id.clone())));
 
             // FIXME: Should `assets_per_domain` be renamed to `asset_definitions_per_domain`?
-            //        https://github.com/hyperledger/iroha/issues/3508
+            //        https://github.com/hyperledger-iroha/iroha/issues/3508
             for asset in 0..assets_per_domain {
                 let mint = Mint::asset_numeric(
                     13u32,

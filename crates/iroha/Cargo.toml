@@ -18,8 +18,8 @@ categories.workspace = true
 workspace = true
 
 [badges]
-is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
-is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger-iroha/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger-iroha/iroha" }
 maintenance = { status = "actively-developed" }
 
 [features]
