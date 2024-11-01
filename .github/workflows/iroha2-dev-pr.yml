@@ -120,6 +120,12 @@ jobs:
         with:
           name: report-coverage
           path: lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          fail_ci_if_error: true
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test network artifacts
         if: failure() && (steps.test_no_features.outcome == 'failure' || steps.test_all_features.outcome == 'failure')
         uses: actions/upload-artifact@v4
