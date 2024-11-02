@@ -12,9 +12,6 @@ use derive_more::Constructor;
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{block::SignedBlock, parameter::Parameter, prelude::*};
-use iroha_executor_data_model::permission::trigger::{
-    CanRegisterAnyTrigger, CanUnregisterAnyTrigger,
-};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -254,8 +251,6 @@ impl GenesisBuilder {
         let instructions = vec![
             Register::domain(Domain::new(SYSTEM_DOMAIN_ID.clone())).into(),
             Register::account(Account::new(SYSTEM_ACCOUNT_ID.clone())).into(),
-            Grant::account_permission(CanRegisterAnyTrigger, SYSTEM_ACCOUNT_ID.clone()).into(),
-            Grant::account_permission(CanUnregisterAnyTrigger, SYSTEM_ACCOUNT_ID.clone()).into(),
         ];
 
         let wasm_triggers = vec![];

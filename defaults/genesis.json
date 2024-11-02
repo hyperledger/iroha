@@ -42,28 +42,6 @@
       }
     },
     {
-      "Grant": {
-        "Permission": {
-          "object": {
-            "name": "CanRegisterAnyTrigger",
-            "payload": null
-          },
-          "destination": "ed0120D8B64D62FD8E09B9F29FE04D9C63E312EFB1CB29F1BF6AF00EBC263007AE75F7@system"
-        }
-      }
-    },
-    {
-      "Grant": {
-        "Permission": {
-          "object": {
-            "name": "CanUnregisterAnyTrigger",
-            "payload": null
-          },
-          "destination": "ed0120D8B64D62FD8E09B9F29FE04D9C63E312EFB1CB29F1BF6AF00EBC263007AE75F7@system"
-        }
-      }
-    },
-    {
       "Register": {
         "Domain": {
           "id": "wonderland",
