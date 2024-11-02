@@ -38,36 +38,57 @@ pub mod utils {
     use super::*;
 
     /// Get context for `validate_transaction()` entrypoint.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[doc(hidden)]
     #[cfg(not(test))]
-    pub fn decode_execute_transaction_context(
+    pub unsafe fn __decode_execute_transaction_context(
         context: *const u8,
     ) -> payloads::Validate<SignedTransaction> {
-        // Safety: ownership of the provided context is transferred into `_decode_from_raw`
-
-        unsafe { decode_with_length_prefix_from_raw(context) }
+        decode_with_length_prefix_from_raw(context)
     }
 
     /// Get context for `validate_instruction()` entrypoint.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[doc(hidden)]
     #[cfg(not(test))]
-    pub fn decode_execute_instruction_context(
+    pub unsafe fn __decode_execute_instruction_context(
         context: *const u8,
     ) -> payloads::Validate<InstructionBox> {
-        // Safety: ownership of the provided context is transferred into `_decode_from_raw`
-        unsafe { decode_with_length_prefix_from_raw(context) }
+        decode_with_length_prefix_from_raw(context)
     }
 
     /// Get context for `validate_query()` entrypoint.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[doc(hidden)]
     #[cfg(not(test))]
-    pub fn decode_validate_query_context(context: *const u8) -> payloads::Validate<AnyQueryBox> {
-        // Safety: ownership of the provided context is transferred into `_decode_from_raw`
-        unsafe { decode_with_length_prefix_from_raw(context) }
+    pub unsafe fn __decode_validate_query_context(
+        context: *const u8,
+    ) -> payloads::Validate<AnyQueryBox> {
+        decode_with_length_prefix_from_raw(context)
     }
 
     /// Get context for `migrate()` entrypoint.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[doc(hidden)]
     #[cfg(not(test))]
-    pub fn decode_migrate_context(context: *const u8) -> payloads::ExecutorContext {
-        // Safety: ownership of the provided context is transferred into `_decode_from_raw`
-        unsafe { decode_with_length_prefix_from_raw(context) }
+    pub unsafe fn __decode_migrate_context(context: *const u8) -> payloads::ExecutorContext {
+        decode_with_length_prefix_from_raw(context)
     }
 }
 
@@ -236,8 +257,7 @@ impl DataModelBuilder {
             let account_permissions = host
                 .query(FindPermissionsByAccountId::new(account.id().clone()))
                 .execute()
-                .unwrap()
-                .into_iter();
+                .unwrap();
 
             for permission in account_permissions.map(|permission| permission.unwrap()) {
                 if !self.permissions.contains(permission.name()) {

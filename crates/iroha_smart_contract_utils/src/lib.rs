@@ -125,6 +125,7 @@ pub unsafe fn encode_and_execute<T: Encode, O>(
 /// Encode the given `val` as a vector of bytes with the size of the object at the beginning
 //
 // TODO: Write a separate crate for codec/protocol between Iroha and smartcontract
+#[doc(hidden)]
 pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Box<[u8]> {
     let len_size_bytes = core::mem::size_of::<usize>();
 

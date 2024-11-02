@@ -4,7 +4,9 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, format};
+use alloc::boxed::Box;
+#[cfg(feature = "debug")]
+use alloc::format;
 use core::fmt::Debug;
 
 use data_model::{
@@ -29,6 +31,20 @@ pub mod utils {
     //! Crate with utilities
 
     pub use iroha_smart_contract_utils::register_getrandom_err_callback;
+
+    /// Get context for smart contract `main()` entrypoint.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[doc(hidden)]
+    #[cfg(not(test))]
+    pub unsafe fn __decode_smart_contract_context(
+        context: *const u8,
+    ) -> crate::data_model::smart_contract::payloads::SmartContractContext {
+        iroha_smart_contract_utils::decode_with_length_prefix_from_raw(context)
+    }
 }
 
 pub mod log {
@@ -200,13 +216,6 @@ unsafe extern "C" fn _iroha_smart_contract_dealloc(offset: *mut u8, len: usize) 
     let _box = Box::from_raw(core::slice::from_raw_parts_mut(offset, len));
 }
 
-/// Get context for smart contract `main()` entrypoint.
-#[cfg(not(test))]
-pub fn get_smart_contract_context() -> data_model::smart_contract::payloads::SmartContractContext {
-    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_smart_contract_context()) }
-}
-
 #[cfg(not(test))]
 mod host {
     #[link(wasm_import_module = "iroha")]
@@ -228,12 +237,6 @@ mod host {
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
         pub(super) fn execute_instruction(ptr: *const u8, len: usize) -> *const u8;
-
-        /// Get context for smart contract `main()` entrypoint.
-        /// # Warning
-        ///
-        /// This function transfers ownership of the result to the caller
-        pub(super) fn get_smart_contract_context() -> *const u8;
     }
 }
 

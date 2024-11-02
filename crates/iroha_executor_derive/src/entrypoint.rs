@@ -13,9 +13,9 @@ mod export {
 }
 
 mod import {
-    pub const DECODE_EXECUTE_TRANSACTION_CONTEXT: &str = "decode_execute_transaction_context";
-    pub const DECODE_EXECUTE_INSTRUCTION_CONTEXT: &str = "decode_execute_instruction_context";
-    pub const DECODE_VALIDATE_QUERY_CONTEXT: &str = "decode_validate_query_context";
+    pub const DECODE_EXECUTE_TRANSACTION_CONTEXT: &str = "__decode_execute_transaction_context";
+    pub const DECODE_EXECUTE_INSTRUCTION_CONTEXT: &str = "__decode_execute_instruction_context";
+    pub const DECODE_VALIDATE_QUERY_CONTEXT: &str = "__decode_validate_query_context";
 }
 
 /// [`executor_entrypoint`](crate::executor_entrypoint()) macro implementation
@@ -140,7 +140,7 @@ pub fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         #[doc(hidden)]
         unsafe extern "C" fn #migrate_fn_name(context: *const u8) {
             let host = ::iroha_executor::smart_contract::Iroha;
-            let context = ::iroha_executor::utils::decode_migrate_context(context);
+            let context = ::iroha_executor::utils::__decode_migrate_context(context);
             #fn_name(host, context);
         }
 

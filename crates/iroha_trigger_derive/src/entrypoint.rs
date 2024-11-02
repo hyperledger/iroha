@@ -36,9 +36,9 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
         /// Smart contract entrypoint
         #[no_mangle]
         #[doc(hidden)]
-        unsafe extern "C" fn #main_fn_name() {
+        unsafe extern "C" fn #main_fn_name(context: *const u8) {
             let host = ::iroha_trigger::Iroha;
-            let context = ::iroha_trigger::get_trigger_context();
+            let context = ::iroha_trigger::utils::__decode_trigger_context(context);
             #fn_name(host, context)
         }
 

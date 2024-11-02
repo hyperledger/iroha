@@ -7,6 +7,7 @@ use core::fmt::Debug;
 use cfg_if::cfg_if;
 
 #[cfg(target_family = "wasm")]
+#[cfg(feature = "debug")]
 #[cfg(not(test))]
 mod host {
     #[link(wasm_import_module = "iroha")]
@@ -29,7 +30,8 @@ mod host {
 ///
 /// When running outside of wasm, always prints the output to stderr
 #[doc(hidden)]
-pub fn dbg<T: Debug + ?Sized>(obj: &T) {
+#[allow(unused_variables)]
+pub fn __dbg<T: Debug + ?Sized>(obj: &T) {
     cfg_if! {
         if #[cfg(not(target_family = "wasm"))] {
             // when not on wasm - just print it
@@ -56,7 +58,7 @@ pub fn dbg<T: Debug + ?Sized>(obj: &T) {
 macro_rules! dbg {
     () => {
         #[cfg(feature = "debug")]
-        $crate::debug::dbg(concat!("[{}:{}:{}]", core::file!(), core::line!(), core::column!()));
+        $crate::__dbg(concat!("[{}:{}:{}]", core::file!(), core::line!(), core::column!()));
     };
     ($val:expr $(,)?) => {{
         #[cfg(feature = "debug")]
@@ -64,7 +66,7 @@ macro_rules! dbg {
             tmp => {
                 let location = concat!("[{}:{}:{}]", core::file!(), core::line!(), core::column!());
                 let location = format!("{location} {} = {tmp:#?}", stringify!($val));
-                $crate::dbg(&location);
+                $crate::__dbg(&location);
             }
         }
     }};

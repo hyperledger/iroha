@@ -278,7 +278,7 @@ impl<T> FromStr for HashOf<T> {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(s.parse::<Hash>().map(Self::from_untyped_unchecked)?)
+        s.parse::<Hash>().map(Self::from_untyped_unchecked)
     }
 }
 

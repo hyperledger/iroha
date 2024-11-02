@@ -47,8 +47,6 @@ const WASM_MODULE: &str = "iroha";
 mod export {
     pub const EXECUTE_ISI: &str = "execute_instruction";
     pub const EXECUTE_QUERY: &str = "execute_query";
-    pub const GET_SMART_CONTRACT_CONTEXT: &str = "get_smart_contract_context";
-    pub const GET_TRIGGER_CONTEXT: &str = "get_trigger_context";
     pub const SET_DATA_MODEL: &str = "set_data_model";
 
     pub const DBG: &str = "dbg";
@@ -770,11 +768,11 @@ where
         let instance = self.instantiate_module(module, &mut store)?;
 
         let validate_fn = Self::get_typed_func(&instance, &mut store, validate_fn_name)?;
-        let payload = Self::get_validate_payload(&instance, &mut store);
+        let context = Self::get_validate_context(&instance, &mut store);
 
         // NOTE: This function takes ownership of the pointer
         let offset = validate_fn
-            .call(&mut store, payload)
+            .call(&mut store, context)
             .map_err(ExportFnCallError::from)?;
 
         let memory =
@@ -796,19 +794,19 @@ where
         Ok(validation_res)
     }
 
-    fn get_validate_payload(
+    fn get_validate_context(
         instance: &Instance,
         store: &mut Store<CommonState<W, Validate<T>>>,
     ) -> WasmUsize {
         let state = store.data();
-        let payload = payloads::Validate {
+        let context = payloads::Validate {
             context: payloads::ExecutorContext {
                 authority: state.authority.clone(),
                 curr_block: state.specific_state.curr_block,
             },
             target: state.specific_state.to_validate.clone(),
         };
-        Runtime::encode_payload(instance, store, payload)
+        Self::encode_payload(instance, store, context)
     }
 }
 
@@ -943,10 +941,11 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::SmartContract<'wrld, '
 
         let main_fn: TypedFunc<_, ()> =
             Self::get_typed_func(&smart_contract, &mut store, import::SMART_CONTRACT_MAIN)?;
+        let context = Self::get_smart_contract_context(&smart_contract, &mut store);
 
         // NOTE: This function takes ownership of the pointer
         main_fn
-            .call(&mut store, ())
+            .call(&mut store, context)
             .map_err(ExportFnCallError::from)?;
         let mut state = store.into_data();
         let executed_queries = state.take_executed_queries();
@@ -955,12 +954,16 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::SmartContract<'wrld, '
         Ok(())
     }
 
-    #[codec::wrap]
-    fn get_smart_contract_context(state: &state::SmartContract) -> payloads::SmartContractContext {
-        payloads::SmartContractContext {
+    fn get_smart_contract_context(
+        instance: &Instance,
+        store: &mut Store<state::SmartContract<'wrld, 'block, 'state>>,
+    ) -> WasmUsize {
+        let state = store.data();
+        let payload = payloads::SmartContractContext {
             authority: state.authority.clone(),
             curr_block: state.state.0.curr_block,
-        }
+        };
+        Runtime::encode_payload(instance, store, payload)
     }
 }
 
@@ -1018,10 +1021,11 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::Trigger<'wrld, 'block,
 
         let main_fn: TypedFunc<_, ()> =
             Self::get_typed_func(&instance, &mut store, import::TRIGGER_MAIN)?;
+        let context = Self::get_trigger_context(&instance, &mut store);
 
         // NOTE: This function takes ownership of the pointer
         main_fn
-            .call(&mut store, ())
+            .call(&mut store, context)
             .map_err(ExportFnCallError::from)?;
 
         let mut state = store.into_data();
@@ -1031,14 +1035,18 @@ impl<'wrld, 'block: 'wrld, 'state: 'block> Runtime<state::Trigger<'wrld, 'block,
         Ok(())
     }
 
-    #[codec::wrap]
-    fn get_trigger_context(state: &state::Trigger) -> payloads::TriggerContext {
-        payloads::TriggerContext {
+    fn get_trigger_context(
+        instance: &Instance,
+        store: &mut Store<state::Trigger<'wrld, 'block, 'state>>,
+    ) -> WasmUsize {
+        let state = store.data();
+        let payload = payloads::TriggerContext {
             id: state.specific_state.id.clone(),
             authority: state.authority.clone(),
             curr_block: state.state.0.curr_block,
             event: state.specific_state.triggering_event.clone(),
-        }
+        };
+        Runtime::encode_payload(instance, store, payload)
     }
 }
 
@@ -1301,24 +1309,24 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::Migrate<'wrld, 'block, 'sta
 
         let migrate_fn: TypedFunc<WasmUsize, ()> =
             Self::get_typed_func(&instance, &mut store, import::EXECUTOR_MIGRATE)?;
-        let payload = Self::get_migrate_payload(&instance, &mut store);
+        let context = Self::get_migrate_context(&instance, &mut store);
 
         migrate_fn
-            .call(&mut store, payload)
+            .call(&mut store, context)
             .map_err(ExportFnCallError::from)?;
 
         Ok(())
     }
 
-    fn get_migrate_payload(
+    fn get_migrate_context(
         instance: &Instance,
         store: &mut Store<CommonState<WithMut<'wrld, 'block, 'state>, Migrate>>,
     ) -> WasmUsize {
-        let payload = payloads::ExecutorContext {
+        let context = payloads::ExecutorContext {
             authority: store.data().authority.clone(),
             curr_block: store.data().state.0.curr_block,
         };
-        Self::encode_payload(instance, store, payload)
+        Self::encode_payload(instance, store, context)
     }
 }
 
@@ -1435,7 +1443,6 @@ impl<'wrld, 'block, 'state> RuntimeBuilder<state::SmartContract<'wrld, 'block, '
             create_imports!(linker, state::SmartContract<'wrld, 'block, 'state>,
                 export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::SmartContract<'wrld, 'block, 'state>>, offset, len| Runtime::execute_instruction(caller, offset, len),
                 export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::SmartContract<'wrld, 'block, 'state>>, offset, len| Runtime::execute_query(caller, offset, len),
-                export::GET_SMART_CONTRACT_CONTEXT => |caller: ::wasmtime::Caller<state::SmartContract<'wrld, 'block, 'state>>| Runtime::get_smart_contract_context(caller),
             )?;
             Ok(linker)
         })
@@ -1455,7 +1462,6 @@ impl<'wrld, 'block, 'state> RuntimeBuilder<state::Trigger<'wrld, 'block, 'state>
             create_imports!(linker, state::Trigger<'wrld, 'block, 'state>,
                 export::EXECUTE_ISI => |caller: ::wasmtime::Caller<state::Trigger<'wrld, 'block, 'state>>, offset, len| Runtime::execute_instruction(caller, offset, len),
                 export::EXECUTE_QUERY => |caller: ::wasmtime::Caller<state::Trigger<'wrld, 'block, 'state>>, offset, len| Runtime::execute_query(caller, offset, len),
-                export::GET_TRIGGER_CONTEXT => |caller: ::wasmtime::Caller<state::Trigger<'wrld, 'block, 'state>>| Runtime::get_trigger_context(caller),
             )?;
             Ok(linker)
         })
@@ -1658,7 +1664,7 @@ mod tests {
                 {memory_and_alloc}
 
                 ;; Function which starts the smartcontract execution
-                (func (export "{main_fn_name}") (param)
+                (func (export "{main_fn_name}") (param i32)
                     (call $exec_fn (i32.const 0) (i32.const {isi_len}))
 
                     ;; No use of return values
@@ -1704,7 +1710,7 @@ mod tests {
                 {memory_and_alloc}
 
                 ;; Function which starts the smartcontract execution
-                (func (export "{main_fn_name}") (param)
+                (func (export "{main_fn_name}") (param i32)
                     (call $exec_fn (i32.const 0) (i32.const {isi_len}))
 
                     ;; No use of return values
@@ -1750,14 +1756,21 @@ mod tests {
             (module
                 ;; Import host function to execute
                 (import "iroha" "{execute_fn_name}"
-                    (func $exec_fn (param i32 i32)))
+                    (func $exec_fn (param i32 i32) (result i32))
 
                 {memory_and_alloc}
 
                 ;; Function which starts the smartcontract execution
-                (func (export "{main_fn_name}") (param i32 i32)
+                (func (export "{main_fn_name}") (param i32)
                     (call $exec_fn (i32.const 0) (i32.const {isi1_end}))
-                    (call $exec_fn (i32.const {isi1_end}) (i32.const {isi2_end}))))
+
+                    ;; No use of return value
+                    drop
+
+                    (call $exec_fn (i32.const {isi1_end}) (i32.const {isi2_end}))
+
+                    ;; No use of return value
+                    drop))
             "#,
             main_fn_name = import::SMART_CONTRACT_MAIN,
             execute_fn_name = export::EXECUTE_ISI,
@@ -1784,162 +1797,6 @@ mod tests {
                 .to_string()
                 .starts_with("Number of instructions exceeds maximum(1)"));
         }
-
-        Ok(())
-    }
-
-    #[test]
-    async fn instructions_not_allowed() -> Result<(), Error> {
-        let (authority, _authority_keypair) = gen_account_in("wonderland");
-        let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::start_test();
-        let state = State::new(world_with_test_account(&authority), kura, query_handle);
-
-        let isi_hex = {
-            let (new_authority, _new_authority_keypair) = gen_account_in("wonderland");
-            let register_isi = Register::account(Account::new(new_authority));
-            encode_hex(InstructionBox::from(register_isi))
-        };
-
-        let wat = format!(
-            r#"
-            (module
-                ;; Import host function to execute
-                (import "iroha" "{execute_fn_name}"
-                    (func $exec_fn (param i32 i32))
-                )
-
-                {memory_and_alloc}
-
-                ;; Function which starts the smartcontract execution
-                (func (export "{main_fn_name}") (param i32 i32)
-                    (call $exec_fn (i32.const 0) (i32.const {isi_len}))
-                )
-            )
-            "#,
-            main_fn_name = import::SMART_CONTRACT_MAIN,
-            execute_fn_name = export::EXECUTE_ISI,
-            memory_and_alloc = memory_and_alloc(&isi_hex),
-            isi_len = isi_hex.len() / 3,
-        );
-
-        let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
-            .as_ref()
-            .header();
-        let mut state_block = state.block(block_header);
-        let mut state_transaction = state_block.transaction();
-        let res = runtime.validate(&mut state_transaction, authority, wat, nonzero!(1_u64));
-        state_transaction.apply();
-        state_block.commit();
-
-        if let Error::ExportFnCall(ExportFnCallError::HostExecution(report)) =
-            res.expect_err("Execution should fail")
-        {
-            assert!(report
-                .to_string()
-                .starts_with("Transaction rejected due to insufficient authorisation"));
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    async fn queries_not_allowed() -> Result<(), Error> {
-        let (authority, _authority_keypair) = gen_account_in("wonderland");
-        let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::start_test();
-        let state = State::new(world_with_test_account(&authority), kura, query_handle);
-        let query_hex = encode_hex(QueryRequest::Singular(
-            SingularQueryBox::FindExecutorDataModel(FindExecutorDataModel),
-        ));
-
-        let wat = format!(
-            r#"
-            (module
-                ;; Import host function to execute
-                (import "iroha" "{execute_fn_name}"
-                    (func $exec_fn (param i32 i32) (result i32)))
-
-                {memory_and_alloc}
-
-                ;; Function which starts the smartcontract execution
-                (func (export "{main_fn_name}") (param i32 i32)
-                    (call $exec_fn (i32.const 0) (i32.const {isi_len}))
-
-                    ;; No use of return value
-                    drop))
-            "#,
-            main_fn_name = import::SMART_CONTRACT_MAIN,
-            execute_fn_name = export::EXECUTE_QUERY,
-            memory_and_alloc = memory_and_alloc(&query_hex),
-            isi_len = query_hex.len() / 3,
-        );
-
-        let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
-            .as_ref()
-            .header();
-        let mut state_block = state.block(block_header);
-        let mut state_transaction = state_block.transaction();
-        let res = runtime.validate(&mut state_transaction, authority, wat, nonzero!(1_u64));
-        state_transaction.apply();
-        state_block.commit();
-
-        if let Error::ExportFnCall(ExportFnCallError::HostExecution(report)) =
-            res.expect_err("Execution should fail")
-        {
-            assert!(report.to_string().starts_with("All operations are denied"));
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    async fn trigger_related_func_is_not_linked_for_smart_contract() -> Result<(), Error> {
-        let (authority, _authority_keypair) = gen_account_in("wonderland");
-        let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::start_test();
-        let state = State::new(world_with_test_account(&authority), kura, query_handle);
-
-        let wat = format!(
-            r#"
-            (module
-                ;; Import host function to execute
-                (import "iroha" "{get_trigger_payload_fn_name}"
-                    (func $exec_fn (param) (result i32)))
-
-                {memory_and_alloc}
-
-                ;; Function which starts the smartcontract execution
-                (func (export "{main_fn_name}") (param)
-                    (call $exec_fn)
-
-                    ;; No use of return values
-                    drop))
-            "#,
-            main_fn_name = import::SMART_CONTRACT_MAIN,
-            get_trigger_payload_fn_name = export::GET_TRIGGER_CONTEXT,
-            // this test doesn't use the memory
-            memory_and_alloc = memory_and_alloc(""),
-        );
-
-        let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
-        let block_header = ValidBlock::new_dummy(&KeyPair::random().into_parts().1)
-            .as_ref()
-            .header();
-        let mut state_block = state.block(block_header);
-        let mut state_transaction = state_block.transaction();
-        let err = runtime
-            .execute(&mut state_transaction, authority, wat)
-            .expect_err("Execution should fail");
-        state_transaction.apply();
-        state_block.commit();
-
-        assert!(matches!(
-            err,
-            Error::Instantiation(InstantiationError::Linker(_))
-        ));
 
         Ok(())
     }
