@@ -16,7 +16,6 @@ iroha_executor_data_model.workspace = true
 
 panic-halt.workspace = true
 dlmalloc.workspace = true
-getrandom.workspace = true
 
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, default-features = false }

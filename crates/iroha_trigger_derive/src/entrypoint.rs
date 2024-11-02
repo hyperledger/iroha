@@ -31,11 +31,13 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
     let main_fn_name = syn::Ident::new(export::TRIGGER_MAIN, proc_macro2::Span::call_site());
 
     quote! {
+        iroha_trigger::utils::register_getrandom_err_callback!();
+
         /// Smart contract entrypoint
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn #main_fn_name() {
-            let host = ::iroha_trigger::smart_contract::Iroha;
+            let host = ::iroha_trigger::Iroha;
             let context = ::iroha_trigger::get_trigger_context();
             #fn_name(host, context)
         }

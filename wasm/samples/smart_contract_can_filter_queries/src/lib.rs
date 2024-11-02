@@ -15,8 +15,6 @@ use iroha_smart_contract::{prelude::*, Iroha};
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
-getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
-
 /// Create two asset definitions in the looking_glass domain, query all asset definitions, filter them to only be in the looking_glass domain, check that the results are consistent
 #[iroha_smart_contract::main]
 fn main(host: Iroha, _context: Context) {

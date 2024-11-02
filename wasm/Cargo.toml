@@ -39,7 +39,6 @@ parity-scale-codec = { version = "3.2.1", default-features = false }
 anyhow = { version = "1.0.71", default-features = false }
 serde = { version = "1.0.151", default-features = false }
 serde_json = { version = "1.0.91", default-features = false }
-getrandom = { version = "0.2", features = ["custom"] }
 nonzero_ext = { version = "0.3.0", default-features = false }
 
 dlmalloc = { version = "0.2.6", features = ["global"] }

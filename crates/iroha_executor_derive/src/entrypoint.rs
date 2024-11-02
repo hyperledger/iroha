@@ -20,33 +20,26 @@ mod import {
 
 /// [`executor_entrypoint`](crate::executor_entrypoint()) macro implementation
 #[allow(clippy::needless_pass_by_value)]
-pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream {
+pub fn impl_validate_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream {
     macro_rules! match_entrypoints {
         (validate: {
             $($user_entrypoint_name:ident =>
                 $generated_entrypoint_name:ident ($decode_validation_context_fn_name:ident)),* $(,)?
-        }
-        other: {
-            $($other_user_entrypoint_name:ident => $branch:block),* $(,)?
         }) => {
             match &item.sig.ident {
                 $(fn_name if fn_name == stringify!($user_entrypoint_name) => {
-                    impl_validate_entrypoint(
+                    impl_validate_entrypoint_priv(
                         item,
                         stringify!($user_entrypoint_name),
                         export::$generated_entrypoint_name,
                         import::$decode_validation_context_fn_name,
                     )
                 })*
-                $(fn_name if fn_name == stringify!($other_user_entrypoint_name) => $branch),*
                 _ => {
                     emit!(
                         emitter,
                         "Executor entrypoint name must be one of: {:?}",
-                        [
-                            $(stringify!($user_entrypoint_name),)*
-                            $(stringify!($other_user_entrypoint_name),)*
-                        ]
+                        [$(stringify!($user_entrypoint_name),)*]
                     );
                     return quote!();
                 },
@@ -60,13 +53,10 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
             execute_instruction => EXECUTOR_EXECUTE_INSTRUCTION(DECODE_EXECUTE_INSTRUCTION_CONTEXT),
             validate_query => EXECUTOR_VALIDATE_QUERY(DECODE_VALIDATE_QUERY_CONTEXT),
         }
-        other: {
-            migrate => { impl_migrate_entrypoint(item) }
-        }
     }
 }
 
-fn impl_validate_entrypoint(
+fn impl_validate_entrypoint_priv(
     fn_item: syn::ItemFn,
     user_entrypoint_name: &'static str,
     generated_entrypoint_name: &'static str,
@@ -103,9 +93,9 @@ fn impl_validate_entrypoint(
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn #generated_entrypoint_ident(context: *const u8) -> *const u8 {
-            let host = ::iroha_executor::smart_contract::Iroha;
+            let host = ::iroha_executor::Iroha;
 
-            let context = ::iroha_executor::#decode_validation_context_fn_ident(context);
+            let context = ::iroha_executor::utils::#decode_validation_context_fn_ident(context);
             let verdict = #fn_name(context.target, host, context.context);
 
             let bytes_box = ::core::mem::ManuallyDrop::new(
@@ -124,7 +114,7 @@ fn impl_validate_entrypoint(
     }
 }
 
-fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
+pub fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
     let syn::ItemFn {
         attrs,
         vis,
@@ -139,6 +129,8 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
     );
 
     quote! {
+        iroha_executor::utils::register_getrandom_err_callback!();
+
         /// Executor `migrate` entrypoint
         ///
         /// # Memory safety
@@ -148,7 +140,7 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         #[doc(hidden)]
         unsafe extern "C" fn #migrate_fn_name(context: *const u8) {
             let host = ::iroha_executor::smart_contract::Iroha;
-            let context = ::iroha_executor::decode_migrate_context(context);
+            let context = ::iroha_executor::utils::decode_migrate_context(context);
             #fn_name(host, context);
         }
 

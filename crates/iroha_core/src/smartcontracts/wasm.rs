@@ -688,8 +688,7 @@ impl<S> Runtime<S> {
     ///
     /// # Warning
     ///
-    /// This function doesn't take ownership of the provided
-    /// allocation
+    /// This function doesn't take ownership of the provided allocation
     ///
     /// # Errors
     ///
@@ -697,7 +696,7 @@ impl<S> Runtime<S> {
     #[allow(clippy::needless_pass_by_value)]
     #[codec::wrap(state = "S")]
     fn dbg(msg: String) {
-        println!("{msg}");
+        eprintln!("{msg}");
     }
 }
 

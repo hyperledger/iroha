@@ -21,10 +21,9 @@ mod host {
 
 /// Log `obj` with desired log level
 ///
-/// When running as a wasm smart contract,
-///   prints to the host logging system with the corresponding level.
-///
+/// When running as a wasm smart contract, prints to the host logging system with the corresponding level.
 /// When running outside of wasm, prints the output along with its level to stderr
+#[doc(hidden)]
 pub fn log<T: alloc::string::ToString + ?Sized>(log_level: Level, obj: &T) {
     cfg_if! {
         if #[cfg(not(target_family = "wasm"))] {

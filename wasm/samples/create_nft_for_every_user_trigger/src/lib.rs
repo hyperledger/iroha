@@ -8,19 +8,17 @@ extern crate panic_halt;
 use alloc::{format, string::ToString};
 
 use dlmalloc::GlobalDlmalloc;
-use iroha_trigger::{debug::dbg_panic, prelude::*};
+use iroha_trigger::prelude::*;
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
-
-getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 
 #[iroha_trigger::main]
 fn main(host: Iroha, context: Context) {
     iroha_trigger::log::info!("Executing trigger");
 
     if !matches!(context.event, EventBox::Time(_)) {
-        dbg_panic("Only work as a by call trigger");
+        dbg_panic!("Only work as a by call trigger");
     };
 
     let bad_domain_ids: [DomainId; 3] = [

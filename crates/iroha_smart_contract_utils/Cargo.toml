@@ -14,10 +14,11 @@ workspace = true
 debug = []
 
 [dependencies]
-cfg-if.workspace = true
 iroha_data_model.workspace = true
 
+getrandom = { version = "0.2", features = ["custom"] }
 parity-scale-codec.workspace = true
+cfg-if.workspace = true
 
 [dev-dependencies]
 webassembly-test = "0.1.0"

@@ -6,22 +6,17 @@
 extern crate panic_halt;
 
 use dlmalloc::GlobalDlmalloc;
-use iroha_trigger::{
-    debug::{dbg_panic, DebugExpectExt as _},
-    prelude::*,
-};
+use iroha_trigger::prelude::*;
 use mint_rose_trigger_data_model::MintRoseArgs;
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
-getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
-
 /// Mint 1 rose for owner
 #[iroha_trigger::main]
 fn main(host: Iroha, context: Context) {
     let EventBox::ExecuteTrigger(event) = context.event else {
-        dbg_panic("Only work as a by call trigger");
+        dbg_panic!("Only work as a by call trigger");
     };
 
     let val = event

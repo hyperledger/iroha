@@ -26,11 +26,6 @@ derive_more.workspace = true
 
 displaydoc.workspace = true
 
-getrandom = "0.2"
-
 [dev-dependencies]
 webassembly-test = "0.1.0"
-# Not used directly but required for compilation
-getrandom = { version = "0.2", features = ["custom"] }
-
 trybuild = { workspace = true }

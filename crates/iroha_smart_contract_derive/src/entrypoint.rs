@@ -31,6 +31,8 @@ pub fn impl_entrypoint(emitter: &mut Emitter, item: syn::ItemFn) -> TokenStream 
     let main_fn_name = syn::Ident::new(export::SMART_CONTRACT_MAIN, proc_macro2::Span::call_site());
 
     quote! {
+        iroha_smart_contract::utils::register_getrandom_err_callback!();
+
         /// Smart contract entrypoint
         #[no_mangle]
         #[doc(hidden)]

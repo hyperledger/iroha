@@ -3,13 +3,20 @@
 #![allow(unsafe_code)]
 
 pub use iroha_smart_contract as smart_contract;
-pub use iroha_smart_contract_utils::debug;
+pub use iroha_smart_contract_utils::{dbg, dbg_panic, DebugExpectExt, DebugUnwrapExt};
 pub use iroha_trigger_derive::main;
-pub use smart_contract::{data_model, stub_getrandom};
+pub use smart_contract::{data_model, Iroha};
+
+#[doc(hidden)]
+pub mod utils {
+    //! Crate with utilities
+
+    pub use iroha_smart_contract_utils::register_getrandom_err_callback;
+}
 
 pub mod log {
     //! WASM logging utilities
-    pub use iroha_smart_contract_utils::{debug, error, event, info, log::*, trace, warn};
+    pub use iroha_smart_contract_utils::{debug, error, event, info, trace, warn};
 }
 
 #[cfg(not(test))]
@@ -36,10 +43,8 @@ pub fn get_trigger_context() -> data_model::smart_contract::payloads::TriggerCon
 
 pub mod prelude {
     //! Common imports used by triggers
-
-    pub use iroha_smart_contract::prelude::*;
-    pub use iroha_smart_contract_utils::debug::DebugUnwrapExt;
-    pub use iroha_trigger_derive::main;
-
-    pub use crate::data_model::smart_contract::payloads::TriggerContext as Context;
+    pub use crate::{
+        data_model::{prelude::*, smart_contract::payloads::TriggerContext as Context},
+        dbg, dbg_panic, DebugExpectExt, DebugUnwrapExt, Iroha,
+    };
 }
