@@ -1288,7 +1288,7 @@ pub mod role {
             let grant_role = &Grant::account_role(role.id().clone(), role.grant_to().clone());
             let isi = &Register::role(new_role);
             if let Err(err) = executor.host().submit(isi) {
-                executor.deny(err);
+                deny!(executor, err);
             }
 
             execute!(executor, grant_role);
