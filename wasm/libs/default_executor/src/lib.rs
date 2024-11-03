@@ -68,13 +68,17 @@ trait VisitExecute: Instruction {
         executor.context_mut().authority = init_authority;
     }
 
-    fn visit(&self, executor: &mut Executor);
+    fn visit(&self, _executor: &mut Executor) {
+        unimplemented!("should be overridden unless `Self::visit_execute` is overridden")
+    }
 
     fn execute(
         self,
-        executor: &mut Executor,
-        init_authority: &AccountId,
-    ) -> Result<(), ValidationFail>;
+        _executor: &mut Executor,
+        _init_authority: &AccountId,
+    ) -> Result<(), ValidationFail> {
+        unimplemented!("should be overridden unless `Self::visit_execute` is overridden")
+    }
 }
 
 /// Migrate previous executor to the current version.
