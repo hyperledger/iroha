@@ -42,17 +42,11 @@ impl VisitExecute for MultisigPropose {
         )) else {
             deny!(executor, "multisig proposal duplicates")
         };
-
-        // Pass validation and elevate to the multisig account authority
-        executor.context_mut().authority = target_account;
     }
 
-    fn execute(
-        self,
-        executor: &mut Executor,
-        init_authority: &AccountId,
-    ) -> Result<(), ValidationFail> {
+    fn execute(self, executor: &Executor) -> Result<(), ValidationFail> {
         let host = executor.host().clone();
+        let proposer = executor.context().authority.clone();
         let target_account = self.account;
         let instructions_hash = HashOf::new(&self.instructions);
         let signatories: BTreeMap<AccountId, u8> = host
@@ -80,7 +74,9 @@ impl VisitExecute for MultisigPropose {
 
                     MultisigPropose::new(signatory, [approve_me.into()].to_vec())
                 };
-                propose_to_approve_me.visit_execute(executor);
+                let mut executor = executor.clone();
+                executor.context_mut().authority = target_account.clone();
+                propose_to_approve_me.execute(&executor)?;
             }
         }
 
@@ -92,7 +88,7 @@ impl VisitExecute for MultisigPropose {
             .try_into()
             .dbg_expect("shouldn't overflow within 584942417 years");
 
-        let approvals = BTreeSet::from([init_authority]);
+        let approvals = BTreeSet::from([proposer]);
 
         host.submit(&SetKeyValue::account(
             target_account.clone(),
@@ -109,7 +105,7 @@ impl VisitExecute for MultisigPropose {
         .dbg_unwrap();
 
         host.submit(&SetKeyValue::account(
-            target_account.clone(),
+            target_account,
             approvals_key(&instructions_hash).clone(),
             Json::new(&approvals),
         ))
@@ -141,17 +137,11 @@ impl VisitExecute for MultisigApprove {
         )) else {
             deny!(executor, "no proposals to approve")
         };
-
-        // Pass validation and elevate to the multisig account authority
-        executor.context_mut().authority = target_account;
     }
 
-    fn execute(
-        self,
-        executor: &mut Executor,
-        init_authority: &AccountId,
-    ) -> Result<(), ValidationFail> {
+    fn execute(self, executor: &Executor) -> Result<(), ValidationFail> {
         let host = executor.host().clone();
+        let approver = executor.context().authority.clone();
         let target_account = self.account;
         let instructions_hash = self.instructions_hash;
         let signatories: BTreeMap<AccountId, u8> = host
@@ -203,7 +193,7 @@ impl VisitExecute for MultisigApprove {
             .try_into_any()
             .dbg_unwrap();
 
-        approvals.insert(init_authority.clone());
+        approvals.insert(approver);
 
         host.submit(&SetKeyValue::account(
             target_account.clone(),
@@ -253,7 +243,11 @@ impl VisitExecute for MultisigApprove {
                 // Execute instructions proposal which collected enough approvals
                 for isi in instructions {
                     match isi {
-                        InstructionBox::Custom(instruction) => visit_custom(executor, &instruction),
+                        InstructionBox::Custom(instruction) => {
+                            let mut executor = executor.clone();
+                            executor.context_mut().authority = target_account.clone();
+                            visit_custom(&mut executor, &instruction)
+                        }
                         builtin => host.submit(&builtin).dbg_unwrap(),
                     }
                 }

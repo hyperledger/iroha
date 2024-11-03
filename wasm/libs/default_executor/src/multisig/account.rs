@@ -17,7 +17,7 @@ impl VisitExecute for MultisigRegister {
             )
         }
 
-        let Ok(domain_found) = host
+        let Ok(_domain_found) = host
             .query(FindDomains)
             .filter_with(|domain| domain.id.eq(target_domain.clone()))
             .execute_single()
@@ -40,23 +40,16 @@ impl VisitExecute for MultisigRegister {
                 );
             };
         }
-
-        // Pass validation and elevate to the domain owner authority
-        executor.context_mut().authority = domain_found.owned_by().clone();
     }
 
-    fn execute(
-        self,
-        executor: &mut Executor,
-        _init_authority: &AccountId,
-    ) -> Result<(), ValidationFail> {
+    fn execute(self, executor: &Executor) -> Result<(), ValidationFail> {
         let host = executor.host();
-        let domain_owner = executor.context().authority.clone();
+        let registrant = executor.context().authority.clone();
         let multisig_account = self.account;
         let multisig_role = multisig_role_for(&multisig_account);
 
         host.submit(&Register::account(Account::new(multisig_account.clone())))
-            .dbg_expect("domain owner should successfully register a multisig account");
+            .dbg_expect("registrant should successfully register a multisig account");
 
         host.submit(&SetKeyValue::account(
             multisig_account.clone(),
@@ -80,22 +73,22 @@ impl VisitExecute for MultisigRegister {
         .dbg_unwrap();
 
         host.submit(&Register::role(
-            // Temporarily grant a multisig role to the domain owner to delegate the role to the signatories
-            Role::new(multisig_role.clone(), domain_owner.clone()),
+            // Temporarily grant a multisig role to the registrant to delegate the role to the signatories
+            Role::new(multisig_role.clone(), registrant.clone()),
         ))
-        .dbg_expect("domain owner should successfully register a multisig role");
+        .dbg_expect("registrant should successfully register a multisig role");
 
         for signatory in self.signatories.keys().cloned() {
             host.submit(&Grant::account_role(multisig_role.clone(), signatory))
                 .dbg_expect(
-                    "domain owner should successfully grant the multisig role to signatories",
+                    "registrant should successfully grant the multisig role to signatories",
                 );
         }
 
-        // FIXME No roles to revoke found, which should have been granted to the domain owner
-        // host.submit(&Revoke::account_role(multisig_role, domain_owner))
+        // FIXME No roles to revoke found, which should have been granted to the registrant
+        // host.submit(&Revoke::account_role(multisig_role, registrant))
         //     .dbg_expect(
-        //         "domain owner should successfully revoke the multisig role from the domain owner",
+        //         "registrant should successfully revoke the multisig role from the registrant",
         //     );
 
         Ok(())

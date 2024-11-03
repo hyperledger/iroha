@@ -56,27 +56,19 @@ fn visit_custom(executor: &mut Executor, isi: &CustomInstruction) {
 
 trait VisitExecute: Instruction {
     fn visit_execute(self, executor: &mut Executor) {
-        let init_authority = executor.context().authority.clone();
         self.visit(executor);
         if executor.verdict().is_ok() {
-            if let Err(err) = self.execute(executor, &init_authority) {
+            if let Err(err) = self.execute(executor) {
                 executor.deny(err);
             }
         }
-        // reset authority per instruction
-        // TODO seek a more proper way
-        executor.context_mut().authority = init_authority;
     }
 
     fn visit(&self, _executor: &mut Executor) {
         unimplemented!("should be overridden unless `Self::visit_execute` is overridden")
     }
 
-    fn execute(
-        self,
-        _executor: &mut Executor,
-        _init_authority: &AccountId,
-    ) -> Result<(), ValidationFail> {
+    fn execute(self, _executor: &Executor) -> Result<(), ValidationFail> {
         unimplemented!("should be overridden unless `Self::visit_execute` is overridden")
     }
 }
