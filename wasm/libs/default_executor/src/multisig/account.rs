@@ -42,7 +42,7 @@ impl VisitExecute for MultisigRegister {
         }
     }
 
-    fn execute(self, executor: &Executor) -> Result<(), ValidationFail> {
+    fn execute(self, executor: &mut Executor) -> Result<(), ValidationFail> {
         let host = executor.host();
         let registrant = executor.context().authority.clone();
         let multisig_account = self.account;

@@ -68,7 +68,7 @@ trait VisitExecute: Instruction {
         unimplemented!("should be overridden unless `Self::visit_execute` is overridden")
     }
 
-    fn execute(self, _executor: &Executor) -> Result<(), ValidationFail> {
+    fn execute(self, _executor: &mut Executor) -> Result<(), ValidationFail> {
         unimplemented!("should be overridden unless `Self::visit_execute` is overridden")
     }
 }

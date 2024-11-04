@@ -14,27 +14,14 @@ impl VisitExecute for MultisigPropose {
         let target_account = self.account.clone();
         let multisig_role = multisig_role_for(&target_account);
         let instructions_hash = HashOf::new(&self.instructions);
-        let is_top_down_proposal = host
-            .query_single(FindAccountMetadata::new(
-                proposer.clone(),
-                SIGNATORIES.parse().unwrap(),
-            ))
-            .map_or(false, |proposer_signatories| {
-                proposer_signatories
-                    .try_into_any::<BTreeMap<AccountId, u8>>()
-                    .dbg_unwrap()
-                    .contains_key(&target_account)
-            });
 
-        if !is_top_down_proposal {
-            let Ok(_role_found) = host
-                .query(FindRolesByAccountId::new(proposer))
-                .filter_with(|role_id| role_id.eq(multisig_role))
-                .execute_single()
-            else {
-                deny!(executor, "not qualified to propose multisig");
-            };
-        }
+        let Ok(_role_found) = host
+            .query(FindRolesByAccountId::new(proposer))
+            .filter_with(|role_id| role_id.eq(multisig_role))
+            .execute_single()
+        else {
+            deny!(executor, "not qualified to propose multisig");
+        };
 
         let Err(_proposal_not_found) = host.query_single(FindAccountMetadata::new(
             target_account.clone(),
@@ -44,7 +31,7 @@ impl VisitExecute for MultisigPropose {
         };
     }
 
-    fn execute(self, executor: &Executor) -> Result<(), ValidationFail> {
+    fn execute(self, executor: &mut Executor) -> Result<(), ValidationFail> {
         let host = executor.host().clone();
         let proposer = executor.context().authority.clone();
         let target_account = self.account;
@@ -74,9 +61,13 @@ impl VisitExecute for MultisigPropose {
 
                     MultisigPropose::new(signatory, [approve_me.into()].to_vec())
                 };
-                let mut executor = executor.clone();
+                let init_authority = executor.context().authority.clone();
+                // Authorize as the multisig account
                 executor.context_mut().authority = target_account.clone();
-                propose_to_approve_me.execute(&executor)?;
+                propose_to_approve_me
+                    .execute(executor)
+                    .dbg_expect("top-down proposals shouldn't fail");
+                executor.context_mut().authority = init_authority;
             }
         }
 
@@ -139,7 +130,7 @@ impl VisitExecute for MultisigApprove {
         };
     }
 
-    fn execute(self, executor: &Executor) -> Result<(), ValidationFail> {
+    fn execute(self, executor: &mut Executor) -> Result<(), ValidationFail> {
         let host = executor.host().clone();
         let approver = executor.context().authority.clone();
         let target_account = self.account;
@@ -242,10 +233,11 @@ impl VisitExecute for MultisigApprove {
             if !is_expired {
                 // Validate and execute the authenticated multisig transaction
                 for instruction in instructions {
-                    // Create an instance per instruction to reset the context mutation
-                    let mut executor = executor.clone();
+                    let init_authority = executor.context().authority.clone();
+                    // Authorize as the multisig account
                     executor.context_mut().authority = target_account.clone();
-                    executor.visit_instruction(&instruction)
+                    executor.visit_instruction(&instruction);
+                    executor.context_mut().authority = init_authority;
                 }
             } else {
                 // TODO Notify that the proposal has expired, while returning Ok for the entry deletion to take effect
