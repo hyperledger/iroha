@@ -19,18 +19,18 @@ New to our project? [Make your first contribution](#your-first-code-contribution
 ### TL;DR
 
 - Find [ZenHub](https://app.zenhub.com/workspaces/iroha-v2-60ddb820813b9100181fc060/board?repos=181739240).
-- Fork [Iroha](https://github.com/hyperledger/iroha/tree/main).
+- Fork [Iroha](https://github.com/hyperledger-iroha/iroha/tree/main).
 - Fix your issue of choice.
 - Ensure you follow our [style guides](#style-guides) for code and documentation.
 - Write [tests](https://doc.rust-lang.org/cargo/commands/cargo-test.html). Ensure they all pass (`cargo test --workspace`).
 - Perform pre-commit routine like formatting & artifacts regeneration (see [`pre-commit.sample`](./hooks/pre-commit.sample))
-- With the `upstream` set to track [Hyperledger Iroha repository](https://github.com/hyperledger/iroha), `git pull -r upstream main`, `git commit -s`, `git push <your-fork>`, and [create a pull request](https://github.com/hyperledger/iroha/compare) to the `main` branch. Ensure it follows the [pull request guidelines](#pull-request-etiquette).
+- With the `upstream` set to track [Hyperledger Iroha repository](https://github.com/hyperledger-iroha/iroha), `git pull -r upstream main`, `git commit -s`, `git push <your-fork>`, and [create a pull request](https://github.com/hyperledger-iroha/iroha/compare) to the `main` branch. Ensure it follows the [pull request guidelines](#pull-request-etiquette).
 
 ### Reporting Bugs
 
 A *bug* is an error, design flaw, failure or fault in Iroha that causes it to produce an incorrect, unexpected, or unintended result or behaviour.
 
-We track Iroha bugs via [Github Issues](https://github.com/hyperledger/iroha/issues?q=is%3Aopen+is%3Aissue+label%3ABug) labeled with the `Bug` tag.
+We track Iroha bugs via [GitHub Issues](https://github.com/hyperledger-iroha/iroha/issues?q=is%3Aopen+is%3Aissue+label%3ABug) labeled with the `Bug` tag.
 
 When you create a new issue, there is a template for you to fill in. Here's the checklist of what you should do when you are reporting bugs:
 - [ ] Add the `Bug` tag
@@ -83,7 +83,7 @@ If you have any questions regarding our handling of security vulnerabilities, pl
 
 ### Suggesting Improvements
 
-Create [an issue](https://github.com/hyperledger/iroha/issues/new) on GitHub with the appropriate tags (`Optimization`, `Enhancement`) and describe the improvement you are suggesting. You may leave this idea for us or someone else to develop, or you may implement it yourself.
+Create [an issue](https://github.com/hyperledger-iroha/iroha/issues/new) on GitHub with the appropriate tags (`Optimization`, `Enhancement`) and describe the improvement you are suggesting. You may leave this idea for us or someone else to develop, or you may implement it yourself.
 
 If you intend to implement the suggestion yourself, do the following:
 
@@ -117,7 +117,7 @@ You, as part of the aforementioned community, should consider helping others too
 
 ## Your First Code Contribution
 
-1. Find a beginner-friendly issue among issues with the [good-first-issue](https://github.com/hyperledger/iroha/labels/good%20first%20issue) label.
+1. Find a beginner-friendly issue among issues with the [good-first-issue](https://github.com/hyperledger-iroha/iroha/labels/good%20first%20issue) label.
 2. Make sure that no one else is working on the issues you have chosen by checking that it is not assigned to anybody.
 3. Assign the issue to yourself so that others can see that someone is working on it.
 4. Read our [Rust Style Guide](#rust-style-guide) before you start writing code.
@@ -125,7 +125,7 @@ You, as part of the aforementioned community, should consider helping others too
 
 ## Pull Request Etiquette
 
-Please [fork](https://docs.github.com/en/get-started/quickstart/fork-a-repo) the [repository](https://github.com/hyperledger/iroha/tree/main) and [create a feature branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository) for your contributions. When working with **PRs from forks**, check [this manual](https://help.github.com/articles/checking-out-pull-requests-locally).
+Please [fork](https://docs.github.com/en/get-started/quickstart/fork-a-repo) the [repository](https://github.com/hyperledger-iroha/iroha/tree/main) and [create a feature branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository) for your contributions. When working with **PRs from forks**, check [this manual](https://help.github.com/articles/checking-out-pull-requests-locally).
 
 #### Working on code contribution:
 - Follow the [Rust Style Guide](#rust-style-guide) and the [Documentation Style Guide](#documentation-style-guide).
@@ -170,8 +170,8 @@ To pass the *`check-PR-title`* check, the pull request title must adhere to the 
 
 ### Git Workflow
 
-- [Fork](https://docs.github.com/en/get-started/quickstart/fork-a-repo) the [repository](https://github.com/hyperledger/iroha/tree/main) and [create a feature branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository) for your contributions.
-- [Configure the remote](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/configuring-a-remote-for-a-fork) to sync your fork with the [Hyperledger Iroha repository](https://github.com/hyperledger/iroha/tree/main).
+- [Fork](https://docs.github.com/en/get-started/quickstart/fork-a-repo) the [repository](https://github.com/hyperledger-iroha/iroha/tree/main) and [create a feature branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository) for your contributions.
+- [Configure the remote](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/configuring-a-remote-for-a-fork) to sync your fork with the [Hyperledger Iroha repository](https://github.com/hyperledger-iroha/iroha/tree/main).
 - Use the [Git Rebase Workflow](https://git-rebase.io/). Avoid using `git pull`. Use `git pull --rebase` instead.
 - Use the provided [git hooks](./hooks/) to ease the development process.
 
@@ -204,7 +204,7 @@ Follow these commit guidelines:
 - To run the source-code based tests, execute [`cargo test`](https://doc.rust-lang.org/cargo/commands/cargo-test.html) in the Iroha root. Note that this is a long process.
 - To run benchmarks, execute [`cargo bench`](https://doc.rust-lang.org/cargo/commands/cargo-bench.html) from the Iroha root. To help debug benchmark outputs, set the `debug_assertions` environment variable like so: `RUSTFLAGS="--cfg debug_assertions" cargo bench`.
 - If you are working on a particular component, be mindful that when you run `cargo test` in a [workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html), it will only run the tests for that workspace, which usually doesn't include any [integration tests](https://www.testingxperts.com/blog/what-is-integration-testing).
-- If you want to test your changes on a minimal network, the provided [`docker-compose.yml`](defaults/docker-compose.yml) creates a network of 4 Iroha peers in docker containers that can be used to test consensus and asset propagation-related logic. We recommend interacting with that network using either [`iroha-python`](https://github.com/hyperledger/iroha-python), or the included Iroha client CLI.
+- If you want to test your changes on a minimal network, the provided [`docker-compose.yml`](defaults/docker-compose.yml) creates a network of 4 Iroha peers in docker containers that can be used to test consensus and asset propagation-related logic. We recommend interacting with that network using either [`iroha-python`](https://github.com/hyperledger-iroha/iroha-python), or the included Iroha client CLI.
 - Do not remove failing tests. Even tests that are ignored will be run in our pipeline eventually.
 - If possible, please benchmark your code both before and after making your changes, as a significant performance regression can break existing users' installations.
 
@@ -379,13 +379,11 @@ We use pinned dependencies. Follow these guidelines for versioning:
 
 Our community members are active at:
 
-| Service       | Link                                                         |
-| ------------- | ------------------------------------------------------------ |
-| RocketChat    | https://chat.hyperledger.org/channel/iroha                   |
-| StackOverflow | https://stackoverflow.com/questions/tagged/hyperledger-iroha |
-| Mailing List  | hyperledger-iroha@lists.hyperledger.org                      |
-| Gitter        | https://gitter.im/hyperledger-iroha/Lobby                    |
-| Telegram      | https://t.me/hl_iroha                                        |
-| YouTube       | https://www.youtube.com/channel/UCYlK9OrZo9hvNYFuf0vrwww     |
+| Service       | Link                                                               |
+|---------------|--------------------------------------------------------------------|
+| StackOverflow | https://stackoverflow.com/questions/tagged/hyperledger-iroha       |
+| Mailing List  | https://lists.lfdecentralizedtrust.org/g/iroha                     |
+| Telegram      | https://t.me/hyperledgeriroha                                      |
+| Discord       | https://discord.com/channels/905194001349627914/905205848547155968 |
 
 ---

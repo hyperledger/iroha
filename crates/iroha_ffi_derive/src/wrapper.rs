@@ -736,7 +736,7 @@ fn gen_ffi_fn_call_stmt(fn_descriptor: &FnDescriptor, ffi_fn_name: &Ident) -> To
             if unwrap_result_type(output.src_type()).is_some() {
                 quote! {
                     iroha_ffi::FfiReturn::ExecutionFail => {
-                        // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                        // TODO: Implement error handling (https://github.com/hyperledger-iroha/iroha/issues/2252)
                         //return Err(Default::default());
                         unimplemented!("Error handling is not properly implemented yet");
                     }

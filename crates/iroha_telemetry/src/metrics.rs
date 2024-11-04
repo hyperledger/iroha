@@ -263,7 +263,7 @@ mod test {
 
         let actual = serde_json::to_string_pretty(&value).expect("Sample is valid");
         // CAUTION: if this is outdated, make sure to update the documentation:
-        // https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#status
+        // https://docs.iroha.tech/reference/torii-endpoints.html#status
         let expected = expect_test::expect![[r#"
             {
               "peers": 4,
@@ -287,7 +287,7 @@ mod test {
 
         let actual = hex::encode_upper(bytes);
         // CAUTION: if this is outdated, make sure to update the documentation:
-        // https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#status
+        // https://docs.iroha.tech/reference/torii-endpoints.html#status
         let expected = expect_test::expect!["10147C0C14407CD9370848"];
         expected.assert_eq(&actual);
     }

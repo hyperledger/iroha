@@ -23,7 +23,7 @@ def test_health_status_presence(GIVEN_get_request_to_health_endpoint_is_sent):
 
 
 @allure.id("1029")
-@pytest.mark.xfail(reason="https://github.com/hyperledger/iroha/issues/4218")
+@pytest.mark.xfail(reason="https://github.com/hyperledger-iroha/iroha/issues/4218")
 def test_health_content_type(GIVEN_get_request_to_health_endpoint_is_sent):
     with allure.step("WHEN I get the response"):
         response = GIVEN_get_request_to_health_endpoint_is_sent
@@ -34,7 +34,7 @@ def test_health_content_type(GIVEN_get_request_to_health_endpoint_is_sent):
 
 
 @allure.id("1030")
-@pytest.mark.xfail(reason="https://github.com/hyperledger/iroha/issues/4218")
+@pytest.mark.xfail(reason="https://github.com/hyperledger-iroha/iroha/issues/4218")
 def test_health_format_with_unexpected_param(
     GIVEN_get_request_with_unexpected_param_to_health_enpoint_is_sent,
 ):
@@ -47,7 +47,7 @@ def test_health_format_with_unexpected_param(
 
 
 @allure.id("1028")
-@pytest.mark.xfail(reason="https://github.com/hyperledger/iroha/issues/4218")
+@pytest.mark.xfail(reason="https://github.com/hyperledger-iroha/iroha/issues/4218")
 def test_health_response_format(GIVEN_get_request_to_health_enpoint_is_sent):
     with allure.step("WHEN I get the response"):
         response = GIVEN_get_request_to_health_enpoint_is_sent

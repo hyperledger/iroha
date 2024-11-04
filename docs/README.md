@@ -2,8 +2,8 @@
 
 This is the main Iroha 2 documentation that you will find useful:
 
-- [Tutorial](https://hyperledger.github.io/iroha-2-docs/)
-- [API Reference](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints)
+- [Tutorial](https://docs.iroha.tech/guide/tutorials/)
+- [API Reference](https://docs.iroha.tech/reference/torii-endpoints.html)
 <!-- - [Configuration Reference](./source/references/config.md) -->
 - [Iroha 2 Whitepaper](./source/iroha_2_whitepaper.md)
 

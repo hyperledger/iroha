@@ -391,7 +391,7 @@
 - hyperledger#3162 Forbid 0 height in block streaming requests
 - Configuration macro initial test
 - hyperledger#3592 Fix for  config files being updated on `release`
-- hyperledger#3246 Don't involve `observing peer <https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#2-system-architecture>`_ without `fault <https://en.wikipedia.org/wiki/Byzantine_fault>`_
+- hyperledger#3246 Don't involve `observing peer <https://github.com/hyperledger-iroha/iroha/blob/main/docs/source/iroha_2_whitepaper.md#2-system-architecture>`_ without `fault <https://en.wikipedia.org/wiki/Byzantine_fault>`_
 - hyperledger#3570 Correctly display client-side string query errors
 - hyperledger#3596 `iroha_client_cli` shows blocks/events
 - hyperledger#3473 Make `kagami validator` work from outside the  iroha repository root directory

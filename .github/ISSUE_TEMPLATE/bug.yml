@@ -6,12 +6,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to fill out this form! You may refer to the [contributing guide](https://github.com/hyperledger/iroha/blob/main/CONTRIBUTING.md#reporting-bugs) for further details on filling bug reports.
+        Thanks for taking the time to fill out this form! You may refer to the [contributing guide](https://github.com/hyperledger-iroha/iroha/blob/main/CONTRIBUTING.md#reporting-bugs) for further details on filling bug reports.
 
         Please be aware that SDK issues belong to other repositories:
-         - JavaScript: [`iroha-javascript`](https://github.com/hyperledger/iroha-javascript)
-         - Java/Kotlin: [`iroha-java`](https://github.com/hyperledger/iroha-java)
-         - Python: [`iroha-python`](https://github.com/hyperledger/iroha-python)
+         - JavaScript: [`iroha-javascript`](https://github.com/hyperledger-iroha/iroha-javascript)
+         - Java/Kotlin: [`iroha-java`](https://github.com/hyperledger-iroha/iroha-java)
+         - Python: [`iroha-python`](https://github.com/hyperledger-iroha/iroha-python)
   - type: input
     id: env
     attributes:
@@ -72,7 +72,7 @@ body:
       label: Logs
       description: |
         Provide an output log in JSON format, so we could determine what caused the issue faster.
-        To configure a file path and level for logs, check the [reference documentation](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md#logger) or [peer configuration](https://hyperledger.github.io/iroha-2-docs/guide/configure/peer-configuration.html#logger).
+        To configure a file path and level for logs, check the [reference documentation](https://docs.iroha.tech/reference/torii-endpoints.html#configuration-retrieve) or [peer configuration](https://docs.iroha.tech/guide/configure/peer-configuration.html#logger).
         **Please** leave JSON [syntax highlighting](https://help.github.com/en/github/writing-on-github/creating-and-highlighting-code-blocks#syntax-highlighting) and [collapsed sections](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/organizing-information-with-collapsed-sections) (`<details>` tag) enabled.
         If the log indentation is broken, use the [js-beautify](https://beautifier.io/) service to format it.
       value: |

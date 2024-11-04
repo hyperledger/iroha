@@ -1,7 +1,6 @@
 # Hyperledger Iroha
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![Rust](https://github.com/hyperledger/iroha/workflows/Rust/badge.svg?branch=main)
 
 Iroha is a simple and efficient blockchain ledger based on the **distributed ledger technology (DLT)**. Its design principles are inspired by the Japanese Kaizen principle of eliminating excesses (*muri*).
 
@@ -137,11 +136,11 @@ There is a set of configuration parameters that could be passed either through a
 irohad --config /path/to/config.toml
 ```
 
-**Note:** detailed configuration reference is [work in progress](https://github.com/hyperledger/iroha-2-docs/issues/392).
+**Note:** detailed configuration reference is [work in progress](https://github.com/hyperledger-iroha/iroha-2-docs/issues/392).
 
 ### Endpoints
 
-For a list of all endpoints, available operations, and ways to customize them with parameters, see [API Reference > Torii Endpoints](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints)
+For a list of all endpoints, available operations, and ways to customize them with parameters, see [Reference > Torii Endpoints](https://docs.iroha.tech/reference/torii-endpoints.html)
 
 ### Logging
 
@@ -166,7 +165,7 @@ Output goes to `/dev/stdout`. Piping to files or [log rotation](https://www.comm
 
 ### Monitoring
 
-The details of the `Health` endpoint can be found in the [API Reference > Torii Endpoints](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#health).
+The details of the `Health` endpoint can be found in the [API Reference > Torii Endpoints](https://docs.iroha.tech/reference/torii-endpoints.html#health).
 
 Iroha can produce both JSON-formatted as well as `prometheus`-readable metrics at the `status` and `metrics` endpoints respectively.
 
@@ -176,7 +175,7 @@ The [`prometheus`](https://prometheus.io/docs/introduction/overview/) monitoring
 
 Iroha stores blocks and snapshots in the `storage` directory, which is created automatically by Iroha in the working directory of the peer. If `kura.block_store_path` is specified in the config file, it overrides the default one and is resolved relative to the config file location.
 
-**Note:** detailed configuration reference is [work in progress](https://github.com/hyperledger/iroha-2-docs/issues/392).
+**Note:** detailed configuration reference is [work in progress](https://github.com/hyperledger-iroha/iroha-2-docs/issues/392).
 
 ### Scalability
 
@@ -186,21 +185,21 @@ The provided `docker-compose` file showcases a minimum viable network and the ge
 
 ## Further Reading
 
-We encourage you to check out our [Iroha 2 Tutorial](https://hyperledger.github.io/iroha-2-docs/) first. It is suitable for both experienced developers and prospective users of Iroha 2, and it provides language-specific guides for Bash, Python, Rust, Kotlin/Java, and Javascript/TypeScript.
+We encourage you to check out our [Iroha 2 Tutorial](https://docs.iroha.tech) first. It is suitable for both experienced developers and prospective users of Iroha 2, and it provides language-specific guides for Bash, Python, Rust, Kotlin/Java, and Javascript/TypeScript.
 
-* [Iroha 2 Documentation](https://hyperledger.github.io/iroha-2-docs/)
-  * [Glossary](https://hyperledger.github.io/iroha-2-docs/guide/glossary)
-  * [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions)
-  * [API Reference](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints)
+* [Iroha 2 Documentation](https://docs.iroha.tech)
+  * [Glossary](https://docs.iroha.tech/reference/glossary.html)
+  * [Iroha Special Instructions](https://docs.iroha.tech/blockchain/instructions.html)
+  * [API Reference](https://docs.iroha.tech/reference/torii-endpoints.html)
 <!-- * [Configuration Reference](./docs/source/references/config.md) -->
 * [Iroha 2 Whitepaper](./docs/source/iroha_2_whitepaper.md)
 
 Iroha SDKs:
 
-* [Iroha Python](https://github.com/hyperledger/iroha-python)
-* [Iroha Java](https://github.com/hyperledger/iroha-java)
-* [Iroha Javascript](https://github.com/hyperledger/iroha-javascript)
-* [Iroha iOS Swift](https://github.com/hyperledger/iroha-ios)
+* [Iroha Python](https://github.com/hyperledger-iroha/iroha-python)
+* [Iroha Java](https://github.com/hyperledger-iroha/iroha-java)
+* [Iroha Javascript](https://github.com/hyperledger-iroha/iroha-javascript)
+* [Iroha iOS Swift](https://github.com/hyperledger-iroha/iroha-ios)
 
 ## How to Contribute
 
