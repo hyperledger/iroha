@@ -240,16 +240,12 @@ impl VisitExecute for MultisigApprove {
             .dbg_unwrap();
 
             if !is_expired {
-                // Execute instructions proposal which collected enough approvals
-                for isi in instructions {
-                    match isi {
-                        InstructionBox::Custom(instruction) => {
-                            let mut executor = executor.clone();
-                            executor.context_mut().authority = target_account.clone();
-                            visit_custom(&mut executor, &instruction)
-                        }
-                        builtin => host.submit(&builtin).dbg_unwrap(),
-                    }
+                // Validate and execute the authenticated multisig transaction
+                for instruction in instructions {
+                    // Create an instance per instruction to reset the context mutation
+                    let mut executor = executor.clone();
+                    executor.context_mut().authority = target_account.clone();
+                    executor.visit_instruction(&instruction)
                 }
             } else {
                 // TODO Notify that the proposal has expired, while returning Ok for the entry deletion to take effect
