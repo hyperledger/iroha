@@ -14,6 +14,8 @@ workspace = true
 proc-macro = true
 
 [dependencies]
+iroha_macro_utils = { path = "../iroha_macro_utils" }
+
 syn = { workspace = true, features = ["default", "full"] }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
@@ -25,3 +27,5 @@ iroha_macro = { workspace = true }
 
 trybuild = { workspace = true }
 impls = { workspace = true }
+
+serde = { workspace = true, features = ["derive"] }

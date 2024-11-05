@@ -64,6 +64,8 @@ mod small_string {
 }
 
 mod small_vector {
+    use iroha_macro::serde_where;
+
     use super::*;
 
     /// Wrapper struct around [`smallvec::SmallVec`] type. Keeps `N`
@@ -76,14 +78,9 @@ mod small_vector {
     ///
     /// let a: SmallVec<[u8; 24]> = SmallVec(smallvec::smallvec![32]);
     /// ```
+    #[serde_where(A::Item)]
     #[derive(Deserialize, Serialize)]
-    #[serde(
-        bound(
-            serialize = "A::Item: Serialize",
-            deserialize = "A::Item: Deserialize<'de>"
-        ),
-        transparent
-    )]
+    #[serde(transparent)]
     #[repr(transparent)]
     pub struct SmallVec<A: Array>(pub smallvec::SmallVec<A>);
 
