@@ -1,12 +1,6 @@
 # Iroha CLI Client
 
-With the Iroha CLI Client, you can interact with Iroha Peers Web API.
-It is a "thin" wrapper around functionality exposed in the `iroha` crate. Specifically, it should be used as a reference for using `iroha`'s features, and not as a production-ready client. As such, the CLI client is not guaranteed to support all features supported by the client library.
-
-## Features
-
-* Submit Transactions with your Iroha Special Instructions to Iroha Peers
-* Send Requests with your Queries to Iroha Peers
+Iroha Client CLI is a "thin" wrapper around functionality exposed in the `iroha` crate. Specifically, it should be used as a reference for using `iroha`'s features, and not as a production-ready client. As such, the CLI client is not guaranteed to support all features supported by the client library. Check [Iroha 2 documentation](https://docs.iroha.tech/get-started/operate-iroha-2-via-cli.html) for a detailed tutorial on working with Iroha Client CLI.
 
 ## Installation
 
@@ -52,8 +46,6 @@ iroha [OPTIONS] <SUBCOMMAND>
 
 Refer to [Iroha Special Instructions](https://docs.iroha.tech/blockchain/instructions.html) for more information about Iroha instructions such as register, mint, grant, and so on.
 
-Check the [getting started guide](https://docs.iroha.tech/get-started/operate-iroha-2-via-cli.html) for detailed instructions on working with Iroha Client CLI.
-
 ## Examples
 
 :grey_exclamation: All examples below are Unix-oriented. If you're working on Windows, we would highly encourage you to consider using WSL, as most documentation assumes a POSIX-like shell running on your system. Please be advised that the differences in the syntax may go beyond executing `iroha.exe` instead of `iroha`.
@@ -68,35 +60,24 @@ Check the [getting started guide](https://docs.iroha.tech/get-started/operate-ir
 
 In this section we will show you how to use Iroha CLI Client to do the following:
 
-- [Iroha CLI Client](#iroha-cli-client)
-  - [Features](#features)
-  - [Installation](#installation)
-  - [Usage](#usage)
-    - [Options](#options)
-    - [Subcommands](#subcommands)
-  - [Examples](#examples)
-    - [Create new Domain](#create-new-domain)
-    - [Create new Account](#create-new-account)
-    - [Mint Asset to Account](#mint-asset-to-account)
-    - [Query Account Assets Quantity](#query-account-assets-quantity)
-    - [Execute WASM transaction](#execute-wasm-transaction)
-    - [Execute Multi-instruction Transactions](#execute-multi-instruction-transactions)
+  - [Create new Domain](#create-new-domain)
+  - [Create new Account](#create-new-account)
+  - [Mint Asset to Account](#mint-asset-to-account)
+  - [Query Account Assets Quantity](#query-account-assets-quantity)
+  - [Execute WASM transaction](#execute-wasm-transaction)
+  - [Execute Multi-instruction Transactions](#execute-multi-instruction-transactions)
 
 ### Create new Domain
 
-Let's start with domain creation. To create a domain, you need to specify the entity type first (`domain` in our case) and then the command (`register`) with a list of required parameters.
-
-For the `domain` entity, you only need to provide the `id` argument as a string that doesn't contain the `@` and `#` symbols.
+To create a domain, you need to specify the entity type first (`domain` in our case) and then the command (`register`) with a list of required parameters. For the `domain` entity, you only need to provide the `id` argument as a string that doesn't contain the `@` and `#` symbols.
 
 ```bash
 ./iroha domain register --id="Soramitsu"
 ```
 
-Now you have a domain without any accounts.
-
 ### Create new Account
 
-Let's create a new account. Like in the previous example, specify the entity type (`account`) and the command (`register`). Then define the value of the `id` argument in "signatory@domain" format, where signatory is the account's public key in multihash representation.
+To create an account, specify the entity type (`account`) and the command (`register`). Then define the value of the `id` argument in "signatory@domain" format, where signatory is the account's public key in multihash representation:
 
 ```bash
 ./iroha account register --id="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu"
@@ -104,33 +85,18 @@ Let's create a new account. Like in the previous example, specify the entity typ
 
 ### Mint Asset to Account
 
-It's time to give something to the Account you created. Let's add some Assets of the type `Quantity` to the account.
-
-To do so, you must first register an Asset Definition and only then add some Assets to the account. Specify the `asset` entity and then use the `register` and `mint` commands respectively.
-
-Every asset has its own value spec. In this example, it is defined as `Numeric`, a 96-bit unsigned decimal. We also support `Store` for key-value structured data.
+To add assets to the account, you must first register an Asset Definition. Specify the `asset` entity and then use the `register` and `mint` commands respectively. Here is an example of adding Assets of the type `Quantity` to the account:
 
 ```bash
 ./iroha asset register --id="XOR#Soramitsu" --type=Numeric
 ./iroha asset mint --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
 ```
 
-You created `XOR#Soramitsu`, an asset of type `Numeric`, and then gave `1010` units of this asset to the account `ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu`.
+With this, you created `XOR#Soramitsu`, an asset of type `Numeric`, and then gave `1010` units of this asset to the account `ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu`.
 
 ### Query Account Assets Quantity
 
-Because distributed systems heavily rely on the concept of _eventual_ consistency and Iroha works by awaiting consensus between peers, your request is not guaranteed to be processed (or be accepted) even if it is correctly formed.
-While the Iroha Client will successfully send your transactions and the Iroha Peer will confirm receiving them, it is possible that your request will not appear in the next block.
-
-Different causes such as a transaction timeout, a faulty peer in the network, catastrophic failure of the peer that you've sent your data towards, and many other conditions naturally occurring inside of any blockchain may lead to a rejection of your transaction at many different stages of processing.
-
-It should be noted that Iroha is designed to reduce the incidence of such rejections, and only rejects properly formed transactions in situations when not rejecting it would lead to data corruption and a hard-fork of the network.
-
-As such it's important to check that your instructions were applied and the _world_ is now in the desired state.
-For this you need to use Query API.
-
-Let's use Get Account Assets Query as an example.
-To know how many units of a particular asset an account has, use `asset get` with the specified account and asset:
+You can use Query API to check that your instructions were applied and the _world_ is in the desired state. For example, to know how many units of a particular asset an account has, use `asset get` with the specified account and asset:
 
 ```bash
 ./iroha asset get --account="ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu" --asset="XOR#Soramitsu"
@@ -138,24 +104,15 @@ To know how many units of a particular asset an account has, use `asset get` wit
 
 This query returns the quantity of `XOR#Soramitsu` asset for the `ed01204A3C5A6B77BBE439969F95F0AA4E01AE31EC45A0D68C131B2C622751FCC5E3B6@Soramitsu` account.
 
-It's possible to filter based on either account, asset or domain id by using the filtering API provided by the Iroha client CLI.
+You can also filter based on either account, asset or domain id by using the filtering API provided by the Iroha client CLI. Generally, filtering follows the `./iroha ENTITY list filter PREDICATE` pattern, where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON5 (check `iroha::data_model::predicate::value::ValuePredicate` type).
 
-Generally it looks like this:
-
-```bash
-./iroha ENTITY list filter PREDICATE
-```
-
-Where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON5 (check `iroha::data_model::predicate::value::ValuePredicate` type).
-
-Examples:
+Here are some examples of filtering:
 
 ```bash
 # Filter domains by id
 ./iroha domain list filter '{"Identifiable": {"Is": "wonderland"}}'
 # Filter accounts by domain
 ./iroha account list filter '{"Identifiable": {"EndsWith": "@wonderland"}}'
-# It is possible to combine filters using "Or" or "And"
 # Filter asset by domain
 ./iroha asset list filter '{"Or": [{"Identifiable": {"Contains": "#wonderland#"}}, {"And": [{"Identifiable": {"Contains": "##"}}, {"Identifiable": {"EndsWith": "@wonderland"}}]}]}'
 ```
