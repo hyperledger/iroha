@@ -94,9 +94,6 @@ pub fn build_schemas() -> MetaMap {
 
         // Multi-signature operations
         multisig::MultisigInstructionBox,
-        multisig::MultisigRegister,
-        multisig::MultisigPropose,
-        multisig::MultisigApprove,
 
         // Genesis file - used by SDKs to generate the genesis block
         // TODO: IMO it could/should be removed from the schema

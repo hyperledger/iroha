@@ -3579,7 +3579,6 @@ dependencies = [
 name = "iroha_telemetry_derive"
 version = "2.0.0-rc.1.0"
 dependencies = [
- "iroha_core",
  "iroha_macro_utils",
  "manyhow",
  "proc-macro2",

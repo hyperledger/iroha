@@ -19,21 +19,6 @@ use serde::{Deserialize, Serialize};
 /// Domain of the genesis account, technically required for the pre-genesis state
 pub static GENESIS_DOMAIN_ID: LazyLock<DomainId> = LazyLock::new(|| "genesis".parse().unwrap());
 
-/// Domain of the system account, implicitly registered in the genesis
-pub static SYSTEM_DOMAIN_ID: LazyLock<DomainId> = LazyLock::new(|| "system".parse().unwrap());
-
-/// The root authority for internal operations, implicitly registered in the genesis
-// FIXME #5022 deny external access
-// kagami crypto --seed "system"
-pub static SYSTEM_ACCOUNT_ID: LazyLock<AccountId> = LazyLock::new(|| {
-    AccountId::new(
-        SYSTEM_DOMAIN_ID.clone(),
-        "ed0120D8B64D62FD8E09B9F29FE04D9C63E312EFB1CB29F1BF6AF00EBC263007AE75F7"
-            .parse()
-            .unwrap(),
-    )
-});
-
 /// Genesis block.
 ///
 /// First transaction must contain single [`Upgrade`] instruction to set executor.
@@ -243,26 +228,6 @@ impl GenesisBuilder {
             wasm_dir: wasm_dir.into(),
             wasm_triggers: Vec::new(),
             topology: Vec::new(),
-        }
-    }
-
-    /// Entry system entities to serve standard functionality.
-    pub fn install_libs(self) -> Self {
-        let instructions = vec![
-            Register::domain(Domain::new(SYSTEM_DOMAIN_ID.clone())).into(),
-            Register::account(Account::new(SYSTEM_ACCOUNT_ID.clone())).into(),
-        ];
-
-        let wasm_triggers = vec![];
-
-        Self {
-            chain: self.chain,
-            executor: self.executor,
-            parameters: self.parameters,
-            instructions,
-            wasm_dir: self.wasm_dir,
-            wasm_triggers,
-            topology: self.topology,
         }
     }
 

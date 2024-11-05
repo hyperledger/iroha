@@ -94,17 +94,15 @@ macro_rules! impl_custom_instruction {
             fn try_from(payload: &Json) -> serde_json::Result<Self> {
                 serde_json::from_str::<Self>(payload.as_ref())
             }
-        }
+        } $(
 
-        $(
-            impl Instruction for $instruction {}
+        impl Instruction for $instruction {}
 
-            impl From<$instruction> for InstructionBox {
-                fn from(value: $instruction) -> Self {
-                    Self::Custom(<$box>::from(value).into())
-                }
+        impl From<$instruction> for InstructionBox {
+            fn from(value: $instruction) -> Self {
+                Self::Custom(<$box>::from(value).into())
             }
-        )+
+        })+
     };
 }
 
@@ -112,49 +110,3 @@ impl_custom_instruction!(
     MultisigInstructionBox,
     MultisigRegister | MultisigPropose | MultisigApprove
 );
-
-#[allow(missing_docs)]
-mod names {
-    use super::*;
-
-    pub const SIGNATORIES: &str = "signatories";
-    pub const QUORUM: &str = "quorum";
-    pub const TRANSACTION_TTL_MS: &str = "transaction_ttl_ms";
-    pub const PROPOSALS: &str = "proposals";
-    pub const MULTISIG_SIGNATORY_: &str = "MULTISIG_SIGNATORY_";
-
-    pub fn instructions_key(hash: &HashOf<Vec<InstructionBox>>) -> Name {
-        format!("{PROPOSALS}/{hash}/instructions").parse().unwrap()
-    }
-
-    pub fn proposed_at_ms_key(hash: &HashOf<Vec<InstructionBox>>) -> Name {
-        format!("{PROPOSALS}/{hash}/proposed_at_ms")
-            .parse()
-            .unwrap()
-    }
-
-    pub fn approvals_key(hash: &HashOf<Vec<InstructionBox>>) -> Name {
-        format!("{PROPOSALS}/{hash}/approvals").parse().unwrap()
-    }
-
-    pub fn multisig_role_for(account: &AccountId) -> RoleId {
-        format!(
-            "{MULTISIG_SIGNATORY_}{}_{}",
-            account.signatory(),
-            account.domain()
-        )
-        .parse()
-        .unwrap()
-    }
-
-    pub fn multisig_account_from(role: &RoleId) -> Option<AccountId> {
-        role.name()
-            .as_ref()
-            .strip_prefix(MULTISIG_SIGNATORY_)?
-            .replacen('_', "@", 1)
-            .parse()
-            .ok()
-    }
-}
-
-pub use names::*;

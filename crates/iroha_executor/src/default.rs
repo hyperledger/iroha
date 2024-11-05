@@ -1162,7 +1162,6 @@ pub mod parameter {
 
 pub mod role {
     use iroha_executor_data_model::permission::role::CanManageRoles;
-    use iroha_multisig_data_model::multisig_account_from;
     use iroha_smart_contract::{data_model::role::Role, Iroha};
 
     use super::*;
@@ -1229,26 +1228,18 @@ pub mod role {
         executor: &mut V,
         isi: &Register<Role>,
     ) {
+        const MULTISIG_SIGNATORY: &str = "MULTISIG_SIGNATORY";
+
         let role = isi.object();
         let mut new_role = Role::new(role.id().clone(), role.grant_to().clone());
 
         // Exception for multisig roles
-        let mut is_multisig_role = false;
-        if let Some(multisig_account) = multisig_account_from(role.id()) {
-            if crate::permission::domain::is_domain_owner(
-                multisig_account.domain(),
-                &executor.context().authority,
-                executor.host(),
+        if role.id().name().as_ref().starts_with(MULTISIG_SIGNATORY) {
+            // Multisig roles should only automatically be registered bypassing validation
+            deny!(
+                executor,
+                "role name conflicts with the reserved multisig role names"
             )
-            .unwrap_or_default()
-            {
-                is_multisig_role = true;
-            } else {
-                deny!(
-                    executor,
-                    "role name conflicts with the reserved multisig role names"
-                )
-            }
         }
 
         for permission in role.inner().permissions() {
@@ -1277,7 +1268,6 @@ pub mod role {
 
         if executor.context().curr_block.is_genesis()
             || CanManageRoles.is_owned_by(&executor.context().authority, executor.host())
-            || is_multisig_role
         {
             let grant_role = &Grant::account_role(role.id().clone(), role.grant_to().clone());
             let isi = &Register::role(new_role);

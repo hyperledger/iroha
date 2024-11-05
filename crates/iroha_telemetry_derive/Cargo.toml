@@ -30,6 +30,4 @@ manyhow = { workspace = true }
 iroha_macro_utils = { workspace = true }
 
 [dev-dependencies]
-iroha_core = { workspace = true }
-
 trybuild = { workspace = true }

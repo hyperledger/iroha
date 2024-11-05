@@ -1309,6 +1309,22 @@ mod multisig {
         }
     }
 
+    const DELIMITER: char = '/';
+    const PROPOSALS: &str = "proposals";
+    const MULTISIG_SIGNATORY: &str = "MULTISIG_SIGNATORY";
+
+    fn multisig_account_from(role: &RoleId) -> Option<AccountId> {
+        role.name()
+            .as_ref()
+            .strip_prefix(MULTISIG_SIGNATORY)?
+            .rsplit_once(DELIMITER)
+            .and_then(|(init, last)| {
+                format!("{last}@{}", init.trim_matches(DELIMITER))
+                    .parse()
+                    .ok()
+            })
+    }
+
     /// Recursively trace back to the root multisig account
     fn trace_back_from(
         account: AccountId,
@@ -1317,7 +1333,7 @@ mod multisig {
     ) -> Result<()> {
         let Ok(multisig_roles) = client
             .query(FindRolesByAccountId::new(account))
-            .filter_with(|role_id| role_id.name.starts_with(MULTISIG_SIGNATORY_))
+            .filter_with(|role_id| role_id.name.starts_with(MULTISIG_SIGNATORY))
             .execute_all()
         else {
             return Ok(());

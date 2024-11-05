@@ -11,7 +11,6 @@ use iroha::{
     data_model::{prelude::*, Level},
     multisig_data_model::*,
 };
-use iroha_multisig_data_model::approvals_key;
 use iroha_test_network::*;
 use iroha_test_samples::{
     gen_account_in, ALICE_ID, BOB_ID, BOB_KEYPAIR, CARPENTER_ID, CARPENTER_KEYPAIR,
@@ -79,7 +78,7 @@ fn multisig_expires() -> Result<()> {
 ///     - Transaction has not expired
 ///     - Every instruction validated against the multisig account: authorized
 /// 6. Either execution or expiration on approval deletes the transaction entry
-#[expect(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation, clippy::too_many_lines)]
 fn multisig_base(suite: TestSuite) -> Result<()> {
     const N_SIGNATORIES: usize = 5;
 
@@ -174,7 +173,7 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
     };
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just ticking time".to_string()))?;
 
-    let approve = MultisigApprove::new(multisig_account_id.clone(), instructions_hash.clone());
+    let approve = MultisigApprove::new(multisig_account_id.clone(), instructions_hash);
 
     // Approve once to see if the proposal expires
     let approver = approvers.next().unwrap();
@@ -216,7 +215,9 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
     // Check if the transaction entry is deleted
     let res = test_client.query_single(FindAccountMetadata::new(
         multisig_account_id,
-        instructions_key(&instructions_hash),
+        format!("proposals/{instructions_hash}/instructions")
+            .parse()
+            .unwrap(),
     ));
     match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
         // In case failing validation, the entry can exit only by expiring
@@ -335,7 +336,9 @@ fn multisig_recursion() -> Result<()> {
     let approvals_at_12: BTreeSet<AccountId> = test_client
         .query_single(FindAccountMetadata::new(
             msa_12.clone(),
-            approvals_key(&approval_hash_to_12345),
+            format!("proposals/{approval_hash_to_12345}/approvals")
+                .parse()
+                .unwrap(),
         ))
         .expect("leaf approvals should be initialized by the root proposal")
         .try_into_any()
@@ -381,7 +384,13 @@ fn reserved_names() {
 
     {
         let register = {
-            let role = multisig_role_for(&account_in_another_domain);
+            let role = format!(
+                "MULTISIG_SIGNATORY/{}/{}",
+                account_in_another_domain.domain(),
+                account_in_another_domain.signatory()
+            )
+            .parse()
+            .unwrap();
             Register::role(Role::new(role, ALICE_ID.clone()))
         };
         let _err = test_client.submit_blocking(register).expect_err(

@@ -27,23 +27,6 @@
     {
       "Register": {
         "Domain": {
-          "id": "system",
-          "logo": null,
-          "metadata": {}
-        }
-      }
-    },
-    {
-      "Register": {
-        "Account": {
-          "id": "ed0120D8B64D62FD8E09B9F29FE04D9C63E312EFB1CB29F1BF6AF00EBC263007AE75F7@system",
-          "metadata": {}
-        }
-      }
-    },
-    {
-      "Register": {
-        "Domain": {
           "id": "wonderland",
           "logo": null,
           "metadata": {

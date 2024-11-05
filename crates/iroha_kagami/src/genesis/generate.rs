@@ -64,7 +64,7 @@ impl<T: Write> RunArgs<T> for Args {
         } = self;
 
         let chain = ChainId::from("00000000-0000-0000-0000-000000000000");
-        let builder = GenesisBuilder::new(chain, executor, wasm_dir).install_libs();
+        let builder = GenesisBuilder::new(chain, executor, wasm_dir);
         let genesis = match mode.unwrap_or_default() {
             Mode::Default => generate_default(builder, genesis_public_key),
             Mode::Synthetic {
