@@ -59,7 +59,7 @@ async fn connected_peers_with_f(faults: usize) -> Result<()> {
 
     // Unregister a peer: committed with f = `faults` then `status.peers` decrements
     let client = randomized_peers.choose(&mut thread_rng()).unwrap().client();
-    let unregister_peer = Unregister::peer(removed_peer.peer_id());
+    let unregister_peer = Unregister::peer(removed_peer.id());
     spawn_blocking(move || client.submit_blocking(unregister_peer)).await??;
     timeout(
         network.sync_timeout(),
@@ -78,7 +78,7 @@ async fn connected_peers_with_f(faults: usize) -> Result<()> {
     assert_eq!(status.peers, 0);
 
     // Re-register the peer: committed with f = `faults` - 1 then `status.peers` increments
-    let register_peer = Register::peer(removed_peer.peer_id());
+    let register_peer = Register::peer(removed_peer.id());
     let client = randomized_peers
         .iter()
         .choose(&mut thread_rng())
@@ -109,13 +109,13 @@ async fn assert_peers_status(
                 status.peers,
                 expected_peers,
                 "unexpected peers for {}",
-                peer.peer_id()
+                peer.id()
             );
             assert_eq!(
                 status.blocks,
                 expected_blocks,
                 "expected blocks for {}",
-                peer.peer_id()
+                peer.id()
             );
         })
         .collect::<FuturesUnordered<_>>()

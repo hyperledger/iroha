@@ -9,6 +9,7 @@ use iroha_data_model::{block::BlockSignature, prelude::PeerId};
 
 /// The ordering of the peers which defines their roles in the current round of consensus.
 ///
+/// ```txt
 /// A  |       |              |>|                  |->|
 /// B  |       |              | |                  |  V
 /// C  | A Set |              ^ V  Rotate A Set    ^  |
@@ -16,6 +17,7 @@ use iroha_data_model::{block::BlockSignature, prelude::PeerId};
 /// E  |       |              |<|                  ^  |
 /// F             | B Set |                        |  V
 /// G             |   f   |                        |<-|
+/// ```
 ///
 /// Above is an illustration of how the various operations work for a f = 2 topology.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,8 +76,8 @@ impl Topology {
         self.0.iter()
     }
 
-    /// True, if the topology contains at least one peer and thus requires consensus
-    pub fn is_non_empty(&self) -> Option<NonEmptyTopology> {
+    /// Some, if the topology contains at least one peer and thus requires consensus
+    pub fn as_non_empty(&self) -> Option<NonEmptyTopology> {
         (!self.0.is_empty()).then_some(NonEmptyTopology { topology: self })
     }
 
@@ -134,7 +136,7 @@ impl Topology {
         let mut filtered = IndexSet::new();
 
         for role in roles {
-            match (role, self.is_non_empty(), self.is_consensus_required()) {
+            match (role, self.as_non_empty(), self.is_consensus_required()) {
                 (Role::Leader, Some(topology), _) => {
                     filtered.insert(topology.leader_index());
                 }
@@ -538,7 +540,7 @@ mod tests {
 
         assert_eq!(
             topology
-                .is_non_empty()
+                .as_non_empty()
                 .as_ref()
                 .map(NonEmptyTopology::leader),
             Some(&peers[0])
@@ -552,7 +554,7 @@ mod tests {
 
         assert_eq!(
             topology
-                .is_non_empty()
+                .as_non_empty()
                 .as_ref()
                 .map(NonEmptyTopology::leader),
             Some(&peers[0])
@@ -566,7 +568,7 @@ mod tests {
 
         assert_eq!(
             topology
-                .is_non_empty()
+                .as_non_empty()
                 .as_ref()
                 .map(NonEmptyTopology::leader),
             Some(&peers[0])
@@ -580,7 +582,7 @@ mod tests {
 
         assert_eq!(
             topology
-                .is_non_empty()
+                .as_non_empty()
                 .as_ref()
                 .map(NonEmptyTopology::leader),
             Some(&peers[0])

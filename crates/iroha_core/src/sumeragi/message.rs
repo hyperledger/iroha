@@ -21,19 +21,12 @@ pub enum BlockMessage {
     BlockSyncUpdate(BlockSyncUpdate),
 }
 
-/// Specialization of `MessagePacket`
+/// Specialization of [`BlockMessage`]
 #[derive(Debug, Clone, Decode, Encode)]
-pub struct ControlFlowMessage {
+pub enum ControlFlowMessage {
     /// Proof of view change. As part of this message handling, all
     /// peers which agree with view change should sign it.
-    pub view_change_proof: view_change::SignedViewChangeProof,
-}
-
-impl ControlFlowMessage {
-    /// Helper function to construct a `ControlFlowMessage`
-    pub fn new(view_change_proof: view_change::SignedViewChangeProof) -> ControlFlowMessage {
-        ControlFlowMessage { view_change_proof }
-    }
+    ViewChangeProof(view_change::SignedViewChangeProof),
 }
 
 /// `BlockCreated` message structure.

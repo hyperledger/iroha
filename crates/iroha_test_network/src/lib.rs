@@ -5,6 +5,8 @@ pub mod fslock_ports;
 
 use core::{fmt::Debug, time::Duration};
 use std::{
+    borrow::Cow,
+    iter,
     ops::Deref,
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
@@ -23,7 +25,7 @@ use iroha_config::base::{
     read::ConfigReader,
     toml::{TomlSource, WriteExt as _, Writer as TomlWriter},
 };
-use iroha_crypto::{ExposedPrivateKey, KeyPair, PrivateKey};
+use iroha_crypto::{Algorithm, ExposedPrivateKey, KeyPair, PrivateKey};
 use iroha_data_model::{
     events::pipeline::BlockEventFilter,
     isi::InstructionBox,
@@ -31,12 +33,14 @@ use iroha_data_model::{
     ChainId,
 };
 use iroha_genesis::GenesisBlock;
-use iroha_primitives::{addr::socket_addr, unique_vec::UniqueVec};
+use iroha_primitives::{
+    addr::{socket_addr, SocketAddr},
+    unique_vec::UniqueVec,
+};
 use iroha_telemetry::metrics::Status;
 use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR, PEER_KEYPAIR, SAMPLE_GENESIS_ACCOUNT_KEYPAIR};
 use parity_scale_codec::Encode;
 use rand::{prelude::IteratorRandom, thread_rng};
-use tempfile::TempDir;
 use tokio::{
     fs::File,
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -84,6 +88,18 @@ fn tempdir_in() -> Option<impl AsRef<Path>> {
         .as_ref()
 }
 
+fn generate_and_keep_temp_dir() -> PathBuf {
+    let mut builder = tempfile::Builder::new();
+    builder.keep(true).prefix(TEMPDIR_PREFIX);
+    match tempdir_in() {
+        Some(create_within) => builder.tempdir_in(create_within),
+        None => builder.tempdir(),
+    }
+    .expect("tempdir creation should work")
+    .path()
+    .to_path_buf()
+}
+
 /// Network of peers
 pub struct Network {
     peers: Vec<NetworkPeer>,
@@ -92,7 +108,7 @@ pub struct Network {
     block_time: Duration,
     commit_time: Duration,
 
-    config: Table,
+    config_layers: Vec<Table>,
 }
 
 impl Network {
@@ -131,22 +147,13 @@ impl Network {
                 .iter()
                 .enumerate()
                 .map(|(i, peer)| async move {
-                    let failure = async move {
-                        peer.once(|e| matches!(e, PeerLifecycleEvent::Terminated { .. }))
-                            .await;
-                        panic!("a peer exited unexpectedly");
-                    };
-
-                    let start = async move {
-                        peer.start(self.config(), (i == 0).then_some(&self.genesis()))
-                            .await;
-                        peer.once_block(1).await;
-                    };
-
-                    tokio::select! {
-                        _ = failure => {},
-                        _ = start => {},
-                    }
+                    peer.start_checked(
+                        self.config_layers(),
+                        (i == 0).then_some(Cow::Owned(self.genesis())),
+                    )
+                    .await
+                    .expect("peer failed to start");
+                    peer.once_block(1).await;
                 })
                 .collect::<FuturesUnordered<_>>()
                 .collect::<Vec<_>>(),
@@ -185,10 +192,13 @@ impl Network {
     /// Base configuration of all peers.
     ///
     /// Includes `sumeragi.trusted_peers` parameter, containing all currently present peers.
-    pub fn config(&self) -> Table {
-        self.config
-            .clone()
-            .write(["sumeragi", "trusted_peers"], self.topology())
+    pub fn config_layers(&self) -> impl Iterator<Item = Cow<'_, Table>> {
+        self.config_layers
+            .iter()
+            .map(Cow::Borrowed)
+            .chain(Some(Cow::Owned(
+                Table::new().write(["sumeragi", "trusted_peers"], self.trusted_peers()),
+            )))
     }
 
     /// Network genesis block.
@@ -196,10 +206,13 @@ impl Network {
     /// It uses the basic [`genesis_factory`] with [`Self::genesis_isi`] +
     /// topology of the network peers.
     pub fn genesis(&self) -> GenesisBlock {
-        genesis_factory(self.genesis_isi.clone(), self.topology())
+        genesis_factory(
+            self.genesis_isi.clone(),
+            self.peers.iter().map(NetworkPeer::id).collect(),
+        )
     }
 
-    /// Base network instructions included into the genesis block.
+    /// Base network instructions included in the genesis block.
     pub fn genesis_isi(&self) -> &Vec<InstructionBox> {
         &self.genesis_isi
     }
@@ -216,8 +229,11 @@ impl Network {
         self
     }
 
-    fn topology(&self) -> UniqueVec<Peer> {
-        self.peers.iter().map(|x| x.id.clone()).collect()
+    fn trusted_peers(&self) -> UniqueVec<Peer> {
+        self.peers
+            .iter()
+            .map(|x| Peer::new(x.p2p_address(), x.id()))
+            .collect()
     }
 
     /// Resolves when all _running_ peers have at least N blocks
@@ -231,7 +247,7 @@ impl Network {
         .await
         .wrap_err_with(|| {
             eyre!("Network hasn't reached the height of {height} block(s) within timeout")
-        })?;
+        })??;
 
         eprintln!("network reached height={height}");
 
@@ -242,9 +258,10 @@ impl Network {
 /// Builder of [`Network`]
 pub struct NetworkBuilder {
     n_peers: usize,
-    config: Table,
+    config_layers: Vec<Table>,
     pipeline_time: Option<Duration>,
     genesis_isi: Vec<InstructionBox>,
+    seed: Option<String>,
 }
 
 impl Default for NetworkBuilder {
@@ -259,9 +276,10 @@ impl NetworkBuilder {
     pub fn new() -> Self {
         Self {
             n_peers: 1,
-            config: config::base_iroha_config(),
+            config_layers: vec![],
             pipeline_time: Some(INSTANT_PIPELINE_TIME),
             genesis_isi: vec![],
+            seed: None,
         }
     }
 
@@ -298,16 +316,18 @@ impl NetworkBuilder {
     /// ```
     /// use iroha_test_network::NetworkBuilder;
     ///
-    /// NetworkBuilder::new().with_config(|t| {
+    /// NetworkBuilder::new().with_config_layer(|t| {
     ///     t.write(["logger", "level"], "DEBUG");
     /// });
     /// ```
-    pub fn with_config<F>(mut self, f: F) -> Self
+    pub fn with_config_layer<F>(mut self, f: F) -> Self
     where
         for<'a> F: FnOnce(&'a mut TomlWriter<'a>),
     {
-        let mut writer = TomlWriter::new(&mut self.config);
+        let mut table = Table::new();
+        let mut writer = TomlWriter::new(&mut table);
         f(&mut writer);
+        self.config_layers.push(table);
         self
     }
 
@@ -317,9 +337,25 @@ impl NetworkBuilder {
         self
     }
 
+    pub fn with_base_seed(mut self, seed: impl ToString) -> Self {
+        self.seed = Some(seed.to_string());
+        self
+    }
+
     /// Build the [`Network`]. Doesn't start it.
     pub fn build(self) -> Network {
-        let peers: Vec<_> = (0..self.n_peers).map(|_| NetworkPeer::generate()).collect();
+        let network_dir = generate_and_keep_temp_dir();
+        let peers: Vec<_> = (0..self.n_peers)
+            .map(|i| {
+                let peer_dir = network_dir.join(format!("peer{i}"));
+                std::fs::create_dir_all(&peer_dir).unwrap();
+                let seed = self.seed.as_ref().map(|x| format!("{x}-peer-{i}"));
+                NetworkPeerBuilder::new()
+                    .with_dir(Some(peer_dir))
+                    .with_seed(seed.as_ref().map(|x| x.as_bytes()))
+                    .build()
+            })
+            .collect();
 
         let block_sync_gossip_period = DEFAULT_BLOCK_SYNC;
 
@@ -350,10 +386,13 @@ impl NetworkBuilder {
             genesis_isi,
             block_time,
             commit_time,
-            config: self.config.write(
+            config_layers: Some(config::base_iroha_config().write(
                 ["network", "block_gossip_period_ms"],
                 block_sync_gossip_period.as_millis() as u64,
-            ),
+            ))
+            .into_iter()
+            .chain(self.config_layers.into_iter())
+            .collect(),
         }
     }
 
@@ -449,9 +488,8 @@ pub enum PeerLifecycleEvent {
 /// When dropped, aborts the child process (if it is running).
 #[derive(Clone, Debug)]
 pub struct NetworkPeer {
-    id: Peer,
     key_pair: KeyPair,
-    dir: Arc<TempDir>,
+    dir: PathBuf,
     run: Arc<Mutex<Option<PeerRun>>>,
     runs_count: Arc<AtomicUsize>,
     is_running: Arc<AtomicBool>,
@@ -463,51 +501,6 @@ pub struct NetworkPeer {
 }
 
 impl NetworkPeer {
-    /// Generate a random peer
-    pub fn generate() -> Self {
-        let key_pair = KeyPair::random();
-        let port_p2p = AllocatedPort::new();
-        let port_api = AllocatedPort::new();
-        let id = Peer::new(
-            socket_addr!(127.0.0.1:*port_p2p),
-            key_pair.public_key().clone(),
-        );
-        let temp_dir = Arc::new({
-            let mut builder = tempfile::Builder::new();
-            builder.keep(true).prefix(TEMPDIR_PREFIX);
-            match tempdir_in() {
-                Some(path) => builder.tempdir_in(path),
-                None => builder.tempdir(),
-            }
-            .expect("temp dirs must be available in the system")
-        });
-
-        let (events, _rx) = broadcast::channel(32);
-        let (block_height, _rx) = watch::channel(None);
-
-        let result = Self {
-            id,
-            key_pair,
-            dir: temp_dir,
-            run: Default::default(),
-            runs_count: Default::default(),
-            is_running: Default::default(),
-            events,
-            block_height,
-            port_p2p: Arc::new(port_p2p),
-            port_api: Arc::new(port_api),
-        };
-
-        eprintln!(
-            "{} generated peer\n  dir: {}\n  public key: {}",
-            result.log_prefix(),
-            result.dir.path().display(),
-            result.key_pair.public_key(),
-        );
-
-        result
-    }
-
     fn log_prefix(&self) -> String {
         format!("[PEER p2p: {}, api: {}]", self.port_p2p, self.port_api)
     }
@@ -522,52 +515,22 @@ impl NetworkPeer {
     ///
     /// # Panics
     /// If peer was not started.
-    pub async fn start(&self, config: Table, genesis: Option<&GenesisBlock>) {
+    pub async fn start<T: AsRef<Table>>(
+        &self,
+        config_layers: impl Iterator<Item = T>,
+        genesis: Option<impl AsRef<GenesisBlock>>,
+    ) {
         let mut run_guard = self.run.lock().await;
         assert!(run_guard.is_none(), "already running");
 
         let run_num = self.runs_count.fetch_add(1, Ordering::Relaxed) + 1;
-
         let log_prefix = self.log_prefix();
         eprintln!("{log_prefix} starting (run #{run_num})");
 
-        let mut config = config
-            .clone()
-            .write("public_key", self.key_pair.public_key())
-            .write(
-                "private_key",
-                ExposedPrivateKey(self.key_pair.private_key().clone()),
-            )
-            .write(
-                ["network", "address"],
-                format!("127.0.0.1:{}", self.port_p2p),
-            )
-            .write(
-                ["network", "public_address"],
-                format!("127.0.0.1:{}", self.port_p2p),
-            )
-            .write(["torii", "address"], format!("127.0.0.1:{}", self.port_api))
-            .write(["logger", "format"], "json");
-
-        let config_path = self.dir.path().join(format!("run-{run_num}-config.toml"));
-        let genesis_path = self.dir.path().join(format!("run-{run_num}-genesis.scale"));
-
-        if genesis.is_some() {
-            config = config.write(["genesis", "file"], &genesis_path);
-        }
-
-        tokio::fs::write(
-            &config_path,
-            toml::to_string(&config).expect("TOML config is valid"),
-        )
-        .await
-        .expect("temp directory exists and there was no config file before");
-
-        if let Some(genesis) = genesis {
-            tokio::fs::write(genesis_path, genesis.0.encode())
-                .await
-                .expect("tmp dir is available and genesis was not written before");
-        }
+        let config_path = self
+            .write_config_and_genesis(config_layers, genesis, run_num)
+            .await
+            .expect("fatal failure");
 
         let mut cmd = tokio::process::Command::new(iroha_bin().as_ref());
         cmd.stdout(Stdio::piped())
@@ -575,7 +538,7 @@ impl NetworkPeer {
             .kill_on_drop(true)
             .arg("--config")
             .arg(config_path);
-        cmd.current_dir(self.dir.path());
+        cmd.current_dir(&self.dir);
         let mut child = cmd.spawn().expect("spawn failure is abnormal");
         self.is_running.store(true, Ordering::Relaxed);
         let _ = self.events.send(PeerLifecycleEvent::Spawned);
@@ -584,7 +547,7 @@ impl NetworkPeer {
 
         {
             let output = child.stdout.take().unwrap();
-            let mut file = File::create(self.dir.path().join(format!("run-{run_num}-stdout.log")))
+            let mut file = File::create(self.dir.join(format!("run-{run_num}-stdout.log")))
                 .await
                 .unwrap();
             tasks.spawn(async move {
@@ -593,6 +556,9 @@ impl NetworkPeer {
                     file.write_all(line.as_bytes())
                         .await
                         .expect("writing logs to file shouldn't fail");
+                    file.write_all("\n".as_bytes())
+                        .await
+                        .expect("shouldn't fail either");
                     file.flush()
                         .await
                         .expect("writing logs to file shouldn't fail");
@@ -602,7 +568,7 @@ impl NetworkPeer {
         {
             let log_prefix = log_prefix.clone();
             let output = child.stderr.take().unwrap();
-            let path = self.dir.path().join(format!("run-{run_num}-stderr.log"));
+            let path = self.dir.join(format!("run-{run_num}-stderr.log"));
             tasks.spawn(async move {
                 let mut in_memory = PeerStderrBuffer {
                     log_prefix,
@@ -711,6 +677,38 @@ impl NetworkPeer {
         }
     }
 
+    pub async fn start_checked<T: AsRef<Table>>(
+        &self,
+        config_layers: impl Iterator<Item = T>,
+        genesis: Option<impl AsRef<GenesisBlock>>,
+    ) -> Result<()> {
+        let failure = async move {
+            self.once(|e| matches!(e, PeerLifecycleEvent::Terminated { .. }))
+                .await;
+            panic!("a peer exited unexpectedly");
+        };
+        let start = async move { self.start(config_layers, genesis).await };
+        let server_started = async move {
+            self.once(|e| matches!(e, PeerLifecycleEvent::ServerStarted))
+                .await
+        };
+
+        let success = async move {
+            tokio::join!(start, server_started);
+        };
+
+        // TODO: wait for server started?
+
+        tokio::select! {
+            _ = failure => {
+                Err(eyre!("Peer exited unexpectedly"))
+            },
+            _ = success => {
+                Ok(())
+            },
+        }
+    }
+
     /// Subscribe on peer lifecycle events.
     pub fn events(&self) -> broadcast::Receiver<PeerLifecycleEvent> {
         self.events.subscribe()
@@ -727,7 +725,7 @@ impl NetworkPeer {
     ///     let peer = network.peer();
     ///
     ///     tokio::join!(
-    ///         peer.start(network.config(), None),
+    ///         peer.start(network.config_layers(), None),
     ///         peer.once(|event| matches!(event, PeerLifecycleEvent::ServerStarted))
     ///     );
     /// }
@@ -769,14 +767,13 @@ impl NetworkPeer {
         }
     }
 
-    /// Generated [`Peer`]
-    pub fn peer(&self) -> Peer {
-        self.id.clone()
+    /// Generated [`PeerId`]
+    pub fn id(&self) -> PeerId {
+        PeerId::new(self.key_pair.public_key().clone())
     }
 
-    /// Generated [`PeerId`]
-    pub fn peer_id(&self) -> PeerId {
-        self.id.id.clone()
+    pub fn p2p_address(&self) -> SocketAddr {
+        socket_addr!(127.0.0.1:**self.port_p2p)
     }
 
     /// Check whether the peer is running
@@ -796,6 +793,7 @@ impl NetworkPeer {
                         ["account", "private_key"],
                         ExposedPrivateKey(account_private_key.clone()),
                     )
+                    .write(["transaction", "status_timeout_ms"], 5_000)
                     .write("torii_url", format!("http://127.0.0.1:{}", self.port_api)),
             ))
             .read_and_complete::<iroha::config::UserConfig>()
@@ -821,12 +819,125 @@ impl NetworkPeer {
     pub fn blocks(&self) -> watch::Receiver<Option<u64>> {
         self.block_height.subscribe()
     }
+
+    fn base_config(&self) -> Table {
+        Table::new()
+            .write("public_key", self.key_pair.public_key())
+            .write(
+                "private_key",
+                ExposedPrivateKey(self.key_pair.private_key().clone()),
+            )
+            .write(["network", "address"], self.p2p_address())
+            .write(["network", "public_address"], self.p2p_address())
+            .write(
+                ["torii", "address"],
+                socket_addr!(127.0.0.1:**self.port_api),
+            )
+    }
+
+    async fn write_config_and_genesis<T: AsRef<Table>>(
+        &self,
+        extra_layers: impl Iterator<Item = T>,
+        genesis: Option<impl AsRef<GenesisBlock>>,
+
+        run: usize,
+    ) -> Result<PathBuf> {
+        let extra_layers: Vec<_> = extra_layers
+            .enumerate()
+            .map(|(i, table)| (format!("run-{run}-config.layer-{i}.toml"), table))
+            .collect();
+
+        for (path, table) in &extra_layers {
+            tokio::fs::write(self.dir.join(path), toml::to_string(table.as_ref())?).await?;
+        }
+
+        let mut final_config = Table::new().write(
+            "extends",
+            // should be written on peers initialisation
+            iter::once("config.base.toml".to_string())
+                .chain(extra_layers.into_iter().map(|(path, _)| path))
+                .collect::<Vec<String>>(),
+        );
+        if let Some(block) = genesis {
+            let path = self.dir.join(format!("run-{run}-genesis.scale"));
+            final_config = final_config.write(["genesis", "file"], &path);
+            tokio::fs::write(path, block.as_ref().0.encode()).await?;
+        }
+        let path = self.dir.join(format!("run-{run}-config.toml"));
+        tokio::fs::write(&path, toml::to_string(&final_config)?).await?;
+
+        Ok(path)
+    }
 }
 
 /// Compare by ID
 impl PartialEq for NetworkPeer {
     fn eq(&self, other: &Self) -> bool {
-        self.id.eq(&other.id)
+        self.key_pair.eq(&other.key_pair)
+    }
+}
+
+#[derive(Default)]
+pub struct NetworkPeerBuilder {
+    dir: Option<PathBuf>,
+    seed: Option<Vec<u8>>,
+}
+
+impl NetworkPeerBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_dir(mut self, dir: Option<impl Into<PathBuf>>) -> Self {
+        self.dir = dir.map(Into::into);
+        self
+    }
+
+    pub fn with_seed(mut self, seed: Option<impl Into<Vec<u8>>>) -> Self {
+        self.seed = seed.map(Into::into);
+        self
+    }
+
+    pub fn build(self) -> NetworkPeer {
+        let key_pair = self
+            .seed
+            .map(|seed| KeyPair::from_seed(seed, Algorithm::Ed25519))
+            .unwrap_or_else(KeyPair::random);
+        let port_p2p = AllocatedPort::new();
+        let port_api = AllocatedPort::new();
+
+        let dir = self.dir.unwrap_or_else(generate_and_keep_temp_dir);
+
+        let (events, _rx) = broadcast::channel(32);
+        let (block_height, _rx) = watch::channel(None);
+
+        let peer = NetworkPeer {
+            key_pair,
+            dir,
+            run: Default::default(),
+            runs_count: Default::default(),
+            is_running: Default::default(),
+            events,
+            block_height,
+            port_p2p: Arc::new(port_p2p),
+            port_api: Arc::new(port_api),
+        };
+
+        // FIXME: move code
+        std::fs::write(
+            peer.dir.join("config.base.toml"),
+            toml::to_string(&peer.base_config()).unwrap(),
+        )
+        .unwrap();
+
+        eprintln!(
+            "{} generated peer\n  dir: {}\n  public key: {}",
+            peer.log_prefix(),
+            peer.dir.display(),
+            peer.key_pair.public_key(),
+        );
+
+        peer
     }
 }
 
@@ -902,12 +1013,30 @@ impl PeerExit {
 }
 
 /// Wait until [`NetworkPeer::once_block`] resolves for all the peers.
-pub async fn once_blocks_sync(peers: impl Iterator<Item = &NetworkPeer>, height: u64) {
-    peers
-        .map(|x| x.once_block(height))
-        .collect::<FuturesUnordered<_>>()
-        .collect::<Vec<_>>()
-        .await;
+pub async fn once_blocks_sync(
+    peers: impl Iterator<Item = &NetworkPeer>,
+    height: u64,
+) -> Result<()> {
+    let mut futures = peers
+        .map(|x| async move {
+            tokio::select! {
+               () = x.once_block(height) => {
+                    Ok(())
+                },
+                () = x.once(|e| matches!(e, PeerLifecycleEvent::Terminated { .. })) => {
+                    Err(eyre!("Peer terminated"))
+                }
+            }
+        })
+        .collect::<FuturesUnordered<_>>();
+
+    loop {
+        match futures.next().await {
+            Some(Ok(())) => {}
+            Some(Err(e)) => return Err(e),
+            None => return Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]
