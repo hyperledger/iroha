@@ -17,28 +17,18 @@ impl VisitExecute for MultisigRegister {
             )
         }
 
-        let Ok(_domain_found) = host
-            .query(FindDomains)
-            .filter_with(|domain| domain.id.eq(target_domain.clone()))
-            .execute_single()
-        else {
-            deny!(
-                executor,
-                "domain must exist before registering multisig account"
-            );
-        };
-
         for signatory in self.signatories.keys().cloned() {
-            let Ok(_signatory_found) = host
+            if host
                 .query(FindAccounts)
                 .filter_with(|account| account.id.eq(signatory))
                 .execute_single()
-            else {
+                .is_err()
+            {
                 deny!(
                     executor,
                     "signatories must exist before registering multisig account"
                 );
-            };
+            }
         }
     }
 

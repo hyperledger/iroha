@@ -12,18 +12,22 @@ impl VisitExecute for MultisigPropose {
         let multisig_role = multisig_role_for(&target_account);
         let instructions_hash = HashOf::new(&self.instructions);
 
-        let Ok(_role_found) = host
+        if host
             .query(FindRolesByAccountId::new(proposer))
             .filter_with(|role_id| role_id.eq(multisig_role))
             .execute_single()
-        else {
+            .is_err()
+        {
             deny!(executor, "not qualified to propose multisig");
         };
 
-        let Err(_proposal_not_found) = host.query_single(FindAccountMetadata::new(
-            target_account.clone(),
-            approvals_key(&instructions_hash),
-        )) else {
+        if host
+            .query_single(FindAccountMetadata::new(
+                target_account.clone(),
+                approvals_key(&instructions_hash),
+            ))
+            .is_ok()
+        {
             deny!(executor, "multisig proposal duplicates")
         };
     }
@@ -54,7 +58,7 @@ impl VisitExecute for MultisigPropose {
             if is_multisig_again {
                 let propose_to_approve_me = {
                     let approve_me =
-                        MultisigApprove::new(target_account.clone(), instructions_hash.clone());
+                        MultisigApprove::new(target_account.clone(), instructions_hash);
 
                     MultisigPropose::new(signatory, [approve_me.into()].to_vec())
                 };
@@ -88,7 +92,7 @@ impl VisitExecute for MultisigPropose {
         host.submit(&SetKeyValue::account(
             target_account.clone(),
             proposed_at_ms_key(&instructions_hash).clone(),
-            Json::new(&now_ms),
+            Json::new(now_ms),
         ))
         .dbg_unwrap();
 
@@ -201,8 +205,8 @@ impl VisitExecute for MultisigApprove {
         let is_authenticated = quorum
             <= signatories
                 .into_iter()
-                .filter(|(id, _)| approvals.contains(&id))
-                .map(|(_, weight)| weight as u16)
+                .filter(|(id, _)| approvals.contains(id))
+                .map(|(_, weight)| u16::from(weight))
                 .sum();
 
         let is_expired = proposed_at_ms.saturating_add(transaction_ttl_ms) < now_ms;
@@ -227,7 +231,9 @@ impl VisitExecute for MultisigApprove {
             ))
             .dbg_unwrap();
 
-            if !is_expired {
+            if is_expired {
+                // TODO Notify that the proposal has expired, while returning Ok for the entry deletion to take effect
+            } else {
                 // Validate and execute the authenticated multisig transaction
                 for instruction in instructions {
                     let init_authority = executor.context().authority.clone();
@@ -236,8 +242,6 @@ impl VisitExecute for MultisigApprove {
                     executor.visit_instruction(&instruction);
                     executor.context_mut().authority = init_authority;
                 }
-            } else {
-                // TODO Notify that the proposal has expired, while returning Ok for the entry deletion to take effect
             }
         }
 
