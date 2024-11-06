@@ -8,8 +8,7 @@ use crate::{
     prelude::Context,
     smart_contract::{
         data_model::{executor::Result, permission::Permission as PermissionObject, prelude::*},
-        debug::DebugExpectExt as _,
-        Iroha,
+        prelude::*,
     },
 };
 

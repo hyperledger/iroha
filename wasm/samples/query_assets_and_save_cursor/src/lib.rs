@@ -13,7 +13,6 @@ use iroha_smart_contract::{
         predicate::CompoundPredicate,
         QueryWithFilter, QueryWithParams,
     },
-    debug::DebugExpectExt as _,
     prelude::*,
 };
 use nonzero_ext::nonzero;
@@ -21,8 +20,6 @@ use parity_scale_codec::{Decode, DecodeAll, Encode};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
-
-getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
 
 /// Execute [`FindAssets`] and save cursor to the owner's metadata.
 /// NOTE: DON'T TAKE THIS AS AN EXAMPLE, THIS IS ONLY FOR TESTING INTERNALS OF IROHA

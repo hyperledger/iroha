@@ -51,14 +51,14 @@ impl VisitExecute for MultisigRegister {
         host.submit(&SetKeyValue::account(
             multisig_account.clone(),
             QUORUM.parse().unwrap(),
-            Json::new(&self.quorum),
+            Json::new(self.quorum),
         ))
         .dbg_unwrap();
 
         host.submit(&SetKeyValue::account(
             multisig_account.clone(),
             TRANSACTION_TTL_MS.parse().unwrap(),
-            Json::new(&self.transaction_ttl_ms),
+            Json::new(self.transaction_ttl_ms),
         ))
         .dbg_unwrap();
 

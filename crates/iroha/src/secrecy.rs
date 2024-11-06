@@ -12,7 +12,7 @@ impl SecretString {
     }
 }
 
-const REDACTED: &'static str = "[REDACTED]";
+const REDACTED: &str = "[REDACTED]";
 
 impl Serialize for SecretString {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

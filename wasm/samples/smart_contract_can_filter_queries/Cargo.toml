@@ -15,7 +15,6 @@ iroha_smart_contract.workspace = true
 
 panic-halt.workspace = true
 dlmalloc.workspace = true
-getrandom.workspace = true
 parity-scale-codec.workspace = true
 nonzero_ext.workspace = true
 serde_json = { workspace = true, default-features = false }

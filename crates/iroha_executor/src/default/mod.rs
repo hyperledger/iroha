@@ -1218,7 +1218,7 @@ pub mod role {
     }
 
     fn find_account_roles(account_id: AccountId, host: &Iroha) -> impl Iterator<Item = RoleId> {
-        use iroha_smart_contract::debug::DebugExpectExt as _;
+        use iroha_smart_contract::DebugExpectExt as _;
 
         host.query(FindRolesByAccountId::new(account_id))
             .execute()
@@ -1245,7 +1245,7 @@ pub mod role {
         }
 
         for permission in role.inner().permissions() {
-            iroha_smart_contract::debug!(&format!("Checking `{permission:?}`"));
+            iroha_smart_contract::log::debug!(&format!("Checking `{permission:?}`"));
 
             if let Ok(any_permission) = AnyPermission::try_from(permission) {
                 if !executor.context().curr_block.is_genesis() {

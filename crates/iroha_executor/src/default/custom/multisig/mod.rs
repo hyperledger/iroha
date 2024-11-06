@@ -1,8 +1,7 @@
 use iroha_executor_data_model::custom::multisig::*;
 
 use super::*;
-// SATO remove after merge
-use crate::smart_contract::debug::{DebugExpectExt as _, DebugUnwrapExt};
+use crate::smart_contract::{DebugExpectExt as _, DebugUnwrapExt};
 
 mod account;
 mod transaction;
