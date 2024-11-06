@@ -115,18 +115,22 @@ impl VisitExecute for MultisigApprove {
         let multisig_role = multisig_role_for(&target_account);
         let instructions_hash = self.instructions_hash;
 
-        let Ok(_role_found) = host
+        if host
             .query(FindRolesByAccountId::new(approver))
             .filter_with(|role_id| role_id.eq(multisig_role))
             .execute_single()
-        else {
+            .is_err()
+        {
             deny!(executor, "not qualified to approve multisig");
         };
 
-        let Ok(_proposal_found) = host.query_single(FindAccountMetadata::new(
-            target_account.clone(),
-            approvals_key(&instructions_hash),
-        )) else {
+        if host
+            .query_single(FindAccountMetadata::new(
+                target_account.clone(),
+                approvals_key(&instructions_hash),
+            ))
+            .is_err()
+        {
             deny!(executor, "no proposals to approve")
         };
     }

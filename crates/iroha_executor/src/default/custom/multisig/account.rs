@@ -34,7 +34,6 @@ impl VisitExecute for MultisigRegister {
 
     fn execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) -> Result<(), ValidationFail> {
         let host = executor.host();
-        let registrant = executor.context().authority.clone();
         let multisig_account = self.account;
         let multisig_role = multisig_role_for(&multisig_account);
 
@@ -63,8 +62,8 @@ impl VisitExecute for MultisigRegister {
         .dbg_unwrap();
 
         host.submit(&Register::role(
-            // Temporarily grant a multisig role to the registrant to delegate the role to the signatories
-            Role::new(multisig_role.clone(), registrant.clone()),
+            // No use, but temporarily grant a multisig role to the multisig account due to specifications
+            Role::new(multisig_role.clone(), multisig_account.clone()),
         ))
         .dbg_expect("registrant should successfully register a multisig role");
 
@@ -75,10 +74,10 @@ impl VisitExecute for MultisigRegister {
                 );
         }
 
-        // FIXME No roles to revoke found, which should have been granted to the registrant
-        // host.submit(&Revoke::account_role(multisig_role, registrant))
+        // FIXME No roles to revoke found, which should have been granted to the multisig account
+        // host.submit(&Revoke::account_role(multisig_role, multisig_account))
         //     .dbg_expect(
-        //         "registrant should successfully revoke the multisig role from the registrant",
+        //         "registrant should successfully revoke the multisig role from the multisig account",
         //     );
 
         Ok(())

@@ -7,10 +7,10 @@ mod multisig;
 
 pub fn visit_custom_instructions<V: Execute + Visit + ?Sized>(
     executor: &mut V,
-    isi: &CustomInstruction,
+    instruction: &CustomInstruction,
 ) {
-    if let Ok(isi) = MultisigInstructionBox::try_from(isi.payload()) {
-        return isi.visit_execute(executor);
+    if let Ok(instruction) = MultisigInstructionBox::try_from(instruction.payload()) {
+        return instruction.visit_execute(executor);
     };
 
     deny!(executor, "unexpected custom instruction");
