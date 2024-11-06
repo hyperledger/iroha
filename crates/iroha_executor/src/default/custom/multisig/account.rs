@@ -35,32 +35,26 @@ impl VisitExecute for MultisigRegister {
     fn execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) -> Result<(), ValidationFail> {
         let host = executor.host();
         let registrant = executor.context().authority.clone();
-        let multisig_account = self.account;
-        let multisig_role = multisig_role_for(&multisig_account);
+        let multisig_role = multisig_role_for(&self.account);
+        let multisig_account = {
+            let metadata = [
+                (SIGNATORIES.parse().unwrap(), Json::new(&self.signatories)),
+                (QUORUM.parse().unwrap(), Json::new(self.quorum)),
+                (
+                    TRANSACTION_TTL_MS.parse().unwrap(),
+                    Json::new(self.transaction_ttl_ms),
+                ),
+            ]
+            .into_iter()
+            .fold(Metadata::default(), |mut acc, (k, v)| {
+                acc.insert(k, v).unwrap();
+                acc
+            });
+            Account::new(self.account.clone()).with_metadata(metadata)
+        };
 
-        host.submit(&Register::account(Account::new(multisig_account.clone())))
+        host.submit(&Register::account(multisig_account))
             .dbg_expect("registrant should successfully register a multisig account");
-
-        host.submit(&SetKeyValue::account(
-            multisig_account.clone(),
-            SIGNATORIES.parse().unwrap(),
-            Json::new(&self.signatories),
-        ))
-        .dbg_unwrap();
-
-        host.submit(&SetKeyValue::account(
-            multisig_account.clone(),
-            QUORUM.parse().unwrap(),
-            Json::new(&self.quorum),
-        ))
-        .dbg_unwrap();
-
-        host.submit(&SetKeyValue::account(
-            multisig_account.clone(),
-            TRANSACTION_TTL_MS.parse().unwrap(),
-            Json::new(&self.transaction_ttl_ms),
-        ))
-        .dbg_unwrap();
 
         host.submit(&Register::role(
             // Temporarily grant a multisig role to the registrant to delegate the role to the signatories
