@@ -7,9 +7,11 @@ use eyre::Result;
 use iroha::{
     client::Client,
     crypto::KeyPair,
-    data_model::{prelude::*, query::trigger::FindTriggers, Level},
+    data_model::{
+        events::execute_trigger::ExecuteTriggerEventFilter, prelude::*,
+        query::trigger::FindTriggers, Level,
+    },
 };
-use iroha_data_model::events::execute_trigger::ExecuteTriggerEventFilter;
 use iroha_multisig_data_model::{MultisigAccountArgs, MultisigTransactionArgs};
 use iroha_test_network::*;
 use iroha_test_samples::{
@@ -475,16 +477,4 @@ fn multisig_transactions_registry_of(multisig_account: &AccountId) -> TriggerId 
     )
     .parse()
     .unwrap()
-}
-
-#[allow(dead_code)]
-fn debug_mst_registry(msa: &AccountId, client: &Client) {
-    let mst_registry = client
-        .query(FindTriggers::new())
-        .filter_with(|trigger| trigger.id.eq(multisig_transactions_registry_of(msa)))
-        .execute_single()
-        .unwrap();
-    let mst_metadata = mst_registry.action().metadata();
-
-    iroha_logger::error!(%msa, ?mst_metadata);
 }

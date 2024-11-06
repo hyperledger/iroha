@@ -4,7 +4,6 @@ use assert_matches::assert_matches;
 use eyre::Result;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use iroha::data_model::isi::{Register, Unregister};
-use iroha_config_base::toml::WriteExt;
 use iroha_test_network::*;
 use rand::{prelude::IteratorRandom, seq::SliceRandom, thread_rng};
 use tokio::{task::spawn_blocking, time::timeout};
@@ -24,14 +23,7 @@ async fn register_new_peer() -> Result<()> {
     let network = NetworkBuilder::new().with_peers(4).start().await?;
 
     let peer = NetworkPeer::generate();
-    peer.start(
-        network
-            .config()
-            // only one random peer
-            .write(["sumeragi", "trusted_peers"], [network.peer().peer()]),
-        None,
-    )
-    .await;
+    peer.start(network.config(), None).await;
 
     let register = Register::peer(peer.peer_id());
     let client = network.client();
