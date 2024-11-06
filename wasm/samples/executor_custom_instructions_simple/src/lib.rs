@@ -18,14 +18,14 @@ static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 
 #[derive(Visit, Execute, Entrypoints)]
-#[visit(custom(visit_custom))]
+#[visit(custom(visit_custom_instructions))]
 struct Executor {
     host: Iroha,
     context: Context,
     verdict: Result,
 }
 
-fn visit_custom(executor: &mut Executor, isi: &CustomInstruction) {
+fn visit_custom_instructions(executor: &mut Executor, isi: &CustomInstruction) {
     let Ok(isi) = CustomInstructionBox::try_from(isi.payload()) else {
         deny!(executor, "Failed to parse custom instruction");
     };

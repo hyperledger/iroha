@@ -49,7 +49,7 @@ pub trait Visit {
         visit_execute_trigger(&ExecuteTrigger),
         visit_set_parameter(&SetParameter),
         visit_log(&Log),
-        visit_custom(&CustomInstruction),
+        visit_custom_instructions(&CustomInstruction),
 
         // Visit SingularQueryBox
         visit_find_asset_quantity_by_id(&FindAssetQuantityById),
@@ -230,7 +230,7 @@ pub fn visit_instruction<V: Visit + ?Sized>(visitor: &mut V, isi: &InstructionBo
         InstructionBox::Transfer(variant_value) => visitor.visit_transfer(variant_value),
         InstructionBox::Unregister(variant_value) => visitor.visit_unregister(variant_value),
         InstructionBox::Upgrade(variant_value) => visitor.visit_upgrade(variant_value),
-        InstructionBox::Custom(custom) => visitor.visit_custom(custom),
+        InstructionBox::Custom(custom) => visitor.visit_custom_instructions(custom),
     }
 }
 
@@ -373,7 +373,7 @@ leaf_visitors! {
     visit_set_parameter(&SetParameter),
     visit_execute_trigger(&ExecuteTrigger),
     visit_log(&Log),
-    visit_custom(&CustomInstruction),
+    visit_custom_instructions(&CustomInstruction),
 
     // Singular Quert visitors
     visit_find_asset_quantity_by_id(&FindAssetQuantityById),

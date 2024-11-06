@@ -28,7 +28,7 @@ mod multisig;
 ///
 /// The defaults are not guaranteed to be stable.
 #[derive(Debug, Clone, Visit, Execute, Entrypoints)]
-#[visit(custom(visit_custom))]
+#[visit(custom(visit_custom_instructions))]
 struct Executor {
     host: Iroha,
     context: Context,
@@ -46,7 +46,7 @@ impl Executor {
     }
 }
 
-fn visit_custom(executor: &mut Executor, isi: &CustomInstruction) {
+fn visit_custom_instructions(executor: &mut Executor, isi: &CustomInstruction) {
     if let Ok(isi) = multisig::MultisigInstructionBox::try_from(isi.payload()) {
         return isi.visit_execute(executor);
     };
