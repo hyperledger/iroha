@@ -2924,7 +2924,6 @@ dependencies = [
  "iroha_executor_data_model",
  "iroha_genesis",
  "iroha_logger",
- "iroha_multisig_data_model",
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_test_network",
@@ -3197,7 +3196,6 @@ version = "2.0.0-rc.1.0"
 dependencies = [
  "iroha_executor_data_model",
  "iroha_executor_derive",
- "iroha_multisig_data_model",
  "iroha_schema",
  "iroha_smart_contract",
  "iroha_smart_contract_utils",
@@ -3209,9 +3207,11 @@ dependencies = [
 name = "iroha_executor_data_model"
 version = "2.0.0-rc.1.0"
 dependencies = [
+ "derive_more",
  "iroha_data_model",
  "iroha_executor_data_model_derive",
  "iroha_schema",
+ "parity-scale-codec",
  "serde",
  "serde_json",
 ]
@@ -3368,18 +3368,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_multisig_data_model"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "derive_more",
- "iroha_data_model",
- "iroha_schema",
- "parity-scale-codec",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "iroha_numeric"
 version = "2.0.0-rc.1.0"
 dependencies = [
@@ -3484,7 +3472,6 @@ dependencies = [
  "iroha_data_model",
  "iroha_executor_data_model",
  "iroha_genesis",
- "iroha_multisig_data_model",
  "iroha_primitives",
  "iroha_schema",
 ]

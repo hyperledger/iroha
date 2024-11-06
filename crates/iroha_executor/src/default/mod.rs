@@ -44,6 +44,8 @@ use crate::{
     Execute,
 };
 
+pub mod custom;
+
 // NOTE: If any new `visit_..` functions are introduced in this module, one should
 // not forget to update the default executor boilerplate too, specifically the
 // `iroha_executor::derive::default::impl_derive_visit` function
@@ -1663,16 +1665,5 @@ pub mod log {
 
     pub fn visit_log<V: Execute + Visit + ?Sized>(executor: &mut V, isi: &Log) {
         execute!(executor, isi)
-    }
-}
-
-pub mod custom {
-    use super::*;
-
-    pub fn visit_custom_instructions<V: Execute + ?Sized>(executor: &mut V, _isi: &CustomInstruction) {
-        deny!(
-            executor,
-            "Custom instructions should be handled in custom executor"
-        )
     }
 }

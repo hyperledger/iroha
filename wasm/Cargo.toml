@@ -32,7 +32,6 @@ iroha_executor = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_executor",
 iroha_schema = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_schema" }
 iroha_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_data_model", default-features = false }
 iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_executor_data_model" }
-iroha_multisig_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_multisig_data_model" }
 
 parity-scale-codec = { version = "3.2.1", default-features = false }
 anyhow = { version = "1.0.71", default-features = false }

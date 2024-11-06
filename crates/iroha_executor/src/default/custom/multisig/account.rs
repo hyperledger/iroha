@@ -3,7 +3,7 @@
 use super::*;
 
 impl VisitExecute for MultisigRegister {
-    fn visit(&self, executor: &mut Executor) {
+    fn visit<V: Execute + Visit + ?Sized>(&self, executor: &mut V) {
         let host = executor.host();
         let target_domain = self.account.domain();
 
@@ -42,7 +42,7 @@ impl VisitExecute for MultisigRegister {
         }
     }
 
-    fn execute(self, executor: &mut Executor) -> Result<(), ValidationFail> {
+    fn execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) -> Result<(), ValidationFail> {
         let host = executor.host();
         let registrant = executor.context().authority.clone();
         let multisig_account = self.account;

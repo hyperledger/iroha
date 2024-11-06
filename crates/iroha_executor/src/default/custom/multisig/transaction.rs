@@ -1,14 +1,11 @@
 //! Validation and execution logic of instructions for multisig transactions
 
-use alloc::{
-    collections::{btree_map::BTreeMap, btree_set::BTreeSet},
-    vec::Vec,
-};
+use alloc::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 
 use super::*;
 
 impl VisitExecute for MultisigPropose {
-    fn visit(&self, executor: &mut Executor) {
+    fn visit<V: Execute + Visit + ?Sized>(&self, executor: &mut V) {
         let host = executor.host();
         let proposer = executor.context().authority.clone();
         let target_account = self.account.clone();
@@ -31,7 +28,7 @@ impl VisitExecute for MultisigPropose {
         };
     }
 
-    fn execute(self, executor: &mut Executor) -> Result<(), ValidationFail> {
+    fn execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) -> Result<(), ValidationFail> {
         let host = executor.host().clone();
         let proposer = executor.context().authority.clone();
         let target_account = self.account;
@@ -107,7 +104,7 @@ impl VisitExecute for MultisigPropose {
 }
 
 impl VisitExecute for MultisigApprove {
-    fn visit(&self, executor: &mut Executor) {
+    fn visit<V: Execute + Visit + ?Sized>(&self, executor: &mut V) {
         let host = executor.host();
         let approver = executor.context().authority.clone();
         let target_account = self.account.clone();
@@ -130,7 +127,7 @@ impl VisitExecute for MultisigApprove {
         };
     }
 
-    fn execute(self, executor: &mut Executor) -> Result<(), ValidationFail> {
+    fn execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) -> Result<(), ValidationFail> {
         let host = executor.host().clone();
         let approver = executor.context().authority.clone();
         let target_account = self.account;

@@ -46,8 +46,6 @@ iroha_smart_contract_utils = { version = "=2.0.0-rc.1.0", path = "crates/iroha_s
 iroha_executor = { version = "=2.0.0-rc.1.0", path = "crates/iroha_executor" }
 iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "crates/iroha_executor_data_model" }
 
-iroha_multisig_data_model = { version = "=2.0.0-rc.1.0", path = "crates/iroha_multisig_data_model" }
-
 iroha_test_network = { version = "=2.0.0-rc.1.0", path = "crates/iroha_test_network" }
 iroha_test_samples = { version = "=2.0.0-rc.1.0", path = "crates/iroha_test_samples" }
 

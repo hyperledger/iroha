@@ -979,6 +979,7 @@ mod transparent {
         /// integration tests
         #[derive(Display)]
         #[display(fmt = "CUSTOM({payload})")]
+        // TODO #5221 pub struct RawCustomInstruction {
         pub struct CustomInstruction {
             /// Custom payload
             pub payload: Json,

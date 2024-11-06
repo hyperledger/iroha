@@ -286,8 +286,8 @@ pub mod prelude {
 
     pub use super::{
         data_model::{
-            executor::Result, isi::Instruction,
-            smart_contract::payloads::ExecutorContext as Context, visit::Visit, ValidationFail,
+            executor::Result, smart_contract::payloads::ExecutorContext as Context, visit::Visit,
+            ValidationFail,
         },
         deny, execute, DataModelBuilder, Execute,
     };

@@ -4,6 +4,7 @@
 extern crate alloc;
 extern crate self as iroha_executor_data_model;
 
+pub mod custom;
 pub mod parameter;
 pub mod permission;
 

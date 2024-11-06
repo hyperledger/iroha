@@ -1,12 +1,15 @@
-use alloc::format;
+use iroha_executor_data_model::custom::multisig::*;
 
 use super::*;
+
+// SATO remove after merge
+use crate::smart_contract::debug::{DebugExpectExt as _, DebugUnwrapExt};
 
 mod account;
 mod transaction;
 
 impl VisitExecute for MultisigInstructionBox {
-    fn visit_execute(self, executor: &mut Executor) {
+    fn visit_execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) {
         match self {
             MultisigInstructionBox::Register(instruction) => instruction.visit_execute(executor),
             MultisigInstructionBox::Propose(instruction) => instruction.visit_execute(executor),
@@ -49,5 +52,3 @@ fn multisig_role_for(account: &AccountId) -> RoleId {
     .parse()
     .unwrap()
 }
-
-pub(super) use iroha_multisig_data_model::*;

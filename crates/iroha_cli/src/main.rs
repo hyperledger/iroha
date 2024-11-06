@@ -1179,7 +1179,7 @@ mod json {
 mod multisig {
     use std::io::{BufReader, Read as _};
 
-    use iroha::multisig_data_model::*;
+    use iroha::executor_data_model::custom::multisig::*;
 
     use super::*;
 
