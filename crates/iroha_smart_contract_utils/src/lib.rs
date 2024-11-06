@@ -9,23 +9,45 @@ extern crate alloc;
 use alloc::{boxed::Box, format, vec::Vec};
 use core::ops::RangeFrom;
 
+pub use dbg::*;
+pub use getrandom;
 pub use parity_scale_codec::{DecodeAll, Encode};
 
-pub mod debug;
+mod dbg;
 pub mod log;
 
-/// Decode the object from given pointer and length
+/// Registers a custom `getrandom` function that:
 ///
-/// # Warning
-///
-/// This method takes ownership of the given pointer
-///
-/// # Safety
-///
-/// It's safe to call this function as long as it's safe to construct, from the given
-/// pointer, `Box<[u8]>` containing the encoded object
-unsafe fn _decode_from_raw<T: DecodeAll>(ptr: *const u8, len: usize) -> T {
-    _decode_from_raw_in_range(ptr, len, 0..)
+/// 1. prints `error` message to the log
+/// 2. panics with the same message
+#[doc(hidden)]
+#[macro_export]
+macro_rules! register_getrandom_err_callback {
+    () => {
+        /// Prints a log message with [`error!`] and panics.
+        ///
+        /// # Panics
+        ///
+        /// Always Panics with [`unimplemented!()`];
+        ///
+        /// # Errors
+        ///
+        /// No errors, always panics.
+        fn stub_getrandom(_dest: &mut [u8]) -> Result<(), $crate::getrandom::Error> {
+            const ERROR_MESSAGE: &str =
+                "`getrandom()` is not implemented. To provide your custom function \
+                 see https://docs.rs/getrandom/latest/getrandom/macro.register_custom_getrandom.html. \
+                 Be aware that your function must give the same result on different peers at the same execution round,
+                 and keep in mind the consequences of purely implemented random function.";
+
+            // we don't support logging in our current wasm test runner implementation
+            #[cfg(not(test))]
+            $crate::error!(ERROR_MESSAGE);
+            unimplemented!("{ERROR_MESSAGE}")
+        }
+
+        $crate::getrandom::register_custom_getrandom!(stub_getrandom);
+    };
 }
 
 /// Decode the object from given pointer and length in the given range
@@ -66,6 +88,7 @@ unsafe fn _decode_from_raw_in_range<T: DecodeAll>(
 ///
 /// It's safe to call this function as long as it's safe to construct, from the given
 /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+#[doc(hidden)]
 pub unsafe fn decode_with_length_prefix_from_raw<T: DecodeAll>(ptr: *const u8) -> T {
     let len_size_bytes = core::mem::size_of::<usize>();
 
@@ -87,6 +110,7 @@ pub unsafe fn decode_with_length_prefix_from_raw<T: DecodeAll>(ptr: *const u8) -
 /// # Safety
 ///
 /// The given function must not take ownership of the pointer argument
+#[doc(hidden)]
 pub unsafe fn encode_and_execute<T: Encode, O>(
     obj: &T,
     fun: unsafe extern "C" fn(*const u8, usize) -> O,
@@ -101,6 +125,7 @@ pub unsafe fn encode_and_execute<T: Encode, O>(
 /// Encode the given `val` as a vector of bytes with the size of the object at the beginning
 //
 // TODO: Write a separate crate for codec/protocol between Iroha and smartcontract
+#[doc(hidden)]
 pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Box<[u8]> {
     let len_size_bytes = core::mem::size_of::<usize>();
 

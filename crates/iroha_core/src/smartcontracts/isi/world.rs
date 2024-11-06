@@ -513,8 +513,8 @@ pub mod query {
             Ok(state_ro
                 .world()
                 .peers()
-                .cloned()
-                .filter(move |peer| filter.applies(peer)))
+                .filter(move |peer| filter.applies(peer))
+                .cloned())
         }
     }
 

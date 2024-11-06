@@ -1,6 +1,5 @@
 use std::{sync::mpsc, thread, time::Duration};
 
-use executor_custom_data_model::mint_rose_args::MintRoseArgs;
 use eyre::{eyre, Result, WrapErr};
 use iroha::{
     crypto::KeyPair,
@@ -13,6 +12,7 @@ use iroha::{
 use iroha_executor_data_model::permission::trigger::CanRegisterTrigger;
 use iroha_test_network::*;
 use iroha_test_samples::{load_sample_wasm, ALICE_ID};
+use mint_rose_trigger_data_model::MintRoseArgs;
 
 use crate::triggers::get_asset_value;
 
@@ -621,7 +621,7 @@ fn call_execute_trigger_with_args() -> Result<()> {
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(
-            load_sample_wasm("mint_rose_trigger_args"),
+            load_sample_wasm("mint_rose_trigger"),
             Repeats::Indefinitely,
             account_id.clone(),
             ExecuteTriggerEventFilter::new()

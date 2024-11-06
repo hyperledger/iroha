@@ -25,7 +25,6 @@ iroha_macro_utils = { version = "=2.0.0-rc.1.0", path = "crates/iroha_macro_util
 iroha_telemetry = { version = "=2.0.0-rc.1.0", path = "crates/iroha_telemetry" }
 iroha_p2p = { version = "=2.0.0-rc.1.0", path = "crates/iroha_p2p" }
 iroha_primitives = { version = "=2.0.0-rc.1.0", path = "crates/iroha_primitives", default-features = false }
-iroha_data_model = { version = "=2.0.0-rc.1.0", path = "crates/iroha_data_model", default-features = false }
 iroha_config = { version = "=2.0.0-rc.1.0", path = "crates/iroha_config" }
 iroha_config_base = { version = "=2.0.0-rc.1.0", path = "crates/iroha_config_base" }
 iroha_schema_gen = { version = "=2.0.0-rc.1.0", path = "crates/iroha_schema_gen" }
@@ -42,11 +41,11 @@ iroha_wasm_builder = { version = "=2.0.0-rc.1.0", path = "crates/iroha_wasm_buil
 
 iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "crates/iroha_smart_contract" }
 iroha_smart_contract_utils = { version = "=2.0.0-rc.1.0", path = "crates/iroha_smart_contract_utils" }
-
 iroha_executor = { version = "=2.0.0-rc.1.0", path = "crates/iroha_executor" }
-iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "crates/iroha_executor_data_model" }
 
-iroha_multisig_data_model = { version = "=2.0.0-rc.1.0", path = "crates/iroha_multisig_data_model" }
+iroha_data_model = { version = "=2.0.0-rc.1.0", path = "crates/iroha_data_model", default-features = false }
+iroha_multisig_data_model = { version = "=2.0.0-rc.1.0", path = "data_model/libs/iroha_multisig_data_model" }
+iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "crates/iroha_executor_data_model" }
 
 iroha_test_network = { version = "=2.0.0-rc.1.0", path = "crates/iroha_test_network" }
 iroha_test_samples = { version = "=2.0.0-rc.1.0", path = "crates/iroha_test_samples" }
@@ -199,7 +198,9 @@ clippy.wildcard_dependencies = "deny"
 [workspace]
 resolver = "2"
 members = [
-    "crates/*"
+    "crates/*",
+    "data_model/libs/*",
+    "data_model/samples/*"
 ]
 
 [profile.deploy]

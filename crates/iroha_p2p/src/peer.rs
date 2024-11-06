@@ -197,7 +197,7 @@ mod run {
                             ping_period=?ping_interval.period(),
                             "The connection has been idle, pinging to check if it's alive"
                         );
-                        if let Err(error) = message_sender.prepare_message(Message::<T>::Ping) {
+                        if let Err(error) = message_sender.prepare_message(&Message::<T>::Ping) {
                             iroha_logger::error!(%error, "Failed to encrypt message.");
                             break;
                         }
@@ -219,7 +219,7 @@ mod run {
                         if post_receiver_len > 100 {
                             iroha_logger::warn!(size=post_receiver_len, "Peer post messages are pilling up");
                         }
-                        if let Err(error) = message_sender.prepare_message(Message::Data(msg)) {
+                        if let Err(error) = message_sender.prepare_message(&Message::Data(msg)) {
                             iroha_logger::error!(%error, "Failed to encrypt message.");
                             break;
                         }
@@ -241,7 +241,7 @@ mod run {
                         match msg {
                             Message::Ping => {
                                 iroha_logger::trace!("Received peer ping");
-                                if let Err(error) = message_sender.prepare_message(Message::<T>::Pong) {
+                                if let Err(error) = message_sender.prepare_message(&Message::<T>::Pong) {
                                     iroha_logger::error!(%error, "Failed to encrypt message.");
                                     break;
                                 }
@@ -406,7 +406,7 @@ mod run {
         ///
         /// # Errors
         /// - If encryption fail.
-        fn prepare_message<T: Pload>(&mut self, msg: T) -> Result<(), Error> {
+        fn prepare_message<T: Pload>(&mut self, msg: &T) -> Result<(), Error> {
             // Start with fresh buffer
             self.buffer.clear();
             msg.encode_to(&mut self.buffer);

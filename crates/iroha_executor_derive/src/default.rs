@@ -51,7 +51,7 @@ pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn::DeriveInput) 
 
     let mut entrypoint_fns: Vec<syn::ItemFn> = vec![
         parse_quote! {
-            #[::iroha_executor::prelude::entrypoint]
+            #[::iroha_executor::entrypoint]
             pub fn execute_transaction(
                 transaction: ::iroha_executor::prelude::SignedTransaction,
                 host: ::iroha_executor::prelude::Iroha,
@@ -64,7 +64,7 @@ pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn::DeriveInput) 
             }
         },
         parse_quote! {
-            #[::iroha_executor::prelude::entrypoint]
+            #[::iroha_executor::entrypoint]
             pub fn execute_instruction(
                 instruction: ::iroha_executor::prelude::InstructionBox,
                 host: ::iroha_executor::prelude::Iroha,
@@ -77,7 +77,7 @@ pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn::DeriveInput) 
             }
         },
         parse_quote! {
-            #[::iroha_executor::prelude::entrypoint]
+            #[::iroha_executor::entrypoint]
             pub fn validate_query(
                 query: ::iroha_executor::data_model::query::AnyQueryBox,
                 host: ::iroha_executor::prelude::Iroha,

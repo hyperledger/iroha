@@ -145,8 +145,9 @@ impl ToTokens for MetricSpec {
 /// # Examples
 ///
 /// ```rust
-/// use iroha_core::state::{StateTransaction, World};
 /// use iroha_telemetry_derive::metrics;
+///
+/// # struct StateTransaction;
 ///
 /// #[metrics(+"test_query", "another_test_query_without_timing")]
 /// fn execute(state: &StateTransaction) -> Result<(), ()> {

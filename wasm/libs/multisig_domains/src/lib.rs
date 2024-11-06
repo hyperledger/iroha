@@ -9,15 +9,10 @@ extern crate panic_halt;
 use alloc::format;
 
 use dlmalloc::GlobalDlmalloc;
-use iroha_trigger::{
-    debug::{dbg_panic, DebugExpectExt as _},
-    prelude::*,
-};
+use iroha_trigger::prelude::*;
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
-
-getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 
 // Binary containing common logic to each domain for handling multisig accounts
 const MULTISIG_ACCOUNTS_WASM: &[u8] = core::include_bytes!(concat!(
@@ -28,7 +23,7 @@ const MULTISIG_ACCOUNTS_WASM: &[u8] = core::include_bytes!(concat!(
 #[iroha_trigger::main]
 fn main(host: Iroha, context: Context) {
     let EventBox::Data(DataEvent::Domain(event)) = context.event else {
-        dbg_panic("trigger misused: must be triggered only by a domain event");
+        dbg_panic!("trigger misused: must be triggered only by a domain event");
     };
     let (domain_id, domain_owner, owner_changed) = match event {
         DomainEvent::Created(domain) => (domain.id().clone(), domain.owned_by().clone(), false),
@@ -37,8 +32,8 @@ fn main(host: Iroha, context: Context) {
             owner_changed.new_owner().clone(),
             true,
         ),
-        _ => dbg_panic(
-            "trigger misused: must be triggered only when domain created or owner changed",
+        _ => dbg_panic!(
+            "trigger misused: must be triggered only when domain created or owner changed"
         ),
     };
 

@@ -12,8 +12,6 @@ use iroha_executor::prelude::*;
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
-getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
-
 #[derive(Visit, Execute, Entrypoints)]
 #[visit(custom(visit_instruction))]
 struct Executor {
@@ -34,5 +32,5 @@ fn visit_instruction(executor: &mut Executor, isi: &InstructionBox) {
     iroha_executor::default::visit_instruction(executor, isi);
 }
 
-#[entrypoint]
+#[iroha_executor::migrate]
 fn migrate(_host: Iroha, _context: Context) {}
