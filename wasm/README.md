@@ -1,6 +1,9 @@
 # How to build
 
-From the project root, run:
+To get a help message, run from the project root:
+`bash scripts/build_wasm.sh --help`
+
+# Examples
 
 ## All WASM crates
 
