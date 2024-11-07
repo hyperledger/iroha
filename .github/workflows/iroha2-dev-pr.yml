@@ -72,7 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: ./scripts/build_wasm.sh --profile=${{ env.PROFILE }} 
+        run: ./scripts/build_wasm.sh
       - name: Upload all built WASMs
         uses: actions/upload-artifact@v4
         with:

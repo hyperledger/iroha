@@ -19,3 +19,13 @@ bash scripts/build_wasm.sh --target=libs
 ```bash
 bash scripts/build_wasm.sh --target=samples
 ```
+
+## WASM in specific profile
+1. Release **(default)**
+```bash
+bash scripts/build_wasm.sh --profile=deploy
+```
+2. Debug
+```bash
+bash scripts/build_wasm.sh --profile=profiling
+```

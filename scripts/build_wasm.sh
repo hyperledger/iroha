@@ -4,7 +4,7 @@ set -e;
 DEFAULTS_DIR="defaults"
 CARGO_DIR="wasm"
 TARGET_DIR="$CARGO_DIR/target/prebuilt"
-PROFILE="profiling"
+PROFILE="deploy"
 TARGET="all"
 SHOW_HELP=false
 

@@ -424,9 +424,7 @@ mod scale_ {
     #[derive(Encode, Decode)]
     // Use compact encoding for efficiency, for integer numbers scale takes only one byte
     struct NumericScaleHelper {
-        #[codec(compact)]
         mantissa: u128,
-        #[codec(compact)]
         scale: u32,
     }
 
