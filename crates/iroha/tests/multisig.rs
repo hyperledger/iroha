@@ -9,7 +9,7 @@ use iroha::{
     client::Client,
     crypto::KeyPair,
     data_model::{prelude::*, Level},
-    executor_data_model::custom::multisig::*,
+    executor_data_model::isi::multisig::*,
 };
 use iroha_test_network::*;
 use iroha_test_samples::{

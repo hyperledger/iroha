@@ -16,14 +16,14 @@ use iroha_executor::{data_model::isi::CustomInstruction, prelude::*};
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 #[derive(Visit, Execute, Entrypoints)]
-#[visit(custom(visit_custom_instructions))]
+#[visit(custom(visit_custom_instruction))]
 struct Executor {
     host: Iroha,
     context: Context,
     verdict: Result,
 }
 
-fn visit_custom_instructions(executor: &mut Executor, isi: &CustomInstruction) {
+fn visit_custom_instruction(executor: &mut Executor, isi: &CustomInstruction) {
     let Ok(isi) = CustomInstructionBox::try_from(isi.payload()) else {
         deny!(executor, "Failed to parse custom instruction");
     };

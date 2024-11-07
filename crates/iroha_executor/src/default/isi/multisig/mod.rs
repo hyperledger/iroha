@@ -1,4 +1,4 @@
-use iroha_executor_data_model::custom::multisig::*;
+use iroha_executor_data_model::isi::multisig::*;
 
 use super::*;
 use crate::smart_contract::{DebugExpectExt as _, DebugUnwrapExt};

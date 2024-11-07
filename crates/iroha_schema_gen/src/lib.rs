@@ -34,7 +34,7 @@ macro_rules! types {
 /// shall be included recursively.
 pub fn build_schemas() -> MetaMap {
     use iroha_data_model::prelude::*;
-    use iroha_executor_data_model::{custom::multisig, permission};
+    use iroha_executor_data_model::{isi::multisig, permission};
 
     macro_rules! schemas {
         ($($t:ty),* $(,)?) => {{
@@ -548,7 +548,7 @@ pub mod complete_data_model {
         },
         Level,
     };
-    pub use iroha_executor_data_model::custom::multisig::{
+    pub use iroha_executor_data_model::isi::multisig::{
         MultisigApprove, MultisigInstructionBox, MultisigPropose, MultisigRegister,
     };
     pub use iroha_genesis::{GenesisWasmAction, GenesisWasmTrigger, WasmPath};

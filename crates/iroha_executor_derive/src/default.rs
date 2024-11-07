@@ -155,7 +155,7 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn::DeriveInput) -> Tok
         "fn visit_set_parameter(operation: &SetParameter)",
         "fn visit_upgrade(operation: &Upgrade)",
         "fn visit_log(operation: &Log)",
-        "fn visit_custom_instructions(operation: &CustomInstruction)",
+        "fn visit_custom_instruction(operation: &CustomInstruction)",
     ]
     .into_iter()
     .map(|item| {

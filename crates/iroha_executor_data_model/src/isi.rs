@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 
-// TODO #5221 #[proc_macro_derive(CustomInstruction)]
 macro_rules! impl_custom_instruction {
     ($box:ty, $($instruction:ty)|+) => {
         impl Instruction for $box {}
@@ -86,6 +85,8 @@ pub mod multisig {
         pub transaction_ttl_ms: u64,
     }
 
+    /// Relative weight of responsibility for the multisig account.
+    /// 0 is allowed for observers who don't join governance
     type Weight = u8;
 
     /// Default multisig transaction time-to-live in milliseconds based on block timestamps
@@ -109,7 +110,6 @@ pub mod multisig {
         pub instructions_hash: HashOf<Vec<InstructionBox>>,
     }
 
-    // TODO #5221 #[derive(CustomInstruction)]
     impl_custom_instruction!(
         MultisigInstructionBox,
         MultisigRegister | MultisigPropose | MultisigApprove

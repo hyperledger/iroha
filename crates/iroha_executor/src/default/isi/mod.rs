@@ -1,11 +1,11 @@
-use iroha_executor_data_model::custom::multisig::MultisigInstructionBox;
+use iroha_executor_data_model::isi::multisig::MultisigInstructionBox;
 
 use super::*;
 use crate::prelude::{Execute, Vec, Visit};
 
 mod multisig;
 
-pub fn visit_custom_instructions<V: Execute + Visit + ?Sized>(
+pub fn visit_custom_instruction<V: Execute + Visit + ?Sized>(
     executor: &mut V,
     instruction: &CustomInstruction,
 ) {
@@ -16,7 +16,6 @@ pub fn visit_custom_instructions<V: Execute + Visit + ?Sized>(
     deny!(executor, "unexpected custom instruction");
 }
 
-// TODO #5221 trait VisitExecute: CustomInstruction {
 trait VisitExecute: crate::data_model::isi::Instruction {
     fn visit_execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) {
         self.visit(executor);

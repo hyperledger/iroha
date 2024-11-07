@@ -17,13 +17,13 @@ pub use asset_definition::{
     visit_set_asset_definition_key_value, visit_transfer_asset_definition,
     visit_unregister_asset_definition,
 };
-pub use custom::visit_custom_instructions;
 pub use domain::{
     visit_register_domain, visit_remove_domain_key_value, visit_set_domain_key_value,
     visit_transfer_domain, visit_unregister_domain,
 };
 pub use executor::visit_upgrade;
 use iroha_smart_contract::data_model::{prelude::*, visit::Visit};
+pub use isi::visit_custom_instruction;
 pub use log::visit_log;
 pub use parameter::visit_set_parameter;
 pub use peer::{visit_register_peer, visit_unregister_peer};
@@ -44,7 +44,7 @@ use crate::{
     Execute,
 };
 
-pub mod custom;
+pub mod isi;
 
 // NOTE: If any new `visit_..` functions are introduced in this module, one should
 // not forget to update the default executor boilerplate too, specifically the
@@ -119,7 +119,7 @@ pub fn visit_instruction<V: Execute + Visit + ?Sized>(executor: &mut V, isi: &In
             executor.visit_upgrade(isi);
         }
         InstructionBox::Custom(isi) => {
-            executor.visit_custom_instructions(isi);
+            executor.visit_custom_instruction(isi);
         }
     }
 }
