@@ -1,20 +1,37 @@
 //! Validation and execution logic of instructions for multisig accounts
 
+use iroha_executor_data_model::permission::account::CanRegisterAccount;
+
 use super::*;
+use crate::permission::domain::is_domain_owner;
 
 impl VisitExecute for MultisigRegister {
     fn visit<V: Execute + Visit + ?Sized>(&self, executor: &mut V) {
-        let host = executor.host();
+        let registrant = executor.context().authority.clone();
         let target_domain = self.account.domain();
+        let host = executor.host();
 
-        // Any account in a domain can register any multisig account in the domain
-        // TODO Restrict access to the multisig signatories?
-        // TODO Impose proposal and approval process?
-        if target_domain != executor.context().authority.domain() {
+        let Ok(is_domain_owner) = is_domain_owner(target_domain, &registrant, host) else {
             deny!(
                 executor,
-                "multisig account and its registrant must be in the same domain"
-            )
+                "domain must exist before registering multisig account"
+            );
+        };
+
+        let has_permission = {
+            CanRegisterAccount {
+                domain: target_domain.clone(),
+            }
+            .is_owned_by(&registrant, host)
+        };
+
+        // Impose the same restriction as for personal account registrations
+        // TODO Allow the signatories to register the multisig account? With propose and approve procedures?
+        if !(is_domain_owner || has_permission) {
+            deny!(
+                executor,
+                "registrant must have sufficient permission to register an account"
+            );
         }
 
         for signatory in self.signatories.keys().cloned() {
@@ -33,52 +50,56 @@ impl VisitExecute for MultisigRegister {
     }
 
     fn execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) -> Result<(), ValidationFail> {
-        let host = executor.host();
+        let host = executor.host().clone();
+        let domain_owner = host
+            .query(FindDomains)
+            .filter_with(|domain| domain.id.eq(self.account.domain().clone()))
+            .execute_single()
+            .dbg_unwrap()
+            .owned_by()
+            .clone();
+
+        // Authorize as the domain owner:
+        // Just having permission to register accounts is insufficient to register multisig roles
+        executor.context_mut().authority = domain_owner.clone();
+
         let multisig_account = self.account;
         let multisig_role = multisig_role_for(&multisig_account);
 
-        host.submit(&Register::account(Account::new(multisig_account.clone())))
-            .dbg_expect("registrant should successfully register a multisig account");
+        visit_seq!(executor
+            .visit_register_account(&Register::account(Account::new(multisig_account.clone()))));
 
-        host.submit(&SetKeyValue::account(
+        visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
             multisig_account.clone(),
             SIGNATORIES.parse().unwrap(),
             Json::new(&self.signatories),
-        ))
-        .dbg_unwrap();
+        )));
 
-        host.submit(&SetKeyValue::account(
+        visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
             multisig_account.clone(),
             QUORUM.parse().unwrap(),
             Json::new(self.quorum),
-        ))
-        .dbg_unwrap();
+        )));
 
-        host.submit(&SetKeyValue::account(
+        visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
             multisig_account.clone(),
             TRANSACTION_TTL_MS.parse().unwrap(),
             Json::new(self.transaction_ttl_ms),
-        ))
-        .dbg_unwrap();
+        )));
 
-        host.submit(&Register::role(
-            // No use, but temporarily grant a multisig role to the multisig account due to specifications
-            Role::new(multisig_role.clone(), multisig_account.clone()),
-        ))
-        .dbg_expect("registrant should successfully register a multisig role");
+        visit_seq!(executor.visit_register_role(&Register::role(
+            // Temporarily grant a multisig role to the domain owner to delegate the role to the signatories
+            Role::new(multisig_role.clone(), domain_owner.clone()),
+        )));
 
         for signatory in self.signatories.keys().cloned() {
-            host.submit(&Grant::account_role(multisig_role.clone(), signatory))
-                .dbg_expect(
-                    "registrant should successfully grant the multisig role to signatories",
-                );
+            visit_seq!(executor
+                .visit_grant_account_role(&Grant::account_role(multisig_role.clone(), signatory)));
         }
 
-        // FIXME No roles to revoke found, which should have been granted to the multisig account
-        // host.submit(&Revoke::account_role(multisig_role, multisig_account))
-        //     .dbg_expect(
-        //         "registrant should successfully revoke the multisig role from the multisig account",
-        //     );
+        visit_seq!(
+            executor.visit_revoke_account_role(&Revoke::account_role(multisig_role, domain_owner))
+        );
 
         Ok(())
     }

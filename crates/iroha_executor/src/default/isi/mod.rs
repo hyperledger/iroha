@@ -3,8 +3,6 @@ use iroha_executor_data_model::isi::multisig::MultisigInstructionBox;
 use super::*;
 use crate::prelude::{Execute, Vec, Visit};
 
-mod multisig;
-
 pub fn visit_custom_instruction<V: Execute + Visit + ?Sized>(
     executor: &mut V,
     instruction: &CustomInstruction,
@@ -18,12 +16,14 @@ pub fn visit_custom_instruction<V: Execute + Visit + ?Sized>(
 
 trait VisitExecute: crate::data_model::isi::Instruction {
     fn visit_execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) {
+        let init_authority = executor.context().authority.clone();
         self.visit(executor);
         if executor.verdict().is_ok() {
             if let Err(err) = self.execute(executor) {
                 executor.deny(err);
             }
         }
+        executor.context_mut().authority = init_authority;
     }
 
     fn visit<V: Execute + Visit + ?Sized>(&self, _executor: &mut V) {
@@ -34,3 +34,14 @@ trait VisitExecute: crate::data_model::isi::Instruction {
         unimplemented!("should be overridden unless `Self::visit_execute` is overridden")
     }
 }
+
+macro_rules! visit_seq {
+    ($executor:ident.$visit:ident($instruction:expr)) => {
+        $executor.$visit($instruction);
+        if $executor.verdict().is_err() {
+            return $executor.verdict().clone();
+        }
+    };
+}
+
+mod multisig;

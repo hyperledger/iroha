@@ -1230,18 +1230,51 @@ pub mod role {
         executor: &mut V,
         isi: &Register<Role>,
     ) {
-        const MULTISIG_SIGNATORY: &str = "MULTISIG_SIGNATORY";
-
         let role = isi.object();
+        let grant_role = &Grant::account_role(role.id().clone(), role.grant_to().clone());
         let mut new_role = Role::new(role.id().clone(), role.grant_to().clone());
 
         // Exception for multisig roles
-        if role.id().name().as_ref().starts_with(MULTISIG_SIGNATORY) {
-            // Multisig roles should only automatically be registered bypassing validation
-            deny!(
-                executor,
-                "role name conflicts with the reserved multisig role names"
-            )
+        {
+            use crate::permission::domain::is_domain_owner;
+
+            const DELIMITER: char = '/';
+            const MULTISIG_SIGNATORY: &str = "MULTISIG_SIGNATORY";
+
+            fn multisig_account_from(role: &RoleId) -> Option<AccountId> {
+                role.name()
+                    .as_ref()
+                    .strip_prefix(MULTISIG_SIGNATORY)?
+                    .rsplit_once(DELIMITER)
+                    .and_then(|(init, last)| {
+                        format!("{last}@{}", init.trim_matches(DELIMITER))
+                            .parse()
+                            .ok()
+                    })
+            }
+
+            if role.id().name().as_ref().starts_with(MULTISIG_SIGNATORY) {
+                if let Some(multisig_account) = multisig_account_from(role.id()) {
+                    if is_domain_owner(
+                        multisig_account.domain(),
+                        &executor.context().authority,
+                        executor.host(),
+                    )
+                    .unwrap_or_default()
+                    {
+                        let isi = &Register::role(new_role);
+                        if let Err(err) = executor.host().submit(isi) {
+                            deny!(executor, err);
+                        }
+                        execute!(executor, grant_role);
+                    }
+                    deny!(
+                        executor,
+                        "only the domain owner can register multisig roles"
+                    )
+                }
+                deny!(executor, "violates multisig role name format")
+            }
         }
 
         for permission in role.inner().permissions() {
@@ -1271,7 +1304,6 @@ pub mod role {
         if executor.context().curr_block.is_genesis()
             || CanManageRoles.is_owned_by(&executor.context().authority, executor.host())
         {
-            let grant_role = &Grant::account_role(role.id().clone(), role.grant_to().clone());
             let isi = &Register::role(new_role);
             if let Err(err) = executor.host().submit(isi) {
                 deny!(executor, err);

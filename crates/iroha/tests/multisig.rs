@@ -12,6 +12,7 @@ use iroha::{
     data_model::{prelude::*, Level},
     executor_data_model::isi::multisig::*,
 };
+use iroha_executor_data_model::permission::account::CanRegisterAccount;
 use iroha_test_network::*;
 use iroha_test_samples::{
     gen_account_in, ALICE_ID, BOB_ID, BOB_KEYPAIR, CARPENTER_ID, CARPENTER_KEYPAIR,
@@ -112,7 +113,7 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
             .map(Register::account),
     )?;
 
-    let not_signatory = residents.pop_first().unwrap();
+    let non_signatory = residents.pop_first().unwrap();
     let mut signatories = residents;
 
     let register_multisig_account = MultisigRegister::new(
@@ -143,10 +144,28 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
     .submit_blocking(register_multisig_account.clone())
     .expect_err("multisig account should not be registered by account of another domain");
 
-    // Any account in the same domain can register a multisig account without special permission
-    alt_client(not_signatory, &test_client)
+    // Non-signatory account in the same domain cannot register a multisig account without special permission
+    let _err = alt_client(non_signatory.clone(), &test_client)
+        .submit_blocking(register_multisig_account.clone())
+        .expect_err(
+            "multisig account should not be registered by non-signatory account of the same domain",
+        );
+
+    // All but the first signatory approve the proposal
+    let signatory = signatories.pop_first().unwrap();
+
+    // Signatory account cannot register a multisig account without special permission
+    let _err = alt_client(signatory, &test_client)
+        .submit_blocking(register_multisig_account.clone())
+        .expect_err("multisig account should not be registered by signatory account");
+
+    // Account with permission can register a multisig account
+    alt_client((BOB_ID.clone(), BOB_KEYPAIR.clone()), &test_client).submit_blocking(
+        Grant::account_permission(CanRegisterAccount { domain }, non_signatory.0.clone()),
+    )?;
+    alt_client(non_signatory, &test_client)
         .submit_blocking(register_multisig_account)
-        .expect("multisig account should be registered by account of the same domain");
+        .expect("multisig account should be registered by account with permission");
 
     // Check that the multisig account has been registered
     test_client
@@ -169,11 +188,9 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
     let instructions_hash = HashOf::new(&instructions);
 
     let proposer = signatories.pop_last().unwrap();
-    // All but the first signatory approve the proposal
-    let mut approvers = signatories.into_iter().skip(1);
+    let mut approvers = signatories.into_iter();
 
     let propose = MultisigPropose::new(multisig_account_id.clone(), instructions);
-
     alt_client(proposer, &test_client).submit_blocking(propose)?;
 
     // Allow time to elapse to test the expiration
@@ -249,7 +266,7 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
 ///   0       1    2   3  4  5 <--- personal signatories
 /// ```
 #[test]
-#[expect(clippy::similar_names)]
+#[expect(clippy::similar_names, clippy::too_many_lines)]
 fn multisig_recursion() -> Result<()> {
     let (network, _rt) = NetworkBuilder::new().start_blocking()?;
     let test_client = network.client();
