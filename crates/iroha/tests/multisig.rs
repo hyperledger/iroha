@@ -190,7 +190,7 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
     let proposer = signatories.pop_last().unwrap();
     let mut approvers = signatories.into_iter();
 
-    let propose = MultisigPropose::new(multisig_account_id.clone(), instructions);
+    let propose = MultisigPropose::new(multisig_account_id.clone(), instructions, None);
     alt_client(proposer, &test_client).submit_blocking(propose)?;
 
     // Allow time to elapse to test the expiration
@@ -345,7 +345,7 @@ fn multisig_recursion() -> Result<()> {
     let instructions_hash = HashOf::new(&instructions);
 
     let proposer = sigs_0.pop_last().unwrap();
-    let propose = MultisigPropose::new(msa_012345.clone(), instructions);
+    let propose = MultisigPropose::new(msa_012345.clone(), instructions, None);
 
     alt_client(proposer, &test_client).submit_blocking(propose)?;
 

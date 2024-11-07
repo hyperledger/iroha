@@ -100,6 +100,8 @@ pub mod multisig {
         pub account: AccountId,
         /// Proposal contents
         pub instructions: Vec<InstructionBox>,
+        /// Optional TTL to override the account default. Cannot be longer than the account default
+        pub transaction_ttl_ms: Option<NonZeroU64>,
     }
 
     /// Approve a certain multisig transaction

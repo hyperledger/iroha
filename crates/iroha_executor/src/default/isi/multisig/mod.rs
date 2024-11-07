@@ -35,6 +35,12 @@ fn proposed_at_ms_key(hash: &HashOf<Vec<InstructionBox>>) -> Name {
         .unwrap()
 }
 
+fn expires_at_ms_key(hash: &HashOf<Vec<InstructionBox>>) -> Name {
+    format!("{PROPOSALS}{DELIMITER}{hash}{DELIMITER}expires_at_ms")
+        .parse()
+        .unwrap()
+}
+
 fn approvals_key(hash: &HashOf<Vec<InstructionBox>>) -> Name {
     format!("{PROPOSALS}{DELIMITER}{hash}{DELIMITER}approvals")
         .parse()

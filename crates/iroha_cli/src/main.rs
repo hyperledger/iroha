@@ -1257,6 +1257,9 @@ mod multisig {
         /// Multisig authority of the multisig transaction
         #[arg(short, long)]
         pub account: AccountId,
+        /// Time-to-live of multisig transactions that overrides to shorten the account default
+        #[arg(short, long)]
+        pub transaction_ttl: Option<humantime::Duration>,
     }
 
     impl RunArgs for Propose {
@@ -1268,9 +1271,20 @@ mod multisig {
                 let string_content = String::from_utf8(raw_content)?;
                 json5::from_str(&string_content)?
             };
+            let transaction_ttl_ms = self.transaction_ttl.map(|duration| {
+                duration
+                    .as_millis()
+                    .try_into()
+                    .ok()
+                    .and_then(NonZeroU64::new)
+                    .expect("ttl should be between 1 ms and 584942417 years")
+            });
+
             let instructions_hash = HashOf::new(&instructions);
             println!("{instructions_hash}");
-            let propose_multisig_transaction = MultisigPropose::new(self.account, instructions);
+
+            let propose_multisig_transaction =
+                MultisigPropose::new(self.account, instructions, transaction_ttl_ms);
 
             submit([propose_multisig_transaction], Metadata::default(), context)
                 .wrap_err("Failed to propose transaction")
