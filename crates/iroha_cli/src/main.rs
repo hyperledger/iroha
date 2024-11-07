@@ -1177,9 +1177,12 @@ mod json {
 }
 
 mod multisig {
-    use std::io::{BufReader, Read as _};
+    use std::{
+        io::{BufReader, Read as _},
+        num::{NonZeroU16, NonZeroU64},
+    };
 
-    use iroha::executor_data_model::custom::multisig::*;
+    use iroha::executor_data_model::isi::multisig::*;
 
     use super::*;
 
@@ -1234,11 +1237,13 @@ mod multisig {
             let register_multisig_account = MultisigRegister::new(
                 self.account,
                 self.signatories.into_iter().zip(self.weights).collect(),
-                self.quorum,
+                NonZeroU16::new(self.quorum).expect("quorum should not be 0"),
                 self.transaction_ttl
                     .as_millis()
                     .try_into()
-                    .expect("ttl must be within 584942417 years"),
+                    .ok()
+                    .and_then(NonZeroU64::new)
+                    .expect("ttl should be between 1 ms and 584942417 years"),
             );
 
             submit([register_multisig_account], Metadata::default(), context)

@@ -16,7 +16,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{
-    num::{NonZeroU32, NonZeroU64},
+    num::{NonZeroU16, NonZeroU32, NonZeroU64},
     ops::RangeInclusive,
 };
 
@@ -342,7 +342,7 @@ macro_rules! impl_schema_non_zero_int {
     )*};
 }
 
-impl_schema_non_zero_int!(NonZeroU64 => u64, NonZeroU32 => u32);
+impl_schema_non_zero_int!(NonZeroU64 => u64, NonZeroU32 => u32, NonZeroU16 => u16);
 
 impl TypeId for String {
     fn id() -> String {

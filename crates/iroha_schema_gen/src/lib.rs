@@ -292,6 +292,7 @@ types!(
     NewAssetDefinition,
     NewDomain,
     NewRole,
+    NonZeroU16,
     NonZeroU32,
     NonZeroU64,
     Numeric,
@@ -505,7 +506,7 @@ types!(
 pub mod complete_data_model {
     //! Complete set of types participating in the schema
 
-    pub use core::num::{NonZeroU32, NonZeroU64};
+    pub use core::num::{NonZeroU16, NonZeroU32, NonZeroU64};
     pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
     pub use iroha_crypto::*;

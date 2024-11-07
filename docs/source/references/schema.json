@@ -2654,11 +2654,11 @@
       },
       {
         "name": "quorum",
-        "type": "u16"
+        "type": "NonZero<u16>"
       },
       {
         "name": "transaction_ttl_ms",
-        "type": "u64"
+        "type": "NonZero<u64>"
       }
     ]
   },
@@ -2727,6 +2727,7 @@
       }
     ]
   },
+  "NonZero<u16>": "u16",
   "NonZero<u32>": "u32",
   "NonZero<u64>": "u64",
   "Numeric": {

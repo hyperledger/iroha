@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    num::{NonZeroU16, NonZeroU64},
     time::Duration,
 };
 
@@ -122,8 +123,16 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
             .map(|(weight, id)| (id.clone(), 1 + weight as u8))
             .collect(),
         // Quorum can be reached without the first signatory
-        (1..=N_SIGNATORIES).skip(1).sum::<usize>() as u16,
-        transaction_ttl_ms_opt.unwrap_or(u64::MAX),
+        (1..=N_SIGNATORIES)
+            .skip(1)
+            .sum::<usize>()
+            .try_into()
+            .ok()
+            .and_then(NonZeroU16::new)
+            .unwrap(),
+        transaction_ttl_ms_opt
+            .and_then(NonZeroU64::new)
+            .unwrap_or(NonZeroU64::MAX),
     );
 
     // Any account in another domain cannot register a multisig account without special permission
@@ -273,8 +282,12 @@ fn multisig_recursion() -> Result<()> {
                 let register_ms_account = MultisigRegister::new(
                     ms_account_id.clone(),
                     sigs.iter().copied().map(|id| (id.clone(), 1)).collect(),
-                    sigs.len().try_into().unwrap(),
-                    u64::MAX,
+                    sigs.len()
+                        .try_into()
+                        .ok()
+                        .and_then(NonZeroU16::new)
+                        .unwrap(),
+                    NonZeroU64::new(u64::MAX).unwrap(),
                 );
 
                 test_client

@@ -52,6 +52,8 @@ macro_rules! impl_custom_instruction {
 
 /// Types for multisig instructions
 pub mod multisig {
+    use core::num::{NonZeroU16, NonZeroU64};
+
     use super::*;
 
     /// Multisig-related instructions
@@ -80,9 +82,9 @@ pub mod multisig {
         /// List of signatories and their relative weights of responsibility for the multisig account
         pub signatories: BTreeMap<AccountId, Weight>,
         /// Threshold of total weight at which the multisig account is considered authenticated
-        pub quorum: u16,
+        pub quorum: NonZeroU16,
         /// Multisig transaction time-to-live in milliseconds based on block timestamps. Defaults to [`DEFAULT_MULTISIG_TTL_MS`]
-        pub transaction_ttl_ms: u64,
+        pub transaction_ttl_ms: NonZeroU64,
     }
 
     /// Relative weight of responsibility for the multisig account.
