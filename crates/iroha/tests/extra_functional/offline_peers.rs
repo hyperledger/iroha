@@ -2,12 +2,8 @@ use eyre::{OptionExt, Result};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use iroha::{
     crypto::KeyPair,
-    data_model::{
-        peer::{Peer as DataModelPeer, PeerId},
-        prelude::*,
-    },
+    data_model::{peer::PeerId, prelude::*},
 };
-use iroha_primitives::addr::socket_addr;
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
 use tokio::task::spawn_blocking;
@@ -66,11 +62,10 @@ async fn register_offline_peer() -> Result<()> {
     let network = NetworkBuilder::new().with_peers(N_PEERS).start().await?;
     check_status(&network, N_PEERS as u64 - 1).await;
 
-    let address = socket_addr!(128.0.0.2:8085);
     let key_pair = KeyPair::random();
     let public_key = key_pair.public_key().clone();
-    let peer_id = PeerId::new(address, public_key);
-    let register_peer = Register::peer(DataModelPeer::new(peer_id));
+    let peer_id = PeerId::new(public_key);
+    let register_peer = Register::peer(peer_id);
 
     // Wait for some time to allow peers to connect
     let client = network.client();

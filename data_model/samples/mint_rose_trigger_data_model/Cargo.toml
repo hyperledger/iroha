@@ -1,0 +1,14 @@
+[package]
+name = "mint_rose_trigger_data_model"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[dependencies]
+iroha_data_model.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true

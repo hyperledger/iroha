@@ -67,7 +67,7 @@ pub fn gen_resolve_type(arg: &Arg) -> TokenStream {
             let #arg_name = if let Ok(ok) = #arg_name {
                 ok
             } else {
-                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                // TODO: Implement error handling (https://github.com/hyperledger-iroha/iroha/issues/2252)
                 return Err(iroha_ffi::FfiReturn::ExecutionFail);
             };
         };

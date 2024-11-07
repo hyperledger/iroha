@@ -68,7 +68,7 @@ impl InitConfig {
 /// # Errors
 /// If the logger is already set, raises a generic error.
 // TODO: refactor configuration in a way that `terminal_colors` is part of it
-//       https://github.com/hyperledger/iroha/issues/3500
+//       https://github.com/hyperledger-iroha/iroha/issues/3500
 pub fn init_global(config: InitConfig) -> Result<LoggerHandle> {
     try_set_logger()?;
 

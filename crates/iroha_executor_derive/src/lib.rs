@@ -16,10 +16,40 @@ mod entrypoint;
 /// ```ignore
 /// use iroha_executor::prelude::*;
 ///
-/// #[entrypoint]
+/// #[migrate]
 /// fn migrate(host: Iroha, context: Context) {
 ///     todo!()
 /// }
+/// ```
+#[manyhow]
+#[proc_macro_attribute]
+pub fn migrate(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let mut emitter = Emitter::new();
+
+    if !attr.is_empty() {
+        emit!(
+            emitter,
+            "`#[migrate]` macro for Executor accepts no attributes"
+        );
+    }
+
+    let Some(item) = emitter.handle(syn::parse2(item)) else {
+        return emitter.finish_token_stream();
+    };
+
+    let result = entrypoint::impl_migrate_entrypoint(item);
+
+    emitter.finish_token_stream_with(result)
+}
+
+/// Annotate the user-defined function that starts the execution of a executor.
+///
+/// There are 4 acceptable forms of this macro usage. See examples.
+///
+/// # Examples
+///
+/// ```ignore
+/// use iroha_executor::prelude::*;
 ///
 /// #[entrypoint]
 /// fn execute_transaction(transaction: SignedTransaction, host: Iroha, context: Context) -> Result {
@@ -52,7 +82,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         return emitter.finish_token_stream();
     };
 
-    let result = entrypoint::impl_entrypoint(&mut emitter, item);
+    let result = entrypoint::impl_validate_entrypoint(&mut emitter, item);
 
     emitter.finish_token_stream_with(result)
 }

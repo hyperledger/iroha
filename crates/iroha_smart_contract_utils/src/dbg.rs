@@ -7,9 +7,9 @@ use core::fmt::Debug;
 use cfg_if::cfg_if;
 
 #[cfg(target_family = "wasm")]
+#[cfg(feature = "debug")]
 #[cfg(not(test))]
 mod host {
-    #[cfg(feature = "debug")]
     #[link(wasm_import_module = "iroha")]
     extern "C" {
         /// Prints string to the standard output by providing offset and length
@@ -29,8 +29,9 @@ mod host {
 /// Does nothing unless `debug` feature is enabled.
 ///
 /// When running outside of wasm, always prints the output to stderr
+#[doc(hidden)]
 #[allow(unused_variables)]
-pub fn dbg<T: Debug + ?Sized>(obj: &T) {
+pub fn __dbg<T: Debug + ?Sized>(obj: &T) {
     cfg_if! {
         if #[cfg(not(target_family = "wasm"))] {
             // when not on wasm - just print it
@@ -44,20 +45,57 @@ pub fn dbg<T: Debug + ?Sized>(obj: &T) {
 
             let s = format!("{obj:?}");
             // Safety: `host_dbg` doesn't take ownership of it's pointer parameter
-            unsafe { crate::encode_and_execute(&s, host_dbg) }
+            unsafe { crate::encode_and_execute(&s, host_dbg); }
         }
     }
 }
 
-/// Print `msg` and call [`panic!`].
+/// Print `obj` in debug representation. Does nothing unless `debug` feature is enabled.
 ///
-/// Only call [`panic!`] if `debug` feature is not specified.
+/// When running as a wasm smart contract, prints to host's stdout.
+/// When running outside of wasm, always prints the output to stderr
+#[macro_export]
+macro_rules! dbg {
+    () => {
+        #[cfg(feature = "debug")]
+        $crate::__dbg(concat!("[{}:{}:{}]", core::file!(), core::line!(), core::column!()));
+    };
+    ($val:expr $(,)?) => {{
+        #[cfg(feature = "debug")]
+        match $val {
+            tmp => {
+                let location = concat!("[{}:{}:{}]", core::file!(), core::line!(), core::column!());
+                let location = format!("{location} {} = {tmp:#?}", stringify!($val));
+                $crate::__dbg(&location);
+            }
+        }
+    }};
+    ($($val:expr),+ $(,)?) => {
+        ($($crate::dbg!($val)),+,)
+    };
+}
+
+/// Print `obj` in debug representation. Does nothing unless `debug` feature is enabled.
 ///
-/// # Panics
-/// Always
-pub fn dbg_panic(msg: &str) -> ! {
-    dbg(msg);
-    panic!("{msg}")
+/// When running as a wasm smart contract, prints to host's stderr.
+/// When running outside of wasm, always prints the output to stderr
+#[macro_export]
+macro_rules! dbg_panic {
+    () => {
+        dbg!();
+        panic();
+    };
+    ($val:expr $(,)?) => {{
+        match $val {
+            tmp => {
+                dbg!(tmp);
+                panic!("{tmp:?}");
+            }
+        }
+    }};
+    ($($val:expr),+ $(,)?) => {
+        ($($crate::dbg!($val)),+,)
+    };
 }
 
 /// Extension implemented for `Result` and `Option` to provide unwrapping with error message,
@@ -84,10 +122,10 @@ impl<T, E: Debug> DebugUnwrapExt for Result<T, E> {
             match self {
                 Ok(out) => out,
                 Err(err) => {
-                    dbg(&format!(
-                    "WASM execution panicked at `called Result::dbg_unwrap()` on an `Err` value: {err:?}",
-                ));
-                    panic!("");
+                    let msg = format!("WASM execution panicked at `called Result::dbg_unwrap()` on an `Err` value: {err:?}");
+
+                    dbg!(&msg);
+                    panic!("{msg}");
                 }
             }
         }
@@ -107,8 +145,10 @@ impl<T> DebugUnwrapExt for Option<T> {
             match self {
                 Some(out) => out,
                 None => {
-                    dbg("WASM execution panicked at 'called `Option::dbg_unwrap()` on a `None` value'");
-                    panic!("");
+                    let msg = "WASM execution panicked at 'called `Option::dbg_unwrap()` on a `None` value'";
+
+                    dbg!(msg);
+                    panic!("{msg}");
                 }
             }
         }
@@ -140,8 +180,10 @@ impl<T, E: Debug> DebugExpectExt for Result<T, E> {
             match self {
                 Ok(out) => out,
                 Err(err) => {
-                    dbg(&format!("WASM execution panicked at `{msg}: {err:?}`",));
-                    panic!("");
+                    let msg = format!("WASM execution panicked at `{msg}: {err:?}`");
+
+                    dbg!(&msg);
+                    panic!("{msg}");
                 }
             }
         }
@@ -161,8 +203,10 @@ impl<T> DebugExpectExt for Option<T> {
             match self {
                 Some(out) => out,
                 None => {
-                    dbg(&format!("WASM execution panicked at `{msg}`",));
-                    panic!("");
+                    let msg = format!("WASM execution panicked at `{msg}`",);
+
+                    dbg!(&msg);
+                    panic!("{msg}");
                 }
             }
         }
@@ -190,6 +234,6 @@ mod tests {
 
     #[webassembly_test]
     fn dbg_call() {
-        super::dbg(get_dbg_message());
+        dbg!(get_dbg_message());
     }
 }

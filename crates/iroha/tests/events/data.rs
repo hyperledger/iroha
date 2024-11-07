@@ -119,7 +119,7 @@ async fn wasm_execution_should_produce_events() -> Result<()> {
             {wasm_template}
 
             ;; Function which starts the smartcontract execution
-            (func (export "{main_fn_name}") (param)
+            (func (export "{main_fn_name}") (param i32)
                 {isi_calls}))
         "#,
         main_fn_name = "_iroha_smart_contract_main",

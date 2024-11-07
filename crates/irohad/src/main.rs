@@ -19,6 +19,7 @@ use iroha_core::{
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
     kiso::KisoHandle,
     kura::Kura,
+    peers_gossiper::{PeersGossiper, PeersGossiperHandle},
     query::store::LiveQueryStore,
     queue::Queue,
     smartcontracts::isi::Registrable as _,
@@ -132,6 +133,7 @@ struct NetworkRelay {
     sumeragi: SumeragiHandle,
     block_sync: BlockSynchronizerHandle,
     tx_gossiper: TransactionGossiperHandle,
+    peers_gossiper: PeersGossiperHandle,
     network: IrohaNetwork,
 }
 
@@ -140,12 +142,12 @@ impl NetworkRelay {
         let (sender, mut receiver) = mpsc::channel(1);
         self.network.subscribe_to_peers_messages(sender);
         while let Some(msg) = receiver.recv().await {
-            self.handle_message(msg).await;
+            self.handle_message(msg.0, msg.1).await;
         }
         iroha_logger::debug!("Exiting the network relay");
     }
 
-    async fn handle_message(&mut self, msg: iroha_core::NetworkMessage) {
+    async fn handle_message(&mut self, peer: Peer, msg: iroha_core::NetworkMessage) {
         use iroha_core::NetworkMessage::*;
 
         match msg {
@@ -157,6 +159,7 @@ impl NetworkRelay {
             }
             BlockSync(data) => self.block_sync.message(*data).await,
             TransactionGossiper(data) => self.tx_gossiper.gossip(*data).await,
+            PeersGossiper(data) => self.peers_gossiper.gossip(*data, peer).await,
             Health => {}
         }
     }
@@ -256,6 +259,13 @@ impl Iroha {
             queue.clone(),
         );
 
+        let (peers_gossiper, child) = PeersGossiper::start(
+            config.sumeragi.trusted_peers.value().clone(),
+            network.clone(),
+            supervisor.shutdown_signal(),
+        );
+        supervisor.monitor(child);
+
         let (sumeragi, child) = SumeragiStartArgs {
             sumeragi_config: config.sumeragi.clone(),
             common_config: config.common.clone(),
@@ -264,6 +274,7 @@ impl Iroha {
             queue: queue.clone(),
             kura: kura.clone(),
             network: network.clone(),
+            peers_gossiper: peers_gossiper.clone(),
             genesis_network: GenesisWithPubKey {
                 genesis,
                 public_key: config.genesis.public_key.clone(),
@@ -304,6 +315,7 @@ impl Iroha {
                 sumeragi,
                 block_sync,
                 tx_gossiper,
+                peers_gossiper,
                 network,
             }
             .run(),
@@ -566,14 +578,14 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     #[cfg(not(feature = "telemetry"))]
     if config.telemetry.is_some() {
         // TODO: use a centralized configuration logging
-        //       https://github.com/hyperledger/iroha/issues/4300
+        //       https://github.com/hyperledger-iroha/iroha/issues/4300
         eprintln!("`telemetry` config is specified, but ignored, because Iroha is compiled without `telemetry` feature enabled");
     }
 
     #[cfg(not(feature = "dev-telemetry"))]
     if config.dev_telemetry.out_file.is_some() {
         // TODO: use a centralized configuration logging
-        //       https://github.com/hyperledger/iroha/issues/4300
+        //       https://github.com/hyperledger-iroha/iroha/issues/4300
         eprintln!("`dev_telemetry.out_file` config is specified, but ignored, because Iroha is compiled without `dev-telemetry` feature enabled");
     }
 
@@ -726,6 +738,7 @@ mod tests {
                 .write("public_key", pubkey)
                 .write("private_key", ExposedPrivateKey(privkey))
                 .write(["network", "address"], socket_addr!(127.0.0.1:1337))
+                .write(["network", "public_address"], socket_addr!(127.0.0.1:1337))
                 .write(["torii", "address"], socket_addr!(127.0.0.1:8080))
                 .write(["genesis", "public_key"], genesis_public_key);
             table

@@ -61,7 +61,7 @@ pub fn gen_definition(fn_descriptor: &FnDescriptor, trait_name: Option<&Ident>) 
             match std::panic::catch_unwind(fn_) {
                 Ok(res) => res,
                 Err(_) => {
-                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    // TODO: Implement error handling (https://github.com/hyperledger-iroha/iroha/issues/2252)
                     iroha_ffi::FfiReturn::UnrecoverableError
                 },
             }

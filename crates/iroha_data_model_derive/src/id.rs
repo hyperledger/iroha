@@ -110,6 +110,12 @@ pub fn impl_id_eq_ord_hash(emitter: &mut Emitter, input: &syn::DeriveInput) -> T
                 <Self as Identifiable>::id(self).hash(state)
             }
         }
+
+        impl #impl_generics core::borrow::Borrow<<Self as Identifiable>::Id> for #name #ty_generics #where_clause where Self: Identifiable {
+            fn borrow(&self) -> &<Self as Identifiable>::Id {
+                <Self as Identifiable>::id(self)
+            }
+        }
     }
 }
 

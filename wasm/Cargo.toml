@@ -24,21 +24,21 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [workspace.dependencies]
-executor_custom_data_model = { path = "samples/executor_custom_data_model" }
-
 iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_smart_contract", features = ["debug"] }
 iroha_trigger = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_trigger", features = ["debug"] }
 iroha_executor = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_executor", features = ["debug"] }
 iroha_schema = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_schema" }
+
 iroha_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_data_model", default-features = false }
+iroha_multisig_data_model = { version = "=2.0.0-rc.1.0", path = "../data_model/libs/iroha_multisig_data_model" }
 iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_executor_data_model" }
-iroha_multisig_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_multisig_data_model" }
+mint_rose_trigger_data_model = { path = "../data_model/samples/mint_rose_trigger_data_model" }
+executor_custom_data_model = { path = "../data_model/samples/executor_custom_data_model" }
 
 parity-scale-codec = { version = "3.2.1", default-features = false }
 anyhow = { version = "1.0.71", default-features = false }
 serde = { version = "1.0.151", default-features = false }
 serde_json = { version = "1.0.91", default-features = false }
-getrandom = { version = "0.2", features = ["custom"] }
 nonzero_ext = { version = "0.3.0", default-features = false }
 
 dlmalloc = { version = "0.2.6", features = ["global"] }

@@ -7,7 +7,7 @@
 // TODO: Currently logic here is not generalised and handles only `logger.level` parameter. In future, when
 //       other parts of configuration are refactored and there is a solid foundation e.g. as a general
 //       configuration-related crate, this part should be re-written in a clean way.
-//       Track configuration refactoring here: https://github.com/hyperledger/iroha/issues/2585
+//       Track configuration refactoring here: https://github.com/hyperledger-iroha/iroha/issues/2585
 
 use serde::{Deserialize, Serialize};
 
@@ -63,7 +63,7 @@ mod test {
         let actual = serde_json::to_string_pretty(&value).expect("The value is a valid JSON");
 
         // NOTE: whenever this is updated, make sure to update the documentation accordingly:
-        //       https://hyperledger.github.io/iroha-2-docs/reference/torii-endpoints.html
+        //       https://docs.iroha.tech/reference/torii-endpoints.html
         //       -> Configuration endpoints
         let expected = expect_test::expect![[r#"
                 {

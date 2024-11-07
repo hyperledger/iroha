@@ -27,7 +27,7 @@ use crate::{
     block::{BlockHeader, SignedBlock},
     domain::Domain,
     parameter::{Parameter, Parameters},
-    peer::Peer,
+    peer::PeerId,
     permission::Permission,
     role::{Role, RoleId},
     seal::Sealed,
@@ -40,7 +40,7 @@ pub mod parameters;
 pub mod predicate;
 
 /// A query that either returns a single value or errors out
-// NOTE: we are planning to remove this class of queries (https://github.com/hyperledger/iroha/issues/4933)
+// NOTE: we are planning to remove this class of queries (https://github.com/hyperledger-iroha/iroha/issues/4933)
 pub trait SingularQuery: Sealed {
     /// The type of the output of the query
     type Output;
@@ -119,7 +119,7 @@ mod model {
         Parameter(Vec<Parameter>),
         Permission(Vec<Permission>),
         Transaction(Vec<CommittedTransaction>),
-        Peer(Vec<Peer>),
+        Peer(Vec<PeerId>),
         RoleId(Vec<RoleId>),
         TriggerId(Vec<TriggerId>),
         Trigger(Vec<Trigger>),
@@ -562,7 +562,7 @@ impl_iter_queries! {
     FindAssets => crate::asset::Asset,
     FindAssetsDefinitions => crate::asset::AssetDefinition,
     FindDomains => crate::domain::Domain,
-    FindPeers => crate::peer::Peer,
+    FindPeers => crate::peer::PeerId,
     FindActiveTriggerIds => crate::trigger::TriggerId,
     FindTriggers => crate::trigger::Trigger,
     FindTransactions => CommittedTransaction,

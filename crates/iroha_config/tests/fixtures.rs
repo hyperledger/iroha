@@ -11,6 +11,7 @@ use error_stack::ResultExt;
 use expect_test::expect;
 use iroha_config::parameters::{actual::Root as Config, user::Root as UserConfig};
 use iroha_config_base::{env::MockEnv, read::ConfigReader};
+use iroha_data_model::Identifiable;
 use thiserror::Error;
 
 fn fixtures_dir() -> PathBuf {
@@ -80,13 +81,9 @@ fn minimal_config_snapshot() {
                     ),
                     private_key: "[REDACTED PrivateKey]",
                 },
-                peer: PeerId {
+                peer: Peer {
                     address: 127.0.0.1:1337,
-                    public_key: PublicKey(
-                        ed25519(
-                            "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
-                        ),
-                    ),
+                    id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
                 },
             },
             network: Network {
@@ -94,6 +91,13 @@ fn minimal_config_snapshot() {
                     value: 127.0.0.1:1337,
                     origin: File {
                         id: ParameterId(network.address),
+                        path: "tests/fixtures/base.toml",
+                    },
+                },
+                public_address: WithOrigin {
+                    value: 127.0.0.1:1337,
+                    origin: File {
+                        id: ParameterId(network.public_address),
                         path: "tests/fixtures/base.toml",
                     },
                 },
@@ -133,23 +137,15 @@ fn minimal_config_snapshot() {
             sumeragi: Sumeragi {
                 trusted_peers: WithOrigin {
                     value: TrustedPeers {
-                        myself: PeerId {
+                        myself: Peer {
                             address: 127.0.0.1:1337,
-                            public_key: PublicKey(
-                                ed25519(
-                                    "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
-                                ),
-                            ),
+                            id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
                         },
                         others: UniqueVec(
                             [
-                                PeerId {
+                                Peer {
                                     address: 127.0.0.1:1338,
-                                    public_key: PublicKey(
-                                        ed25519(
-                                            "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
-                                        ),
-                                    ),
+                                    id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
                                 },
                             ],
                         ),
@@ -219,7 +215,7 @@ fn self_is_presented_in_trusted_peers() {
         .value()
         .clone()
         .into_non_empty_vec()
-        .contains(&config.common.peer));
+        .contains(config.common.peer.id()));
 }
 
 #[test]

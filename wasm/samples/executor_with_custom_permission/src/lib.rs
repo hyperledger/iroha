@@ -25,14 +25,12 @@ use iroha_executor_data_model::permission::domain::CanUnregisterDomain;
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
-getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
-
 #[derive(Visit, Execute, Entrypoints)]
 #[visit(custom(
     visit_register_domain,
     visit_unregister_domain,
 
-    // FIXME: Don't derive manually (https://github.com/hyperledger/iroha/issues/3834)
+    // FIXME: Don't derive manually (https://github.com/hyperledger-iroha/iroha/issues/3834)
     visit_grant_role_permission,
     visit_grant_role_permission,
     visit_revoke_role_permission,
@@ -164,7 +162,7 @@ pub fn visit_revoke_account_permission<V: Execute + Visit + ?Sized>(
     iroha_executor::default::visit_revoke_account_permission(executor, isi)
 }
 
-#[entrypoint]
+#[iroha_executor::migrate]
 pub fn migrate(host: Iroha, _context: Context) {
     let accounts =
         Executor::get_all_accounts_with_can_unregister_domain_permission(&host).collect::<Vec<_>>();

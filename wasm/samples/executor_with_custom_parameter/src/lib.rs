@@ -15,8 +15,6 @@ use iroha_executor_data_model::parameter::Parameter;
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
-getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
-
 #[derive(Visit, Execute, Entrypoints)]
 #[visit(custom(visit_register_domain))]
 struct Executor {
@@ -43,7 +41,7 @@ fn visit_register_domain(executor: &mut Executor, isi: &Register<Domain>) {
     execute!(executor, isi);
 }
 
-#[entrypoint]
+#[iroha_executor::migrate]
 fn migrate(host: Iroha, _context: Context) {
     DataModelBuilder::with_default_permissions()
         .add_parameter(DomainLimits::default())

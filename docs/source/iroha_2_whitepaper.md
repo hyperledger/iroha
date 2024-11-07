@@ -339,7 +339,7 @@ To retrieve information about World State View of the Peer clients will use Iroh
 
 ### 2.14 Client API
 
-Client libraries interact with Iroha over the HTTP and WebSocket. For details about the available endpoints, see [API Reference > Torii Endpoints](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints).
+Client libraries interact with Iroha over the HTTP and WebSocket. For details about the available endpoints, see [Reference > Torii Endpoints](https://docs.iroha.tech/reference/torii-endpoints.html).
 
 ### 2.15 Versioning
 
@@ -367,4 +367,4 @@ Versioning support will have the following benefits:
 
 # Glossary
 
-The glossary of commonly used terms can be found [here](https://hyperledger.github.io/iroha-2-docs/guide/glossary.html)
+The glossary of commonly used terms can be found [here](https://docs.iroha.tech/reference/glossary.html)

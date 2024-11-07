@@ -6,12 +6,10 @@
 extern crate panic_halt;
 
 use dlmalloc::GlobalDlmalloc;
-use iroha_executor::{debug::dbg_panic, prelude::*};
+use iroha_executor::prelude::*;
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
-
-getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 
 #[derive(Visit, Execute, Entrypoints)]
 struct Executor {
@@ -20,7 +18,7 @@ struct Executor {
     verdict: Result,
 }
 
-#[entrypoint]
+#[iroha_executor::migrate]
 fn migrate(host: Iroha, _context: Context) {
     // Performing side-effects to check in the test that it won't be applied after failure
 
@@ -29,5 +27,5 @@ fn migrate(host: Iroha, _context: Context) {
     host.submit(&Register::domain(Domain::new(domain_id)))
         .unwrap();
 
-    dbg_panic("This executor always fails to migrate");
+    dbg_panic!("This executor always fails to migrate");
 }
