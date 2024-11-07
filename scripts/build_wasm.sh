@@ -110,7 +110,7 @@ print_help() {
 Usage: $0 [OPTIONS]
 
 Options:
-  --profile=<value>   Specify build profile (default: profiling)
+  --profile=<value>   Specify build profile (default: deploy)
                       Possible values: profiling, deploy
 
   --target=<value>    Specify build target (default: all)
