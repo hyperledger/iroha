@@ -162,6 +162,7 @@ impl VisitExecute for MultisigApprove {
         let approver = executor.context().authority.clone();
         let multisig_account = self.account.clone();
         let host = executor.host();
+        let instructions_hash = self.instructions_hash;
         let multisig_role = multisig_role_for(&multisig_account);
 
         if host
@@ -172,56 +173,43 @@ impl VisitExecute for MultisigApprove {
         {
             deny!(executor, "not qualified to approve multisig");
         };
+
+        if host
+            .query_single(FindAccountMetadata::new(
+                multisig_account.clone(),
+                approvals_key(&instructions_hash),
+            ))
+            .is_err()
+        {
+            deny!(executor, "no proposals to approve")
+        };
     }
 
     fn execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) -> Result<(), ValidationFail> {
         let approver = executor.context().authority.clone();
         let multisig_account = self.account;
+        let instructions_hash = self.instructions_hash;
+
+        // Check if the proposal is expired
+        prune_expired(multisig_account.clone(), instructions_hash, executor)?;
 
         // Authorize as the multisig account
         executor.context_mut().authority = multisig_account.clone();
 
-        let host = executor.host();
-        let instructions_hash = self.instructions_hash;
-        let signatories: BTreeMap<AccountId, u8> = host
-            .query_single(FindAccountMetadata::new(
-                multisig_account.clone(),
-                SIGNATORIES.parse().unwrap(),
-            ))
-            .dbg_unwrap()
-            .try_into_any()
-            .dbg_unwrap();
-        let quorum: u16 = host
-            .query_single(FindAccountMetadata::new(
-                multisig_account.clone(),
-                QUORUM.parse().unwrap(),
-            ))
-            .dbg_unwrap()
-            .try_into_any()
-            .dbg_unwrap();
-        let instructions: Vec<InstructionBox> = host
+        let Some(instructions) = executor
+            .host()
             .query_single(FindAccountMetadata::new(
                 multisig_account.clone(),
                 instructions_key(&instructions_hash),
-            ))?
-            .try_into_any()
-            .dbg_unwrap();
-        let expires_at_ms: u64 = host
-            .query_single(FindAccountMetadata::new(
-                multisig_account.clone(),
-                expires_at_ms_key(&instructions_hash),
             ))
-            .dbg_unwrap()
-            .try_into_any()
-            .dbg_unwrap();
-        let now_ms: u64 = executor
-            .context()
-            .curr_block
-            .creation_time()
-            .as_millis()
-            .try_into()
-            .dbg_expect("shouldn't overflow within 584942417 years");
-        let mut approvals: BTreeSet<AccountId> = host
+            .ok()
+            .and_then(|json| json.try_into_any::<Vec<InstructionBox>>().ok())
+        else {
+            // TODO Notify that the proposal has expired, while returning Ok for the entry deletion to take effect
+            return Ok(());
+        };
+        let mut approvals: BTreeSet<AccountId> = executor
+            .host()
             .query_single(FindAccountMetadata::new(
                 multisig_account.clone(),
                 approvals_key(&instructions_hash),
@@ -238,6 +226,25 @@ impl VisitExecute for MultisigApprove {
             Json::new(&approvals),
         )));
 
+        let signatories: BTreeMap<AccountId, u8> = executor
+            .host()
+            .query_single(FindAccountMetadata::new(
+                multisig_account.clone(),
+                SIGNATORIES.parse().unwrap(),
+            ))
+            .dbg_unwrap()
+            .try_into_any()
+            .dbg_unwrap();
+        let quorum: u16 = executor
+            .host()
+            .query_single(FindAccountMetadata::new(
+                multisig_account.clone(),
+                QUORUM.parse().unwrap(),
+            ))
+            .dbg_unwrap()
+            .try_into_any()
+            .dbg_unwrap();
+
         let is_authenticated = quorum
             <= signatories
                 .into_iter()
@@ -245,9 +252,11 @@ impl VisitExecute for MultisigApprove {
                 .map(|(_, weight)| u16::from(weight))
                 .sum();
 
-        let is_expired = expires_at_ms < now_ms;
+        if is_authenticated {
+            for instruction in instructions {
+                visit_seq!(executor.visit_instruction(&instruction));
+            }
 
-        if is_authenticated || is_expired {
             // Cleanup the transaction entry
             visit_seq!(
                 executor.visit_remove_account_key_value(&RemoveKeyValue::account(
@@ -255,38 +264,104 @@ impl VisitExecute for MultisigApprove {
                     approvals_key(&instructions_hash),
                 ))
             );
-
-            visit_seq!(
-                executor.visit_remove_account_key_value(&RemoveKeyValue::account(
-                    multisig_account.clone(),
-                    proposed_at_ms_key(&instructions_hash),
-                ))
-            );
-
             visit_seq!(
                 executor.visit_remove_account_key_value(&RemoveKeyValue::account(
                     multisig_account.clone(),
                     expires_at_ms_key(&instructions_hash),
                 ))
             );
-
+            visit_seq!(
+                executor.visit_remove_account_key_value(&RemoveKeyValue::account(
+                    multisig_account.clone(),
+                    proposed_at_ms_key(&instructions_hash),
+                ))
+            );
             visit_seq!(
                 executor.visit_remove_account_key_value(&RemoveKeyValue::account(
                     multisig_account.clone(),
                     instructions_key(&instructions_hash),
                 ))
             );
-
-            if is_expired {
-                // TODO Notify that the proposal has expired, while returning Ok for the entry deletion to take effect
-            } else {
-                // Validate and execute the authenticated multisig transaction
-                for instruction in instructions {
-                    visit_seq!(executor.visit_instruction(&instruction));
-                }
-            }
         }
 
         Ok(())
     }
+}
+
+/// Remove intermediate approvals and the root proposal if expired
+fn prune_expired<V: Execute + Visit + ?Sized>(
+    multisig_account: AccountId,
+    instructions_hash: HashOf<Vec<InstructionBox>>,
+    executor: &mut V,
+) -> Result<(), ValidationFail> {
+    // Confirm entry existence
+    let Some(expires_at_ms) = executor
+        .host()
+        .query_single(FindAccountMetadata::new(
+            multisig_account.clone(),
+            expires_at_ms_key(&instructions_hash),
+        ))
+        .ok()
+        .and_then(|json| json.try_into_any::<u64>().ok())
+    else {
+        // Removed by another path
+        return Ok(());
+    };
+    // Confirm expiration
+    let now_ms: u64 = executor
+        .context()
+        .curr_block
+        .creation_time()
+        .as_millis()
+        .try_into()
+        .dbg_expect("shouldn't overflow within 584942417 years");
+    if now_ms < expires_at_ms {
+        return Ok(());
+    }
+    // Recurse through approvals
+    let instructions: Vec<InstructionBox> = executor
+        .host()
+        .query_single(FindAccountMetadata::new(
+            multisig_account.clone(),
+            instructions_key(&instructions_hash),
+        ))
+        .dbg_unwrap()
+        .try_into_any()
+        .dbg_unwrap();
+    for instruction in instructions {
+        if let InstructionBox::Custom(instruction) = instruction {
+            if let Ok(MultisigInstructionBox::Approve(approve)) = instruction.payload().try_into() {
+                prune_expired(approve.account, approve.instructions_hash, executor)?;
+            }
+        }
+    }
+    // Authorize as the multisig account
+    executor.context_mut().authority = multisig_account.clone();
+    // Cleanup the transaction entry
+    visit_seq!(
+        executor.visit_remove_account_key_value(&RemoveKeyValue::account(
+            multisig_account.clone(),
+            approvals_key(&instructions_hash),
+        ))
+    );
+    visit_seq!(
+        executor.visit_remove_account_key_value(&RemoveKeyValue::account(
+            multisig_account.clone(),
+            expires_at_ms_key(&instructions_hash),
+        ))
+    );
+    visit_seq!(
+        executor.visit_remove_account_key_value(&RemoveKeyValue::account(
+            multisig_account.clone(),
+            proposed_at_ms_key(&instructions_hash),
+        ))
+    );
+    visit_seq!(
+        executor.visit_remove_account_key_value(&RemoveKeyValue::account(
+            multisig_account,
+            instructions_key(&instructions_hash),
+        ))
+    );
+
+    Ok(())
 }
