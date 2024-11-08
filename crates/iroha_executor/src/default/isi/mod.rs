@@ -35,6 +35,8 @@ trait VisitExecute: crate::data_model::isi::Instruction {
     }
 }
 
+/// Validate and execute instructions in sequence without returning back to the visit root,
+/// checking the sanity of the executor verdict
 macro_rules! visit_seq {
     ($executor:ident.$visit:ident($instruction:expr)) => {
         $executor.$visit($instruction);

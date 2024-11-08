@@ -50,8 +50,8 @@ impl VisitExecute for MultisigRegister {
     }
 
     fn execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) -> Result<(), ValidationFail> {
-        let host = executor.host().clone();
-        let domain_owner = host
+        let domain_owner = executor
+            .host()
             .query(FindDomains)
             .filter_with(|domain| domain.id.eq(self.account.domain().clone()))
             .execute_single()

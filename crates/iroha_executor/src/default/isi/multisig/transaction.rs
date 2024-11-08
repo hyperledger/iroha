@@ -50,9 +50,9 @@ impl VisitExecute for MultisigPropose {
         // Authorize as the multisig account
         executor.context_mut().authority = target_account.clone();
 
-        let host = executor.host().clone();
         let instructions_hash = HashOf::new(&self.instructions);
-        let signatories: BTreeMap<AccountId, u8> = host
+        let signatories: BTreeMap<AccountId, u8> = executor
+            .host()
             .query_single(FindAccountMetadata::new(
                 target_account.clone(),
                 SIGNATORIES.parse().unwrap(),
@@ -71,7 +71,8 @@ impl VisitExecute for MultisigPropose {
 
         // Recursively deploy multisig authentication down to the personal leaf signatories
         for signatory in signatories.keys().cloned() {
-            let is_multisig_again = host
+            let is_multisig_again = executor
+                .host()
                 .query(FindRoleIds)
                 .filter_with(|role_id| role_id.eq(multisig_role_for(&signatory)))
                 .execute_single_opt()
