@@ -283,10 +283,6 @@ types!(
     MintabilityError,
     Mintable,
     Mismatch<AssetType>,
-    MultisigInstructionBox,
-    MultisigRegister,
-    MultisigPropose,
-    MultisigApprove,
     Name,
     NewAccount,
     NewAssetDefinition,
@@ -549,9 +545,6 @@ pub mod complete_data_model {
         },
         Level,
     };
-    pub use iroha_executor_data_model::isi::multisig::{
-        MultisigApprove, MultisigInstructionBox, MultisigPropose, MultisigRegister,
-    };
     pub use iroha_genesis::{GenesisWasmAction, GenesisWasmTrigger, WasmPath};
     pub use iroha_primitives::{const_vec::ConstVec, conststr::ConstString, json::Json};
     pub use iroha_schema::Compact;
@@ -630,6 +623,11 @@ mod tests {
             iroha_executor_data_model::permission::trigger::CanModifyTriggerMetadata
         );
         insert_into_test_map!(iroha_executor_data_model::permission::executor::CanUpgradeExecutor);
+
+        insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigInstructionBox);
+        insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigRegister);
+        insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigPropose);
+        insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigApprove);
 
         map
     }

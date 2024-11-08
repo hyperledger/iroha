@@ -3212,7 +3212,6 @@ dependencies = [
  "iroha_data_model",
  "iroha_executor_data_model_derive",
  "iroha_schema",
- "parity-scale-codec",
  "serde",
  "serde_json",
 ]

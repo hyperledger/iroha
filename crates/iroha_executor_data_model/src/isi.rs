@@ -8,7 +8,6 @@ use iroha_data_model::{
     prelude::{Json, *},
 };
 use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use super::*;
@@ -57,7 +56,7 @@ pub mod multisig {
     use super::*;
 
     /// Multisig-related instructions
-    #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, IntoSchema, From)]
+    #[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, From)]
     pub enum MultisigInstructionBox {
         /// Register a multisig account, which is a prerequisite of multisig transactions
         Register(MultisigRegister),
@@ -68,7 +67,7 @@ pub mod multisig {
     }
 
     /// Register a multisig account, which is a prerequisite of multisig transactions
-    #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, IntoSchema, Constructor)]
+    #[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, Constructor)]
     pub struct MultisigRegister {
         /// Multisig account to be registered
         /// <div class="warning">
@@ -95,7 +94,7 @@ pub mod multisig {
     pub const DEFAULT_MULTISIG_TTL_MS: u64 = 60 * 60 * 1_000; // 1 hour
 
     /// Propose a multisig transaction and initialize approvals with the proposer's one
-    #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, IntoSchema, Constructor)]
+    #[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, Constructor)]
     pub struct MultisigPropose {
         /// Multisig account to propose
         pub account: AccountId,
@@ -104,7 +103,7 @@ pub mod multisig {
     }
 
     /// Approve a certain multisig transaction
-    #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, IntoSchema, Constructor)]
+    #[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, Constructor)]
     pub struct MultisigApprove {
         /// Multisig account to approve
         pub account: AccountId,
