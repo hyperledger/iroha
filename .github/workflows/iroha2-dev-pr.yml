@@ -113,8 +113,13 @@ jobs:
           mold --run cargo llvm-cov nextest
           --all-features
           --branch --no-report
+      - name: Doc test with all features
+        run: >
+          mold --run cargo llvm-cov --doc
+          --all-features
+          --branch --no-report
       - name: Generate lcov report
-        run: cargo llvm-cov report --lcov --output-path lcov.info
+        run: cargo llvm-cov report --doctests --lcov --output-path lcov.info
       - name: Upload lcov report
         uses: actions/upload-artifact@v4
         with:
