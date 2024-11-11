@@ -118,7 +118,6 @@ impl VisitExecute for MultisigApprove {
         let approver = executor.context().authority.clone();
         let target_account = self.account.clone();
         let host = executor.host();
-        let instructions_hash = self.instructions_hash;
         let multisig_role = multisig_role_for(&target_account);
 
         if host
@@ -128,16 +127,6 @@ impl VisitExecute for MultisigApprove {
             .is_err()
         {
             deny!(executor, "not qualified to approve multisig");
-        };
-
-        if host
-            .query_single(FindAccountMetadata::new(
-                target_account.clone(),
-                approvals_key(&instructions_hash),
-            ))
-            .is_err()
-        {
-            deny!(executor, "no proposals to approve")
         };
     }
 
@@ -178,8 +167,7 @@ impl VisitExecute for MultisigApprove {
             .query_single(FindAccountMetadata::new(
                 target_account.clone(),
                 instructions_key(&instructions_hash),
-            ))
-            .dbg_unwrap()
+            ))?
             .try_into_any()
             .dbg_unwrap();
         let proposed_at_ms: u64 = host
