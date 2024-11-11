@@ -16,7 +16,8 @@ members = [
 [profile.dev]
 panic = "abort"
 
-[profile.release]
+[profile.deploy]
+inherits = "release"
 strip = "debuginfo" # Remove debugging info from the binary
 panic = "abort"     # Panics are transcribed to Traps when compiling for wasm anyways
 lto = true          # Link-time-optimization produces notable decrease in binary size

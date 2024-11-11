@@ -5,10 +5,11 @@ DEFAULTS_DIR="defaults"
 CARGO_DIR="wasm"
 TARGET_DIR="$CARGO_DIR/target/prebuilt"
 PROFILE="deploy"
-TARGET="all"
 SHOW_HELP=false
 
 main() {
+    targets=()
+    
     # Parse args
     for arg in "$@"; do
         case $arg in
@@ -18,12 +19,8 @@ main() {
             --help)
                 SHOW_HELP=true
                 ;;
-            --target=*)
-                TARGET="${arg#*=}"
-                ;;
             *)
-                echo "error: unrecognized arg: $arg"
-                exit 1
+                targets+=("$arg")
                 ;;
         esac
     done
@@ -47,20 +44,25 @@ main() {
     fi
 
     # Parse target
-    case $TARGET in
-        "libs")
-            command "libs"
-            ;;
-        "samples")
-            command "samples"
-            ;;
-        "all")
-            command "libs"
-            command "samples"
-            ;;
-        *)
-            echo "error: unrecognized target: $TARGET. Target can be either [libs, samples, all]"
-    esac
+    if [ ${#targets[@]} -eq 0 ]; then
+        targets=("all")
+    fi
+    for target in "${targets[@]}"; do
+        case $target in
+            "libs")
+                command "libs"
+                ;;
+            "samples")
+                command "samples"
+                ;;
+            "all")
+                command "libs"
+                command "samples"
+                ;;
+            *)
+                echo "error: unrecognized target: $target. Target can be either [libs, samples, all]"
+        esac
+    done
 }
 
 build() {
@@ -112,11 +114,12 @@ Usage: $0 [OPTIONS]
 Options:
   --profile=<value>   Specify build profile (default: deploy)
                       Possible values: profiling, deploy
-
-  --target=<value>    Specify build target (default: all)
-                      Possible values: samples, libs, all
-
   --help              Show help message
+
+Positional Arguments:
+  samples             Build samples
+  libs                Build libraries
+  all                 Build all targets
 END
 }
 

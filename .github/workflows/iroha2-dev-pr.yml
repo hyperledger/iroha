@@ -22,7 +22,6 @@ env:
   WASM_TARGET_DIR: wasm/target/prebuilt
   TEST_NETWORK_TMP_DIR: /tmp
   NEXTEST_PROFILE: ci
-  PROFILE: profiling
 
 jobs:
   consistency:

@@ -203,7 +203,7 @@ mod internal {
 
         fn build_options(&self) -> impl Iterator<Item = &'static str> {
             [
-                if self.release { "--release" } else { "" },
+                "--release",
                 "-Z",
                 "build-std",
                 "-Z",
