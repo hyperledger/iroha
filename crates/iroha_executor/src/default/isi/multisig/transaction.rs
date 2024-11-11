@@ -6,35 +6,13 @@ use super::*;
 
 impl VisitExecute for MultisigPropose {
     fn visit<V: Execute + Visit + ?Sized>(&self, executor: &mut V) {
-        let proposer = executor.context().authority.clone();
         let target_account = self.account.clone();
-        let host = executor.host();
         let instructions_hash = HashOf::new(&self.instructions);
-        let multisig_role = multisig_role_for(&target_account);
-        let is_downward_proposal = host
-            .query_single(FindAccountMetadata::new(
-                proposer.clone(),
-                SIGNATORIES.parse().unwrap(),
-            ))
-            .map_or(false, |proposer_signatories| {
-                proposer_signatories
-                    .try_into_any::<BTreeMap<AccountId, u8>>()
-                    .dbg_unwrap()
-                    .contains_key(&target_account)
-            });
-        let has_multisig_role = host
-            .query(FindRolesByAccountId::new(proposer))
-            .filter_with(|role_id| role_id.eq(multisig_role))
-            .execute_single()
-            .is_ok();
 
-        if !(is_downward_proposal || has_multisig_role) {
-            deny!(executor, "not qualified to propose multisig");
-        };
-
-        if host
+        if executor
+            .host()
             .query_single(FindAccountMetadata::new(
-                target_account.clone(),
+                target_account,
                 approvals_key(&instructions_hash),
             ))
             .is_ok()
@@ -51,15 +29,32 @@ impl VisitExecute for MultisigPropose {
         executor.context_mut().authority = target_account.clone();
 
         let instructions_hash = HashOf::new(&self.instructions);
+        let is_downward_proposal = executor
+            .host()
+            .query_single(FindAccountMetadata::new(
+                proposer.clone(),
+                SIGNATORIES.parse().unwrap(),
+            ))
+            .map_or(false, |proposer_signatories| {
+                proposer_signatories
+                    .try_into_any::<BTreeMap<AccountId, u8>>()
+                    .dbg_unwrap()
+                    .contains_key(&target_account)
+            });
         let signatories: BTreeMap<AccountId, u8> = executor
             .host()
             .query_single(FindAccountMetadata::new(
                 target_account.clone(),
                 SIGNATORIES.parse().unwrap(),
             ))
-            .dbg_unwrap()
+            .dbg_expect("preceding duplication check should mean the target account is multisig")
             .try_into_any()
             .dbg_unwrap();
+        if !(is_downward_proposal || signatories.contains_key(&proposer)) {
+            return Err(ValidationFail::NotPermitted(
+                "not qualified to propose multisig".into(),
+            ));
+        }
         let now_ms: u64 = executor
             .context()
             .curr_block
