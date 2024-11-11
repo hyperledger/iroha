@@ -1,6 +1,8 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
 #![allow(clippy::missing_inline_in_public_items)]
+// TODO
+#![allow(missing_docs)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
@@ -135,6 +137,11 @@ mod model {
         BlockHeader(Vec<BlockHeader>),
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct QueryOutputBatchBoxTuple {
+        pub tuple: Vec<QueryOutputBatchBox>,
+    }
+
     /// An enum of all possible singular queries
     #[derive(
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
@@ -169,7 +176,7 @@ mod model {
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct QueryOutput {
         /// A single batch of results
-        pub batch: QueryOutputBatchBox,
+        pub batch: QueryOutputBatchBoxTuple,
         /// The number of items in the query remaining to be fetched after this batch
         pub remaining_items: u64,
         /// If not `None`, contains a cursor that can be used to fetch the next batch of results. Otherwise the current batch is the last one.
@@ -308,6 +315,23 @@ impl QueryOutputBatchBox {
     }
 }
 
+impl QueryOutputBatchBoxTuple {
+    pub fn extend(&mut self, other: Self) {
+        if self.tuple.len() != other.tuple.len() {
+            panic!("Cannot extend QueryOutputBatchBoxTuple with different number of elements");
+        }
+
+        self.tuple
+            .iter_mut()
+            .zip(other.tuple.into_iter())
+            .for_each(|(self_batch, other_batch)| self_batch.extend(other_batch));
+    }
+
+    pub fn len(&self) -> usize {
+        self.tuple.iter().map(QueryOutputBatchBox::len).sum()
+    }
+}
+
 impl SingularQuery for SingularQueryBox {
     type Output = SingularQueryOutputBox;
 }
@@ -315,7 +339,7 @@ impl SingularQuery for SingularQueryBox {
 impl QueryOutput {
     /// Create a new [`QueryOutput`] from the iroha response parts.
     pub fn new(
-        batch: QueryOutputBatchBox,
+        batch: QueryOutputBatchBoxTuple,
         remaining_items: u64,
         continue_cursor: Option<ForwardCursor>,
     ) -> Self {
@@ -327,7 +351,7 @@ impl QueryOutput {
     }
 
     /// Split this [`QueryOutput`] into its constituent parts.
-    pub fn into_parts(self) -> (QueryOutputBatchBox, u64, Option<ForwardCursor>) {
+    pub fn into_parts(self) -> (QueryOutputBatchBoxTuple, u64, Option<ForwardCursor>) {
         (self.batch, self.remaining_items, self.continue_cursor)
     }
 }

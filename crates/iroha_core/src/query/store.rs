@@ -13,7 +13,7 @@ use iroha_data_model::{
     query::{
         error::QueryExecutionFail,
         parameters::{ForwardCursor, QueryId},
-        QueryOutput, QueryOutputBatchBox,
+        QueryOutput, QueryOutputBatchBoxTuple,
     },
 };
 use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
@@ -204,7 +204,7 @@ impl LiveQueryStore {
         &self,
         query_id: QueryId,
         cursor: NonZeroU64,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<NonZeroU64>)> {
+    ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<NonZeroU64>)> {
         trace!(%query_id, "Advancing existing query");
         let QueryInfo {
             mut live_query,
@@ -307,7 +307,7 @@ impl LiveQueryStoreHandle {
     }
 
     fn construct_query_response(
-        batch: QueryOutputBatchBox,
+        batch: QueryOutputBatchBoxTuple,
         remaining_items: u64,
         query_id: QueryId,
         cursor: Option<NonZeroU64>,

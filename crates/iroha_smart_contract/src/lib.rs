@@ -18,7 +18,7 @@ pub use iroha_data_model as data_model;
 use iroha_data_model::query::{
     builder::{QueryBuilder, QueryExecutor},
     dsl::{HasProjection, PredicateMarker},
-    QueryOutputBatchBox, QueryRequest, QueryResponse, QueryWithParams, SingularQuery,
+    QueryOutputBatchBoxTuple, QueryRequest, QueryResponse, QueryWithParams, SingularQuery,
     SingularQueryBox, SingularQueryOutputBox,
 };
 pub use iroha_smart_contract_derive::main;
@@ -162,7 +162,7 @@ impl QueryExecutor for Iroha {
     fn start_query(
         &self,
         query: QueryWithParams,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) = Self::execute_query(&QueryRequest::Start(query))?
         else {
             dbg_panic!("BUG: iroha returned unexpected type in iterable query");
@@ -179,7 +179,7 @@ impl QueryExecutor for Iroha {
 
     fn continue_query(
         cursor: Self::Cursor,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) =
             Self::execute_query(&QueryRequest::Continue(cursor.cursor))?
         else {

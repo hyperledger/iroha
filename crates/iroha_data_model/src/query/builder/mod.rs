@@ -1,18 +1,20 @@
 //! Contains common types and traits to facilitate building and sending queries, either from the client or from smart contracts.
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::{self, Vec};
-#[cfg(feature = "std")]
-use std::vec;
+mod batch_downcast;
+mod iter;
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
+pub use iter::QueryIterator;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::query::{
     dsl::{BaseProjector, CompoundPredicate, HasProjection, HasPrototype, PredicateMarker},
     parameters::{FetchSize, Pagination, QueryParams, Sorting},
-    Query, QueryBox, QueryOutputBatchBox, QueryWithFilter, QueryWithParams, SingularQueryBox,
-    SingularQueryOutputBox,
+    Query, QueryBox, QueryOutputBatchBox, QueryOutputBatchBoxTuple, QueryWithFilter,
+    QueryWithParams, SingularQueryBox, SingularQueryOutputBox,
 };
 
 /// A trait abstracting away concrete backend for executing queries against iroha.
@@ -42,7 +44,7 @@ pub trait QueryExecutor {
     fn start_query(
         &self,
         query: QueryWithParams,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error>;
+    ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<Self::Cursor>), Self::Error>;
 
     /// Continues an iterable query from the given cursor and returns the next batch of results, the remaining number of results and a cursor to continue the query.
     ///
@@ -51,88 +53,7 @@ pub trait QueryExecutor {
     /// Returns an error if the query execution fails.
     fn continue_query(
         cursor: Self::Cursor,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error>;
-}
-
-/// An iterator over results of an iterable query.
-#[derive(Debug)]
-pub struct QueryIterator<E: QueryExecutor, T> {
-    current_batch_iter: vec::IntoIter<T>,
-    remaining_items: u64,
-    continue_cursor: Option<E::Cursor>,
-}
-
-impl<E, T> QueryIterator<E, T>
-where
-    E: QueryExecutor,
-    Vec<T>: TryFrom<QueryOutputBatchBox>,
-{
-    /// Create a new iterator over iterable query results.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the type of the batch does not match the expected type `T`.
-    pub fn new(
-        first_batch: QueryOutputBatchBox,
-        remaining_items: u64,
-        continue_cursor: Option<E::Cursor>,
-    ) -> Result<Self, <Vec<T> as TryFrom<QueryOutputBatchBox>>::Error> {
-        let batch: Vec<T> = first_batch.try_into()?;
-
-        Ok(Self {
-            current_batch_iter: batch.into_iter(),
-            remaining_items,
-            continue_cursor,
-        })
-    }
-}
-
-impl<E, T> Iterator for QueryIterator<E, T>
-where
-    E: QueryExecutor,
-    Vec<T>: TryFrom<QueryOutputBatchBox>,
-    <Vec<T> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
-{
-    type Item = Result<T, E::Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // if we haven't exhausted the current batch yet - return it
-        if let Some(item) = self.current_batch_iter.next() {
-            return Some(Ok(item));
-        }
-
-        // no cursor means the query result is exhausted or an error occurred on one of the previous iterations
-        let cursor = self.continue_cursor.take()?;
-
-        // get a next batch from iroha
-        let (batch, remaining_items, cursor) = match E::continue_query(cursor) {
-            Ok(r) => r,
-            Err(e) => return Some(Err(e)),
-        };
-        self.continue_cursor = cursor;
-
-        // downcast the batch to the expected type
-        // we've already downcast the first batch to the expected type, so if iroha returns a different type here, it surely is a bug
-        let batch: Vec<T> = batch
-            .try_into()
-            .expect("BUG: iroha returned unexpected type in iterable query");
-
-        self.current_batch_iter = batch.into_iter();
-        self.remaining_items = remaining_items;
-
-        self.next()
-    }
-}
-
-impl<E, T> ExactSizeIterator for QueryIterator<E, T>
-where
-    E: QueryExecutor,
-    Vec<T>: TryFrom<QueryOutputBatchBox>,
-    <Vec<T> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
-{
-    fn len(&self) -> usize {
-        self.current_batch_iter.len() + self.remaining_items as usize
-    }
+    ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<Self::Cursor>), Self::Error>;
 }
 
 /// An error that can occur when constraining the number of results of an iterable query to one.
