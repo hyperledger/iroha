@@ -51,6 +51,7 @@ macro_rules! impl_custom_instruction {
 
 /// Types for multisig instructions
 pub mod multisig {
+    use alloc::collections::btree_set::BTreeSet;
     use core::num::{NonZeroU16, NonZeroU64};
 
     use super::*;
@@ -78,12 +79,8 @@ pub mod multisig {
         // FIXME #5022 prevent multisig monopoly
         // FIXME #5022 stop accepting user input: otherwise, after #4426 pre-registration account will be hijacked as a multisig account
         pub account: AccountId,
-        /// List of signatories and their relative weights of responsibility for the multisig account
-        pub signatories: BTreeMap<AccountId, Weight>,
-        /// Threshold of total weight at which the multisig account is considered authenticated
-        pub quorum: NonZeroU16,
-        /// Multisig transaction time-to-live in milliseconds based on block timestamps. Defaults to [`DEFAULT_MULTISIG_TTL_MS`]
-        pub transaction_ttl_ms: NonZeroU64,
+        /// Specification of the multisig account
+        pub spec: MultisigSpec,
     }
 
     /// Relative weight of responsibility for the multisig account.
@@ -117,4 +114,62 @@ pub mod multisig {
         MultisigInstructionBox,
         MultisigRegister | MultisigPropose | MultisigApprove
     );
+
+    /// Metadata value for a multisig account specification
+    #[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, Constructor)]
+    pub struct MultisigSpec {
+        /// List of signatories and their relative weights of responsibility for the multisig account
+        pub signatories: BTreeMap<AccountId, Weight>,
+        /// Threshold of total weight at which the multisig account is considered authenticated
+        pub quorum: NonZeroU16,
+        /// Multisig transaction time-to-live in milliseconds based on block timestamps. Defaults to [`DEFAULT_MULTISIG_TTL_MS`]
+        pub transaction_ttl_ms: NonZeroU64,
+    }
+
+    /// Metadata value for a multisig transaction proposal
+    #[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, Constructor)]
+    pub struct MultisigProposalValue {
+        /// Proposal contents
+        pub instructions: Vec<InstructionBox>,
+        /// Time in milliseconds at which the proposal was made
+        pub proposed_at_ms: NonZeroU64,
+        /// Time in milliseconds at which the proposal will expire
+        pub expires_at_ms: NonZeroU64,
+        /// List of approvers of the proposal so far
+        pub approvals: BTreeSet<AccountId>,
+    }
+
+    impl From<MultisigSpec> for Json {
+        fn from(details: MultisigSpec) -> Self {
+            Json::new(details)
+        }
+    }
+
+    impl TryFrom<&Json> for MultisigSpec {
+        type Error = serde_json::Error;
+
+        fn try_from(payload: &Json) -> serde_json::Result<Self> {
+            serde_json::from_str::<Self>(payload.as_ref())
+        }
+    }
+
+    impl From<MultisigProposalValue> for Json {
+        fn from(details: MultisigProposalValue) -> Self {
+            Json::new(details)
+        }
+    }
+
+    impl TryFrom<&Json> for MultisigProposalValue {
+        type Error = serde_json::Error;
+
+        fn try_from(payload: &Json) -> serde_json::Result<Self> {
+            serde_json::from_str::<Self>(payload.as_ref())
+        }
+    }
+
+    impl From<MultisigRegister> for (AccountId, MultisigSpec) {
+        fn from(value: MultisigRegister) -> Self {
+            (value.account, value.spec)
+        }
+    }
 }

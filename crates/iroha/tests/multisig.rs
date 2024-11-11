@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     num::{NonZeroU16, NonZeroU64},
     time::Duration,
 };
@@ -144,22 +144,24 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
 
     let register_multisig_account = MultisigRegister::new(
         multisig_account_id.clone(),
-        signatories
-            .keys()
-            .enumerate()
-            .map(|(weight, id)| (id.clone(), 1 + weight as u8))
-            .collect(),
-        // Quorum can be reached without the first signatory
-        (1..=N_SIGNATORIES)
-            .skip(1)
-            .sum::<usize>()
-            .try_into()
-            .ok()
-            .and_then(NonZeroU16::new)
-            .unwrap(),
-        transaction_ttl_ms_opt
-            .and_then(NonZeroU64::new)
-            .unwrap_or(NonZeroU64::MAX),
+        MultisigSpec::new(
+            signatories
+                .keys()
+                .enumerate()
+                .map(|(weight, id)| (id.clone(), 1 + weight as u8))
+                .collect(),
+            // Quorum can be reached without the first signatory
+            (1..=N_SIGNATORIES)
+                .skip(1)
+                .sum::<usize>()
+                .try_into()
+                .ok()
+                .and_then(NonZeroU16::new)
+                .unwrap(),
+            transaction_ttl_ms_opt
+                .and_then(NonZeroU64::new)
+                .unwrap_or(NonZeroU64::MAX),
+        ),
     );
 
     // Any account in another domain cannot register a multisig account without special permission
@@ -267,7 +269,7 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
     // Check if the transaction entry is deleted
     let res = test_client.query_single(FindAccountMetadata::new(
         multisig_account_id,
-        format!("proposals/{instructions_hash}/instructions")
+        format!("multisig/proposals/{instructions_hash}")
             .parse()
             .unwrap(),
     ));
@@ -325,8 +327,7 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
 
     let register_ms_account = |sigs: Vec<&AccountId>| {
         let ms_account_id = gen_account_in(wonderland).0;
-        let register = MultisigRegister::new(
-            ms_account_id.clone(),
+        let spec = MultisigSpec::new(
             // Equal votes
             sigs.iter().copied().map(|id| (id.clone(), 1)).collect(),
             // Unanimous
@@ -339,19 +340,20 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
                 .and_then(NonZeroU64::new)
                 .unwrap_or(NonZeroU64::MAX),
         );
+        let register = MultisigRegister::new(ms_account_id.clone(), spec.clone());
 
         test_client
             .submit_blocking(register)
             .expect("the domain owner should succeed to register a multisig account");
 
-        ms_account_id
+        (ms_account_id, spec)
     };
 
-    let msa_12 = register_ms_account(sigs_12.keys().collect());
-    let msa_345 = register_ms_account(sigs_345.keys().collect());
-    let msa_12345 = register_ms_account(vec![&msa_12, &msa_345]);
+    let (msa_12, _spec_12) = register_ms_account(sigs_12.keys().collect());
+    let (msa_345, _spec_345) = register_ms_account(sigs_345.keys().collect());
+    let (msa_12345, _spec_12345) = register_ms_account(vec![&msa_12, &msa_345]);
     // The root multisig account with 6 personal signatories under its umbrella
-    let msa_012345 = register_ms_account(vec![&sig_0.0, &msa_12345]);
+    let (msa_012345, _spec_012345) = register_ms_account(vec![&sig_0.0, &msa_12345]);
 
     // One of personal signatories proposes a multisig transaction
     let key: Name = "success_marker".parse().unwrap();
@@ -379,30 +381,40 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just ticking time".to_string()))?;
 
     // Check that the entire authentication policy has been deployed down to one of the leaf signatories
-    let approval_hash_to_012345 = {
-        let approve: InstructionBox =
-            MultisigApprove::new(msa_012345.clone(), instructions_hash).into();
+    let approve_to_012345: InstructionBox =
+        MultisigApprove::new(msa_012345.clone(), instructions_hash).into();
+    let approval_hash_to_012345 = HashOf::new(&vec![approve_to_012345]);
 
-        HashOf::new(&vec![approve])
+    let approve_to_12345: InstructionBox =
+        MultisigApprove::new(msa_12345.clone(), approval_hash_to_012345).into();
+    let approval_hash_to_12345 = HashOf::new(&vec![approve_to_12345.clone()]);
+
+    let proposal_value_at = |msa: AccountId, mst_hash: HashOf<Vec<InstructionBox>>| {
+        test_client
+            .query_single(FindAccountMetadata::new(
+                msa.clone(),
+                format!("multisig/proposals/{mst_hash}").parse().unwrap(),
+            ))
+            .expect("should be initialized by the root proposal")
+            .try_into_any::<MultisigProposalValue>()
+            .unwrap()
     };
-    let approval_hash_to_12345 = {
-        let approve: InstructionBox =
-            MultisigApprove::new(msa_12345.clone(), approval_hash_to_012345).into();
+    let proposal_value_at_012345 = proposal_value_at(msa_012345.clone(), instructions_hash);
+    let proposal_value_at_12 = proposal_value_at(msa_12.clone(), approval_hash_to_12345);
 
-        HashOf::new(&vec![approve])
-    };
-    let approvals_at_12: BTreeSet<AccountId> = test_client
-        .query_single(FindAccountMetadata::new(
-            msa_12.clone(),
-            format!("proposals/{approval_hash_to_12345}/approvals")
-                .parse()
-                .unwrap(),
-        ))
-        .expect("leaf approvals should be initialized by the root proposal")
-        .try_into_any()
-        .unwrap();
-
-    assert!(1 == approvals_at_12.len() && approvals_at_12.contains(&msa_12345));
+    assert_eq!(proposal_value_at_12.instructions, vec![approve_to_12345]);
+    assert_eq!(
+        proposal_value_at_12.proposed_at_ms,
+        proposal_value_at_012345.proposed_at_ms
+    );
+    assert_eq!(
+        proposal_value_at_12.expires_at_ms,
+        proposal_value_at_012345.expires_at_ms
+    );
+    assert!(
+        1 == proposal_value_at_12.approvals.len()
+            && proposal_value_at_12.approvals.contains(&msa_12345)
+    );
 
     // All the rest signatories try to approve the multisig transaction
     let mut approvals_iter = sigs_12
@@ -456,9 +468,7 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
     ] {
         let res = test_client.query_single(FindAccountMetadata::new(
             msa,
-            format!("proposals/{mst_hash}/instructions")
-                .parse()
-                .unwrap(),
+            format!("multisig/proposals/{mst_hash}").parse().unwrap(),
         ));
         match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
             // In case the root proposal is failing validation, the entries on the last approval path can exit only by expiring

@@ -1,6 +1,7 @@
 //! Validation and execution logic of instructions for multisig transactions
 
-use alloc::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
+use alloc::collections::btree_set::BTreeSet;
+use core::num::NonZeroU64;
 
 use super::*;
 
@@ -11,15 +12,23 @@ impl VisitExecute for MultisigPropose {
         let host = executor.host();
         let instructions_hash = HashOf::new(&self.instructions);
         let multisig_role = multisig_role_for(&multisig_account);
-        let is_downward_proposal = host
+        let Some(multisig_spec) = host
             .query_single(FindAccountMetadata::new(
-                proposer.clone(),
-                SIGNATORIES.parse().unwrap(),
+                multisig_account.clone(),
+                spec_key(),
             ))
-            .map_or(false, |proposer_signatories| {
-                proposer_signatories
-                    .try_into_any::<BTreeMap<AccountId, u8>>()
+            .ok()
+            .and_then(|json| json.try_into_any::<MultisigSpec>().ok())
+        else {
+            deny!(executor, "multisig spec not found or malformed");
+        };
+
+        let is_downward_proposal = host
+            .query_single(FindAccountMetadata::new(proposer.clone(), spec_key()))
+            .map_or(false, |json| {
+                json.try_into_any::<MultisigSpec>()
                     .dbg_unwrap()
+                    .signatories
                     .contains_key(&multisig_account)
             });
         let has_multisig_role = host
@@ -27,23 +36,9 @@ impl VisitExecute for MultisigPropose {
             .filter_with(|role_id| role_id.eq(multisig_role))
             .execute_single()
             .is_ok();
-        let has_not_longer_ttl = {
-            let Some(account_default_ttl_ms) = host
-                .query_single(FindAccountMetadata::new(
-                    multisig_account.clone(),
-                    TRANSACTION_TTL_MS.parse().unwrap(),
-                ))
-                .ok()
-                .and_then(|json| json.try_into_any::<u64>().ok())
-            else {
-                deny!(executor, "multisig account not found");
-            };
-            self.transaction_ttl_ms
-                .map(u64::from)
-                .map_or(true, |override_ttl_ms| {
-                    override_ttl_ms <= account_default_ttl_ms
-                })
-        };
+        let has_not_longer_ttl = self.transaction_ttl_ms.map_or(true, |override_ttl_ms| {
+            override_ttl_ms <= multisig_spec.transaction_ttl_ms
+        });
 
         if !(is_downward_proposal || has_not_longer_ttl) {
             deny!(executor, "ttl violates the restriction");
@@ -56,7 +51,7 @@ impl VisitExecute for MultisigPropose {
         if host
             .query_single(FindAccountMetadata::new(
                 multisig_account.clone(),
-                approvals_key(&instructions_hash),
+                proposal_key(&instructions_hash),
             ))
             .is_ok()
         {
@@ -72,37 +67,32 @@ impl VisitExecute for MultisigPropose {
         executor.context_mut().authority = multisig_account.clone();
 
         let instructions_hash = HashOf::new(&self.instructions);
-        let now_ms: u64 = executor
+        let now_ms = executor
             .context()
             .curr_block
             .creation_time()
             .as_millis()
             .try_into()
+            .ok()
+            .and_then(NonZeroU64::new)
             .dbg_expect("shouldn't overflow within 584942417 years");
-        let expires_at_ms: u64 = {
-            let ttl_ms = self.transaction_ttl_ms.map(u64::from).unwrap_or_else(|| {
-                executor
-                    .host()
-                    .query_single(FindAccountMetadata::new(
-                        multisig_account.clone(),
-                        TRANSACTION_TTL_MS.parse().unwrap(),
-                    ))
-                    .dbg_unwrap()
-                    .try_into_any()
-                    .dbg_unwrap()
-            });
-            now_ms.saturating_add(ttl_ms)
-        };
-        let approvals = BTreeSet::from([proposer]);
-        let signatories: BTreeMap<AccountId, u8> = executor
+        let spec: MultisigSpec = executor
             .host()
             .query_single(FindAccountMetadata::new(
                 multisig_account.clone(),
-                SIGNATORIES.parse().unwrap(),
+                spec_key(),
             ))
             .dbg_unwrap()
             .try_into_any()
             .dbg_unwrap();
+        let expires_at_ms = {
+            let ttl_ms = self.transaction_ttl_ms.unwrap_or(spec.transaction_ttl_ms);
+            now_ms.saturating_add(ttl_ms.into())
+        };
+        let approvals = BTreeSet::from([proposer]);
+        let proposal_value =
+            MultisigProposalValue::new(self.instructions, now_ms, expires_at_ms, approvals);
+        let signatories = spec.signatories;
 
         // Recursively deploy multisig authentication down to the personal leaf signatories
         for signatory in signatories.keys().cloned() {
@@ -122,7 +112,8 @@ impl VisitExecute for MultisigPropose {
                     MultisigPropose::new(
                         signatory,
                         [approve_me.into()].to_vec(),
-                        self.transaction_ttl_ms,
+                        // Force override by the root proposal TTL
+                        Some(self.transaction_ttl_ms.unwrap_or(spec.transaction_ttl_ms)),
                     )
                 };
                 propose_to_approve_me.visit_execute(executor);
@@ -131,26 +122,8 @@ impl VisitExecute for MultisigPropose {
 
         visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
             multisig_account.clone(),
-            instructions_key(&instructions_hash).clone(),
-            Json::new(&self.instructions),
-        )));
-
-        visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
-            multisig_account.clone(),
-            proposed_at_ms_key(&instructions_hash).clone(),
-            Json::new(now_ms),
-        )));
-
-        visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
-            multisig_account.clone(),
-            expires_at_ms_key(&instructions_hash).clone(),
-            Json::new(expires_at_ms),
-        )));
-
-        visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
-            multisig_account,
-            approvals_key(&instructions_hash).clone(),
-            Json::new(&approvals),
+            proposal_key(&instructions_hash).clone(),
+            Json::new(&proposal_value),
         )));
 
         Ok(())
@@ -177,7 +150,7 @@ impl VisitExecute for MultisigApprove {
         if host
             .query_single(FindAccountMetadata::new(
                 multisig_account.clone(),
-                approvals_key(&instructions_hash),
+                proposal_key(&instructions_hash),
             ))
             .is_err()
         {
@@ -196,64 +169,47 @@ impl VisitExecute for MultisigApprove {
         // Authorize as the multisig account
         executor.context_mut().authority = multisig_account.clone();
 
-        let Some(instructions) = executor
+        let Some(mut proposal_value) = executor
             .host()
             .query_single(FindAccountMetadata::new(
                 multisig_account.clone(),
-                instructions_key(&instructions_hash),
+                proposal_key(&instructions_hash),
             ))
             .ok()
-            .and_then(|json| json.try_into_any::<Vec<InstructionBox>>().ok())
+            .and_then(|json| json.try_into_any::<MultisigProposalValue>().ok())
         else {
             // TODO Notify that the proposal has expired, while returning Ok for the entry deletion to take effect
             return Ok(());
         };
-        let mut approvals: BTreeSet<AccountId> = executor
-            .host()
-            .query_single(FindAccountMetadata::new(
-                multisig_account.clone(),
-                approvals_key(&instructions_hash),
-            ))
-            .dbg_unwrap()
-            .try_into_any()
-            .dbg_unwrap();
 
-        approvals.insert(approver);
+        proposal_value.approvals.insert(approver);
 
         visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
             multisig_account.clone(),
-            approvals_key(&instructions_hash),
-            Json::new(&approvals),
+            proposal_key(&instructions_hash),
+            Json::new(&proposal_value),
         )));
 
-        let signatories: BTreeMap<AccountId, u8> = executor
+        let spec: MultisigSpec = executor
             .host()
             .query_single(FindAccountMetadata::new(
                 multisig_account.clone(),
-                SIGNATORIES.parse().unwrap(),
-            ))
-            .dbg_unwrap()
-            .try_into_any()
-            .dbg_unwrap();
-        let quorum: u16 = executor
-            .host()
-            .query_single(FindAccountMetadata::new(
-                multisig_account.clone(),
-                QUORUM.parse().unwrap(),
+                spec_key(),
             ))
             .dbg_unwrap()
             .try_into_any()
             .dbg_unwrap();
 
-        let is_authenticated = quorum
-            <= signatories
+        let is_authenticated = u16::from(spec.quorum)
+            <= spec
+                .signatories
                 .into_iter()
-                .filter(|(id, _)| approvals.contains(id))
+                .filter(|(id, _)| proposal_value.approvals.contains(id))
                 .map(|(_, weight)| u16::from(weight))
                 .sum();
 
         if is_authenticated {
-            for instruction in instructions {
+            for instruction in proposal_value.instructions {
                 visit_seq!(executor.visit_instruction(&instruction));
             }
 
@@ -261,25 +217,7 @@ impl VisitExecute for MultisigApprove {
             visit_seq!(
                 executor.visit_remove_account_key_value(&RemoveKeyValue::account(
                     multisig_account.clone(),
-                    approvals_key(&instructions_hash),
-                ))
-            );
-            visit_seq!(
-                executor.visit_remove_account_key_value(&RemoveKeyValue::account(
-                    multisig_account.clone(),
-                    expires_at_ms_key(&instructions_hash),
-                ))
-            );
-            visit_seq!(
-                executor.visit_remove_account_key_value(&RemoveKeyValue::account(
-                    multisig_account.clone(),
-                    proposed_at_ms_key(&instructions_hash),
-                ))
-            );
-            visit_seq!(
-                executor.visit_remove_account_key_value(&RemoveKeyValue::account(
-                    multisig_account.clone(),
-                    instructions_key(&instructions_hash),
+                    proposal_key(&instructions_hash),
                 ))
             );
         }
@@ -295,40 +233,33 @@ fn prune_expired<V: Execute + Visit + ?Sized>(
     executor: &mut V,
 ) -> Result<(), ValidationFail> {
     // Confirm entry existence
-    let Some(expires_at_ms) = executor
+    let Some(proposal_value) = executor
         .host()
         .query_single(FindAccountMetadata::new(
             multisig_account.clone(),
-            expires_at_ms_key(&instructions_hash),
+            proposal_key(&instructions_hash),
         ))
         .ok()
-        .and_then(|json| json.try_into_any::<u64>().ok())
+        .and_then(|json| json.try_into_any::<MultisigProposalValue>().ok())
     else {
         // Removed by another path
         return Ok(());
     };
     // Confirm expiration
-    let now_ms: u64 = executor
+    let now_ms = executor
         .context()
         .curr_block
         .creation_time()
         .as_millis()
         .try_into()
+        .ok()
+        .and_then(NonZeroU64::new)
         .dbg_expect("shouldn't overflow within 584942417 years");
-    if now_ms < expires_at_ms {
+    if now_ms < proposal_value.expires_at_ms {
         return Ok(());
     }
     // Recurse through approvals
-    let instructions: Vec<InstructionBox> = executor
-        .host()
-        .query_single(FindAccountMetadata::new(
-            multisig_account.clone(),
-            instructions_key(&instructions_hash),
-        ))
-        .dbg_unwrap()
-        .try_into_any()
-        .dbg_unwrap();
-    for instruction in instructions {
+    for instruction in proposal_value.instructions {
         if let InstructionBox::Custom(instruction) = instruction {
             if let Ok(MultisigInstructionBox::Approve(approve)) = instruction.payload().try_into() {
                 prune_expired(approve.account, approve.instructions_hash, executor)?;
@@ -340,26 +271,8 @@ fn prune_expired<V: Execute + Visit + ?Sized>(
     // Cleanup the transaction entry
     visit_seq!(
         executor.visit_remove_account_key_value(&RemoveKeyValue::account(
-            multisig_account.clone(),
-            approvals_key(&instructions_hash),
-        ))
-    );
-    visit_seq!(
-        executor.visit_remove_account_key_value(&RemoveKeyValue::account(
-            multisig_account.clone(),
-            expires_at_ms_key(&instructions_hash),
-        ))
-    );
-    visit_seq!(
-        executor.visit_remove_account_key_value(&RemoveKeyValue::account(
-            multisig_account.clone(),
-            proposed_at_ms_key(&instructions_hash),
-        ))
-    );
-    visit_seq!(
-        executor.visit_remove_account_key_value(&RemoveKeyValue::account(
             multisig_account,
-            instructions_key(&instructions_hash),
+            proposal_key(&instructions_hash),
         ))
     );
 

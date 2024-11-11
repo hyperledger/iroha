@@ -2630,6 +2630,26 @@
       }
     ]
   },
+  "MultisigProposalValue": {
+    "Struct": [
+      {
+        "name": "instructions",
+        "type": "Vec<InstructionBox>"
+      },
+      {
+        "name": "proposed_at_ms",
+        "type": "NonZero<u64>"
+      },
+      {
+        "name": "expires_at_ms",
+        "type": "NonZero<u64>"
+      },
+      {
+        "name": "approvals",
+        "type": "SortedVec<AccountId>"
+      }
+    ]
+  },
   "MultisigPropose": {
     "Struct": [
       {
@@ -2652,6 +2672,14 @@
         "name": "account",
         "type": "AccountId"
       },
+      {
+        "name": "spec",
+        "type": "MultisigSpec"
+      }
+    ]
+  },
+  "MultisigSpec": {
+    "Struct": [
       {
         "name": "signatories",
         "type": "SortedMap<AccountId, u8>"
@@ -4248,6 +4276,9 @@
       "key": "u64",
       "value": "TransactionRejectionReason"
     }
+  },
+  "SortedVec<AccountId>": {
+    "Vec": "AccountId"
   },
   "SortedVec<Permission>": {
     "Vec": "Permission"

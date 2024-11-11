@@ -93,6 +93,9 @@ pub fn build_schemas() -> MetaMap {
 
         // Multi-signature operations
         multisig::MultisigInstructionBox,
+        // Multi-signature account metadata
+        multisig::MultisigSpec,
+        multisig::MultisigProposalValue,
 
         // Genesis file - used by SDKs to generate the genesis block
         // TODO: IMO it could/should be removed from the schema
@@ -137,6 +140,7 @@ types!(
     BTreeMap<CustomParameterId, CustomParameter>,
     BTreeMap<Name, Json>,
     BTreeMap<u64, TransactionRejectionReason>,
+    BTreeSet<AccountId>,
     BTreeSet<Permission>,
     BTreeSet<String>,
     BlockEvent,
@@ -313,6 +317,7 @@ types!(
     Option<TransactionStatus>,
     Option<TriggerCompletedOutcomeType>,
     Option<TriggerId>,
+    Option<bool>,
     Option<u32>,
     Option<u64>,
     Pagination,
@@ -490,6 +495,7 @@ types!(
     WasmExecutionFail,
     WasmSmartContract,
 
+    bool,
     [u8; 32],
     u16,
     u32,
@@ -628,6 +634,8 @@ mod tests {
         insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigRegister);
         insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigPropose);
         insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigApprove);
+        insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigSpec);
+        insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigProposalValue);
 
         map
     }

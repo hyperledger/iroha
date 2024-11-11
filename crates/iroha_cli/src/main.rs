@@ -1236,14 +1236,16 @@ mod multisig {
             }
             let register_multisig_account = MultisigRegister::new(
                 self.account,
-                self.signatories.into_iter().zip(self.weights).collect(),
-                NonZeroU16::new(self.quorum).expect("quorum should not be 0"),
-                self.transaction_ttl
-                    .as_millis()
-                    .try_into()
-                    .ok()
-                    .and_then(NonZeroU64::new)
-                    .expect("ttl should be between 1 ms and 584942417 years"),
+                MultisigSpec::new(
+                    self.signatories.into_iter().zip(self.weights).collect(),
+                    NonZeroU16::new(self.quorum).expect("quorum should not be 0"),
+                    self.transaction_ttl
+                        .as_millis()
+                        .try_into()
+                        .ok()
+                        .and_then(NonZeroU64::new)
+                        .expect("ttl should be between 1 ms and 584942417 years"),
+                ),
             );
 
             submit([register_multisig_account], Metadata::default(), context)
@@ -1329,7 +1331,6 @@ mod multisig {
     }
 
     const DELIMITER: char = '/';
-    const PROPOSALS: &str = "proposals";
     const MULTISIG_SIGNATORY: &str = "MULTISIG_SIGNATORY";
 
     fn multisig_account_from(role: &RoleId) -> Option<AccountId> {
@@ -1372,16 +1373,15 @@ mod multisig {
             let proposal_kvs = super_account
                 .metadata()
                 .iter()
-                .filter(|kv| kv.0.as_ref().starts_with(PROPOSALS));
+                .filter(|kv| kv.0.as_ref().starts_with("multisig/proposals"));
 
             proposal_kvs.fold("", |acc, (k, v)| {
                 let mut path = k.as_ref().split('/');
-                let hash = path.nth(1).unwrap();
+                let hash = path.nth(2).unwrap();
 
                 if acc != hash {
                     context.print_data(&hash).unwrap();
                 }
-                path.for_each(|seg| context.print_data(&seg).unwrap());
                 context.print_data(&v).unwrap();
 
                 hash
