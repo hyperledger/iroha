@@ -113,7 +113,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
                 || -> Result<_> { Ok(Cow::Owned(Self::default_out_dir()?)) },
                 |out_dir| Ok(Cow::Borrowed(out_dir)),
             )?,
-            show_output: self.show_output
+            show_output: self.show_output,
         })
     }
 
@@ -226,10 +226,7 @@ mod internal {
                 .retrieve_package_name()
                 .wrap_err("Failed to retrieve package name")?;
 
-            let full_out_dir = self
-                .out_dir
-                .join(format!("wasm32-unknown-unknown"))
-                .join("release");
+            let full_out_dir = self.out_dir.join("wasm32-unknown-unknown").join("release");
             let wasm_file = full_out_dir.join(package_name).with_extension("wasm");
 
             let previous_hash = if wasm_file.exists() {

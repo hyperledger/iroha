@@ -27,7 +27,7 @@ use iroha_crypto::{ExposedPrivateKey, KeyPair, PrivateKey};
 use iroha_data_model::{
     events::pipeline::BlockEventFilter,
     isi::InstructionBox,
-    parameter::{SumeragiParameter, SumeragiParameters, SmartContractParameter},
+    parameter::{SmartContractParameter, SumeragiParameter, SumeragiParameters},
     ChainId,
 };
 use iroha_genesis::GenesisBlock;
