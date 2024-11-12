@@ -68,6 +68,7 @@ pub fn from_variant_derive(input: TokenStream) -> Result<TokenStream> {
 /// It allows you to specify where bounds for `Serialize` and `Deserialize` traits with a more concise syntax.
 ///
 /// ```rust
+/// use iroha_derive::serde_where;
 /// use serde::{Deserialize, Serialize};
 ///
 /// trait Trait {

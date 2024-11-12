@@ -13,6 +13,8 @@
 # public_key =
 # private_key =
 
+# trusted_peers =
+
 [genesis]
 # public_key =
 # file =
@@ -36,11 +38,6 @@
 # init_mode = "strict"
 # store_dir = "./storage"
 # blocks_in_memory = 128
-
-## Add more of this section for each trusted peer
-# [[sumeragi.trusted_peers]]
-# address =
-# public_key =
 
 [logger]
 # level = "INFO"

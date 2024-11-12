@@ -70,6 +70,7 @@ pub struct Common {
     pub chain: ChainId,
     pub key_pair: KeyPair,
     pub peer: Peer,
+    pub trusted_peers: WithOrigin<TrustedPeers>,
 }
 
 /// Network options
@@ -119,10 +120,9 @@ impl Default for Queue {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[allow(missing_docs)]
 pub struct Sumeragi {
-    pub trusted_peers: WithOrigin<TrustedPeers>,
     pub debug_force_soft_fork: bool,
 }
 
