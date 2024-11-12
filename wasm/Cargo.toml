@@ -24,10 +24,6 @@ lto = true          # Link-time-optimization produces notable decrease in binary
 opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
-[profile.test]
-inherits = "release"
-panic = "abort"
-
 [workspace.dependencies]
 iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_smart_contract", features = ["debug"] }
 iroha_trigger = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_trigger", features = ["debug"] }

@@ -29,11 +29,11 @@ main() {
         "deploy")
             OPTIMIZE_FLAG="--optimize"
             ;;
-        "test")
+        "release")
             OPTIMIZE_FLAG=""
             ;;
         *)
-            echo "error: unrecognized profile: $PROFILE. Profile can be either [deploy, test]"
+            echo "error: unrecognized profile: $PROFILE. Profile can be either [deploy, release]"
             exit 1
             ;;
     esac
@@ -113,7 +113,7 @@ Usage: $0 [OPTIONS]
 
 Options:
   --profile=<value>   Specify build profile (default: deploy)
-                      Possible values: test, deploy
+                      Possible values: release, deploy
   --help              Show help message
 
 Positional Arguments:
