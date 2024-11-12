@@ -86,14 +86,6 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
         self
     }
 
-    /// Changes build profile.
-    ///
-    /// "release" is default.
-    pub fn with_profile(mut self, profile: String) -> Self {
-        self.profile = profile;
-        self
-    }
-
     /// Apply `cargo check` to the smartcontract.
     ///
     /// # Errors

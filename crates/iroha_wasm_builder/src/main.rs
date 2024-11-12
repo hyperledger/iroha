@@ -14,7 +14,7 @@ enum Cli {
     Check {
         #[command(flatten)]
         common: CommonArgs,
-        #[arg(long, default_value="release")]
+        #[arg(long, default_value = "release")]
         profile: String,
     },
     /// Build the smartcontract
@@ -25,7 +25,7 @@ enum Cli {
         #[arg(long)]
         optimize: bool,
         /// Build profile
-        #[arg(long, default_value="release")]
+        #[arg(long, default_value = "release")]
         profile: String,
         /// Where to store the output WASM. If the file exists, it will be overwritten.
         #[arg(long)]
@@ -54,7 +54,7 @@ fn main() -> color_eyre::Result<()> {
             out_file,
             profile,
         } => {
-            let builder = Builder::new(&path, &profile).show_output().with_profile(profile);
+            let builder = Builder::new(&path, &profile).show_output();
 
             let output = {
                 // not showing the spinner here, cargo does a progress bar for us
