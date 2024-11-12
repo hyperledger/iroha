@@ -65,20 +65,36 @@ SIGS_012345=(${SIGNATORIES[0]} $MSA_12345)
 
 # propose a multisig transaction
 INSTRUCTIONS="../scripts/tests/instructions.json"
-propose_stdout=($(cat $INSTRUCTIONS | ./iroha --config "client.0.toml" multisig propose --account $MSA_012345))
-INSTRUCTIONS_HASH=${propose_stdout[0]}
+cat $INSTRUCTIONS | ./iroha --config "client.0.toml" multisig propose --account $MSA_012345
+
+get_list_as_signatory() {
+    ./iroha --config "client.$1.toml" multisig list all
+}
+
+get_target_account() {
+    ./iroha account list filter '{"Atom": {"Id": {"Equals": "'$MSA_012345'"}}}'
+}
 
 # check that one of the leaf signatories is involved
-LIST=$(./iroha --config "client.5.toml" multisig list all)
-echo "$LIST" | grep $INSTRUCTIONS_HASH
+LIST_BEFORE=$(get_list_as_signatory 5)
+echo "$LIST_BEFORE" | jq '.[].instructions' | diff - <(cat $INSTRUCTIONS)
+
+# check that the multisig transaction has not yet executed
+ACCOUNT_BEFORE=$(get_target_account)
+# NOTE: without ` || false` this line passes even if `success_marker` exists
+! echo "$ACCOUNT_BEFORE" | jq -e '.[0].metadata.success_marker' || false
 
 # approve the multisig transaction
-HASH_TO_12345=$(echo "$LIST" | grep -A1 $MSA_345 | tail -n 1 | tr -d '"')
-./iroha --config "client.5.toml" multisig approve --account $MSA_345 --instructions-hash $HASH_TO_12345
+LEAF_INSTRUCTIONS_HASH=$(echo "$LIST_BEFORE" | jq -r 'keys[0]')
+./iroha --config "client.5.toml" multisig approve --account $MSA_345 --instructions-hash $LEAF_INSTRUCTIONS_HASH
 
-# check that the multisig transaction is executed
-./iroha account list all | grep "congratulations"
-! ./iroha --config "client.5.toml" multisig list all | grep $INSTRUCTIONS_HASH
+# check that the transaction entry is deleted
+LIST_AFTER=$(get_list_as_signatory 5)
+! echo "$LIST_AFTER" | jq -e '.[].instructions' || false
+
+# check that the multisig transaction has executed
+ACCOUNT_AFTER=$(get_target_account)
+echo "$ACCOUNT_AFTER" | jq -e '.[0].metadata.success_marker'
 
 cd -
 scripts/test_env.py cleanup

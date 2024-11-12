@@ -2949,6 +2949,7 @@ version = "2.0.0-rc.1.0"
 dependencies = [
  "clap",
  "color-eyre",
+ "derive_more",
  "erased-serde",
  "error-stack",
  "eyre",
@@ -2958,6 +2959,7 @@ dependencies = [
  "json5",
  "serde",
  "serde_json",
+ "serde_with",
  "supports-color 2.1.0",
  "thiserror",
  "vergen",

@@ -38,8 +38,10 @@ humantime = { workspace = true }
 json5 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_with = { workspace = true }
 erased-serde = "0.4.5"
 supports-color = { workspace = true }
+derive_more = { workspace = true }
 
 [build-dependencies]
 vergen = { version = "8.3.1", default-features = false }

@@ -1178,11 +1178,16 @@ mod json {
 
 mod multisig {
     use std::{
+        collections::BTreeMap,
         io::{BufReader, Read as _},
         num::{NonZeroU16, NonZeroU64},
+        time::{Duration, SystemTime},
     };
 
+    use derive_more::{Constructor, Display};
     use iroha::executor_data_model::isi::multisig::*;
+    use serde::Serialize;
+    use serde_with::{serde_as, DisplayFromStr, SerializeDisplay};
 
     use super::*;
 
@@ -1301,7 +1306,7 @@ mod multisig {
         pub account: AccountId,
         /// Instructions to approve
         #[arg(short, long)]
-        pub instructions_hash: HashOf<Vec<InstructionBox>>,
+        pub instructions_hash: ProposalKey,
     }
 
     impl RunArgs for Approve {
@@ -1325,13 +1330,38 @@ mod multisig {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
             let me = client.account.clone();
+            let Ok(my_multisig_roles) = client
+                .query(FindRolesByAccountId::new(me.clone()))
+                .filter_with(|role_id| role_id.name.starts_with(MULTISIG_SIGNATORY))
+                .execute_all()
+            else {
+                return Ok(());
+            };
+            let mut stack = my_multisig_roles
+                .iter()
+                .filter_map(multisig_account_from)
+                .map(|account_id| Context::new(me.clone(), account_id, None))
+                .collect();
+            let mut proposals = BTreeMap::new();
 
-            trace_back_from(me, &client, context)
+            fold_proposals(&mut proposals, &mut stack, &client)?;
+            context.print_data(&proposals)?;
+
+            Ok(())
         }
     }
 
     const DELIMITER: char = '/';
+    const MULTISIG: &str = "multisig";
     const MULTISIG_SIGNATORY: &str = "MULTISIG_SIGNATORY";
+
+    fn spec_key() -> Name {
+        format!("{MULTISIG}{DELIMITER}spec").parse().unwrap()
+    }
+
+    fn proposal_key_prefix() -> String {
+        format!("{MULTISIG}{DELIMITER}proposals{DELIMITER}")
+    }
 
     fn multisig_account_from(role: &RoleId) -> Option<AccountId> {
         role.name()
@@ -1345,52 +1375,135 @@ mod multisig {
             })
     }
 
-    /// Recursively trace back to the root multisig account
-    fn trace_back_from(
-        account: AccountId,
+    type PendingProposals = BTreeMap<ProposalKey, ProposalStatus>;
+
+    type ProposalKey = HashOf<Vec<InstructionBox>>;
+
+    #[serde_as]
+    #[derive(Debug, Serialize, Constructor)]
+    struct ProposalStatus {
+        instructions: Vec<InstructionBox>,
+        #[serde_as(as = "DisplayFromStr")]
+        proposed_at: humantime::Timestamp,
+        #[serde_as(as = "DisplayFromStr")]
+        expires_in: humantime::Duration,
+        approval_path: Vec<ApprovalEdge>,
+    }
+
+    impl Default for ProposalStatus {
+        fn default() -> Self {
+            Self::new(
+                Vec::new(),
+                SystemTime::UNIX_EPOCH.into(),
+                Duration::ZERO.into(),
+                Vec::new(),
+            )
+        }
+    }
+
+    #[derive(Debug, SerializeDisplay, Display, Constructor)]
+    #[display(fmt = "{weight} -> [{got}/{quorum}] {target}")]
+    struct ApprovalEdge {
+        weight: u8,
+        got: u16,
+        quorum: u16,
+        target: AccountId,
+    }
+
+    #[derive(Debug, Constructor)]
+    struct Context {
+        child: AccountId,
+        this: AccountId,
+        key_span: Option<(ProposalKey, ProposalKey)>,
+    }
+
+    fn fold_proposals(
+        proposals: &mut PendingProposals,
+        stack: &mut Vec<Context>,
         client: &Client,
-        context: &mut dyn RunContext,
     ) -> Result<()> {
-        let Ok(multisig_roles) = client
-            .query(FindRolesByAccountId::new(account))
-            .filter_with(|role_id| role_id.name.starts_with(MULTISIG_SIGNATORY))
-            .execute_all()
-        else {
+        let Some(context) = stack.pop() else {
             return Ok(());
         };
-
-        for role_id in multisig_roles {
-            let super_account_id: AccountId = multisig_account_from(&role_id).unwrap();
-
-            trace_back_from(super_account_id.clone(), client, context)?;
-
-            context.print_data(&super_account_id)?;
-
-            let super_account = client
-                .query(FindAccounts)
-                .filter_with(|account| account.id.eq(super_account_id))
-                .execute_single()?;
-            let proposal_kvs = super_account
-                .metadata()
-                .iter()
-                .filter(|kv| kv.0.as_ref().starts_with("multisig/proposals"));
-
-            proposal_kvs.fold("", |acc, (k, v)| {
-                let mut path = k.as_ref().split('/');
-                let hash = path.nth(2).unwrap();
-
-                if acc != hash {
-                    context.print_data(&hash).unwrap();
-                }
-                context.print_data(&v).unwrap();
-
-                hash
-            });
+        let account = client
+            .query(FindAccounts)
+            .filter_with(|account| account.id.eq(context.this.clone()))
+            .execute_single()?;
+        let spec: MultisigSpec = account
+            .metadata()
+            .get(&spec_key())
+            .unwrap()
+            .try_into_any()?;
+        for (proposal_key, proposal_value) in account
+            .metadata()
+            .iter()
+            .filter_map(|(k, v)| {
+                k.as_ref().strip_prefix(&proposal_key_prefix()).map(|k| {
+                    (
+                        k.parse::<ProposalKey>().unwrap(),
+                        v.try_into_any::<MultisigProposalValue>().unwrap(),
+                    )
+                })
+            })
+            .filter(|(k, _v)| context.key_span.map_or(true, |(_, top)| *k == top))
+        {
+            let mut is_root_proposal = true;
+            for instruction in &proposal_value.instructions {
+                let InstructionBox::Custom(instruction) = instruction else {
+                    continue;
+                };
+                let Ok(MultisigInstructionBox::Approve(approve)) = instruction.payload().try_into()
+                else {
+                    continue;
+                };
+                is_root_proposal = false;
+                let leaf = context.key_span.map_or(proposal_key, |(leaf, _)| leaf);
+                let top = approve.instructions_hash;
+                stack.push(Context::new(
+                    context.this.clone(),
+                    approve.account,
+                    Some((leaf, top)),
+                ));
+            }
+            let proposal_status = match context.key_span {
+                None => proposals.entry(proposal_key).or_default(),
+                Some((leaf, _)) => proposals.get_mut(&leaf).unwrap(),
+            };
+            let edge = ApprovalEdge::new(
+                *spec.signatories.get(&context.child).unwrap(),
+                spec.signatories
+                    .iter()
+                    .filter(|(id, _)| proposal_value.approvals.contains(id))
+                    .map(|(_, weight)| u16::from(*weight))
+                    .sum(),
+                spec.quorum.into(),
+                context.this.clone(),
+            );
+            proposal_status.approval_path.push(edge);
+            if is_root_proposal {
+                proposal_status.instructions = proposal_value.instructions;
+                proposal_status.proposed_at = {
+                    let proposed_at = Duration::from_secs(
+                        Duration::from_millis(proposal_value.proposed_at_ms.into()).as_secs(),
+                    );
+                    SystemTime::UNIX_EPOCH
+                        .checked_add(proposed_at)
+                        .unwrap()
+                        .into()
+                };
+                proposal_status.expires_in = {
+                    let now = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap();
+                    let expires_at = Duration::from_millis(proposal_value.expires_at_ms.into());
+                    Duration::from_secs(expires_at.saturating_sub(now).as_secs()).into()
+                };
+            }
         }
-
-        Ok(())
+        fold_proposals(proposals, stack, client)
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
