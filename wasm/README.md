@@ -28,7 +28,7 @@ bash scripts/build_wasm.sh samples
 ```bash
 bash scripts/build_wasm.sh --profile=deploy
 ```
-2. Debug
+2. Test
 ```bash
-bash scripts/build_wasm.sh --profile=profiling
+bash scripts/build_wasm.sh --profile=test
 ```

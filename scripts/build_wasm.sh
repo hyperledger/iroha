@@ -27,13 +27,13 @@ main() {
 
     case $PROFILE in
         "deploy")
-            RELEASE_FLAG="--release"
+            RELEASE_FLAG="--optimize"
             ;;
-        "profiling")
+        "test")
             RELEASE_FLAG=""
             ;;
         *)
-            echo "error: unrecognized profile: $PROFILE. Profile can be either [deploy, profiling]"
+            echo "error: unrecognized profile: $PROFILE. Profile can be either [deploy, test]"
             exit 1
             ;;
     esac
@@ -113,7 +113,7 @@ Usage: $0 [OPTIONS]
 
 Options:
   --profile=<value>   Specify build profile (default: deploy)
-                      Possible values: profiling, deploy
+                      Possible values: test, deploy
   --help              Show help message
 
 Positional Arguments:
