@@ -33,7 +33,8 @@ pub fn base_iroha_config() -> Table {
         .write(["snapshot", "mode"], "disabled")
         .write(["kura", "store_dir"], "./storage")
         .write(["network", "block_gossip_size"], 1)
-        .write(["logger", "level"], "DEBUG")
+        .write(["logger", "level"], "TRACE")
+        .write(["logger", "format"], "json")
 }
 
 pub fn genesis<T: Instruction>(

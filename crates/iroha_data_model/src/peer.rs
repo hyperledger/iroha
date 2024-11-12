@@ -23,7 +23,6 @@ mod model {
 
     /// Peer's identification.
     ///
-    /// Equality is tested by `public_key` field only.
     /// Each peer should have a unique public key.
     #[derive(
         DebugCustom,

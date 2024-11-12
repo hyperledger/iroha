@@ -120,7 +120,7 @@ pub struct ProofChain(BTreeMap<u32, SignedViewChangeProof>);
 
 impl ProofChain {
     /// Find next index to last verified view change proof.
-    /// Proof is verified if it has more or qual ot f + 1 valid signatures.
+    /// Proof is verified if it has more or equal to f + 1 valid signatures.
     pub fn verify_with_state(
         &self,
         topology: &Topology,
