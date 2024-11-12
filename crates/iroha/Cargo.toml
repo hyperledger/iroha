@@ -82,19 +82,7 @@ toml = { workspace = true }
 nonzero_ext = { workspace = true }
 
 [dev-dependencies]
-iroha_genesis = { workspace = true }
 iroha_test_samples = { workspace = true }
-iroha_test_network = { workspace = true }
 
-mint_rose_trigger_data_model = { path = "../../data_model/samples/mint_rose_trigger_data_model" }
-executor_custom_data_model = { path = "../../data_model/samples/executor_custom_data_model" }
-iroha_executor_data_model = { workspace = true }
-
-tokio = { workspace = true, features = ["rt-multi-thread"] }
-reqwest = { version = "0.12.7", features = ["json"] }
-color-eyre = { workspace = true }
 tempfile = { workspace = true }
-hex = { workspace = true }
 assertables = { workspace = true }
-trybuild = { workspace = true }
-assert_matches = "1.5.0"

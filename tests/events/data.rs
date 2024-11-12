@@ -3,13 +3,12 @@ use std::fmt::Write as _;
 use assert_matches::assert_matches;
 use eyre::Result;
 use futures_util::StreamExt;
-use iroha::data_model::{prelude::*, transaction::WasmSmartContract};
+use iroha::data_model::{isi::BuiltInInstruction, prelude::*, transaction::WasmSmartContract};
 use iroha_executor_data_model::permission::{
     account::CanModifyAccountMetadata, domain::CanModifyDomainMetadata,
 };
 use iroha_test_network::*;
 use iroha_test_samples::{ALICE_ID, BOB_ID};
-use parity_scale_codec::Encode as _;
 use tokio::task::spawn_blocking;
 
 /// Return string containing exported memory, dummy allocator, and
@@ -92,7 +91,7 @@ async fn wasm_execution_should_produce_events() -> Result<()> {
     #![allow(clippy::integer_division)]
     let isi_hex: Vec<String> = produce_instructions()
         .into_iter()
-        .map(|isi| isi.encode())
+        .map(|isi| isi.encode_as_instruction_box())
         .map(hex::encode)
         .collect();
 

@@ -26,7 +26,7 @@ build() {
     mkdir -p "$TARGET_DIR/$1"
     for name in ${NAMES[@]}; do
         out_file="$TARGET_DIR/$1/$name.wasm"
-        cargo run --bin iroha_wasm_builder -- build "$CARGO_DIR/$1/$name" --optimize --out-file "$out_file"
+        cargo run ---package iroha_wasm_builder -bin iroha_wasm_builder -- build "$CARGO_DIR/$1/$name" --optimize --out-file "$out_file"
     done
     echo "info: WASM $1 build complete"
     echo "artifacts written to $TARGET_DIR/$1/"

@@ -46,7 +46,6 @@ result
 *.deb
 \#*
 /cargo-timing*.html
-/test/
 /iroha-java/
 /lcov.info
 test_docker
