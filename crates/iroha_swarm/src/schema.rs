@@ -163,7 +163,7 @@ impl<'a> PeerEnv<'a> {
             .iter()
             .find(|&peer| peer.id().public_key() == public_key)
             .unwrap()
-            .address
+            .address()
             .clone();
         Self {
             chain,
