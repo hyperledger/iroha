@@ -9,7 +9,6 @@ env:
   CARGO_TERM_COLOR: always
   DEFAULTS_DIR: defaults
   WASM_TARGET_DIR: wasm/target/prebuilt
-  PROFILE: deploy
 
 jobs:
   build_wasm_libs:

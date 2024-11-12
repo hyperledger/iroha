@@ -27,10 +27,10 @@ main() {
 
     case $PROFILE in
         "deploy")
-            RELEASE_FLAG="--optimize"
+            OPTIMIZE_FLAG="--optimize"
             ;;
         "test")
-            RELEASE_FLAG=""
+            OPTIMIZE_FLAG=""
             ;;
         *)
             echo "error: unrecognized profile: $PROFILE. Profile can be either [deploy, test]"
@@ -86,7 +86,7 @@ build() {
     mkdir -p "$TARGET_DIR/$1"
     for name in ${NAMES[@]}; do
         out_file="$TARGET_DIR/$1/$name.wasm"
-        cargo run --bin iroha_wasm_builder -- build "$CARGO_DIR/$1/$name" $RELEASE_FLAG --out-file "$out_file"
+        cargo run --bin iroha_wasm_builder -- build "$CARGO_DIR/$1/$name" $OPTIMIZE_FLAG --profile=$PROFILE --out-file "$out_file"
     done
     echo "info: WASM $1 build complete"
     echo "artifacts written to $TARGET_DIR/$1/"

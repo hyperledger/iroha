@@ -45,13 +45,15 @@ pub struct Builder<'path, 'out_dir> {
     out_dir: Option<&'out_dir Path>,
     /// Flag controlling whether to show output of the build process
     show_output: bool,
+    /// Build profile
+    profile: String,
 }
 
 impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     /// Initialize [`Builder`] with path to smartcontract.
     ///
     /// `relative_path` should be relative to `CARGO_MANIFEST_DIR`.
-    pub fn new<P>(relative_path: &'path P) -> Self
+    pub fn new<P>(relative_path: &'path P, profile: &str) -> Self
     where
         P: AsRef<Path> + ?Sized,
     {
@@ -59,6 +61,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
             path: relative_path.as_ref(),
             out_dir: None,
             show_output: false,
+            profile: profile.to_string(),
         }
     }
 
@@ -80,6 +83,14 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     /// Disabled by default.
     pub fn show_output(mut self) -> Self {
         self.show_output = true;
+        self
+    }
+
+    /// Changes build profile.
+    ///
+    /// "release" is default.
+    pub fn with_profile(mut self, profile: String) -> Self {
+        self.profile = profile;
         self
     }
 
@@ -114,6 +125,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
                 |out_dir| Ok(Cow::Borrowed(out_dir)),
             )?,
             show_output: self.show_output,
+            profile: self.profile.clone(),
         })
     }
 
@@ -167,6 +179,7 @@ mod internal {
         pub absolute_path: PathBuf,
         pub out_dir: Cow<'out_dir, Path>,
         pub show_output: bool,
+        pub profile: String,
     }
 
     impl Builder<'_> {
@@ -189,11 +202,15 @@ mod internal {
             })
         }
 
-        fn build_options() -> impl Iterator<Item = &'static str> {
+        fn build_profile(&self) -> String {
+            return format!("--profile={}", self.profile);
+        }
+
+        fn build_options(&self) -> impl Iterator<Item = &'static str> {
             [
-                "--release",
                 "-Z",
                 "build-std",
+                // format!("--profile={}", self.profile).as_str(),
                 "-Z",
                 "build-std-features=panic_immediate_abort",
                 "-Z",
@@ -210,7 +227,8 @@ mod internal {
                 .current_dir(&self.absolute_path)
                 .stderr(Stdio::inherit())
                 .arg(cmd)
-                .args(Self::build_options());
+                .arg(self.build_profile())
+                .args(self.build_options());
 
             command
         }

@@ -14,6 +14,8 @@ enum Cli {
     Check {
         #[command(flatten)]
         common: CommonArgs,
+        #[arg(long, default_value="release")]
+        profile: String,
     },
     /// Build the smartcontract
     Build {
@@ -22,6 +24,9 @@ enum Cli {
         /// Optimize WASM output.
         #[arg(long)]
         optimize: bool,
+        /// Build profile
+        #[arg(long, default_value="release")]
+        profile: String,
         /// Where to store the output WASM. If the file exists, it will be overwritten.
         #[arg(long)]
         out_file: PathBuf,
@@ -38,16 +43,18 @@ fn main() -> color_eyre::Result<()> {
     match Cli::parse() {
         Cli::Check {
             common: CommonArgs { path },
+            profile,
         } => {
-            let builder = Builder::new(&path).show_output();
+            let builder = Builder::new(&path, &profile).show_output();
             builder.check()?;
         }
         Cli::Build {
             common: CommonArgs { path },
             optimize,
             out_file,
+            profile,
         } => {
-            let builder = Builder::new(&path).show_output();
+            let builder = Builder::new(&path, &profile).show_output().with_profile(profile);
 
             let output = {
                 // not showing the spinner here, cargo does a progress bar for us
