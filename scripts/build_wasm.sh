@@ -99,7 +99,7 @@ print_help() {
 Usage: $0 [OPTIONS]
 
 Options:
-  --profile=<value>   Specify build profile (default: deploy)
+  --profile=<value>   Specify build profile (default: release)
                       Possible values: release, deploy
   --help              Show help message
 
