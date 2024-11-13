@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build wasm libs
-        run: ./scripts/build_wasm.sh --profile=deploy libs
+        run: ./scripts/build_wasm.sh libs
       - name: Upload wasm libs to reuse in other jobs
         uses: actions/upload-artifact@v4
         with:
