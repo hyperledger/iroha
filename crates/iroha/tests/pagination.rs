@@ -3,6 +3,7 @@ use iroha::{
     client::Client,
     data_model::{asset::AssetDefinition, prelude::*},
 };
+use iroha_data_model::query::dsl::SelectorTuple;
 use iroha_test_network::*;
 use nonzero_ext::nonzero;
 
@@ -60,7 +61,12 @@ fn fetch_size_should_work() -> Result<()> {
     register_assets(&client)?;
 
     let query = QueryWithParams::new(
-        QueryWithFilter::new(FindAssetsDefinitions::new(), CompoundPredicate::PASS).into(),
+        QueryWithFilter::new(
+            FindAssetsDefinitions::new(),
+            CompoundPredicate::PASS,
+            SelectorTuple::default(),
+        )
+        .into(),
         QueryParams::new(
             Pagination::new(Some(nonzero!(7_u64)), 1),
             Sorting::default(),

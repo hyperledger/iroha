@@ -9,7 +9,7 @@ use dlmalloc::GlobalDlmalloc;
 use iroha_smart_contract::{
     data_model::query::{
         builder::QueryExecutor,
-        dsl::CompoundPredicate,
+        dsl::{CompoundPredicate, SelectorTuple},
         parameters::{ForwardCursor, QueryParams},
         QueryWithFilter, QueryWithParams,
     },
@@ -32,7 +32,12 @@ fn main(host: Iroha, context: Context) {
 
     let (_batch, _remaining_items, cursor) = host
         .start_query(QueryWithParams::new(
-            QueryWithFilter::new(FindAssets, CompoundPredicate::PASS).into(),
+            QueryWithFilter::new(
+                FindAssets,
+                CompoundPredicate::PASS,
+                SelectorTuple::default(),
+            )
+            .into(),
             QueryParams::new(
                 Default::default(),
                 Default::default(),

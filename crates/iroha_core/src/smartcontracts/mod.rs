@@ -10,10 +10,7 @@ pub mod wasm;
 use iroha_data_model::{
     isi::error::InstructionExecutionError as Error,
     prelude::*,
-    query::{
-        dsl::{CompoundPredicate, HasProjection, PredicateMarker},
-        error::QueryExecutionFail,
-    },
+    query::{dsl::CompoundPredicate, error::QueryExecutionFail},
 };
 pub use isi::*;
 
@@ -33,10 +30,7 @@ pub trait Execute {
 }
 
 /// This trait defines how an Iroha Iterable query is executed.
-pub trait ValidQuery: iroha_data_model::query::Query
-where
-    Self::Item: HasProjection<PredicateMarker>,
-{
+pub trait ValidQuery: iroha_data_model::query::Query {
     /// Execute a query on a read-only state.
     ///
     /// The filter is deliberately passed to the query implementation,

@@ -5,16 +5,19 @@ mod iter;
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
+use derive_where::derive_where;
 pub use iter::QueryIterator;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::query::{
-    dsl::{BaseProjector, CompoundPredicate, HasProjection, HasPrototype, PredicateMarker},
+    builder::batch_downcast::HasTypedBatchIter,
+    dsl::{BaseProjector, CompoundPredicate, HasPrototype, PredicateMarker, SelectorTuple},
     parameters::{FetchSize, Pagination, QueryParams, Sorting},
-    Query, QueryBox, QueryOutputBatchBox, QueryOutputBatchBoxTuple, QueryWithFilter,
-    QueryWithParams, SingularQueryBox, SingularQueryOutputBox,
+    Query, QueryBox, QueryOutputBatchBoxTuple, QueryWithFilter, QueryWithParams, SingularQueryBox,
+    SingularQueryOutputBox,
 };
 
 /// A trait abstracting away concrete backend for executing queries against iroha.
@@ -90,23 +93,24 @@ impl<E> From<E> for SingleQueryError<E> {
 }
 
 /// Struct that simplifies construction of an iterable query.
-pub struct QueryBuilder<'e, E, Q>
+#[derive_where(Clone; Q, CompoundPredicate<Q::Item>, SelectorTuple<Q::Item>)]
+pub struct QueryBuilder<'e, E, Q, T>
 where
     Q: Query,
-    Q::Item: HasProjection<PredicateMarker>,
 {
     query_executor: &'e E,
     query: Q,
     filter: CompoundPredicate<Q::Item>,
+    selector: SelectorTuple<Q::Item>,
     pagination: Pagination,
     sorting: Sorting,
     fetch_size: FetchSize,
+    phantom: PhantomData<T>,
 }
 
-impl<'a, E, Q> QueryBuilder<'a, E, Q>
+impl<'a, E, Q> QueryBuilder<'a, E, Q, Q::Item>
 where
     Q: Query,
-    Q::Item: HasProjection<PredicateMarker>,
 {
     /// Create a new iterable query builder for a given backend and query.
     pub fn new(query_executor: &'a E, query: Q) -> Self {
@@ -114,17 +118,18 @@ where
             query_executor,
             query,
             filter: CompoundPredicate::PASS,
+            selector: SelectorTuple::default(),
             pagination: Pagination::default(),
             sorting: Sorting::default(),
             fetch_size: FetchSize::default(),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<E, Q> QueryBuilder<'_, E, Q>
+impl<E, Q, T> QueryBuilder<'_, E, Q, T>
 where
     Q: Query,
-    Q::Item: HasProjection<PredicateMarker>,
 {
     /// Only return results that match the given predicate.
     ///
@@ -179,22 +184,20 @@ where
     }
 }
 
-impl<E, Q> QueryBuilder<'_, E, Q>
+impl<E, Q, T> QueryBuilder<'_, E, Q, T>
 where
     Q: Query,
-    Q::Item: HasProjection<PredicateMarker>,
     E: QueryExecutor,
     QueryBox: From<QueryWithFilter<Q>>,
-    Vec<Q::Item>: TryFrom<QueryOutputBatchBox>,
-    <Vec<Q::Item> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
+    T: HasTypedBatchIter,
 {
     /// Execute the query, returning an iterator over its results.
     ///
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
-    pub fn execute(self) -> Result<QueryIterator<E, Q::Item>, E::Error> {
-        let with_filter = QueryWithFilter::new(self.query, self.filter);
+    pub fn execute(self) -> Result<QueryIterator<E, T>, E::Error> {
+        let with_filter = QueryWithFilter::new(self.query, self.filter, self.selector);
         let boxed: QueryBox = with_filter.into();
 
         let query = QueryWithParams {
@@ -209,7 +212,7 @@ where
         let (first_batch, remaining_items, continue_cursor) =
             self.query_executor.start_query(query)?;
 
-        let iterator = QueryIterator::<E, Q::Item>::new(first_batch, remaining_items, continue_cursor)
+        let iterator = QueryIterator::<E, T>::new(first_batch, remaining_items, continue_cursor)
             .expect(
                 "INTERNAL BUG: iroha returned unexpected type in iterable query. Is there a schema mismatch?",
             );
@@ -218,66 +221,47 @@ where
     }
 }
 
-impl<E, Q> Clone for QueryBuilder<'_, E, Q>
-where
-    Q: Query + Clone,
-    Q::Item: HasProjection<PredicateMarker>,
-    CompoundPredicate<Q::Item>: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            query_executor: self.query_executor,
-            query: self.query.clone(),
-            filter: self.filter.clone(),
-            pagination: self.pagination,
-            sorting: self.sorting.clone(),
-            fetch_size: self.fetch_size,
-        }
-    }
-}
-
 /// An extension trait for query builders that provides convenience methods to execute queries.
-pub trait QueryBuilderExt<E, Q>
+pub trait QueryBuilderExt<E, Q, T>
 where
     E: QueryExecutor,
     Q: Query,
+    T: HasTypedBatchIter,
 {
     /// Execute the query, returning all the results collected into a vector.
     ///
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
-    fn execute_all(self) -> Result<Vec<Q::Item>, E::Error>;
+    fn execute_all(self) -> Result<Vec<T>, E::Error>;
 
     /// Execute the query, constraining the number of results to zero or one.
     ///
     /// # Errors
     ///
     /// Returns an error if the query execution fails or if more than one result is returned.
-    fn execute_single_opt(self) -> Result<Option<Q::Item>, SingleQueryError<E::Error>>;
+    fn execute_single_opt(self) -> Result<Option<T>, SingleQueryError<E::Error>>;
 
     /// Execute the query, constraining the number of results to exactly one.
     ///
     /// # Errors
     ///
     /// Returns an error if the query execution fails or if zero or more than one result is returned.
-    fn execute_single(self) -> Result<Q::Item, SingleQueryError<E::Error>>;
+    fn execute_single(self) -> Result<T, SingleQueryError<E::Error>>;
 }
 
-impl<E, Q> QueryBuilderExt<E, Q> for QueryBuilder<'_, E, Q>
+impl<E, Q, T> QueryBuilderExt<E, Q, T> for QueryBuilder<'_, E, Q, T>
 where
     E: QueryExecutor,
     Q: Query,
-    Q::Item: HasProjection<PredicateMarker>,
     QueryBox: From<QueryWithFilter<Q>>,
-    Vec<Q::Item>: TryFrom<QueryOutputBatchBox>,
-    <Vec<Q::Item> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
+    T: HasTypedBatchIter,
 {
-    fn execute_all(self) -> Result<Vec<Q::Item>, E::Error> {
+    fn execute_all(self) -> Result<Vec<T>, E::Error> {
         self.execute()?.collect::<Result<Vec<_>, _>>()
     }
 
-    fn execute_single_opt(self) -> Result<Option<Q::Item>, SingleQueryError<E::Error>> {
+    fn execute_single_opt(self) -> Result<Option<T>, SingleQueryError<E::Error>> {
         let mut iter = self.execute()?;
         let first = iter.next().transpose()?;
         let second = iter.next().transpose()?;
@@ -292,7 +276,7 @@ where
         }
     }
 
-    fn execute_single(self) -> Result<Q::Item, SingleQueryError<E::Error>> {
+    fn execute_single(self) -> Result<T, SingleQueryError<E::Error>> {
         let mut iter = self.execute()?;
         let first = iter.next().transpose()?;
         let second = iter.next().transpose()?;

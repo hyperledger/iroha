@@ -17,7 +17,6 @@ use data_model::{
 pub use iroha_data_model as data_model;
 use iroha_data_model::query::{
     builder::{QueryBuilder, QueryExecutor},
-    dsl::{HasProjection, PredicateMarker},
     QueryOutputBatchBoxTuple, QueryRequest, QueryResponse, QueryWithParams, SingularQuery,
     SingularQueryBox, SingularQueryOutputBox,
 };
@@ -100,10 +99,9 @@ impl Iroha {
     }
 
     /// Build an iterable query for execution in a smart contract.
-    pub fn query<Q>(&self, query: Q) -> QueryBuilder<Self, Q>
+    pub fn query<Q>(&self, query: Q) -> QueryBuilder<Self, Q, Q::Item>
     where
         Q: Query,
-        Q::Item: HasProjection<PredicateMarker>,
     {
         QueryBuilder::new(self, query)
     }

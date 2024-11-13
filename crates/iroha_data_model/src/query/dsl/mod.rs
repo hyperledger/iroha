@@ -9,10 +9,12 @@ use derive_where::derive_where;
 
 mod compound_predicate;
 pub mod predicates;
+mod selector_tuple;
 pub mod type_descriptions;
 
-pub use compound_predicate::CompoundPredicate;
 use iroha_schema::IntoSchema;
+
+pub use self::{compound_predicate::CompoundPredicate, selector_tuple::SelectorTuple};
 
 pub trait EvaluatePredicate<T: ?Sized> {
     fn applies(&self, input: &T) -> bool;
@@ -21,10 +23,14 @@ pub trait EvaluatePredicate<T: ?Sized> {
 pub trait HasPredicateAtom {
     type Predicate: EvaluatePredicate<Self>;
 }
-// this derive is only neede for `PredicateMarker` to have `type_name`
+// The IntoSchema derive is only needed for `PredicateMarker` to have `type_name`
+// the actual value of these types is never encoded
 #[derive(IntoSchema)]
 #[allow(missing_copy_implementations)]
 pub struct PredicateMarker;
+#[derive(IntoSchema)]
+#[allow(missing_copy_implementations)]
+pub struct SelectorMarker;
 
 pub trait Projectable<Marker> {
     type AtomType;
@@ -32,6 +38,10 @@ pub trait Projectable<Marker> {
 
 impl<T: HasPredicateAtom> Projectable<PredicateMarker> for T {
     type AtomType = T::Predicate;
+}
+
+impl<T> Projectable<SelectorMarker> for T {
+    type AtomType = ();
 }
 
 pub trait HasProjection<Marker>: Projectable<Marker> {
@@ -75,6 +85,6 @@ where
 
 pub mod prelude {
     pub use super::{
-        predicates::prelude::*, type_descriptions::prelude::*, CompoundPredicate, PredicateMarker,
+        predicates::prelude::*, type_descriptions::prelude::*, CompoundPredicate, SelectorTuple,
     };
 }

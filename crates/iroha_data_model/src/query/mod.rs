@@ -55,7 +55,7 @@ pub trait SingularQuery: Sealed {
 /// [`builder::QueryIterator`] abstracts over this and allows the query consumer to use a familiar [`Iterator`] interface to iterate over the results.
 pub trait Query: Sealed {
     /// The type of single element of the output collection
-    type Item: HasProjection<PredicateMarker>;
+    type Item: HasProjection<PredicateMarker> + HasProjection<SelectorMarker, AtomType = ()>;
 }
 
 #[model]
@@ -68,19 +68,20 @@ mod model {
     use super::*;
 
     /// An iterable query bundled with a filter
-    #[serde_where(Q, CompoundPredicate<Q::Item>)]
+    #[serde_where(Q, CompoundPredicate<Q::Item>, SelectorTuple<Q::Item>)]
     #[derive_where(
-        Debug, Clone, PartialEq, Eq; Q, CompoundPredicate<Q::Item>
+        Debug, Clone, PartialEq, Eq; Q, CompoundPredicate<Q::Item>, SelectorTuple<Q::Item>
     )]
     #[derive(Decode, Encode, Constructor, IntoSchema, Deserialize, Serialize)]
     pub struct QueryWithFilter<Q>
     where
         Q: Query,
-        Q::Item: HasProjection<PredicateMarker>,
     {
         pub query: Q,
         #[serde(default = "predicate_default")]
         pub predicate: CompoundPredicate<Q::Item>,
+        #[serde(default)]
+        pub selector: SelectorTuple<Q::Item>,
     }
 
     fn predicate_default<T>() -> CompoundPredicate<T>
