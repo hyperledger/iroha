@@ -3,10 +3,7 @@ use std::iter::once;
 use assert_matches::assert_matches;
 use eyre::Result;
 use futures_util::{stream::FuturesUnordered, StreamExt};
-use iroha::data_model::{
-    isi::{Register, Unregister},
-    peer::Peer,
-};
+use iroha::data_model::isi::{Register, Unregister};
 use iroha_config_base::toml::WriteExt;
 use iroha_test_network::*;
 use rand::{prelude::IteratorRandom, seq::SliceRandom, thread_rng};
@@ -31,12 +28,12 @@ async fn register_new_peer() -> Result<()> {
         network
             .config()
             // only one random peer
-            .write(["sumeragi", "trusted_peers"], [network.peer().id()]),
+            .write(["trusted_peers"], [network.peer().peer()]),
         None,
     )
     .await;
 
-    let register = Register::peer(Peer::new(peer.id()));
+    let register = Register::peer(peer.peer_id());
     let client = network.client();
     spawn_blocking(move || client.submit_blocking(register)).await??;
 
@@ -46,7 +43,7 @@ async fn register_new_peer() -> Result<()> {
 }
 
 /// Test the number of connected peers, changing the number of faults tolerated down and up
-// Note: sometimes fails due to https://github.com/hyperledger/iroha/issues/5104
+// Note: sometimes fails due to https://github.com/hyperledger-iroha/iroha/issues/5104
 async fn connected_peers_with_f(faults: usize) -> Result<()> {
     let n_peers = 3 * faults + 1;
 
@@ -62,7 +59,7 @@ async fn connected_peers_with_f(faults: usize) -> Result<()> {
 
     // Unregister a peer: committed with f = `faults` then `status.peers` decrements
     let client = randomized_peers.choose(&mut thread_rng()).unwrap().client();
-    let unregister_peer = Unregister::peer(removed_peer.id());
+    let unregister_peer = Unregister::peer(removed_peer.peer_id());
     spawn_blocking(move || client.submit_blocking(unregister_peer)).await??;
     timeout(
         network.sync_timeout(),
@@ -81,7 +78,7 @@ async fn connected_peers_with_f(faults: usize) -> Result<()> {
     assert_eq!(status.peers, 0);
 
     // Re-register the peer: committed with f = `faults` - 1 then `status.peers` increments
-    let register_peer = Register::peer(Peer::new(removed_peer.id()));
+    let register_peer = Register::peer(removed_peer.peer_id());
     let client = randomized_peers
         .iter()
         .choose(&mut thread_rng())
@@ -112,13 +109,13 @@ async fn assert_peers_status(
                 status.peers,
                 expected_peers,
                 "unexpected peers for {}",
-                peer.id()
+                peer.peer_id()
             );
             assert_eq!(
                 status.blocks,
                 expected_blocks,
                 "expected blocks for {}",
-                peer.id()
+                peer.peer_id()
             );
         })
         .collect::<FuturesUnordered<_>>()

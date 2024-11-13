@@ -4,7 +4,7 @@ The library crate that is used for writing Iroha-compliant smart contracts in Ru
 
 ## Usage
 
-Check the [WASM section of our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/wasm.html) for a detailed guide.
+Check the [WASM section of our tutorial](https://docs.iroha.tech/blockchain/wasm.html) for a detailed guide.
 
 ## Running tests
 
@@ -48,8 +48,8 @@ By following this list of optimization steps you can reduce the size of your bin
     codegen-units = 1   # Further reduces binary size but increases compilation time
 
     [dependencies]
-    iroha_data_model = { git = "https://github.com/hyperledger/iroha/", branch = "iroha2", default-features = false }
-    iroha_smart_contract = { git = "https://github.com/hyperledger/iroha/", branch = "iroha2" }
+    iroha_data_model = { git = "https://github.com/hyperledger-iroha/iroha/", default-features = false }
+    iroha_smart_contract = { git = "https://github.com/hyperledger-iroha/iroha/" }
     panic-halt = "0.2.0"
   ```
 

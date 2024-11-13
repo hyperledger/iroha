@@ -26,7 +26,7 @@ use iroha_config_base::{
     ReadConfig, WithOrigin,
 };
 use iroha_crypto::{PrivateKey, PublicKey};
-use iroha_data_model::{peer::PeerId, ChainId};
+use iroha_data_model::{peer::Peer, ChainId};
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::Deserialize;
 use url::Url;
@@ -60,6 +60,8 @@ pub struct Root {
     public_key: WithOrigin<PublicKey>,
     #[config(env = "PRIVATE_KEY")]
     private_key: WithOrigin<PrivateKey>,
+    #[config(env = "TRUSTED_PEERS", default)]
+    trusted_peers: WithOrigin<TrustedPeers>,
     #[config(nested)]
     genesis: Genesis,
     #[config(nested)]
@@ -104,11 +106,28 @@ impl Root {
             .change_context(ParseError::BadKeyPair)
             .ok_or_emit(&mut emitter);
 
+        let (network, block_sync, transaction_gossiper) = self.network.parse();
+        let Some((peer, trusted_peers)) = key_pair.as_ref().map(|key_pair| {
+            let peer = Peer::new(
+                network.address.value().clone(),
+                key_pair.public_key().clone(),
+            );
+
+            (
+                peer.clone(),
+                self.trusted_peers.map(|x| actual::TrustedPeers {
+                    myself: peer,
+                    others: x.0,
+                }),
+            )
+        }) else {
+            panic!("Key pair is missing");
+        };
+
         let genesis = self.genesis.into();
 
         let kura = self.kura.parse();
 
-        let (network, block_sync, transaction_gossiper) = self.network.parse();
         let logger = self.logger;
         let queue = self.queue;
         let snapshot = self.snapshot;
@@ -116,16 +135,7 @@ impl Root {
         let (torii, live_query_store) = self.torii.parse();
         let telemetry = self.telemetry.map(actual::Telemetry::from);
 
-        let peer_id = key_pair.as_ref().map(|key_pair| {
-            PeerId::new(
-                network.address.value().clone(),
-                key_pair.public_key().clone(),
-            )
-        });
-
-        let sumeragi = peer_id
-            .as_ref()
-            .map(|id| self.sumeragi.parse_and_push_self(id.clone()));
+        let sumeragi = self.sumeragi.parse();
 
         emitter.into_result()?;
 
@@ -133,7 +143,8 @@ impl Root {
         let peer = actual::Common {
             chain: self.chain.0,
             key_pair,
-            peer: peer_id.unwrap(),
+            peer,
+            trusted_peers,
         };
 
         Ok(actual::Root {
@@ -142,7 +153,7 @@ impl Root {
             genesis,
             torii,
             kura,
-            sumeragi: sumeragi.unwrap(),
+            sumeragi,
             block_sync,
             transaction_gossiper,
             live_query_store,
@@ -211,22 +222,20 @@ impl Kura {
     }
 }
 
-#[derive(Debug, Copy, Clone, ReadConfig)]
+#[derive(Debug, Clone, Copy, ReadConfig)]
 pub struct KuraDebug {
     #[config(env = "KURA_DEBUG_OUTPUT_NEW_BLOCKS", default)]
     output_new_blocks: bool,
 }
 
-#[derive(Debug, ReadConfig)]
+#[derive(Debug, Clone, Copy, ReadConfig)]
 pub struct Sumeragi {
-    #[config(env = "TRUSTED_PEERS", default)]
-    pub trusted_peers: WithOrigin<TrustedPeers>,
     #[config(nested)]
     pub debug: SumeragiDebug,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TrustedPeers(UniqueVec<PeerId>);
+pub struct TrustedPeers(UniqueVec<Peer>);
 
 impl FromEnvStr for TrustedPeers {
     type Error = json5::Error;
@@ -246,17 +255,12 @@ impl Default for TrustedPeers {
 }
 
 impl Sumeragi {
-    fn parse_and_push_self(self, self_id: PeerId) -> actual::Sumeragi {
+    fn parse(self) -> actual::Sumeragi {
         let Self {
-            trusted_peers,
             debug: SumeragiDebug { force_soft_fork },
         } = self;
 
         actual::Sumeragi {
-            trusted_peers: trusted_peers.map(|x| actual::TrustedPeers {
-                myself: self_id,
-                others: x.0,
-            }),
             debug_force_soft_fork: force_soft_fork,
         }
     }
@@ -270,9 +274,13 @@ pub struct SumeragiDebug {
 
 #[derive(Debug, Clone, ReadConfig)]
 pub struct Network {
-    /// Peer-to-peer address
+    /// Peer-to-peer address (internal, will be used only to bind to it).
     #[config(env = "P2P_ADDRESS")]
     pub address: WithOrigin<SocketAddr>,
+    /// Peer-to-peer address (external, as seen by other peers).
+    /// Will be gossiped to connected peers so that they can gossip it to other peers.
+    #[config(env = "P2P_PUBLIC_ADDRESS")]
+    pub public_address: WithOrigin<SocketAddr>,
     #[config(default = "defaults::network::BLOCK_GOSSIP_SIZE")]
     pub block_gossip_size: NonZeroU32,
     #[config(default = "defaults::network::BLOCK_GOSSIP_PERIOD.into()")]
@@ -296,6 +304,7 @@ impl Network {
     ) {
         let Self {
             address,
+            public_address,
             block_gossip_size,
             block_gossip_period_ms: block_gossip_period,
             transaction_gossip_size,
@@ -306,6 +315,7 @@ impl Network {
         (
             actual::Network {
                 address,
+                public_address,
                 idle_timeout: idle_timeout.get(),
             },
             actual::BlockSync {

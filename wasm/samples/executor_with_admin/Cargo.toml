@@ -16,4 +16,3 @@ iroha_schema.workspace = true
 
 panic-halt.workspace = true
 dlmalloc.workspace = true
-getrandom.workspace = true

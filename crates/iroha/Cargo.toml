@@ -18,8 +18,8 @@ categories.workspace = true
 workspace = true
 
 [badges]
-is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
-is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger-iroha/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger-iroha/iroha" }
 maintenance = { status = "actively-developed" }
 
 [features]
@@ -51,12 +51,13 @@ tls-rustls-webpki-roots = [
 iroha_config = { workspace = true }
 iroha_config_base = { workspace = true }
 iroha_crypto = { workspace = true }
-iroha_data_model = { workspace = true, features = ["http"] }
 iroha_primitives = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_telemetry = { workspace = true }
 iroha_torii_const = { workspace = true }
 iroha_version = { workspace = true }
+
+iroha_data_model = { workspace = true, features = ["http"] }
 iroha_multisig_data_model = { workspace = true }
 
 attohttpc = { version = "0.28.0", default-features = false }
@@ -84,8 +85,10 @@ nonzero_ext = { workspace = true }
 iroha_genesis = { workspace = true }
 iroha_test_samples = { workspace = true }
 iroha_test_network = { workspace = true }
+
+mint_rose_trigger_data_model = { path = "../../data_model/samples/mint_rose_trigger_data_model" }
+executor_custom_data_model = { path = "../../data_model/samples/executor_custom_data_model" }
 iroha_executor_data_model = { workspace = true }
-executor_custom_data_model = { version = "=2.0.0-rc.1.0", path = "../../wasm/samples/executor_custom_data_model" }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 reqwest = { version = "0.12.7", features = ["json"] }

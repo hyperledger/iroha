@@ -49,10 +49,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let tx = AcceptedTransaction::accept(tx, &chain_id, max_clock_drift, tx_limits)
         .expect("Failed to accept Transaction.");
     let peer_key_pair = KeyPair::random();
-    let peer_id = PeerId::new(
-        "127.0.0.1:8080".parse().unwrap(),
-        peer_key_pair.public_key().clone(),
-    );
+    let peer_id = PeerId::new(peer_key_pair.public_key().clone());
     let topology = Topology::new(vec![peer_id]);
     let mut block = {
         let unverified_block = BlockBuilder::new(vec![tx])

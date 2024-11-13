@@ -10,8 +10,8 @@ use std::{
 
 use derive_more::Constructor;
 use eyre::{eyre, Result, WrapErr};
-use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{block::SignedBlock, parameter::Parameter, peer::Peer, prelude::*};
+use iroha_crypto::KeyPair;
+use iroha_data_model::{block::SignedBlock, parameter::Parameter, prelude::*};
 use iroha_executor_data_model::permission::trigger::{
     CanRegisterAnyTrigger, CanUnregisterAnyTrigger,
 };
@@ -199,7 +199,6 @@ impl RawGenesisTransaction {
             let instructions = self
                 .topology
                 .into_iter()
-                .map(Peer::new)
                 .map(Register::peer)
                 .map(InstructionBox::from)
                 .collect();

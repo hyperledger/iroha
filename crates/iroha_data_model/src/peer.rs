@@ -2,18 +2,15 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{
-    borrow::Borrow,
-    cmp::Ordering,
-    hash::{Hash, Hasher},
-};
+use core::{hash::Hash, str::FromStr};
 
-use derive_more::Display;
+use derive_more::{Constructor, DebugCustom, Display};
+use iroha_crypto::PublicKey;
 use iroha_data_model_derive::model;
 use iroha_primitives::addr::SocketAddr;
 
 pub use self::model::*;
-use crate::{Identifiable, PublicKey, Registered};
+use crate::{Identifiable, ParseError, Registered};
 
 #[model]
 mod model {
@@ -21,7 +18,7 @@ mod model {
     use iroha_data_model_derive::IdEqOrdHash;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
-    use serde::{Deserialize, Serialize};
+    use serde_with::{DeserializeFromStr, SerializeDisplay};
 
     use super::*;
 
@@ -30,87 +27,111 @@ mod model {
     /// Equality is tested by `public_key` field only.
     /// Each peer should have a unique public key.
     #[derive(
-        Debug, Display, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Getters,
+        DebugCustom,
+        Display,
+        Clone,
+        Constructor,
+        Ord,
+        PartialOrd,
+        Eq,
+        PartialEq,
+        Hash,
+        Decode,
+        Encode,
+        DeserializeFromStr,
+        SerializeDisplay,
+        IntoSchema,
+        Getters,
     )]
-    #[display(fmt = "{public_key}@@{address}")]
+    #[display(fmt = "{public_key}")]
+    #[debug(fmt = "{public_key}")]
     #[getset(get = "pub")]
-    #[ffi_type]
+    #[repr(transparent)]
+    // TODO: Make it transparent in FFI?
+    #[ffi_type(opaque)]
     pub struct PeerId {
-        /// Address of the [`Peer`]'s entrypoint.
-        pub address: SocketAddr,
         /// Public Key of the [`Peer`].
         pub public_key: PublicKey,
     }
 
     /// Representation of other Iroha Peer instances running in separate processes.
     #[derive(
-        Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Display,
+        Clone,
+        IdEqOrdHash,
+        Decode,
+        Encode,
+        DeserializeFromStr,
+        SerializeDisplay,
+        IntoSchema,
+        Getters,
     )]
-    #[display(fmt = "@@{}", "id.address")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    // TODO: Make it transparent in FFI?
-    #[ffi_type(opaque)]
+    #[display(fmt = "{id}@{address}")]
+    #[ffi_type]
     pub struct Peer {
+        /// Address of the [`Peer`]'s entrypoint.
+        #[getset(get = "pub")]
+        pub address: SocketAddr,
         /// Peer Identification.
         pub id: PeerId,
     }
 }
 
-impl PeerId {
-    /// Construct [`PeerId`] given `public_key` and `address`.
-    #[inline]
-    pub fn new(address: SocketAddr, public_key: PublicKey) -> Self {
-        Self {
-            address,
-            public_key,
-        }
+impl FromStr for PeerId {
+    type Err = iroha_crypto::error::ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        PublicKey::from_str(s).map(Self::new)
+    }
+}
+
+impl From<PublicKey> for PeerId {
+    fn from(public_key: PublicKey) -> Self {
+        Self { public_key }
     }
 }
 
 impl Peer {
-    /// Construct `Peer` given `id`.
+    /// Construct `Peer` given `id` and `address`.
     #[inline]
-    pub const fn new(id: PeerId) -> <Self as Registered>::With {
-        Self { id }
+    pub fn new(address: SocketAddr, id: impl Into<PeerId>) -> Self {
+        Self {
+            address,
+            id: id.into(),
+        }
     }
 }
 
-impl PartialEq for PeerId {
-    fn eq(&self, other: &Self) -> bool {
-        // Comparison is done by public key only.
-        // It is a system invariant that each peer has a unique public key.
-        // Also it helps to handle peer id comparison without domain name resolution.
-        self.public_key == other.public_key
-    }
-}
+impl FromStr for Peer {
+    type Err = ParseError;
 
-impl PartialOrd for PeerId {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for PeerId {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.public_key.cmp(&other.public_key)
-    }
-}
-
-impl Hash for PeerId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.public_key.hash(state);
-    }
-}
-
-impl Borrow<PublicKey> for PeerId {
-    fn borrow(&self) -> &PublicKey {
-        &self.public_key
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.rsplit_once("@") {
+            None => Err(ParseError {
+                reason: "Peer should have format `public_key@address`",
+            }),
+            Some(("", _)) => Err(ParseError {
+                reason: "Empty `public_key` part in `public_key@address`",
+            }),
+            Some((_, "")) => Err(ParseError {
+                reason: "Empty `address` part in `public_key@address`",
+            }),
+            Some((public_key_candidate, address_candidate)) => {
+                let public_key: PublicKey = public_key_candidate.parse().map_err(|_| ParseError {
+                    reason: r#"Failed to parse `public_key` part in `public_key@address`. `public_key` should have multihash format e.g. "ed0120...""#,
+                })?;
+                let address = address_candidate.parse().map_err(|_| ParseError {
+                    reason: "Failed to parse `address` part in `public_key@address`",
+                })?;
+                Ok(Self::new(address, public_key))
+            }
+        }
     }
 }
 
 impl Registered for Peer {
-    type With = Self;
+    type With = PeerId;
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.

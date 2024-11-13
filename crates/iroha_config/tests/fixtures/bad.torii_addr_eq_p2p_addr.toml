@@ -2,6 +2,7 @@ extends = ["base.toml", "base_trusted_peers.toml"]
 
 [network]
 address = "127.0.0.1:8080"
+public_address = "127.0.0.1:8080"
 
 [torii]
 address = "127.0.0.1:8080"

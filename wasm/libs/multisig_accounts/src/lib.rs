@@ -11,15 +11,10 @@ use alloc::format;
 use dlmalloc::GlobalDlmalloc;
 use iroha_executor_data_model::permission::trigger::CanExecuteTrigger;
 use iroha_multisig_data_model::MultisigAccountArgs;
-use iroha_trigger::{
-    debug::{dbg_panic, DebugExpectExt as _},
-    prelude::*,
-};
+use iroha_trigger::prelude::*;
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
-
-getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
 
 // Binary containing common logic to each multisig account for handling multisig transactions
 const MULTISIG_TRANSACTIONS_WASM: &[u8] = core::include_bytes!(concat!(
@@ -30,7 +25,7 @@ const MULTISIG_TRANSACTIONS_WASM: &[u8] = core::include_bytes!(concat!(
 #[iroha_trigger::main]
 fn main(host: Iroha, context: Context) {
     let EventBox::ExecuteTrigger(event) = context.event else {
-        dbg_panic("trigger misused: must be triggered only by a call");
+        dbg_panic!("trigger misused: must be triggered only by a call");
     };
     let args: MultisigAccountArgs = event
         .args()

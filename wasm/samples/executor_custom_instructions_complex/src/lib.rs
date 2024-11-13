@@ -22,8 +22,6 @@ use iroha_executor::{
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
-getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
-
 #[derive(Visit, Execute, Entrypoints)]
 #[visit(custom(visit_custom))]
 struct Executor {
@@ -95,7 +93,7 @@ impl executor_custom_data_model::complex_isi::Context for Context<'_> {
     }
 }
 
-#[entrypoint]
+#[iroha_executor::migrate]
 fn migrate(host: Iroha, _context: iroha_executor::prelude::Context) {
     DataModelBuilder::with_default_permissions()
         .add_instruction::<CustomInstructionExpr>()

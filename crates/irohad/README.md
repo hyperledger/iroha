@@ -72,7 +72,7 @@ Refer to [generating key pairs with `kagami`](../iroha_kagami#crypto) for more d
 
 ### Configuration file
 
-**Note:** this section is under development. You can track it in the [issue](https://github.com/hyperledger/iroha-2-docs/issues/392).
+**Note:** this section is under development. You can track it in the [issue](https://github.com/hyperledger-iroha/iroha-2-docs/issues/392).
 
 ## Deployment
 

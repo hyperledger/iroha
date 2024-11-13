@@ -5,6 +5,8 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
+#[cfg(feature = "debug")]
+use alloc::format;
 use core::fmt::Debug;
 
 use data_model::{
@@ -20,12 +22,35 @@ use iroha_data_model::query::{
     SingularQueryBox, SingularQueryOutputBox,
 };
 pub use iroha_smart_contract_derive::main;
-pub use iroha_smart_contract_utils::{debug, error, info, log, warn};
-use iroha_smart_contract_utils::{
-    debug::{dbg_panic, DebugExpectExt as _},
-    decode_with_length_prefix_from_raw, encode_and_execute,
-};
+pub use iroha_smart_contract_utils::{dbg, dbg_panic, DebugExpectExt, DebugUnwrapExt};
+use iroha_smart_contract_utils::{decode_with_length_prefix_from_raw, encode_and_execute};
 use parity_scale_codec::{Decode, Encode};
+
+#[doc(hidden)]
+pub mod utils {
+    //! Crate with utilities
+
+    pub use iroha_smart_contract_utils::register_getrandom_err_callback;
+
+    /// Get context for smart contract `main()` entrypoint.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[doc(hidden)]
+    #[cfg(not(test))]
+    pub unsafe fn __decode_smart_contract_context(
+        context: *const u8,
+    ) -> crate::data_model::smart_contract::payloads::SmartContractContext {
+        iroha_smart_contract_utils::decode_with_length_prefix_from_raw(context)
+    }
+}
+
+pub mod log {
+    //! WASM logging utilities
+    pub use iroha_smart_contract_utils::{debug, error, event, info, trace, warn};
+}
 
 /// An iterable query cursor for use in smart contracts.
 #[derive(Debug, Clone, Encode, Decode)]
@@ -130,7 +155,7 @@ impl QueryExecutor for Iroha {
     ) -> Result<SingularQueryOutputBox, Self::Error> {
         let QueryResponse::Singular(output) = Self::execute_query(&QueryRequest::Singular(query))?
         else {
-            dbg_panic("BUG: iroha returned unexpected type in singular query");
+            dbg_panic!("BUG: iroha returned unexpected type in singular query");
         };
 
         Ok(output)
@@ -142,7 +167,7 @@ impl QueryExecutor for Iroha {
     ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) = Self::execute_query(&QueryRequest::Start(query))?
         else {
-            dbg_panic("BUG: iroha returned unexpected type in iterable query");
+            dbg_panic!("BUG: iroha returned unexpected type in iterable query");
         };
 
         let (batch, remaining_items, cursor) = output.into_parts();
@@ -160,7 +185,7 @@ impl QueryExecutor for Iroha {
         let QueryResponse::Iterable(output) =
             Self::execute_query(&QueryRequest::Continue(cursor.cursor))?
         else {
-            dbg_panic("BUG: iroha returned unexpected type in iterable query");
+            dbg_panic!("BUG: iroha returned unexpected type in iterable query");
         };
 
         let (batch, remaining_items, cursor) = output.into_parts();
@@ -176,7 +201,7 @@ impl QueryExecutor for Iroha {
 #[no_mangle]
 extern "C" fn _iroha_smart_contract_alloc(len: usize) -> *const u8 {
     if len == 0 {
-        iroha_smart_contract_utils::debug::dbg_panic("Cannot allocate 0 bytes");
+        dbg_panic!("Cannot allocate 0 bytes");
     }
     let layout = core::alloc::Layout::array::<u8>(len).dbg_expect("Cannot allocate layout");
     // Safety: safe because `layout` is guaranteed to have non-zero size
@@ -189,47 +214,6 @@ extern "C" fn _iroha_smart_contract_alloc(len: usize) -> *const u8 {
 #[no_mangle]
 unsafe extern "C" fn _iroha_smart_contract_dealloc(offset: *mut u8, len: usize) {
     let _box = Box::from_raw(core::slice::from_raw_parts_mut(offset, len));
-}
-
-/// Stub for [`getrandom::getrandom()`] for Iroha smart contracts.
-/// Prints a log message with [`error!`] and panics.
-///
-/// Required in order to crates like `iroha_crypto` to compile. Should never be called.
-///
-/// # Panics
-///
-/// Always Panics with [`unimplemented!()`];
-///
-/// # Errors
-///
-/// No errors, always panics.
-///
-/// # Example
-///
-/// ```
-/// // Cargo.toml
-/// // getrandom = { version = "0.2", features = ["custom"] }
-///
-/// getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
-/// ```
-pub fn stub_getrandom(_dest: &mut [u8]) -> Result<(), getrandom::Error> {
-    const ERROR_MESSAGE: &str =
-        "`getrandom()` is not implemented. To provide your custom function \
-         see https://docs.rs/getrandom/latest/getrandom/macro.register_custom_getrandom.html. \
-         Be aware that your function must give the same result on different peers at the same execution round,
-         and keep in mind the consequences of purely implemented random function.";
-
-    // we don't support logging in our current wasm test runner implementation
-    #[cfg(not(test))]
-    error!(ERROR_MESSAGE);
-    unimplemented!("{ERROR_MESSAGE}")
-}
-
-/// Get context for smart contract `main()` entrypoint.
-#[cfg(not(test))]
-pub fn get_smart_contract_context() -> data_model::smart_contract::payloads::SmartContractContext {
-    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_smart_contract_context()) }
 }
 
 #[cfg(not(test))]
@@ -253,23 +237,14 @@ mod host {
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
         pub(super) fn execute_instruction(ptr: *const u8, len: usize) -> *const u8;
-
-        /// Get context for smart contract `main()` entrypoint.
-        /// # Warning
-        ///
-        /// This function transfers ownership of the result to the caller
-        pub(super) fn get_smart_contract_context() -> *const u8;
     }
 }
 
 /// Most used items
 pub mod prelude {
-    pub use iroha_smart_contract_derive::main;
-    pub use iroha_smart_contract_utils::debug::DebugUnwrapExt;
-
     pub use crate::{
         data_model::{prelude::*, smart_contract::payloads::SmartContractContext as Context},
-        Iroha,
+        dbg, dbg_panic, DebugExpectExt, DebugUnwrapExt, Iroha,
     };
 }
 
@@ -282,8 +257,6 @@ mod tests {
     use webassembly_test::webassembly_test;
 
     use super::*;
-
-    getrandom::register_custom_getrandom!(super::stub_getrandom);
 
     const QUERY_RESULT: Result<Numeric, ValidationFail> = Ok(numeric!(1234));
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());

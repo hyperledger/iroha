@@ -2,6 +2,8 @@
 
 use derive_more::Display;
 use indexmap::IndexSet;
+#[cfg(test)]
+use iroha_crypto::KeyPair;
 use iroha_crypto::PublicKey;
 use iroha_data_model::{block::BlockSignature, prelude::PeerId};
 
@@ -258,23 +260,26 @@ pub enum Role {
 }
 
 #[cfg(test)]
-macro_rules! test_peers {
-    ($($id:literal),+$(,)?) => {{
-        let mut iter = ::core::iter::repeat_with(
-            || iroha_crypto::KeyPair::random()
-        );
-
-        test_peers![$($id),*: iter]
-    }};
-    ($($id:literal),+$(,)?: $key_pair_iter:expr) => {
-        ::iroha_primitives::unique_vec![
-            $(PeerId::new((([0, 0, 0, 0], $id).into()), $key_pair_iter.next().expect("Not enough key pairs").public_key().clone())),+
-        ]
-    };
+fn test_peers(n_peers: usize) -> Vec<PeerId> {
+    (0..n_peers)
+        .map(|_| PeerId::new(KeyPair::random().into_parts().0))
+        .collect()
 }
 
 #[cfg(test)]
-pub(crate) use test_peers;
+pub fn test_topology(n_peers: usize) -> Topology {
+    let keys = (0..n_peers).map(|_| KeyPair::random()).collect::<Vec<_>>();
+    test_topology_with_keys(&keys)
+}
+
+#[cfg(test)]
+#[allow(single_use_lifetimes)] // false-positive
+pub fn test_topology_with_keys<'a>(keys: impl IntoIterator<Item = &'a KeyPair>) -> Topology {
+    let peers = keys
+        .into_iter()
+        .map(|key| PeerId::new(key.public_key().clone()));
+    Topology::new(peers)
+}
 
 #[cfg(test)]
 mod tests {
@@ -284,37 +289,42 @@ mod tests {
     use super::*;
     use crate::block::ValidBlock;
 
-    fn topology() -> Topology {
-        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
-        Topology::new(peers)
-    }
-
-    fn extract_ports(topology: &Topology) -> Vec<u16> {
-        topology.0.iter().map(|peer| peer.address.port()).collect()
+    fn extract_order(topology: &Topology, initial_topology: &Topology) -> Vec<usize> {
+        topology
+            .0
+            .iter()
+            .map(|peer| {
+                initial_topology
+                    .0
+                    .iter()
+                    .position(|p| p.public_key == peer.public_key)
+                    .unwrap()
+            })
+            .collect()
     }
 
     #[test]
     fn rotate_set_a() {
-        let mut topology = topology();
+        let mut topology = test_topology(7);
+        let initial_topology = topology.clone();
         topology.rotate_set_a();
-        assert_eq!(extract_ports(&topology), vec![1, 2, 3, 4, 0, 5, 6])
+        assert_eq!(
+            extract_order(&topology, &initial_topology),
+            vec![1, 2, 3, 4, 0, 5, 6]
+        )
     }
 
     #[test]
     fn update_peer_list() {
-        let mut topology = topology();
+        let mut topology = test_topology(7);
+        let peer0 = topology.0[0].clone();
+        let peer2 = topology.0[2].clone();
+        let peer5 = topology.0[5].clone();
+        let peer7 = test_peers(1).remove(0);
         // New peers will be 0, 2, 5, 7
-        let new_peers = {
-            let mut peers = unique_vec![
-                topology.0[5].clone(),
-                topology.0[0].clone(),
-                topology.0[2].clone(),
-            ];
-            peers.extend(test_peers![7]);
-            peers
-        };
+        let new_peers = unique_vec![peer5.clone(), peer0.clone(), peer2.clone(), peer7.clone()];
         topology.update_peer_list(new_peers);
-        assert_eq!(extract_ports(&topology), vec![0, 2, 5, 7])
+        assert_eq!(topology.0, vec![peer0, peer2, peer5, peer7])
     }
 
     #[test]
@@ -322,9 +332,7 @@ mod tests {
         let key_pairs = core::iter::repeat_with(KeyPair::random)
             .take(7)
             .collect::<Vec<_>>();
-        let mut key_pairs_iter = key_pairs.iter();
-        let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
-        let topology = Topology::new(peers);
+        let topology = test_topology_with_keys(&key_pairs);
 
         let dummy_block = ValidBlock::new_dummy(key_pairs[0].private_key());
         let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
@@ -362,9 +370,8 @@ mod tests {
         let key_pairs = core::iter::repeat_with(KeyPair::random)
             .take(7)
             .collect::<Vec<_>>();
-        let mut key_pairs_iter = key_pairs.iter();
-        let peers = test_peers![0: key_pairs_iter];
-        let topology = Topology::new(peers);
+        let key_pairs_iter = key_pairs.iter().take(1);
+        let topology = test_topology_with_keys(key_pairs_iter);
 
         let dummy_block = ValidBlock::new_dummy(key_pairs[0].private_key());
         let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
@@ -396,9 +403,8 @@ mod tests {
         let key_pairs = core::iter::repeat_with(KeyPair::random)
             .take(7)
             .collect::<Vec<_>>();
-        let mut key_pairs_iter = key_pairs.iter();
-        let peers = test_peers![0, 1: key_pairs_iter];
-        let topology = Topology::new(peers);
+        let key_pairs_iter = key_pairs.iter().take(2);
+        let topology = test_topology_with_keys(key_pairs_iter);
 
         let dummy_block = ValidBlock::new_dummy(key_pairs[0].private_key());
         let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
@@ -432,9 +438,8 @@ mod tests {
         let key_pairs = core::iter::repeat_with(KeyPair::random)
             .take(7)
             .collect::<Vec<_>>();
-        let mut key_pairs_iter = key_pairs.iter();
-        let peers = test_peers![0, 1, 2: key_pairs_iter];
-        let topology = Topology::new(peers);
+        let key_pairs_iter = key_pairs.iter().take(3);
+        let topology = test_topology_with_keys(key_pairs_iter);
 
         let dummy_block = ValidBlock::new_dummy(key_pairs[0].private_key());
         let dummy_signature = &dummy_block.as_ref().signatures().next().unwrap().1;
@@ -467,7 +472,7 @@ mod tests {
 
     #[test]
     fn proxy_tail() {
-        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
+        let peers = test_peers(7);
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -487,8 +492,7 @@ mod tests {
 
     #[test]
     fn proxy_tail_1() {
-        let peers = test_peers![0];
-        let topology = Topology::new(peers);
+        let topology = test_topology(1);
 
         assert_eq!(
             topology
@@ -501,7 +505,7 @@ mod tests {
 
     #[test]
     fn proxy_tail_2() {
-        let peers = test_peers![0, 1];
+        let peers = test_peers(2);
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -515,7 +519,7 @@ mod tests {
 
     #[test]
     fn proxy_tail_3() {
-        let peers = test_peers![0, 1, 2];
+        let peers = test_peers(3);
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -529,7 +533,7 @@ mod tests {
 
     #[test]
     fn leader() {
-        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
+        let peers = test_peers(7);
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -543,7 +547,7 @@ mod tests {
 
     #[test]
     fn leader_1() {
-        let peers = test_peers![0];
+        let peers = test_peers(1);
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -557,7 +561,7 @@ mod tests {
 
     #[test]
     fn leader_2() {
-        let peers = test_peers![0, 1];
+        let peers = test_peers(2);
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -571,7 +575,7 @@ mod tests {
 
     #[test]
     fn leader_3() {
-        let peers = test_peers![0, 1, 3];
+        let peers = test_peers(3);
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -585,7 +589,7 @@ mod tests {
 
     #[test]
     fn validating_peers() {
-        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
+        let peers = test_peers(7);
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -599,7 +603,7 @@ mod tests {
 
     #[test]
     fn validating_peers_1() {
-        let peers = test_peers![0];
+        let peers = test_peers(1);
         let topology = Topology::new(peers);
 
         assert_eq!(
@@ -613,7 +617,7 @@ mod tests {
 
     #[test]
     fn validating_peers_2() {
-        let peers = test_peers![0, 1];
+        let peers = test_peers(2);
         let topology = Topology::new(peers);
 
         let empty_peer_slice: &[PeerId] = &[];
@@ -628,7 +632,7 @@ mod tests {
 
     #[test]
     fn validating_peers_3() {
-        let peers = test_peers![0, 1, 2];
+        let peers = test_peers(3);
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -642,7 +646,7 @@ mod tests {
 
     #[test]
     fn observing_peers() {
-        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
+        let peers = test_peers(7);
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -656,7 +660,7 @@ mod tests {
 
     #[test]
     fn observing_peers_1() {
-        let peers = test_peers![0];
+        let peers = test_peers(1);
         let topology = Topology::new(peers);
 
         assert_eq!(
@@ -670,7 +674,7 @@ mod tests {
 
     #[test]
     fn observing_peers_2() {
-        let peers = test_peers![0, 1];
+        let peers = test_peers(2);
         let topology = Topology::new(peers);
 
         let empty_peer_slice: &[PeerId] = &[];
@@ -685,7 +689,7 @@ mod tests {
 
     #[test]
     fn observing_peers_3() {
-        let peers = test_peers![0, 1, 2];
+        let peers = test_peers(3);
         let topology = Topology::new(peers);
 
         let empty_peer_slice: &[PeerId] = &[];
@@ -700,7 +704,7 @@ mod tests {
 
     #[test]
     fn validating_peers_empty() {
-        let peers = test_peers![0, 1];
+        let peers = test_peers(2);
         let topology = Topology::new(peers);
 
         assert_eq!(
@@ -714,7 +718,7 @@ mod tests {
 
     #[test]
     fn observing_peers_empty() {
-        let peers = test_peers![0, 1, 2];
+        let peers = test_peers(3);
         let topology = Topology::new(peers);
 
         assert_eq!(

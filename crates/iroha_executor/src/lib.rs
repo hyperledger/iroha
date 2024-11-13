@@ -10,56 +10,86 @@ use data_model::{executor::Result, ValidationFail};
 #[cfg(not(test))]
 use data_model::{prelude::*, query::AnyQueryBox, smart_contract::payloads};
 use iroha_executor_data_model::{parameter::Parameter, permission::Permission};
+pub use iroha_executor_derive::{entrypoint, migrate};
 use iroha_schema::{Ident, MetaMap};
 pub use iroha_smart_contract as smart_contract;
-pub use iroha_smart_contract_utils::{debug, encode_with_length_prefix};
-#[cfg(not(test))]
-use iroha_smart_contract_utils::{decode_with_length_prefix_from_raw, encode_and_execute};
-pub use smart_contract::{data_model, stub_getrandom, Iroha};
+pub use iroha_smart_contract_utils::{dbg, dbg_panic, DebugExpectExt, DebugUnwrapExt};
+pub use smart_contract::{data_model, Iroha};
 
 pub mod default;
 pub mod permission;
 
-pub mod utils {
-    //! Crate with utilities for implementing smart contract FFI
-    pub use iroha_smart_contract_utils::encode_with_length_prefix;
-}
-
 pub mod log {
     //! WASM logging utilities
-    pub use iroha_smart_contract_utils::{debug, error, event, info, log::*, trace, warn};
+    pub use iroha_smart_contract_utils::{debug, error, event, info, trace, warn};
 }
 
-/// Get context for `validate_transaction()` entrypoint.
-#[cfg(not(test))]
-pub fn decode_execute_transaction_context(
-    context: *const u8,
-) -> payloads::Validate<SignedTransaction> {
-    // Safety: ownership of the provided context is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(context) }
-}
+#[doc(hidden)]
+pub mod utils {
+    //! Crate with utilities
 
-/// Get context for `validate_instruction()` entrypoint.
-#[cfg(not(test))]
-pub fn decode_execute_instruction_context(
-    context: *const u8,
-) -> payloads::Validate<InstructionBox> {
-    // Safety: ownership of the provided context is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(context) }
-}
+    #[cfg(not(test))]
+    use iroha_smart_contract_utils::decode_with_length_prefix_from_raw;
+    pub use iroha_smart_contract_utils::{
+        encode_with_length_prefix, register_getrandom_err_callback,
+    };
 
-/// Get context for `validate_query()` entrypoint.
-#[cfg(not(test))]
-pub fn decode_validate_query_context(context: *const u8) -> payloads::Validate<AnyQueryBox> {
-    // Safety: ownership of the provided context is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(context) }
-}
+    #[cfg(not(test))]
+    use super::*;
 
-/// Get context for `migrate()` entrypoint.
-#[cfg(not(test))]
-pub fn decode_migrate_context(context: *const u8) -> payloads::ExecutorContext {
-    // Safety: ownership of the provided context is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(context) }
+    /// Get context for `validate_transaction()` entrypoint.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[doc(hidden)]
+    #[cfg(not(test))]
+    pub unsafe fn __decode_execute_transaction_context(
+        context: *const u8,
+    ) -> payloads::Validate<SignedTransaction> {
+        decode_with_length_prefix_from_raw(context)
+    }
+
+    /// Get context for `validate_instruction()` entrypoint.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[doc(hidden)]
+    #[cfg(not(test))]
+    pub unsafe fn __decode_execute_instruction_context(
+        context: *const u8,
+    ) -> payloads::Validate<InstructionBox> {
+        decode_with_length_prefix_from_raw(context)
+    }
+
+    /// Get context for `validate_query()` entrypoint.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[doc(hidden)]
+    #[cfg(not(test))]
+    pub unsafe fn __decode_validate_query_context(
+        context: *const u8,
+    ) -> payloads::Validate<AnyQueryBox> {
+        decode_with_length_prefix_from_raw(context)
+    }
+
+    /// Get context for `migrate()` entrypoint.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[doc(hidden)]
+    #[cfg(not(test))]
+    pub unsafe fn __decode_migrate_context(context: *const u8) -> payloads::ExecutorContext {
+        decode_with_length_prefix_from_raw(context)
+    }
 }
 
 /// Set new [`ExecutorDataModel`].
@@ -75,7 +105,7 @@ pub fn decode_migrate_context(context: *const u8) -> payloads::ExecutorContext {
 #[cfg(not(test))]
 pub fn set_data_model(data_model: &ExecutorDataModel) {
     // Safety: - ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { encode_and_execute(&data_model, host::set_data_model) }
+    unsafe { iroha_smart_contract_utils::encode_and_execute(&data_model, host::set_data_model) }
 }
 
 #[cfg(not(test))]
@@ -227,8 +257,7 @@ impl DataModelBuilder {
             let account_permissions = host
                 .query(FindPermissionsByAccountId::new(account.id().clone()))
                 .execute()
-                .unwrap()
-                .into_iter();
+                .unwrap();
 
             for permission in account_permissions.map(|permission| permission.unwrap()) {
                 if !self.permissions.contains(permission.name()) {
@@ -277,14 +306,14 @@ pub mod prelude {
 
     pub use alloc::vec::Vec;
 
-    pub use iroha_executor_derive::{entrypoint, Entrypoints, Execute, Visit};
-    pub use iroha_smart_contract::prelude::*;
+    pub use iroha_executor_derive::{Entrypoints, Execute, Visit};
 
-    pub use super::{
+    pub use crate::{
         data_model::{
-            executor::Result, smart_contract::payloads::ExecutorContext as Context, visit::Visit,
-            ValidationFail,
+            executor::Result, prelude::*, smart_contract::payloads::ExecutorContext as Context,
+            visit::Visit,
         },
-        deny, execute, DataModelBuilder, Execute,
+        dbg, dbg_panic, deny, execute, DataModelBuilder, DebugExpectExt, DebugUnwrapExt, Execute,
+        Iroha,
     };
 }

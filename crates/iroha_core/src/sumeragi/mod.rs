@@ -28,12 +28,15 @@ pub mod network_topology;
 pub mod view_change;
 
 use self::{message::*, view_change::ProofChain};
-use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, NetworkMessage};
+use crate::{
+    kura::Kura, peers_gossiper::PeersGossiperHandle, prelude::*, queue::Queue, EventsSender,
+    IrohaNetwork, NetworkMessage,
+};
 
 /// Handle to `Sumeragi` actor
 #[derive(Clone)]
 pub struct SumeragiHandle {
-    peer_id: PeerId,
+    peer: Peer,
     /// Counter for amount of dropped messages by sumeragi
     #[cfg(feature = "telemetry")]
     dropped_messages_metric: iroha_telemetry::metrics::DroppedMessagesCounter,
@@ -51,7 +54,7 @@ impl SumeragiHandle {
             self.dropped_messages_metric.inc();
 
             error!(
-                peer_id=%self.peer_id,
+                peer_id=%self.peer,
                 ?error,
                 "This peer is faulty. \
                  Incoming control messages have to be dropped due to low processing speed."
@@ -78,7 +81,7 @@ impl SumeragiHandle {
             self.dropped_messages_metric.inc();
 
             error!(
-                peer_id=%self.peer_id,
+                peer_id=%self.peer,
                 ?error,
                 "This peer is faulty. \
                  Incoming messages have to be dropped due to low processing speed."
@@ -137,17 +140,20 @@ impl SumeragiStartArgs {
     #[allow(clippy::too_many_lines)]
     pub fn start(self, shutdown_signal: ShutdownSignal) -> (SumeragiHandle, Child) {
         let Self {
-            sumeragi_config,
+            config: SumeragiConfig {
+                debug_force_soft_fork,
+            },
             common_config,
             events_sender,
             state,
             queue,
             kura,
             network,
+            peers_gossiper,
             genesis_network,
             block_count: BlockCount(block_count),
             #[cfg(feature = "telemetry")]
-                sumeragi_metrics:
+                metrics:
                 SumeragiMetrics {
                     view_changes,
                     dropped_messages,
@@ -172,7 +178,7 @@ impl SumeragiStartArgs {
 
             topology = match state_view.height() {
                 0 => Topology::new(
-                    sumeragi_config
+                    common_config
                         .trusted_peers
                         .value()
                         .clone()
@@ -203,20 +209,16 @@ impl SumeragiStartArgs {
 
         info!("Sumeragi has finished loading blocks and setting up the state");
 
-        #[cfg(debug_assertions)]
-        let debug_force_soft_fork = sumeragi_config.debug_force_soft_fork;
-        #[cfg(not(debug_assertions))]
-        let debug_force_soft_fork = false;
-
-        let peer_id = common_config.peer;
+        let peer = common_config.peer;
         let sumeragi = main_loop::Sumeragi {
             chain_id: common_config.chain,
             key_pair: common_config.key_pair,
-            peer_id: peer_id.clone(),
+            peer: peer.clone(),
             queue: Arc::clone(&queue),
             events_sender,
             kura: Arc::clone(&kura),
             network: network.clone(),
+            peers_gossiper,
             control_message_receiver,
             message_receiver,
             debug_force_soft_fork,
@@ -240,7 +242,7 @@ impl SumeragiStartArgs {
 
         (
             SumeragiHandle {
-                peer_id,
+                peer,
                 #[cfg(feature = "telemetry")]
                 dropped_messages_metric: dropped_messages,
                 control_message_sender,
@@ -290,17 +292,18 @@ impl VotingBlock<'_> {
 /// Arguments for [`SumeragiHandle::start`] function
 #[allow(missing_docs)]
 pub struct SumeragiStartArgs {
-    pub sumeragi_config: SumeragiConfig,
+    pub config: SumeragiConfig,
     pub common_config: CommonConfig,
     pub events_sender: EventsSender,
     pub state: Arc<State>,
     pub queue: Arc<Queue>,
     pub kura: Arc<Kura>,
     pub network: IrohaNetwork,
+    pub peers_gossiper: PeersGossiperHandle,
     pub genesis_network: GenesisWithPubKey,
     pub block_count: BlockCount,
     #[cfg(feature = "telemetry")]
-    pub sumeragi_metrics: SumeragiMetrics,
+    pub metrics: SumeragiMetrics,
 }
 
 /// Relevant sumeragi metrics

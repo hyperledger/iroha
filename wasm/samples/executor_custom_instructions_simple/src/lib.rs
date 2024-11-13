@@ -10,12 +10,10 @@ extern crate panic_halt;
 
 use dlmalloc::GlobalDlmalloc;
 use executor_custom_data_model::simple_isi::{CustomInstructionBox, MintAssetForAllAccounts};
-use iroha_executor::{data_model::isi::CustomInstruction, debug::DebugExpectExt, prelude::*};
+use iroha_executor::{data_model::isi::CustomInstruction, prelude::*};
 
 #[global_allocator]
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
-
-getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
 
 #[derive(Visit, Execute, Entrypoints)]
 #[visit(custom(visit_custom))]
@@ -64,7 +62,7 @@ fn execute_mint_asset_for_all_accounts(
     Ok(())
 }
 
-#[entrypoint]
+#[iroha_executor::migrate]
 fn migrate(host: Iroha, _context: Context) {
     DataModelBuilder::with_default_permissions()
         .add_instruction::<CustomInstructionBox>()

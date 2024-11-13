@@ -14,12 +14,12 @@ workspace = true
 proc-macro = true
 
 [badges]
-is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
-is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger-iroha/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger-iroha/iroha" }
 maintenance = { status = "actively-developed" }
 
 [features]
-# FIXME: it doesn't work https://github.com/hyperledger/iroha/issues/5134
+# FIXME: it doesn't work https://github.com/hyperledger-iroha/iroha/issues/5134
 metric-instrumentation = []
 
 [dependencies]

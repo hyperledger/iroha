@@ -1,16 +1,14 @@
 //! Crate with various derive macros
 
-use darling::{util::SpannedValue, FromDeriveInput};
-use manyhow::{manyhow, Result};
-use proc_macro2::{Span, TokenStream};
-use quote::{quote, quote_spanned, ToTokens};
-use syn::{spanned::Spanned, Token};
+use darling::FromDeriveInput as _;
 
-/// Attribute for skipping from attribute
-const SKIP_FROM_ATTR: &str = "skip_from";
-const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
-/// Attribute to skip inner container optimization. Useful for trait objects
-const SKIP_CONTAINER: &str = "skip_container";
+mod from_variant;
+mod serde_where;
+
+use iroha_macro_utils::Emitter;
+use manyhow::{manyhow, Result};
+use proc_macro2::TokenStream;
+use quote::{quote, ToTokens as _};
 
 /// Helper macro to expand FFI functions
 #[manyhow]
@@ -26,104 +24,6 @@ pub fn ffi_impl_opaque(_: TokenStream, item: TokenStream) -> Result<TokenStream>
         #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
         #item
     })
-}
-
-#[derive(darling::FromDeriveInput, Debug)]
-#[darling(supports(enum_any))]
-struct FromVariantInput {
-    ident: syn::Ident,
-    generics: syn::Generics,
-    data: darling::ast::Data<SpannedValue<FromVariantVariant>, darling::util::Ignored>,
-}
-
-// FromVariant manually implemented for additional validation
-#[derive(Debug)]
-struct FromVariantVariant {
-    ident: syn::Ident,
-    fields: darling::ast::Fields<SpannedValue<FromVariantField>>,
-}
-
-impl FromVariantVariant {
-    fn can_from_be_implemented(
-        fields: &darling::ast::Fields<SpannedValue<FromVariantField>>,
-    ) -> bool {
-        fields.style == darling::ast::Style::Tuple && fields.fields.len() == 1
-    }
-}
-
-impl darling::FromVariant for FromVariantVariant {
-    fn from_variant(variant: &syn::Variant) -> darling::Result<Self> {
-        let ident = variant.ident.clone();
-        let fields = darling::ast::Fields::try_from(&variant.fields)?;
-        let mut accumulator = darling::error::Accumulator::default();
-
-        let can_from_be_implemented = Self::can_from_be_implemented(&fields);
-
-        for field in &fields.fields {
-            if (field.skip_from || field.skip_container) && !can_from_be_implemented {
-                accumulator.push(darling::Error::custom("#[skip_from], #[skip_try_from] and #[skip_container] attributes are only allowed for new-type enum variants (single unnamed field). The `From` traits will not be implemented for other kinds of variants").with_span(&field.span()));
-            }
-        }
-
-        for attr in &variant.attrs {
-            let span = attr.span();
-            let attr = attr.path().to_token_stream().to_string();
-            match attr.as_str() {
-                SKIP_FROM_ATTR | SKIP_TRY_FROM_ATTR | SKIP_CONTAINER => {
-                    accumulator.push(
-                        darling::Error::custom(format!(
-                            "#[{}] attribute should be applied to the field, not variant",
-                            &attr
-                        ))
-                        .with_span(&span),
-                    );
-                }
-                _ => {}
-            }
-        }
-
-        accumulator.finish()?;
-
-        Ok(Self { ident, fields })
-    }
-}
-
-// FromField manually implemented for non-standard attributes
-#[derive(Debug)]
-struct FromVariantField {
-    ty: syn::Type,
-    skip_from: bool,
-    skip_try_from: bool,
-    skip_container: bool,
-}
-
-// implementing manually, because darling can't parse attributes that are not under some unified attr
-// It expects us to have a common attribute that will contain all the fields, like:
-// #[hello(skip_from, skip_container)]
-// The already defined macro API uses `skip_from` and `skip_container` attributes without any qualification
-// Arguably, this is also more convenient for the user (?)
-// Hence, we fall back to manual parsing
-impl darling::FromField for FromVariantField {
-    fn from_field(field: &syn::Field) -> darling::Result<Self> {
-        let mut skip_from = false;
-        let mut skip_try_from = false;
-        let mut skip_container = false;
-        for attr in &field.attrs {
-            match attr.path().clone().to_token_stream().to_string().as_str() {
-                SKIP_FROM_ATTR => skip_from = true,
-                SKIP_TRY_FROM_ATTR => skip_try_from = true,
-                SKIP_CONTAINER => skip_container = true,
-                // ignore unknown attributes, rustc handles them
-                _ => continue,
-            }
-        }
-        Ok(Self {
-            ty: field.ty.clone(),
-            skip_from,
-            skip_try_from,
-            skip_container,
-        })
-    }
 }
 
 /// [`FromVariant`] is used for implementing `From<Variant> for Enum`
@@ -159,200 +59,45 @@ impl darling::FromField for FromVariantField {
 #[proc_macro_derive(FromVariant, attributes(skip_from, skip_try_from, skip_container))]
 pub fn from_variant_derive(input: TokenStream) -> Result<TokenStream> {
     let ast = syn::parse2(input)?;
-    let ast = FromVariantInput::from_derive_input(&ast)?;
-    Ok(impl_from_variant(&ast))
+    let ast = from_variant::FromVariantInput::from_derive_input(&ast)?;
+    Ok(from_variant::impl_from_variant(&ast))
 }
 
-const CONTAINERS: &[&str] = &["Box", "RefCell", "Cell", "Rc", "Arc", "Mutex", "RwLock"];
+/// `#[serde_where]` attribute is a `derive-where`-like macro for serde, useful when associated types are used.
+///
+/// It allows you to specify where bounds for `Serialize` and `Deserialize` traits with a more concise syntax.
+///
+/// ```rust
+/// use iroha_derive::serde_where;
+/// use serde::{Deserialize, Serialize};
+///
+/// trait Trait {
+///     type Assoc;
+/// }
+///
+/// #[serde_where(T::Assoc)]
+/// #[derive(Serialize, Deserialize)]
+/// struct Type<T: Trait> {
+///     field: T::Assoc,
+/// }
+/// ```
+#[manyhow]
+#[proc_macro_attribute]
+pub fn serde_where(arguments: TokenStream, item: TokenStream) -> TokenStream {
+    let mut emitter = Emitter::new();
 
-fn get_type_argument<'b>(s: &str, ty: &'b syn::TypePath) -> Option<&'b syn::GenericArgument> {
-    // NOTE: this is NOT syn::Path::is_ident because it allows for generic parameters
-    let segments = &ty.path.segments;
-    if segments.len() != 1 || segments[0].ident != s {
-        return None;
-    }
+    let Some(derive_input) = emitter.handle(syn::parse2::<syn::DeriveInput>(item.clone())) else {
+        // pass the input as-is, even if it's not a valid derive input
+        return emitter.finish_token_stream_with(item);
+    };
+    let Some(arguments) =
+        emitter.handle(syn::parse2::<serde_where::SerdeWhereArguments>(arguments))
+    else {
+        // if we can't parse the arguments - pass the input as is
+        return emitter.finish_token_stream_with(derive_input.into_token_stream());
+    };
 
-    if let syn::PathArguments::AngleBracketed(ref bracketed_arguments) = segments[0].arguments {
-        assert_eq!(bracketed_arguments.args.len(), 1);
-        Some(&bracketed_arguments.args[0])
-    } else {
-        unreachable!("No other arguments for types in enum variants possible")
-    }
-}
+    let result = serde_where::impl_serde_where(&mut emitter, arguments, derive_input);
 
-fn from_container_variant_internal(
-    into_ty: &syn::Ident,
-    into_variant: &syn::Ident,
-    from_ty: &syn::GenericArgument,
-    container_ty: &syn::TypePath,
-    generics: &syn::Generics,
-) -> TokenStream {
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-    quote! {
-        impl #impl_generics core::convert::From<#from_ty> for #into_ty #ty_generics #where_clause {
-            fn from(origin: #from_ty) -> Self {
-                #into_ty :: #into_variant (#container_ty :: new(origin))
-            }
-        }
-    }
-}
-
-fn from_variant_internal(
-    span: Span,
-    into_ty: &syn::Ident,
-    into_variant: &syn::Ident,
-    from_ty: &syn::Type,
-    generics: &syn::Generics,
-) -> TokenStream {
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-    quote_spanned! { span =>
-        impl #impl_generics core::convert::From<#from_ty> for #into_ty #ty_generics #where_clause {
-            fn from(origin: #from_ty) -> Self {
-                #into_ty :: #into_variant (origin)
-            }
-        }
-    }
-}
-
-fn from_variant(
-    span: Span,
-    into_ty: &syn::Ident,
-    into_variant: &syn::Ident,
-    from_ty: &syn::Type,
-    generics: &syn::Generics,
-    skip_container: bool,
-) -> TokenStream {
-    let from_orig = from_variant_internal(span, into_ty, into_variant, from_ty, generics);
-
-    if let syn::Type::Path(path) = from_ty {
-        let mut code = from_orig;
-
-        if skip_container {
-            return code;
-        }
-
-        for container in CONTAINERS {
-            if let Some(inner) = get_type_argument(container, path) {
-                let segments = path
-                    .path
-                    .segments
-                    .iter()
-                    .map(|segment| {
-                        let mut segment = segment.clone();
-                        segment.arguments = syn::PathArguments::default();
-                        segment
-                    })
-                    .collect::<syn::punctuated::Punctuated<_, Token![::]>>();
-                let path = syn::Path {
-                    segments,
-                    leading_colon: None,
-                };
-                let path = &syn::TypePath { path, qself: None };
-
-                let from_inner =
-                    from_container_variant_internal(into_ty, into_variant, inner, path, generics);
-                code = quote_spanned! { span =>
-                    #code
-                    #from_inner
-                };
-            }
-        }
-
-        return code;
-    }
-
-    from_orig
-}
-
-fn try_into_variant_single(
-    span: Span,
-    enum_ty: &syn::Ident,
-    variant: &syn::Ident,
-    variant_ty: &syn::Type,
-    generics: &syn::Generics,
-) -> TokenStream {
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-    quote_spanned! { span =>
-        impl #impl_generics core::convert::TryFrom<#enum_ty #ty_generics> for #variant_ty #where_clause {
-            type Error = ::iroha_macro::error::ErrorTryFromEnum<#enum_ty #ty_generics, Self>;
-
-            fn try_from(origin: #enum_ty #ty_generics) -> core::result::Result<Self, ::iroha_macro::error::ErrorTryFromEnum<#enum_ty #ty_generics, Self>> {
-                let #enum_ty :: #variant(variant) = origin;
-                Ok(variant)
-            }
-        }
-    }
-}
-
-fn try_into_variant(
-    span: Span,
-    enum_ty: &syn::Ident,
-    variant: &syn::Ident,
-    variant_ty: &syn::Type,
-    generics: &syn::Generics,
-) -> TokenStream {
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-    quote_spanned! { span =>
-        impl #impl_generics core::convert::TryFrom<#enum_ty #ty_generics> for #variant_ty #where_clause {
-            type Error = ::iroha_macro::error::ErrorTryFromEnum<#enum_ty #ty_generics, Self>;
-
-            fn try_from(origin: #enum_ty #ty_generics) -> core::result::Result<Self, ::iroha_macro::error::ErrorTryFromEnum<#enum_ty #ty_generics, Self>> {
-                if let #enum_ty :: #variant(variant) = origin {
-                    Ok(variant)
-                } else {
-                    Err(iroha_macro::error::ErrorTryFromEnum::default())
-                }
-            }
-        }
-    }
-}
-
-fn impl_from_variant(ast: &FromVariantInput) -> TokenStream {
-    let name = &ast.ident;
-
-    let generics = &ast.generics;
-
-    let enum_data = ast
-        .data
-        .as_ref()
-        .take_enum()
-        .expect("BUG: FromVariantInput is allowed to contain enum data only");
-    let variant_count = enum_data.len();
-    let froms = enum_data.into_iter().filter_map(|variant| {
-        if !variant.fields.is_newtype() {
-            return None;
-        }
-        let span = variant.span();
-        let field =
-            variant.fields.iter().next().expect(
-                "BUG: FromVariantVariant should be newtype and thus contain exactly one field",
-            );
-        let variant_type = &field.ty;
-
-        let try_into = if field.skip_try_from {
-            quote!()
-        } else if variant_count == 1 {
-            try_into_variant_single(span, name, &variant.ident, variant_type, generics)
-        } else {
-            try_into_variant(span, name, &variant.ident, variant_type, generics)
-        };
-        let from = if field.skip_from {
-            quote!()
-        } else if field.skip_container {
-            from_variant(span, name, &variant.ident, variant_type, generics, true)
-        } else {
-            from_variant(span, name, &variant.ident, variant_type, generics, false)
-        };
-
-        Some(quote!(
-            #try_into
-            #from
-        ))
-    });
-
-    quote! { #(#froms)* }
+    emitter.finish_token_stream_with(result)
 }

@@ -113,13 +113,24 @@ jobs:
           mold --run cargo llvm-cov nextest
           --all-features
           --branch --no-report
+      - name: Doc test with all features
+        run: >
+          mold --run cargo llvm-cov --doc
+          --all-features
+          --branch --no-report
       - name: Generate lcov report
-        run: cargo llvm-cov report --lcov --output-path lcov.info
+        run: cargo llvm-cov report --doctests --lcov --output-path lcov.info
       - name: Upload lcov report
         uses: actions/upload-artifact@v4
         with:
           name: report-coverage
           path: lcov.info
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2.3.4
+        with:
+          file: lcov.info
+          format: lcov
+          github-token: ${{ github.token }}
       - name: Upload test network artifacts
         if: failure() && (steps.test_no_features.outcome == 'failure' || steps.test_all_features.outcome == 'failure')
         uses: actions/upload-artifact@v4

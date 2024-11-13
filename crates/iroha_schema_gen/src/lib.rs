@@ -269,8 +269,6 @@ types!(
     InstructionType,
     InvalidParameterError,
     IpfsPath,
-    Ipv4Addr,
-    Ipv6Addr,
     Json,
     Level,
     Log,
@@ -326,7 +324,6 @@ types!(
     Parameter,
     ParameterChanged,
     Parameters,
-    Peer,
     PeerEvent,
     PeerEventFilter,
     PeerEventSet,
@@ -414,10 +411,6 @@ types!(
     SingularQueryOutputBox,
     SmartContractParameter,
     SmartContractParameters,
-    SocketAddr,
-    SocketAddrHost,
-    SocketAddrV4,
-    SocketAddrV6,
     Sorting,
     String,
     StringPredicateBox,
@@ -490,7 +483,6 @@ types!(
     Vec<GenesisWasmTrigger>,
     Vec<InstructionBox>,
     Vec<Parameter>,
-    Vec<Peer>,
     Vec<PeerId>,
     Vec<Permission>,
     Vec<Role>,
@@ -503,9 +495,7 @@ types!(
     WasmExecutionFail,
     WasmSmartContract,
 
-    [u16; 8],
     [u8; 32],
-    [u8; 4],
     u16,
     u32,
     u64,
@@ -562,12 +552,7 @@ pub mod complete_data_model {
     };
     pub use iroha_genesis::{GenesisWasmAction, GenesisWasmTrigger, WasmPath};
     pub use iroha_multisig_data_model::{MultisigAccountArgs, MultisigTransactionArgs};
-    pub use iroha_primitives::{
-        addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
-        const_vec::ConstVec,
-        conststr::ConstString,
-        json::Json,
-    };
+    pub use iroha_primitives::{const_vec::ConstVec, conststr::ConstString, json::Json};
     pub use iroha_schema::Compact;
 }
 
