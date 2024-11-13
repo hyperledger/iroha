@@ -201,7 +201,7 @@ mod tests {
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 command: |-
-                  /bin/bash -c "
+                  /bin/sh -c "
                       EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
                       EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
                       WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
@@ -258,7 +258,7 @@ mod tests {
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 command: |-
-                  /bin/bash -c "
+                  /bin/sh -c "
                       EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
                       EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
                       WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
@@ -315,7 +315,7 @@ mod tests {
                 - ./client.toml:/config/client.toml:ro
                 init: true
                 command: |-
-                  /bin/bash -c "
+                  /bin/sh -c "
                       EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
                       EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
                       WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
@@ -436,7 +436,7 @@ mod tests {
                   retries: 30
                   start_period: 4s
                 command: |-
-                  /bin/bash -c "
+                  /bin/sh -c "
                       EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
                       EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
                       WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
@@ -496,7 +496,7 @@ mod tests {
                   retries: 30
                   start_period: 4s
                 command: |-
-                  /bin/bash -c "
+                  /bin/sh -c "
                       EXECUTOR_RELATIVE_PATH=$(jq -r '.executor' /config/genesis.json) && \\
                       EXECUTOR_ABSOLUTE_PATH=$(realpath \"/config/$$EXECUTOR_RELATIVE_PATH\") && \\
                       WASM_DIR_RELATIVE_PATH=$(jq -r '.wasm_dir' /config/genesis.json) && \\
