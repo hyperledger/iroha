@@ -13,7 +13,7 @@ This is the list of maintainers, including their email addresses for direct comm
 | Sam H. Smith          | [@SamHSmith](https://github.com/SamHSmith)           | smith@soramitsu.co.jp           | Development: Rust, C, Python                                                  |
 | Dmitry Balashov       | [@0x009922](https://github.com/0x009922)             | dbalashov@soramitsu.co.jp       | Development: Rust, TypeScript, JavaScript                                     |
 | Shunkichi Sato        | [@s8sato](https://github.com/s8sato)                 | s.sato@soramitsu.co.jp          | Development: Rust                                                             |
-| Andrey Kostiuchenko   | [@arndey](https://github.com/arndey)                 | kostiuchenko@soramitsu.co.jp    | Developer: Java/Kotlin                                                        |
+| Andrey Kostiuchenko   | [@arndey](https://github.com/arndey)                 | kostiuchenko@soramitsu.co.jp    | Development: Java/Kotlin                                                      |
 | Vasily Zyabkin        | [@BAStos525](https://github.com/BAStos525)           | zyabkin@soramitsu.co.jp         | DevOps                                                                        |
 | Insaf Safin           | [@safinsaf](https://github.com/safinsaf)             | safin@soramitsu.co.jp           | DevOps                                                                        |
 | Ekaterina Mekhnetsova | [@outoftardis](https://github.com/outoftardis)       | mekhnetsova@soramitsu.co.jp     | Documentation                                                                 |
