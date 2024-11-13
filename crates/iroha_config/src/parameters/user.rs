@@ -60,6 +60,8 @@ pub struct Root {
     public_key: WithOrigin<PublicKey>,
     #[config(env = "PRIVATE_KEY")]
     private_key: WithOrigin<PrivateKey>,
+    #[config(env = "TRUSTED_PEERS", default)]
+    trusted_peers: WithOrigin<TrustedPeers>,
     #[config(nested)]
     genesis: Genesis,
     #[config(nested)]
@@ -104,11 +106,28 @@ impl Root {
             .change_context(ParseError::BadKeyPair)
             .ok_or_emit(&mut emitter);
 
+        let (network, block_sync, transaction_gossiper) = self.network.parse();
+        let Some((peer, trusted_peers)) = key_pair.as_ref().map(|key_pair| {
+            let peer = Peer::new(
+                network.address.value().clone(),
+                key_pair.public_key().clone(),
+            );
+
+            (
+                peer.clone(),
+                self.trusted_peers.map(|x| actual::TrustedPeers {
+                    myself: peer,
+                    others: x.0,
+                }),
+            )
+        }) else {
+            panic!("Key pair is missing");
+        };
+
         let genesis = self.genesis.into();
 
         let kura = self.kura.parse();
 
-        let (network, block_sync, transaction_gossiper) = self.network.parse();
         let logger = self.logger;
         let queue = self.queue;
         let snapshot = self.snapshot;
@@ -116,16 +135,7 @@ impl Root {
         let (torii, live_query_store) = self.torii.parse();
         let telemetry = self.telemetry.map(actual::Telemetry::from);
 
-        let peer = key_pair.as_ref().map(|key_pair| {
-            Peer::new(
-                network.address.value().clone(),
-                key_pair.public_key().clone(),
-            )
-        });
-
-        let sumeragi = peer
-            .as_ref()
-            .map(|peer| self.sumeragi.parse_and_push_self(peer.clone()));
+        let sumeragi = self.sumeragi.parse();
 
         emitter.into_result()?;
 
@@ -133,7 +143,8 @@ impl Root {
         let peer = actual::Common {
             chain: self.chain.0,
             key_pair,
-            peer: peer.unwrap(),
+            peer,
+            trusted_peers,
         };
 
         Ok(actual::Root {
@@ -142,7 +153,7 @@ impl Root {
             genesis,
             torii,
             kura,
-            sumeragi: sumeragi.unwrap(),
+            sumeragi,
             block_sync,
             transaction_gossiper,
             live_query_store,
@@ -211,16 +222,14 @@ impl Kura {
     }
 }
 
-#[derive(Debug, Copy, Clone, ReadConfig)]
+#[derive(Debug, Clone, Copy, ReadConfig)]
 pub struct KuraDebug {
     #[config(env = "KURA_DEBUG_OUTPUT_NEW_BLOCKS", default)]
     output_new_blocks: bool,
 }
 
-#[derive(Debug, ReadConfig)]
+#[derive(Debug, Clone, Copy, ReadConfig)]
 pub struct Sumeragi {
-    #[config(env = "TRUSTED_PEERS", default)]
-    pub trusted_peers: WithOrigin<TrustedPeers>,
     #[config(nested)]
     pub debug: SumeragiDebug,
 }
@@ -246,17 +255,12 @@ impl Default for TrustedPeers {
 }
 
 impl Sumeragi {
-    fn parse_and_push_self(self, self_id: Peer) -> actual::Sumeragi {
+    fn parse(self) -> actual::Sumeragi {
         let Self {
-            trusted_peers,
             debug: SumeragiDebug { force_soft_fork },
         } = self;
 
         actual::Sumeragi {
-            trusted_peers: trusted_peers.map(|x| actual::TrustedPeers {
-                myself: self_id,
-                others: x.0,
-            }),
             debug_force_soft_fork: force_soft_fork,
         }
     }

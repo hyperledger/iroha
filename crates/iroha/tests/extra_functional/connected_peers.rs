@@ -28,7 +28,7 @@ async fn register_new_peer() -> Result<()> {
         network
             .config()
             // only one random peer
-            .write(["sumeragi", "trusted_peers"], [network.peer().peer()]),
+            .write(["trusted_peers"], [network.peer().peer()]),
         None,
     )
     .await;

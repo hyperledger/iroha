@@ -2,14 +2,15 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::hash::Hash;
+use core::{hash::Hash, str::FromStr};
 
 use derive_more::{Constructor, DebugCustom, Display};
+use iroha_crypto::PublicKey;
 use iroha_data_model_derive::model;
 use iroha_primitives::addr::SocketAddr;
 
 pub use self::model::*;
-use crate::{Identifiable, PublicKey, Registered};
+use crate::{Identifiable, ParseError, Registered};
 
 #[model]
 mod model {
@@ -17,7 +18,7 @@ mod model {
     use iroha_data_model_derive::IdEqOrdHash;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
-    use serde::{Deserialize, Serialize};
+    use serde_with::{DeserializeFromStr, SerializeDisplay};
 
     use super::*;
 
@@ -37,15 +38,14 @@ mod model {
         Hash,
         Decode,
         Encode,
-        Deserialize,
-        Serialize,
+        DeserializeFromStr,
+        SerializeDisplay,
         IntoSchema,
         Getters,
     )]
     #[display(fmt = "{public_key}")]
     #[debug(fmt = "{public_key}")]
     #[getset(get = "pub")]
-    #[serde(transparent)]
     #[repr(transparent)]
     // TODO: Make it transparent in FFI?
     #[ffi_type(opaque)]
@@ -62,20 +62,27 @@ mod model {
         IdEqOrdHash,
         Decode,
         Encode,
-        Deserialize,
-        Serialize,
+        DeserializeFromStr,
+        SerializeDisplay,
         IntoSchema,
         Getters,
     )]
-    #[display(fmt = "{id}@@{address}")]
+    #[display(fmt = "{id}@{address}")]
     #[ffi_type]
     pub struct Peer {
         /// Address of the [`Peer`]'s entrypoint.
         #[getset(get = "pub")]
         pub address: SocketAddr,
-        #[serde(rename = "public_key")]
         /// Peer Identification.
         pub id: PeerId,
+    }
+}
+
+impl FromStr for PeerId {
+    type Err = iroha_crypto::error::ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        PublicKey::from_str(s).map(Self::new)
     }
 }
 
@@ -92,6 +99,33 @@ impl Peer {
         Self {
             address,
             id: id.into(),
+        }
+    }
+}
+
+impl FromStr for Peer {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.rsplit_once("@") {
+            None => Err(ParseError {
+                reason: "Peer should have format `public_key@address`",
+            }),
+            Some(("", _)) => Err(ParseError {
+                reason: "Empty `public_key` part in `public_key@address`",
+            }),
+            Some((_, "")) => Err(ParseError {
+                reason: "Empty `address` part in `public_key@address`",
+            }),
+            Some((public_key_candidate, address_candidate)) => {
+                let public_key: PublicKey = public_key_candidate.parse().map_err(|_| ParseError {
+                    reason: r#"Failed to parse `public_key` part in `public_key@address`. `public_key` should have multihash format e.g. "ed0120...""#,
+                })?;
+                let address = address_candidate.parse().map_err(|_| ParseError {
+                    reason: "Failed to parse `address` part in `public_key@address`",
+                })?;
+                Ok(Self::new(address, public_key))
+            }
         }
     }
 }
