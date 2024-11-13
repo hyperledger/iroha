@@ -25,7 +25,7 @@ const TOOLCHAIN: &str = "+nightly-2024-09-09";
 /// use iroha_wasm_builder::Builder;
 ///
 /// fn main() -> Result<()> {
-///     let bytes = Builder::new("relative/path/to/smartcontract/")
+///     let bytes = Builder::new("relative/path/to/smartcontract/", "release")
 ///         .out_dir("path/to/out/dir") // Optional: Set output directory
 ///         .build()? // Run build
 ///         .optimize()? // Optimize WASM output
