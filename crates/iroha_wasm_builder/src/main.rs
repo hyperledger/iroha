@@ -7,8 +7,6 @@ use color_eyre::eyre::{eyre, Context};
 use iroha_wasm_builder::Builder;
 use owo_colors::OwoColorize;
 
-const OPTIMIZED_PROFILE: &str = "deploy";
-
 #[derive(Parser, Debug)]
 #[command(name = "iroha_wasm_builder", version, author)]
 enum Cli {
@@ -56,41 +54,10 @@ fn main() -> color_eyre::Result<()> {
 
             let output = {
                 // not showing the spinner here, cargo does a progress bar for us
-
                 match builder.build() {
                     Ok(output) => output,
                     err => err?,
                 }
-            };
-
-            let output = if profile == OPTIMIZED_PROFILE {
-                let sp = if std::env::var("CI").is_err() {
-                    Some(spinoff::Spinner::new_with_stream(
-                        spinoff::spinners::Binary,
-                        "Optimizing the output",
-                        None,
-                        spinoff::Streams::Stderr,
-                    ))
-                } else {
-                    None
-                };
-
-                match output.optimize() {
-                    Ok(optimized) => {
-                        if let Some(mut sp) = sp {
-                            sp.success("Output is optimized");
-                        }
-                        optimized
-                    }
-                    err => {
-                        if let Some(mut sp) = sp {
-                            sp.fail("Optimization failed");
-                        }
-                        err?
-                    }
-                }
-            } else {
-                output
             };
 
             std::fs::copy(output.wasm_file_path(), &out_file).wrap_err_with(|| {

@@ -15,6 +15,7 @@ use path_absolutize::Absolutize;
 
 /// Current toolchain used to build smartcontracts
 const TOOLCHAIN: &str = "+nightly-2024-09-09";
+const OPTIMIZED_PROFILE: &str = "deploy";
 
 /// WASM Builder for smartcontracts (e.g. triggers and executors).
 ///
@@ -25,10 +26,9 @@ const TOOLCHAIN: &str = "+nightly-2024-09-09";
 /// use iroha_wasm_builder::Builder;
 ///
 /// fn main() -> Result<()> {
-///     let bytes = Builder::new("relative/path/to/smartcontract/", "release")
+///     let bytes = Builder::new("relative/path/to/smartcontract/", "deploy")
 ///         .out_dir("path/to/out/dir") // Optional: Set output directory
 ///         .build()? // Run build
-///         .optimize()? // Optimize WASM output
 ///         .into_bytes()?; // Get resulting WASM bytes
 ///
 ///     // ...
@@ -186,12 +186,43 @@ mod internal {
 
         pub fn build(self) -> Result<Output> {
             let absolute_path = self.absolute_path.clone();
-            self.build_smartcontract().wrap_err_with(|| {
+            let optimize = self.profile == OPTIMIZED_PROFILE;
+            let output = self.build_smartcontract().wrap_err_with(|| {
                 format!(
                     "Failed to build the smartcontract at path: {}",
                     absolute_path.display()
                 )
-            })
+            })?;
+
+            if optimize {
+                let sp = if std::env::var("CI").is_err() {
+                    Some(spinoff::Spinner::new_with_stream(
+                        spinoff::spinners::Binary,
+                        "Optimizing the output",
+                        None,
+                        spinoff::Streams::Stderr,
+                    ))
+                } else {
+                    None
+                };
+
+                match output.optimize() {
+                    Ok(optimized) => {
+                        if let Some(mut sp) = sp {
+                            sp.success("Output is optimized");
+                        }
+                        Ok(optimized)
+                    }
+                    err => {
+                        if let Some(mut sp) = sp {
+                            sp.fail("Optimization failed");
+                        }
+                        err
+                    }
+                }
+            } else {
+                Ok(output)
+            }
         }
 
         fn build_profile(&self) -> String {
