@@ -22,7 +22,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
-use super::cursor::{Error as CursorError, QueryBatchedErasedIterator};
+use super::cursor::{ErasedQueryIterator, Error as CursorError};
 
 /// Query service error.
 #[derive(
@@ -66,7 +66,7 @@ impl From<Error> for QueryExecutionFail {
 /// Result type for [`LiveQueryStore`] methods.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-type LiveQuery = QueryBatchedErasedIterator;
+type LiveQuery = ErasedQueryIterator;
 
 /// Service which stores queries which might be non fully consumed by a client.
 ///
@@ -156,12 +156,7 @@ impl LiveQueryStore {
         })
     }
 
-    fn insert(
-        &self,
-        query_id: QueryId,
-        live_query: QueryBatchedErasedIterator,
-        authority: AccountId,
-    ) {
+    fn insert(&self, query_id: QueryId, live_query: ErasedQueryIterator, authority: AccountId) {
         *self.queries_per_user.entry(authority.clone()).or_insert(0) += 1;
         let query_info = QueryInfo {
             live_query,
@@ -189,7 +184,7 @@ impl LiveQueryStore {
     fn insert_new_query(
         &self,
         query_id: QueryId,
-        live_query: QueryBatchedErasedIterator,
+        live_query: ErasedQueryIterator,
         authority: AccountId,
     ) -> Result<()> {
         trace!(%query_id, "Inserting new query");
@@ -256,7 +251,7 @@ impl LiveQueryStoreHandle {
     /// - Otherwise throws up query output handling errors.
     pub fn handle_iter_start(
         &self,
-        mut live_query: QueryBatchedErasedIterator,
+        mut live_query: ErasedQueryIterator,
         authority: &AccountId,
     ) -> Result<QueryOutput> {
         let query_id = uuid::Uuid::new_v4().to_string();
@@ -327,6 +322,7 @@ impl LiveQueryStoreHandle {
 mod tests {
     use iroha_data_model::{
         permission::Permission,
+        prelude::SelectorTuple,
         query::parameters::{FetchSize, Pagination, QueryParams, Sorting},
     };
     use iroha_primitives::json::Json;
@@ -358,6 +354,7 @@ mod tests {
                 (0..100).map(|_| Permission::new(String::default(), Json::from(false)));
             let query_output = crate::smartcontracts::query::apply_query_postprocessing(
                 query_output,
+                SelectorTuple::default(),
                 &query_params,
             )
             .unwrap();

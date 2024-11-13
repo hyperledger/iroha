@@ -15,6 +15,7 @@ pub mod type_descriptions;
 use iroha_schema::IntoSchema;
 
 pub use self::{compound_predicate::CompoundPredicate, selector_tuple::SelectorTuple};
+use crate::query::QueryOutputBatchBox;
 
 pub trait EvaluatePredicate<T: ?Sized> {
     fn applies(&self, input: &T) -> bool;
@@ -22,6 +23,12 @@ pub trait EvaluatePredicate<T: ?Sized> {
 
 pub trait HasPredicateAtom {
     type Predicate: EvaluatePredicate<Self>;
+}
+
+pub trait EvaluateSelector<T: 'static> {
+    #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
+    fn project_clone<'a>(&self, batch: impl Iterator<Item = &'a T>) -> QueryOutputBatchBox;
+    fn project(&self, batch: impl Iterator<Item = T>) -> QueryOutputBatchBox;
 }
 // The IntoSchema derive is only needed for `PredicateMarker` to have `type_name`
 // the actual value of these types is never encoded

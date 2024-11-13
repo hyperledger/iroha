@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 // used in the macro
 use crate::query::dsl::{
-    EvaluatePredicate, HasProjection, HasPrototype, ObjectProjector, PredicateMarker, Projectable,
+    EvaluatePredicate, EvaluateSelector, HasProjection, HasPrototype, ObjectProjector,
+    PredicateMarker, Projectable, SelectorMarker,
 };
 use crate::{
     account::{Account, AccountId},
@@ -20,7 +21,7 @@ use crate::{
     parameter::Parameter,
     peer::PeerId,
     permission::Permission,
-    query::CommittedTransaction,
+    query::{CommittedTransaction, QueryOutputBatchBox},
     role::{Role, RoleId},
     transaction::{error::TransactionRejectionReason, SignedTransaction},
     trigger::{Trigger, TriggerId},
@@ -53,6 +54,27 @@ macro_rules! type_descriptions {
                     )*
                 }
             }
+        }
+
+        impl EvaluateSelector<$ty> for $projection_name<SelectorMarker> {
+                #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
+                fn project_clone<'a>(&self, batch: impl Iterator<Item = &'a $ty>) -> QueryOutputBatchBox {
+                    match self {
+                        $projection_name::Atom(_) => batch.cloned().collect::<Vec<_>>().into(),
+                        $(
+                            $projection_name::$proj_variant(field) => field.project_clone(batch.map(|item| &item.$field_name)),
+                        )*
+                    }
+                }
+
+                fn project(&self, batch: impl Iterator<Item = $ty>) -> QueryOutputBatchBox {
+                    match self {
+                        $projection_name::Atom(_) => batch.collect::<Vec<_>>().into(),
+                        $(
+                            $projection_name::$proj_variant(field) => field.project(batch.map(|item| item.$field_name)),
+                        )*
+                    }
+                }
         }
     };
     (@object_projector
@@ -300,11 +322,55 @@ impl EvaluatePredicate<BlockHeader> for BlockHeaderProjection<PredicateMarker> {
     }
 }
 
+impl EvaluateSelector<BlockHeader> for BlockHeaderProjection<SelectorMarker> {
+    #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
+    fn project_clone<'a>(
+        &self,
+        batch: impl Iterator<Item = &'a BlockHeader>,
+    ) -> QueryOutputBatchBox {
+        match self {
+            BlockHeaderProjection::Atom(_) => batch.cloned().collect::<Vec<_>>().into(),
+            BlockHeaderProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
+        }
+    }
+
+    fn project(&self, batch: impl Iterator<Item = BlockHeader>) -> QueryOutputBatchBox {
+        match self {
+            BlockHeaderProjection::Atom(_) => batch.collect::<Vec<_>>().into(),
+            BlockHeaderProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
+        }
+    }
+}
+
 impl EvaluatePredicate<SignedBlock> for SignedBlockProjection<PredicateMarker> {
     fn applies(&self, input: &SignedBlock) -> bool {
         match self {
             SignedBlockProjection::Atom(atom) => atom.applies(input),
             SignedBlockProjection::Header(header) => header.applies(&input.header()),
+        }
+    }
+}
+
+impl EvaluateSelector<SignedBlock> for SignedBlockProjection<SelectorMarker> {
+    #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
+    fn project_clone<'a>(
+        &self,
+        batch: impl Iterator<Item = &'a SignedBlock>,
+    ) -> QueryOutputBatchBox {
+        match self {
+            SignedBlockProjection::Atom(_) => batch.cloned().collect::<Vec<_>>().into(),
+            SignedBlockProjection::Header(header) => {
+                header.project(batch.map(|item| item.header()))
+            }
+        }
+    }
+
+    fn project(&self, batch: impl Iterator<Item = SignedBlock>) -> QueryOutputBatchBox {
+        match self {
+            SignedBlockProjection::Atom(_) => batch.collect::<Vec<_>>().into(),
+            SignedBlockProjection::Header(header) => {
+                header.project(batch.map(|item| item.header()))
+            }
         }
     }
 }
@@ -316,6 +382,32 @@ impl EvaluatePredicate<SignedTransaction> for SignedTransactionProjection<Predic
             SignedTransactionProjection::Hash(hash) => hash.applies(&input.hash()),
             SignedTransactionProjection::Authority(authority) => {
                 authority.applies(&input.authority())
+            }
+        }
+    }
+}
+
+impl EvaluateSelector<SignedTransaction> for SignedTransactionProjection<SelectorMarker> {
+    #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
+    fn project_clone<'a>(
+        &self,
+        batch: impl Iterator<Item = &'a SignedTransaction>,
+    ) -> QueryOutputBatchBox {
+        match self {
+            SignedTransactionProjection::Atom(_) => batch.cloned().collect::<Vec<_>>().into(),
+            SignedTransactionProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
+            SignedTransactionProjection::Authority(authority) => {
+                authority.project_clone(batch.map(|item| item.authority()))
+            }
+        }
+    }
+
+    fn project(&self, batch: impl Iterator<Item = SignedTransaction>) -> QueryOutputBatchBox {
+        match self {
+            SignedTransactionProjection::Atom(_) => batch.collect::<Vec<_>>().into(),
+            SignedTransactionProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
+            SignedTransactionProjection::Authority(authority) => {
+                authority.project(batch.map(|item| item.authority().clone()))
             }
         }
     }

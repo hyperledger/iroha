@@ -25,9 +25,11 @@ use self::{
 };
 use crate::{
     account::{Account, AccountId},
-    asset::{Asset, AssetDefinition},
+    asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId, AssetValue},
     block::{BlockHeader, SignedBlock},
-    domain::Domain,
+    domain::{Domain, DomainId},
+    metadata::Metadata,
+    name::Name,
     parameter::{Parameter, Parameters},
     peer::PeerId,
     permission::Permission,
@@ -122,20 +124,33 @@ mod model {
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
     )]
     pub enum QueryOutputBatchBox {
+        PublicKey(Vec<PublicKey>),
+        String(Vec<String>),
+        Metadata(Vec<Metadata>),
+        Name(Vec<Name>),
+        DomainId(Vec<DomainId>),
         Domain(Vec<Domain>),
+        AccountId(Vec<AccountId>),
         Account(Vec<Account>),
+        AssetId(Vec<AssetId>),
         Asset(Vec<Asset>),
+        AssetValue(Vec<AssetValue>),
+        AssetDefinitionId(Vec<AssetDefinitionId>),
         AssetDefinition(Vec<AssetDefinition>),
         Role(Vec<Role>),
         Parameter(Vec<Parameter>),
         Permission(Vec<Permission>),
-        Transaction(Vec<CommittedTransaction>),
+        CommittedTransaction(Vec<CommittedTransaction>),
+        SignedTransaction(Vec<SignedTransaction>),
+        TransactionHash(Vec<HashOf<SignedTransaction>>),
+        TransactionRejectionReason(Vec<Option<TransactionRejectionReason>>),
         Peer(Vec<PeerId>),
         RoleId(Vec<RoleId>),
         TriggerId(Vec<TriggerId>),
         Trigger(Vec<Trigger>),
         Block(Vec<SignedBlock>),
         BlockHeader(Vec<BlockHeader>),
+        BlockHeaderHash(Vec<HashOf<BlockHeader>>),
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -276,20 +291,35 @@ impl QueryOutputBatchBox {
     /// Panics if the types of the two batches do not match
     pub fn extend(&mut self, other: QueryOutputBatchBox) {
         match (self, other) {
+            (Self::PublicKey(v1), Self::PublicKey(v2)) => v1.extend(v2),
+            (Self::String(v1), Self::String(v2)) => v1.extend(v2),
+            (Self::Metadata(v1), Self::Metadata(v2)) => v1.extend(v2),
+            (Self::Name(v1), Self::Name(v2)) => v1.extend(v2),
+            (Self::DomainId(v1), Self::DomainId(v2)) => v1.extend(v2),
             (Self::Domain(v1), Self::Domain(v2)) => v1.extend(v2),
+            (Self::AccountId(v1), Self::AccountId(v2)) => v1.extend(v2),
             (Self::Account(v1), Self::Account(v2)) => v1.extend(v2),
+            (Self::AssetId(v1), Self::AssetId(v2)) => v1.extend(v2),
             (Self::Asset(v1), Self::Asset(v2)) => v1.extend(v2),
+            (Self::AssetValue(v1), Self::AssetValue(v2)) => v1.extend(v2),
+            (Self::AssetDefinitionId(v1), Self::AssetDefinitionId(v2)) => v1.extend(v2),
             (Self::AssetDefinition(v1), Self::AssetDefinition(v2)) => v1.extend(v2),
             (Self::Role(v1), Self::Role(v2)) => v1.extend(v2),
             (Self::Parameter(v1), Self::Parameter(v2)) => v1.extend(v2),
             (Self::Permission(v1), Self::Permission(v2)) => v1.extend(v2),
-            (Self::Transaction(v1), Self::Transaction(v2)) => v1.extend(v2),
+            (Self::CommittedTransaction(v1), Self::CommittedTransaction(v2)) => v1.extend(v2),
+            (Self::SignedTransaction(v1), Self::SignedTransaction(v2)) => v1.extend(v2),
+            (Self::TransactionHash(v1), Self::TransactionHash(v2)) => v1.extend(v2),
+            (Self::TransactionRejectionReason(v1), Self::TransactionRejectionReason(v2)) => {
+                v1.extend(v2)
+            }
             (Self::Peer(v1), Self::Peer(v2)) => v1.extend(v2),
             (Self::RoleId(v1), Self::RoleId(v2)) => v1.extend(v2),
             (Self::TriggerId(v1), Self::TriggerId(v2)) => v1.extend(v2),
             (Self::Trigger(v1), Self::Trigger(v2)) => v1.extend(v2),
             (Self::Block(v1), Self::Block(v2)) => v1.extend(v2),
             (Self::BlockHeader(v1), Self::BlockHeader(v2)) => v1.extend(v2),
+            (Self::BlockHeaderHash(v1), Self::BlockHeaderHash(v2)) => v1.extend(v2),
             _ => panic!("Cannot extend different types of IterableQueryOutputBatchBox"),
         }
     }
@@ -298,20 +328,33 @@ impl QueryOutputBatchBox {
     #[allow(clippy::len_without_is_empty)] // having a len without `is_empty` is fine, we don't return empty batches
     pub fn len(&self) -> usize {
         match self {
+            Self::PublicKey(v) => v.len(),
+            Self::String(v) => v.len(),
+            Self::Metadata(v) => v.len(),
+            Self::Name(v) => v.len(),
+            Self::DomainId(v) => v.len(),
             Self::Domain(v) => v.len(),
+            Self::AccountId(v) => v.len(),
             Self::Account(v) => v.len(),
+            Self::AssetId(v) => v.len(),
             Self::Asset(v) => v.len(),
+            Self::AssetValue(v) => v.len(),
+            Self::AssetDefinitionId(v) => v.len(),
             Self::AssetDefinition(v) => v.len(),
             Self::Role(v) => v.len(),
             Self::Parameter(v) => v.len(),
             Self::Permission(v) => v.len(),
-            Self::Transaction(v) => v.len(),
+            Self::CommittedTransaction(v) => v.len(),
+            Self::SignedTransaction(v) => v.len(),
+            Self::TransactionHash(v) => v.len(),
+            Self::TransactionRejectionReason(v) => v.len(),
             Self::Peer(v) => v.len(),
             Self::RoleId(v) => v.len(),
             Self::TriggerId(v) => v.len(),
             Self::Trigger(v) => v.len(),
             Self::Block(v) => v.len(),
             Self::BlockHeader(v) => v.len(),
+            Self::BlockHeaderHash(v) => v.len(),
         }
     }
 }

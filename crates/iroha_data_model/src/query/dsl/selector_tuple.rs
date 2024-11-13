@@ -7,12 +7,21 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::query::dsl::{HasProjection, SelectorMarker};
+use crate::query::{
+    dsl::{HasProjection, SelectorMarker},
+    QueryOutputBatchBox,
+};
 
 #[derive_where(Debug, Eq, PartialEq, Clone; T::Projection)]
 #[serde_where(T::Projection)]
 #[derive(Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct SelectorTuple<T: HasProjection<SelectorMarker, AtomType = ()>>(Vec<T::Projection>);
+
+impl<T: HasProjection<SelectorMarker, AtomType = ()>> SelectorTuple<T> {
+    pub fn iter(&self) -> impl Iterator<Item = &T::Projection> {
+        self.0.iter()
+    }
+}
 
 impl<T: HasProjection<SelectorMarker, AtomType = ()>> Default for SelectorTuple<T> {
     fn default() -> Self {
