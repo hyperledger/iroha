@@ -24,11 +24,11 @@ bash scripts/build_wasm.sh samples
 ```
 
 ## WASM in specific profile
-1. Deploy **(default)**
+1. Deploy
 ```bash
 bash scripts/build_wasm.sh --profile=deploy
 ```
-2. Release (with debug information)
+2. Release (with debug information) **(default)**
 ```bash
 bash scripts/build_wasm.sh --profile=release
 ```

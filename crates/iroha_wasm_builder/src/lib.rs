@@ -202,7 +202,6 @@ mod internal {
             [
                 "-Z",
                 "build-std",
-                // format!("--profile={}", self.profile).as_str(),
                 "-Z",
                 "build-std-features=panic_immediate_abort",
                 "-Z",

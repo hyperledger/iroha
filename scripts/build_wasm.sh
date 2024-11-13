@@ -4,7 +4,7 @@ set -e;
 DEFAULTS_DIR="defaults"
 CARGO_DIR="wasm"
 TARGET_DIR="$CARGO_DIR/target/prebuilt"
-PROFILE="deploy"
+PROFILE="release"
 SHOW_HELP=false
 
 main() {
@@ -24,19 +24,6 @@ main() {
                 ;;
         esac
     done
-
-    case $PROFILE in
-        "deploy")
-            OPTIMIZE_FLAG="--optimize"
-            ;;
-        "release")
-            OPTIMIZE_FLAG=""
-            ;;
-        *)
-            echo "error: unrecognized profile: $PROFILE. Profile can be either [deploy, release]"
-            exit 1
-            ;;
-    esac
 
     if $SHOW_HELP; then
         print_help
@@ -86,7 +73,7 @@ build() {
     mkdir -p "$TARGET_DIR/$1"
     for name in ${NAMES[@]}; do
         out_file="$TARGET_DIR/$1/$name.wasm"
-        cargo run --bin iroha_wasm_builder -- build "$CARGO_DIR/$1/$name" $OPTIMIZE_FLAG --profile=$PROFILE --out-file "$out_file"
+        cargo run --bin iroha_wasm_builder -- build "$CARGO_DIR/$1/$name" --profile=$PROFILE --out-file "$out_file"
     done
     echo "info: WASM $1 build complete"
     echo "artifacts written to $TARGET_DIR/$1/"

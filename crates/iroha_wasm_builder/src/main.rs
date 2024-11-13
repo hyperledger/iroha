@@ -7,6 +7,8 @@ use color_eyre::eyre::{eyre, Context};
 use iroha_wasm_builder::Builder;
 use owo_colors::OwoColorize;
 
+const OPTIMIZED_PROFILE: &str = "deploy";
+
 #[derive(Parser, Debug)]
 #[command(name = "iroha_wasm_builder", version, author)]
 enum Cli {
@@ -21,9 +23,6 @@ enum Cli {
     Build {
         #[command(flatten)]
         common: CommonArgs,
-        /// Optimize WASM output.
-        #[arg(long)]
-        optimize: bool,
         /// Build profile
         #[arg(long, default_value = "release")]
         profile: String,
@@ -50,7 +49,6 @@ fn main() -> color_eyre::Result<()> {
         }
         Cli::Build {
             common: CommonArgs { path },
-            optimize,
             out_file,
             profile,
         } => {
@@ -65,7 +63,7 @@ fn main() -> color_eyre::Result<()> {
                 }
             };
 
-            let output = if optimize {
+            let output = if profile == OPTIMIZED_PROFILE {
                 let sp = if std::env::var("CI").is_err() {
                     Some(spinoff::Spinner::new_with_stream(
                         spinoff::spinners::Binary,
