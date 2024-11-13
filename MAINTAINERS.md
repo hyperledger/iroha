@@ -7,8 +7,8 @@ This is the list of maintainers, including their email addresses for direct comm
 | Name                  | GitHub Id                                            | email                           | Area of expertise                                                             |
 |-----------------------|------------------------------------------------------|---------------------------------|-------------------------------------------------------------------------------|
 | Makoto Takemiya       | [@takemiyamakoto](https://github.com/takemiyamakoto) | takemiya@soramitsu.co.jp        | Product Owner                                                                |
-| Dmitri Venger         | [@dmitrivenger](https://github.com/dmitrivenger)     | venger@soramitsu.co.jp          | Project manager                                                               |
-| Bogdan Mingela        | [@Mingela](https://github.com/Mingela)               | mingela@soramitsu.co.jp         | Iroha Team Lead                                                               |
+| Dmitri Venger         | [@dmitrivenger](https://github.com/dmitrivenger)     | venger@soramitsu.co.jp          | Project manager/Team lead                                                               |
+| Bogdan Mingela        | [@Mingela](https://github.com/Mingela)               | mingela@soramitsu.co.jp         | Iroha tribe Lead                                                               |
 | Marin Veršić          | [@mversic](https://github.com/mversic)               | versic@soramitsu.co.jp          | Tech lead, development: Rust, Java                                            |
 | Sam H. Smith          | [@SamHSmith](https://github.com/SamHSmith)           | smith@soramitsu.co.jp           | Development: Rust, C                                                          |
 | Dmitry Balashov       | [@0x009922](https://github.com/0x009922)             | dbalashov@soramitsu.co.jp       | Development: Rust, TypeScript, JavaScript                                     |
@@ -19,7 +19,8 @@ This is the list of maintainers, including their email addresses for direct comm
 | Ekaterina Mekhnetsova | [@outoftardis](https://github.com/outoftardis)       | mekhnetsova@soramitsu.co.jp     | Documentation                                                                 |
 | Alexandra Zorina      | [@a-zorina](https://github.com/a-zorina)             | zorina@soramitsu.co.jp          | Documentation                                                                 |
 | William Richter       | [@WRRicht3r](https://github.com/WRRicht3r)           | richter@soramitsu.co.jp         | Documentation                                                                 |
-| Nurzhan Sakén         | [@nxsaken](https://github.com/nxsaken)               | sakenov@soramitsu.co.jp         | Community manager, documentation, development: Rust, Kotlin                   |
+| Mykhailo Lohachov     | [@mikuyako](https://github.com/aoyako)               | lohachov@soramitsu.co.jp        | Rust dev Intern                  
+        |
 | Alexander Strokov     | [@astrokov7](https://github.com/astrokov7)           | strokov@soramitsu.co.jp         | QA, Python                                                                    |
 | Michael Timofeev      | [@timofeevmd](https://github.com/timofeevmd)         | timofeev@soramitsu.co.jp        | QA                                                                            |
 | Nikita Strygin        | [@DCNick3](https://github.com/DCNick3)               | moslike6@gmail.com              | Development: Rust                                                             |
