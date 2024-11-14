@@ -228,10 +228,22 @@
       }
     ]
   },
+  "Array<u16, 8>": {
+    "Array": {
+      "type": "u16",
+      "len": 8
+    }
+  },
   "Array<u8, 32>": {
     "Array": {
       "type": "u8",
       "len": 32
+    }
+  },
+  "Array<u8, 4>": {
+    "Array": {
+      "type": "u8",
+      "len": 4
     }
   },
   "Asset": {
@@ -2364,6 +2376,8 @@
     ]
   },
   "IpfsPath": "String",
+  "Ipv4Addr": "Array<u8, 4>",
+  "Ipv6Addr": "Array<u16, 8>",
   "Json": "String",
   "Level": {
     "Enum": [
@@ -2899,6 +2913,18 @@
       {
         "name": "custom",
         "type": "SortedMap<CustomParameterId, CustomParameter>"
+      }
+    ]
+  },
+  "Peer": {
+    "Struct": [
+      {
+        "name": "address",
+        "type": "SocketAddr"
+      },
+      {
+        "name": "id",
+        "type": "PeerId"
       }
     ]
   },
@@ -4218,6 +4244,61 @@
       {
         "name": "memory",
         "type": "NonZero<u64>"
+      }
+    ]
+  },
+  "SocketAddr": {
+    "Enum": [
+      {
+        "tag": "Ipv4",
+        "discriminant": 0,
+        "type": "SocketAddrV4"
+      },
+      {
+        "tag": "Ipv6",
+        "discriminant": 1,
+        "type": "SocketAddrV6"
+      },
+      {
+        "tag": "Host",
+        "discriminant": 2,
+        "type": "SocketAddrHost"
+      }
+    ]
+  },
+  "SocketAddrHost": {
+    "Struct": [
+      {
+        "name": "host",
+        "type": "String"
+      },
+      {
+        "name": "port",
+        "type": "u16"
+      }
+    ]
+  },
+  "SocketAddrV4": {
+    "Struct": [
+      {
+        "name": "ip",
+        "type": "Ipv4Addr"
+      },
+      {
+        "name": "port",
+        "type": "u16"
+      }
+    ]
+  },
+  "SocketAddrV6": {
+    "Struct": [
+      {
+        "name": "ip",
+        "type": "Ipv6Addr"
+      },
+      {
+        "name": "port",
+        "type": "u16"
       }
     ]
   },

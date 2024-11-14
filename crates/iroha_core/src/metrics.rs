@@ -3,6 +3,7 @@
 use std::{num::NonZeroUsize, sync::Arc, time::SystemTime};
 
 use eyre::{Result, WrapErr as _};
+use iroha_data_model::peer::Peer;
 use iroha_telemetry::metrics::Metrics;
 use mv::storage::StorageReadOnly;
 use parking_lot::Mutex;
@@ -76,12 +77,12 @@ impl MetricsReporter {
                 };
                 block_index += 1;
                 let block_txs_rejected = block.errors().count() as u64;
-                let block_txs_accepted = block.transactions().count() as u64 - block_txs_rejected;
+                let block_txs_approved = block.transactions().count() as u64 - block_txs_rejected;
 
                 self.metrics
                     .txs
                     .with_label_values(&["accepted"])
-                    .inc_by(block_txs_accepted);
+                    .inc_by(block_txs_approved);
                 self.metrics
                     .txs
                     .with_label_values(&["rejected"])
@@ -89,7 +90,7 @@ impl MetricsReporter {
                 self.metrics
                     .txs
                     .with_label_values(&["total"])
-                    .inc_by(block_txs_accepted + block_txs_rejected);
+                    .inc_by(block_txs_approved + block_txs_rejected);
                 self.metrics.block_height.inc();
             }
             *lastest_block_height = block_index;
@@ -146,5 +147,10 @@ impl MetricsReporter {
     /// Access node metrics.
     pub fn metrics(&self) -> &Metrics {
         &self.metrics
+    }
+
+    /// Last known online peers
+    pub fn online_peers(&self) -> Vec<Peer> {
+        self.network.online_peers(|x| x.iter().cloned().collect())
     }
 }

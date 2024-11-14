@@ -8,7 +8,7 @@
     "blocks": {
       "type": "integer"
     },
-    "txs_accepted": {
+    "txs_approved": {
       "type": "integer"
     },
     "txs_rejected": {
@@ -33,5 +33,5 @@
       "type": "integer"
     }
   },
-  "required": ["peers", "blocks", "txs_accepted", "txs_rejected", "uptime", "view_changes", "queue_size"]
+  "required": ["peers", "blocks", "txs_approved", "txs_rejected", "uptime", "view_changes", "queue_size"]
 }

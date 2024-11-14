@@ -45,10 +45,9 @@ pub fn build_schemas() -> MetaMap {
     }
 
     schemas! {
-        // Transaction
-        SignedTransaction,
+        Peer,
 
-        // Query + response
+        SignedTransaction,
         SignedQuery,
         QueryResponse,
 
@@ -265,6 +264,8 @@ types!(
     InstructionType,
     InvalidParameterError,
     IpfsPath,
+    Ipv6Addr,
+    Ipv4Addr,
     Json,
     Level,
     Log,
@@ -322,6 +323,7 @@ types!(
     PeerEvent,
     PeerEventFilter,
     PeerEventSet,
+    Peer,
     PeerId,
     PeerPredicateBox,
     Permission,
@@ -406,6 +408,10 @@ types!(
     SingularQueryOutputBox,
     SmartContractParameter,
     SmartContractParameters,
+    SocketAddr,
+    SocketAddrHost,
+    SocketAddrV4,
+    SocketAddrV6,
     Sorting,
     String,
     StringPredicateBox,
@@ -490,6 +496,8 @@ types!(
     WasmExecutionFail,
     WasmSmartContract,
 
+    [u16; 8],
+    [u8; 4],
     [u8; 32],
     u16,
     u32,
@@ -546,7 +554,12 @@ pub mod complete_data_model {
         Level,
     };
     pub use iroha_genesis::{GenesisWasmAction, GenesisWasmTrigger, WasmPath};
-    pub use iroha_primitives::{const_vec::ConstVec, conststr::ConstString, json::Json};
+    pub use iroha_primitives::{
+        addr::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrHost, SocketAddrV4, SocketAddrV6},
+        const_vec::ConstVec,
+        conststr::ConstString,
+        json::Json,
+    };
     pub use iroha_schema::Compact;
 }
 
